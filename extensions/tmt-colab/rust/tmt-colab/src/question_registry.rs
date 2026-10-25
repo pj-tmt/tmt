@@ -235,11 +235,6 @@ pub fn findings(
         let entry =
             entries.and_then(|entries| entries.iter().find(|entry| entry["id"] == block.id));
         let explicit = block.agent.trim();
-        let target = if explicit.is_empty() {
-            creator.as_ref()
-        } else {
-            entry.map(|entry| &entry["agent"])
-        };
         let registration = || {
             let agent = if explicit.is_empty() {
                 creator
@@ -289,12 +284,12 @@ pub fn findings(
             if identities.and_then(|known| known.get(agent_id)) == Some(&None) {
                 ("COLAB_QUESTION_AGENT_UNKNOWN", registration())
             } else {
-                let agrees = if explicit.is_empty() {
-                    target.is_some_and(|target| target["id"] == entry["agent"]["id"])
-                } else {
-                    explicit == entry["agent"]["name"].as_str().unwrap_or_default()
-                        || explicit == agent_id
-                };
+                // The registry retains this question's routing. Changing the creator seeds
+                // new drafts; an omitted data-agent never retargets an existing registration.
+                // The missing-creator case was refused above.
+                let agrees = explicit.is_empty()
+                    || explicit == entry["agent"]["name"].as_str().unwrap_or_default()
+                    || explicit == agent_id;
                 if agrees {
                     continue;
                 }
@@ -565,6 +560,33 @@ mod tests {
         assert_eq!(
             creator_agent(&no_name).unwrap()["name"],
             registration()["agent"]["id"]
+        );
+    }
+
+    #[test]
+    fn creator_changes_do_not_retarget_registered_questions_without_data_agent() {
+        let registry = apply(&json!([]), "question.add", &registration(), &attribution(1)).unwrap();
+        let mut meta = json!({"questions":registry,"creator":set_creator(
+            &json!({"agent":registration()["agent"]}), &attribution(1)
+        ).unwrap()});
+        let report = crate::page_check::check(&source("")).unwrap();
+        assert!(findings(&report, &meta, "page", None).is_empty());
+        meta["creator"] = set_creator(
+            &json!({"agent":{"id":"50000000-0000-1000-8000-000000000002","name":"New creator"}}),
+            &attribution(2),
+        )
+        .unwrap();
+        assert!(findings(&report, &meta, "page", None).is_empty());
+        assert_eq!(meta["questions"], registry);
+        let explicit = crate::page_check::check(&source("New creator")).unwrap();
+        assert_eq!(
+            findings(&explicit, &meta, "page", None)[0].code,
+            "COLAB_QUESTION_AGENT_MISMATCH"
+        );
+        meta.as_object_mut().unwrap().remove("creator");
+        assert_eq!(
+            findings(&report, &meta, "page", None)[0].code,
+            "COLAB_CREATOR_REQUIRED"
         );
     }
 

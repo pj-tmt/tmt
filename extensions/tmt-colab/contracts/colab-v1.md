@@ -1095,7 +1095,8 @@ NAME|UUID` selects another through bounded public identity lookup. No resolved i
 identity gives `COLAB_CREATOR_REQUIRED` before local initialization. `page creator PAGE
 NAME|UUID` changes this preference against the current revision (or `--expected-revision`),
 without changing `originalAuthor`, existing questions or sent messages. New drafts use the
-new preference. A legacy page reads its complete `creationRecipient` pair as the creator
+new preference. An existing registration keeps its agent when its block omits `data-agent`;
+changing the creator does not retarget it. A block without `data-agent` still requires a creator. A legacy page reads its complete `creationRecipient` pair as the creator
 without writing it back; `originalAuthor` alone never supplies a creator. Without either
 reference the creator remains absent.
 

@@ -50,7 +50,7 @@ fn metadata_registry_lifecycle_is_conditional_and_preserves_source_and_original_
         let repeated = add(&pilot, &page);
         assert_eq!(repeated["changed"], false);
         let source = format!(
-            "<p>Intro</p>\n<tmt-question data-id=\"{QUESTION}\" data-kind=\"short\" data-agent=\"Fixture agent\"><p data-question>First question</p></tmt-question>"
+            "<p>Intro</p>\n<tmt-question data-id=\"{QUESTION}\" data-kind=\"short\"><p data-question>First question</p></tmt-question>"
         );
         let file = pilot.root.join("question.html");
         fs::write(&file, &source).unwrap();
@@ -97,6 +97,20 @@ fn metadata_registry_lifecycle_is_conditional_and_preserves_source_and_original_
         assert!(changed["creator"]["attribution"]["writerId"].is_string());
         assert_eq!(changed["originalAuthor"], before["originalAuthor"]);
         assert_eq!(changed["source"], source);
+        // Creator changes seed new drafts; this question keeps its registered agent even
+        // without an explicit data-agent in its source, through both local and served Save.
+        pilot.call(&[
+            "page",
+            "write",
+            &page,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let rewritten = pilot.call(&["page", "read", &page, "--json"]);
+        assert_eq!(rewritten["revision"], changed["revision"]);
+        assert_eq!(rewritten["questions"], changed["questions"]);
+        assert_eq!(rewritten["creator"], changed["creator"]);
         let destination = pilot.root.join("metadata-export");
         fs::create_dir(&destination).unwrap();
         let exported = pilot.call(&[
