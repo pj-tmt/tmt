@@ -88,19 +88,15 @@ private non-Rust consumers are additive. `cargo-workspace.mjs` supplies resolved
 Cargo metadata; version inheritance/editing has its own private release-tool owner.
 CI scope, ownership, binary consumption and version inheritance are separate contracts.
 
-Project-only never-shipped path declarations are defined in the
+Project-only never-shipped path declarations and their CI-only admission guard are defined in the
 [release-tracking reference](.agents/skills/tmt-release/references/native-release.md#project-release-tracking).
-The separate `tmt-cli` architecture guard checks all Rust files and macro tokens outside
-declared roots, packaging and canonical generated inputs without cfg/reachability inference.
-Required CI covers the component map, declaring crates and release build script; the Node
-Project sweep validates declarations and never executes captured source.
 
 Selected missing, failed, cancelled or unexpectedly skipped work and empty discovery
 cannot satisfy required gates; selection, worker, cache and advisory-browser details live in the
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md). `pr-title-check.mjs` owns
-released-path and cumulative squash-title gates; the [release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles)
-owns edit-only feedback and explicit report-only compatibility. Publication reuses the native
-aggregate's scope-skip proof with check-suite provenance, not recomputed selection or bare skips.
+[CI reference](.agents/skills/tmt-release/references/ci-selection.md) and PR-title gates in the
+[release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles).
+Publication reuses the native aggregate's scope-skip proof with check-suite provenance, not
+recomputed selection or bare skips.
 
 ## Runtime layers
 
