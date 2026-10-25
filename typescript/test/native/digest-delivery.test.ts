@@ -24,6 +24,7 @@ describe('native Digest held delivery and checklist seam', () => {
   it('advertises only digest operations and rejects the retired feature names without creating state', async () => {
     await withSandbox(async (sandbox) => {
       const suffixes = [
+        'receiving.sync',
         'policy.set',
         'policy.clear',
         'policy.show',
@@ -48,6 +49,139 @@ describe('native Digest held delivery and checklist seam', () => {
         expect(rejected.body.error.code).toBe('API_INPUT_INVALID');
       }
       expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+  it('applies orchestration through public writes and seals only urgent Focus membership', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const beforeHost = readFileSync(tripwire, 'utf8');
+      const target = await identity(sandbox, 'Orch Worker');
+      const sender = await identity(sandbox, 'Orch Sender');
+      const settings = {
+        expectedRevision: 0,
+        enabled: true,
+        defaultReceiving: { mode: 'auto' },
+        members: [],
+      };
+      const published = await api(sandbox, 'digest.receiving.sync', settings);
+      expect(published.status).toBe(0);
+      expect(published.body.revision).toBe(1);
+      expect(published.body.projection.receivingRevision).toBe(1);
+      expect(
+        (
+          await api(sandbox, 'digest.policy.set', {
+            identityId: target,
+            ownerIdentityId: sender,
+            setterIdentityId: sender,
+            expectedRevision: 0,
+            untilMs: Date.now() + 120_000,
+          })
+        ).status
+      ).toBe(0);
+      const plan = {
+        id: randomUUID(),
+        name: 'Receiving',
+        revision: 1,
+        priority: 1,
+        enabled: true,
+        targets: [{ kind: 'all' }],
+        schedule: { kind: 'always' },
+        fields: { state: 'sleep' },
+      };
+      const save = async (mutation: unknown) => {
+        const preview = await api(sandbox, 'orchestration.write', { phase: 'preview', mutation });
+        expect(preview.status).toBe(0);
+        const p = preview.body;
+        const result = await api(sandbox, 'orchestration.write', {
+          phase: 'apply',
+          mutation: p.mutation,
+          expectedConfigurationRevision: p.configurationRevision,
+          previewAtMs: p.previewAtMs,
+          previewDigest: p.previewDigest,
+          consent: true,
+        });
+        expect(result.status).toBe(0);
+      };
+      await save({ kind: 'plan.add', candidate: plan });
+      const ordinary = await runCli(sandbox, [
+        'talk',
+        'Orch Worker',
+        'Ordinary stays held',
+        '--identity',
+        'Orch Sender',
+        '--detach',
+        '--json',
+      ]);
+      const urgent = await runCli(sandbox, [
+        'talk',
+        'Orch Worker',
+        'Urgent survives Sleep',
+        '--identity',
+        'Orch Sender',
+        '--urgent',
+        '--detach',
+        '--json',
+      ]);
+      expect(ordinary.status, ordinary.stdout).toBe(0);
+      expect(urgent.status, urgent.stdout).toBe(0);
+      const ordinaryId = JSON.parse(ordinary.stdout).requestId;
+      const urgentId = JSON.parse(urgent.stdout).requestId;
+      expect(JSON.parse(ordinary.stdout)).toMatchObject({ digest: true });
+      expect(JSON.parse(urgent.stdout)).toMatchObject({ digest: true });
+      expect(
+        (await api(sandbox, 'digest.checklist.dueNow', { identityId: target })).body.heldCount
+      ).toBe(2);
+      expect(
+        (
+          await api(sandbox, 'digest.checklist.claim', {
+            identityId: target,
+            opportunity: 'turn_boundary',
+          })
+        ).body
+      ).toEqual({ claimed: false });
+      plan.fields.state = 'focus';
+      await save({ kind: 'plan.set', plan: plan.id, candidate: plan });
+      const claimed = await api(sandbox, 'digest.checklist.claim', {
+        identityId: target,
+        opportunity: 'turn_boundary',
+      });
+      expect(claimed.status).toBe(0);
+      expect(claimed.body.claimed).toBe(true);
+      expect(claimed.body.page.items.map((item: { requestId: string }) => item.requestId)).toEqual([
+        urgentId,
+      ]);
+      expect(claimed.body.text).toContain('Urgent survives Sleep');
+      expect(claimed.body.text).not.toContain('Ordinary stays held');
+      const checklist = claimed.body.checklist;
+      plan.revision = 2;
+      plan.fields.state = 'awake';
+      await save({ kind: 'plan.set', plan: plan.id, candidate: plan });
+      const settled = await api(sandbox, 'digest.checklist.settle', {
+        identityId: target,
+        checklistId: checklist.checklistId,
+        attemptToken: checklist.attemptToken,
+        outcome: 'uncertain',
+      });
+      expect(settled.status, settled.stdout).toBe(0);
+      expect(settled.body.changed).toBe(true);
+      const stats = await api(sandbox, 'digest.stats.show', { identities: [target] });
+      expect(stats.body.stats[0].dueCount).toBe(1);
+      const oracle = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          oracle.prepare('SELECT checklist_id FROM focus_items WHERE request_id=?').get(ordinaryId)
+        ).toEqual({ checklist_id: null });
+        const evidence = oracle
+          .prepare(
+            "SELECT outcome,sources FROM orchestration_decisions WHERE reason='digest_uncertain'"
+          )
+          .get() as { outcome: string; sources: string };
+        expect(evidence.outcome).toBe('uncertain');
+        expect(JSON.parse(evidence.sources)[0].source.revision).toBe(2);
+      } finally {
+        oracle.close();
+      }
+      expect(readFileSync(tripwire, 'utf8')).toBe(beforeHost);
     });
   });
   it('offers a pinned flush without claiming offline work or retargeting a retired UUID', async () => {

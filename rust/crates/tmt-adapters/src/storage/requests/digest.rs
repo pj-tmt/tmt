@@ -2,7 +2,7 @@
 use super::*;
 use tmt_core::request::digest::{
     DeliveryMode, DeliveryPolicy, DigestChecklist, DigestItem, DigestKind, DigestPolicy,
-    DigestSource, DigestState,
+    DigestSelection, DigestSource, DigestState,
 };
 
 pub(super) fn policy(db: &Connection, id: &str) -> Result<Option<DigestPolicy>, StorageError> {
@@ -62,7 +62,7 @@ pub(super) fn hold(
     kind: DigestKind,
     source: DigestSource,
     now: u64,
-) -> Result<(), StorageError> {
+) -> Result<bool, StorageError> {
     // Read the stored observation through its driver owner, without refreshing or
     // doing process/filesystem I/O inside the canonical request transaction.
     use tmt_core::binding::BindingRecords;
@@ -75,7 +75,7 @@ pub(super) fn hold(
             crate::runtime::RuntimeRegistry::first_party().remembered_usage(session)
         })
         .filter(|usage| usage.observed_at_ms <= now);
-    db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms,context_tokens_at_arrival,context_observed_at_ms) VALUES(?1,?2,?3,?4,?5,?6,?7)
+    let inserted=db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms,context_tokens_at_arrival,context_observed_at_ms) VALUES(?1,?2,?3,?4,?5,?6,?7)
         ON CONFLICT(identity_id,request_id,source) DO NOTHING",params![identity,request,kind.as_str(),source.as_str(),checked_now(now,"Digest item clock")?,usage.map(|u|u.tokens as i64),usage.map(|u|u.observed_at_ms as i64)])
         .map_err(|e|classify(e,"Hold digest item"))?;
     if source == DigestSource::Result {
@@ -87,7 +87,7 @@ pub(super) fn hold(
         )
         .map_err(|e| classify(e, "Move unattempted reply notice to Digest"))?;
     }
-    Ok(())
+    Ok(inserted == 1)
 }
 
 // DigestItem visibility follows canonical metadata retention. A reference never
@@ -216,6 +216,46 @@ pub(super) fn items(
     .and_then(|r| r.collect())
     .map_err(|e| classify(e, "Read digest items"))
 }
+fn selection_clause(selection: DigestSelection) -> &'static str {
+    match selection {
+        DigestSelection::All => "1",
+        DigestSelection::UrgentIncoming => {
+            "source='incoming' AND EXISTS(SELECT 1 FROM request_delivery_policies p WHERE p.request_id=focus_items.request_id AND p.urgent=1)"
+        }
+    }
+}
+pub(super) fn selected_inventory(
+    db: &Connection,
+    identity: &str,
+    through: u64,
+    selection: DigestSelection,
+    now: u64,
+) -> Result<(u64, u64), StorageError> {
+    db.query_row(&format!("SELECT COUNT(*),COALESCE(MAX(sequence),0) FROM focus_items WHERE identity_id=?1 AND checklist_id IS NULL AND sequence<=?2 AND {} AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?3)",selection_clause(selection)),
+        params![identity,checked_i64(through,"Digest selected watermark")?,checked_now(now,"Digest selected clock")?],
+        |r|Ok((rows::u64_at(r,0)?,rows::u64_at(r,1)?)))
+        .map_err(|e|classify(e,"Read selected Digest inventory"))
+}
+pub(super) fn selected_items(
+    db: &Connection,
+    identity: &str,
+    limit: u64,
+    selection: DigestSelection,
+    now: u64,
+) -> Result<Vec<DigestItem>, StorageError> {
+    let mut q=db.prepare(&format!("SELECT sequence,request_id,kind,created_at_ms,checklist_id,source,context_tokens_at_arrival,context_observed_at_ms FROM focus_items WHERE identity_id=?1 AND checklist_id IS NULL AND {} AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?2) ORDER BY sequence LIMIT ?3",selection_clause(selection)))
+        .map_err(|e|classify(e,"Prepare selected Digest items"))?;
+    q.query_map(
+        params![
+            identity,
+            checked_now(now, "Digest selected clock")?,
+            checked_limit(limit)?
+        ],
+        |r| item_row(r, identity),
+    )
+    .and_then(|r| r.collect())
+    .map_err(|e| classify(e, "Read selected Digest items"))
+}
 fn checklist_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<DigestChecklist> {
     Ok(DigestChecklist {
         id: r.get(0)?,
@@ -252,6 +292,7 @@ pub(super) fn create_checklist(
     now: u64,
     opportunity: tmt_core::request::digest::DigestOpportunity,
     sealed_count: u64,
+    selection: DigestSelection,
 ) -> Result<(), StorageError> {
     let input_opportunity = opportunity;
     let opportunity = match opportunity {
@@ -261,8 +302,8 @@ pub(super) fn create_checklist(
     db.execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,state,created_at_ms,opportunity,sealed_count) VALUES(?1,?2,?3,?4,'claimed',?5,?6,?7)",
         params![b.id,b.identity_id,b.attempt_token,checked_i64(b.through_sequence,"Digest snapshot sequence")?,checked_now(b.created_at_ms,"Digest claim clock")?,opportunity,checked_i64(sealed_count,"Digest sealed count")?])
         .map_err(|e|classify(e,"Claim digest checklist"))?;
-    db.execute("UPDATE focus_items SET checklist_id=?1 WHERE identity_id=?2 AND checklist_id IS NULL AND sequence<=?3
-        AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?4)",
+    db.execute(&format!("UPDATE focus_items SET checklist_id=?1 WHERE identity_id=?2 AND checklist_id IS NULL AND sequence<=?3
+        AND {} AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?4)",selection_clause(selection)),
         params![b.id,b.identity_id,checked_i64(b.through_sequence,"Digest snapshot sequence")?,checked_now(now,"Digest claim clock")?])
         .map_err(|e|classify(e,"Seal digest checklist membership"))?;
     super::super::capture_batches::reserve_checklist(

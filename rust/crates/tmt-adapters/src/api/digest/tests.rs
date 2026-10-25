@@ -2,6 +2,39 @@
 use super::*;
 
 #[test]
+fn receiving_sync_admits_only_configured_modes_and_unique_bounded_overrides() {
+    let id = "10000000-0000-4000-8000-000000000001";
+    let base = json!({"expectedRevision":0,"enabled":true,"defaultReceiving":{"mode":"batch","intervalMs":1501},"members":[]});
+    let envelope = |input: Value| {
+        json!({"version":1,"operation":"digest.receiving.sync","input":input}).to_string()
+    };
+    assert!(
+        matches!(super::super::decode(&envelope(base.clone())).unwrap(),Request::Digest(op) if matches!(*op,Operation::ReceivingSync {expected_revision:0,..}))
+    );
+    for patch in [
+        json!({"defaultReceiving":{"mode":"hold"}}),
+        json!({"defaultReceiving":{"mode":"urgent"}}),
+        json!({"defaultReceiving":{"mode":"batch","intervalMs":0}}),
+        json!({"defaultReceiving":{"mode":"batch","intervalMs":1.5}}),
+        json!({"defaultReceiving":{"mode":"auto","intervalMs":1501}}),
+        json!({"enabled":"true"}),
+        json!({"expectedRevision":9007199254740992_u64}),
+        json!({"members":[{"identityId":"worker","receiving":{"mode":"auto"}}]}),
+        json!({"members":[{"identityId":id,"receiving":{"mode":"auto"}},{"identityId":id,"receiving":{"mode":"direct"}}]}),
+        json!({"extra":false}),
+    ] {
+        let mut input = base.clone();
+        for (k, v) in patch.as_object().unwrap() {
+            input[k] = v.clone();
+        }
+        assert!(super::super::decode(&envelope(input)).is_err(), "{patch}");
+    }
+    let mut large = base.clone();
+    large["members"]=Value::Array((1..=257).map(|n|json!({"identityId":format!("10000000-0000-4000-8000-{n:012}"),"receiving":{"mode":"auto"}})).collect());
+    assert!(super::super::decode(&envelope(large)).is_err());
+}
+
+#[test]
 fn flush_admits_only_a_canonical_uuid_without_originator_or_delivery_options() {
     let id = "10000000-0000-4000-8000-000000000001";
     let valid = json!({"version":1,"operation":"digest.checklist.flush","input":{"identityId":id}});

@@ -19,14 +19,28 @@ observations, without a last-sent timestamp or persistent scheduler state. Its s
 
 ## Settings and deadlines
 
-The [settings contract](digest-v1.md#settings) owns resolution and attribution.
-`off` means no Core hold, and so does every member while the [global switch](digest-v1.md#global-switch) is off. Interval and `auto` modes create or renew a Core hold each tick, so non-urgent automatic arrivals enter Core's checklist.
+Each tick reads Core capabilities once: only explicit absence of `digest.receiving.sync` retains the existing legacy settings-to-lease behavior with one stderr upgrade diagnostic, while advertised operations always use Core `effective()` without error fallback; [remove the legacy branch at the stable cut](https://github.com/pj-tmt/tmt/issues/5124).
+
+The [settings contract](digest-v1.md#settings) owns configured Base input and attribution.
+The tick publishes the enabled switch, default and at most 256 explicit receiving
+overrides through Core's CAS `digest.receiving.sync`, then consumes its current
+`effective()` projection. [Orchestration v1](../../../contracts/orchestration-v1.md)
+owns plan/focus precedence and unavailable-input behavior; the extension never
+reimplements that precedence. `off` supplies direct Base receiving; the
+[global switch](digest-v1.md#global-switch) forces direct above scheduled receiving.
+Resolved interval and `auto` modes create or renew a Core hold each tick, so non-urgent automatic arrivals enter Core's checklist.
 The hold expires at renewal time plus the greater of the interval and 120 seconds; an `auto` member has no interval, so its hold lasts 120 seconds.
-An unchanged active policy is renewed once per invocation; a changed setting or
+Resolved urgent-only and hold-all modes use the existing 120-second hold window
+without an auto/interval cap. Urgent-only offers idle opportunities for eligible
+urgent items; hold-all offers none. Core rechecks the live mode and exact eligible
+membership at every idle or provider turn-boundary claim. Neither an auto cap nor
+`whenBusy` releases an item blocked by Focus/Sleep. Normal full-checklist handling
+resumes after the restriction ends; the summary/stagger follow-up is separate.
+An unchanged active policy is renewed once per invocation; a changed resolved mode or
 inactive policy is reconciled again. If ticks stop, the hold lapses within that
 window and normal Core delivery resumes on the next admitted opportunity.
-The extension is the policy owner. The owner Core pins is the one whose messages
-pass the hold, so a new policy uses the recorded setter of the member's effective
+The extension owns lease renewal. The owner Core pins bypasses ordinary Base
+holds; it grants no exemption from Focus/Sleep. A new policy uses the recorded setter of the member's configured
 setting for both IDs: a member override's own setter, or for a member that inherits,
 the [global default's](digest-v1.md#settings); the member itself when none is
 recorded. Existing Core owner/setter IDs are preserved, except that an ID naming
@@ -42,9 +56,9 @@ as the configured deadline. Settings and arrivals are refreshed at most one seco
 apart between work, with sleeps shortened for an earlier in-minute deadline.
 Subprocess and serialized delivery time can delay observations.
 
-Immediately before an opportunity, settings and statistics are read again. An
-increased interval or a changed flush count can postpone delivery; `off` or `auto`
-clears the hold and offers normal Core delivery. No last-sent state changes empty
+Immediately before an opportunity, settings, resolved receiving and statistics
+are read again. An increased interval or changed flush count can postpone delivery;
+direct clears the lease, while auto renews it and offers Core delivery. No last-sent state changes empty
 intervals or restart deadlines.
 
 ## Auto delivery
@@ -53,7 +67,7 @@ An `auto` member's hold lets Core keep its automatic messages while the agent is
 Three parties deliver them; only the cap has settings (`maxWait`, `maxCount`).
 
 - **Turn end: Core and the provider.** At an admitted turn boundary Core claims
-  everything held and the provider hook delivers it once as one checklist. This
+  eligible held items and the provider hook delivers them once as one checklist. This
   path does not depend on the tick or on an active policy.
 - **Idle offer: the tick.** Idle delivery claims only the range marked due, so for
   an `auto` member holding messages the tick calls `digest.checklist.dueNow` and
@@ -71,7 +85,8 @@ Three parties deliver them; only the cap has settings (`maxWait`, `maxCount`).
   message today. The two caps are `digest.toml` settings of `auto` only
   ([digest-v1](digest-v1.md#auto-caps)); `flushCount` stays interval-only.
 
-Urgent sends and the policy owner bypass the hold as for interval mode. An uncertain
+Urgent sends and the policy owner bypass ordinary Base holds. Scheduled urgent-only
+and hold-all restrictions retain Core's mode-aware rules. An uncertain
 or failed offer is reported after the minute and that member is not offered again
 within the invocation; the next tick reads current state.
 
@@ -125,7 +140,8 @@ passed, and `not_due` otherwise, including when the fresh reading taken just bef
 an opportunity postpones what the earlier reading found due. `outcome` is Core's
 `digest.checklist.flush` state, which carries the readiness reading (`not_idle`
 means the member was busy); a failed or malformed answer is `error` and an uncertain
-claim `uncertain`. `not_due` has no outcome because no opportunity was offered.
+claim `uncertain`. Core-resolved urgent-only offers use rule/mode `urgent` without
+an interval; hold-all offers no opportunity. `not_due` has no outcome because no opportunity was offered.
 
 A record is written only when a member's `(rule, outcome)` or oldest held message
 differs from its newest stored record, read once per member and invocation. The

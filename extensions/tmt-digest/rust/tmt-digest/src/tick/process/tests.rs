@@ -31,6 +31,13 @@ case "$*" in
  'identity ls --json') cat inventory.json ;;
  'api') input=$(cat); printf '%s\n' "$input" >> calls
    case "$input" in
+    *'"operation":"capabilities"'*) cat capabilities.json ;;
+    *'"operation":"orchestration.read"'*)
+      if test -f slow-receiving-read; then sleep 2.1; fi
+      printf '%s\n' '{"receivingRevision":0}' ;;
+    *'"operation":"digest.receiving.sync"'*)
+      if test -f sync-fails; then printf '%s\n' '{"error":{"code":"ORCH_CONFLICT","message":"changed"}}'; exit 5; fi
+      cat receiving.json ;;
     *'"operation":"digest.checklist.history"'*) cat history.json ;;
     *'"operation":"digest.policy.show"'*) cat policies.json ;;
     *'"operation":"digest.stats.show"'*) cat stats.json ;;
@@ -49,6 +56,10 @@ esac
         fixture.write(
             "inventory.json",
             json!({"identities":[{"id":MEMBER,"name":"worker"}]}),
+        );
+        fixture.write(
+            "capabilities.json",
+            json!({"operations":["digest.receiving.sync"]}),
         );
         fixture.policy(0, false);
         fixture.stats(10, 0);
@@ -99,6 +110,17 @@ esac
             format!("[members.'{MEMBER}']\nmode = '{mode}'\nsetAtMs = 1\n{attribution}"),
         )
         .unwrap();
+        self.receiving(Receiving::parse(mode).unwrap());
+    }
+    fn receiving(&self, mode: Receiving) {
+        let value = match mode {
+            Receiving::Direct => json!({"mode":"direct"}),
+            Receiving::Auto => json!({"mode":"auto"}),
+            Receiving::Batch { milliseconds } => json!({"mode":"batch","intervalMs":milliseconds}),
+            Receiving::Urgent => json!({"mode":"urgent"}),
+            Receiving::Hold => json!({"mode":"hold"}),
+        };
+        self.write("receiving.json",json!({"revision":1,"projection":{"receivingRevision":1,"members":[{"identityId":MEMBER,"effective":{"receiving":{"available":true,"value":value}}}]}}));
     }
     fn port(&self) -> TickProcess {
         TickProcess::new(
@@ -131,6 +153,155 @@ esac
 impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+#[test]
+fn explicit_capability_absence_keeps_legacy_leases_and_emits_one_upgrade_diagnostic() {
+    for configured in ["20s", "auto", "off"] {
+        let fixture = Fixture::new();
+        fixture.settings(configured, None);
+        fixture.write(
+            "capabilities.json",
+            json!({"operations":["digest.policy.set","digest.policy.show"]}),
+        );
+        fixture.policy(u64::from(configured == "off"), configured == "off");
+        let mut port = fixture.port();
+        let rows = port.observe().unwrap();
+        assert_eq!(rows[0].mode, Receiving::parse(configured).unwrap());
+        let first = fixture.writes();
+        let lease = first
+            .iter()
+            .find(|r| {
+                r["operation"] == "digest.policy.set" || r["operation"] == "digest.policy.clear"
+            })
+            .unwrap();
+        if configured == "off" {
+            assert_eq!(lease["operation"], "digest.policy.clear");
+        } else {
+            assert_eq!(lease["operation"], "digest.policy.set");
+            assert_eq!(
+                lease["input"]["maxHoldMs"],
+                if configured == "auto" {
+                    300_000
+                } else {
+                    20_000
+                }
+            );
+        }
+        fixture.policy(2, configured != "off");
+        port.observe().unwrap();
+        let calls = fixture.calls();
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|s| s.contains("\"operation\":\"capabilities\""))
+                .count(),
+            1
+        );
+        assert!(
+            !calls
+                .iter()
+                .any(|s| s.contains("orchestration.read") || s.contains("digest.receiving.sync"))
+        );
+        let mut diagnostic = Vec::new();
+        port.finish_to(&mut diagnostic).unwrap();
+        assert_eq!(
+            String::from_utf8(diagnostic).unwrap(),
+            format!("{LEGACY_RECEIVING_DIAGNOSTIC}\n")
+        );
+    }
+}
+
+#[test]
+fn advertised_receiving_errors_never_fall_back_to_configured_leases() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("sync-fails"), "").unwrap();
+    let mut port = fixture.port();
+    for _ in 0..2 {
+        assert_eq!(
+            port.observe().err().expect("observation must fail").code,
+            "ORCH_CONFLICT"
+        );
+    }
+    assert!(fixture.writes().is_empty());
+    assert_eq!(
+        fixture
+            .calls()
+            .iter()
+            .filter(|s| s.contains("\"operation\":\"capabilities\""))
+            .count(),
+        1
+    );
+    let mut diagnostic = Vec::new();
+    port.finish_to(&mut diagnostic).unwrap();
+    assert!(diagnostic.is_empty());
+}
+
+#[test]
+fn malformed_capabilities_are_not_explicit_absence() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "capabilities.json",
+        json!({"operations":["digest.receiving.sync",null]}),
+    );
+    let mut port = fixture.port();
+    assert_eq!(
+        port.observe().err().expect("observation must fail").code,
+        "CORE_RESPONSE_INVALID"
+    );
+    assert!(fixture.writes().is_empty());
+    let mut diagnostic = Vec::new();
+    port.finish_to(&mut diagnostic).unwrap();
+    assert!(diagnostic.is_empty());
+}
+
+#[test]
+fn core_resolved_receiving_controls_the_tick_instead_of_configured_member_mode() {
+    for resolved in [
+        Receiving::Hold,
+        Receiving::Urgent,
+        Receiving::Batch {
+            milliseconds: 90_000,
+        },
+    ] {
+        let fixture = Fixture::new();
+        fixture.settings("20s", None);
+        fixture.receiving(resolved);
+        fixture.policy(0, false);
+        let rows = fixture.port().observe().unwrap();
+        assert_eq!(rows[0].mode, resolved);
+        let writes = fixture.writes();
+        let policy = writes
+            .iter()
+            .find(|r| r["operation"] == "digest.policy.set")
+            .unwrap();
+        if resolved == Receiving::Hold {
+            assert!(
+                !writes
+                    .iter()
+                    .any(|r| r["operation"] == "digest.checklist.dueNow")
+            );
+            assert!(policy["input"]["maxHoldMs"].is_null());
+        } else if resolved == Receiving::Urgent {
+            let calls: Vec<Value> = fixture
+                .calls()
+                .iter()
+                .filter_map(|s| serde_json::from_str(s).ok())
+                .collect();
+            let flush = calls
+                .iter()
+                .find(|r| r["operation"] == "digest.checklist.flush")
+                .unwrap();
+            assert!(
+                !flush["input"]
+                    .get("whenBusy")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            );
+        } else {
+            assert_eq!(policy["input"]["maxHoldMs"], 90_000);
+        }
     }
 }
 
@@ -260,6 +431,26 @@ fn elapsed_boundary_starts_no_core_process_even_when_wall_clock_is_earlier() {
     port.deliver_if_current(MEMBER).unwrap();
     assert!(fixture.calls().is_empty());
 }
+#[test]
+fn a_receiving_read_that_crosses_the_budget_starts_no_publication() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("slow-receiving-read"), "").unwrap();
+    let mut port = TickProcess::new(
+        Core::fixture(fixture.0.join("core")),
+        fixture.0.join("digest.toml"),
+        u64::MAX,
+        Instant::now() + Duration::from_secs(1),
+    );
+    assert!(port.observe().unwrap().is_empty());
+    let calls = fixture.calls();
+    assert!(calls.iter().any(|line| line.contains("orchestration.read")));
+    assert!(
+        !calls
+            .iter()
+            .any(|line| line.contains("digest.receiving.sync"))
+    );
+    assert!(!calls.iter().any(|line| line.contains("digest.policy.show")));
+}
 
 #[test]
 fn thirty_members_use_serialized_public_process_opportunities_with_measured_elapsed_time() {
@@ -271,6 +462,7 @@ fn thirty_members_use_serialized_public_process_opportunities_with_measured_elap
                 "inventory.json",
                 "policies.json",
                 "stats.json",
+                "receiving.json",
                 "digest.toml",
                 "flush-not_idle.json",
                 "flush-uncertain.json",
@@ -325,7 +517,7 @@ fn already_started_core_call_finishes_after_boundary_then_no_new_call_starts() {
     );
     let held = TickObservation {
         identity_id: MEMBER.into(),
-        mode: Mode::Off,
+        mode: Receiving::Direct,
         flush_count: 10,
         auto_caps: crate::settings::AutoCaps::default(),
         held_count: 1,
@@ -434,7 +626,7 @@ fn every_rule_records_one_content_free_row_with_cores_answer() {
         let mut port = fixture.port();
         recorded(&fixture, &mut port);
         for row in port.observe().unwrap() {
-            if matches!(row.mode, Mode::Interval { .. }) {
+            if matches!(row.mode, Receiving::Batch { .. }) {
                 match row.rule(super::super::now_ms().unwrap()) {
                     Some(Rule::NotDue) => port.not_due(&row),
                     Some(_) => port.deliver_if_current(&row.identity_id).unwrap(),
@@ -689,7 +881,7 @@ fn only_the_cap_offers_past_a_busy_agent_and_below_it_core_keeps_its_idle_check(
         fixture.stats(20, 900_000);
         let mut port = fixture.port();
         for row in port.observe().unwrap() {
-            if matches!(row.mode, Mode::Interval { .. }) {
+            if matches!(row.mode, Receiving::Batch { .. }) {
                 port.deliver_if_current(&row.identity_id).unwrap();
             }
         }
@@ -825,6 +1017,7 @@ fn every_hold_records_the_limit_of_the_rule_that_decides_it() {
         format!("[members.'{MEMBER}']\nmode = 'auto'\nmaxWait = '90s'\nsetAtMs = 1\n"),
     )
     .unwrap();
+    fixture.receiving(Receiving::Auto);
     fixture.port().observe().unwrap();
     let set = fixture
         .writes()
@@ -862,6 +1055,11 @@ fn the_switch_off_sends_one_by_one_despite_a_member_setting_and_on_holds_again()
             },
         )
         .unwrap();
+        fixture.receiving(if on {
+            Receiving::Auto
+        } else {
+            Receiving::Direct
+        });
     };
     // The member's own `auto` is holding three messages under an active hold.
     fixture.stats(3, 1000);

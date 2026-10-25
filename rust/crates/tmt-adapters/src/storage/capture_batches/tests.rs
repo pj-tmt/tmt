@@ -454,8 +454,11 @@ fn an_explicit_reply_and_equal_provider_final_remain_separate_and_freeze_the_rep
         )
         .unwrap();
     w.end("same answer", false);
+    let calendar =
+        super::super::orchestration::ReceivingCalendar::load(w.storage.connection().unwrap())
+            .unwrap();
     let transaction = w.storage.connection_mut().unwrap().transaction().unwrap();
-    let mut repository = super::super::requests::TransactionRequests(&transaction);
+    let mut repository = super::super::requests::TransactionRequests(&transaction, &calendar);
     repository
         .with_request_transaction::<_, StorageError>(|records| {
             records.create_response(&FinalResponse {

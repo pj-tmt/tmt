@@ -214,9 +214,14 @@ fn preview_uses_real_store_and_has_no_policy_journal_or_cursor_effect() {
         "awake"
     );
     assert_eq!(
-        report["after"]["members"][0]["effective"]["receiving"]["value"]["mode"],
+        report["after"]["members"][0]["effective"]["receiving"]["proposedValue"]["mode"],
         "hold"
     );
+    assert_eq!(
+        report["after"]["members"][0]["effective"]["receiving"]["available"],
+        false
+    );
+    assert!(report["after"]["members"][0]["effective"]["receiving"]["value"].is_null());
     assert_eq!(report["changes"][0]["identityId"], id);
     assert!(
         s.orchestration_snapshot(None)
@@ -277,7 +282,7 @@ fn a_writer_commit_cannot_mix_plan_and_settings_in_the_pinned_read() {
         )
         .unwrap();
     write.commit().unwrap();
-    let before = read_snapshot(&tx, None).unwrap();
+    let before = read_snapshot(&tx, None, None).unwrap();
     assert_eq!(before.snapshot.revision, 1);
     assert_eq!(
         before.snapshot.plans[0].fields.state,

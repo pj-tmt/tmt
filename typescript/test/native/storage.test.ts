@@ -156,6 +156,7 @@ function expectNativeSchema(
       version: 77,
       name: 'let a session-learning diagnostic name why a decoded hook admitted nothing',
     },
+    { version: 78, name: 'publish typed configured Digest receiving' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -217,6 +218,7 @@ function expectNativeSchema(
       'orchestration_member_overrides',
       'orchestration_focus',
       'orchestration_decisions',
+      'digest_receiving_settings',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -366,6 +368,15 @@ function expectNativeSchema(
     });
   }
   const retained = table(migrated, 'identity_resume_records');
+  expect(table(migrated, 'digest_receiving_settings').rows).toEqual([]);
+  expect(table(migrated, 'digest_receiving_settings').columns.map((column) => column.name)).toEqual(
+    ['id', 'revision', 'settings']
+  );
+  expect(
+    table(migrated, 'focus_checklists').columns.find(
+      (column) => column.name === 'orchestration_context'
+    )
+  ).toMatchObject({ name: 'orchestration_context', type: 'TEXT', notnull: 0, dflt_value: null });
   expect(retained.foreignKeys).toEqual([
     {
       id: 0,

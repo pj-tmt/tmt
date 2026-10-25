@@ -444,6 +444,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["orch", "plan", "show"] => Invocation::Orch(OrchOperation::Plans {
             plan: Some(required(m, "plan-name")),
         }),
+        ["orch","plan","add"] => Invocation::Orch(OrchOperation::Write { operation:OrchWriteOperation::AddPlan {file:required(m,"file").into()},yes:flag(m,"yes") }),
+        ["orch","plan","set"] => Invocation::Orch(OrchOperation::Write { operation:OrchWriteOperation::SetPlan {plan:required(m,"plan-name"),file:required(m,"file").into()},yes:flag(m,"yes") }),
+        ["orch","plan","rm"] => Invocation::Orch(OrchOperation::Write { operation:OrchWriteOperation::RemovePlan {plan:required(m,"plan-name")},yes:flag(m,"yes") }),
+        ["orch","focus"] => Invocation::Orch(OrchOperation::Write { operation:OrchWriteOperation::Focus {member:required(m,"member-name"),duration_ms:focus_duration(&required(m,"focus-duration"))?},yes:flag(m,"yes") }),
         ["orch", "preview"] => Invocation::Orch(OrchOperation::Preview {
             file: required(m, "file").into(),
             range_days: orch_days(m),
@@ -990,6 +994,54 @@ fn duration(value: &str) -> Result<f64, String> {
     Err(format!(
         "Invalid time format: {value}. Use number (seconds) or number with ms/s/m suffix."
     ))
+}
+
+/// Focus accepts exact milliseconds through days; no floating-point rounding
+/// can turn a sub-millisecond or overflowing duration into consent to another end.
+fn focus_duration(value: &str) -> Result<Option<u64>, String> {
+    if value == "off" {
+        return Ok(None);
+    }
+    let fail = || {
+        "Focus needs off or a positive ms/s/m/h/d duration of at most 30 days, in whole milliseconds.".to_owned()
+    };
+    let (number, unit) = [
+        ("ms", 1_u64),
+        ("s", 1000),
+        ("m", 60_000),
+        ("h", 3_600_000),
+        ("d", 86_400_000),
+    ]
+    .into_iter()
+    .find_map(|(suffix, unit)| value.strip_suffix(suffix).map(|n| (n, unit)))
+    .unwrap_or((value, 1000));
+    let (whole, fraction) = number.split_once('.').unwrap_or((number, ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|b| b.is_ascii_digit())
+        || !fraction.bytes().all(|b| b.is_ascii_digit())
+        || (number.contains('.') && fraction.is_empty())
+        || fraction.len() > 9
+    {
+        return Err(fail());
+    }
+    let scale = 10_u64.checked_pow(fraction.len() as u32).ok_or_else(fail)?;
+    let whole = whole.parse::<u64>().map_err(|_| fail())?;
+    let fraction = if fraction.is_empty() {
+        0
+    } else {
+        fraction.parse::<u64>().map_err(|_| fail())?
+    }
+    .checked_mul(unit)
+    .ok_or_else(fail)?;
+    if fraction % scale != 0 {
+        return Err(fail());
+    }
+    let ms = whole
+        .checked_mul(unit)
+        .and_then(|v| v.checked_add(fraction / scale))
+        .filter(|v| *v > 0 && *v <= 30 * 86_400_000)
+        .ok_or_else(fail)?;
+    Ok(Some(ms))
 }
 
 fn channel_mode(matches: &ArgMatches) -> ChannelMode {

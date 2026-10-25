@@ -46,6 +46,8 @@ independent of storage access.
 | ------------------------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`           | `{}`                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                               |
 | `orchestration.read`     | Tagged `view`: `overview`, `plans`, `preview` or `why`                                              | [Orchestration v1](orchestration-v1.md): effective field sources, timeline, in-memory preview or retained decision page; additive at API version 1                          |
+| `orchestration.write`    | Tagged `phase`: `preview` or `apply`, with a typed plan/focus mutation                              | [Orchestration v1](orchestration-v1.md#configuration-writes): shared effect preview, explicit consent and transactional stale-preview fence; additive at API version 1      |
+| `digest.receiving.sync`  | `expectedRevision`, `enabled`, `defaultReceiving`, `members`                                        | [Orchestration v1](orchestration-v1.md#commands-and-api): typed configured Digest input, CAS publication and current resolved projection; additive at API version 1         |
 | `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                             |
 | `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change; `usage`: the same kind of integer for the usage sampler's records (see below) |
 | `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                                       |
@@ -1363,6 +1365,9 @@ optional on a set: the rule owner's limit on how long the oldest held message wa
 (1 through the JS-safe maximum; a clear cannot carry one). Core adds it to the oldest
 held arrival to state a held message's latest send time
 ([Message state](request-response-v1.md#message-state)). Held count includes that active sealed membership.
+Current orchestration receiving replaces an old interval cap or removes a stale
+auto cap while Focus/Sleep withholds the item; a prior lease cannot promise release
+through a current hard receiving restriction.
 Policy conflicts return `DIGEST_REVISION_CONFLICT`; refresh before another write.
 
 A read without a checklist ID shows unclaimed references. A sealed read includes
@@ -1393,8 +1398,11 @@ revision/expiry. Later arrivals stay held on the idle path until another due-now
 call or policy expiry/clear. An empty call returns count/sequence 0. Duplicate calls
 with no new arrivals keep the same range; definitely-unsent membership remains
 eligible for a later independently admitted opportunity. `turn_boundary` retains
-its existing broader eligibility and relies on the admitted provider adapter.
-Due-now grants no transport permission and starts no worker. No core scheduler exists.
+its broader ordinary eligibility and relies on the admitted provider adapter.
+Both paths recheck [orchestration receiving](orchestration-v1.md#receiving): Sleep
+admits no items and Focus seals only urgent Incoming membership. Direct receiving
+restores ordinary eligibility even before an old lease is cleared. A due-now or
+`whenBusy` flag never bypasses these gates. Due-now grants no transport permission and starts no worker. No core scheduler exists.
 
 `digest.checklist.flush` offers one existing idle-delivery opportunity for the exact
 active identity UUID, without name or pane resolution. Core reuses its ordinary
@@ -1417,8 +1425,8 @@ Stats contain `identityId`, `heldCount` (including active claimed membership),
 `oldestHeldAgeMs` (null with no held references), `deliveredDigests`, `dueCount`,
 `nextEligibleAtMs` and `observedAtMs`. Ages use retained timestamps, never content.
 `dueCount` counts unclaimed mechanically eligible references and is 0 during an
-active claim. `nextEligibleAtMs` is observation time for a due range, policy expiry
-for held future eligibility, or null with no pending work/an active claim; it is
+active claim. `nextEligibleAtMs` is observation time for a due range, the earlier
+known receiving boundary or policy expiry for held future eligibility, or null with no pending work/an active claim; it is
 neither a live-readiness guarantee nor the extension's configured send deadline.
 The delivered counter increments once on the first successful `delivered`
 settlement, never on claim, definitely-unsent or uncertain. It survives checklist

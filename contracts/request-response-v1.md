@@ -997,10 +997,13 @@ seconds and UTC epoch expiry; JSON adds `digest:true`, `digestUntilMs`, `remaini
 `notification:"held"`, `waitingFor:"digest_checklist"` to ordinary queued correlation.
 This decision does not imply offline status.
 
-`talk --urgent` bypasses Digest only; `urgent` remains visible in X and request
-history. A resolved sender UUID equal to the policy's owner bypasses automatically;
-name reuse, anonymous sends and metadata do not establish owner authority. The one
-exception is the reserved `user` metadata entry ([identity metadata](extension-api.md#conditional-identity-metadata)):
+`talk --urgent` bypasses ordinary Digest Base holds; `urgent` remains visible in X
+and request history. A resolved sender UUID equal to the policy's owner bypasses
+those Base holds automatically; name reuse, anonymous sends and metadata do not
+establish owner authority. [Orchestration](orchestration-v1.md#receiving) applies
+Focus/Sleep restrictions at admission and every checklist opportunity: Focus admits
+urgent traffic without an owner/lead exemption, and Sleep holds urgent automatic
+agent traffic too. The reserved `user` metadata entry retains person immunity ([identity metadata](extension-api.md#conditional-identity-metadata)):
 a message or reply whose resolved sender is marked a person is never held, in any
 mode and whatever the policy's owner, and is delivered by the ordinary route, so a
 person's reply notice also skips the fixed reply window. Readiness, approval and
@@ -1017,7 +1020,8 @@ An admitted adapter turn boundary may claim one checklist during Digest; normal
 transport may claim after expiry/off, or for the range made due through the
 [local Digest API](extension-api.md#digest-policy-and-checklist), with fresh
 verification that the exact live session/incarnation is idle. Due-now adds idle
-eligibility without restricting admitted turn boundaries or changing the policy.
+eligibility without changing policy; Core's current Focus/Sleep eligibility still
+restricts both idle and admitted turn-boundary claims.
 The local API owns the arrival-context and statistics contract. A talk/check invocation touching the target is
 an opportunity, not a scheduled job. Without hooks or traffic, delivery remains
 pending; optional Squad cron reminders belong outside core. Newly arriving work
