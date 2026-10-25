@@ -12,6 +12,7 @@ pub mod decoder;
 pub mod deploy_declaration;
 pub mod discussion;
 pub mod edit_request;
+pub mod edit_scale;
 pub mod export;
 pub mod fold;
 pub mod hosting;

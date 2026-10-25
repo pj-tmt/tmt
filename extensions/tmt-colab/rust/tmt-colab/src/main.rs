@@ -1,6 +1,7 @@
 mod cli_attachments;
 mod cli_compact;
 mod cli_dashboard;
+mod cli_edit_hint;
 mod cli_grammar;
 mod cli_layout;
 mod cli_management;
@@ -280,7 +281,7 @@ fn grammar() -> Command {
             note: "Replace the page source",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written. The result's update:{count,bytes,minimal} reports what the write cost. Write the whole source when most of the page changes; for a small change read only the lines you need (page read --lines or --grep) and use page patch, which moves only that part and merges concurrent edits elsewhere. Never answer a patch conflict (COLAB_PATCH_CONFLICT) with a whole-source write built from an earlier copy: it would discard the concurrent edit.",
+        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written. The result's update:{count,bytes,minimal} reports what the write cost. When the result has warnings, is not minimal or replaces most of a page of 2 KiB or more, read names the editing reference. Write the whole source when most of the page changes; for a small change read only the lines you need (page read --lines or --grep) and use page patch, which moves only that part and merges concurrent edits elsewhere. Never answer a patch conflict (COLAB_PATCH_CONFLICT) with a whole-source write built from an earlier copy: it would discard the concurrent edit.",
     };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
@@ -811,6 +812,7 @@ fn commit_source(
                 write_lock.as_ref(),
             )?;
             let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
+            receipt.scale = frozen.scale();
             // A write's combine can move the revision after its outcome was retained. The
             // revision read by the writer that excluded every other writer is the one a next
             // `--expected-revision` must carry; a lost reply leaves the committed one.
@@ -837,9 +839,14 @@ fn print_receipt(
     written: &str,
 ) -> Result<()> {
     let mut output = tmt_cli_style::stream::stdout(json_output);
+    // A normal edit stays quiet; the reference is named only when the edit went off-guidance.
+    let off_guidance = cli_edit_hint::reason(warnings.len(), &receipt.update, receipt.scale);
     if json_output {
         let mut value = serde_json::to_value(&receipt)?;
         value["warnings"] = cli_page_check::warnings_json(warnings);
+        if off_guidance.is_some() {
+            value["read"] = json!([cli_edit_hint::EDITING]);
+        }
         writeln!(output, "{value}")?;
     } else {
         let terminal = output.terminal();
@@ -864,6 +871,11 @@ fn print_receipt(
             &rows,
         )?;
         cli_page_check::print_warnings(warnings)?;
+        if let Some(reason) = off_guidance {
+            let mut err = tmt_cli_style::stream::stderr();
+            let terminal = err.terminal();
+            tmt_cli_style::message::hint(&mut err, terminal, &reason.hint())?;
+        }
     }
     Ok(())
 }

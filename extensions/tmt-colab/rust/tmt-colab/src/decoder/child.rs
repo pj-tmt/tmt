@@ -1,5 +1,6 @@
 //! All production yrs decoding lives here, reached only by the private child entry.
 use super::*;
+use crate::edit_scale::content_diff;
 use std::io::{Read, Write};
 use yrs::{
     Any, Doc, GetString, Map, MapRef, Out, ReadTxn, Root, StateVector, Text, TextRef, Transact,
@@ -296,22 +297,6 @@ fn execute_with(
     };
     checkpoint(Stage::ReplyBuild, CheckpointBoundary::Leave, 0);
     write_reply_with(&reply, writer, checkpoint)
-}
-fn content_diff(old: &str, source: &str) -> (usize, usize) {
-    let start = old
-        .chars()
-        .zip(source.chars())
-        .take_while(|(a, b)| a == b)
-        .map(|(c, _)| c.len_utf8())
-        .sum::<usize>();
-    let end = old[start..]
-        .chars()
-        .rev()
-        .zip(source[start..].chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(c, _)| c.len_utf8())
-        .sum::<usize>();
-    (start, end)
 }
 fn content_document(
     baseline: &[u8],

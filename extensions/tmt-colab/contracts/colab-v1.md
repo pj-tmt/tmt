@@ -5792,7 +5792,12 @@ the text diff, which every write does today; it stays so a future whole-replace 
 `false`. `changed:false` reports `update:{count:0,bytes:0}` with no `minimal`, since no batch
 exists. The numbers come from the frozen job, so a reply lost to doubt and answered from the
 retained outcome reports the original batch. The human output adds one `update` line
-(`1 update, 214 bytes`, or `none`). `revision` is the
+(`1 update, 214 bytes`, or `none`). A normal edit says nothing more. When a write or patch published
+something and went off-guidance, the JSON result adds `read: ["tmt colab skill editing"]` and the
+human result one `hint:` line on stderr naming that command: the markup check left a warning,
+`update.minimal` is `false`, or the write replaced more than half of an existing source of at
+least 2 KiB (the replaced bytes are the existing source between the first and last difference
+from the new one; an append replaces none). `revision` is the
 page revision read, after the write and its best-effort combine, by the writer while no
 other writer can run (the serve under its sync lock, or this process under the serve
 lifecycle lock): the token a next `--expected-revision` carries. The retained outcome's
