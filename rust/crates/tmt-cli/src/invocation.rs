@@ -268,6 +268,7 @@ pub enum Invocation {
     NativeRefreshSkills {
         managed: bool,
     },
+    NativeRefreshIntegrations,
     NativeRenameDatabase,
     NativeUpgradeExtensions {
         plan: bool,

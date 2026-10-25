@@ -470,6 +470,13 @@ delivery. They install and launch nothing.
   settings file and launcher; hooks found without a record are adopted only on an exact match; an
   invalid record stops setup before any provider file changes. Codex setup owns only `hooks.json`
   under `CODEX_HOME`.
+- Upgrade refresh enumerates the setup record, never detected providers. The activated CLI
+  reuses setup's exact shipped-hook ownership, planning, byte recheck and backup publisher
+  within each recorded settings path, stable launcher and usage scope. Same-scope lifecycle
+  and answer events need no new approval. Missing, edited, duplicated, unknown or unsafe
+  settings are preserved with a setup next step. A legacy lifecycle-only record gains an
+  explicit usage opt-out before adding its answer hook. The setup-record lock fences consent
+  through publication; refresh failures are advisory and never undo binary activation.
 - Guided `tmt setup` plans from filesystem-only detection, asks once (`SETUP_CONSENT_REQUIRED`
   without a terminal or `--yes`) and applies skills before hooks; `publish_core` re-classifies
   each target under the installer lock and keeps what is not TMT's.

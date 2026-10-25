@@ -47,6 +47,10 @@ pub const HIDDEN: &[(&str, &str)] = &[
         "managed skill refresh run by tmt upgrade",
     ),
     (
+        "tmt __native-refresh-integrations",
+        "The activated updater refreshes previously consented provider integrations.",
+    ),
+    (
         "tmt __native-rename-database",
         "Core database rename run by tmt upgrade",
     ),

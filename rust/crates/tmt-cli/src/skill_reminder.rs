@@ -69,6 +69,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::NativeInstallHandoff { .. }
                 | Invocation::NativeSchema { .. }
                 | Invocation::NativeRefreshSkills { .. }
+                | Invocation::NativeRefreshIntegrations
                 | Invocation::NativeRenameDatabase
                 | Invocation::NativeUpgradeExtensions { .. }
                 | Invocation::Identity(_)
@@ -114,6 +115,7 @@ pub fn works_with_hosts(invocation: &Invocation) -> bool {
             | Invocation::NativeInstallHandoff { .. }
             | Invocation::NativeSchema { .. }
             | Invocation::NativeRefreshSkills { .. }
+            | Invocation::NativeRefreshIntegrations
             | Invocation::NativeRenameDatabase
             | Invocation::NativeUpgradeExtensions { .. }
     )

@@ -4,7 +4,17 @@ mod document;
 mod environment;
 mod publication;
 pub mod record;
+mod refresh;
 pub mod removal;
+mod shipped_hooks;
+
+pub use refresh::{
+    IntegrationRefresh, IntegrationRefreshFailure, IntegrationRefreshReport, RefreshReason,
+    RefreshStatus, refresh_recorded,
+};
+
+#[cfg(test)]
+mod refresh_tests;
 
 pub(crate) use document::{compose_launch_hooks, owned_event};
 pub use environment::{SetupEnvironment, provider_settings};

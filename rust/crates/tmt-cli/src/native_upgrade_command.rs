@@ -2,6 +2,7 @@
 
 mod database;
 mod extensions;
+mod integrations;
 mod preview;
 mod rename;
 mod summary;
@@ -278,6 +279,8 @@ fn finish(
     database: Option<Value>,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    let integration_report = (failure.is_none() && !report.skipped_pinned)
+        .then(|| integrations::run(&report.installation.active_executable, &UnixCommandRunner));
     let extensions = if failure.is_none() {
         extensions::upgrade_frozen(
             &report.installation.active_executable,
@@ -334,6 +337,7 @@ fn finish(
         failure,
         extensions,
         Notices {
+            integrations: integration_report.as_ref(),
             pane_rename: &rename_hints,
             named: &named_hints,
             database: database.as_ref(),
@@ -449,6 +453,7 @@ fn publish_products(
 /// the retained former prefix) and the database rename outcome.
 #[derive(Default)]
 struct Notices<'a> {
+    integrations: Option<&'a tmt_adapters::setup::IntegrationRefreshReport>,
     pane_rename: &'a [String],
     named: &'a [(&'a str, &'a str)],
     database: Option<&'a Value>,
@@ -467,6 +472,7 @@ fn publish_products_with_hints(
     mode: OutputMode,
 ) -> io::Result<u8> {
     let Notices {
+        integrations: integration_report,
         pane_rename: rename_hints,
         named: named_hints,
         database,
@@ -493,6 +499,12 @@ fn publish_products_with_hints(
         "skippedPinned": report.skipped_pinned,
     }));
     document["skills"] = skills.unwrap_or(Value::Null);
+    document["integrations"] = integration_report.map_or(Value::Null, |report| {
+        serde_json::to_value(&report.integrations).expect("typed integration rows")
+    });
+    document["integrationRefreshWarning"] = integration_report.map_or(Value::Null, |report| {
+        serde_json::to_value(&report.error).expect("typed integration warning")
+    });
     let warning = report.and_then(|report| path_warning(&report.installation.executable));
     document["pathWarning"] = warning.clone().into();
     if let Some(failure) = &failure {
@@ -535,11 +547,15 @@ fn publish_products_with_hints(
             .iter()
             .cloned()
             .chain(database.and_then(database::hint))
+            .chain(integration_report.into_iter().flat_map(integrations::hints))
             .collect::<Vec<_>>();
         let optional = named_hints
             .iter()
             .map(|(_, hint)| *hint)
             .collect::<Vec<_>>();
+        if let Some(report) = integration_report {
+            integrations::write(&mut stdout, terminal, report)?;
+        }
         summary::write(
             &mut stdout,
             terminal,

@@ -201,7 +201,7 @@ fn owned(provider: &DriverDefinition, entry: &RawValue) -> Result<bool, PlanErro
         .ok_or(PlanError::EditedHook)?;
     let launcher = quoted.replace("'\\''", "'");
     if !std::path::Path::new(&launcher).is_absolute()
-        || value != super::hook_entry(provider, &launcher)?
+        || !super::shipped_hooks::matches(provider, &value, &launcher)
     {
         return Err(PlanError::EditedHook);
     }
