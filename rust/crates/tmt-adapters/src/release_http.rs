@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use tmt_core::native_install::OFFICIAL_REPOSITORY;
+use tmt_core::native_install::{OFFICIAL_REPOSITORY, PREVIOUS_REPOSITORY};
 use ureq::{
     Agent,
     http::{StatusCode, Uri},
@@ -178,9 +178,13 @@ impl Https {
         let initial = validate_url(url)?;
         if self.token.is_none()
             || !is_api(&initial)
-            || !initial
-                .path()
-                .starts_with(&format!("/repos/{OFFICIAL_REPOSITORY}/actions/artifacts/"))
+            || ![OFFICIAL_REPOSITORY, PREVIOUS_REPOSITORY]
+                .iter()
+                .any(|repository| {
+                    initial
+                        .path()
+                        .starts_with(&format!("/repos/{repository}/actions/artifacts/"))
+                })
             || !initial.path().ends_with("/zip")
             || initial.query().is_some()
         {
