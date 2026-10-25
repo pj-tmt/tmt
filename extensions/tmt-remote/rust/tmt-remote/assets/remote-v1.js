@@ -7401,7 +7401,8 @@ function settingsRecords(label) {
 	list.setAttribute("aria-label", label);
 	return list;
 }
-/** One record: a glyph tile, a name and a line, then its facts and one optional action. */
+/** One record: a glyph tile, a name and a line, then its facts and one optional action. At narrow
+* widths the action stays at the end of the name row and the facts sit on the line below. */
 function settingsRecord(record) {
 	const item = element$1("li", "tmt-settings-record");
 	const tile = element$1("span", browserUiClasses.glyphTile);
@@ -7409,8 +7410,10 @@ function settingsRecord(record) {
 	const body = element$1("div", "tmt-settings-record-body");
 	body.append(element$1("strong", void 0, record.name));
 	if (record.description) body.append(element$1("span", "tmt-settings-help", record.description));
+	const facts = element$1("div", "tmt-settings-record-facts");
+	for (const fact of record.facts ?? []) facts.append(typeof fact === "string" ? element$1("span", "tmt-settings-fact", fact) : fact);
 	const meta = element$1("div", "tmt-settings-record-meta");
-	for (const fact of record.facts ?? []) meta.append(typeof fact === "string" ? element$1("span", "tmt-settings-fact", fact) : fact);
+	meta.append(facts);
 	if (record.action) meta.append(record.action);
 	item.append(tile, body, meta);
 	return item;
@@ -7569,7 +7572,7 @@ function moduleRecord(row, link) {
 	const known = MODULE_COPY[row.name];
 	const name = link?.label ?? displayName(row.name);
 	const facts = [settingsState(row.installed ? "Installed" : "Not installed", row.installed ? "working" : "muted")];
-	const detail = [row.channel, row.version].filter(Boolean).join(" · ");
+	const detail = row.channel && row.version?.includes(row.channel) ? row.version : [row.channel, row.version].filter(Boolean).join(" · ");
 	if (row.installed && detail) facts.push(element$1("span", "tmt-settings-fact tmt-settings-mono", detail));
 	return settingsRecord({
 		icon: known?.icon ?? "box",

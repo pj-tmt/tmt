@@ -41,7 +41,8 @@ for (const width of [1440, 390])
       ]);
       await expect(records.first()).toContainText('Shared pages and agent collaboration.');
       await expect(records.first()).toContainText('Installed');
-      await expect(records.first()).toContainText('alpha · 0.1.0-alpha.231');
+      // The version names its channel already, so the channel is not repeated beside it.
+      await expect(records.first().locator('.tmt-settings-mono')).toHaveText('0.1.0-alpha.231');
       // The not-installed module is a word and a ring, with no action and no description.
       await expect(records.last()).toContainText('Not installed');
       await expect(records.last().locator('a')).toHaveCount(0);
@@ -59,6 +60,26 @@ for (const width of [1440, 390])
       await expect(page.locator('.tmt-settings-record .tmt-ui-state-mark')).toHaveCount(5);
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
+      // The action ends the name row at any width; the facts sit beside it wide and below it narrow.
+      const [row, name, facts, action] = await records
+        .first()
+        .evaluate((node) =>
+          [
+            node,
+            node.querySelector('strong')!,
+            node.querySelector('.tmt-settings-record-facts')!,
+            node.querySelector('a')!,
+          ].map((part) => part.getBoundingClientRect().toJSON()),
+        );
+      expect(action!.right).toBeLessThanOrEqual(row!.right);
+      expect(row!.right - action!.right).toBeLessThan(2);
+      if (width === 390) {
+        expect(action!.top).toBeLessThan(name!.bottom);
+        expect(facts!.top).toBeGreaterThan(name!.bottom - 1);
+      } else
+        expect(
+          Math.abs(action!.top + action!.height / 2 - (facts!.top + facts!.height / 2)),
+        ).toBeLessThan(4);
       const fits = await page
         .locator('.tmt-settings-record')
         .evaluateAll((nodes) =>

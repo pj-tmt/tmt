@@ -216,6 +216,20 @@ it('lists modules as records and links an installed one to the page the shell de
   expect(records()[1]!.all((node) => node.tag === 'a')).toEqual([]);
 });
 
+it('shows a version that names its channel once', async () => {
+  hash = '#modules';
+  const read: TmtSettings = {
+    ...sample,
+    modules: {
+      rows: [{ name: 'ops', installed: true, version: '0.1.0-alpha.158', channel: 'alpha' }],
+    },
+  };
+  tmtSettingsPage(shell(), { read: async () => read });
+  await settle();
+  expect(records()[0]!.textContent).toContain('0.1.0-alpha.158');
+  expect(records()[0]!.textContent).not.toContain('alpha · ');
+});
+
 it('shows only the notice and the command when the browser has no module read', async () => {
   hash = '#modules';
   const none: TmtSettings = {

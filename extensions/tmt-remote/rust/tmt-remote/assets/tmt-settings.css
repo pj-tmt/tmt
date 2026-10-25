@@ -328,6 +328,12 @@
   justify-content: flex-end;
   gap: var(--tmt-ui-space-m);
 }
+.tmt-settings-record-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+}
 .tmt-settings-fact {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
@@ -339,12 +345,20 @@
   text-decoration: none;
 }
 @media (max-width: 760px) {
+  /* The action stays at the end of the name row; the facts take the line below. */
   .tmt-settings-record {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: start;
   }
   .tmt-settings-record-meta {
+    display: contents;
+  }
+  .tmt-settings-record-facts {
     grid-column: 1 / -1;
-    justify-content: flex-start;
+    grid-row: 2;
+  }
+  .tmt-settings-record-meta > .tmt-settings-action {
+    grid-column: 3;
+    grid-row: 1;
   }
 }

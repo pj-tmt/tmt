@@ -73,7 +73,8 @@ export function settingsRecords(label: string): HTMLUListElement {
   return list;
 }
 
-/** One record: a glyph tile, a name and a line, then its facts and one optional action. */
+/** One record: a glyph tile, a name and a line, then its facts and one optional action. At narrow
+ * widths the action stays at the end of the name row and the facts sit on the line below. */
 export function settingsRecord(record: {
   icon: SettingsIcon;
   name: string;
@@ -87,9 +88,11 @@ export function settingsRecord(record: {
   const body = element('div', 'tmt-settings-record-body');
   body.append(element('strong', undefined, record.name));
   if (record.description) body.append(element('span', 'tmt-settings-help', record.description));
-  const meta = element('div', 'tmt-settings-record-meta');
+  const facts = element('div', 'tmt-settings-record-facts');
   for (const fact of record.facts ?? [])
-    meta.append(typeof fact === 'string' ? element('span', 'tmt-settings-fact', fact) : fact);
+    facts.append(typeof fact === 'string' ? element('span', 'tmt-settings-fact', fact) : fact);
+  const meta = element('div', 'tmt-settings-record-meta');
+  meta.append(facts);
   if (record.action) meta.append(record.action);
   item.append(tile, body, meta);
   return item;

@@ -27,7 +27,11 @@ function moduleRecord(row: ModuleRow, link: ModuleLink | undefined): HTMLElement
       row.installed ? 'working' : 'muted',
     ),
   ];
-  const detail = [row.channel, row.version].filter(Boolean).join(' · ');
+  // A version that already names its channel (`0.1.0-alpha.1`) is not repeated beside it.
+  const detail =
+    row.channel && row.version?.includes(row.channel)
+      ? row.version
+      : [row.channel, row.version].filter(Boolean).join(' · ');
   if (row.installed && detail)
     facts.push(element('span', 'tmt-settings-fact tmt-settings-mono', detail));
   return settingsRecord({
