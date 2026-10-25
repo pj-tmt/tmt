@@ -766,8 +766,8 @@ and prints one line saying so; a first-party driver the user removed with
 
 `tmt host templates [--json]` reads, per host, the template its `launch`
 capability describes. It is read-only: it needs no caller pane and creates no
-pane or session. It lists tmux first, then each approved host driver in the
-registry's order:
+pane or session. It lists tmux first, then the built-in `pty` host, then each
+approved host driver in the registry's order:
 
 ```json
 {"version": 1, "hosts": [
@@ -777,7 +777,7 @@ registry's order:
  {"host": "herdr", "state": "ok", "launch": null}]}
 ```
 
-- **`state`:** `builtin` for tmux; for a driver, its approval state (`ok`,
+- **`state`:** `builtin` for tmux and the `pty` host; for a driver, its approval state (`ok`,
   `changed`, `missing`). Only an `ok` driver offers its `launch`: a changed or
   missing executable's command line is not the one the user saw, so it reads
   `null`.
@@ -794,6 +794,15 @@ refused before tmux is reached (exit 2), because tmux reads an empty session
 target as any session. A session name holds no `.` or `:`, which tmux rewrites.
 A command that ends before the mark is set leaves no pane to mark, and the
 template exits non-zero.
+
+The `pty` template opens no pane: `{session}` is the name the member is bound as and
+`{command}` the command line, and `sh -c` hands both to `tmt run --host pty` as
+positional arguments, so nothing is interpolated into the script. `tmt run` starts the
+member's supervisor in the background and returns once the managed launcher is admitted,
+printing the host and the bound name; closing the terminal that ran the template leaves
+the member running. The template writes no mark, because the host itself answers whether
+tmt opened a built-in pane. An empty name or command is refused (exit 2) before
+`tmt run`, and the `tmt` it runs is the one found on `PATH`.
 
 ## Trust boundary
 

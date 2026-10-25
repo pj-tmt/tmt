@@ -213,7 +213,9 @@ channels and the driver protocol. The owner map is in
 - A host's launch template (`LaunchTemplate` in `tmt-host-grammar`, the optional `launch`
   capability) is data core publishes and never runs: Ops expands and runs it. The tmux
   template is the constant in `tmt-adapters::tmux::launch`; `host::launch::launch_templates`
-  composes it with each approved driver's (an `ok` driver only) for `tmt host templates`.
+  composes it with the built-in host's (`host::pty::launch_template`, which starts a background
+  member through `tmt run --host pty` and opens no pane) and each approved driver's (an `ok`
+  driver only) for `tmt host templates`.
   The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` is its reader. It
   runs the verified stop first (`verified_stop`, shared with `resume --move`), then asks the
   host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
@@ -273,6 +275,13 @@ stream its terminal yet.
   then submit Enter separately; Core owns the `!` rewrite, delay and SQLite delivery stages.
   Control clients drain output and disconnect promptly, including between paste and Enter;
   they never resize. Failed post-paste transport is uncertain and never replayed.
+- **Terminal stream.** [terminal-stream-v1](../../../../contracts/terminal-stream-v1.md) publishes
+  these frames as the owner-only local stream a view such as the Ops Terminal tab reads and types
+  into. `Snapshot` is its one addition for a view that joins mid-session: the supervisor
+  (`Supervisor::snapshot`, in the same single thread that orders output) answers with
+  `SnapshotStart`, chunked `SnapshotData` (`vt100` `state_formatted` plus `ESC[?1049h` on the
+  alternate screen) and `SnapshotEnd(size)`, queued behind the client's other frames. A client
+  that asks with 256 KiB unread is evicted `TooSlow`. `tmt attach` never asks for one.
 - **Interactive attach.** `tmt attach <name-or-UUID> [-d]` resolves the existing
   binding and admits one connection through `Host`, checking the supervisor/pane
   incarnations and marker before terminal input. SQLite closes before the relay.

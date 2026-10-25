@@ -15,6 +15,7 @@ mod requests;
 mod responses;
 mod rooms;
 mod skills;
+mod terminal;
 mod timeline;
 mod user;
 
@@ -56,6 +57,7 @@ const OPS: &[&str] = &[
     "responses.recent",
     "responses.timeline",
     "pane.screen",
+    "terminal.stream",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -193,6 +195,9 @@ pub enum Request {
         before: Option<u64>,
     },
     PaneScreen {
+        identity_id: String,
+    },
+    TerminalStream {
         identity_id: String,
     },
     ConsumptionHistory {
@@ -370,6 +375,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "responses.recent" => responses::decode(input)?,
         "responses.timeline" => timeline::decode(input)?,
         "pane.screen" => pane::decode(input)?,
+        "terminal.stream" => terminal::decode(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -488,6 +494,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             before,
         } => responses::recent(&mut storage, &identity_id, limit, before),
         Request::PaneScreen { identity_id } => pane::screen(&mut storage, &identity_id),
+        Request::TerminalStream { identity_id } => terminal::stream(&mut storage, &identity_id),
         Request::ConsumptionHistory {
             identities,
             windows,

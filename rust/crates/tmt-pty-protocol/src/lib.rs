@@ -89,6 +89,10 @@ pub enum ClientMessage {
     TakeSole,
     /// Leave; the program keeps running.
     Detach,
+    /// Ask for the screen as it is now. The supervisor answers with
+    /// [`ServerMessage::SnapshotStart`], [`ServerMessage::SnapshotData`] chunks and
+    /// [`ServerMessage::SnapshotEnd`], and live output follows in order.
+    Snapshot,
 }
 
 /// A frame from the supervisor to a client.
@@ -108,6 +112,15 @@ pub enum ServerMessage {
     Evicted(Eviction),
     /// The connection is refused.
     Refused(Refusal),
+    /// A snapshot begins. The client discards the screen it holds, and any snapshot
+    /// it had only partly received: what follows replaces all of it.
+    SnapshotStart,
+    /// The next bytes of the snapshot, at most [`MAX_OUTPUT`]: terminal escape sequences
+    /// that turn an empty terminal into the screen, including its cursor and input modes.
+    SnapshotData(Vec<u8>),
+    /// The snapshot is complete and was taken at this size. Output that follows applies
+    /// on top of it.
+    SnapshotEnd(Size),
 }
 
 /// Why bytes are not a valid frame.
@@ -162,6 +175,10 @@ const EXITED: u8 = 0x83;
 const EVICTED: u8 = 0x84;
 const REFUSED: u8 = 0x85;
 const RESIZED: u8 = 0x86;
+const SNAPSHOT_START: u8 = 0x87;
+const SNAPSHOT_DATA: u8 = 0x88;
+const SNAPSHOT_END: u8 = 0x89;
+const SNAPSHOT: u8 = 0x06;
 
 fn put_size(out: &mut Vec<u8>, size: Size) {
     out.extend_from_slice(&size.cols.to_be_bytes());
@@ -205,6 +222,7 @@ impl Frame for ClientMessage {
             Self::Resize(_) => RESIZE,
             Self::TakeSole => TAKE_SOLE,
             Self::Detach => DETACH,
+            Self::Snapshot => SNAPSHOT,
         }
     }
 
@@ -214,7 +232,7 @@ impl Frame for ClientMessage {
             Self::Hello { version } => out.extend_from_slice(&version.to_be_bytes()),
             Self::Input(data) => out.extend_from_slice(data),
             Self::Resize(size) => put_size(out, *size),
-            Self::TakeSole | Self::Detach => {}
+            Self::TakeSole | Self::Detach | Self::Snapshot => {}
         }
     }
 
@@ -233,6 +251,7 @@ impl Frame for ClientMessage {
             RESIZE => size_of(payload).map(Self::Resize),
             TAKE_SOLE => empty(payload).map(|()| Self::TakeSole),
             DETACH => empty(payload).map(|()| Self::Detach),
+            SNAPSHOT => empty(payload).map(|()| Self::Snapshot),
             other => Err(ProtocolError::UnknownKind(other)),
         }
     }
@@ -248,6 +267,9 @@ impl Frame for ServerMessage {
             Self::Exited(_) => EXITED,
             Self::Evicted(_) => EVICTED,
             Self::Refused(_) => REFUSED,
+            Self::SnapshotStart => SNAPSHOT_START,
+            Self::SnapshotData(_) => SNAPSHOT_DATA,
+            Self::SnapshotEnd(_) => SNAPSHOT_END,
         }
     }
 
@@ -278,6 +300,9 @@ impl Frame for ServerMessage {
                 Refusal::Owner => 2,
                 Refusal::Full => 3,
             }),
+            Self::SnapshotStart => {}
+            Self::SnapshotData(data) => out.extend_from_slice(data),
+            Self::SnapshotEnd(size) => put_size(out, *size),
         }
     }
 
@@ -318,6 +343,9 @@ impl Frame for ServerMessage {
                 [3] => Ok(Self::Refused(Refusal::Full)),
                 _ => Err(ProtocolError::Malformed("unknown refusal reason")),
             },
+            SNAPSHOT_START => empty(payload).map(|()| Self::SnapshotStart),
+            SNAPSHOT_DATA => bytes(payload, MAX_OUTPUT).map(Self::SnapshotData),
+            SNAPSHOT_END => size_of(payload).map(Self::SnapshotEnd),
             other => Err(ProtocolError::UnknownKind(other)),
         }
     }
@@ -390,6 +418,10 @@ mod tests {
         round_trip(ClientMessage::Resize(size(200, 50)));
         round_trip(ClientMessage::TakeSole);
         round_trip(ClientMessage::Detach);
+        round_trip(ClientMessage::Snapshot);
+        round_trip(ServerMessage::SnapshotStart);
+        round_trip(ServerMessage::SnapshotData(b"\x1b[?25l\x1b[1mhi".to_vec()));
+        round_trip(ServerMessage::SnapshotEnd(size(132, 43)));
         round_trip(ServerMessage::Welcome {
             version: VERSION,
             size: size(80, 24),
@@ -452,6 +484,7 @@ mod tests {
         );
         // A payload where none belongs, and an empty or oversized data frame.
         assert!(decode(&[DETACH, 0, 0, 0, 1, 0]).is_err());
+        assert!(decode(&[SNAPSHOT, 0, 0, 0, 1, 0]).is_err());
         assert!(decode(&[INPUT, 0, 0, 0, 0]).is_err());
         let mut too_much = vec![INPUT];
         too_much.extend_from_slice(&((MAX_INPUT as u32) + 1).to_be_bytes());
@@ -493,6 +526,29 @@ mod tests {
         assert!(decode(&[EXITED, 0, 0, 0, 4, 0, 0, 0, 0]).is_err());
         assert!(decode(&[EVICTED, 0, 0, 0, 1, 2]).is_err());
         assert!(decode(&[REFUSED, 0, 0, 0, 1, 4]).is_err());
+    }
+
+    #[test]
+    fn a_snapshot_frame_is_strict() {
+        let decode = |bytes: &[u8]| {
+            let mut decoder = Decoder::new();
+            decoder.push(bytes).unwrap();
+            decoder.frame::<ServerMessage>()
+        };
+        // The start has no payload, the data is 1 to MAX_OUTPUT bytes, the end is a size.
+        assert!(decode(&[SNAPSHOT_START, 0, 0, 0, 1, 0]).is_err());
+        assert!(decode(&[SNAPSHOT_DATA, 0, 0, 0, 0]).is_err());
+        let mut too_much = vec![SNAPSHOT_DATA];
+        too_much.extend_from_slice(&((MAX_OUTPUT as u32) + 1).to_be_bytes());
+        too_much.extend(vec![b'x'; MAX_OUTPUT + 1]);
+        assert!(decode(&too_much).is_err());
+        assert!(decode(&[SNAPSHOT_END, 0, 0, 0, 4, 0, 0, 0, 24]).is_err());
+        assert!(decode(&[SNAPSHOT_END, 0, 0, 0, 3, 0, 80, 0]).is_err());
+        // A client kind is not a server kind and the reverse.
+        assert_eq!(
+            decode(&[SNAPSHOT, 0, 0, 0, 0]),
+            Err(ProtocolError::UnknownKind(SNAPSHOT))
+        );
     }
 }
 

@@ -480,6 +480,98 @@ fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_membe
 }
 
 #[test]
+fn the_built_in_launch_template_starts_a_background_member_without_tmux() {
+    let mut world = World::new();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_tmt"), world.root.join("bin/tmt")).unwrap();
+    let templates = world.json(&["host", "templates", "--json"]);
+    let hosts = templates["hosts"].as_array().unwrap();
+    assert_eq!(hosts[0]["host"], "tmux", "{templates}");
+    let pty = &hosts[1];
+    assert_eq!(
+        (pty["host"].as_str(), pty["state"].as_str()),
+        (Some("pty"), Some("builtin"))
+    );
+    assert_eq!(
+        pty["launch"]["placeholders"],
+        serde_json::json!(["session", "command"])
+    );
+    let argv: Vec<String> = pty["launch"]["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|word| word.as_str().unwrap().to_owned())
+        .collect();
+    let run = |world: &World, session: &str, command: &str| {
+        let words: Vec<String> = argv
+            .iter()
+            .map(|word| match word.as_str() {
+                "{session}" => session.to_owned(),
+                "{command}" => command.to_owned(),
+                _ => word.clone(),
+            })
+            .collect();
+        // The caller's own environment: the world's, with the same PATH that has no tmux.
+        let environment = world.command(&[]);
+        let mut command = Command::new(&words[0]);
+        command.args(&words[1..]).env_clear();
+        if let Some(directory) = environment.get_current_dir() {
+            command.current_dir(directory);
+        }
+        for (key, value) in environment.get_envs() {
+            if let Some(value) = value {
+                command.env(key, value);
+            }
+        }
+        command.stdin(Stdio::null()).output().unwrap()
+    };
+
+    // The words start a background member that nothing waits on, and the session and command
+    // reach `tmt run` as data.
+    let started = run(&world, "templated", "printf up; read l");
+    assert!(started.status.success(), "{started:?}");
+    world.remember();
+    world.remember_programs();
+    let seen = world.run(&["check", "templated"]);
+    assert!(
+        String::from_utf8_lossy(&seen.stdout).contains("up"),
+        "{seen:?}"
+    );
+    let injected = world.root.join("injected");
+    let command = format!("touch {}", injected.display());
+    let hostile_name = format!("a b$({command})");
+    let hostile = run(&world, &hostile_name, "printf x; read l");
+    assert!(hostile.status.success(), "{hostile:?}");
+    world.remember();
+    world.remember_programs();
+    assert!(!injected.exists(), "the session name ran as script text");
+
+    // An empty session or command is refused before `tmt run`, with no member started.
+    for (session, command) in [("", "printf x"), ("other", "")] {
+        let refused = run(&world, session, command);
+        assert_eq!(refused.status.code(), Some(2), "{refused:?}");
+        assert!(
+            String::from_utf8_lossy(&refused.stderr)
+                .contains("a session and a command are required")
+        );
+    }
+    let listed = world.json(&["ls", "--json"]);
+    let names: Vec<&str> = listed["identities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["name"].as_str())
+        .collect();
+    // Only the two members started with a real name and command exist; the name with shell
+    // syntax is bound literally.
+    assert_eq!(names.len(), 2, "{listed}");
+    assert!(
+        names.contains(&"templated") && names.contains(&hostile_name.as_str()),
+        "{listed}"
+    );
+    assert!(world.clean());
+}
+
+#[test]
 fn an_explicit_unavailable_host_never_falls_back_or_launches_a_member() {
     let mut world = World::new();
     let result = world.run(&["run", "--host", "tmux", "alpha", "/bin/sh", "-c", "exit 0"]);
@@ -887,3 +979,5 @@ fn a_fast_exit_has_one_confirmed_startup_and_a_missing_program_is_not_success() 
 
 #[path = "pty_host/attach.rs"]
 mod attach;
+#[path = "pty_host/terminal_stream.rs"]
+mod terminal_stream;
