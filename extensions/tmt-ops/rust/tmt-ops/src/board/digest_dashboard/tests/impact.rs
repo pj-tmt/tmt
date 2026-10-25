@@ -1,7 +1,7 @@
 //! Impact band facts, controls and decoded scenes, using the existing held-data fixture.
 use super::*;
 use crate::{
-    board::app::{Choice, Effect},
+    board::app::{App, Choice, Effect},
     config::{DigestWindow, SavingsUnit, TokRange},
 };
 
@@ -209,6 +209,80 @@ fn band_controls_leave_usage_unit_selection_and_window_write_owner_intact() {
             .iter()
             .any(|entry| entry.choice == Choice::DigestBasis)
     );
+}
+
+fn impact_click(app: &App, choice: &Choice) -> ratatui::crossterm::event::MouseEvent {
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let area = app
+        .workspace_strip_hits
+        .borrow()
+        .iter()
+        .find_map(|(area, found)| (found == choice).then_some(*area))
+        .expect("the control must have painted its own hit");
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: area.x,
+        row: area.y,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+#[test]
+fn painted_impact_controls_activate_through_the_digest_mouse_route() {
+    let _no_commands = crate::runner::forbid_commands();
+    for width in [80, 160] {
+        for choice in [Choice::DigestWindowMenu, Choice::DigestBasis] {
+            let mut app = capture_case("impact-complete", crate::look::Look::default());
+            let selected = app.workspace.selected.clone();
+            paint(&mut app, width, 32);
+            let click = impact_click(&app, &choice);
+            assert_eq!(app.mouse(click, std::time::Instant::now()), Effect::None);
+            match choice {
+                Choice::DigestWindowMenu => assert_eq!(
+                    app.menu.as_ref().map(|menu| menu.title.as_str()),
+                    Some("Digest estimate window"),
+                    "the painted window chip must open its menu on Digest"
+                ),
+                Choice::DigestBasis => assert!(
+                    app.scrolls.offset(crate::config::Pane::Replies) > 0,
+                    "the painted Basis button must reveal its evidence"
+                ),
+                _ => unreachable!(),
+            }
+            assert_eq!(app.workspace.selected, selected);
+            assert_eq!(app.digest_window(), DigestWindow::Day);
+            assert_eq!(app.tok_range(), TokRange::Day);
+        }
+    }
+}
+
+#[test]
+fn painted_impact_controls_keep_search_loading_overlay_and_geometry_fences() {
+    let _no_commands = crate::runner::forbid_commands();
+    for choice in [Choice::DigestWindowMenu, Choice::DigestBasis] {
+        for fence in ["search", "loading", "overlay", "invalidated", "tab-change"] {
+            let mut app = capture_case("impact-complete", crate::look::Look::default());
+            paint(&mut app, 160, 32);
+            let click = impact_click(&app, &choice);
+            match fence {
+                "search" => app.searching = true,
+                "loading" => app.current = Some("another-squad".into()),
+                "overlay" => app.help = true,
+                "invalidated" => app.invalidate_frame_geometry(),
+                "tab-change" => {
+                    press(&mut app, '1');
+                }
+                _ => unreachable!(),
+            }
+            app.mouse(click, std::time::Instant::now());
+            assert!(app.menu.is_none(), "{fence}: no window menu");
+            assert_eq!(
+                app.scrolls.offset(crate::config::Pane::Replies),
+                0,
+                "{fence}"
+            );
+        }
+    }
 }
 
 #[test]

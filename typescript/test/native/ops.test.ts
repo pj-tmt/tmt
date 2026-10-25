@@ -5834,6 +5834,95 @@ describe('large board responsiveness', () => {
     });
   }, 180_000);
 
+  it('Digest Impact window and Basis controls open from real terminal clicks', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const scratch = startPrivateTmux(sandbox, 'impact');
+      sandbox.env.TERM = 'xterm-256color';
+      sandbox.env.NO_COLOR = '1';
+      const { tmux } = scratch;
+      await identity(sandbox, 'Ben');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      tmux([
+        'new-session',
+        '-d',
+        '-s',
+        'impact',
+        '-c',
+        sandbox.root,
+        '-x',
+        '160',
+        '-y',
+        '24',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      const pane = tmux(['display-message', '-p', '#{pane_id}']);
+      const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const click = (label: string) => {
+        const lines = screen().split('\n');
+        const row = lines.findIndex((line) => line.includes(label));
+        expect(row, screen()).toBeGreaterThanOrEqual(0);
+        const column = [...lines[row]!.slice(0, lines[row]!.indexOf(label))].length;
+        for (const final of ['M', 'm'])
+          tmux(['send-keys', '-t', pane, '-l', `\u001b[<0;${column + 1};${row + 1}${final}`]);
+      };
+      try {
+        tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${quote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
+        ]);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        await vi.waitFor(() => expect(screen()).toContain('room product'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+        tmux(['send-keys', '-t', pane, '2']);
+        await vi.waitFor(() => expect(screen()).toContain('Basis…'), {
+          timeout: 10_000,
+          interval: 25,
+        });
+        click('1d ▾');
+        await vi.waitFor(() => expect(screen()).toContain('Digest estimate window'), {
+          timeout: 5_000,
+          interval: 25,
+        });
+        expect(screen()).toContain('1d (current)');
+        expect(screen()).toContain('all time');
+        tmux(['send-keys', '-t', pane, 'Escape']);
+        await vi.waitFor(() => expect(screen()).not.toContain('Digest estimate window'), {
+          timeout: 5_000,
+          interval: 25,
+        });
+        // A short viewport puts the evidence below the fold, proving the click navigates.
+        expect(screen()).not.toContain('Estimate basis');
+        click('Basis…');
+        await vi.waitFor(() => expect(screen()).toContain('Estimate basis'), {
+          timeout: 5_000,
+          interval: 25,
+        });
+        tmux(['send-keys', '-t', pane, 'q']);
+        await vi.waitFor(
+          () =>
+            expect(tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}'])).not.toBe(
+              'tmt-ops'
+            ),
+          { timeout: 10_000, interval: 25 }
+        );
+      } finally {
+        scratch.stop();
+        await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+          timeout: 10_000,
+          interval: 25,
+        });
+      }
+    });
+  }, 90_000);
+
   it('tmux gives the board a new-line key (Shift+Enter with csi-u, else Alt+Enter) while Enter still sends', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

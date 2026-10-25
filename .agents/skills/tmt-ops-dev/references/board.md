@@ -42,7 +42,9 @@ migration decision feeds the App footer rather than writing untracked stderr
 cells. CLI invocations retain their once-per-invocation warning stream.
 
 `board::view::render_frame` resets frame-local hits, input placement and scroll
-regions once. `view::panes` dispatches workspace snapshots to `workspace::render`
+regions once. Current painted strip hits activate on either tab, behind the
+loading, search and overlay fences; there is no separate per-choice tab list.
+`view::panes` dispatches workspace snapshots to `workspace::render`
 before independent row/pane painters. `board/mod.rs` receives input, snapshots
 and deferred events on one channel; snapshots wake painting directly. Redraws
 follow state/input/resize changes and changed clock text/spinner frames. Each
