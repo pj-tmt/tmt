@@ -143,6 +143,33 @@ for (const width of [1440, 390])
         await expect(
           manager(page).getByRole('button', { name: 'Move Project 02 down in the sidebar' }),
         ).toBeFocused();
+        // A pinned row's control is a pressed toggle that reads "Pinned", not a primary action; an
+        // unpinned row's reads "Pin" and is not pressed.
+        const toggle = (name: string) => manager(page).getByRole('button', { name });
+        await expect(toggle('Unpin Project 02 from sidebar')).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+        await expect(toggle('Unpin Project 02 from sidebar')).toHaveText('Pinned');
+        await expect(toggle('Unpin Project 02 from sidebar')).toHaveAttribute(
+          'data-variant',
+          'secondary',
+        );
+        await expect(toggle('Pin Project 09 to sidebar')).toHaveAttribute('aria-pressed', 'false');
+        await expect(toggle('Pin Project 09 to sidebar')).toHaveText('Pin');
+        // The pressed look is the accent-soft state, which differs from an unpressed row's.
+        const fill = (name: string) =>
+          toggle(name).evaluate((node) => getComputedStyle(node).backgroundColor);
+        const soft = await page.evaluate(() => {
+          const probe = document.createElement('span');
+          probe.style.background = 'var(--c-accent-soft)';
+          document.body.append(probe);
+          const color = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return color;
+        });
+        expect(await fill('Unpin Project 02 from sidebar')).toBe(soft);
+        expect(await fill('Pin Project 09 to sidebar')).not.toBe(soft);
         // Pin another: it goes last.
         await manager(page).getByRole('button', { name: 'Pin Project 09 to sidebar' }).click();
         await expect.poll(async () => (await writes(page)).length).toBe(2);

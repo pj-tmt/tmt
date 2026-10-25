@@ -5,7 +5,7 @@ import {
   BrowserDrawer,
   BrowserField,
 } from '@tmt/browser-ui/react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, FileText, Plus } from 'lucide-react';
 import { PROJECT_PINS, type ProjectPins } from './bootstrap.js';
 import { menuProjects, movedPin, withPin } from './project-pins.js';
@@ -254,6 +254,44 @@ type Step =
   | { kind: 'rename'; name: string; to: string }
   | { kind: 'delete'; name: string };
 
+/**
+ * The pin control of a project row: one secondary action that holds its state with `aria-pressed`
+ * and reads "Pinned" while pressed. The leaf action has no pressed prop, so the attribute is set on
+ * its button here, after every render (a busy toggle may replace the button).
+ */
+function PinToggle({
+  pressed,
+  action,
+  label,
+  visibleLabel,
+  disabled,
+  onActivate,
+}: {
+  pressed: boolean;
+  action: string;
+  label: string;
+  visibleLabel: string;
+  disabled: boolean;
+  onActivate: () => void;
+}) {
+  const holder = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    holder.current?.querySelector('button')?.setAttribute('aria-pressed', String(pressed));
+  });
+  return (
+    <span ref={holder} data-project-action={action}>
+      <BrowserAction
+        type="button"
+        variant="secondary"
+        label={label}
+        visibleLabel={visibleLabel}
+        disabled={disabled}
+        onActivate={onActivate}
+      />
+    </span>
+  );
+}
+
 /** Rename and delete reach every page in the project, archived or not, whatever the list shows. */
 export function ManageProjectsDialog({
   open,
@@ -380,22 +418,20 @@ export function ManageProjectsDialog({
                       <span className="project-manage-actions">
                         {pins && (
                           <>
-                            <span data-project-action={`pin:${name}`}>
-                              <BrowserAction
-                                type="button"
-                                variant={pinned ? 'primary' : 'secondary'}
-                                label={pinned ? t.unpinProject(name) : t.pinProject(name)}
-                                visibleLabel={pinned ? t.unpin : t.pin}
-                                disabled={busy}
-                                onActivate={() =>
-                                  void writePins(
-                                    withPin(menu.names, name, !pinned),
-                                    pinned ? t.projectUnpinned(name) : t.projectPinned(name),
-                                    `pin:${name}`,
-                                  )
-                                }
-                              />
-                            </span>
+                            <PinToggle
+                              pressed={pinned}
+                              action={`pin:${name}`}
+                              label={pinned ? t.unpinProject(name) : t.pinProject(name)}
+                              visibleLabel={pinned ? t.pinnedToggle : t.pin}
+                              disabled={busy}
+                              onActivate={() =>
+                                void writePins(
+                                  withPin(menu.names, name, !pinned),
+                                  pinned ? t.projectUnpinned(name) : t.projectPinned(name),
+                                  `pin:${name}`,
+                                )
+                              }
+                            />
                             {pinned && (
                               <>
                                 <span data-project-action={`up:${name}`}>

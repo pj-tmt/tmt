@@ -854,7 +854,7 @@ export const text = {
     /** The side menu's entry that opens Manage projects, where every project is. */
     allProjectsItem: 'All projects…',
     pin: 'Pin',
-    unpin: 'Unpin',
+    pinnedToggle: 'Pinned',
     scopeNotPinned: 'Not pinned: shown while you are in it.',
     pinToSidebar: 'Pin to sidebar',
     unpinFromSidebar: 'Unpin from sidebar',
