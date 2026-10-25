@@ -448,6 +448,7 @@ fn background_publication_does_not_become_an_action_or_repaint() {
             paints.set(paints.get() + 1);
             Ok(())
         },
+        |_| {},
     )
     .unwrap();
     assert_eq!(publications.get(), 1);
@@ -1131,6 +1132,7 @@ fn late_hint_after_navigation(paint: bool, explicit: bool, query: &str) {
             }
             Ok(())
         },
+        |_| {},
     )
     .unwrap();
     assert!(
@@ -1511,6 +1513,7 @@ fn navigation_trace_records_the_saved_hint_at_the_view_state_tick() {
         || Ok(()),
         Some(&mut state),
         |_| Ok(()),
+        |_| {},
     )
     .unwrap();
     assert_eq!(app.workspace.selected, saved().selected);
