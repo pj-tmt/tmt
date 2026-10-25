@@ -39,6 +39,17 @@ fn checklist(command: Command) -> Command {
 fn item(command: Command) -> Command {
     checklist(command).arg(option("item", "UUID", "Exact item UUID").required(true))
 }
+/// `show` also resolves a unique UUID prefix, as `tmt result` does for request IDs.
+fn shown_item(command: Command) -> Command {
+    checklist(command).arg(
+        option(
+            "item",
+            "UUID|PREFIX",
+            "Exact item UUID, or a unique prefix of at least 4 hex characters in this list",
+        )
+        .required(true),
+    )
+}
 fn revision(name: &'static str, help: &'static str) -> Arg {
     option(name, "POSITIVE", help)
         .allow_negative_numbers(true)
@@ -90,7 +101,7 @@ pub fn grammar() -> Command {
                     .allow_negative_numbers(true),
                 ),
         )
-        .subcommand(item(build(specs::CHECKLIST_SHOW)))
+        .subcommand(shown_item(build(specs::CHECKLIST_SHOW)))
         .subcommand(
             item(build(specs::CHECKLIST_CREATE))
                 .arg(
@@ -202,8 +213,88 @@ pub struct ChecklistCommand {
 enum Operation {
     List(Filter),
     Events { after: u64, limit: u64 },
-    Show { item_id: Id },
+    Show { item: ItemRef },
     Apply(Action),
+}
+/// What `show --item` names: an exact item UUID, or a prefix that must pick one item of the list.
+#[derive(Debug, PartialEq, Eq)]
+enum ItemRef {
+    Exact(Id),
+    Prefix(String),
+}
+impl ItemRef {
+    /// Shortest prefix accepted: the short ids Ops chat shows are at least this long.
+    const MINIMUM_PREFIX: usize = 4;
+    const MAXIMUM_CANDIDATES: usize = 5;
+
+    fn parse(text: &str) -> Result<Self, Error> {
+        if text.len() == 36 {
+            return Id::parse(text).map(Self::Exact);
+        }
+        let prefix = text.to_ascii_lowercase();
+        let uuid_shaped = prefix.bytes().enumerate().all(|(i, byte)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                matches!(byte, b'0'..=b'9' | b'a'..=b'f')
+            }
+        });
+        if prefix.len() < Self::MINIMUM_PREFIX || prefix.len() > 36 || !uuid_shaped {
+            return Err(invalid(
+                "Expected an item UUID, or a prefix of at least 4 hex characters of one.",
+            ));
+        }
+        Ok(Self::Prefix(prefix))
+    }
+
+    /// An exact UUID names itself. A prefix is read from the list, archived items included, and
+    /// must match exactly one of them; an ambiguous one names up to five candidates.
+    fn resolve(self, service: &Service) -> Result<Id, Error> {
+        let prefix = match self {
+            Self::Exact(id) => return Ok(id),
+            Self::Prefix(prefix) => prefix,
+        };
+        let listed = service.list(&Filter {
+            include_archived: true,
+            ..Filter::default()
+        })?;
+        let matches: Vec<_> = listed
+            .current
+            .items
+            .iter()
+            .map(|view| &view.item)
+            .filter(|item| item.id.as_str().starts_with(&prefix))
+            .collect();
+        match matches.as_slice() {
+            [] => Err(Error {
+                code: Code::NotFound,
+                message: format!("No item in this list starts with \"{prefix}\"."),
+                current: None,
+            }),
+            [item] => Ok(item.id.clone()),
+            many => {
+                let named: Vec<String> = many
+                    .iter()
+                    .take(Self::MAXIMUM_CANDIDATES)
+                    .map(|item| {
+                        let title: String = item.content.title.chars().take(40).collect();
+                        format!("{} {title:?}", item.id.as_str())
+                    })
+                    .collect();
+                let more = many.len().saturating_sub(Self::MAXIMUM_CANDIDATES);
+                Err(invalid(&format!(
+                    "\"{prefix}\" starts {} items; give more characters. Candidates: {}{}.",
+                    many.len(),
+                    named.join("; "),
+                    if more > 0 {
+                        format!("; and {more} more")
+                    } else {
+                        String::new()
+                    }
+                )))
+            }
+        }
+    }
 }
 fn text<'a>(matches: &'a ArgMatches, name: &str) -> Option<&'a str> {
     matches
@@ -307,7 +398,7 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
             checklist_id,
             action: "show",
             operation: Operation::Show {
-                item_id: Id::parse(required(flags, "item"))?,
+                item: ItemRef::parse(required(flags, "item"))?,
             },
         });
     }
@@ -445,9 +536,10 @@ fn execute(
                     "action":event.action,"revision":event.revision})).collect::<Vec<_>>(),
                 "nextCursor":page.next_cursor,"more":page.more,"gap":page.gap.map(checklist::events::Gap::as_str)}))
         }
-        Operation::Show { item_id } => {
+        Operation::Show { item } => {
             let checklist_id =
                 checklist_id.ok_or_else(|| invalid("A checklist UUID is required."))?;
+            let item_id = item.resolve(service)?;
             Ok(json!({"action":action,"current":current(&service.show(&checklist_id, &item_id)?)}))
         }
         Operation::Apply(action_request) => {
