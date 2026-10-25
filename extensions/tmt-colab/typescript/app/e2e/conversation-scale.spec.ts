@@ -35,9 +35,8 @@ for (const width of [1440, 390])
             composer: '.conversation-composer',
             editor: '.rich-input-field',
             mention: '.agent-chip[data-variant="chip"]',
-            status: '.annotation-status-row',
+            helper: '.annotation-helper',
             hint: '.annotation-hint',
-            anchor: '.annotation-anchor-note',
           };
           return Object.fromEntries(
             Object.entries(selectors).map(([name, selector]) => {
@@ -81,8 +80,9 @@ for (const width of [1440, 390])
           await page.screenshot({ path: join(directory, `${name}.png`), fullPage: true });
         }
         {
-          await expect(window.locator('.rich-input-field')).toHaveCSS('font-size', '14px');
-          await expect(window.locator('.rich-input-field')).toHaveCSS('line-height', '21px');
+          // The composer's field is the 13px reading size of the design system's field.
+          await expect(window.locator('.rich-input-field')).toHaveCSS('font-size', '13px');
+          await expect(window.locator('.rich-input-field')).toHaveCSS('line-height', '20.8px');
           await expect(window.locator('.conversation-body').first()).toHaveCSS('font-size', '14px');
           await expect(window.locator('[data-turn-role="agent"] .conversation-body')).toHaveCSS(
             'font-size',
@@ -103,7 +103,6 @@ for (const width of [1440, 390])
             '12px 16px 16px',
           );
           if (surface === 'annotation') {
-            await expect(window.locator('.annotation-anchor-note')).toHaveCSS('font-size', '12px');
             // The annotation window's heading row is the website's taller one.
             await expect(window.locator('.conversation-window-bar')).toHaveCSS(
               'padding',

@@ -530,10 +530,8 @@ Basis: own.
   time at the end of that row, then the text in a filled bubble under the name. Space separates
   messages; day rules use admitted timestamps.
 - Center the empty title and teach `@` only where admitted. Keep the composer pinned at the
-  bottom as one bordered box: the editor, then Attach/recipient at the start of its row and a
-  primary `Send` (the paper plane, then the word) at the end. Show
-  `Posts as a comment.` only without a recipient. Failed delivery
-  uses `✗ Not delivered · Retry` with the existing recovery action.
+  bottom: the shared [message composer](#popover-composer) (field, toolbar and helper line).
+  Failed delivery uses `✗ Not delivered · Retry` with the existing recovery action.
 
 ### Popover composer
 
@@ -566,20 +564,19 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   Deletion renumbers; resolved threads retain list numbers without page markers.
 - Annotation and thread windows are rounded sheets (the large radius token, a rule edge
   and the overlay shadow) with a sentence-case title row over a rule, the quoted selection
-  under a 2px accent rule, and a boxed composer on the field surface. Wide windows sit
+  under a 2px accent rule, and the shared message composer. Wide windows sit
   beside, below or above the selection with no connector line; mobile retains bottom
-  placement. The footer
-  has muted `Attached to this sentence` and square arrow-only Send, with a complete
-  recipient-bearing accessible name. The existing creator-notification preference
-  remains a borderless mark-and-label toggle beside it. Resolved windows start collapsed with counts,
+  placement. Resolved windows start collapsed with counts,
   state/Reopen and an explicit Show conversation action; expansion retains drafts.
 
-- The text decides the recipients. There is no separate recipient control: bound
+- The text decides the recipients. The recipient pill shows them and its list edits the
+  same mention chips; it keeps no list of its own. Bound
   mention chips and exactly typed `@name` tokens that match one current directory entry
   are the recipients, and removing or replacing a token or chip removes its binding.
   Prior replies and display names never choose a recipient. The one default is the
   page's admitted creator, seeded as a chip in each fresh message while the device-local
-  creator toggle is on; removing that chip suppresses it for that message only. Unknown
+  `Start new messages with @creator` preference is on; removing that chip suppresses it for
+  that message only. Unknown
   names stay plain text, ambiguous names block Send until chosen or removed, fuzzy
   matches never select, and mention completion preserves the surrounding text and caret.
   The [browser discussion contract](../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
@@ -587,10 +584,12 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
 - Enter submits the parent's current message action; Shift+Enter adds a line, Esc
   closes the innermost candidate list before the composer. Typed text and the selected
   recipient are kept on close and restored on the same anchor with `Draft kept`.
-- There is one Send. With no bound or exact mention it records a plain comment and
-  asks no one (`Posts as a comment.`; with a resolved creator and typed text the hint
-  adds `No agent will be asked.` and an `Ask @name` action that only inserts a chip);
-  with mentions its name says who gets it (`Send · to <names>`). A plain comment stays
+- There is one Send, a round accent arrow named `Send` in every composer; with nothing to
+  send it rests quiet. With no bound or exact mention it records a plain comment and asks
+  no one (pill `Comment only`, helper `Comment only, no agent is asked · Enter to send`);
+  with mentions the pill reads `✦ Ask A, B` (two names, then `+N`) and the helper
+  `Asks A, B · Enter to send`. A refusal, an unknown name, a failed send and the
+  directory check take the helper's line. A plain comment stays
   available under current content-write admission when agent discovery fails. Choosing
   or removing a recipient never prepares or sends a message.
 - Outside press closes it, but a page click never hides a typed draft; nothing
@@ -599,13 +598,16 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   Chat, annotation, thread reply and comment edit. Its plaintext/history
   extensions preserve undo, IME and exact message bytes; the source editor stays separate.
 - Candidate lists use available viewport space and the browser popover layer, including
-  inside modal Chat. The field grows to a bounded height, then scrolls. Square corners
-  and existing ink/accent tokens apply. Basis: own parent chrome with Lexical editing.
+  inside modal Chat. The field grows to a bounded height, then scrolls. Lists and the
+  field use the rounded tokens and existing ink/accent tokens. Basis: own parent chrome
+  with Lexical editing.
 
 Mention chips share an icon and named roles in editors, sent messages and lists
 (a chip in an editor is a soft accent-tinted tag with no visible edge, rounded at the small
-radius token, as the website's tags are; a name that matches no agent keeps a dashed edge
-and no fill):
+radius token, as the website's tags are, 9px around its label; its remove control is out of the
+line on a device with a pointer and appears on hover or focus as a 16px round badge on the chip's top-right corner
+(7px outside it, sheet fill and a 1px edge, a 24px hit area), so the text never moves or hides, and stays in the line
+where there is no hover; a name that matches no agent keeps a dashed edge and no fill):
 agent chips are neutral grey with bold ink; person chips use pale blue and
 blue-grey text. Unknown identity kinds default to agent. Current directory data
 has no person kind: the person variant is tokens and explicit presentation fixtures,
@@ -614,11 +616,17 @@ recipient or sends. Source plaintext, undo and IME remain owned by the shared ed
 
 ### Conversation turn
 
-Chat and annotation windows use the same composer, with a thin rule above it and
-16px side padding: Chat's sits borderless in its own box, the annotation window's is a
-boxed field on the field surface. Recipient chips precede the text; labeled Attach,
-the existing creator preference and the square arrow Send share its bottom row,
-aligned to the text edges. The composer retains one editor and draft owner.
+Chat, thread replies and the annotation window use the same composer, with a thin rule
+above it and 16px side padding. It is one boxed field on the sheet surface (one to two
+lines at rest, growing to a bound): the text with its mention chips, then a toolbar row
+inside the box. Attach and `Mention an agent` (types the `@` that opens the agent list) sit
+at the start; at the end the recipient pill (a rounded pill, accent-tinted with a sparkle
+while it asks someone) opens the agent list, then the round Send. The list has a row per
+agent with its presence and a check on those asked (an agent that cannot be asked cannot
+be added, only taken off), and a last row `Start new messages with @creator` for the
+device-local creator preference. Focus is a one-pixel focus-colour edge plus a ring that
+takes no room. The helper line under the box carries the state. The composer retains one
+editor and draft owner.
 
 Annotation anchors and thread headers share the annotation action fill, semibold
 system font and grid-centered number: an anchor is a 16px circle with a 10px number

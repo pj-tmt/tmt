@@ -1,61 +1,91 @@
-/* AnnotationInput is the single composer presentation for Chat and threads. */
-.annotation-compose .rich-input-surface[data-accessory],
+/* AnnotationInput is the single composer presentation for Chat, comment replies and the annotation
+   window: one field on the sheet surface with the toolbar inside it, and one helper line under it. */
+.annotation-compose .rich-input-surface[data-accessory] {
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+}
 .annotation-compose .rich-input-field {
+  /* One to two lines at rest, as the design system's field; it grows with the text up to its max. */
+  min-height: 44px;
+  max-height: min(120px, 32dvh);
+  padding: 10px 12px 4px;
   border: 0;
   background: transparent;
-}
-.annotation-compose .rich-input-field {
-  padding: 0;
-  min-height: 5em;
-  max-height: min(12em, 32dvh);
-}
-.annotation-compose .rich-input-field:focus-visible,
-.annotation-compose .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible) {
-  outline: none;
-  border: 0;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .annotation-compose .rich-input-accessory {
   padding: 0;
 }
-.annotation-compose .rich-input-surface[data-accessory] {
-  margin-inline-start: 0;
+/* A short viewport (the on-screen keyboard, a landscape phone) keeps a thread's or an annotation
+   window's field to one line, so the messages keep their room. Chat's composer stays as it is and its
+   history yields. */
+@media (max-height: 560px) {
+  .comments-panel .annotation-compose .rich-input-field,
+  .annotation-popover .annotation-compose .rich-input-field {
+    min-height: calc(1lh + 14px);
+  }
 }
-.annotation-compose .annotation-status-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  min-height: var(--tmt-ui-host-icon-action-size);
-  margin-top: var(--conversation-gap);
+/* Focus is the same one-pixel edge in the focus colour plus a ring that takes no room, so the box
+   never changes size. */
+.annotation-compose .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible) {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tmt-ui-color-accent) 18%, transparent);
 }
-.annotation-compose .annotation-status-row > .tmt-ui-icon-action:last-child {
-  margin-inline-start: auto;
+.annotation-compose .rich-input-field:focus-visible {
+  outline: none;
 }
-.annotation-compose
-  .annotation-status-row
-  > .tmt-ui-icon-action:last-child
-  .tmt-ui-icon-action-control {
+/* A failed row holds the draft: the empty composer is inert and looks exactly as when empty (R2). */
+.annotation-compose[data-unsent] .rich-input-surface[data-disabled] {
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-sheet);
+}
+.annotation-compose[data-unsent] .rich-input-field {
+  color: var(--tmt-ui-color-text);
+  background: transparent;
+}
+/* What the field holds besides text: a refusal and the files waiting for Send. */
+.annotation-compose .rich-input-accessory > :not(.message-toolbar) {
+  margin: 0 12px 8px;
+}
+
+/* Send is a round accent icon; with nothing to send it rests quiet. */
+.annotation-compose .message-toolbar-end .tmt-ui-icon-action {
+  --tmt-ui-host-icon-action-size: 30px;
+  --tmt-ui-header-icon-size: 16px;
+}
+.annotation-compose .message-toolbar-end .tmt-ui-icon-action-control {
   border: 0;
+  border-radius: var(--tmt-ui-radius-pill);
   background: var(--tmt-ui-surface-annotation-action);
   color: var(--tmt-ui-color-annotation-on-action);
 }
-
-.annotation-compose
-  .annotation-status-row:has(> .attach-labeled, > .creator-toggle)
-  > .tmt-ui-icon-action:last-child {
-  margin-inline-start: 0;
-}
-.annotation-compose .annotation-status-row > .creator-toggle {
-  margin-inline-start: auto;
-}
-.annotation-compose .annotation-status-row > .attach-labeled {
-  margin-inline-end: auto;
+.annotation-compose .message-toolbar-end .tmt-ui-icon-action-control:disabled {
+  background: var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-disabled-text);
 }
 
-.annotation-anchor-note {
-  margin: var(--conversation-gap) 0 0;
+/* The helper line: who is asked, or that nobody is, and how to send; exceptional states take the
+   same line. Its actions (Retry, Cancel) end it. */
+.annotation-compose .annotation-helper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  margin-top: 6px;
+}
+.annotation-compose .annotation-hint {
+  flex: 1 1 auto;
   min-width: 0;
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-host-field-label-size);
+  margin: 0;
+  font-size: var(--tmt-ui-caption-size);
+  line-height: 1.5;
+}
+.annotation-compose .annotation-helper > [data-agent-retry],
+.annotation-compose .annotation-helper > .tmt-ui-action {
+  flex: none;
 }
 
 .annotation-send-notice {
@@ -65,11 +95,4 @@
 }
 .annotation-send-mark {
   color: var(--c-blocked);
-}
-
-/* A failed row holds the draft: the empty composer is inert and looks exactly as when empty (R2). */
-.annotation-compose[data-unsent] .rich-input-surface[data-disabled],
-.annotation-compose[data-unsent] .rich-input-field {
-  color: var(--tmt-ui-color-text);
-  background: transparent;
 }

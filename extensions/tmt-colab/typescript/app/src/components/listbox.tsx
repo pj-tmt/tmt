@@ -17,6 +17,8 @@ export interface ListboxOption<Value extends string> {
   value: Value;
   label: string;
   disabled?: boolean;
+  /** A multi-choice list: this option's own state, instead of the one `value`. */
+  selected?: boolean;
   /** Navigation results only; selection suggestions remain buttons. */
   href?: string;
 }
@@ -38,6 +40,8 @@ export function Listbox<Value extends string>({
   disabled = false,
   inputTrigger,
   presentation = 'popup',
+  multiple = false,
+  popup,
 }: {
   label: string;
   options: readonly ListboxOption<Value>[];
@@ -47,6 +51,11 @@ export function Listbox<Value extends string>({
   disabled?: boolean;
   /** Results share the input's active-option owner without a floating popup. */
   presentation?: 'popup' | 'results';
+  /** Every option carries its own selected state and choosing one does not replace the others. */
+  multiple?: boolean;
+  /** A popup that is not as wide as its trigger (a pill, an icon): its width, and which edge of the
+   * trigger it lines up with. */
+  popup?: { width: number; align: 'start' | 'end'; className?: string };
   /** Text input owns its value; this same listbox owns option navigation. */
   inputTrigger: {
     open: boolean;
@@ -143,10 +152,12 @@ export function Listbox<Value extends string>({
       );
       const upward = below < height && above > below;
       const maxHeight = Math.max(1, Math.min(248, upward ? above : below));
+      const width = Math.min(popup?.width ?? box.width, rightEdge - leftEdge);
+      const start = popup?.align === 'end' ? box.right - width : box.left;
       const next = {
-        left: Math.max(leftEdge, Math.min(box.left, rightEdge - box.width)),
+        left: Math.max(leftEdge, Math.min(start, rightEdge - width)),
         top: upward ? box.top - Math.min(height, maxHeight) - 2 : box.bottom + 2,
-        width: Math.min(box.width, rightEdge - leftEdge),
+        width,
         maxHeight,
       };
       setPlacement((previous) =>
@@ -172,7 +183,7 @@ export function Listbox<Value extends string>({
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
-  }, [open, options.length, presentation]);
+  }, [open, options.length, presentation, popup?.width, popup?.align]);
 
   function openList(index = selectedIndex >= 0 ? selectedIndex : firstIndex) {
     if (disabled || index < 0) return;
@@ -275,13 +286,14 @@ export function Listbox<Value extends string>({
     <div
       ref={list}
       popover={presentation === 'popup' ? 'manual' : undefined}
-      className={`tmt-listbox-options ${presentation === 'popup' ? 'tmt-listbox-input-list' : 'tmt-listbox-results-list'}`}
+      className={`tmt-listbox-options ${presentation === 'popup' ? 'tmt-listbox-input-list' : 'tmt-listbox-results-list'} ${popup?.className ?? ''}`}
       style={
         presentation === 'popup'
           ? { ...placement, visibility: placement ? 'visible' : 'hidden' }
           : undefined
       }
       role="listbox"
+      aria-multiselectable={multiple || undefined}
       id={listId}
       aria-labelledby={labelId}
       hidden={!open}
@@ -298,7 +310,9 @@ export function Listbox<Value extends string>({
             key={option.value}
             id={optionId(index)}
             aria-selected={
-              presentation === 'results' ? focusIndex === index : option.value === value
+              presentation === 'results'
+                ? focusIndex === index
+                : (option.selected ?? option.value === value)
             }
             data-active={focusIndex === index}
             disabled={option.href ? undefined : option.disabled}

@@ -1680,7 +1680,7 @@ for (const width of [1440, 390])
         const hint = container.locator('.annotation-hint');
         await expect(hint).toHaveText(copy.messageAgentsChecking);
         f.releaseDirectory();
-        await expect(hint).toHaveText(copy.messageComment);
+        await expect(hint).toHaveText(copy.messageCommentSend);
         await input.pressSequentially('@');
         await page.getByRole('option').filter({ hasText: '@Draft agent ·' }).click();
         const draft = 'Keep this exact recovery draft. @Draft agent';

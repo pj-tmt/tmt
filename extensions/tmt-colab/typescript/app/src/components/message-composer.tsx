@@ -17,10 +17,9 @@ import { MessageMentionContext } from './message-mention-chip.js';
 import { AgentChip } from './agent-chip.js';
 import {
   $bindMessageMentions,
+  $insertMentionTrigger,
   $messageCaret,
   $messageMentions,
-  $messageSelection,
-  $prependMessageMention,
   $messageText,
   $replaceMessage,
   $setDefaultCreator,
@@ -87,31 +86,6 @@ function MessageField(props: MessageComposerProps) {
     setSuggestions((previous) => (previous.open === open ? previous : { ...previous, open }));
   }, []);
   const activated = useRef<string | undefined>(undefined);
-  const lastSelection = useRef<ReturnType<typeof $messageSelection>>(undefined);
-  const mentionRequest = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const request = props.prependMention;
-    if (!request || mentionRequest.current === request.id) return;
-    mentionRequest.current = request.id;
-    const matches = props.candidates?.filter(
-      (candidate) =>
-        candidate.machine === request.key.machine && candidate.agent === request.key.agent,
-    );
-    // A stale click never waits to apply after editing or recipient admission returns.
-    if (!props.disabled && !editor.isComposing() && matches?.length === 1) {
-      editor.update(
-        () => {
-          const selection = lastSelection.current;
-          if (!$messageSelection() && selection)
-            $selectMessageRange(selection.anchor, selection.focus);
-          $prependMessageMention(request.key, request.label);
-        },
-        { tag: HISTORY_PUSH_TAG, discrete: true },
-      );
-      editor.getRootElement()?.focus({ preventScroll: true });
-    }
-    request.consumed();
-  }, [editor, props.prependMention, props.candidates, props.disabled]);
   const activationId = props.activation?.id;
   useEffect(() => {
     if (!activationId || activated.current === activationId) return;
@@ -134,17 +108,7 @@ function MessageField(props: MessageComposerProps) {
           const request = current.current.activation!;
           activated.current = activationId;
           if (request.insertMention)
-            editor.update(
-              () => {
-                let selection = $getSelection();
-                if (!$isRangeSelection(selection)) {
-                  $selectMessageRange($messageText().length, $messageText().length);
-                  selection = $getSelection();
-                }
-                if ($isRangeSelection(selection)) selection.insertText('@');
-              },
-              { tag: HISTORY_PUSH_TAG, discrete: true },
-            );
+            editor.update($insertMentionTrigger, { tag: HISTORY_PUSH_TAG, discrete: true });
           root.focus({ preventScroll: true });
           request.consumed();
         });
@@ -186,9 +150,6 @@ function MessageField(props: MessageComposerProps) {
     const listener = editor.registerUpdateListener(
       ({ editorState, tags, dirtyElements, dirtyLeaves }) => {
         editorState.read(() => {
-          if (tags.has(RICH_INPUT_RESET_TAG)) lastSelection.current = undefined;
-          const selection = $messageSelection();
-          if (selection) lastSelection.current = selection;
           const value = $messageText();
           const caret = $messageCaret();
           const mentions = $messageMentions();

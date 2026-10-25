@@ -12,6 +12,7 @@ import {
   $getNodeByKey,
   $isElementNode,
   $isRangeSelection,
+  $isTextNode,
   $setSelection,
   $createTextNode,
   $getRoot,
@@ -175,6 +176,46 @@ export function $prependMessageMention(key: RecipientKey, label: string) {
   prependMention(key, label);
   const length = label.length + 2;
   $selectMessageRange((selection?.anchor ?? 0) + length, (selection?.focus ?? 0) + length);
+}
+
+/** The same recipient key, however many tokens name it. */
+const sameRecipient = (a: RecipientKey, b: RecipientKey) =>
+  a.machine === b.machine && a.agent === b.agent;
+
+/** Type the `@` that opens the agent list at the caret (the end of the text without a caret). */
+export function $insertMentionTrigger() {
+  let selection = $getSelection();
+  if (!$isRangeSelection(selection)) {
+    $selectMessageRange($messageText().length, $messageText().length);
+    selection = $getSelection();
+  }
+  if ($isRangeSelection(selection)) selection.insertText('@');
+}
+
+/** Remove every token naming this agent, with the one space that separated it from what follows. */
+export function $removeMessageMentions(key: RecipientKey) {
+  const found: MessageMentionNode[] = [];
+  const visit = (node: LexicalNode) => {
+    if (node instanceof MessageMentionNode && sameRecipient(node.__recipient, key))
+      found.push(node);
+    else if ($isElementNode(node)) node.getChildren().forEach(visit);
+  };
+  visit($getRoot());
+  for (const node of found) {
+    const next = node.getNextSibling();
+    if ($isTextNode(next) && next.getTextContent().startsWith(' ')) {
+      const rest = next.getTextContent().slice(1);
+      if (rest) next.setTextContent(rest);
+      else next.remove();
+    }
+    node.remove();
+  }
+  return found.length;
+}
+
+/** The pill's choice: a token for this agent when none names it, otherwise every token goes. */
+export function $toggleMessageMention(key: RecipientKey, label: string) {
+  if (!$removeMessageMentions(key)) $prependMessageMention(key, label);
 }
 
 /** Replace only newly completed tokens, keeping the caret, surrounding nodes and history. */

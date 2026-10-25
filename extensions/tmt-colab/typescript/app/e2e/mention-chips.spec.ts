@@ -62,6 +62,13 @@ async function proof(page: Page) {
   });
 }
 
+// The creator preference is the last row of the recipient pill's agent list.
+const pill = (page: Page) => page.getByRole('button', { name: /^Who is asked/ });
+async function toggleCreator(page: Page, name: string) {
+  await pill(page).click();
+  await page.getByRole('option', { name: new RegExp(`^Start new messages with @${name}`) }).click();
+}
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     for (const state of ['online', 'offline', 'not-found', 'same-name'] as const)
@@ -76,11 +83,13 @@ for (const width of [1440, 390])
         const name = state === 'not-found' ? '@Creator' : '@astra';
         expect((await proof(page)).draft).toBe(`${name} `);
         await expect(chip.locator('.agent-chip-name')).toHaveText(name);
+        // The chip is a tag: a faint @ before the name, no robot icon.
+        await expect(chip.locator('.agent-chip-at')).toHaveText('@');
+        await expect(chip.locator('.agent-chip-mark')).toHaveCount(0);
         if (state === 'same-name')
           await expect(chip.locator('.agent-chip-machine')).toHaveText(' · My machine');
         const geometry = await chip.evaluate((node) => {
           const style = getComputedStyle(node);
-          const dot = node.firstElementChild!.getBoundingClientRect();
           const remove = node.querySelector('button')!.getBoundingClientRect();
           const rect = node.getBoundingClientRect();
           return {
@@ -88,19 +97,18 @@ for (const width of [1440, 390])
             radius: style.borderRadius,
             shadow: style.boxShadow,
             borderStyle: style.borderTopStyle,
-            ordered: dot.right < remove.left,
-            markWidth: dot.width,
-            markHeight: dot.height,
-            inside: rect.right <= innerWidth && remove.right <= rect.right,
+            // With a pointer the control is a badge on the chip's top-right corner, out of the line.
+            atCorner:
+              Math.abs(remove.right - rect.right - 7) <= 1 &&
+              Math.abs(rect.top - remove.top - 7) <= 1,
+            inside: rect.right <= innerWidth && remove.right <= innerWidth,
           };
         });
         expect(geometry).toMatchObject({
           border: '1px',
           radius: '6px',
           shadow: 'none',
-          ordered: true,
-          markWidth: 16,
-          markHeight: 16,
+          atCorner: true,
           inside: true,
           borderStyle: state === 'not-found' ? 'dashed' : 'solid',
         });
@@ -238,7 +246,7 @@ test('a failed first directory read seeds nothing; retry admits the toggle witho
   });
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
   await expect(input.locator('.agent-chip')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Send to @astra', exact: true })).toHaveCount(0);
+  await expect(pill(page)).toBeDisabled();
   await expect(
     page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
   ).toBeDisabled();
@@ -249,12 +257,11 @@ test('a failed first directory read seeds nothing; retry admits the toggle witho
     (await import(path)).setDirectory('ok');
   });
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
-  const toggle = page.getByRole('button', { name: 'Send to @astra', exact: true });
-  await expect(toggle).toBeVisible();
+  await expect(pill(page)).toBeEnabled();
   await expect(input).toHaveText('Kept draft', { useInnerText: true });
   await expect(input.locator('.agent-chip')).toHaveCount(0);
-  await toggle.click();
-  await toggle.click();
+  await toggleCreator(page, 'astra');
+  await toggleCreator(page, 'astra');
   await expect(input.locator('.agent-chip')).toHaveAttribute('data-state', 'online');
   await expect(input.locator('.agent-chip')).toHaveAttribute(
     'title',

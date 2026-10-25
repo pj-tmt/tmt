@@ -43,6 +43,9 @@ async function open(page: Page) {
   await expect(page.getByTestId('comment-entry')).toHaveCount(1);
   return page.getByTestId('comment-thread');
 }
+/** The composer's helper line has said who is asked: its text, and so its line count, is settled. */
+const settled = (thread: Locator) =>
+  expect(thread.locator('.annotation-hint[role="status"]')).toContainText('Enter to send');
 const place = (target: Locator) =>
   target.evaluate((node) => {
     const box = node.getBoundingClientRect();
@@ -93,6 +96,7 @@ test('a Discussion view switched to another thread starts from that thread’s o
   // The control: the second thread opened with nothing before it.
   await twoThreads(page);
   await marker(page, 1).click();
+  await settled(page.getByTestId('comment-thread'));
   const control = await place(page.getByTestId('comment-thread'));
   // A reply lifted the first thread's Discussion view; the switch must not carry that over.
   await twoThreads(page);
@@ -109,6 +113,7 @@ test('a Discussion view switched to another thread starts from that thread’s o
       (node.getAttribute('data-colab-thread') ?? '').split(':').at(-1)!,
     ),
   );
+  await settled(page.getByTestId('comment-thread'));
   const switched = await place(page.getByTestId('comment-thread'));
   expect(Math.abs(switched.y - control.y)).toBeLessThanOrEqual(1);
   expect(Math.abs(switched.height - control.height)).toBeLessThanOrEqual(1);
@@ -120,6 +125,7 @@ async function history(page: Page) {
   await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
   const thread = page.getByTestId('comment-thread');
   await expect(thread).toBeVisible();
+  await settled(thread);
   return thread;
 }
 const distance = (messages: Locator) =>

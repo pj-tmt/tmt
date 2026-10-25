@@ -101,11 +101,12 @@ for (const surface of ['chat', 'thread'] as const)
         expect(geometry.left).toBeLessThanOrEqual(1);
         expect(geometry.postedLeft).toBeLessThanOrEqual(1);
         // A Chat bubble's text sits 32px in, past the avatar, as on the website; a thread's field is
-        // a box on the message column, so its text sits in by the box's 1px edge and 8px padding.
+        // a box on the message column, so its text sits in by the box's 1px edge and 12px padding.
         expect(
-          Math.abs(geometry.inputToMessage - (surface === 'chat' ? 32 : 9)),
+          Math.abs(geometry.inputToMessage - (surface === 'chat' ? 32 : 13)),
         ).toBeLessThanOrEqual(1);
-        expect(geometry.rightToSend).toBeLessThanOrEqual(1);
+        // Send ends the field's toolbar: 6px of toolbar padding and the box's 1px edge in.
+        expect(Math.abs(geometry.rightToSend - 7)).toBeLessThanOrEqual(1);
         expect(geometry.imageWidth).toBe(32);
         expect(geometry.imageHeight).toBe(32);
         expect(geometry.documentOverflow).toBe(false);

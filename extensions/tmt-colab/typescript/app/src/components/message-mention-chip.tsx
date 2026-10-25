@@ -51,6 +51,7 @@ export function MessageMentionChip({
       machine={sameName ? agent.machineName : undefined}
       state={state}
       variant="chip"
+      mark={false}
       title={description}
     >
       <BrowserIconAction

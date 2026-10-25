@@ -194,6 +194,9 @@ export function ConversationWindow({
     });
     if (history.current) observer.observe(history.current);
     if (content.current) observer.observe(content.current);
+    // The window as a whole: a composer whose helper line wraps or whose tray grows moves the end of
+    // a history that has no scroll of its own, so a reader at the end follows it there.
+    if (root.current) observer.observe(root.current);
     document.addEventListener('visibilitychange', reportReading);
     reportReading();
     return () => {

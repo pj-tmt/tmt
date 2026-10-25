@@ -130,15 +130,12 @@ for (const width of [1440, 390])
       await expectRuleEdge(page.locator('.annotation-popover'), theme);
       const editor = window.getByRole('combobox', { name: 'Message', exact: true });
       await editor.fill('Could @Atlas check this at 390px?');
-      const creator = window.getByRole('button', { name: 'Send to @Atlas', exact: true });
-      await expect(creator).toHaveAttribute('aria-pressed', 'true');
-      await expect(creator).toHaveCSS('border-top-width', '0px');
-      await expect(creator.locator('.tmt-ui-toggle-indicator')).toHaveCSS(
-        'border-top-width',
-        '0px',
-      );
-      await creator.focus();
-      await expect(creator).toHaveCSS('outline-style', 'solid');
+      // Who is asked is the pill in the field's toolbar, a small round-edged tag that names the agent.
+      const pill = window.getByRole('button', { name: /^Who is asked/ });
+      await expect(pill).toHaveText('Ask Atlas');
+      await expect(pill).toHaveCSS('border-top-left-radius', '999px');
+      await pill.focus();
+      await expect(pill).toHaveCSS('outline-style', 'solid');
       await editor.focus();
       await page.screenshot({ path: `${captures}/annotation-new-${width}-${theme}.png` });
       if (width === 390) {
@@ -319,37 +316,28 @@ test('number metrics wait for a replacement marker to be styled and laid out', a
   await expect(frame.locator('body')).toHaveAttribute('data-replacements', '1');
 });
 
-/** The annotation window sends with the shared arrow under a ruled field; Chat, like the
-    Discussion reply, with the word, in one bordered box. */
+/** Chat, replies and the annotation window send with the same field: one box on the sheet surface
+    with its toolbar inside it and the round arrow Send at the toolbar's end. */
 async function sharedComposer(window: Locator, surface: 'annotation' | 'chat') {
   const compose = window.locator('.annotation-compose');
   await expect(compose).toHaveCount(1);
   await expect(compose.locator('.rich-input-field')).toHaveCount(1);
-  const send = compose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
-  await expect(send.locator('.lucide-arrow-right')).toHaveCount(surface === 'annotation' ? 1 : 0);
-  if (surface === 'chat') {
-    await expect(send).toHaveText('Send');
-    // Chat's Send carries the decorative paper plane, as the Discussion reply does.
-    await expect(send.locator('[aria-hidden="true"] svg.lucide-send')).toHaveCount(1);
-    await expect(compose).toHaveCSS('border-top-width', '1px');
-    await expect(compose).toHaveCSS('padding', '12px');
-  }
+  const send = compose.getByRole('button', { name: 'Send', exact: true });
+  await expect(send.locator('.lucide-arrow-up')).toHaveCount(1);
+  await expect(send).toHaveText('');
   const geometry = await compose.evaluate((node) => {
-    // With files pending the box is the surface around the field; otherwise it is the field.
-    const field = (node.querySelector('.rich-input-surface[data-accessory]') ??
-      node.querySelector('.rich-input-field'))!;
-    const attach = node.querySelector('.attach-labeled')!;
-    const send = node.querySelector(
-      '.annotation-status-row > .tmt-ui-icon-action:last-child button, .annotation-status-row > .tmt-ui-action:last-child',
-    )!;
-    const a = field.getBoundingClientRect(),
-      b = attach.getBoundingClientRect(),
+    const box = node.querySelector('.rich-input-surface')!;
+    const send = node.querySelector('.message-toolbar-end .tmt-ui-icon-action button')!;
+    const tools = node.querySelector('.message-toolbar-tools')!;
+    const a = box.getBoundingClientRect(),
+      b = tools.getBoundingClientRect(),
       c = send.getBoundingClientRect();
-    const style = getComputedStyle(field);
+    const style = getComputedStyle(box);
     const composer = getComputedStyle(node.parentElement!);
     return {
+      // The toolbar sits 6px in from the box's edges.
       left: b.left - a.left,
-      right: c.right - a.right,
+      right: a.right - c.right,
       square: c.width - c.height,
       border: style.borderTopWidth,
       background: style.backgroundColor,
@@ -357,18 +345,15 @@ async function sharedComposer(window: Locator, surface: 'annotation' | 'chat') {
       rule: composer.borderTopWidth,
     };
   });
-  expect(Math.abs(geometry.left)).toBeLessThanOrEqual(1);
-  expect(Math.abs(geometry.right)).toBeLessThanOrEqual(1);
-  if (surface === 'annotation') expect(Math.abs(geometry.square)).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.left - 7)).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.right - 7)).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.square)).toBeLessThanOrEqual(1);
   expect(geometry).toMatchObject({
-    // The annotation window's field is the website's: the field surface inside a rule edge. Chat's
-    // box is the composer around it.
-    border: surface === 'annotation' ? '1px' : '0px',
+    border: '1px',
     padding: '12px 16px 16px',
     rule: surface === 'annotation' ? '1px' : '0px',
   });
-  if (surface === 'annotation') expect(geometry.background).not.toBe('rgba(0, 0, 0, 0)');
-  else expect(geometry.background).toBe('rgba(0, 0, 0, 0)');
+  expect(geometry.background).not.toBe('rgba(0, 0, 0, 0)');
 }
 /**
  * The agent byline is the shared chip's name with no boxed role badge. A turn leads with the shared
@@ -492,10 +477,7 @@ for (const width of [1440, 1024, 390])
       await run(page, 'mount', options);
       await (await pageAction(app, 'Chat')).click();
       await expect(chat.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
-      await expect(chat.getByRole('button', { name: 'Send to @Atlas', exact: true })).toHaveCSS(
-        'border-top-width',
-        '0px',
-      );
+      await expect(chat.getByRole('button', { name: /^Who is asked/ })).toHaveText('Ask Atlas');
       await page.screenshot({ path: `${captures}/unified-chat-recipient-${width}-${theme}.png` });
       await run(page, 'conversation', { surface: 'chat', state: 'replied' });
       expect(await sharedAgentByline(chat)).toEqual(annotationByline);

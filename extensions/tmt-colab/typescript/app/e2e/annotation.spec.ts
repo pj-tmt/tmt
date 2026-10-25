@@ -32,7 +32,7 @@ test('a directory read Remote refused keeps the generic line and shows its code 
   // The reference goes away with the failure.
   await run(page, 'setDirectory', 'ok');
   await retry.click();
-  await expect(status).toHaveText('Posts as a comment.');
+  await expect(status).toHaveText('Comment only, no agent is asked · Enter to send');
   await expect(status.locator('[data-failure-reference]')).toHaveCount(0);
 });
 

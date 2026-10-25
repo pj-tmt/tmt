@@ -17,7 +17,7 @@ test('unknown creator and prior display labels never infer a recipient', async (
   await expect(input).toHaveText('', { useInnerText: true });
   await input.fill('Keep this exact draft.');
   await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-    'Posts as a comment.',
+    'Comment only, no agent is asked · Enter to send',
   );
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
@@ -35,7 +35,7 @@ test('picked mentions keep surrounding multiline text and choosing alone has no 
   expect((await run(page, 'proof')).createChats).toBe(0);
   await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText('Asks Beta.');
   await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText(
-    'Posts as a comment.',
+    'Comment only, no agent is asked · Enter to send',
   );
 });
 

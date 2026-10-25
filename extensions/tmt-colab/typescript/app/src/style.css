@@ -1014,21 +1014,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .tmt-ui-drawer-body:has(.comments-panel .conversation-composer) {
   padding-bottom: 0;
 }
-/* A pinned composer rests compact: a two-line input (it grows up to its max while typing) and
-   one footer line. */
-.comments-panel .annotation-compose .rich-input-field {
-  min-height: 2lh;
-}
-.comments-panel .annotation-compose .tmt-listbox {
-  margin-bottom: var(--conversation-gap);
-}
-.comments-panel .annotation-anchor-note,
-.comments-panel .annotation-anchor-note + .annotation-hint {
-  display: inline;
-}
-.comments-panel .annotation-anchor-note + .annotation-hint:not(:empty)::before {
-  content: ' · ';
-}
 /* Ended guidance can exceed an anchored window; keep its action scroll-reachable. */
 .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   flex-shrink: 1;
@@ -1627,23 +1612,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   flex: 1;
   justify-content: space-between;
 }
-/* The reply composer is a visible field: the shared field fill and edge around the input. */
-.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field,
-.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-surface[data-accessory] {
-  background: var(--tmt-ui-surface-field);
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-}
-.comment-thread[data-layout='discussion']
-  .annotation-compose
-  .rich-input-surface[data-accessory]
-  .rich-input-field {
-  background: transparent;
-  border: 0;
-}
-.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
-  padding: var(--tmt-ui-host-field-padding);
-}
 
 /* The annotation window is the website's: a sans title with its close, the quoted selection under an
    accent rule, and the field on the field surface with the radius. */
@@ -1673,79 +1641,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .annotation-popover .annotation-quote q {
   quotes: none;
 }
-.annotation-popover .annotation-compose .rich-input-field,
-.annotation-popover .annotation-compose .rich-input-surface[data-accessory] {
-  background: var(--tmt-ui-surface-field);
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-}
-.annotation-popover .annotation-compose .rich-input-surface[data-accessory] .rich-input-field {
-  background: transparent;
-  border: 0;
-  padding: 0;
-  /* The surface takes the field's edge and padding, so the composer keeps one height whether or
-     not files are pending. */
-  min-height: calc(5em - 2 * (var(--tmt-ui-host-field-padding) + var(--tmt-ui-field-border-width)));
-}
-/* The padding sits on the field, or on the surface that also holds the pending files, so the
-   files and the text share one left edge. */
-.annotation-popover .annotation-compose .rich-input-field {
-  padding: var(--tmt-ui-host-field-padding);
-}
-.annotation-popover .annotation-compose .rich-input-surface[data-accessory] {
-  padding: var(--tmt-ui-host-field-padding);
-}
-/* Focus keeps the same one-pixel edge, in the focus colour, so the box does not change size. */
-.annotation-popover
-  .annotation-compose
-  .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible),
-.annotation-popover
-  .annotation-compose
-  .rich-input-field:not(.rich-input-surface .rich-input-field):focus-visible {
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-focus);
-}
-/* The reply area is the website's: a four-line field flush with the content column, and one row
-   under it with the note at the start and Reply at the end. */
-.annotation-note-line {
-  display: contents;
-}
 .comment-thread[data-layout='discussion'] .conversation-composer {
   padding-inline: 0;
-}
-/* A short viewport (the on-screen keyboard, a landscape phone) keeps the compact two-line field,
-   so the messages keep their room. */
-@media (min-height: 561px) {
-  .comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
-    min-height: 4lh;
-  }
-}
-.comment-thread[data-layout='discussion'] .annotation-compose {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 12px;
-}
-.comment-thread[data-layout='discussion'] .annotation-compose > * {
-  grid-column: 1 / -1;
-}
-.comment-thread[data-layout='discussion'] .annotation-compose > .annotation-note-line {
-  display: block;
-  grid-column: 1;
-  grid-row: 2;
-}
-.comment-thread[data-layout='discussion']
-  .annotation-compose
-  > .annotation-status-row:not([data-creator-toggle]) {
-  grid-column: 2;
-  grid-row: 2;
-}
-.comment-thread[data-layout='discussion']
-  .annotation-compose
-  .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible),
-.comment-thread[data-layout='discussion']
-  .annotation-compose
-  .rich-input-field:not(.rich-input-surface .rich-input-field):focus-visible {
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-focus);
 }
 .discussion-footer .tmt-ui-action {
   text-decoration: none;
@@ -2043,44 +1940,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   font-size: 12px;
 }
 
-/* The creator preference owns the action row; recipient status stays in its hint line. */
-.annotation-status-row[data-creator-toggle] {
-  flex-wrap: wrap;
-}
-.annotation-status-row[data-creator-toggle] > .annotation-hint {
-  order: 2;
-  flex-basis: 100%;
-}
-.creator-toggle {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-/* Keep the creator preference unboxed in the shared annotation/Chat composer. */
-.annotation-compose .creator-toggle > .tmt-ui-toggle {
-  border: 0;
-  background: transparent;
-  color: var(--tmt-ui-color-secondary);
-  font-size: 13px;
-}
-.annotation-compose .creator-toggle .tmt-ui-toggle-indicator {
-  border: 0;
-  color: var(--tmt-ui-color-text);
-}
-.annotation-compose .creator-toggle > .tmt-ui-toggle:not(:disabled):hover {
-  color: var(--tmt-ui-color-text);
-}
-/* Unboxed, it has no border to recolour, so focus is one inset outline (#3998). */
-.annotation-compose .creator-toggle > .tmt-ui-toggle:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
-}
-
-.creator-toggle > button {
-  max-width: 100%;
-  text-align: start;
-  white-space: normal;
-}
-
 .archive-unsent-draft pre {
   font: inherit;
   white-space: pre-wrap;
@@ -2157,18 +2016,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     var(--chat-turn-indent) + var(--tmt-ui-rule-width) + var(--chat-bubble-inline)
   );
 }
-/* The composer is one bordered box, as on the website: the field, then the note and Send inside it. */
 .chat-panel .conversation-composer {
   border-top: 0;
-}
-.annotation-compose[data-chat] {
-  padding: 12px;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-  background: var(--tmt-ui-surface-field);
-}
-.annotation-compose[data-chat]:has(.rich-input-field:focus-visible) {
-  border-color: var(--tmt-ui-color-focus);
 }
 .chat-day {
   display: flex;
@@ -2207,24 +2056,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   margin: 0;
   font-size: 12px;
   max-width: 28ch;
-}
-.annotation-compose[data-chat] .annotation-status-row {
-  flex-wrap: wrap;
-}
-.annotation-compose[data-chat] .annotation-status-row > .annotation-hint {
-  order: 0;
-  flex: 1 1 auto;
-}
-/* An unsent message's hint is a line of its own under the send row, never beside the button. */
-.annotation-compose[data-chat] .annotation-status-row > .annotation-hint[data-unsent] {
-  order: 2;
-  flex-basis: 100%;
-}
-.annotation-compose[data-chat] .annotation-status-row > .annotation-hint:empty {
-  display: none;
-}
-.annotation-compose[data-chat] .annotation-status-row > .tmt-ui-action:last-child {
-  margin-left: auto;
 }
 .chat-panel .ask-again-action::before {
   content: '·';

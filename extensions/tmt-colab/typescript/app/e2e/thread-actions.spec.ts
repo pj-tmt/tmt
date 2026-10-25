@@ -35,10 +35,7 @@ for (const width of [1440, 390])
               title: node.querySelector('.thread-state')?.textContent,
               header: node.querySelector('.thread-bar')?.getBoundingClientRect().toJSON(),
               actions: node.querySelector('.thread-bar-actions')?.getBoundingClientRect().toJSON(),
-              quote: node
-                .querySelector('.annotation-anchor-note')
-                ?.getBoundingClientRect()
-                .toJSON(),
+              quote: node.querySelector('.annotation-quote')?.getBoundingClientRect().toJSON(),
               scrollTop: node.querySelector('.thread-messages')?.scrollTop,
               focus: document.activeElement?.getAttribute('aria-label'),
               buttons: Array.from(node.querySelectorAll('button')).map((button) => ({
@@ -130,9 +127,6 @@ for (const width of [1440, 390])
           await expect(window.locator('blockquote')).toHaveCount(1);
           await expect(window.locator('blockquote.annotation-quote')).toHaveText(
             'Frozen original quote',
-          );
-          await expect(window.locator('.annotation-anchor-note')).toHaveText(
-            'Attached to this sentence',
           );
           expect(await history.evaluate((node) => node.scrollTop)).toBe(0);
           await capture('quote-top');
