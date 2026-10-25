@@ -80,7 +80,11 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
 - `tmt extension hooks enable <name>` records path, SHA-256, stat fingerprint and capabilities
   in `<global>/extension-hooks.json` (0600, atomic replace); ownership and fingerprint are
   re-checked before every delivery and a change skips the extension until re-enabled.
-- Enable probes before locking. Enable/disable decode and change the current document in
+- Enable probes before locking, with a one-second deadline. A probe that misses it gives
+  `EXTENSION_HOOKS_UNAVAILABLE` with the retry command and records nothing: the first start
+  of a newly written executable can be slow on macOS, so a miss is never
+  `EXTENSION_INCOMPATIBLE`; another probe failure or an unsupported answer is.
+  Enable/disable decode and change the current document in
   `tmt_extension_state::Document::update`, using the caller's global directory as state root.
   Its stable directory-identity lock waits up to five seconds for admission; callbacks are
   never replayed. Existing destinations must be owned regular 0600 files for mutation;
