@@ -40,7 +40,8 @@ swap `*` and `_` in samples: grep and run samples after formatting.
 
 ## Blog
 
-UX reviews `site/src/blog/` code and shared site behavior. Approved English posts
+Marketing owns and reviews the blog end to end (`site/src/blog/` code and `site/src/posts/`);
+GUI reviews shared site behavior outside it. Approved English posts
 live in `site/src/posts/<slug>/` with article HTML, metadata, approval and only
 referenced module/image assets. Other post languages require an explicit
 `languageExceptions` addition before enabling them. See [site README](../../../site/README.md#blog)
