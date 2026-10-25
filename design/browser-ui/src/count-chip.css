@@ -50,7 +50,7 @@
 .tmt-ui-count-chip[data-tone='attention']:focus-visible {
   border-color: var(--tmt-ui-color-focus);
 }
-/* The count: a small box in the chip, the rail and the collapsed rail's corner. */
+/* The count: a small box in the chip and the rail. */
 .tmt-ui-count {
   box-sizing: border-box;
   display: inline-block;

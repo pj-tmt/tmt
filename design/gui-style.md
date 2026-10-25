@@ -131,8 +131,7 @@ module and the content supplies its real h1. Root-only bindings and the actions-
 adapter are defined in the [leaf contract](browser-ui/README.md#shared-top-bar). Existing
 product bars stay unchanged until their owning adoption.
 
-- **Rail:** one fixed list, identical on every page: the collapse toggle in its own
-  row, ruled off above Home, then Home,
+- **Rail:** one fixed list, identical on every page: Home,
   Colab, Remote, Ops, Digest, any other module Remote's
   [composed shell](../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell)
   describes (in its order), and TMT settings at the bottom. A module the composed shell does not describe keeps its place, dimmed in
@@ -151,12 +150,8 @@ product bars stay unchanged until their owning adoption.
   nothing. The number alone is
   drawn, and the item's accessible name says what it counts. Home sums needs-you
   counts only when every module reports one.
-- **Collapse:** the toggle collapses the rail to 56 px of icons and expands it again,
-  in one short slide (the `base` motion, none under reduced motion); icons keep
-  their place. The choice is remembered on the device. Collapsed counts become
-  a compact badge at the icon's top-right corner (a needs-you count in the waiting
-  colour); hovering or focusing an item shows its label as a tooltip beside
-  the rail, and labels stay accessible names.
+- **Wide rail:** always the full 232 px, with the selected nested page visible. Older
+  collapse preferences are ignored; there is no collapse toggle or collapse shortcut.
 - **Module menu:** the active module's own menu (Colab: All pages, then each project
   with its page count and needs-you count, then New project and Manage projects; Remote:
   each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a
@@ -820,7 +815,7 @@ days`); exact time on hover.
   exit has played: a dialog fades and scales in the base duration, a drawer slides
   from its edge in the base duration, the scrim fades, a menu, popover, tooltip or
   autocomplete list fades and scales from its anchor in the fast duration. Hover
-  and press on actions and tabs, the menu row tint and the rail collapse use the
+  and press on actions and tabs, and the menu row tint use the
   fast or base duration. Under `prefers-reduced-motion` every duration is 0 ms, so
   a change is instant. A leaving layer is inert: it takes no pointer input and
   hands its Escape to the layer under it. The LoaderCircle spin (see

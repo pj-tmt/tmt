@@ -155,9 +155,7 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
     return { rail: shellRail(shown, place, colab), menu };
   }, [params]);
   useEffect(() => {
-    // The rail's own toggle remembers a viewer's choice; the gallery pins each frame's state.
     const shell = document.querySelector<HTMLElement>('.tmt-ui-shell')!;
-    shell.dataset.rail = params.get('rail') ?? 'expanded';
     if (params.get('drawer') === 'open')
       shell.querySelector<HTMLButtonElement>('.tmt-ui-shell-open')!.click();
   }, [params]);
@@ -633,27 +631,12 @@ export function ShellSection() {
         width={1080}
       />
       <FramePair
-        title="Rail collapsed"
-        frame="shell"
-        height={420}
-        width={1080}
-        params={{ rail: 'collapsed' }}
-      />
-      <FramePair
         title="Rail counts · expanded (Colab 3, Remote 12, Ops 0 shows nothing)"
         note="A needs-you count is a number pill right-aligned on its row; zero draws nothing. The item's name carries it: Colab, 3 need you."
         frame="shell"
         height={400}
         width={920}
         params={{ counts: '12' }}
-      />
-      <FramePair
-        title="Rail counts · collapsed"
-        note="The count becomes a compact numeral at the icon's top-right corner, past the glyph, so every icon stays whole."
-        frame="shell"
-        height={400}
-        width={920}
-        params={{ counts: '12', rail: 'collapsed' }}
       />
       <FramePair
         title="Without a module menu"

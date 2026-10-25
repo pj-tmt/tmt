@@ -2798,28 +2798,6 @@ var shellIconNodes = {
 		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
 		["path", { d: "M12 22V12" }]
 	],
-	"panel-left-close": [
-		["rect", {
-			width: "18",
-			height: "18",
-			x: "3",
-			y: "3",
-			rx: "2"
-		}],
-		["path", { d: "M9 3v18" }],
-		["path", { d: "m16 15-3-3 3-3" }]
-	],
-	"panel-left-open": [
-		["rect", {
-			width: "18",
-			height: "18",
-			x: "3",
-			y: "3",
-			rx: "2"
-		}],
-		["path", { d: "M9 3v18" }],
-		["path", { d: "m14 9 3 3-3 3" }]
-	],
 	menu: [
 		["path", { d: "M4 5h16" }],
 		["path", { d: "M4 12h16" }],
@@ -3783,20 +3761,7 @@ function shellRail(answer, place, host) {
 		}]
 	};
 }
-var RAIL_KEY = "tmt.shell.rail";
 var SVG$1 = "http://www.w3.org/2000/svg";
-function railCollapsed() {
-	try {
-		return localStorage.getItem(RAIL_KEY) === "collapsed";
-	} catch {
-		return false;
-	}
-}
-function rememberRail(collapsed) {
-	try {
-		localStorage.setItem(RAIL_KEY, collapsed ? "collapsed" : "expanded");
-	} catch {}
-}
 function icon(document, name) {
 	const svg = document.createElementNS(SVG$1, "svg");
 	svg.setAttribute("class", "tmt-ui-shell-icon");
@@ -3885,7 +3850,6 @@ function mountShell(root, view, select) {
 	const watchTools = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : void 0;
 	watchTools?.observe(toolsRoot);
 	reserve();
-	let collapsed = railCollapsed();
 	const setDrawer = (shown) => {
 		root.dataset.drawer = shown ? "open" : "closed";
 		open.setAttribute("aria-expanded", String(shown));
@@ -3901,7 +3865,7 @@ function mountShell(root, view, select) {
 		if (tip.matches(":popover-open")) tip.hidePopover();
 	};
 	const showTip = (anchor) => {
-		const text = collapsed ? anchor.dataset.tip : anchor.dataset.note;
+		const text = anchor.dataset.note;
 		if (!text || root.dataset.drawer === "open") return hideTip();
 		release();
 		release = claimIconActionTooltip(document, hideTip);
@@ -3911,35 +3875,13 @@ function mountShell(root, view, select) {
 		tip.style.left = `${box.right}px`;
 		tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
 	};
-	const tipFor = (anchor, text, note) => {
-		anchor.dataset.tip = text;
-		if (note) anchor.dataset.note = text;
+	const tipFor = (anchor, text) => {
+		anchor.dataset.note = text;
 		anchor.addEventListener("pointerenter", () => showTip(anchor));
 		anchor.addEventListener("focus", () => showTip(anchor));
 		anchor.addEventListener("pointerleave", hideTip);
 		anchor.addEventListener("blur", hideTip);
 	};
-	const paint = () => {
-		root.dataset.rail = collapsed ? "collapsed" : "expanded";
-		const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
-		toggle.setAttribute("aria-label", label);
-		toggle.setAttribute("aria-expanded", String(!collapsed));
-		toggle.dataset.tip = label;
-		toggle.replaceChildren(icon(document, collapsed ? "panel-left-open" : "panel-left-close"));
-	};
-	const toggle = document.createElement("button");
-	toggle.type = "button";
-	toggle.className = "tmt-ui-rail-toggle";
-	tipFor(toggle, "");
-	toggle.onclick = () => {
-		collapsed = !collapsed;
-		rememberRail(collapsed);
-		paint();
-		hideTip();
-	};
-	const top = document.createElement("div");
-	top.className = "tmt-ui-rail-top";
-	top.append(toggle);
 	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
 	const close = (event) => {
 		if (event.key === "Escape" && root.dataset.drawer === "open") {
@@ -4018,7 +3960,7 @@ function mountShell(root, view, select) {
 			const anchor = link("tmt-ui-rail-item", item);
 			const named = item.count ? `${item.label}, ${item.count.text}${item.count.needsYou ? item.count.text === "1" ? " needs you" : " need you" : ""}` : item.label;
 			if (item.count) anchor.setAttribute("aria-label", named);
-			tipFor(anchor, item.note ? `${item.label}: ${item.note}` : named, item.note);
+			if (item.note) tipFor(anchor, `${item.label}: ${item.note}`);
 			const label = document.createElement("span");
 			label.className = "tmt-ui-rail-label";
 			label.textContent = item.label;
@@ -4041,7 +3983,7 @@ function mountShell(root, view, select) {
 		if (key === shown) return;
 		shown = key;
 		hideTip();
-		rail.replaceChildren(brand, railList(next.rail.main, void 0, onPhone ? void 0 : next.menu), top, railList(next.rail.bottom, "tmt-ui-rail-bottom", onPhone ? void 0 : next.menu));
+		rail.replaceChildren(brand, railList(next.rail.main, void 0, onPhone ? void 0 : next.menu), railList(next.rail.bottom, "tmt-ui-rail-bottom", onPhone ? void 0 : next.menu));
 		root.dataset.menu = next.menu ? "shown" : "none";
 		if (!next.menu || !onPhone) {
 			menu.replaceChildren();
@@ -4073,7 +4015,6 @@ function mountShell(root, view, select) {
 	};
 	const rewidth = () => render(latest);
 	phone?.addEventListener("change", rewidth);
-	paint();
 	setDrawer(false);
 	render(view);
 	return {

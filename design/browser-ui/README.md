@@ -106,6 +106,8 @@ Thin notice/action borders use the accepted 1px browser metric; field/header
 borders remain 1px. This supersedes earlier shadow and opacity proposals only.
 Input autocomplete remains a host-owned listbox. No native select or new font loading enters this leaf.
 
+The shell keeps its full 232px rail on wide screens, ignoring older collapse preferences.
+There is no collapse toggle; Settings stays at the bottom. The phone menu and drawer are unchanged.
 The shell and heading metrics follow the concept website: 232px rail, 45px module
 rows, 33px sub-items and a 45px brand mark. Body and display text use
 `Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or
@@ -703,7 +705,7 @@ state, a React component.
   above 99) and an optional leading icon; `tone="attention"` is for work that waits on the
   reader. `BrowserMenu` with `variant="count"` (plus `triggerText`, `count`, `tone`, `icon`) is
   the same chip as a menu trigger with a chevron; the count joins its accessible name. The
-  shell's rail counts use the same count box, and the collapsed rail shows it as a corner badge.
+  shell's rail counts use the same count box beside their visible labels.
 - **Avatar.** `BrowserAvatar` draws the initials of a name or handle (`avatarInitials`) in a
   round mark, size `m` or `s`; it is an image with the name as its label unless `decorative`.
   `kind="person"` (the default) is the neutral fill; `kind="agent"` is the mint selection fill
