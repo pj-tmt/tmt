@@ -258,11 +258,9 @@ export class Live implements PageBinding {
       : undefined;
     this.ask = facade;
   }
-  /** One detached copy per publication, shared by every listener. */
+  /** Each listener receives its own detached copy, so none can change what another sees. */
   #publish() {
-    if (this.#listeners.size === 0) return;
-    const value = structuredClone(this.#projection);
-    this.#listeners.forEach((listener) => listener.publish(value));
+    this.#listeners.forEach((listener) => listener.publish(structuredClone(this.#projection)));
   }
   #abort = () => this.close();
   #visibility = () => {

@@ -313,7 +313,7 @@ or an unverified read failure. An opaque socket disconnect, or a native fetch
 re-admitted with `reopenSession(previous, {retry:'bounded', signal})`) waits when the reason
 may pass (`unreachable`, `unconfirmed`, `transient`) and ends the page otherwise.
 An admitted update reaches the page as a fresh detached copy of the whole projection (`Live` clones
-it once per publication and every listener receives that copy). The page route passes it through
+it for each listener). The page route passes it through
 `shareView` (`share-view.ts`) against the view it holds, so every part equal by value keeps its object and a reply to one thread changes
 only that thread's path. Sections keyed on a part, such as the document highlights and the question
 layers, do not run again for a change elsewhere, and the document frame is sent nothing for an
