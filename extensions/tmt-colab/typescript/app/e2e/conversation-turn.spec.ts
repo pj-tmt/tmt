@@ -535,7 +535,10 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
   await expect(window.getByText(text.askEmptyReply)).toBeVisible();
   await expect(window.getByTestId('ask-state')).toHaveCount(0);
   await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(0);
-  await window.getByRole('button', { name: text.threadResolve, exact: true }).click();
+  await page
+    .locator('.tmt-ui-panel[data-panel="comments"]:not([hidden]) .tmt-ui-drawer-header-actions')
+    .getByRole('button', { name: text.threadResolve, exact: true })
+    .click();
   await expect(page.getByTestId('discussion-state')).toContainText(text.threadResolved);
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
@@ -1688,7 +1691,11 @@ for (const surface of ['chat', 'thread'] as const)
         ]) {
           await run(page, 'conversationActivity', { kind: 'queued', ...observation });
           await expect(window.locator('.agent-chip-mark[data-working]')).toHaveCount(0);
-          await expect(chips.first().locator('.agent-chip-icon')).toBeVisible();
+          // Chat's mention keeps its robot; a Discussion view's is the composer's soft tag, which
+          // shows the mark only while the agent works.
+          await expect(chips.first().locator('.agent-chip-icon')).toHaveCount(
+            surface === 'chat' ? 1 : 0,
+          );
         }
         await expect(input).toHaveText(draft!);
         expect(await run(page, 'proof')).toEqual(before);

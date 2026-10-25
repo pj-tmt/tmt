@@ -29,6 +29,16 @@
             [v.prefix, v.suffix].every(
               (s) => typeof s === 'string' && [...s].length <= 32 && utf8.encode(s).length <= 128,
             );
+          // The one resolved thread open in the Discussion panel: an id and its quote, no ordinal.
+          const validQuietAnchor = (v) =>
+            v &&
+            typeof v === 'object' &&
+            !Array.isArray(v) &&
+            Object.keys(v).length === 2 &&
+            typeof v.id === 'string' &&
+            v.id.length > 0 &&
+            v.id.length <= 73 &&
+            validQuote(v.selector);
           function validHighlightAnchors(anchors, threadCount) {
             return (
               Array.isArray(anchors) &&
@@ -58,6 +68,11 @@
             requestId = '',
             stopped = false,
             timer;
+          // The resolved thread open in the Discussion panel: its passage is drawn quietly and can be
+          // scrolled to, but it is not a marker, a hover target or a selection.
+          let quiet = null,
+            quietEntry = null,
+            quietLayer;
           let questionBlocks = [],
             reviewBlocks = [],
             readingBlocks = [],
@@ -306,17 +321,22 @@
           const pageFrame =
             '@layer colab-frame { html { --colab-lane: 28px !important; box-sizing: border-box !important; padding-inline-end: var(--colab-lane) !important; } html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline-start: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; align-self: stretch !important; width: auto !important; margin-inline-end: calc(-1 * var(--colab-lane)) !important; padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
           // END GENERATED PAGE FRAME
+          const accent = 'var(--tmt-ui-color-annotation-rule-selected)';
+          const accentTint = (percent) => `color-mix(in srgb,${accent} ${percent}%,transparent)`;
           const highlightStyle =
             annotationTokens +
             pageFrame +
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
-            // Each rule runs unbroken under descenders: a 2 px or 3 px rule broken at every descender
-            // reads as dotted. The page root's skip-ink does not reach a highlight's decoration; the
-            // highlight's own does.
+            // Each rule runs unbroken under descenders: a 2 px rule broken at every descender reads as
+            // dotted. The page root's skip-ink does not reach a highlight's decoration; the highlight's
+            // own does. One accent at three strengths: at rest a light tint under a 1 px rule, the
+            // pointer's between, the open thread's the deepest under a solid 2 px rule; a resolved thread
+            // that is open keeps only a quiet dashed rule.
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
-            '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px;text-decoration-skip-ink:none}' +
-            '::highlight(colab-selected){background:var(--tmt-ui-surface-annotation-highlight-selected);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule-selected);text-decoration-thickness:3px;text-decoration-skip-ink:none}' +
-            '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:2px;text-decoration-skip-ink:none}' +
+            `::highlight(colab-comments){background:${accentTint(14)};color:inherit;text-decoration:underline;text-decoration-color:${accentTint(45)};text-decoration-thickness:1px;text-decoration-skip-ink:none}` +
+            `::highlight(colab-selected){background:${accentTint(28)};color:inherit;text-decoration:underline;text-decoration-color:${accent};text-decoration-thickness:2px;text-decoration-skip-ink:none}` +
+            `::highlight(colab-hover){background:${accentTint(20)};color:inherit;text-decoration:underline;text-decoration-color:${accentTint(45)};text-decoration-thickness:2px;text-decoration-skip-ink:none}` +
+            `::highlight(colab-quiet){color:inherit;text-decoration:underline dashed;text-decoration-color:${accentTint(45)};text-decoration-thickness:1px;text-decoration-skip-ink:none}` +
             `
             [data-colab-question-group]:not([hidden]){display:block!important}
             [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
@@ -660,8 +680,8 @@
             if (selecting && event.isTrusted && !editingTarget(event.target) && quote)
               parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
           };
-          // The selected thread's passage takes the stronger tint and a solid 3 px underline, above the
-          // hover look (2 px), so it holds while the pointer crosses it; its lane marker, or the `+n`
+          // The selected thread's passage takes the stronger tint and a solid 2 px underline, above the
+          // hover look, so it holds while the pointer crosses it; its lane marker, or the `+n`
           // pill that holds it, wears a ring, so the lane says which thread is open even when the
           // passage is off screen. Without a selection nothing changes.
           function paintSelected() {
@@ -677,9 +697,10 @@
             if (layer) {
               for (const mark of layer.children) {
                 const selected = range !== undefined && mark.dataset.thread === selectedId;
-                const role = selected ? '-selected' : '';
-                mark.style.background = `var(--tmt-ui-surface-annotation-highlight${role})`;
-                mark.style.borderBottom = `${selected ? 3 : 1}px solid var(--tmt-ui-color-annotation-rule${role})`;
+                mark.style.background = accentTint(selected ? 28 : 14);
+                mark.style.borderBottom = selected
+                  ? `2px solid ${accent}`
+                  : `1px solid ${accentTint(45)}`;
               }
               return;
             }
@@ -692,9 +713,13 @@
             try {
               CSS.highlights?.delete('colab-comments');
               CSS.highlights?.delete('colab-selected');
+              CSS.highlights?.delete('colab-quiet');
             } catch {}
             layer?.remove();
             layer = undefined;
+            quietLayer?.remove();
+            quietLayer = undefined;
+            quietEntry = null;
             markers?.remove();
             markers = undefined;
             anchorRanges.clear();
@@ -1177,6 +1202,46 @@
                     });
                 }
               }
+              if (quiet && !batch.some((item) => item.id === quiet.id)) {
+                const range = quoteRange(map, quiet.selector, deadline);
+                const box = range?.getBoundingClientRect();
+                if (range && box.width && box.height) {
+                  quietEntry = { id: quiet.id, range };
+                  resolved.push(quiet.id);
+                  const top = Math.max(0, box.top + scrollY);
+                  const tail = [...range.getClientRects()]
+                    .filter((rect) => rect.width && rect.height)
+                    .at(-1);
+                  if (Number.isFinite(top) && top <= 1000000 && tail)
+                    positions.push({
+                      id: quiet.id,
+                      top,
+                      rect: {
+                        x: tail.left + scrollX,
+                        y: tail.top + scrollY,
+                        width: tail.width,
+                        height: tail.height,
+                      },
+                    });
+                  if (typeof Highlight === 'function' && CSS.highlights) {
+                    CSS.highlights.set('colab-quiet', new Highlight(range));
+                  } else {
+                    quietLayer = document.createElement('div');
+                    quietLayer.dataset.colabHighlight = '';
+                    quietLayer.style.cssText =
+                      'position:absolute;top:0;left:0;pointer-events:none;z-index:-1';
+                    document.body.append(quietLayer);
+                    const origin = quietLayer.getBoundingClientRect();
+                    let rectangles = 0;
+                    for (const rect of range.getClientRects()) {
+                      if (++rectangles > 2048) throw new Error('highlight budget');
+                      const mark = document.createElement('div');
+                      mark.style.cssText = `position:absolute;pointer-events:none;border-bottom:1px dashed ${accentTint(45)};left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
+                      quietLayer.append(mark);
+                    }
+                  }
+                }
+              }
               if (ranges.length && typeof Highlight === 'function' && CSS.highlights) {
                 CSS.highlights.set('colab-comments', new Highlight(...ranges));
               } else if (ranges.length) {
@@ -1192,7 +1257,7 @@
                     if (++rectangles > 2048) throw new Error('highlight budget');
                     const mark = document.createElement('div');
                     mark.dataset.thread = id;
-                    mark.style.cssText = `position:absolute;pointer-events:none;text-decoration-skip-ink:none;background:var(--tmt-ui-surface-annotation-highlight);border-bottom:1px solid var(--tmt-ui-color-annotation-rule);left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
+                    mark.style.cssText = `position:absolute;pointer-events:none;text-decoration-skip-ink:none;background:${accentTint(14)};border-bottom:1px solid ${accentTint(45)};left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
                     layer.append(mark);
                   }
               }
@@ -1615,17 +1680,19 @@
               v.renderId === renderId &&
               v.requestId === requestId &&
               typeof v.id === 'string' &&
-              anchorRanges.has(v.id)
+              (anchorRanges.has(v.id) || quietEntry?.id === v.id)
             ) {
               if (innerScroll)
-                anchorRanges.get(v.id).range.startContainer.parentElement?.scrollIntoView();
+                (
+                  anchorRanges.get(v.id) ?? quietEntry
+                ).range.startContainer.parentElement?.scrollIntoView();
               return;
             }
             if (
               !v ||
               typeof v !== 'object' ||
               Array.isArray(v) ||
-              Object.keys(v).length !== 6 ||
+              Object.keys(v).length !== 7 ||
               v.type !== 'colab.render.highlight' ||
               v.renderId !== renderId ||
               typeof v.requestId !== 'string' ||
@@ -1634,7 +1701,8 @@
               v.anchors.length > 1000 ||
               !Number.isSafeInteger(v.threadCount) ||
               v.threadCount < 0 ||
-              !(v.draft === null || validQuote(v.draft))
+              !(v.draft === null || validQuote(v.draft)) ||
+              !(v.quiet === null || validQuietAnchor(v.quiet))
             )
               return;
             if (utf8.encode(JSON.stringify(v)).length > 256 * 1024) return;
@@ -1642,6 +1710,7 @@
             clearTarget();
             gesture = undefined;
             batch = [...v.anchors, ...(v.draft ? [{ id: '', selector: v.draft }] : [])];
+            quiet = v.quiet;
             requestId = v.requestId;
             resolve();
           };

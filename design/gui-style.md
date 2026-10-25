@@ -549,13 +549,13 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   selection with no room below; a phone keeps it beside or under the selection, clear of
   the system's selection handles. Shortcut help is accessible through `aria-keyshortcuts`,
   without visible hotkey copy.
-- Annotation ranges use the mint `annotation-highlight` tint and a 1px
-  `annotation-rule` underline, unbroken under descenders (skip-ink off on the highlight), with
-  no rounding or shadow, preserving authored text
-  colour and weight. While the pointer is over one it takes the `-hover` tint and a
-  2px underline, with no outline box. The passage whose thread window is open takes the
-  `-selected` tint and a solid 3px `annotation-rule-selected` underline (hover's is 2px), above
-  hover, and its marker (or the `+n` pill that holds it) wears a 2px ring in that colour, 2px
+- Annotation ranges use one accent at three strengths: a 14% tint and a 1px underline at 45% at
+  rest, unbroken under descenders (skip-ink off on the highlight), with no rounding or shadow,
+  preserving authored text colour and weight. While the pointer is over one it takes a 20% tint and a
+  2px underline, with no outline box. The passage whose thread window or Discussion view is open takes
+  a 28% tint and a solid 2px underline in the full accent (`annotation-rule-selected`), above hover,
+  and a resolved thread open in the Discussion view keeps only a 1px dashed underline at 45%, no tint,
+  and no marker. The open thread's marker (or the `+n` pill that holds it) wears a 2px ring in that colour, 2px
   outside the circle inside the 24px hit area; both return to rest when the window closes. Round number markers stand in the page's right
   marker lane (28px, reserved on every page from its first paint, so the first thread
   moves no text), centred on the passage's last line: a 16px circle inside a 24px hit
@@ -791,12 +791,16 @@ a 1px rule under the view strip, as rows of number, title, quoted passage and
 14px (the compact body token) and the quote and meta take the caption size; the selected view tab uses the shared
 selection tint. Each view has an
 empty state; its header count combines unresolved ordinary threads and undecided unresolved
-proposals. Selecting a row opens that thread's Discussion view in the panel: a status line
-(`Needs you`, `Open discussion` or `Resolved by X`) with `All comments`, the title, the quoted
-passage with its number and a `Show in the page` arrow, the turns, the reply composer and a footer
-rule with `Resolve` or `Reopen`. The reply composer is a four-line field flush with the content
-column, with one row under it: the note (`Attached to this sentence · Posts as a comment.`) at the
-start and the primary `Reply` (the paper plane, then the word) at the end.
+proposals. Selecting a row opens that thread's Discussion view in the panel. Its header reads
+`Discussion`, the position (`n / m`, a quiet text button named `All comments` that returns to the
+list), the previous and next thread arrows (creation order, disabled at the ends), a small secondary
+`Resolve` (`Reopen` when resolved; in the 286px column its mark alone, named by its tooltip) and Close.
+Under it: one quiet line only when it says something (`◆ Needs you` or `Resolved by X`), the thread's
+title, which is its passage (the number badge at 18px and the quoted text, at most three lines under a
+2px accent rule; activating it, named `Show in the page`, scrolls the page to the passage), the turns
+(the first at the size of any other, the agent's mentions as the same chip as the composer, one quiet
+delivery line, `Retry` only on failure), and the shared reply composer. There is no footer. A resolved
+thread's badge is grey.
 
 The [Colab proposal contract](../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns decision states, placement, admission and failure behavior. Page HTML

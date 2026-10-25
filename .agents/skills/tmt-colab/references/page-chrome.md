@@ -351,7 +351,12 @@ card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and
 75dvh) float over the page; the floating page controls move left of a card and above a sheet. Escape
 closes the panel only from inside it (a Discussion view steps back to the list first); on the page it
 falls through to the annotation window and selection mode. `Show in the page` scrolls to the passage
-and leaves the panel open. The panel mounts only while open; a thread opens at its latest message, and a
+and leaves the panel open. The Discussion view's header holds the position (`n / m`, a text button named
+`All comments` that returns to the list), the previous and next thread arrows (creation order) and
+Resolve or Reopen; the router owns the first two and a slot in the header (`headerActions`), the thread
+window draws Resolve into it (`headerSlot`) so its busy fence and failure line stay with the thread. A
+resolved thread open in the view keeps a dashed `quiet` mark on its passage, the seventh field of the
+highlight request (see the contract), and a mention in its messages is the composer's soft tag. The panel mounts only while open; a thread opens at its latest message, and a
 reader at the end follows new messages while one scrolled up is held.
 
 `agent-status-panel.tsx` presents the canonical read-only `LiveAsk` observation

@@ -494,10 +494,14 @@ for (const width of [1440, 390]) {
       expect(frameText).not.toContain('Exact unsent draft');
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reopened.png` });
       const state = page.getByTestId('discussion-state');
-      await discussion.getByRole('button', { name: 'Resolve', exact: true }).click();
+      // Resolve stands in the panel's header; an open thread has no state line.
+      const headerActions = page.locator(
+        '.tmt-ui-panel[data-panel="comments"]:not([hidden]) .tmt-ui-drawer-header-actions',
+      );
+      await headerActions.getByRole('button', { name: 'Resolve', exact: true }).click();
       await expect(state).toContainText(text.threadResolved);
-      await discussion.getByRole('button', { name: text.threadReopen, exact: true }).click();
-      await expect(state).toHaveText(text.discussionOpen);
+      await headerActions.getByRole('button', { name: text.threadReopen, exact: true }).click();
+      await expect(state).toHaveCount(0);
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });
   }
