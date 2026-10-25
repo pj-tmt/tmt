@@ -400,7 +400,10 @@ pub(crate) fn capture_before_digest(
         &turn,
         TurnMode::BeforeDigest,
         activity.as_ref(),
-        deadline,
+        Run {
+            deadline,
+            learning: None,
+        },
     )?;
     result.workspace.is_some().then_some(()).ok_or(())
 }
