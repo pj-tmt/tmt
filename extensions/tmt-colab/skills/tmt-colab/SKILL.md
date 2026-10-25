@@ -38,8 +38,6 @@ Ask with registered `tmt-question`, never prose; follow [questions](references/q
 </div>
 ```
 
-A fresh UUID per `data-id`; rules under Ask and flag.
-
 ## Set up a page
 
 Check `--help` for both extensions; install only with user consent:
