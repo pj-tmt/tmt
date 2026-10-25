@@ -312,6 +312,8 @@
 /* The current module's pages, nested under it. */
 .tmt-ui-rail-sub {
   display: grid;
+  /* Keep long names inside the rail instead of giving the nested grid a content-sized track. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   /* Ben direct: text starts 8px past the parent icon, independent of its label. */
   margin: var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-s)
@@ -323,6 +325,7 @@
 }
 .tmt-ui-rail-sub-items {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin: 0;
   /* Ben direct: one more indent for named groups, retaining the counts' right edge. */

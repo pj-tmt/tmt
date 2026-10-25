@@ -1541,16 +1541,20 @@ for (const width of [1440, 390, 320])
       const inside = () =>
         page.evaluate(() => {
           const viewport = document.documentElement.clientWidth;
-          const crumb = [
+          const current = [
             ...document.querySelectorAll(
               '#list-fixture .tmt-ui-rail-sub-item[aria-current="page"], #list-fixture .tmt-ui-module-menu a[aria-current="page"]',
             ),
-          ]
-            .find((node) => (node as HTMLElement).offsetParent !== null)!
-            .getBoundingClientRect();
+          ].find((node) => (node as HTMLElement).offsetParent !== null)!;
+          const crumb = current.getBoundingClientRect();
+          const rail = current.closest<HTMLElement>('.tmt-ui-rail');
+          const bounds = rail?.getBoundingClientRect();
           return {
             scroll: document.documentElement.scrollWidth - viewport,
-            crumbInside: crumb.left >= -0.5 && crumb.right <= viewport + 0.5,
+            crumbInside:
+              crumb.left >= Math.max(0, bounds?.left ?? 0) - 0.5 &&
+              crumb.right <= Math.min(viewport, bounds?.right ?? viewport) + 0.5,
+            railOverflow: rail ? rail.scrollWidth - rail.clientWidth : 0,
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
@@ -1568,7 +1572,7 @@ for (const width of [1440, 390, 320])
         expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
         await row.click();
         await expect(scopeTrigger(page, long)).toBeVisible();
-        expect(await inside()).toEqual({ scroll: 0, crumbInside: true });
+        expect(await inside()).toEqual({ scroll: 0, crumbInside: true, railOverflow: 0 });
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
         // A heading too narrow for the crumb and the title leaves the crumb out; the title stays.
         const crumb = app(page).locator('.colab-scope-crumb', { hasText: long });
