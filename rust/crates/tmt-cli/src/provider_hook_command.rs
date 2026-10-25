@@ -196,14 +196,17 @@ fn observe_turn(
     // An interrupted turn ends activity only: no usage, consumption source or
     // final answer is read or captured for it.
     let activity_only = activity_only || turn.interrupted;
-    // A launch's activity-only observer may coexist with a subsequently installed
-    // answer observer. Whichever settles Stop first must retain its supplied final
-    // when capture is installed; this does not enable usage or transcript reads.
-    let capture_on = !turn.interrupted
-        && (mode != TurnMode::ActivityOnly
-            || tmt_adapters::drivers::Registry::builtin()
-                .find(provider)
-                .is_some_and(tmt_adapters::setup::stop_hook_installed));
+    // An installed answer observer owns Stop. A launch-only activity observer
+    // must not race it to Idle or append a duplicate continued final. Digest
+    // captures ordinary Stop before blocking; its decoder excludes continuations.
+    if mode == TurnMode::ActivityOnly
+        && tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::stop_hook_installed)
+    {
+        return Ok(Observation::default());
+    }
+    let capture_on = !activity_only;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return unsupported_host(run);

@@ -99,10 +99,6 @@ impl World {
         request
     }
     fn end(&mut self, text: &str, continued: bool) {
-        if continued {
-            // A real delivered Stop checklist is the continuation authority.
-            self.storage.connection().unwrap().execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,opportunity,state,created_at_ms) VALUES('continued',?1,'continued-token',1,'turn_boundary','delivered',?2)",params![self.agent,self.now as i64]).unwrap();
-        }
         let lifecycle = crate::drivers::claude::ClaudeLifecycle;
         let payload = serde_json::json!({"hook_event_name":"Stop","session_id":"fixture-session","stop_hook_active":continued,"last_assistant_message":text});
         let payload = payload.to_string();

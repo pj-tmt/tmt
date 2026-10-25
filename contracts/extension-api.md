@@ -206,7 +206,7 @@ compatible. [Shared vectors](recent-responses-v1.json) pin bounds, ordering, exp
       "inputBatchId": "<opaque batch id>",
       "kind": "input",
       "requestId": "<original request/item id>",
-      "sender": {"identityId": "<UUID>", "name": "core-1"},
+      "sender": { "identityId": "<UUID>", "name": "core-1" },
       "delivery": "delivered",
       "availability": "retained",
       "text": "the original input",
@@ -224,20 +224,22 @@ compatible. [Shared vectors](recent-responses-v1.json) pin bounds, ordering, exp
       "entryId": "<opaque committed entry key>",
       "inputBatchId": "<same batch>",
       "kind": "failure",
-      "failure": {"code": "budget_timeout", "nextStep": "See the agent's pane."}
+      "failure": { "code": "budget_timeout", "nextStep": "See the agent's pane." }
     }
   ],
-  "responses": [{
-    "responseId": "<immutable retained final id>",
-    "inputBatchId": "<same batch>",
-    "text": "A",
-    "endedMs": 1,
-    "provider": "claude",
-    "truncated": false,
-    "originalBytes": 1
-  }],
-  "coverage": {"olderDropped": false},
-  "capture": {"enabled": true},
+  "responses": [
+    {
+      "responseId": "<immutable retained final id>",
+      "inputBatchId": "<same batch>",
+      "text": "A",
+      "endedMs": 1,
+      "provider": "claude",
+      "truncated": false,
+      "originalBytes": 1
+    }
+  ],
+  "coverage": { "olderDropped": false },
+  "capture": { "enabled": true },
   "nextBefore": "<opaque cursor when an older entry exists>"
 }
 ```
@@ -251,13 +253,12 @@ compatible. [Shared vectors](recent-responses-v1.json) pin bounds, ordering, exp
 - `coverage`/`capture` retain their existing explicit incomplete-history and capture-off meanings. The page contains at most 50 entries and at most 50 referenced final bodies; every inline body has the 16 KiB projection cap. Stored links follow existing request/response retention and scrubbing. No past timeline is manufactured from timestamps for legacy data; legacy finals remain readable as unbatched finals.
 - Captured-send projections also gain optional `inputBatchId`; the existing `answer.responseId`, first-answer copy, and recent-final `requestId` are unchanged. A is Ben's first answer. The incident's committed entry order is Ben input, A, `from core-1` Digest input, B.
 
-
 For painted-answer acknowledgement, every `kind: "final"` or `kind: "reply"` timeline entry gains:
 
 ```json
 {
   "acknowledgements": [
-    {"identityId": "<originator UUID>", "requestId": "<request id>", "revision": 7}
+    { "identityId": "<originator UUID>", "requestId": "<request id>", "revision": 7 }
   ],
   "acknowledgementsTruncated": false
 }
@@ -268,7 +269,6 @@ For painted-answer acknowledgement, every `kind: "final"` or `kind: "reply"` tim
 - Ops acknowledges only the viewer's keys for **painted reply bodies**, through the existing `requests.ack` batches of at most 50. A conflict stays unread. The existing explicit **Mark read** flow covers any extra keys when truncated; painting must not claim those unseen keys were acknowledged.
 - Attribution prefers these explicit keys. Only when the array is empty may Ops use the same-batch preceding input group for muted sender attribution; page-start without that context stays normal/unattributed. This is the agreed display rule, not a Core inference from time or content.
 - Input `sender.identityId` equal to the viewer is normal; another sender is muted `from <name>`; `{}` means `from unknown sender`. `delivery: "uncertain"` renders `◌ delivery uncertain`. Local pending sends reconcile by requestId only once a timeline input exists.
-
 
 ## Pane screen
 

@@ -84,21 +84,6 @@ impl Storage {
             {
                 return Ok(false);
             }
-            // Claude repeats its continued Stop payload to both installed hooks.
-            // Only an outstanding delivered Digest continuation authorizes a
-            // second end of an idle turn; the first capture consumes that fact.
-            if capture.activity.event.kind == EventKind::ContinuationEnded
-                && remembered
-                    .state
-                    .as_ref()
-                    .and_then(driver_state::state_activity)
-                    .is_some_and(|activity| {
-                        activity.phase == tmt_core::binding::session::activity::ActivityPhase::Idle
-                    })
-                && !super::super::requests::digest_continuation_open(db, &binding.identity_id)?
-            {
-                return Ok(true);
-            }
             let Some(next) = driver_state::after_activity(
                 remembered.state.as_ref(),
                 &remembered.provider_session,

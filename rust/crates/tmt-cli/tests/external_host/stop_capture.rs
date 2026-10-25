@@ -133,6 +133,17 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
         second["stop_hook_active"] = true.into();
         second["last_assistant_message"] = "B: answer to core-1".into();
         ok(provider.digest_hook(second.clone()));
+        if activity_only {
+            fs::write(
+                provider
+                    .steps
+                    .join(provider.next.to_string())
+                    .with_extension("activity"),
+                "",
+            )
+            .unwrap();
+            ok(provider.hook(second.clone()));
+        }
         ok(provider.hook(second));
         let timeline = passthrough::api(
             &fixture,
