@@ -51,6 +51,8 @@ pub enum OwnerAction<'a> {
     Create {
         creator: Option<&'a serde_json::Value>,
         template: Option<&'a str>,
+        /// The page of the user template `template` names; `None` for a compiled one.
+        template_page: Option<&'a str>,
         page: &'a str,
         title: &'a str,
         source: &'a str,
@@ -195,6 +197,7 @@ impl Engine {
             OwnerAction::Create {
                 creator,
                 template,
+                template_page,
                 page,
                 title,
                 source,
@@ -208,6 +211,7 @@ impl Engine {
                 super::create::Selection {
                     creator,
                     template,
+                    template_page,
                     page,
                     title,
                     source,
@@ -233,6 +237,7 @@ impl Engine {
                     source: "",
                     creator: None,
                     template: None,
+                    template_page: None,
                     publisher_agent,
                     creation_recipient,
                     layout: None,

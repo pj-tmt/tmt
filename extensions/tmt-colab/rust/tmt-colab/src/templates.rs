@@ -125,8 +125,8 @@ const AGENT_BLOCKS: [&str; 3] = ["tmt-question", "tmt-review", "tmt-read"];
 /// parsed again with the page checker: `None` unless every block it admits names the creator and
 /// the question IDs are the source's own, in order, so a block this scan cannot locate refuses the
 /// copy instead of registering something unverified.
-pub fn rewrite_question_agents(source: &str, creator: &str) -> Option<String> {
-    let escaped = escape_attribute(creator);
+pub fn rewrite_question_agents(source: &str, creator: Option<&str>) -> Option<String> {
+    let escaped = creator.map(escape_attribute);
     let before = crate::page_check::check(source).ok()?;
     let mut rewritten = String::with_capacity(source.len() + 64);
     let mut rest = source;
@@ -153,7 +153,11 @@ pub fn rewrite_question_agents(source: &str, creator: &str) -> Option<String> {
             continue;
         }
         let end = tag_end(rest)?;
-        rewritten.push_str(&rewrite_tag(&rest[..end], 1 + name_len, &escaped)?);
+        rewritten.push_str(&rewrite_tag(
+            &rest[..end],
+            1 + name_len,
+            escaped.as_deref(),
+        )?);
         rest = &rest[end..];
         tags += 1;
     }
@@ -175,7 +179,9 @@ pub fn rewrite_question_agents(source: &str, creator: &str) -> Option<String> {
     let admitted = after.question_sources.len() + after.reviews.len() + after.readings.len();
     (ids(&before) == ids(&after)
         && admitted <= tags
-        && named.into_iter().all(|agent| agent == creator))
+        && named
+            .into_iter()
+            .all(|agent| agent == creator.unwrap_or_default()))
     .then_some(rewritten)
 }
 
@@ -203,21 +209,26 @@ fn tag_end(tag: &str) -> Option<usize> {
 }
 
 /// `tag` with its first `data-agent` attribute set to `value` (already escaped), or added after the
-/// tag name when it has none. `name_end` is the byte length of `<` and the name.
-fn rewrite_tag(tag: &str, name_end: usize, value: &str) -> Option<String> {
+/// tag name when it has none; without a `value` the attribute is removed (a block with no agent is
+/// unassigned). `name_end` is the byte length of `<` and the name.
+fn rewrite_tag(tag: &str, name_end: usize, value: Option<&str>) -> Option<String> {
     let bytes = tag.as_bytes();
     let blank = |at: usize| bytes.get(at).is_some_and(u8::is_ascii_whitespace);
     let mut at = name_end;
     loop {
+        let whitespace = at;
         while blank(at) || bytes.get(at) == Some(&b'/') {
             at += 1;
         }
         if at >= bytes.len() || bytes[at] == b'>' {
-            return Some(format!(
-                "{} data-agent=\"{value}\"{}",
-                &tag[..name_end],
-                &tag[name_end..]
-            ));
+            return Some(match value {
+                Some(value) => format!(
+                    "{} data-agent=\"{value}\"{}",
+                    &tag[..name_end],
+                    &tag[name_end..]
+                ),
+                None => tag.to_owned(),
+            });
         }
         let name_start = at;
         while at < bytes.len() && !blank(at) && !matches!(bytes[at], b'=' | b'/' | b'>') {
@@ -249,19 +260,24 @@ fn rewrite_tag(tag: &str, name_end: usize, value: &str) -> Option<String> {
             range = Some((start, at));
         }
         if name.eq_ignore_ascii_case("data-agent") {
-            return Some(match range {
-                Some((start, end)) => {
+            return Some(match (value, range) {
+                (Some(value), Some((start, end))) => {
                     format!("{}\"{value}\"{}", &tag[..start], &tag[end..])
                 }
-                None => format!("{}=\"{value}\"{}", &tag[..after_name], &tag[after_name..]),
+                (Some(value), None) => {
+                    format!("{}=\"{value}\"{}", &tag[..after_name], &tag[after_name..])
+                }
+                (None, Some((_, end))) => format!("{}{}", &tag[..whitespace], &tag[end..]),
+                (None, None) => format!("{}{}", &tag[..whitespace], &tag[after_name..]),
             });
         }
     }
 }
 
 /// Whether `source` is exactly what a user template's page `template_source` gives a new page
-/// created by `creator`: the same bytes with only the agents of its blocks rewritten.
-pub fn admits_user(template_source: &str, source: &str, creator: &str) -> bool {
+/// created by `creator` (none for an anonymous page): the same bytes with only the agents of its
+/// blocks rewritten.
+pub fn admits_user(template_source: &str, source: &str, creator: Option<&str>) -> bool {
     rewrite_question_agents(template_source, creator).as_deref() == Some(source)
 }
 
@@ -352,13 +368,13 @@ mod tests {
     fn every_agent_block_names_the_creator_and_everything_else_is_kept() {
         let comment = "<!-- <tmt-question data-agent=\"kept\"> -->\n";
         let source = format!("{comment}{QUESTION}");
-        let rewritten = rewrite_question_agents(&source, "a & \"b\"").unwrap();
+        let rewritten = rewrite_question_agents(&source, Some("a & \"b\"")).unwrap();
         assert!(rewritten.starts_with(comment));
         assert_eq!(agents(&rewritten), ["a & \"b\""]);
         assert!(rewritten.contains("DATA-AGENT=\"a &amp; &quot;b&quot;\""));
         // Rewriting what is already rewritten changes nothing.
         assert_eq!(
-            rewrite_question_agents(&rewritten, "a & \"b\"").unwrap(),
+            rewrite_question_agents(&rewritten, Some("a & \"b\"")).unwrap(),
             rewritten
         );
     }
@@ -368,16 +384,16 @@ mod tests {
         let none = QUESTION.replace(" DATA-AGENT='old'", "");
         assert_eq!(agents(&none), [""]);
         assert_eq!(
-            agents(&rewrite_question_agents(&none, "new").unwrap()),
+            agents(&rewrite_question_agents(&none, Some("new")).unwrap()),
             ["new"]
         );
         let bare = QUESTION.replace("'old'", "old");
-        let rewritten = rewrite_question_agents(&bare, "new").unwrap();
+        let rewritten = rewrite_question_agents(&bare, Some("new")).unwrap();
         assert!(rewritten.contains("DATA-AGENT=\"new\">"));
         assert_eq!(agents(&rewritten), ["new"]);
         let valueless = QUESTION.replace("DATA-AGENT='old'", "data-agent");
         assert_eq!(
-            agents(&rewrite_question_agents(&valueless, "new").unwrap()),
+            agents(&rewrite_question_agents(&valueless, Some("new")).unwrap()),
             ["new"]
         );
     }
@@ -385,7 +401,7 @@ mod tests {
     #[test]
     fn a_tag_that_never_closes_is_refused() {
         assert_eq!(
-            rewrite_question_agents("<tmt-question data-id=\"x\"", "new"),
+            rewrite_question_agents("<tmt-question data-id=\"x\"", Some("new")),
             None
         );
     }
@@ -397,7 +413,7 @@ mod tests {
             let old = creator_source(&rendered, "old");
             let new = creator_source(&rendered, "new");
             assert_eq!(
-                rewrite_question_agents(&old, "new").as_deref(),
+                rewrite_question_agents(&old, Some("new")).as_deref(),
                 Some(new.as_str()),
                 "{}",
                 template.name
@@ -408,14 +424,46 @@ mod tests {
     #[test]
     fn a_new_page_is_admitted_only_as_the_rewritten_template() {
         let template = format!("<p>Notes</p>\n{QUESTION}");
-        let page = rewrite_question_agents(&template, "ada").unwrap();
-        assert!(admits_user(&template, &page, "ada"));
-        assert!(!admits_user(&template, &page, "grace"));
+        let page = rewrite_question_agents(&template, Some("ada")).unwrap();
+        assert!(admits_user(&template, &page, Some("ada")));
+        assert!(!admits_user(&template, &page, Some("grace")));
         assert!(!admits_user(
             &template,
             &(page.clone() + "<p>more</p>"),
-            "ada"
+            Some("ada")
         ));
-        assert!(!admits_user(&template, &template, "ada"));
+        assert!(!admits_user(&template, &template, Some("ada")));
+    }
+
+    #[test]
+    fn an_anonymous_copy_has_no_agent_on_any_block_and_nothing_else_changes() {
+        let source = format!("<p>Intro</p>\n{QUESTION}");
+        let rewritten = rewrite_question_agents(&source, None).unwrap();
+        assert!(
+            !rewritten.to_ascii_lowercase().contains("data-agent"),
+            "{rewritten}"
+        );
+        assert_eq!(rewritten, source.replace(" DATA-AGENT='old'", ""));
+        assert_eq!(agents(&rewritten), [""]);
+        // Quoted and bare values go too, and a block that never had one is left as it is.
+        let bare = QUESTION.replace("'old'", "old");
+        assert!(
+            !rewrite_question_agents(&bare, None)
+                .unwrap()
+                .contains("old")
+        );
+        let valueless = QUESTION.replace("DATA-AGENT='old'", "data-agent");
+        assert!(
+            !rewrite_question_agents(&valueless, None)
+                .unwrap()
+                .to_ascii_lowercase()
+                .contains("data-agent")
+        );
+        let none = QUESTION.replace(" DATA-AGENT='old'", "");
+        assert_eq!(rewrite_question_agents(&none, None).unwrap(), none);
+        let page = rewrite_question_agents(&source, None).unwrap();
+        assert!(admits_user(&source, &page, None));
+        assert!(!admits_user(&source, &page, Some("ada")));
+        assert!(!admits_user(&source, &source, None));
     }
 }

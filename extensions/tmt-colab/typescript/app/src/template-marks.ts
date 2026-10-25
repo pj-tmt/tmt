@@ -21,7 +21,7 @@ export interface TemplateMark {
 }
 export interface TemplateSource {
   name: string;
-  /** The template page's revision as an unsigned decimal string; a user template only. */
+  /** The template page's revision token (`v1:` and 64 lowercase hex digits); a user template only. */
   revision?: string;
 }
 
@@ -44,5 +44,5 @@ export function validateTemplateSource(value: unknown): asserts value is Templat
   const source = keys(value, ['name'], ['revision']);
   requireValue(validName(source.name));
   if (Object.hasOwn(source, 'revision'))
-    requireValue(typeof source.revision === 'string' && /^(0|[1-9][0-9]{0,14})$/.test(source.revision));
+    requireValue(typeof source.revision === 'string' && /^v1:[0-9a-f]{64}$/.test(source.revision));
 }

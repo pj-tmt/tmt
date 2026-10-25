@@ -223,9 +223,7 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  if (
-    ['creator', 'questions', 'template', 'fromTemplate'].some((key) => Object.hasOwn(value, key))
-  )
+  if (['creator', 'questions', 'template', 'fromTemplate'].some((key) => Object.hasOwn(value, key)))
     requireValue(!Object.hasOwn(value, 'pageType') && !Object.hasOwn(value, 'shell'));
   if (Object.hasOwn(value, 'template')) validateTemplateMark((value as Projection).template);
   if (Object.hasOwn(value, 'fromTemplate'))

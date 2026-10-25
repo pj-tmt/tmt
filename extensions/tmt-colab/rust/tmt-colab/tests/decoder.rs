@@ -381,10 +381,7 @@ fn template_marks_survive_baselines_and_edits_and_the_mark_is_set_and_cleared_by
                 },
                 None,
             );
-            prepared.map(|prepared| {
-                gone(prepared.child_pid);
-                prepared
-            })
+            prepared.inspect(|prepared| gone(prepared.child_pid))
         };
     // Marking the page publishes one update and leaves the source and the origin alone.
     let mark = serde_json::json!({"name":"weekly-review","description":"Shipped, open"});
@@ -2600,6 +2597,8 @@ fn prepared_edit(decoder: &mut Decoder, old: &str, new: &str) -> (Vec<u8>, Vec<V
         .produce_baseline(
             BaselineInput {
                 work: None,
+                template: None,
+                from_template: None,
                 layout: None,
                 original_author: None,
                 attachments: None,

@@ -21,7 +21,7 @@ progress, who and sign-off; the work-in-progress limit is an admission rule and 
 validator and the browser fold validator. The cases pin the name grammar and its 40-character
 edge, the six reserved built-in names, the 200-byte description in ASCII and multibyte text, the
 trimmed-line rule (white space and the byte order mark at either end), control characters, the
-exact member sets, and the decimal revision at its 15-digit edge. Uniqueness of a name in a space
+exact member sets, and the page revision token (version prefix, 64 lowercase hex digits). Uniqueness of a name in a space
 is not a property of one value and appears in none.
 
 `attachment-reference.py` independently frames descriptors/manifests, freezes

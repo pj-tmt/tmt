@@ -339,43 +339,61 @@
       "kind": "fromTemplate",
       "value": {
         "name": "weekly-review",
-        "revision": "130"
+        "revision": "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       },
       "valid": true
     },
     {
-      "name": "revision zero",
+      "name": "revision of another version",
       "kind": "fromTemplate",
       "value": {
         "name": "weekly-review",
-        "revision": "0"
-      },
-      "valid": true
-    },
-    {
-      "name": "revision of 15 digits",
-      "kind": "fromTemplate",
-      "value": {
-        "name": "weekly-review",
-        "revision": "111111111111111"
-      },
-      "valid": true
-    },
-    {
-      "name": "revision of 16 digits",
-      "kind": "fromTemplate",
-      "value": {
-        "name": "weekly-review",
-        "revision": "1111111111111111"
+        "revision": "v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       },
       "valid": false
     },
     {
-      "name": "revision with a leading zero",
+      "name": "revision without its prefix",
       "kind": "fromTemplate",
       "value": {
         "name": "weekly-review",
-        "revision": "013"
+        "revision": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "valid": false
+    },
+    {
+      "name": "revision with uppercase hex",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v1:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
+      },
+      "valid": false
+    },
+    {
+      "name": "revision one digit short",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde"
+      },
+      "valid": false
+    },
+    {
+      "name": "revision one digit long",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0"
+      },
+      "valid": false
+    },
+    {
+      "name": "decimal revision",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "130"
       },
       "valid": false
     },
@@ -407,20 +425,11 @@
       "valid": false
     },
     {
-      "name": "signed revision",
-      "kind": "fromTemplate",
-      "value": {
-        "name": "weekly-review",
-        "revision": "-1"
-      },
-      "valid": false
-    },
-    {
       "name": "revision with a space",
       "kind": "fromTemplate",
       "value": {
         "name": "weekly-review",
-        "revision": "1 "
+        "revision": "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef "
       },
       "valid": false
     },

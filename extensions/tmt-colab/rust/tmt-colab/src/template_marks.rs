@@ -13,8 +13,9 @@ pub const BUILT_IN: [&str; 6] = ["starter", "report", "review", "compare", "boar
 pub const NAME_CHARS: usize = 40;
 /// The longest description, in UTF-8 bytes.
 pub const DESCRIPTION_BYTES: usize = 200;
-/// The longest revision, in decimal digits: a revision is a count and stays an exact integer.
-const REVISION_DIGITS: usize = 15;
+/// A page revision token starts with its version and carries a SHA-256 digest as lowercase hex.
+const REVISION_PREFIX: &str = "v1:";
+const REVISION_HEX: usize = 64;
 
 /// A template name: 1 to 40 characters of `a-z`, `0-9` and `-`.
 pub fn valid_name(name: &str) -> bool {
@@ -36,11 +37,24 @@ pub fn valid_description(description: &str) -> bool {
         && !description.chars().any(char::is_control)
 }
 
-/// A page revision as the contract writes it: an unsigned decimal string without a leading zero.
+/// A template revision (`revision_of`): `v1:` and 64 lowercase hex digits.
 pub fn valid_revision(revision: &str) -> bool {
-    (1..=REVISION_DIGITS).contains(&revision.len())
-        && revision.bytes().all(|b| b.is_ascii_digit())
-        && (revision == "0" || !revision.starts_with('0'))
+    revision.strip_prefix(REVISION_PREFIX).is_some_and(|hex| {
+        hex.len() == REVISION_HEX && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
+}
+
+/// The revision a page created from a user template records: `v1:` and the lowercase hex SHA-256 of
+/// the template's source as copied. A page's own revision token moves with every change anywhere in
+/// the space, so it cannot say whether a template changed; the digest of the copied content does,
+/// and `template show` prints the template's current one to compare.
+pub fn revision_of(source: &str) -> String {
+    let digest = tmt_colab_model::crypto::digest(source.as_bytes());
+    let mut revision = String::from(REVISION_PREFIX);
+    for byte in digest {
+        revision.push_str(&format!("{byte:02x}"));
+    }
+    revision
 }
 
 /// `meta.template`: exactly `{name, description}`, the name not a built-in one.
@@ -172,27 +186,39 @@ mod tests {
         );
     }
 
+    const REVISION: &str = "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     #[test]
-    fn a_source_is_a_name_and_for_a_user_template_a_decimal_revision() {
+    fn a_source_is_a_name_and_for_a_user_template_a_page_revision() {
         for good in [
             json!({"name": "report"}),
-            json!({"name": "weekly-review", "revision": "0"}),
-            json!({"name": "weekly-review", "revision": "130"}),
+            json!({"name": "weekly-review", "revision": REVISION}),
         ] {
             assert!(validate_from(&good).is_ok(), "{good}");
         }
         for bad in [
             json!({}),
             json!({"name": "weekly-review", "revision": 130}),
-            json!({"name": "weekly-review", "revision": "013"}),
+            json!({"name": "weekly-review", "revision": "130"}),
             json!({"name": "weekly-review", "revision": ""}),
-            json!({"name": "weekly-review", "revision": "1".repeat(16)}),
+            json!({"name": "weekly-review", "revision": &REVISION[3..]}),
+            json!({"name": "weekly-review", "revision": REVISION.to_uppercase()}),
+            json!({"name": "weekly-review", "revision": format!("{REVISION}0")}),
+            json!({"name": "weekly-review", "revision": format!("v2:{}", &REVISION[3..])}),
             json!({"name": "weekly-review", "revision": null}),
             json!({"name": "weekly-review", "other": "x"}),
             json!({"name": "Weekly"}),
         ] {
             assert!(validate_from(&bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_revision_is_the_digest_of_the_copied_source_and_follows_the_grammar() {
+        let revision = revision_of("<p>Weekly</p>");
+        assert!(valid_revision(&revision), "{revision}");
+        assert_eq!(revision, revision_of("<p>Weekly</p>"));
+        assert_ne!(revision, revision_of("<p>Weekly </p>"));
     }
 
     #[test]
@@ -223,8 +249,11 @@ mod tests {
     fn the_source_of_a_page_reads_back_with_or_without_a_revision() {
         let meta = json!({"fromTemplate": {"name": "report"}});
         assert_eq!(source_of_meta(&meta), Some(("report", None)));
-        let meta = json!({"fromTemplate": {"name": "weekly-review", "revision": "7"}});
-        assert_eq!(source_of_meta(&meta), Some(("weekly-review", Some("7"))));
+        let meta = json!({"fromTemplate": {"name": "weekly-review", "revision": REVISION}});
+        assert_eq!(
+            source_of_meta(&meta),
+            Some(("weekly-review", Some(REVISION)))
+        );
         assert_eq!(source_of_meta(&json!({})), None);
     }
 

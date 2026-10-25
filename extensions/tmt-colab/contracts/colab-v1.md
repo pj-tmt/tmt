@@ -1029,10 +1029,10 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                                                                                                                                                                                             | Fold and authority                                                                   |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Namespace | Roots                                                                                                                                                                                                                                                                         | Fold and authority                                                                   |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `template`, `fromTemplate`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                | Separate document per writer; only that writer's signed stream mutates it            |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                                            | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
 bytes without control characters. It is a publisher-asserted display-only label,
@@ -1072,11 +1072,14 @@ uniqueness in the space is the owner's check when the mark is set; a fold accept
 
 `meta.fromTemplate`, when present, is exactly `{name}` or `{name, revision}`: where the page was
 created from. `name` follows the same grammar (a built-in name is allowed here) and `revision` is the
-template page's revision as a canonical unsigned decimal string, present only for a user template (a
-built-in has none). It records the source and nothing else: after creation the page is independent of
-the template, and a later change, removal or deletion of the template changes nothing here. A dashboard
+revision of the template's content that was copied (`v1:` and the lowercase hex SHA-256 of its source;
+a page's own revision token moves with every change anywhere in the space, so it cannot say whether a
+template changed, and the digest of the copied content can), present only for a user template (a
+built-in has none). `template show` prints the template's current one to compare. It records the
+source and nothing else: after creation the page is independent of the template, and a later
+change, removal or deletion of the template changes nothing here. A dashboard
 has neither key. Source writes, checkpoints, compaction and epoch baselines preserve both keys in the
-committed update bytes; only `page create --template` sets `fromTemplate`, and only `template save` and
+committed update bytes; only `page create` from a template (named, or the space default) sets `fromTemplate`, and only `template save` and
 `template remove` set or clear `template`. A native or browser projection with a member beyond those
 named, a name outside the grammar, a built-in name in `template`, a description past its bounds or a
 dashboard with either key is rejected.
@@ -1169,8 +1172,14 @@ There is no authored initial-registry input. Built-in `--template` creation inst
 question `data-agent` from the selected creator and registers the template's questions in the
 same create commit. Without a creator, it omits the compiled placeholder agent attributes and
 registers the questions with no agent. The owner checks the source's literal bytes and repeated UUID slots
-against the compiled template; arbitrary source cannot claim that exception. User templates
-remain outside this first-party path.
+against the compiled template; arbitrary source cannot claim that exception. A user template
+(#5066) is the same exception for the page it names: the owner reads that page's folded state in
+the create transaction and admits the new source only as the template's source with the agents of
+its question, review and reading blocks set to the creator (removed when there is none; block IDs are
+kept, an ID being scoped to its page), and it registers the template's registry entries (ID, title,
+group) for the creator, or with no agent when there is none, open, with no task, handled state or
+history. The template must still carry its mark under the name given. A request that names a
+template page without a name or such a page is refused, and nothing is created.
 
 An ordinary comment may carry optional `questionId`, using the same UUID grammar. It is
 immutable across revisions, like its thread reference and Lamport sequence. This is an inert
@@ -5230,7 +5239,7 @@ The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text (the empty string for `page.projects`, `project.manage` and `page.pin`, see [Projects](#projects-3747) and [Pins](#pins-4356))
 and payload is canonical base64url of the same typed JSON.
-The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient`, an optional `creator` selection `{agent,machineId?}` (the owner supplies attribution), optional compiled `template` name and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
+The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient`, an optional `creator` selection `{agent,machineId?}` (the owner supplies attribution), optional `template` name (a compiled template's, or a user template's with `templatePage`, the page that carries that name) and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
 in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
 cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
@@ -5832,23 +5841,71 @@ moved since that revision. The JSON result is the write receipt plus `layout` an
 canvas, `layoutReason`. A page that has no layout (freeform) can be given one this way; there
 is no command that returns a page to freeform.
 
-`tmt colab page create --title <title> --template <name> [--json]` starts from a template instead
-of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and `--file`,
-because the template brings its own layout and source. The catalog is closed and compiled into the
-binary: `report`, `review`, `compare` and `gallery` (layout `column`) and `board` (layout `full`).
-Each source is under 8 KiB and passes the page check with no finding. A card, table and callout is
-the design system's markup (`tmt-ui-card`, `tmt-ui-table`, `tmt-ui-notice`; `gallery` is a copyable
-catalog of the documented subset). It starts from the page-style starter
-(`tmt colab skill page-style`, the `tmt-starter` layer) without that starter's `body` rule, which frames `canvas` and
-`freeform` pages, and adds no width, margin or gap CSS of its own: those stay the frame's
-(`data-width` and `data-gap` are the only declarations it uses). A one-line
-HTML comment before each block names the rule and the `tmt colab skill` topic and section that
-teaches it; the comments are not rendered. Each `{{uuid:NAME}}` placeholder becomes one fresh
-canonical UUID per name on that page, so no two pages share a block ID. The create result adds
-`template` (the human result a `template` row) to the layout fields and `read`. A template page is
-an ordinary page: nothing stored marks it. `tmt colab template ls [--json]` lists the catalog as
-`templates: [{name, layout, summary}]`; it reads no local state and needs no running serve. A
-create without `--layout` or `--template` is refused as above, and the refusal names both.
+`tmt colab page create --title <title> [--template <name|id>] [--json]` starts from a template
+instead of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and
+`--file`, because the template brings its own layout and source. A create that names none of
+`--template`, `--layout`, `--reason` and `--file` starts from the space default template (below);
+one with `--layout` or `--file` and no template keeps its meaning and its refusals.
+
+A template is a compiled one or a page of the space marked with `meta.template` (#5066).
+The compiled catalog is closed and compiled into the binary: `starter`, `report`, `review`,
+`compare` and `gallery` (layout `column`) and `board` (layout `full`); these names are reserved
+and cannot be a user template's. Each source is under 8 KiB and passes the page check with no
+finding. A card, table and callout is the design system's markup (`tmt-ui-card`, `tmt-ui-table`,
+`tmt-ui-notice`; `gallery` is a copyable catalog of the documented subset). It starts from the
+page-style starter (`tmt colab skill page-style`, the `tmt-starter` layer) without that starter's
+`body` rule, which frames `canvas` and `freeform` pages, and adds no width, margin or gap CSS of
+its own: those stay the frame's (`data-width` and `data-gap` are the only declarations it uses). A
+one-line HTML comment before each block names the rule and the `tmt colab skill` topic and section
+that teaches it; the comments are not rendered. Each `{{uuid:NAME}}` placeholder becomes one fresh
+canonical UUID per name on that page, so no two pages share a block ID. A selector (`--template`,
+`template show`, `template default`, `template remove`) is a compiled name, a user template's name,
+or the ID of a template page or a unique prefix of at least 8 characters. Two pages carrying one
+name (a sync race) are refused with both IDs, never chosen between. The create result adds
+`template` (the name as resolved; the human result a `template` row, marked `(space default)` when
+the default chose it), `templateDefault` for that case, and `readFirst` (the commands to run first,
+`tmt colab template show NAME` before the skill topics) to the layout fields and `read`.
+
+A page created from a user template starts with a copy of the template page's current source and
+layout, its question blocks naming the creator and registered for the creator (see the question
+registry above), and `meta.fromTemplate {name, revision}`; it is independent of the template from
+then on. The CLI refuses a template page that names no layout.
+
+The space default is one setting per space (`defaultTemplate` in `settings.json`, kept on the
+machine that creates pages; no per-project default): a user template's page ID, a compiled name, or
+absent for `starter`. A create resolves `--template`, then the default, then `starter`. A default
+whose template is gone (its mark removed, its page deleted) is not a failure: the create starts from
+`starter` and prints `warning:` naming the setting. `template remove` and the CLI `delete` of a
+default template page return the setting to `starter` themselves and report it (`delete` adds
+`templateDefaultReset: true`).
+
+`tmt colab template` commands, each with `--json`:
+
+- `ls` lists `BUILT-IN` and `THIS SPACE` and marks the default; JSON `{default, templates:[{name,
+layout, summary, source: "builtIn"|"space", default, usedBy, id?, author?}]}` (`defaultGone` names a
+  setting that no longer resolves). It reads no state a space does not have: without a space it lists
+  the compiled templates.
+- `show NAME|ID` prints the id, layout, where it comes from, how many pages were created from it and
+  its numbered rules: the HTML comments of its source, in order; JSON adds `rules`, `revision` (the
+  digest above) and `lastUpdateAtMs`.
+- `save PAGE --name NAME [--description TEXT]` writes `meta.template` through a structured
+  `template.set`. The name is 1 to 40 of `a-z0-9-`, not reserved and not another page's template; the
+  description is one trimmed line of at most 200 bytes (the existing one when saving again, else the
+  page title). The page must name a layout, must not be a dashboard and must be register-clean as a write
+  requires. A page already carrying the name is saved again as a rename or a new description.
+- `default [NAME|ID | --reset]` shows, sets or resets the default.
+- `remove NAME|ID` clears the mark through `template.clear`; the page and every page created
+  from it stay as they are. A compiled template cannot be removed.
+
+Every refusal is a `COLAB_TEMPLATE_*` code with a message and a fix printed as `error:` and
+`hint:` (JSON `error.hint`): `UNKNOWN`, `AMBIGUOUS`, `NAME_RESERVED`, `NAME_INVALID`, `NAME_TAKEN`,
+`DESCRIPTION_INVALID`, `BUILT_IN`, `UNSUPPORTED` (a dashboard), `NEEDS_LAYOUT` and `UNREADABLE`
+(question blocks that cannot be copied). The marks of all pages are read through
+`template-index.json` beside the settings: the epoch and content counts of each page, the same
+derived, rebuildable, never signed or synced file `work-index.json` is, so a lookup folds only the
+pages that changed; the page's own fold is what decides. `page read` adds `template` and
+`fromTemplate` when the page has them. A create without `--layout`, `--file` or `--template` uses the
+default instead of being refused.
 
 `show` reports the page's layout from its verified metadata: JSON `layout`
 (`column`, `full`, `canvas`, or `freeform` for a page without the key; `null` when the page's

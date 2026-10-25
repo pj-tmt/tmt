@@ -163,7 +163,12 @@ fn select_observed(
 pub(crate) struct CreateMetadata {
     pub caller: Option<core::CallerSnapshot>,
     pub selected: Option<SelectedAgent>,
+    /// The name of the template the page starts from.
     pub template: Option<String>,
+    /// The page of that template when it is a user template.
+    pub template_page: Option<String>,
+    /// The template was not named: it is the space's default.
+    pub template_default: bool,
 }
 pub(crate) fn creation(args: &ArgMatches, template: Option<&str>) -> Result<CreateMetadata> {
     let caller = core::caller_snapshot();
@@ -200,6 +205,8 @@ pub(crate) fn creation(args: &ArgMatches, template: Option<&str>) -> Result<Crea
         caller,
         selected,
         template: template.map(str::to_owned),
+        template_page: None,
+        template_default: false,
     })
 }
 pub(crate) fn default_creator(caller: Option<&core::CallerSnapshot>) -> Option<SelectedAgent> {
@@ -292,7 +299,7 @@ pub(crate) fn admit_create_file(
     ))
 }
 
-fn now() -> Result<u64> {
+pub(crate) fn now() -> Result<u64> {
     Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)?
         .as_millis()

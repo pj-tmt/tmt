@@ -5,6 +5,8 @@ mod fixture_process;
 #[path = "cli/question_metadata.rs"]
 mod question_metadata;
 mod support;
+#[path = "cli/user_templates.rs"]
+mod user_templates;
 use fixture_process::{FixtureCommand, OwnedChild};
 use nix::{
     errno::Errno,
@@ -5157,6 +5159,7 @@ fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
     assert_eq!(
         templates,
         [
+            ("starter", "column"),
             ("report", "column"),
             ("review", "column"),
             ("compare", "column"),
@@ -5170,7 +5173,12 @@ fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
         "{human:?}"
     );
     let text = String::from_utf8(human.stdout).unwrap();
-    assert!(text.contains("TEMPLATES"), "{text}");
+    assert!(text.contains("BUILT-IN 6"), "{text}");
+    assert!(text.contains("THIS SPACE 0"), "{text}");
+    assert!(
+        text.contains("starter") && text.contains("default"),
+        "{text}"
+    );
     for name in ["report", "review", "compare", "board", "gallery"] {
         assert!(text.contains(name), "{text}");
     }
@@ -5199,7 +5207,16 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
         ]);
         assert_eq!(created["template"], name, "{created}");
         assert_eq!(created["layout"], kind, "{created}");
-        assert_eq!(created["read"], read_first(&[]), "{created}");
+        // A page from a template starts by reading the template's rules.
+        let mut read = vec![format!("tmt colab template show {name}")];
+        read.extend(
+            read_first(&[])
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|command| command.as_str().unwrap().to_owned()),
+        );
+        assert_eq!(created["read"], json!(read), "{created}");
         assert_eq!(created["warnings"], json!([]), "{created}");
         let id = created["pageId"].as_str().unwrap();
         let shown = pilot.call(&["show", id, "--json"]);
@@ -5278,7 +5295,7 @@ fn a_template_excludes_the_layout_and_source_options_and_unknown_names() {
     assert_eq!(unknown.status.code(), Some(1), "{unknown:?}");
     let message = String::from_utf8_lossy(&unknown.stderr);
     assert!(
-        message.contains("report") && message.contains("board"),
+        message.contains("No template named memo") && message.contains("tmt colab template ls"),
         "{message}"
     );
     // A refused create leaves nothing behind.
@@ -9445,6 +9462,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         (
             "runtime",
             include_bytes!("../../../skills/tmt-colab/references/runtime.md").as_slice(),
+        ),
+        (
+            "templates",
+            include_bytes!("../../../skills/tmt-colab/references/templates.md").as_slice(),
         ),
     ] {
         let reference = invoke(&["skill", name]);

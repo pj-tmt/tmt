@@ -190,8 +190,20 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   layout, so source writes, patches, browser Save, compaction and epochs preserve it; a page without
   the key is `freeform`, an absence. The browser binds the render frame from the live `PageView`, so a
   metadata-only change reframes an open page. Frozen export does not carry it.
-  `--template` on `page create` (`cli_template.rs`) resolves a compiled-in template to a
-  `PageLayout` and a source before the same create path, so it adds no stored field and no decoder rule.
+  Template marks are `meta.template` (a page that is a template) and `meta.fromTemplate` (what a page
+  was created from), two closed keys that `template_marks.rs` validates as pure values (shared vectors
+  `template-marks-v1.json`; the browser's `template-marks.ts` mirrors them) in the decoder, the Yjs
+  child and the fold, and that a source write, patch, compaction and epoch baseline carry through
+  `BaselineInput`. `template save` and `template remove` set and clear `template` as a
+  `StructuredKind::Template` edit (`template.set`, `template.clear`); only creation sets
+  `fromTemplate`. A fold of one page cannot know the others, so a name's uniqueness and what is a
+  template are the owner's reads: `template_index.rs` keeps each page's marks through `page_index.rs`
+  (also behind `work_index.rs`), the one derived file per question keyed by the page's progress, and
+  `template_catalog.rs` resolves a selector, the space default (`settings.rs`) and the refusals with
+  their fixes. `cli_template.rs` runs the `template` commands and resolves `page create`'s start before
+  any state is touched: a compiled template needs no state; a user template's page is read in the
+  create transaction (`transitions/create.rs`), which admits only its source with the agents set to
+  the creator and registers its registry entries for the creator, so the client claims nothing.
   Creation reuses that single bounded identity
   snapshot and one optional same-root public machine-status observation to freeze
   `decoder::CreationRecipient`; the browser projection uses the canonical

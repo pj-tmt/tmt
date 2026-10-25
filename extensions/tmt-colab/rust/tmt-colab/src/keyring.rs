@@ -13,6 +13,8 @@ const FILES: &[&str] = &[
     "settings.json",
     "work-index.json",
     "work-index.lock",
+    "template-index.json",
+    "template-index.lock",
     "serve-error.json",
 ];
 

@@ -728,8 +728,13 @@ fn commit_creation_with(
     if title.len() > tmt_colab::decoder::BASELINE_TITLE_BYTES {
         return Err(management_error("CAPACITY"));
     }
-    let (caller, selected, template) = match metadata {
-        Some(metadata) => (metadata.caller, metadata.selected, metadata.template),
+    let (caller, selected, template, template_page) = match metadata {
+        Some(metadata) => (
+            metadata.caller,
+            metadata.selected,
+            metadata.template,
+            metadata.template_page,
+        ),
         None => {
             let caller = crate::core::caller_snapshot();
             let selected = if shell {
@@ -737,7 +742,7 @@ fn commit_creation_with(
             } else {
                 crate::cli_metadata::default_creator(caller.as_ref())
             };
-            (caller, selected, None)
+            (caller, selected, None, None)
         }
     };
     let observation = crate::door::creation_observation();
@@ -763,6 +768,9 @@ fn commit_creation_with(
     }
     if let Some(template) = &template {
         payload["template"] = json!(template);
+    }
+    if let Some(template_page) = &template_page {
+        payload["templatePage"] = json!(template_page);
     }
     if shell {
         payload["pageType"] = json!("shell");
@@ -852,8 +860,16 @@ fn create_page_kind(
         CreateKind::Page { layout, metadata } => (Some(layout), false, Some(metadata)),
         CreateKind::Dashboard => (None, true, None),
     };
+    // The receipt names the template the page started from, as resolved: a name typed as an ID, or
+    // the space default, is the template's name.
+    let template = metadata.as_ref().and_then(|m| m.template.clone());
+    let template_default = metadata.as_ref().is_some_and(|m| m.template_default);
     let title = text(args, "title");
-    let read = crate::cli_layout::read_first(shell, page_layout, &source);
+    let mut read = crate::cli_layout::read_first(shell, page_layout, &source);
+    // A page from a template starts by reading the template's rules.
+    if let Some(name) = &template {
+        read.insert(0, format!("tmt colab template show {name}"));
+    }
     let Created {
         page_id,
         result,
@@ -900,9 +916,12 @@ fn create_page_kind(
             .extend(fields.clone());
     }
     result["read"] = json!(read);
-    let template = args.try_get_one::<String>("template").ok().flatten();
+    let template = template.as_ref();
     if let Some(name) = template {
         result["template"] = json!(name);
+        if template_default {
+            result["templateDefault"] = json!(true);
+        }
     }
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
@@ -918,7 +937,14 @@ fn create_page_kind(
         ("open", shown),
     ];
     if let Some(name) = template {
-        rows.push(("template", name.clone()));
+        rows.push((
+            "template",
+            if template_default {
+                format!("{name} (space default)")
+            } else {
+                name.clone()
+            },
+        ));
     }
     if let Some(layout) = page_layout {
         rows.push(("layout", crate::cli_layout::describe(layout)));
@@ -1345,10 +1371,20 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             Err(error) => return Err(error),
         }
     };
+    // A deleted page that was the space's default template is no longer one: the default returns to
+    // starter (a delete from the browser leaves it to the fallback of the next `page create`).
+    let default_reset = command == "delete"
+        && crate::cli_template::forget_default(
+            root,
+            outcome["pageId"].as_str().unwrap_or_default(),
+        );
     // The door is looked up after the commit, so a slow answer never delays the effect.
     let reach = crate::reach::Reach::gather().with_pages(&ids);
     let path = crate::reach::Reach::path(&key.space_id, &id);
     let mut outcome = outcome;
+    if default_reset {
+        outcome["templateDefaultReset"] = json!(true);
+    }
     if let Some(url) = outcome["readerPath"]
         .as_str()
         .and_then(|reader| reach.link(reader))
@@ -1360,6 +1396,9 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return output(&outcome, true);
     }
     let mut rows = page_rows(&reach, &path);
+    if default_reset {
+        rows.push(("template default", "was this page; now starter".to_owned()));
+    }
     if let Ok(storage) = serde_json::from_value::<management::Storage>(outcome["storage"].clone()) {
         rows.push(("storage", storage.message()));
     }
@@ -1445,7 +1484,7 @@ fn archive_text(page: &Value, now_ms: u64) -> Option<String> {
         format!("{mark}in {}", retention_interval(at - now_ms))
     })
 }
-fn last_edit_text(updated_ms: u64, now_ms: u64) -> String {
+pub(crate) fn last_edit_text(updated_ms: u64, now_ms: u64) -> String {
     let duration = updated_ms.abs_diff(now_ms);
     if duration < 60_000 {
         return if updated_ms > now_ms {
