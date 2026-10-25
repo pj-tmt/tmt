@@ -507,7 +507,10 @@ nothing is retried. Worker
 startup failure warns without undoing acceptance. Its state-directory log,
 `request-observers/<request-id>.log`, holds only the observer PID and a bounded
 failure line, never message bodies/receipts. A clean exit (final or deadline)
-removes that log; a failed or killed observer leaves it for diagnosis.
+removes that log; a failed or killed observer leaves it for diagnosis for 14 days.
+The next observer or reply notice worker that starts removes such logs of its own
+kind once they are older than that (at most 64 per start, only regular files this
+user owns, never through a link).
 
 `--wait` is rejected; talk rejects `--lines` while check
 retains it. Stored mode/maxCaptureLines values are inert, not automatically

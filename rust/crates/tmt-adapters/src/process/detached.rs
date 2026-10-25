@@ -31,6 +31,58 @@ pub fn discard_own_log(path: &Path) -> io::Result<bool> {
     remove_if_same_file(path, &stderr)
 }
 
+/// A failed worker's log is kept as evidence for this long, then removed by the
+/// next worker that starts in the same directory.
+pub const FAILED_LOG_RETENTION: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+/// At most this many stale logs are removed per start, so one start stays bounded.
+const PRUNE_LIMIT: usize = 64;
+
+/// Removes failed-worker logs older than `retention` from `directory`, at most
+/// `PRUNE_LIMIT` per call. Only regular files this user owns whose name the
+/// worker itself generates (`is_log_name`) qualify; links are never followed
+/// and anything else is left alone. Returns how many were removed.
+pub fn prune_failed_logs(
+    directory: &Path,
+    is_log_name: fn(&str) -> bool,
+    retention: Duration,
+) -> io::Result<usize> {
+    let entries = match fs::read_dir(directory) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        result => result?,
+    };
+    let owner = nix::unistd::geteuid().as_raw();
+    let now = std::time::SystemTime::now();
+    let mut removed = 0;
+    for entry in entries {
+        if removed == PRUNE_LIMIT {
+            break;
+        }
+        let entry = entry?;
+        if !entry.file_name().to_str().is_some_and(is_log_name) {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            result => result?,
+        };
+        let stale = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > retention);
+        if !metadata.is_file() || metadata.uid() != owner || !stale {
+            continue;
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => removed += 1,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(removed)
+}
+
 fn remove_if_same_file(path: &Path, open: &File) -> io::Result<bool> {
     let expected = open.metadata()?;
     let current = match fs::symlink_metadata(path) {
@@ -168,6 +220,60 @@ mod tests {
         std::os::unix::fs::symlink(&mine, &link).unwrap();
         assert!(!remove_if_same_file(&link, &attached).unwrap());
         assert!(other.exists() && mine.exists() && link.exists());
+    }
+
+    #[test]
+    fn only_stale_generated_log_files_are_pruned_and_each_pass_is_bounded() {
+        let directory = TestDirectory::new();
+        let logs = directory.path.join("logs");
+        let generated = |name: &str| name.starts_with("req_") && name.ends_with(".log");
+        assert_eq!(
+            prune_failed_logs(&logs, generated, FAILED_LOG_RETENTION).unwrap(),
+            0,
+            "a missing directory has nothing to prune"
+        );
+        fs::create_dir(&logs).unwrap();
+        let old = std::time::SystemTime::now() - FAILED_LOG_RETENTION - Duration::from_secs(60);
+        let write = |name: &str, stale: bool| {
+            let path = logs.join(name);
+            let file = File::create(&path).unwrap();
+            if stale {
+                file.set_modified(old).unwrap();
+            }
+            path
+        };
+        let stale = write("req_stale.log", true);
+        let fresh = write("req_fresh.log", false);
+        let foreign = write("notes.md", true);
+        let target = directory.path.join("outside.log");
+        File::create(&target).unwrap().set_modified(old).unwrap();
+        let link = logs.join("req_link.log");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let folder = logs.join("req_folder.log");
+        fs::create_dir(&folder).unwrap();
+
+        assert_eq!(
+            prune_failed_logs(&logs, generated, FAILED_LOG_RETENTION).unwrap(),
+            1
+        );
+        assert!(!stale.exists());
+        assert!(fresh.exists() && foreign.exists() && folder.exists());
+        assert!(
+            fs::symlink_metadata(&link).is_ok() && target.exists(),
+            "links are never followed"
+        );
+
+        for index in 0..PRUNE_LIMIT + 3 {
+            write(&format!("req_{index}.log"), true);
+        }
+        assert_eq!(
+            prune_failed_logs(&logs, generated, FAILED_LOG_RETENTION).unwrap(),
+            PRUNE_LIMIT
+        );
+        assert_eq!(
+            prune_failed_logs(&logs, generated, FAILED_LOG_RETENTION).unwrap(),
+            3
+        );
     }
 
     #[test]
