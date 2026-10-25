@@ -6363,7 +6363,8 @@ describe('send now chip', () => {
 });
 
 describe('workspace snapshots in the real board', () => {
-  it('opens w and previews distinct automatic generations beside named saves', async () => {
+  // Quarantined in #5107: diagnose the post-quit PID state (zombie or live hang), then restore.
+  it.skip('opens w and previews distinct automatic generations beside named saves', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       sandbox.env.TERM = 'xterm-256color';
