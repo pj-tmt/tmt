@@ -111,13 +111,6 @@ fn lines(app: &App, now: u64) -> Vec<String> {
     let mut lines = vec!["Quota pace: last 2h; trend compared with the preceding 2h. Source timestamps determine elapsed time.".into()];
     for standing in standings {
         lines.push(standing.provider.label());
-        if let Some(latest) = standing.latest {
-            lines.push(format!(
-                "Held source observed: {} ms · {} ago",
-                latest.observed_at_ms,
-                super::age(now.saturating_sub(latest.observed_at_ms))
-            ));
-        }
         for kind in crate::board::limits::QuotaWindow::ALL {
             let value =
                 crate::board::overview::quota::projection(app, standing.provider.id(), kind, now);
@@ -131,7 +124,8 @@ fn lines(app: &App, now: u64) -> Vec<String> {
             };
             let balance = point.balance();
             lines.push(format!(
-                "Observed: {} ms · {} ago",
+                "{} observed: {} ms · {} ago",
+                kind.key(),
                 point.observed_at_ms,
                 super::reset(now.saturating_sub(point.observed_at_ms))
             ));
@@ -285,6 +279,12 @@ mod tests {
             assert!(text.contains("83% remaining (last known)"), "{text}");
             assert!(text.contains("1d16h ago"), "{text}");
             assert!(text.contains("2h pace: unknown"), "{text}");
+            assert!(!text.contains("Held source observed"));
+            assert_eq!(
+                text.matches("observed:").count(),
+                2,
+                "one source timestamp per reported window"
+            );
             assert!(text.contains("5h: window reset"), "{text}");
             assert!(!text.contains("Projected depletion") && !text.contains("no limit source"));
             assert_eq!(
