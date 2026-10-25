@@ -9,6 +9,7 @@ mod summary;
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
 use std::{
+    cell::{Cell, RefCell},
     collections::BTreeMap,
     error::Error,
     fs,
@@ -58,6 +59,12 @@ pub fn execute_with_schema_consent(
     let ran_from_moved_prefix = current
         .as_deref()
         .is_some_and(native_install::in_moved_prefix);
+    let presentation = RefCell::new(crate::native_progress::InstallProgress::new(
+        "Upgrading",
+        native_install::Product::Cli,
+        tmt_cli_style::Interaction::detect(mode.json),
+    ));
+    let show_progress = Cell::new(false);
     let result = (|| {
         let executable = std::env::current_exe()?;
         let request = || UpgradeRequest {
@@ -101,13 +108,30 @@ pub fn execute_with_schema_consent(
         if !approval.proceed {
             return Ok(None);
         }
-        native_install::upgrade_prepared(&prepared, request(), None, checkpoint, &|_| {})
-            .map(|report| Some((report, extensions, approval.extensions)))
+        show_progress.set(
+            prepared
+                .selected_version()
+                .is_some_and(|selected| selected != &prepared.current().state.version)
+                || channel.is_some()
+                || exact.is_some()
+                || unpin,
+        );
+        let observed = |event: native_install::ProgressEvent<'_>| {
+            if show_progress.get() {
+                presentation.borrow_mut().observe(event);
+            }
+        };
+        let result =
+            native_install::upgrade_prepared(&prepared, request(), None, checkpoint, &observed);
+        result.map(|report| Some((report, extensions, approval.extensions)))
     })();
     let (report, extensions, extension_consent) = match result {
         Ok(Some(report)) => report,
         Ok(None) => return Ok(0),
         Err(mut error) => {
+            if show_progress.get() {
+                presentation.borrow_mut().failed();
+            }
             let activated = error.activated.take();
             let status = if error.kind() == io::ErrorKind::Interrupted {
                 130
@@ -131,6 +155,9 @@ pub fn execute_with_schema_consent(
         return finish(&report, None, None, extension_consent, &prior, None, mode);
     }
     if interrupt.is_interrupted() {
+        if show_progress.get() {
+            presentation.borrow_mut().failed();
+        }
         return publish(
             Some(&report),
             None,
@@ -153,6 +180,16 @@ pub fn execute_with_schema_consent(
             "Native binary installation completed; update was interrupted during managed skill refresh. Inspect the skill report.",
             130,
         ));
+    }
+    if show_progress.get() && report.installation.changed {
+        if failure.is_some() {
+            presentation.borrow_mut().failed();
+        } else {
+            let warning = skills
+                .as_ref()
+                .is_some_and(|skills| skills["status"] == "warning");
+            presentation.borrow_mut().settled(warning);
+        }
     }
     drop(interrupt);
     // The activated executable renames the Core database (#2292), on every
@@ -570,7 +607,53 @@ fn product_rows(
         "error": failure.map(|failure| failure_document(failure)["error"].clone()),
     })];
     products.extend(extensions);
+    for row in &mut products {
+        if row["status"] != "changed"
+            && !(row["product"] == "cli"
+                && report.is_some_and(|report| report.installation.changed))
+        {
+            continue;
+        }
+        let Some(product) = native_install::Product::ALL
+            .into_iter()
+            .find(|p| row["product"] == p.as_str())
+        else {
+            continue;
+        };
+        let Some(version) = row["version"].as_str().filter(|v| {
+            !v.is_empty()
+                && v.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-+".contains(&b))
+        }) else {
+            continue;
+        };
+        let url = match report
+            .filter(|_| product == native_install::Product::Cli)
+            .map(|r| r.state.channel)
+        {
+            Some(Channel::Pr(pr)) => format!("https://github.com/pj-tmt/tmt/pull/{pr}"),
+            _ if version.contains('+') => "https://github.com/pj-tmt/tmt/releases".into(),
+            _ => format!(
+                "https://github.com/pj-tmt/tmt/releases/tag/{}{version}",
+                product.tag_prefix()
+            ),
+        };
+        row["releaseUrl"] = url.into();
+    }
     products
+}
+
+/// Ops/Colab expose no public liveness observation here; a conditional notice grants no effect.
+pub(crate) fn restart_hint(product: native_install::Product, version: &str) -> Option<String> {
+    match product {
+        native_install::Product::Ops => Some(format!(
+            "If an Ops board is open, restart it to use ops {version}."
+        )),
+        native_install::Product::Colab => Some(format!(
+            "If Colab serve is running, restart it to use colab {version}."
+        )),
+        _ => None,
+    }
 }
 
 fn path_warning(executable: &Path) -> Option<String> {

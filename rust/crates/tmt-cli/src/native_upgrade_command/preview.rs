@@ -117,13 +117,27 @@ fn rows(
         migration,
     )];
     for (product, (status, version, selected)) in super::extensions::targets(plan) {
-        rows.push(row(
+        let mut component = row(
             &product,
             version.as_str().unwrap_or("unknown"),
             selected.as_str(),
             &status,
             MigrationPreview::Unknown,
-        ));
+        );
+        if status == "pending"
+            && let Some(hint) = native_install::Product::ALL
+                .into_iter()
+                .find(|p| p.as_str() == product)
+                .and_then(|product| {
+                    selected
+                        .as_str()
+                        .and_then(|version| super::restart_hint(product, version))
+                })
+        {
+            component.detail.push_str("; ");
+            component.detail.push_str(&hint);
+        }
+        rows.push(component);
     }
     rows
 }

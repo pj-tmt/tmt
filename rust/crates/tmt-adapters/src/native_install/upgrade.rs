@@ -21,7 +21,6 @@ pub struct UpgradeRequest<'a> {
     pub unpin: bool,
 }
 
-#[path = "upgrade_preview.rs"]
 mod preview;
 #[cfg(test)]
 use preview::prepare_product_with;
@@ -188,6 +187,18 @@ pub fn upgrade_product_selected(
     verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
+    upgrade_product_selected_observed(product, request, version, verifier, checkpoint, &|_| {})
+}
+
+/// Exact consented selection with read-only acquisition/publication observations.
+pub fn upgrade_product_selected_observed(
+    product: super::Product,
+    request: UpgradeRequest<'_>,
+    version: &str,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    progress: super::ProgressObserver<'_>,
+) -> Result<UpgradeReport, UpgradeFailure> {
     let version = version
         .parse::<semver::Version>()
         .map_err(io::Error::other)?;
@@ -207,7 +218,7 @@ pub fn upgrade_product_selected(
         verifier,
         Acquisition {
             prepared: None,
-            progress: &|_| {},
+            progress,
             selected: Some(&version),
             allow_schema_ahead: false,
             deadline,
@@ -222,9 +233,29 @@ pub fn upgrade_product_selected(
                 }
             ) && url.ends_with("/zip")
             {
-                client.get_actions(url, limit, deadline)
+                client.get_actions_observed(url, limit, deadline, &|received_bytes, total_bytes| {
+                    if limit == super::pr_catalog::PAYLOAD_ZIP_LIMIT {
+                        progress(super::ProgressEvent::Download {
+                            received_bytes,
+                            total_bytes,
+                        });
+                    }
+                })
             } else {
-                client.get(url, accept, limit, deadline)
+                client.get_observed(
+                    url,
+                    accept,
+                    limit,
+                    deadline,
+                    &|received_bytes, total_bytes| {
+                        if accept == "application/octet-stream" && url.ends_with(".tar.gz") {
+                            progress(super::ProgressEvent::Download {
+                                received_bytes,
+                                total_bytes,
+                            });
+                        }
+                    },
+                )
             }
         },
         install_cli,
@@ -338,7 +369,7 @@ fn upgrade_product_with_options(
         return Ok(unchanged(current, true));
     };
     let mut downloaded = if let Channel::Pr(pr) = channel {
-        super::pr_resolver::download_current(
+        super::pr_resolver::download_current_observed(
             super::pr_resolver::Request {
                 product,
                 pr,
@@ -348,6 +379,7 @@ fn upgrade_product_with_options(
                 deadline,
             },
             &mut get,
+            progress,
         )?
     } else {
         release::download_product_observed(

@@ -295,8 +295,8 @@ for behavior and limits; module rules: [storage and requests reference](.agents/
 
 ### Tmux and process effects
 
-`tmt-adapters::process` is the one bounded subprocess owner (output caps, monotonic
-deadlines, process-group cleanup, reaping); `process::interactive` owns direct
+`tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
+monotonic deadlines, group cleanup, reaping); `process::interactive` owns direct
 terminal children without taking the shared process group. `tmux` pins caller or recorded
 sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.

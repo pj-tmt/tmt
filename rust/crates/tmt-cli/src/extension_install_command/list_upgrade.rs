@@ -91,6 +91,18 @@ pub(super) fn upgrade_at(
     unpin: bool,
     selected: Option<(&str, &str)>,
 ) -> Result<Outcome, Failure> {
+    upgrade_at_observed(product, prefix, channel, to, unpin, selected, &|_| {})
+}
+
+pub(super) fn upgrade_at_observed(
+    product: Product,
+    prefix: &Path,
+    channel: Option<Channel>,
+    to: Option<&str>,
+    unpin: bool,
+    selected: Option<(&str, &str)>,
+    progress: native_install::ProgressObserver<'_>,
+) -> Result<Outcome, Failure> {
     let name = product.as_str();
     let current = native_install::inspect_product_prefix(product, prefix)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
@@ -121,8 +133,8 @@ pub(super) fn upgrade_at(
     let checkpoint = interruptible("Extension update interrupted before activation.")?;
     let before = PostUpgradeNotice::capture(product, Some(&executable));
     let report = match selected {
-        Some((_, version)) => native_install::upgrade_product_selected(
-            product, request, version, verifier, checkpoint,
+        Some((_, version)) => native_install::upgrade_product_selected_observed(
+            product, request, version, verifier, checkpoint, progress,
         ),
         None => native_install::upgrade_product(product, request, verifier, checkpoint),
     }

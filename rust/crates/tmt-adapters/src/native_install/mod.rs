@@ -56,7 +56,7 @@ mod upgrade;
 pub use upgrade::{
     MigrationPreview, PreparedUpgrade, UpgradeFailure, UpgradeReport, UpgradeRequest,
     prepare_upgrade, upgrade, upgrade_prepared, upgrade_product, upgrade_product_selected,
-    upgrade_product_with_schema_consent,
+    upgrade_product_selected_observed, upgrade_product_with_schema_consent,
 };
 #[cfg(test)]
 mod test_support;

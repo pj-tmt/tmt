@@ -338,7 +338,15 @@ pub(super) fn download_current(
     request: Request<'_>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
 ) -> io::Result<DownloadedRelease> {
-    match resolve_current(request, get, true)? {
+    download_current_observed(request, get, &|_| {})
+}
+
+pub(super) fn download_current_observed(
+    request: Request<'_>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
+    progress: super::ProgressObserver<'_>,
+) -> io::Result<DownloadedRelease> {
+    match resolve_current_observed(request, get, true, progress)? {
         Resolved::Downloaded(release) => Ok(release),
         Resolved::Preview(_) => unreachable!("payload acquisition requested"),
     }
@@ -359,8 +367,17 @@ fn resolve_current(
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
     acquire_payload: bool,
 ) -> io::Result<Resolved> {
+    resolve_current_observed(request, get, acquire_payload, &|_| {})
+}
+
+fn resolve_current_observed(
+    request: Request<'_>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
+    acquire_payload: bool,
+    progress: super::ProgressObserver<'_>,
+) -> io::Result<Resolved> {
     let product = request.product;
-    resolve(
+    resolve_observed(
         request,
         Policy {
             repository_id: 1_118_285_740,
@@ -378,6 +395,7 @@ fn resolve_current(
             .map_err(io::Error::other)
         },
         acquire_payload,
+        progress,
     )
 }
 
@@ -386,13 +404,26 @@ enum Resolved {
     Preview(release::UpgradeMetadata),
 }
 
+#[cfg(test)]
 fn resolve(
+    request: Request<'_>,
+    policy: Policy,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
+    local: impl FnMut() -> io::Result<Vec<wire::DatabaseSchema>>,
+    now: impl FnMut() -> io::Result<u64>,
+    acquire_payload: bool,
+) -> io::Result<Resolved> {
+    resolve_observed(request, policy, get, local, now, acquire_payload, &|_| {})
+}
+
+fn resolve_observed(
     request: Request<'_>,
     policy: Policy,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
     mut local: impl FnMut() -> io::Result<Vec<wire::DatabaseSchema>>,
     mut now: impl FnMut() -> io::Result<u64>,
     acquire_payload: bool,
+    progress: super::ProgressObserver<'_>,
 ) -> io::Result<Resolved> {
     let Request {
         product,
@@ -506,7 +537,12 @@ fn resolve(
         ));
     }
     let payload = if acquire_payload {
+        progress(super::ProgressEvent::Selected {
+            version: &version.to_string(),
+            archive_bytes: candidate.payload_artifact.zip_bytes,
+        });
         let payload_zip = api.zip(&payload_metadata, wire::PAYLOAD_ZIP_LIMIT)?;
+        progress(super::ProgressEvent::Downloaded);
         let mut members = pr_zip::members(
             &payload_zip,
             wire::PAYLOAD_ZIP_LIMIT,

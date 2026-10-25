@@ -27,6 +27,101 @@ fn assert_no_downloads(root: &Path) {
 }
 
 #[test]
+fn observed_upgrade_verifies_before_activation_and_cancellation_keeps_the_old_release() {
+    use crate::native_install::{Product, ProgressEvent, publication::Layout};
+    use std::cell::{Cell, RefCell};
+    for cancelled in [false, true] {
+        let directory = crate::test_support::TestDirectory::new();
+        let prefix = directory.path.join("prefix");
+        let product = Product::Colab;
+        let target = "aarch64-apple-darwin";
+        let (_, manifest, archive, name) = release::product_fixture(product, "1.2.3", target, 41);
+        let old =
+            super::artifact::acquire_bytes(product, &manifest, &name, &archive, target).unwrap();
+        let layout = Layout::open_product(&prefix, product).unwrap();
+        publish(&layout, &old, &Receipt::new(&old, state("1.2.3", None)));
+        let executable = prefix.join("bin").join(product.executable());
+        let before = fs::read_link(layout.root.join("current")).unwrap();
+        let (release, manifest, archive, _) =
+            release::product_fixture(product, "1.2.4", target, 42);
+        let events = RefCell::new(Vec::new());
+        let stop = Cell::new(false);
+        let observe = |event: ProgressEvent<'_>| {
+            let label = match event {
+                ProgressEvent::Selected { .. } => "selected",
+                ProgressEvent::Downloaded => "downloaded",
+                ProgressEvent::Verifying => "verifying",
+                ProgressEvent::Verified => "verified",
+                ProgressEvent::Activating => "activating",
+                ProgressEvent::Activated => "activated",
+                ProgressEvent::Download { .. } => "bytes",
+            };
+            if label == "verified" {
+                assert_eq!(fs::read_link(layout.root.join("current")).unwrap(), before);
+                stop.set(cancelled);
+            }
+            events.borrow_mut().push(label);
+        };
+        let result = upgrade_product_with_options(
+            product,
+            UpgradeRequest {
+                executable: &executable,
+                channel: None,
+                exact: None,
+                unpin: false,
+            },
+            None,
+            Acquisition {
+                progress: &observe,
+                prepared: None,
+                selected: None,
+                allow_schema_ahead: false,
+                deadline: Instant::now() + Duration::from_secs(60),
+            },
+            || {
+                if stop.get() {
+                    Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "fixture cancellation",
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+            release::indexed_download(release, manifest, archive),
+            |_, _, _, _, _| panic!("an extension never uses the CLI handoff"),
+        );
+        let events = events.into_inner();
+        assert!(events.starts_with(&["selected", "downloaded", "verifying", "verified"]));
+        if cancelled {
+            assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
+            assert_eq!(fs::read_link(layout.root.join("current")).unwrap(), before);
+            assert!(!events.contains(&"activated"));
+            assert_eq!(
+                super::super::inspect_product(product, &executable)
+                    .unwrap()
+                    .state
+                    .version
+                    .to_string(),
+                "1.2.3"
+            );
+        } else {
+            assert!(result.unwrap().installation.changed);
+            assert_eq!(events.last(), Some(&"activated"));
+            assert_ne!(fs::read_link(layout.root.join("current")).unwrap(), before);
+            assert_eq!(
+                super::super::inspect_product(product, &executable)
+                    .unwrap()
+                    .state
+                    .version
+                    .to_string(),
+                "1.2.4"
+            );
+        }
+    }
+}
+
+#[test]
 fn preparing_upgrade_reads_metadata_without_downloading_or_changing_the_installation() {
     let (_directory, layout, receipt) = published_layout();
     let release = layout.root.join("releases").join(receipt.id.to_string());

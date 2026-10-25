@@ -20,6 +20,80 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CLEANUP_WAIT: Duration = Duration::from_secs(2);
 
 #[test]
+fn stderr_observation_arrives_before_child_exit_and_keeps_stdout_separate() {
+    use nix::{sys::stat::Mode, unistd::mkfifo};
+    use std::io::Write;
+    let root = TestDirectory::new();
+    let ack = root.path.join("ack");
+    mkfifo(&ack, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+    let mut received = Vec::new();
+    let output = UnixCommandRunner
+        .execute_observed(
+            CommandRequest {
+                program: OsStr::new(SHELL),
+                args: &[
+                    "-c".into(),
+                    "printf 'progress\\n' >&2; read ack < \"$1\"; printf '{\"done\":true}'".into(),
+                    "fixture".into(),
+                    ack.clone().into(),
+                ],
+                input: &[],
+                deadline: Instant::now() + Duration::from_secs(3),
+                max_output_bytes: 64,
+            },
+            128,
+            &mut |bytes| {
+                received.extend_from_slice(bytes);
+                if received.ends_with(b"\n") {
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open(&ack)
+                        .unwrap()
+                        .write_all(b"continue\n")
+                        .unwrap();
+                }
+            },
+        )
+        .unwrap();
+    assert_eq!(received, b"progress\n");
+    assert_eq!(output.stderr, received);
+    assert_eq!(output.stdout, b"{\"done\":true}");
+}
+
+#[test]
+fn observed_output_keeps_each_stream_bound_and_exit_failure() {
+    for (script, stdout, stderr, expected) in [
+        ("printf 12345", 4, 64, CommandFailure::OutputLimit),
+        ("printf 12345 >&2", 64, 4, CommandFailure::OutputLimit),
+        (
+            "printf progress >&2; exit 7",
+            64,
+            64,
+            CommandFailure::Exit {
+                code: Some(7),
+                signal: None,
+            },
+        ),
+    ] {
+        let error = UnixCommandRunner
+            .execute_observed(
+                CommandRequest {
+                    program: OsStr::new(SHELL),
+                    args: &["-c".into(), script.into()],
+                    input: &[],
+                    deadline: Instant::now() + Duration::from_secs(3),
+                    max_output_bytes: stdout,
+                },
+                stderr,
+                &mut |_| {},
+            )
+            .unwrap_err();
+        assert_eq!(error.kind, expected);
+        assert!(!error.cleanup_failed());
+    }
+}
+
+#[test]
 fn environment_overrides_never_fall_back_to_an_unconfigured_spawn() {
     struct Unsupported;
     impl CommandRunner for Unsupported {

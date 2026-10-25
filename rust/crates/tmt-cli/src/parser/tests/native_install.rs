@@ -167,11 +167,30 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
 fn internal_extension_upgrade_requires_plan_or_consent() {
     assert_eq!(
         parsed(&["__native-upgrade-extensions", "--plan", "--json"]).invocation,
-        Invocation::NativeUpgradeExtensions { plan: true }
+        Invocation::NativeUpgradeExtensions {
+            plan: true,
+            progress: false
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "__native-upgrade-extensions",
+            "--plan",
+            "--progress",
+            "--json"
+        ])
+        .invocation,
+        Invocation::NativeUpgradeExtensions {
+            plan: true,
+            progress: true
+        }
     );
     assert_eq!(
         parsed(&["__native-upgrade-extensions", "--yes", "--json"]).invocation,
-        Invocation::NativeUpgradeExtensions { plan: false }
+        Invocation::NativeUpgradeExtensions {
+            plan: false,
+            progress: false
+        }
     );
 }
 

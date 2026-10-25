@@ -246,7 +246,20 @@ pub fn upgrade_prepared(
                 }
             ) && url.ends_with("/zip")
             {
-                client.get_actions(url, maximum, deadline)
+                client.get_actions_observed(
+                    url,
+                    maximum,
+                    deadline,
+                    &|received_bytes, total_bytes| {
+                        // The Actions owner gives catalog and payload ZIPs distinct fixed bounds.
+                        if maximum == install::pr_catalog::PAYLOAD_ZIP_LIMIT {
+                            progress(install::ProgressEvent::Download {
+                                received_bytes,
+                                total_bytes,
+                            });
+                        }
+                    },
+                )
             } else {
                 client.get_observed(
                     url,

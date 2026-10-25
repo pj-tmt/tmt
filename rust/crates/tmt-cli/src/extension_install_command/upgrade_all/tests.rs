@@ -259,3 +259,30 @@ fn stale_and_equal_pointers_leave_installed_extensions_out_of_the_apply_plan() {
         );
     }
 }
+
+#[test]
+fn only_changed_ops_and_colab_get_conditional_restart_notices() {
+    for product in [
+        Product::Ops,
+        Product::Colab,
+        Product::Remote,
+        Product::Digest,
+    ] {
+        for changed in [false, true] {
+            let row = upgraded(product, json!({"changed":changed,"version":"1.1.0"}));
+            let expected = changed && matches!(product, Product::Ops | Product::Colab);
+            assert_eq!(row["details"]["restartHint"].is_string(), expected);
+            if expected {
+                let hint = row["details"]["restartHint"].as_str().unwrap();
+                assert!(hint.starts_with("If "));
+                assert!(hint.contains("1.1.0"));
+                assert!(!hint.contains("restarted"));
+            }
+            assert_eq!(
+                parse_results(&serde_json::to_vec(&json!({"products":[row.clone()]})).unwrap())
+                    .unwrap(),
+                vec![row]
+            );
+        }
+    }
+}

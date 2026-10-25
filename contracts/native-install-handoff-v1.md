@@ -102,3 +102,33 @@ The bounded process runner owns child termination/reaping; the invocation owns
 its staging tree. Provider skills are refreshed by the newly active executable
 using `__native-refresh-skills --managed --json` under its own installation lock, and that executable then owns the consented
 extension phase. Neither phase is an application-wide atomic transaction.
+
+## Consented extension progress
+
+The newly active CLI retains extension inventory and publication authority. The parent
+first invokes `__native-upgrade-extensions --json --plan --progress`, with no apply input.
+Exit 0 requires the existing plan JSON on stdout and exactly
+`{"upgradeProgress":1}` followed by a newline on stderr. A clean exit 2 permits one
+read-only legacy `--plan` call, without `--progress`; other failures refuse the phase.
+The plan must match the products, installed versions, pin states and exact targets shown
+before approval. The legacy plan/result JSON shapes and 64 KiB stdout/input bounds remain.
+
+After consent, a capable CLI receives the same plan on stdin with `--yes --progress`.
+An older CLI receives `--yes` without progress. Apply runs once, never as a capability
+probe or a retry after missing/malformed output. The phase retains its 180-second bound;
+a pending Remote adds only the existing Remote-owned restart allowance. The existing
+process owner multiplexes input/stdout/stderr and owns deadline failure, termination and
+reaping; the progress receiver does not start or supervise another process.
+
+Progress is optional observation on stderr: newline-delimited objects with exactly
+`version` (integer 1), `product` (an official extension name), and `event`. Each line is
+at most 1 KiB, and the stream at most 1 MiB. Event objects have a `kind`:
+`selected` adds `version` and `archive_bytes`; `download` adds `received_bytes` and
+`total_bytes` (integer or null); `settled` adds Boolean `warning`; `downloaded`,
+`verifying`, `verified`, `activating`, `activated` and `failed` have no other fields.
+Counts come from actual response bytes; Actions acquisition observes the payload ZIP,
+not the catalog ZIP. Download observations are throttled, with a known final byte count
+retained. Unknown fields, versions, products, malformed or incomplete lines invalidate
+the progress report; they never authorize a second apply or prove rollback. Final
+activation/skills results still come only from the validated stdout document and exit.
+Failure to render or emit observations cannot veto a verified publication.
