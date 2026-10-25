@@ -285,7 +285,7 @@ describe('native installation process contract', () => {
         expect(currentReleaseId(prefix)).not.toBe(oldId);
         expect(receipt(prefix).source).toEqual({
           kind: 'github-release',
-          repository: 'pj-tmt/tmt',
+          repository: 'tmt-ninja/tmt',
           release_id: 1454,
           manifest_sha256: request.manifest_sha256,
         });
