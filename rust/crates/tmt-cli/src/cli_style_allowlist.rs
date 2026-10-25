@@ -59,6 +59,10 @@ pub const HIDDEN: &[(&str, &str)] = &[
         "Core database rename run by tmt upgrade",
     ),
     (
+        "tmt __native-compact-database",
+        "one-time Core database compaction run by tmt upgrade",
+    ),
+    (
         "tmt __native-upgrade-extensions",
         "extension upgrade plan/apply run by tmt upgrade",
     ),

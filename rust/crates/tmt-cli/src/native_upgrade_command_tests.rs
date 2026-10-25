@@ -133,7 +133,7 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
                     pending: Vec::new()
                 },
             },
-            None,
+            DatabaseSteps::default(),
             mode
         )
         .unwrap(),

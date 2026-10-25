@@ -333,6 +333,26 @@ pub(in crate::grammar) fn rename_database() -> Command {
     internal("__native-rename-database", "Internal Core database rename").hide(true)
 }
 
+pub(in crate::grammar) fn compact_database() -> Command {
+    internal(
+        "__native-compact-database",
+        "Internal Core database compaction",
+    )
+    .hide(true)
+}
+
+pub(in crate::grammar) fn storage_report() -> Command {
+    general(spec!(
+        "storage",
+        "Show what TMT's local stores occupy on disk; changes nothing",
+        details = "Reads file sizes and the Core database's page counts only: it never writes, migrates or locks a store, and a store that does not exist is shown as absent.",
+        [
+            "Show each store's size and free space" => "tmt storage",
+            "Report the same as JSON" => "tmt storage --json",
+        ]
+    ))
+}
+
 pub(in crate::grammar) fn refresh_integrations() -> Command {
     internal(
         "__native-refresh-integrations",

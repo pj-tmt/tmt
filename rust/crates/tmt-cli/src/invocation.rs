@@ -275,6 +275,8 @@ pub enum Invocation {
     },
     NativeRefreshIntegrations,
     NativeRenameDatabase,
+    NativeCompactDatabase,
+    Storage,
     NativeUpgradeExtensions {
         plan: bool,
         progress: bool,

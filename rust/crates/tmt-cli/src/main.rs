@@ -46,6 +46,7 @@ mod output;
 use tmt_adapters::pane_badge;
 mod allowance_command;
 mod consumption_sample_command;
+mod database_compaction_command;
 mod database_rename_command;
 mod digest_hook_command;
 mod orch_command;
@@ -64,6 +65,7 @@ mod setup_command;
 mod skill_refresh_command;
 mod skill_reminder;
 mod stop_command;
+mod storage_command;
 mod talk_command;
 mod target;
 mod uninstall_command;
@@ -491,6 +493,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::NativeRenameDatabase => {
             return database_rename_command::execute(parsed.mode);
+        }
+        Invocation::NativeCompactDatabase => {
+            return database_compaction_command::execute(parsed.mode);
+        }
+        Invocation::Storage => {
+            return storage_command::execute(parsed.mode);
         }
         Invocation::NativeRefreshIntegrations => {
             return setup_command::refresh::execute(parsed.mode);

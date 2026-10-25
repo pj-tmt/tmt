@@ -1206,6 +1206,12 @@ will not retry skill work. Check `pathWarning` before assuming the
 shell selects the updated binary. Reload/restart the agent, or read the complete
 `tmt learn --skill` output in an existing conversation.
 
+`tmt storage` (or `--json`) shows what each local store occupies: the data root,
+`tmt.db` with its free pages and auto-vacuum mode, notes, and Colab `space.db`
+with its backups. It changes nothing. When it reports the one-time `tmt.db`
+compaction as pending, `tmt upgrade` finishes it; the upgrade reports the
+outcome as `databaseCompaction` and never fails because of it.
+
 ### Missing official extensions
 
 When an official command such as `tmt ops` is unavailable, TMT reports
