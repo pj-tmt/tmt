@@ -82,7 +82,8 @@
   gap: 4px;
   flex: none;
   height: 22px;
-  padding: 0 6px;
+  /* The group is one target; keep Plus compact so the first name fits beside the count. */
+  padding: 0 3px;
   color: var(--tmt-ui-color-secondary);
   font-size: 12px;
   font-weight: 400;
