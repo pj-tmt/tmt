@@ -357,7 +357,18 @@ pub fn after_observation(
         }
     }
     if let Some(usage) = usage {
-        document.usage = Some(usage);
+        // The same reading again is not a new observation: keeping the time it was
+        // first read leaves an idle agent's stored state unchanged between ticks (#5019).
+        document.usage = Some(match document.usage {
+            Some(held)
+                if held.tokens == usage.tokens
+                    && held.window_tokens == usage.window_tokens
+                    && held.observed_at_ms <= usage.observed_at_ms =>
+            {
+                held
+            }
+            _ => usage,
+        });
     }
     // A failed consumption read removes the optional counter rather than
     // claiming continuity with stale evidence on the next successful read.
@@ -430,6 +441,31 @@ mod tests {
 
     fn usage(tokens: u64) -> Usage {
         Usage::new(tokens, Some(258_400), 1_780_000_000_000).unwrap()
+    }
+
+    fn read_at(tokens: u64, window: Option<u64>, at: u64) -> Usage {
+        Usage::new(tokens, window, at).unwrap()
+    }
+
+    #[test]
+    fn the_same_context_reading_keeps_the_time_it_was_first_read() {
+        let first = after_observation(Some(read_at(100, Some(1_000), 5_000)), None, None).unwrap();
+        // An idle agent reads the same tokens every tick: the stored state must not move.
+        let again =
+            after_observation(Some(read_at(100, Some(1_000), 10_000)), None, Some(&first)).unwrap();
+        assert_eq!(again, first);
+        assert_eq!(state_usage(&again).unwrap().observed_at_ms, 5_000);
+
+        // New tokens, a new window, or a clock that went back are new observations.
+        for (reading, expected) in [
+            (read_at(101, Some(1_000), 15_000), 15_000),
+            (read_at(100, Some(2_000), 15_000), 15_000),
+            (read_at(100, Some(1_000), 4_000), 4_000),
+        ] {
+            let next = after_observation(Some(reading), None, Some(&first)).unwrap();
+            assert_eq!(state_usage(&next), Some(reading));
+            assert_eq!(state_usage(&next).unwrap().observed_at_ms, expected);
+        }
     }
 
     /// A model-only document as every version before 5 wrote it.

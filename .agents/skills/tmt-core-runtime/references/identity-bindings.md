@@ -398,6 +398,9 @@ delivery. They install and launch nothing.
   unattributed: rows sum to at most the bucket, and a fifth model drops the split
   built so far. It also stores `byDriver`: every counted delta is between two reads
   of one driver, so `record_sample` writes that driver's share. Neither is backfilled.
+  `after_observation`, which all drivers use, keeps the `observedAtMs` of a context reading
+  whose tokens and window did not change (#5019), so an idle agent's stored state repeats
+  between sampler ticks and moves no cursor.
   A Codex seat also counts the sessions its session started (#3828,
   `runtime/consumption/family.rs`): the sampler is a fresh process each tick and the driver
   state is 1 KiB, so the per-rollout cursors live in `consumption_family` and

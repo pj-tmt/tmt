@@ -1173,7 +1173,8 @@ the bounded public seed and coverage contract.
 A row's live context use is `resume.usage` (`{tokens, windowTokens?, observedAtMs}`) while
 `runningDriver` is present; without `runningDriver` show none. An absent `windowTokens` (Claude)
 means no window, and unknown is never 0. `observedAtMs` is the local time of the turn-end or start
-observation that stored it, so a value seen mid-turn belongs to the previous turn. Stored usage
+observation that stored it, so a value seen mid-turn belongs to the previous turn; a later read of
+the same tokens and window keeps the time it was first read. Stored usage
 carries no process incarnation; `runningDriver` and the driver's start clearing it are the fence.
 
 <a id="last-observed-model"></a>
