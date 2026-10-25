@@ -114,7 +114,7 @@ pub(crate) fn deliver(
 impl Store {
     pub(crate) fn cloud_accepted_dispatches(&self, peer: &str) -> Result<Vec<String>, RemoteError> {
         let mut statement = self.connection.prepare(
-            "SELECT o.id FROM operations o JOIN cloud_transport t ON t.peer_id=o.client_id AND t.id=o.id AND t.kind='inbox' WHERE o.client_id=?1 AND o.operation='dispatch.create' AND o.phase='accepted' AND o.updated_ms>?3 ORDER BY o.updated_ms LIMIT ?2",
+            &format!("SELECT o.id FROM operations o JOIN cloud_transport t ON t.peer_id=o.client_id AND t.id=o.id AND t.kind='inbox' WHERE o.client_id=?1 AND o.operation='dispatch.create' AND o.phase='accepted' AND o.updated_ms>?3 AND {} ORDER BY o.updated_ms LIMIT ?2", crate::journal::CURRENT_OPERATION_MEMBER),
         ).map_err(database)?;
         statement
             .query_map(
@@ -227,7 +227,7 @@ pub(crate) fn mapped_request(
         ));
     }
     let row: Option<(String, String)> = tx.query_row(
-        "SELECT o.receipt,o.references_json FROM operations o JOIN cloud_transport t ON t.peer_id=o.client_id AND t.id=o.id AND t.kind='inbox' WHERE o.id=?1 AND o.client_id=?2 AND o.operation='dispatch.create' AND o.phase='accepted' AND o.updated_ms>?3",
+        &format!("SELECT o.receipt,o.references_json FROM operations o JOIN cloud_transport t ON t.peer_id=o.client_id AND t.id=o.id AND t.kind='inbox' WHERE o.id=?1 AND o.client_id=?2 AND o.operation='dispatch.create' AND o.phase='accepted' AND o.updated_ms>?3 AND {}", crate::journal::CURRENT_OPERATION_MEMBER),
         params![operation, grant.client_id, now.saturating_sub(crate::journal::RECOVERY) as i64], |r| Ok((r.get(0)?, r.get(1)?)),
     ).optional().map_err(database)?;
     let (receipt, resources) = row.ok_or_else(invalid)?;

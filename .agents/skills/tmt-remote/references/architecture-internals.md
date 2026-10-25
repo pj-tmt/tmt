@@ -146,7 +146,16 @@ user member and its first grant, sending off/direct, without persisting an invit
 secret. Its crate-private `members::confirm_member_grant_in(&Transaction, &Grant)`
 half is for a concrete confirmation adapter that also saves its original receipt
 and admitted policy in the same IMMEDIATE Store transaction, without calling the
-convenience method or opening/nesting another transaction. Association is an
+convenience method or opening/nesting another transaction. Only a new confirmation
+can replace a disabled grant: the sink advances its revision, creates a fresh
+member and moves the machine association, keeping old authority fenced. Active
+grants still refuse; original receipts remain bound to their captured member and
+grant revision. This changes no route row or operation identity. The journal
+captures the current member on adoption and applies that incarnation to owned
+reads, recovery, effects and final selection. The nullable migration backfills
+existing mappings, leaving unmapped rows fenced; ordinary sending revisions do
+not change this identity. Old uncertain outcomes remain recorded rather than
+rewritten. Association is an
 explicit owner operation under the Store writer fence;
 its current-member/current-grant revisions and original management receipt identity
 are checked there. A matching display/provider name never associates machines.

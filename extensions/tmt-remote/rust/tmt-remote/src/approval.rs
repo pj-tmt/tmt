@@ -154,6 +154,7 @@ impl Store {
     }
     fn claim_held(&mut self, grant: &Grant, id: &str, now: u64) -> Result<(), RemoteError> {
         let tx = self.authorized(grant, now)?;
+        crate::journal::require_operation_member(&tx, &grant.client_id, id)?;
         let (frozen, revision): (Vec<u8>, i64) = tx
             .query_row(
                 "SELECT frozen,grant_revision FROM operations WHERE id=?1 AND client_id=?2 AND phase='held'",

@@ -1233,7 +1233,7 @@ mod restart_tests {
                 let mut store = sessions.store.lock().unwrap();
                 store.insert_grant(&grant).unwrap();
                 store.connection.execute(
-                    "INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,grant_revision) VALUES(?1,?2,'dispatch.create',?3,?4,'held',?5,1,1)",
+                    "INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,grant_revision,member_id) VALUES(?1,?2,'dispatch.create',?3,?4,'held',?5,1,1,(SELECT member_id FROM member_machines WHERE client_id=?2))",
                     rusqlite::params![id, grant.client_id, Sha256::digest(&frozen).as_slice(), frozen, receipt],
                 ).unwrap();
             }

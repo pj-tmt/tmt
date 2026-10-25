@@ -966,8 +966,11 @@ impl Store {
         let (tx, now) = self.authorized_at(grant, clock)?;
         let sent_by_device: bool = tx
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM operations o, json_each(o.references_json) r
-                 WHERE o.client_id=?1 AND o.operation='dispatch.create' AND r.value=?2)",
+                &format!(
+                    "SELECT EXISTS(SELECT 1 FROM operations o, json_each(o.references_json) r
+                 WHERE o.client_id=?1 AND o.operation='dispatch.create' AND r.value=?2 AND {})",
+                    crate::journal::CURRENT_OPERATION_MEMBER
+                ),
                 params![grant.client_id, request],
                 |row| row.get(0),
             )
@@ -1006,6 +1009,7 @@ impl Store {
         action: impl FnOnce(&[u8]) -> T,
     ) -> Result<T, RemoteError> {
         let (tx, now) = self.authorized_at(grant, clock)?;
+        crate::journal::require_operation_member(&tx, &grant.client_id, id)?;
         let (frozen,time,digest):(Vec<u8>,i64,Vec<u8>)=tx.query_row(
             "SELECT frozen,updated_ms,digest FROM operations WHERE id=?1 AND client_id=?2 AND operation='dispatch.create'",
             params![id,grant.client_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(database)?;
@@ -1087,6 +1091,7 @@ impl Store {
             })
             .ok_or_else(invalid)?;
         let tx = self.authorized(grant, now)?;
+        crate::journal::require_operation_member(&tx, &grant.client_id, id)?;
         let (old, digest, refs): (String, Vec<u8>, String) = tx
             .query_row(
                 "SELECT phase,digest,references_json FROM operations WHERE id=?1 AND client_id=?2",
