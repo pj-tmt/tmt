@@ -1152,6 +1152,10 @@ export function setLayout(next: { layout?: Projection['layout']; layoutReason?: 
   };
   emit();
 }
+/** The page source the fixture currently publishes. */
+export function currentSource() {
+  return current.source;
+}
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };
   emit();

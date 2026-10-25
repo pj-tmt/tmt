@@ -21,6 +21,7 @@ function Probe({
     host,
     renderer: renderer as unknown as RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>,
     state: 'ready',
+    contentRevision: 0,
     source: '',
     identity: `${occupied}:${readings}`,
   });

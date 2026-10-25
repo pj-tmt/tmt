@@ -17,6 +17,7 @@ export function usePageLayers({
   renderer,
   host,
   state,
+  contentRevision,
   discussionBlocked,
   statusCoordinator,
   connectionPresentation,
@@ -28,6 +29,8 @@ export function usePageLayers({
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   host: RefObject<HTMLDivElement | null>;
   state: RenderState | 'loading';
+  /** Counts sources the open frame applied in place; each one places the layers again. */
+  contentRevision: number;
   discussionBlocked: boolean;
   statusCoordinator: PageBinding['status'];
   connectionPresentation?: ComposerConnectionPresentation;
@@ -41,6 +44,7 @@ export function usePageLayers({
     renderer,
     host,
     state,
+    contentRevision,
     source: view.source,
     // The inline layers mount only once the discussion is verified (`discussionPending`), after
     // the page is ready: measuring has to run again then, or their slots are never requested.
@@ -85,6 +89,7 @@ export function usePageLayers({
     view,
     renderer,
     state,
+    contentRevision,
     slots: inlineSlots.positions,
     blocked: discussionBlocked,
     connectionPresentation,

@@ -9,7 +9,120 @@
       // Cosmetic quote capture/resolution only. Author code may tamper with this
       // renderer; nothing here authenticates text or grants an app capability.
       (() => {
-        function install(renderId, port, theme, layout) {
+        // Brings the live body to the shape of the same body parsed from a new source (#5022), so a
+        // script-free page updates without a new frame. The caller's `owner` names what is not
+        // source: `node(n)`, a node the frame added (never compared, moved or removed);
+        // `attribute(el, name)`, an attribute the frame set; `expanded(el)`, an element whose
+        // children the frame draws (compared by its own attributes only); and `state`, a WeakMap
+        // that `rememberSource` fills with each element's last source value of the attributes the
+        // reader changes too (`open`, `value`, `checked`, `selected`): those, and their live
+        // properties, change only when the source changes them. Elements match by `id`, then by kind
+        // and position. e2e/page-morph.spec.ts reads this region and tests its cases.
+        // BEGIN PAGE MORPH
+        const readerAttributes = ['open', 'value', 'checked', 'selected'];
+        function rememberSource(root, state) {
+          for (const node of [root, ...root.querySelectorAll('*')])
+            state.set(
+              node,
+              Object.fromEntries(readerAttributes.map((name) => [name, node.getAttribute(name)])),
+            );
+        }
+        function morphPage(live, next, owner) {
+          const attributes = (el, src) => {
+            const source = (a) =>
+              !readerAttributes.includes(a.name) && !owner.attribute(el, a.name);
+            for (const a of [...el.attributes].filter(source))
+              if (!src.hasAttributeNS(a.namespaceURI, a.localName))
+                el.removeAttributeNS(a.namespaceURI, a.localName);
+            for (const a of [...src.attributes].filter(source))
+              if (el.getAttributeNS(a.namespaceURI, a.localName) !== a.value)
+                el.setAttributeNS(a.namespaceURI, a.name, a.value);
+            const before = owner.state.get(el) ?? {};
+            const after = {};
+            for (const name of readerAttributes) {
+              const value = (after[name] = src.getAttribute(name));
+              if (value === (Object.hasOwn(before, name) ? before[name] : el.getAttribute(name)))
+                continue;
+              if (value === null) el.removeAttribute(name);
+              else el.setAttribute(name, value);
+              // The live state follows: a typed value, a ticked box, a chosen option, an open
+              // details. A `value` elsewhere (a meter, a list item) is its attribute alone.
+              if (name === 'value' ? el.localName === 'input' : name in el)
+                el[name] = name === 'value' ? (value ?? '') : value !== null;
+            }
+            owner.state.set(el, after);
+          };
+          const same = (a, b) =>
+            a.nodeType === b.nodeType &&
+            (a.nodeType !== 1 ||
+              (a.namespaceURI === b.namespaceURI &&
+                a.localName === b.localName &&
+                (a.localName !== 'template' || a.innerHTML === b.innerHTML)));
+          const children = (parent, source) => {
+            const candidates = [...parent.childNodes].filter((n) => !owner.node(n));
+            const ids = new Map();
+            for (const n of candidates)
+              if (n.nodeType === 1 && n.id && !ids.has(n.id)) ids.set(n.id, n);
+            const wanted = new Set([...source.children].map((c) => c.id).filter(Boolean));
+            const used = new Set();
+            let index = 0;
+            for (const child of [...source.childNodes]) {
+              while (index < candidates.length && used.has(candidates[index])) index++;
+              const cursor = candidates[index];
+              let match = child.nodeType === 1 && child.id ? ids.get(child.id) : undefined;
+              if (match && (used.has(match) || !same(match, child))) match = undefined;
+              if (!match && cursor && same(cursor, child) && !(cursor.id && wanted.has(cursor.id)))
+                match = cursor;
+              if (!match) {
+                const node = parent.ownerDocument.importNode(child, true);
+                if (node.nodeType === 1) rememberSource(node, owner.state);
+                parent.insertBefore(node, cursor ?? null);
+                continue;
+              }
+              used.add(match);
+              if (match === cursor) index++;
+              else parent.insertBefore(match, cursor ?? null);
+              patch(match, child);
+            }
+            for (const n of candidates) if (!used.has(n)) n.remove();
+          };
+          const patch = (a, b) => {
+            if (a.nodeType !== 1) {
+              if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue;
+              return;
+            }
+            attributes(a, b);
+            if (!owner.expanded(a)) children(a, b);
+          };
+          patch(live, next);
+        }
+        // END PAGE MORPH
+        // What an update compares with: the same shape bind writes, parsed inertly (no script runs
+        // and nothing loads). The design-system test is bind's own.
+        const parsePage = (source) =>
+          new DOMParser().parseFromString(
+            `<!doctype html><html><head></head><body>${source}</body></html>`,
+            'text/html',
+          );
+        const usesDesign = (source) => /tmt-ui-|<tmt-icon|tmt-starter/i.test(source);
+        // What must stay the same for a source to update the page in place, or null when it never
+        // may. A page with a script, an inline handler or the runtime marker owns DOM its source
+        // does not describe, so any change to it gets a fresh frame, as before #5022. The root's
+        // attributes and the design-system match are fixed when the frame binds.
+        function pageKey(source, doc) {
+          if (
+            doc.querySelector('script,meta[name="tmt-colab-runtime"]') ||
+            [...doc.querySelectorAll('*')].some((el) =>
+              [...el.attributes].some((a) => /^on/i.test(a.name)),
+            )
+          )
+            return null;
+          return JSON.stringify([
+            usesDesign(source),
+            [...doc.documentElement.attributes].map((a) => [a.name, a.value]),
+          ]);
+        }
+        function install(renderId, port, theme, layout, boundSource) {
           // Presentation only: author code can tamper with this projection.
           document.documentElement.dataset.theme = theme;
           // Only a framed layout selects the column rules; every page gets the frame's marker lane.
@@ -64,6 +177,17 @@
               new Set(anchors.map((item) => item.id)).size === anchors.length
             );
           }
+          // The frame's one owner mark (#5022): every node it adds to the author's document is in
+          // `frameNodes`, and every attribute it sets there is a `data-colab-*` one or, for the
+          // choices a question hides, `hidden` on an element in `frameHidden`. An in-place update
+          // never compares, moves or removes them.
+          const frameNodes = new WeakSet();
+          const frameHidden = new WeakSet();
+          const frameNode = (tag) => {
+            const node = document.createElement(tag);
+            frameNodes.add(node);
+            return node;
+          };
           let batch = [],
             requestId = '',
             stopped = false,
@@ -96,7 +220,7 @@
           function imagePlaceholder(item, reason) {
             const { image } = item;
             image.removeAttribute('src');
-            const node = document.createElement('span');
+            const node = frameNode('span');
             node.setAttribute('data-colab-image', '');
             node.setAttribute('role', 'img');
             const alt = image.getAttribute('alt') ?? '';
@@ -131,7 +255,24 @@
             (item.placeholder?.isConnected ? item.placeholder : image).replaceWith(node);
             item.placeholder = node;
           }
+          // What the parent answered for each reference of the current image request: an update
+          // scans the page again under the same request and draws these at once, since the parent
+          // answers each reference of a request only once.
+          const imageResults = new Map();
+          function showImage(reference) {
+            const { url, reason } = imageResults.get(reference);
+            for (const item of images.get(reference)) {
+              if (!item.placeholder?.isConnected) continue;
+              if (url) {
+                item.image.src = url;
+                item.image.style.maxWidth = '100%';
+                item.placeholder.replaceWith(item.image);
+                item.placeholder = null;
+              } else imagePlaceholder(item, reason);
+            }
+          }
           function configureImages(next) {
+            if (next !== imageRequestId) imageResults.clear();
             imageRequestId = next;
             // Retain original image attributes across authority/generation resets.
             for (const items of images.values())
@@ -142,6 +283,9 @@
               const layout = getComputedStyle(image);
               const item = {
                 image,
+                // The source's own `style`, which a shown image's sizing replaces: an update puts it
+                // back before comparing the page with its new source.
+                style: image.getAttribute('style'),
                 placeholder: null,
                 display: layout.display === 'inline' ? 'inline-block' : layout.display,
                 margin: layout.margin,
@@ -153,7 +297,8 @@
             }
             for (const [reference, items] of images) {
               if (!items.some((item) => item.placeholder?.isConnected)) continue;
-              if (
+              if (imageResults.has(reference)) showImage(reference);
+              else if (
                 /^colab-attachment:(?:[0-9a-f]{8}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(
                   reference,
                 ) &&
@@ -547,7 +692,7 @@
             const target = selecting ? targetAt(event.target) : null;
             if (!hit && !target) return;
             const box = hit ? hit.range.getBoundingClientRect() : target.getBoundingClientRect();
-            hover = document.createElement('div');
+            hover = frameNode('div');
             hover.dataset.colabHighlight = '';
             hover.dataset.colabSelectionOutline = '';
             if (hit) hover.dataset.colabThreadOutline = hit.id;
@@ -618,7 +763,7 @@
             if (quote) parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
             else {
               clearTarget();
-              hint = document.createElement('span');
+              hint = frameNode('span');
               hint.dataset.colabHighlight = '';
               hint.dataset.colabSelectionHint = '';
               hint.setAttribute('role', 'status');
@@ -849,7 +994,7 @@
                   marker = undefined;
                 }
                 if (!marker) {
-                  marker = document.createElement('span');
+                  marker = frameNode('span');
                   marker.dataset.colabChipSlot = '';
                   marker.setAttribute('aria-hidden', 'true');
                   target.before(marker);
@@ -873,7 +1018,7 @@
                   panel = undefined;
                 }
                 if (!panel) {
-                  panel = document.createElement('div');
+                  panel = frameNode('div');
                   panel.dataset.colabProposalSlot = '';
                   panel.setAttribute('aria-hidden', 'true');
                   edge.after(panel);
@@ -973,7 +1118,7 @@
                 continue;
               }
               if (!spacer) {
-                spacer = document.createElement('div');
+                spacer = frameNode('div');
                 spacer.dataset.colabProposalSlot = '';
                 spacer.setAttribute('aria-hidden', 'true');
                 target.after(spacer);
@@ -981,7 +1126,7 @@
               }
               if (slot.before !== undefined && group) {
                 if (!before) {
-                  before = document.createElement('div');
+                  before = frameNode('div');
                   before.dataset.colabProposalSlot = '';
                   before.setAttribute('aria-hidden', 'true');
                   target.before(before);
@@ -1123,8 +1268,10 @@
                 const matches = document.querySelectorAll(`tmt-question[data-id="${block.id}"]`);
                 if (matches.length !== 1) continue;
                 for (const child of matches[0].children)
-                  if (child.hasAttribute('data-choice') && !child.hasAttribute('hidden'))
+                  if (child.hasAttribute('data-choice') && !child.hasAttribute('hidden')) {
                     child.setAttribute('hidden', '');
+                    frameHidden.add(child);
+                  }
               }
               // A section keeps its own content; the parent's closed set only fades it.
               for (const block of reviewBlocks) {
@@ -1300,7 +1447,7 @@
                   if (typeof Highlight === 'function' && CSS.highlights) {
                     CSS.highlights.set('colab-quiet', new Highlight(range));
                   } else {
-                    quietLayer = document.createElement('div');
+                    quietLayer = frameNode('div');
                     quietLayer.dataset.colabHighlight = '';
                     quietLayer.style.cssText =
                       'position:absolute;top:0;left:0;pointer-events:none;z-index:-1';
@@ -1319,7 +1466,7 @@
               if (ranges.length && typeof Highlight === 'function' && CSS.highlights) {
                 CSS.highlights.set('colab-comments', new Highlight(...ranges));
               } else if (ranges.length) {
-                layer = document.createElement('div');
+                layer = frameNode('div');
                 layer.dataset.colabHighlight = '';
                 layer.style.cssText =
                   'position:absolute;top:0;left:0;pointer-events:none;z-index:-1';
@@ -1336,7 +1483,7 @@
                   }
               }
               if (positions.length) {
-                markers = document.createElement('div');
+                markers = frameNode('div');
                 markers.dataset.colabHighlight = '';
                 markers.dataset.colabMarkers = '';
                 markers.style.cssText =
@@ -1447,8 +1594,69 @@
             clearTimeout(timer);
             timer = setTimeout(resolve, 100);
           };
+          // The source an update compares with; parsed once, at the first update.
+          const sourceState = new WeakMap();
+          let boundKey;
+          // Applies a new source to this page in place (#5022), or answers false when the page needs
+          // a fresh frame: its key differs from the bound one, or it is a page that never updates in
+          // place. Everything the frame reports is measured again before the answer.
+          function applySource(source) {
+            if (boundKey === undefined) boundKey = pageKey(boundSource, parsePage(boundSource));
+            const doc = parsePage(source);
+            if (boundKey === null || pageKey(source, doc) !== boundKey) return false;
+            clearTarget();
+            // Each image the frame drew goes back to its source form, so the page compares with its
+            // source, and is drawn again from the current image request.
+            for (const [reference, items] of images)
+              for (const item of items) {
+                if (item.placeholder?.isConnected) item.placeholder.replaceWith(item.image);
+                item.image.setAttribute('src', reference);
+                if (item.style === null) item.image.removeAttribute('style');
+                else item.image.setAttribute('style', item.style);
+              }
+            images.clear();
+            morphPage(document.body, doc.body, {
+              node: (node) => frameNodes.has(node),
+              attribute: (el, name) =>
+                name.startsWith('data-colab-') || (name === 'hidden' && frameHidden.has(el)),
+              expanded: (el) => el.localName === 'tmt-icon',
+              state: sourceState,
+            });
+            if (imageRequestId) configureImages(imageRequestId);
+            resolve();
+            measureHeight();
+            measureScheme();
+            return true;
+          }
           port.onmessage = (event) => {
             const v = event.data;
+            if (
+              v?.type === 'colab.render.source' &&
+              Object.keys(v).length === 4 &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId) &&
+              typeof v.sourceDigest === 'string' &&
+              /^[0-9a-f]{64}$/.test(v.sourceDigest) &&
+              typeof v.source === 'string' &&
+              utf8.encode(v.source).byteLength <= 2 * 1024 * 1024
+            ) {
+              if (stopped) return;
+              let applied = false;
+              try {
+                applied = applySource(v.source);
+              } catch {}
+              port.postMessage(
+                applied
+                  ? { type: 'colab.render.source-applied', requestId: v.requestId, ok: true }
+                  : {
+                      type: 'colab.render.source-applied',
+                      requestId: v.requestId,
+                      ok: false,
+                      reason: 'remount',
+                    },
+              );
+              return;
+            }
             if (
               v?.type === 'colab.render.images' &&
               Object.keys(v).length === 3 &&
@@ -1474,15 +1682,8 @@
                   ? v.url
                   : undefined;
               if (!url && !Object.hasOwn(imageReasons, v.reason)) return;
-              for (const item of images.get(v.reference)) {
-                if (!item.placeholder?.isConnected) continue;
-                if (url) {
-                  item.image.src = url;
-                  item.image.style.maxWidth = '100%';
-                  item.placeholder.replaceWith(item.image);
-                  item.placeholder = null;
-                } else imagePlaceholder(item, v.reason);
-              }
+              imageResults.set(v.reference, url ? { url } : { reason: v.reason });
+              showImage(v.reference);
               scheduleHeight();
               return;
             }
@@ -1819,6 +2020,7 @@
                 attributes: true,
                 attributeFilter: ['hidden', 'data-id', 'style', 'class'],
               });
+              rememberSource(document.body, sourceState);
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
               document.addEventListener('selectionchange', selectionChanged);
               document.addEventListener('pointerdown', startSelection, true);
@@ -2033,7 +2235,7 @@
           const port = event.ports[0];
           // The temporary callback transfers no authority; it runs before author HTML.
           window.__colabRenderStart = () =>
-            install(value.renderId, port, value.theme, value.layout);
+            install(value.renderId, port, value.theme, value.layout, value.source);
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
           const runtime = value.runtime
@@ -2042,9 +2244,7 @@
           // A page that uses the design system (#5057) gets the root attribute that the lowest layer's
           // paper and ink rule keys on; any other page keeps the white canvas. A plain text test of the
           // source, with no parsing: a page that only mentions a name opts in, which does no harm.
-          const design = /tmt-ui-|<tmt-icon|tmt-starter/i.test(value.source)
-            ? ' data-colab-design'
-            : '';
+          const design = usesDesign(value.source) ? ' data-colab-design' : '';
           document.open();
           document.write(
             `<!doctype html><html${design}><head>${acknowledgement}${runtime}</head><body>${value.source}</body></html>`,

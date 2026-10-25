@@ -722,14 +722,15 @@ for (const width of [1440, 390])
         .repeat(50)
         .trim();
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
-      const frame = page.locator('#ask-page-fixture iframe');
-      const render = await frame.getAttribute('data-render-id');
+      // A script-free edit reaches the open frame in place (#5022).
       await run(
         page,
         'change',
         `<p id="selected" style="margin:0;font:14px/1.5 sans-serif">${longQuote}</p>`,
       );
-      await expect(frame).not.toHaveAttribute('data-render-id', render!);
+      await expect(
+        page.frameLocator('#ask-page-fixture iframe').locator('#selected'),
+      ).toContainText('This selected passage');
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       await page
         .frameLocator('#ask-page-fixture iframe')
@@ -790,14 +791,20 @@ for (const width of [1440, 390])
       await page.goto('/');
       await run(page, 'mount');
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
-      const frame = page.locator('#ask-page-fixture iframe');
-      const render = await frame.getAttribute('data-render-id');
       await run(
         page,
         'change',
         '<div style="height:600px"></div><p id="selected">Exact selected text</p>',
       );
-      await expect(frame).not.toHaveAttribute('data-render-id', render!);
+      // A script-free edit reaches the open frame in place (#5022).
+      await expect
+        .poll(() =>
+          page
+            .frameLocator('#ask-page-fixture iframe')
+            .locator('#selected')
+            .evaluate((node: HTMLElement) => node.offsetTop),
+        )
+        .toBeGreaterThan(500);
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       const selected = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
       await selected.evaluate((node) => {

@@ -1521,6 +1521,9 @@ function OpenPage({
   const statusCoordinator =
     archived || liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // Counts sources the open frame applied in place (#5022): what the page draws over the frame is
+  // placed again for each, as it is when a fresh frame becomes ready.
+  const [contentRevision, setContentRevision] = useState(0);
   const accessLabel = archived
     ? text.archiveReadOnly
     : recoveryRequired
@@ -1629,6 +1632,7 @@ function OpenPage({
     renderer,
     host,
     state,
+    contentRevision,
     discussionBlocked,
     statusCoordinator,
     connectionPresentation,
@@ -1666,6 +1670,7 @@ function OpenPage({
     },
     resetPageLinks,
     requestPageLink,
+    onContentApplied: () => setContentRevision((count) => count + 1),
     handlers: {
       onSelection,
       onAnnotate: annotate,
@@ -1737,7 +1742,7 @@ function OpenPage({
       threadTotal,
       quietThread,
     );
-  }, [state, anchoredThreads, annotation, threadTotal, quietThread]);
+  }, [state, contentRevision, anchoredThreads, annotation, threadTotal, quietThread]);
   // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.
@@ -1749,7 +1754,7 @@ function OpenPage({
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.select(openThreadId);
-  }, [state, anchoredThreads, openThreadId]);
+  }, [state, contentRevision, anchoredThreads, openThreadId]);
   // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
   // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
   const endedNotice = endedError && (

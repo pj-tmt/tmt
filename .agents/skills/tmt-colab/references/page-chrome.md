@@ -264,15 +264,24 @@ the renderer handle's `select(id | null)`, which `router.tsx` calls with the ope
 posts `colab.render.select` (the frame accepts only the current request and an ID it holds); the
 frame paints that passage in `::highlight(colab-selected)` above the hover look, or on its overlay
 marks without the Highlight API, and rings that thread's lane marker (`data-colab-selected`).
-`router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
-frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. The About drawer is four sections (Author and publisher, Layout, Page size, Page scripts), each a heading over a rule, in `about-drawer.css` scoped to that drawer; the reader's Page information keeps its own rows. An inline `style`
+`router.tsx` binds the renderer from the live view; `use-page-renderer.ts` mounts a fresh frame
+only when its frame key changes (the page, `layout`, page type, and `sourceFrameKey` in
+`renderer.ts`: a source that may hold a script, an inline handler or the runtime marker is keyed by
+its whole text), so a metadata-only change remounts the frame. Any other source change goes to the
+open frame as `handle.update(source)` (#5022, protocol in colab-v1): the bootstrap's `PAGE MORPH`
+region in `renderer.html` changes the body in place, skipping what the frame owns (`frameNodes`,
+`data-colab-*`, `frameHidden`, drawn `tmt-icon` children) and keeping reader state, and its table of
+node cases is `e2e/page-morph.spec.ts`. On success the router's `contentRevision` counter re-runs
+the highlight, select, question and slot effects without a `loading` state; a refusal, the 2 s
+deadline or a port error remounts. The reader view (`reader-app.tsx`) still remounts on every
+source. The About drawer's `PageLayoutSection` names the layout and a canvas's reason. The About drawer is four sections (Author and publisher, Layout, Page size, Page scripts), each a heading over a rule, in `about-drawer.css` scoped to that drawer; the reader's Page information keeps its own rows. An inline `style`
 with `!important` is the one author declaration the frame cannot override.
 
-Source revisions replace only the author renderer, not parent chrome. `router.tsx`
+Source revisions replace or update only the author renderer, not parent chrome. `router.tsx`
 keeps the mounted annotation input and frozen quote/rectangle during loading;
 page-ID changes reset page-local selection, panels and in-memory drafts; saved drafts
 return with their own page. Existing
-thread highlights are projected again when the new render is ready. A plain click or tap
+thread highlights are projected again when the new render is ready or the source was applied in place. A plain click or tap
 on a resolved highlight opens its existing discussion, including in selection mode; native
 drag selection stays available. The bounded resolver chooses the shortest quote with a
 stable ID tie-break, and the parent admits only current known-thread view actions. `renderer.ts`
