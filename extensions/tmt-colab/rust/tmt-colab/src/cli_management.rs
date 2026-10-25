@@ -798,11 +798,7 @@ fn create_page_kind(
     shell: bool,
 ) -> Result<()> {
     let title = text(args, "title");
-    let read = crate::cli_layout::read_first(crate::cli_layout::own_reference(
-        shell,
-        page_layout,
-        &source,
-    ));
+    let read = crate::cli_layout::read_first(shell, page_layout, &source);
     let Created {
         page_id,
         result,

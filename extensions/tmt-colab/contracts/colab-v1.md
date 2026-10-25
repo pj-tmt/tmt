@@ -2788,8 +2788,8 @@ back. Suggesting a reading never marks it read or sends a notice; those remain
 the source reading's explicit person action and existing notification owner.
 
 `tmt colab dashboard create --title TITLE --json` creates an empty dashboard and never
-opens a browser; its result adds `read` as for a page, with `tmt colab skill dashboard` as the
-page type's own command. `dashboard read PAGE --json` returns
+opens a browser; its result adds `read: ["tmt colab skill dashboard"]`, the only command to read
+(a dashboard has no author markup, so the markup topics are not listed). `dashboard read PAGE --json` returns
 `{spaceId,pageId,title,pageType:"shell",shell,epoch,membershipHead,revision}`.
 There is one mutating subcommand per action: `item-add`, `item-remove`,
 `item-move`, `item-set`, `summary-set`, `summary-clear`, `reading-suggest`.
@@ -5648,8 +5648,8 @@ the three choices and `tmt colab skill layout`; a reason that is empty, longer t
 or holds a control character, and a `--reason` on another kind, are refused the same way. Freeform
 is not a choice. On success the result adds `layout` (and `layoutReason` for a canvas) and
 `read`, the runnable `tmt colab skill NAME` commands to read before writing markup: `layout`,
-`components` and `page-style` for every page, then the page type's own, `runtime` for a `canvas`
-page or a source that opts in to the runtime (`tmt-colab-runtime` marker). `next` stays the
+`components` and `page-style`, then `runtime` for a `canvas` page or a source that opts in to the
+runtime (`tmt-colab-runtime` marker). `next` stays the
 user-only pairing step. The human result prints the layout and one `read first` row of those
 commands. The title is nonempty and bounded to 256 KiB UTF-8. Omitted
 `--file` means empty source; a file or stdin uses the page-write reader (2 MiB

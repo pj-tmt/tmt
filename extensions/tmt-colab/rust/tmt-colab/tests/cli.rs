@@ -4692,8 +4692,8 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
     assert!(!freeform.status.success());
     assert!(!pilot.root.join("selected/colab").exists());
 }
-/// The `read` entries of a creation result: the commands every new page starts from, then the
-/// page type's own.
+/// The `read` entries of an HTML page's creation result: the commands every new page starts from,
+/// then the page type's own.
 fn read_first(own: &[&str]) -> Value {
     json!(
         [
@@ -4821,11 +4821,11 @@ fn create_adds_the_runtime_to_the_read_first_set_only_for_a_page_that_opts_in() 
         ]);
         assert_eq!(created["read"], expected, "{created}");
     }
-    // A dashboard is data the app lays out, so its own reference follows the common three.
+    // A dashboard has no author markup, so it is sent to its own reference only.
     let dashboard = pilot.call(&["dashboard", "create", "--title", "Board", "--json"]);
     assert_eq!(
         dashboard["read"],
-        read_first(&["tmt colab skill dashboard"]),
+        json!(["tmt colab skill dashboard"]),
         "{dashboard}"
     );
     let human = pilot
@@ -4836,6 +4836,12 @@ fn create_adds_the_runtime_to_the_read_first_set_only_for_a_page_that_opts_in() 
     let text = String::from_utf8(human.stdout).unwrap();
     assert_eq!(text.matches("read first").count(), 1, "{text}");
     assert!(text.contains("tmt colab skill dashboard"), "{text}");
+    for markup in ["layout", "components", "page-style"] {
+        assert!(
+            !text.contains(&format!("tmt colab skill {markup}")),
+            "{text}"
+        );
+    }
 }
 #[test]
 fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {

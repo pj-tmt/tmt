@@ -17,31 +17,28 @@ use tmt_colab_model::crypto;
 
 use crate::cli_management::{fail, resolve_page};
 
-/// The skill topics every new page starts from, in the order they help.
+/// The skill topics every new HTML page starts from, in the order they help.
 const READ_FIRST: [&str; 3] = ["layout", "components", "page-style"];
 
-/// The reference for a new page's own type, when it has one: the data actions of a dashboard, or
-/// the runtime for a page that draws its own frame or opts in to the bundled one.
-pub fn own_reference(
-    shell: bool,
-    layout: Option<&PageLayout>,
-    source: &str,
-) -> Option<&'static str> {
-    if shell {
-        return Some("dashboard");
-    }
-    let canvas = layout.is_some_and(|layout| layout.kind == LayoutKind::Canvas);
-    // A source too deep to parse is left to the page check; the hint just stays out.
-    (canvas || tmt_colab::export::standalone::wants_runtime(source).unwrap_or(false))
-        .then_some("runtime")
-}
-
-/// The runnable `tmt colab skill` commands to read before filling a new page: the common set,
-/// then the page type's own.
-pub fn read_first(own: Option<&str>) -> Vec<String> {
-    READ_FIRST
+/// The runnable `tmt colab skill` commands to read before filling a new page, by page type. A
+/// dashboard has no author markup (its content is items and summaries written through the
+/// dashboard commands), so it is sent to its own reference only. An HTML page reads the markup
+/// topics, and the runtime too when it draws its own frame (`canvas`) or opts in to the bundled one.
+pub fn read_first(shell: bool, layout: Option<&PageLayout>, source: &str) -> Vec<String> {
+    let topics: Vec<&str> = if shell {
+        vec!["dashboard"]
+    } else {
+        let canvas = layout.is_some_and(|layout| layout.kind == LayoutKind::Canvas);
+        // A source too deep to parse is left to the page check; the hint just stays out.
+        let runtime =
+            canvas || tmt_colab::export::standalone::wants_runtime(source).unwrap_or(false);
+        READ_FIRST
+            .into_iter()
+            .chain(runtime.then_some("runtime"))
+            .collect()
+    };
+    topics
         .into_iter()
-        .chain(own)
         .map(|topic| format!("tmt colab skill {topic}"))
         .collect()
 }
