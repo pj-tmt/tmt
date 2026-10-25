@@ -362,6 +362,7 @@ fn frozen_schema13_preserves_grants_receipts_designation_and_migrates_once() {
     )
     .unwrap();
     c.execute("INSERT INTO sessions VALUES(?1,'40000000-0000-4000-8000-000000000004','50000000-0000-4000-8000-000000000005',7,'9','15',NULL,NULL,NULL)",[a]).unwrap();
+    c.execute("INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms,grant_revision) VALUES(?1,?1,'dispatch.create',zeroblob(32),'uncertain','{}',1,7)", [a]).unwrap();
     for (project, id) in [("demo-a", a), ("demo-b", b)] {
         c.execute(
             "INSERT INTO cloud_peers VALUES(?1,?2,?3,?4,5,NULL)",
@@ -388,6 +389,19 @@ fn frozen_schema13_preserves_grants_receipts_designation_and_migrates_once() {
         Role::User
     );
     let grants = f.store.grants().unwrap();
+    let operation_members: Vec<(String, Option<String>, String)> = f
+        .store
+        .connection
+        .prepare("SELECT client_id,member_id,phase FROM operations ORDER BY client_id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        operation_members,
+        [(a.into(), Some(a.into()), "uncertain".into())]
+    );
     assert!(grants.iter().all(|g| g.revision == 7
         && g.mode == "hold"
         && g.agents == "[]"
@@ -454,6 +468,101 @@ fn frozen_schema13_preserves_grants_receipts_designation_and_migrates_once() {
     f.reopen();
     assert_eq!(f.store.member_for_client(b).unwrap(), Some(revoked.member));
     assert!(f.store.grant(b).unwrap().unwrap().disabled);
+}
+
+#[test]
+fn operation_member_migration_backfills_only_existing_associations() {
+    let mut f = Fixture::new();
+    f.store.connection = Connection::open_in_memory().unwrap();
+    fs::remove_file(f.serving.layout().directory.join("remote.db")).unwrap();
+    f.serving.layout().file("remote.db").unwrap();
+    let c = Connection::open(f.serving.layout().directory.join("remote.db")).unwrap();
+    c.execute_batch(include_str!("../../tests/fixtures/members/schema13.sql"))
+        .unwrap();
+    c.execute_batch(include_str!(
+        "../../tests/fixtures/members/schema14-members.sql"
+    ))
+    .unwrap();
+    let remote = "10000000-0000-4000-8000-000000000001";
+    let mapped = "20000000-0000-4000-8000-000000000002";
+    let unmapped = "30000000-0000-4000-8000-000000000003";
+    c.execute(
+        "INSERT INTO machine VALUES(1,?1,'/r/aaaaaaaaaaaaaaaa')",
+        [remote],
+    )
+    .unwrap();
+    for (client, key) in [(mapped, 1_u8), (unmapped, 2_u8)] {
+        c.execute(
+            "INSERT INTO grants VALUES(?1,?2,'cli','cli','Machine','all',?3,'direct',1,NULL,7,0)",
+            params![client, [key; 32].as_slice(), DEFAULT_SCOPES.join(" ")],
+        )
+        .unwrap();
+        c.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,grant_revision) VALUES(?1,?1,'dispatch.create',zeroblob(32),x'1234','uncertain','{}',1,7)", [client]).unwrap();
+    }
+    c.execute(
+        "INSERT INTO members VALUES(?1,?2,'user','Machine',0,1,1,NULL)",
+        params![remote, mapped],
+    )
+    .unwrap();
+    c.execute(
+        "INSERT INTO member_machines VALUES(?1,?2,?2,1)",
+        params![remote, mapped],
+    )
+    .unwrap();
+    drop(c);
+    f.reopen();
+    let captured: Vec<(String, Option<String>, String, Vec<u8>)> = f
+        .store
+        .connection
+        .prepare("SELECT client_id,member_id,phase,frozen FROM operations ORDER BY client_id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        captured,
+        [
+            (
+                mapped.into(),
+                Some(mapped.into()),
+                "uncertain".into(),
+                vec![0x12, 0x34]
+            ),
+            (unmapped.into(), None, "uncertain".into(), vec![0x12, 0x34])
+        ]
+    );
+    crate::journal::require_operation_member(&f.store.connection, mapped, mapped).unwrap();
+    // A later association cannot retroactively bind the unmapped old operation.
+    f.store
+        .connection
+        .execute(
+            "INSERT INTO members VALUES(?1,?2,'user','Later',0,1,2,NULL)",
+            params![remote, unmapped],
+        )
+        .unwrap();
+    f.store
+        .connection
+        .execute(
+            "INSERT INTO member_machines VALUES(?1,?2,?2,2)",
+            params![remote, unmapped],
+        )
+        .unwrap();
+    f.reopen();
+    assert!(
+        crate::journal::require_operation_member(&f.store.connection, unmapped, unmapped).is_err()
+    );
+    assert_eq!(
+        f.store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE name='operation_members'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
 }
 
 #[test]

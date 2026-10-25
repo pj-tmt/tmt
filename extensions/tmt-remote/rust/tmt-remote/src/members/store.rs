@@ -104,11 +104,21 @@ pub(crate) fn migrate_legacy(c: &Connection) -> Result<()> {
 }
 pub(crate) fn insert_mapping(c: &Connection, g: &Grant) -> Result<()> {
     let remote = machine_in(c)?.id;
+    insert_member(c, &remote, &g.client_id, g)?;
+    c.execute(
+        "INSERT INTO member_machines VALUES(?1,?2,?2,?3)",
+        params![remote, g.client_id, bounded_time(g.issued_at_ms)?],
+    )
+    .map_err(database)?;
+    sync_designation(c)?;
+    Ok(())
+}
+fn insert_member(c: &Connection, remote: &str, id: &str, g: &Grant) -> Result<()> {
     c.execute(
         "INSERT INTO members VALUES(?1,?2,'user',?3,?4,1,?5,?6)",
         params![
             remote,
-            g.client_id,
+            id,
             g.name,
             g.permits_scope("talk"),
             bounded_time(g.issued_at_ms)?,
@@ -116,12 +126,6 @@ pub(crate) fn insert_mapping(c: &Connection, g: &Grant) -> Result<()> {
         ],
     )
     .map_err(database)?;
-    c.execute(
-        "INSERT INTO member_machines VALUES(?1,?2,?2,?3)",
-        params![remote, g.client_id, bounded_time(g.issued_at_ms)?],
-    )
-    .map_err(database)?;
-    sync_designation(c)?;
     Ok(())
 }
 /// Role follows exact existing owner designation; a role itself grants no authority.
@@ -413,7 +417,45 @@ pub(crate) fn confirm_member_grant_in(
     let mut grant = grant.clone();
     grant.scopes.retain(|s| s != "talk");
     grant.mode = "direct".into();
-    crate::store::insert_grant_in(tx, &grant)?;
+    if let Some(previous) = grant_in(tx, &grant.client_id)? {
+        if !previous.disabled {
+            return Err(RemoteError::new(
+                "REMOTE_ALREADY_PAIRED",
+                "This device key already has a live grant.",
+            ));
+        }
+        if !canonical::is_core_id(&grant.client_id) {
+            return Err(database("invalid grant identity for member association"));
+        }
+        // Keep the final JSON-safe revision available for revocation. Reusing
+        // revision 1 would revive old sessions and captured receipt claims.
+        grant.revision = previous
+            .revision
+            .checked_add(1)
+            .filter(|revision| *revision < 9_007_199_254_740_991)
+            .ok_or_else(|| database("grant revision exhausted"))?;
+        grant.authority()?;
+        let member = crate::store::uuid_v4()?;
+        let remote = machine_in(tx)?.id;
+        insert_member(tx, &remote, &member, &grant)?;
+        tx.execute(
+            "UPDATE grants SET public_key=?2,kind=?3,origin=?4,name=?5,agents=?6,scopes=?7,mode=?8,issued_at_ms=?9,expires_at_ms=?10,revision=?11,disabled=0 WHERE client_id=?1 AND disabled=1 AND revision=?12",
+            params![grant.client_id,grant.public_key.as_slice(),grant.kind,grant.origin,grant.name,grant.agents,grant.scopes.join(" "),grant.mode,bounded_time(grant.issued_at_ms)?,grant.expires_at_ms.map(bounded_time).transpose()?,grant.revision as i64,previous.revision as i64],
+        ).map_err(|error| match error {
+            rusqlite::Error::SqliteFailure(failure, _) if failure.code == rusqlite::ErrorCode::ConstraintViolation => RemoteError::new("REMOTE_ALREADY_PAIRED", "This device key already has a live grant."),
+            other => database(other),
+        })?;
+        if tx.execute(
+            "UPDATE member_machines SET member_id=?3,associated_at_ms=?4 WHERE remote_id=?1 AND client_id=?2",
+            params![remote,grant.client_id,member,bounded_time(grant.issued_at_ms)?],
+        ).map_err(database)? != 1 {
+            return Err(invalid());
+        }
+        fence(tx, &grant.client_id, grant.issued_at_ms)?;
+        sync_designation(tx)?;
+    } else {
+        crate::store::insert_grant_in(tx, &grant)?;
+    }
     for_client(tx, &grant.client_id)?.ok_or_else(invalid)
 }
 pub(crate) fn grants_for_client(c: &Connection, client: &str) -> Result<Vec<Grant>> {

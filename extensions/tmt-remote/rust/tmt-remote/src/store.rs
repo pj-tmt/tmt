@@ -188,7 +188,7 @@ pub(crate) fn machine_in(connection: &Connection) -> Result<Machine, RemoteError
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 14] = [
+const MIGRATIONS: [(&str, &str); 15] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -326,6 +326,9 @@ const MIGRATIONS: [(&str, &str); 14] = [
         PRIMARY KEY(remote_id,client_id),
         FOREIGN KEY(remote_id,member_id) REFERENCES members(remote_id,member_id));
      CREATE INDEX member_machines_member ON member_machines(remote_id,member_id);"),
+    ("operation_members", "ALTER TABLE operations ADD COLUMN member_id TEXT;
+     UPDATE operations SET member_id=(SELECT mm.member_id FROM member_machines mm
+       WHERE mm.client_id=operations.client_id AND mm.remote_id=(SELECT machine_id FROM machine WHERE singleton=1));"),
 
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {

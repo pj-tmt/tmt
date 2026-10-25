@@ -442,7 +442,7 @@ fn delayed_unclaimed_final_refreshes_context_but_only_the_claimed_bytes_can_publ
     // The two UUID domains may coincide. Keep the recipient reference before the
     // trailing Core request reference rather than removing equal values.
     store.connection.execute(
-        "INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,references_json,updated_ms) VALUES(?1,?2,'dispatch.create',?3,NULL,'accepted',?4,?5,?6)",
+        "INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,references_json,updated_ms,member_id) VALUES(?1,?2,'dispatch.create',?3,NULL,'accepted',?4,?5,?6,(SELECT member_id FROM member_machines WHERE client_id=?2))",
         params![OPERATION, PEER, &[0u8;32][..], json!({"requestId":format!("req_{AGENT}")}).to_string(),
             json!([AGENT,AGENT]).to_string(), world.now as i64],
     ).unwrap();

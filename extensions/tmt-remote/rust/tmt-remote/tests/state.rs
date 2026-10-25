@@ -301,7 +301,8 @@ fn schema_history_uses_core_migrations() {
             (11, "cloud_pairing".to_owned()),
             (12, "cloud_final_binding".to_owned()),
             (13, "cloud_pair_tokens".to_owned()),
-            (14, "members".to_owned())
+            (14, "members".to_owned()),
+            (15, "operation_members".to_owned())
         ]
     );
     let journal: String = inspect
@@ -315,11 +316,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 14);
+    assert_eq!(count, 15);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (15, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (16, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())
@@ -331,7 +332,7 @@ fn schema_history_uses_core_migrations() {
     // A renamed step refuses as damaged history.
     let damage = Connection::open(&db).unwrap();
     damage
-        .execute("DELETE FROM _migrations WHERE version = 15", [])
+        .execute("DELETE FROM _migrations WHERE version = 16", [])
         .unwrap();
     damage
         .execute(
@@ -449,7 +450,7 @@ fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
     drop(stopped);
     // Model the previously shipped schema, preserving its exact migration names.
     let old = Connection::open(&db).unwrap();
-    old.execute_batch("DROP TABLE member_machines; DROP TABLE members; DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DROP TABLE management_receipts; DROP TABLE settings_designation; DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
+    old.execute_batch("ALTER TABLE operations DROP COLUMN member_id; DROP TABLE member_machines; DROP TABLE members; DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DROP TABLE management_receipts; DROP TABLE settings_designation; DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
             DROP TABLE sessions; CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL);
             DELETE FROM _migrations WHERE version >= 5")
         .unwrap();

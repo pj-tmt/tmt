@@ -532,7 +532,7 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 Remote uses public Core JSON only via absolute `TMT_EXECUTABLE`/`tmt-invoke`.
 Core never uses Remote trust. Other extensions use public CLI/SDK/`tmt-extension-objects`,
-never Remote state files. Remote owns channel authority; UI grants none;
+never Remote state files. Remote owns member/channel authority; UI grants none;
 Firestore uses Auth/Rules only. Read-only auto-pair; no companions/skills.
 Emulation never ships.
 
@@ -540,7 +540,7 @@ Emulation never ships.
 with scope/allowlist/hold and UUID/name checks and same-ID Core dispatch/recovery.
 Finals use receipt-bound Core `reply`.
 
-[Contract](contracts/remote-channel-v1.md) and [hard lines](contracts/remote-channel-v1.md#user-path);
+[Contract](contracts/remote-channel-v1.md); [hard lines](contracts/remote-channel-v1.md#user-path);
 [internals](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md);
 [object backends](.agents/skills/tmt-remote/references/object-backends.md);
