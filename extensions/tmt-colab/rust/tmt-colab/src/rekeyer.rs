@@ -189,6 +189,8 @@ fn pass(
     sync: &Server<OwnerAdmission>,
     deletion_after: &mut Option<String>,
 ) -> Result<bool> {
+    // A pass may follow an epoch transition committed outside this process.
+    sync.update_admission(|_| {})?;
     // Share the pass snapshot; each actual removal still rechecks fresh admission.
     let view = source()?;
     // Cleanup admission failure must not skip independent epoch work.

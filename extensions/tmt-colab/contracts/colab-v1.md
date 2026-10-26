@@ -931,9 +931,12 @@ from a link that is not an editor, or any original from a viewer, is refused the
 Link catchup selects only
 link-addressed wraps; public catchup selects none and obtains published keys
 from signed statements. Owner catchup retains its existing exact bytes.
-All operations, deliveries and pre-hello tunnels recheck session expiry, live
-link/device/page policy and epoch under the sync owner. Revocation, narrowing or
-rotation discards pending delivery and closes access; a surviving link seed
+Operations check current admission under the sync owner. Deliveries and pre-hello
+peers share one live-authority sweep per admission generation, valid for less than
+one second. Explicit admission/management changes and rekey passes invalidate it
+under that same lock; expiry and external owner-store changes are caught by the
+first poll at the one-second boundary. Revocation, narrowing or rotation discards
+pending delivery and closes access; a surviving link seed
 can still certify a fresh device after individual device revocation. Exclusion
 requires link removal/narrowing plus rotation, never merely deleting a ticket.
 Previously written bytes, keys and plaintext cannot be recalled. Mounted native

@@ -570,7 +570,8 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
   from a browser. Public short entries bootstrap from validated `tmt-mount` without device context;
   Colab resolves page prefixes from its verified catalog; reader seeds stay in fragments.
-  It stores ciphertext, never decodes Yjs.
+  It stores ciphertext, never decodes Yjs; the sync owner serializes authority
+  changes with delivery and shares bounded admission sweeps ([sync rules](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#stream-sync)).
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
