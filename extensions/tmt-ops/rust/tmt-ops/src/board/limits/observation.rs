@@ -28,19 +28,26 @@ pub(in crate::board) struct Account {
 }
 
 impl Account {
-    /// The key is 12 lowercase hex digits and the label 1 to 32 of `[A-Za-z0-9._-]`, as Core
-    /// writes them. Any other shape is no account.
-    pub fn read(value: &Value) -> Option<Self> {
-        let (key, label) = (value["key"].as_str()?, value["label"].as_str()?);
-        (key.len() == 12
+    /// An account key as Core writes it: 12 lowercase hex digits.
+    pub fn valid_key(key: &str) -> bool {
+        key.len() == 12
             && key
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            && (1..=32).contains(&label.len())
+    }
+
+    /// An account label as Core writes it: 1 to 32 of `[A-Za-z0-9._-]`.
+    pub fn valid_label(label: &str) -> bool {
+        (1..=32).contains(&label.len())
             && label
                 .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)))
-        .then(|| Self {
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+    }
+
+    /// Any other shape is no account.
+    pub fn read(value: &Value) -> Option<Self> {
+        let (key, label) = (value["key"].as_str()?, value["label"].as_str()?);
+        (Self::valid_key(key) && Self::valid_label(label)).then(|| Self {
             key: key.into(),
             label: label.into(),
         })

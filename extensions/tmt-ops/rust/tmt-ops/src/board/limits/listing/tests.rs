@@ -296,24 +296,46 @@ fn a_malformed_account_makes_the_session_report_nothing() {
 }
 
 #[test]
-fn one_named_account_is_the_whole_driver_and_two_keep_the_plain_driver_beside_them() {
+fn one_named_account_is_the_whole_driver_and_the_plain_driver_beside_several_is_only_a_live_one() {
     let plain = claude_row("plain", "active", Some(OBSERVED));
     let work = account_row("a", WORK, "work", 20.0, OBSERVED);
     let home = account_row("b", HOME, "home", 60.0, OBSERVED);
+    let shown =
+        |rows: Vec<Value>, kept: Vec<Provider>| keys(providers(&present(&listed(rows)), kept));
+    let kept_plain = || vec![Provider::named("claude")];
+    let kept_account = |key: &str| Provider::from_key(&format!("claude.{key}")).unwrap();
     assert_eq!(
-        keys(present(&listed(vec![plain.clone(), work.clone()]))),
+        shown(vec![plain.clone(), work.clone()], vec![]),
         [format!("claude.{WORK}")],
         "one account folds the sessions that name none into itself"
     );
     assert_eq!(
-        keys(present(&listed(vec![plain.clone(), work, home]))),
+        shown(vec![plain.clone(), work.clone(), home.clone()], vec![]),
         [
             "claude".to_owned(),
             format!("claude.{WORK}"),
             format!("claude.{HOME}")
-        ]
+        ],
+        "a live session that names none stays beside several"
     );
-    assert_eq!(keys(present(&listed(vec![plain]))), ["claude"]);
+    assert_eq!(shown(vec![plain.clone()], vec![]), ["claude"]);
+    // Readings kept before accounts were named are not a row once two accounts exist.
+    assert_eq!(
+        shown(vec![work.clone(), home.clone()], kept_plain()),
+        [format!("claude.{WORK}"), format!("claude.{HOME}")]
+    );
+    // Accounts that only the history holds still count: two kept accounts, one live.
+    assert_eq!(
+        shown(
+            vec![work.clone()],
+            vec![kept_account(HOME), Provider::named("claude")]
+        ),
+        [format!("claude.{WORK}"), format!("claude.{HOME}")]
+    );
+    // A single account absorbs the kept plain readings as well.
+    assert_eq!(shown(vec![work], kept_plain()), [format!("claude.{WORK}")]);
+    // No account anywhere: the plain driver, live or only kept.
+    assert_eq!(shown(vec![], kept_plain()), ["claude"]);
 }
 
 #[test]

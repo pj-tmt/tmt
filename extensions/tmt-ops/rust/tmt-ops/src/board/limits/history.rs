@@ -8,7 +8,8 @@ use std::path::PathBuf;
 const WEEKLY_MINUTES: u64 = 7 * 24 * 60;
 
 /// `{version:1, limitHistory:[{provider, account?, windowMinutes, points:[[atMs, percentLeft, resetsAtMs]]}]}`,
-/// providers by ID (and account key) and points oldest first; `account` is `{key,label}`, present only
+/// providers by ID (and account key) and points oldest first (readings kept before accounts were named
+/// fold into a driver's single account and are not listed beside two or more); `account` is `{key,label}`, present only
 /// for an account Core named. Percent is rounded to two decimals; the reset time rides
 /// with each point because the kept eight days can span two windows.
 pub(crate) fn document(directory: Option<PathBuf>) -> Value {
@@ -16,15 +17,15 @@ pub(crate) fn document(directory: Option<PathBuf>) -> Value {
     let kept: Vec<super::Provider> = store.providers().collect();
     // A driver with exactly one account is that account alone: the readings kept before accounts
     // were named fold into it, as on the board.
-    let one_account = |driver: &str| {
+    let accounts = |driver: &str| {
         kept.iter()
             .filter(|other| other.id() == driver && other.account_key().is_some())
             .count()
-            == 1
     };
+    let one_account = |driver: &str| accounts(driver) == 1;
     let history: Vec<Value> = kept
         .iter()
-        .filter(|provider| provider.account_key().is_some() || !one_account(provider.id()))
+        .filter(|provider| provider.account_key().is_some() || accounts(provider.id()) == 0)
         .map(|provider| {
             let readings = if provider.account_key().is_some() && one_account(provider.id()) {
                 super::folded(store.history(&provider.plain()), store.history(provider))
@@ -147,12 +148,11 @@ mod tests {
         assert_eq!(
             entries,
             [
-                ("claude", None),
                 ("claude", Some("work")),
                 ("claude", Some("home")),
                 ("codex", None)
             ],
-            "two accounts keep the plain driver beside them, unmerged"
+            "beside two accounts the readings kept before they were named are not listed"
         );
         let _ = std::fs::remove_dir_all(directory);
     }

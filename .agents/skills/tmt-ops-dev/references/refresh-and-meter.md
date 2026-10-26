@@ -419,11 +419,15 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   Only windows of about 7 days and 5 hours are shown, so the labels are exact.
   A provider is the driver ID, or the driver and `rateLimits.account.key` when Core names an
   account (#5274): `samples.json` keys it `driver.key` and keeps the newest label beside the history
-  under `accounts`, a section written only once an account exists. Only a driver with two or more
-  accounts shows them (`Claude · work`, the plain driver beside them `Claude · unknown account`);
-  one account folds the plain history into itself and reads as the driver. A label change keeps the
-  key and the history, and two keys never merge. Tokens go to the seat's latest account only where
-  `Rate::several_accounts` says the driver has several; Digest spend stays per driver.
+  under `accounts`, a section written only once an account exists. Per driver the store keeps at most 8
+  entries (the plain driver counts as one) and at most 8 drivers. A driver shows its accounts only when
+  the standings (live listing plus kept history) hold two or more (`Claude · work`); the plain driver
+  beside them is `Claude · unknown account` only while a live session names no account, and readings
+  kept before accounts were named are never a row of their own (`tmt ops limits` omits them too). One
+  account folds the plain history into itself and reads as the driver. A label change keeps the key and
+  the history, and two keys never merge. `limits::several_accounts(snapshot)` is the one owner of
+  "several": tokens go to the seat's latest account only for those drivers, so a driver's tokens and
+  quota share rows. Digest spend stays per driver, so an account row shows none.
   `tmt ops limits --json` adds `account: {key, label}` to an entry only for a named account.
   These held estimates continue to serve Digest. Agents uses one selected
   window and the fixed two-hour API-backed projection described in

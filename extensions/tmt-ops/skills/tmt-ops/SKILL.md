@@ -1699,7 +1699,8 @@ stale or reset windows remain unknown, and small widths omit whole fields rather
 than clipping numbers. Quota Details retain full source, reset and projection
 values. A footer-only balance does not claim an API-backed two-hour rate.
 A driver with two or more provider accounts gets one Usage row per account, such as `Claude · work`,
-with that account's tokens and quota; seats that report no account read `Claude · unknown account`.
+with that account's tokens and quota; seats that report no account read `Claude · unknown account`,
+a row that exists only while such a session is live. A Digest allowance row of an account shows no spend.
 One account, or none, reads as the plain driver, exactly as before. The label is display text and the
 account key is never shown.
 

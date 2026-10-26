@@ -203,16 +203,16 @@ fn rank(member: &Member, grid: Grid) -> (bool, u64, u64) {
 
 /// Stable caller order breaks equal-evidence duplicate UUIDs, as in the existing
 /// header. Pick one whole observation per UUID, never add overlapping copies.
+///
+/// `several` names the drivers whose accounts the board shows (`limits::several_accounts`): their
+/// tokens are counted per account, and a seat that names none stays on the plain driver (#5275).
 pub(in crate::board) fn project<'a>(
     rates: impl IntoIterator<Item = &'a Rate>,
     grid: Grid,
     expected: Option<&BTreeSet<&str>>,
+    several: &BTreeSet<String>,
 ) -> Series {
     let mut members: BTreeMap<&str, &Member> = BTreeMap::new();
-    let rates: Vec<&Rate> = rates.into_iter().collect();
-    // A driver with several accounts counts each one's tokens apart; a seat that names none
-    // stays on the plain driver (#5275).
-    let several = Rate::several_accounts(rates.iter().copied());
     for rate in rates {
         for (id, candidate) in &rate.members {
             if expected.is_some_and(|ids| !ids.contains(id.as_str())) {
@@ -263,7 +263,7 @@ pub(in crate::board) fn project<'a>(
             if evidence.known {
                 bucket.observed_identities += 1;
                 for (id, part) in evidence.providers {
-                    let Some(driver) = member.name_of(id, &several) else {
+                    let Some(driver) = member.name_of(id, several) else {
                         continue;
                     };
                     let sum = bucket.providers.entry(driver).or_default();
@@ -292,7 +292,7 @@ pub(in crate::board) fn project<'a>(
     drivers.extend(members.values().flat_map(|member| {
         member
             .current_driver
-            .and_then(|id| member.name_of(id, &several))
+            .and_then(|id| member.name_of(id, several))
     }));
     Series {
         drivers,

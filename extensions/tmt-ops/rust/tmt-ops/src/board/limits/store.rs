@@ -15,8 +15,10 @@ const BUCKET_MS: u64 = 10 * 60_000;
 /// Rewriting the file for every replaced sample would be wasted I/O.
 const SAVE_EVERY_MS: u64 = 5 * 60_000;
 const READ_LIMIT: u64 = 1024 * 1024;
-/// Providers kept; a driver list is short, and the file is untrusted.
-const MAX_PROVIDERS: usize = 8;
+/// Drivers kept, and accounts kept per driver; a driver list is short, and the file is untrusted.
+/// The plain driver beside its accounts counts as one of them.
+const MAX_DRIVERS: usize = 8;
+const MAX_ACCOUNTS: usize = 8;
 
 pub(in crate::board) struct Store {
     path: Option<PathBuf>,
@@ -59,9 +61,7 @@ impl Store {
 
     /// Keeps `reading` unless it is invalid or not newer than the last one.
     pub(in crate::board) fn record(&mut self, provider: &Provider, reading: Reading) {
-        if !reading.valid()
-            || (self.history.len() >= MAX_PROVIDERS && !self.history.contains_key(provider))
-        {
+        if !reading.valid() || !admits(&self.history, provider) {
             return;
         }
         if let Some(label) = provider.account_label()
@@ -154,12 +154,12 @@ fn read(path: &std::path::Path) -> Option<Kept> {
     }
     let mut history = BTreeMap::new();
     for (key, rows) in value["providers"].as_object()? {
-        if history.len() >= MAX_PROVIDERS {
-            break;
-        }
         let Some(provider) = Provider::from_key(key) else {
             continue;
         };
+        if !admits(&history, &provider) {
+            continue;
+        }
         let mut samples: Vec<Reading> = Vec::new();
         for row in rows.as_array().into_iter().flatten() {
             // One bad row drops itself; order and validity are re-established.
@@ -179,14 +179,26 @@ fn read(path: &std::path::Path) -> Option<Kept> {
         let (Some(provider), Some(label)) = (Provider::from_key(key), label.as_str()) else {
             continue;
         };
-        let named = super::observation::Account::read(&json!({
-            "key": provider.account_key().unwrap_or_default(), "label": label
-        }));
-        if named.is_some() && history.contains_key(&provider) {
+        if super::observation::Account::valid_label(label) && history.contains_key(&provider) {
             labels.insert(provider, label.to_owned());
         }
     }
     Some((history, labels))
+}
+
+/// Whether `provider` may be kept beside `history`: a known one always, a new one while its
+/// driver is among the first `MAX_DRIVERS` and has fewer than `MAX_ACCOUNTS` entries.
+fn admits(history: &BTreeMap<Provider, Vec<Reading>>, provider: &Provider) -> bool {
+    if history.contains_key(provider) {
+        return true;
+    }
+    let mut drivers = std::collections::BTreeSet::new();
+    let mut own = 0;
+    for kept in history.keys() {
+        drivers.insert(kept.id());
+        own += usize::from(kept.id() == provider.id());
+    }
+    (own > 0 || drivers.len() < MAX_DRIVERS) && own < MAX_ACCOUNTS
 }
 
 fn sample(row: &Value) -> Option<Reading> {

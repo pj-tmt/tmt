@@ -1,7 +1,7 @@
 use super::*;
 
 fn project<'a>(rates: impl IntoIterator<Item = &'a Rate>, grid: Grid) -> Series {
-    super::project(rates, grid, None)
+    super::project(rates, grid, None, &BTreeSet::new())
 }
 use crate::board::rate::{history, tests::input};
 
@@ -194,7 +194,7 @@ fn retained_duplicates_choose_one_whole_uuid_and_scope_keeps_missing_pool_identi
     let one = project([&strong], grid);
     assert_eq!(project([&weak, &strong, &strong], grid), one);
     let expected = BTreeSet::from(["a", "pool"]);
-    let scoped = super::project([&strong], grid, Some(&expected));
+    let scoped = super::project([&strong], grid, Some(&expected), &BTreeSet::new());
     for (bucket, known) in scoped.buckets.iter().zip(one.buckets) {
         assert_eq!(bucket.tokens, known.tokens);
         assert_eq!(bucket.identities, 2);
@@ -448,7 +448,7 @@ fn canonical_scope_counts_missing_pool_members_and_excludes_stale_ids() {
     let rate = seeded(false, false);
     let grid = Grid::new(300_000, HOUR, HOUR).unwrap();
     let expected = BTreeSet::from(["a", "pool"]);
-    let series = super::project([&rate], grid, Some(&expected));
+    let series = super::project([&rate], grid, Some(&expected), &BTreeSet::new());
     assert!(
         series
             .buckets
@@ -457,7 +457,7 @@ fn canonical_scope_counts_missing_pool_members_and_excludes_stale_ids() {
     );
     let only_pool = BTreeSet::from(["pool"]);
     assert!(
-        super::project([&rate], grid, Some(&only_pool))
+        super::project([&rate], grid, Some(&only_pool), &BTreeSet::new())
             .buckets
             .iter()
             .all(|b| b.identities == 1 && b.tokens.is_none())
@@ -727,8 +727,9 @@ fn retained_mixed_slices_read_their_own_split_not_the_recent_rings() {
 const WORK: &str = "0123456789ab";
 const HOME: &str = "ba9876543210";
 
-/// Members `(id, account key)` whose latest limits name the account, all with the same history.
-fn series_of_accounts(members: &[(&str, Option<&str>)]) -> Series {
+/// Members `(id, account key)` whose latest limits name the account, all with the same history;
+/// `several` is what the limits' standings say.
+fn series_of_accounts(members: &[(&str, Option<&str>)], several: &[&str]) -> Series {
     let mut roster = input(100);
     roster.names.clear();
     roster.resumes.clear();
@@ -745,15 +746,22 @@ fn series_of_accounts(members: &[(&str, Option<&str>)]) -> Series {
     }
     let mut rate = Rate::default();
     rate.seed(&roster, &seeds, HOUR);
-    project([&rate], Grid::new(300_000, HOUR, HOUR).unwrap())
+    let several: BTreeSet<String> = several.iter().map(|driver| (*driver).to_owned()).collect();
+    super::project(
+        [&rate],
+        Grid::new(300_000, HOUR, HOUR).unwrap(),
+        None,
+        &several,
+    )
 }
 
 #[test]
-fn a_driver_with_several_accounts_counts_each_accounts_tokens_apart() {
-    let one = provider_total(&series_of_accounts(&[("a", None)]), "claude");
+fn a_driver_the_standings_call_several_counts_each_accounts_tokens_apart() {
+    let one = provider_total(&series_of_accounts(&[("a", None)], &[]), "claude");
     assert!(one > 0);
 
-    let split = series_of_accounts(&[("a", Some(WORK)), ("b", Some(HOME)), ("c", None)]);
+    let members = [("a", Some(WORK)), ("b", Some(HOME)), ("c", None)];
+    let split = series_of_accounts(&members, &["claude"]);
     assert_eq!(provider_total(&split, &format!("claude.{WORK}")), one);
     assert_eq!(provider_total(&split, &format!("claude.{HOME}")), one);
     assert_eq!(
@@ -766,45 +774,30 @@ fn a_driver_with_several_accounts_counts_each_accounts_tokens_apart() {
 }
 
 #[test]
-fn one_account_or_none_leaves_the_driver_names_untouched() {
-    let one = provider_total(&series_of_accounts(&[("a", None)]), "claude");
+fn a_driver_the_standings_do_not_call_several_keeps_its_name_whatever_its_seats_report() {
+    let one = provider_total(&series_of_accounts(&[("a", None)], &[]), "claude");
     for members in [
         vec![("a", None), ("b", None)],
         vec![("a", Some(WORK)), ("b", Some(WORK))],
         vec![("a", Some(WORK)), ("b", None)],
+        // Two live accounts, but the standings (listing and history) decide how rows are named.
+        vec![("a", Some(WORK)), ("b", Some(HOME))],
     ] {
-        let series = series_of_accounts(&members);
+        let series = series_of_accounts(&members, &[]);
         assert_eq!(provider_total(&series, "claude"), 2 * one, "{members:?}");
         assert_eq!(series.drivers.len(), 1, "{members:?}");
     }
 }
 
 #[test]
-fn only_a_driver_with_more_than_one_account_among_the_meters_is_several() {
-    let meter = |members: &[(&str, Option<&str>)]| {
-        let mut roster = input(100);
-        roster.names.clear();
-        roster.resumes.clear();
-        for (id, key) in members {
-            let mut resume = input(100).resumes["a"].clone();
-            if let Some(key) = key {
-                resume["consumption"]["rateLimits"] =
-                    serde_json::json!({"account": {"key": key, "label": "label"}});
-            }
-            roster.names.insert((*id).into(), (*id).into());
-            roster.resumes.insert((*id).into(), resume);
-        }
-        let mut rate = Rate::default();
-        rate.sample(&roster, 0);
-        rate
-    };
-    let work = meter(&[("a", Some(WORK))]);
-    let home = meter(&[("b", Some(HOME)), ("c", None)]);
-    assert!(Rate::several_accounts([&work]).is_empty());
-    assert!(Rate::several_accounts([&home]).is_empty());
+fn tokens_follow_the_standings_when_only_one_of_two_known_accounts_has_live_seats() {
+    let one = provider_total(&series_of_accounts(&[("a", None)], &[]), "claude");
+    // The standings hold work and home (one from history); only work seats are live.
+    let series = series_of_accounts(&[("a", Some(WORK)), ("b", Some(WORK))], &["claude"]);
+    assert_eq!(provider_total(&series, &format!("claude.{WORK}")), 2 * one);
     assert_eq!(
-        Rate::several_accounts([&work, &home]),
-        BTreeSet::from(["claude".to_owned()]),
-        "accounts count across every meter in the view"
+        provider_total(&series, "claude"),
+        0,
+        "nothing on the plain row"
     );
 }

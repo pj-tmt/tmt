@@ -156,10 +156,14 @@ impl Provider {
         match key.split_once('.') {
             None => Self::from_driver(key),
             Some((driver, account)) => {
-                let named = observation::Account::read(&serde_json::json!({
-                    "key": account, "label": "unnamed"
-                }))?;
-                Some(Self::from_driver(driver)?.with_account(&named))
+                // The label is not part of the key; the store keeps it beside the history.
+                let named = observation::Account {
+                    key: account.to_owned(),
+                    label: "unnamed".to_owned(),
+                };
+                observation::Account::valid_key(account)
+                    .then(|| Self::from_driver(driver).map(|plain| plain.with_account(&named)))
+                    .flatten()
             }
         }
     }
@@ -292,6 +296,19 @@ impl Standing {
 /// come from each reading's own time against the clock at paint.
 pub type Snapshot = Vec<Standing>;
 
+/// The drivers that show their accounts, which is the one place this is decided: a driver has
+/// several when its standings are named by account. Token rows and quota rows both read it, so a
+/// driver's tokens always land on the row its quota is on.
+pub(in crate::board) fn several_accounts(
+    snapshot: &[Standing],
+) -> std::collections::BTreeSet<String> {
+    snapshot
+        .iter()
+        .filter(|standing| standing.provider.names_account())
+        .map(|standing| standing.provider.id().to_owned())
+        .collect()
+}
+
 /// The refresh worker's sampling state. The history cache is read on the first
 /// sample, off the paint path.
 pub struct Sampler {
@@ -350,9 +367,7 @@ impl Sampler {
             }
         }
         store.save_if_due(now_ms);
-        let mut providers = listing::present(listed);
-        providers.extend(store.providers());
-        let providers = listing::fold_single_account(providers);
+        let providers = listing::providers(&listing::present(listed), store.providers());
         // The newest label of each account: the kept one, then what the listing reported now.
         let mut labels: BTreeMap<Provider, String> = BTreeMap::new();
         for provider in store.providers().chain(reported.keys().cloned()) {
@@ -387,7 +402,7 @@ impl Sampler {
             .map(|provider| {
                 // A driver with one account folds the readings it kept before accounts were named
                 // into that account, so its pace survives the upgrade.
-                let history = if provider.account_key().is_some() {
+                let history = if provider.account_key().is_some() && accounts(provider.id()) == 1 {
                     folded(store.history(&provider.plain()), store.history(&provider))
                 } else {
                     store.history(&provider).to_vec()

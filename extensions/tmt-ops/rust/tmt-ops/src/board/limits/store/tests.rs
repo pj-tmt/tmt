@@ -219,13 +219,13 @@ fn only_plain_driver_ids_and_a_few_providers_are_kept() {
     ] {
         providers.insert(key.into(), good.clone());
     }
-    for n in 0..MAX_PROVIDERS + 2 {
+    for n in 0..MAX_DRIVERS + 2 {
         providers.insert(format!("driver-{n}"), good.clone());
     }
     let document = json!({"version": VERSION, "providers": providers});
     fs::write(fixture.0.join(FILE), document.to_string()).unwrap();
     let store = fixture.store();
-    assert_eq!(store.providers().count(), MAX_PROVIDERS);
+    assert_eq!(store.providers().count(), MAX_DRIVERS);
     assert!(store.providers().all(|p| p.id().starts_with("driver-")));
     let mut store = store;
     store.record(&Provider::named("extra"), reading(T0, 50.0));
@@ -323,4 +323,44 @@ fn a_saved_label_that_is_not_display_safe_is_not_trusted() {
         Some("unnamed"),
         "the hostile label is not"
     );
+}
+
+#[test]
+fn accounts_are_capped_per_driver_and_never_displace_another_drivers_history() {
+    let key = |n: usize| format!("claude.{n:012x}");
+    let mut store = Store::load(None);
+    store.record(&Provider::named("claude"), reading(T0, 50.0));
+    for n in 0..MAX_ACCOUNTS + 2 {
+        store.record(&Provider::from_key(&key(n)).unwrap(), reading(T0, 50.0));
+    }
+    store.record(&Provider::named("codex"), reading(T0, 70.0));
+    let claude = store.providers().filter(|p| p.id() == "claude").count();
+    assert_eq!(
+        claude, MAX_ACCOUNTS,
+        "the plain driver counts as one entry of the driver"
+    );
+    assert!(
+        !store.history(&Provider::named("codex")).is_empty(),
+        "accounts of one driver leave room for the others"
+    );
+    // The same limits apply when the file is read.
+    let fixture = Fixture::new();
+    fs::create_dir_all(&fixture.0).unwrap();
+    let rows = json!([[T0, 60.0, T0 + DAY, null, null]]);
+    let mut providers = serde_json::Map::new();
+    for n in 0..MAX_ACCOUNTS + 2 {
+        providers.insert(key(n), rows.clone());
+    }
+    providers.insert("codex".into(), rows);
+    fs::write(
+        fixture.0.join(FILE),
+        json!({"version": VERSION, "providers": providers}).to_string(),
+    )
+    .unwrap();
+    let loaded = fixture.store();
+    assert_eq!(
+        loaded.providers().filter(|p| p.id() == "claude").count(),
+        MAX_ACCOUNTS
+    );
+    assert!(!loaded.history(&Provider::named("codex")).is_empty());
 }

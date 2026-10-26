@@ -483,3 +483,112 @@ fn accounts_survive_the_sessions_that_reported_them() {
     );
     let _ = std::fs::remove_dir_all(directory);
 }
+
+#[test]
+fn readings_kept_before_accounts_were_named_are_not_a_row_beside_two_accounts() {
+    let directory = std::env::temp_dir().join(format!("ops-sampler-plain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    let mut panes = Panes::showing(FOOTER);
+    // Before the upgrade: one plain history, read from a Claude footer.
+    let mut old = Sampler::new(Some(directory.clone()));
+    let first = old.sample(
+        &listed(vec![claude("a", NOW_MS)]),
+        NOW_MS,
+        Instant::now(),
+        &mut panes.capture(),
+    );
+    assert_eq!(names(&first), [("Claude".to_owned(), "claude".to_owned())]);
+    old.sample(
+        &listed(vec![]),
+        NOW_MS + 6 * MINUTE,
+        Instant::now(),
+        &mut panes.capture(),
+    );
+    // After it: two accounts, and no live session that names none.
+    let rows = vec![
+        account_row("claude", "a", WORK, "work", 20.0, NOW_MS + HOUR),
+        account_row("claude", "b", HOME, "home", 60.0, NOW_MS + HOUR),
+    ];
+    let mut new = Sampler::new(Some(directory.clone()));
+    let snapshot = new.sample(
+        &listed(rows.clone()),
+        NOW_MS + HOUR,
+        Instant::now(),
+        &mut panes.capture(),
+    );
+    assert_eq!(
+        names(&snapshot),
+        [
+            ("Claude · work".to_owned(), format!("claude.{WORK}")),
+            ("Claude · home".to_owned(), format!("claude.{HOME}")),
+        ],
+        "no third row with a mixed balance"
+    );
+    assert!(
+        snapshot
+            .iter()
+            .all(|standing| standing.latest.unwrap().observed_at_ms == NOW_MS + HOUR),
+        "the old readings are no account's history either"
+    );
+    // A live session that names none is the unknown account.
+    let mut with_plain = rows;
+    with_plain.push(claude("c", NOW_MS + HOUR));
+    let snapshot = new.sample(
+        &listed(with_plain),
+        NOW_MS + HOUR,
+        Instant::now(),
+        &mut panes.capture(),
+    );
+    assert_eq!(snapshot.len(), 3);
+    assert_eq!(snapshot[0].provider.label(), "Claude · unknown account");
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn several_accounts_are_read_from_the_standings_and_count_accounts_only_the_history_holds() {
+    let directory =
+        std::env::temp_dir().join(format!("ops-sampler-several-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    let mut panes = Panes::showing(FOOTER);
+    let both = vec![
+        account_row("claude", "a", WORK, "work", 20.0, NOW_MS),
+        account_row("claude", "b", HOME, "home", 60.0, NOW_MS),
+    ];
+    let mut earlier = Sampler::new(Some(directory.clone()));
+    earlier.sample(&listed(both), NOW_MS, Instant::now(), &mut panes.capture());
+    earlier.sample(
+        &listed(vec![]),
+        NOW_MS + 6 * MINUTE,
+        Instant::now(),
+        &mut panes.capture(),
+    );
+    // Only work has a live seat; home is held by the history alone.
+    let mut sampler = Sampler::new(Some(directory.clone()));
+    let live = vec![account_row(
+        "claude",
+        "a",
+        WORK,
+        "work",
+        21.0,
+        NOW_MS + HOUR,
+    )];
+    let snapshot = sampler.sample(
+        &listed(live),
+        NOW_MS + HOUR,
+        Instant::now(),
+        &mut panes.capture(),
+    );
+    assert_eq!(
+        several_accounts(&snapshot),
+        std::collections::BTreeSet::from(["claude".to_owned()])
+    );
+    // One account anywhere is not several.
+    let single = Sampler::new(None).sample(
+        &listed(vec![account_row("claude", "a", WORK, "work", 21.0, NOW_MS)]),
+        NOW_MS,
+        Instant::now(),
+        &mut panes.capture(),
+    );
+    assert!(several_accounts(&single).is_empty());
+    let _ = std::fs::remove_dir_all(directory);
+}

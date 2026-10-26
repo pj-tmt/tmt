@@ -261,7 +261,12 @@ impl App {
             .filter(|(_, rate)| rate.settings.enabled)
             .filter_map(|(name, _)| self.home_meter(name))
             .map(|meter| meter.history());
-        let mut observed = series::project(rates, grid, Some(&expected));
+        let several = self
+            .limits
+            .as_deref()
+            .map(crate::board::limits::several_accounts)
+            .unwrap_or_default();
+        let mut observed = series::project(rates, grid, Some(&expected), &several);
         for bucket in &mut observed.buckets {
             bucket.scope_complete =
                 roster.observation == OpsObservation::Complete && roster.membership_complete;

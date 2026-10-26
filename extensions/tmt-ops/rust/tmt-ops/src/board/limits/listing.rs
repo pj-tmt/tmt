@@ -27,33 +27,44 @@ fn driver(row: &Value) -> Option<Provider> {
 }
 
 /// Providers with at least one listed session: the driver, or the driver and the account its
-/// session's limits name (#5274). A driver with exactly one named account is that account alone:
-/// sessions that name none are the same account's and fold into it.
+/// session's limits name (#5274). A driver's sessions that name none stay the plain driver.
 pub(in crate::board) fn present(listed: &Value) -> BTreeSet<Provider> {
-    let mut found: BTreeSet<Provider> = BTreeSet::new();
-    for row in rows(listed) {
-        let Some(plain) = driver(row) else { continue };
-        let named = reading(&row["resume"]["consumption"]["rateLimits"])
-            .and_then(|(_, account)| account)
-            .map(|account| plain.clone().with_account(&account));
-        found.insert(named.unwrap_or(plain));
-    }
-    fold_single_account(found)
+    rows(listed)
+        .filter_map(|row| {
+            let plain = driver(row)?;
+            let named = reading(&row["resume"]["consumption"]["rateLimits"])
+                .and_then(|(_, account)| account)
+                .map(|account| plain.clone().with_account(&account));
+            Some(named.unwrap_or(plain))
+        })
+        .collect()
 }
 
-/// Drops the plain driver where exactly one account of it is present: one account is the whole
-/// driver, so the board reads exactly as it did before accounts were named. Two or more accounts
-/// keep the plain driver beside them, as the sessions whose account is unknown.
-pub(in crate::board) fn fold_single_account(providers: BTreeSet<Provider>) -> BTreeSet<Provider> {
+/// The providers the board shows: the `live` ones with a listed session and the `kept` ones the
+/// history holds. A driver with one account is that account alone, so the plain driver folds into
+/// it and the board reads as it did before accounts were named. A driver with two or more accounts
+/// keeps the plain driver only while a live session names none: readings kept for the plain driver
+/// before accounts were named cannot be told apart and are never a row of their own.
+pub(in crate::board) fn providers(
+    live: &BTreeSet<Provider>,
+    kept: impl IntoIterator<Item = Provider>,
+) -> BTreeSet<Provider> {
+    let mut all = live.clone();
+    all.extend(kept);
     let accounts = |driver: &str| {
-        providers
-            .iter()
+        all.iter()
             .filter(|provider| provider.id() == driver && provider.account_key().is_some())
             .count()
     };
-    providers
-        .iter()
-        .filter(|provider| provider.account_key().is_some() || accounts(provider.id()) != 1)
+    all.iter()
+        .filter(|provider| {
+            provider.account_key().is_some()
+                || match accounts(provider.id()) {
+                    0 => true,
+                    1 => false,
+                    _ => live.contains(*provider),
+                }
+        })
         .cloned()
         .collect()
 }
