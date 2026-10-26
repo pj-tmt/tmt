@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { mountRenderer, sourceFrameKey } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
-import { toolbarInset } from './toolbar-inset.js';
+import { frameLead, toolbarInset } from './toolbar-inset.js';
 import type { PageSnapshot, PageView } from './transport.js';
 
 type RendererOptions = Parameters<typeof mountRenderer>[2];
@@ -157,7 +157,7 @@ export function usePageRenderer({
       onQuestions,
       onReadings,
       viewportInset: () => toolbarInset(toolbar.current),
-      frameLead: () => titleRow.current?.offsetHeight ?? 0,
+      frameLead: () => frameLead(titleRow.current),
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {
         setResolved(ids);
@@ -203,6 +203,7 @@ export function usePageRenderer({
     renderer,
     setState,
     toolbar,
+    titleRow,
     onSlots,
     onQuestions,
     onReadings,

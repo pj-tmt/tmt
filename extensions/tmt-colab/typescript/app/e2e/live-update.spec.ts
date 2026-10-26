@@ -459,7 +459,9 @@ for (const width of [1440, 390]) {
       );
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
       await input.fill('@Agent 1 Exact unsent draft retained on collapse.');
-      await page.getByRole('heading', { name: 'Unrelated live title', exact: true }).click();
+      // The title row scrolls away with the page: the bar's empty middle is the click outside.
+      const topBar = (await page.locator('.tmt-ui-topbar:visible').boundingBox())!;
+      await page.mouse.click(topBar.x + topBar.width / 2, topBar.y + topBar.height / 2);
       await expect(dialog).toHaveCount(0);
       // The associated marker opens the thread's Discussion view with its quote, draft and bound mention.
       const marker = page

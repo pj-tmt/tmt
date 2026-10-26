@@ -420,6 +420,7 @@ for (const width of [1440, 390, 320])
         await (await import(path)).mount('page');
       });
       const header = page.locator('#chrome-fixture .tmt-ui-header');
+      const bar = page.locator('#chrome-fixture .tmt-ui-topbar');
       // The connection moved into the header's accessible name; the bar shows the page title alone.
       await expect(header).toHaveAttribute(
         'aria-label',
@@ -436,13 +437,11 @@ for (const width of [1440, 390, 320])
       expect(await header.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       // The access words stay in the document for assistive technology, never on screen (#4116);
       // Share… in the More menu carries them.
-      await expect(header.locator('.page-connection')).toHaveText('Private · Live');
-      expect((await header.locator('.page-connection').boundingBox())!.width).toBeLessThanOrEqual(
-        1,
-      );
+      await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
+      expect((await bar.locator('.page-connection').boundingBox())!.width).toBeLessThanOrEqual(1);
       await expect(heading).toBeVisible();
       expect(await fittingCharacters(heading)).toBeGreaterThanOrEqual(width === 390 ? 12 : 1);
-      const actions = header.getByRole('navigation', { name: 'Page actions' });
+      const actions = bar.getByRole('navigation', { name: 'Page actions' });
       // Comments and Chat are the dock's; the header holds More alone.
       await expect(actions.getByRole('button')).toHaveCount(1);
       for (const button of await actions.getByRole('button').all()) {
@@ -477,7 +476,7 @@ for (const width of [1440, 390, 320])
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`fixed header paints above controls and update row in its band: ${width}px ${theme}`, async ({
+    test(`shared top bar paints above controls and update row in its band: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 800 });
@@ -487,15 +486,14 @@ for (const width of [1440, 390, 320])
         const path = '/test/chrome-browser.tsx';
         await (await import(path)).mount('page');
       });
-      const header = page.locator('#chrome-fixture .tmt-ui-header');
-      await expect(header).toBeVisible();
+      const bar = page.locator('#chrome-fixture .tmt-ui-topbar');
+      await expect(bar).toBeVisible();
       for (const className of ['selection-control', 'annotation-popover', 'update-notice']) {
         const painted = await page.evaluate((className) => {
-          const header = document.querySelector('#chrome-fixture .tmt-ui-header')!;
-          const box = header.getBoundingClientRect();
-          // The header's own content starts after its padding (on a phone in the shell, the
-          // padding leaves room for the shell's menu button).
-          const left = box.left + parseFloat(getComputedStyle(header).paddingLeft);
+          const bar = document.querySelector('#chrome-fixture .tmt-ui-topbar')!;
+          const box = bar.getBoundingClientRect();
+          // The overlay sits across the middle of the bar, clear of the shell's menu button on a phone.
+          const left = box.left + box.width / 2 - 16;
           const overlay = document.createElement('div');
           overlay.className = className;
           overlay.textContent = 'Overlapping control';
@@ -509,7 +507,7 @@ for (const width of [1440, 390, 320])
           document.body.append(overlay);
           const hit = document.elementFromPoint(left + 16, box.top + 16);
           const result = {
-            headerOnTop: !!hit?.closest('.tmt-ui-header'),
+            barOnTop: !!hit?.closest('.tmt-ui-topbar'),
             position: getComputedStyle(overlay).position,
             zIndex: Number(getComputedStyle(overlay).zIndex),
           };
@@ -518,7 +516,7 @@ for (const width of [1440, 390, 320])
         }, className);
         expect(painted.position).toBe('fixed');
         expect(painted.zIndex).toBeGreaterThan(0);
-        expect(painted.headerOnTop, `${className} must not cover the fixed header`).toBe(true);
+        expect(painted.barOnTop, `${className} must not cover the shared top bar`).toBe(true);
       }
     });
 
