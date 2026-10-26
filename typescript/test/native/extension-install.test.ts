@@ -433,6 +433,7 @@ describe('tmt extension install surface', () => {
       sandbox.env.PATH = [path.join(prefix, 'bin'), foreign, '/usr/bin', '/bin'].join(':');
       const listed = parseWholeStdout(await cli(['extension', 'list', '--prefix', prefix]));
       expect(listed).toEqual({
+        guidance: { actions: expect.any(Array) },
         extensions: [
           {
             name: 'ops',
@@ -577,6 +578,24 @@ describe('tmt extension install surface', () => {
         }
       ).extensions.find((entry) => entry.name === 'ops');
       expect(squadRow?.status).toBe('repairRequired');
+      expect(parseWholeStdout(listed).guidance).toMatchObject({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'repair-ops',
+            kind: 'repair',
+            argv: [
+              'tmt',
+              'extension',
+              'install',
+              'ops',
+              '--repair',
+              '--yes',
+              '--prefix',
+              realpathSync(prefix),
+            ],
+          }),
+        ]),
+      });
       expect(squadRow?.hint).toContain(repairCommand);
       expect(squadRow?.hint?.match(/tmt extension/g)).toHaveLength(1);
       for (const args of [

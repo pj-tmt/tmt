@@ -76,6 +76,45 @@ function ran(sandbox: Sandbox): string[] {
 
 // Each scenario may prepare four real archive installations; command deadlines stay unchanged.
 describe('guided tmt setup', { timeout: 60_000 }, () => {
+  it('shares bare-root guidance with the inventory without executing extensions or creating state', async () => {
+    await withSandbox(async (sandbox) => {
+      const marker = path.join(sandbox.root, 'extension-executed');
+      sandbox.env.TMT_EXTENSION_MARKER = marker;
+      const bin = launcher(sandbox);
+      writeExecutable(
+        path.join(bin, 'tmt-ops'),
+        '#!/bin/sh\n: > "$TMT_EXTENSION_MARKER"; exit 99\n',
+        0o700
+      );
+      const listed = await runCli(sandbox, ['extension', 'ls', '--json']);
+      expect(listed.status, listed.stdout + listed.stderr).toBe(0);
+      const guidance = JSON.parse(listed.stdout).guidance as {
+        actions: { id: string; kind: string; argv: string[]; description: string }[];
+      };
+      const bare = await runCli(sandbox, []);
+      expect(bare.status, bare.stderr).toBe(0);
+      expect(bare.stdout).toContain('Start here:');
+      expect(bare.stdout.indexOf('Start here:')).toBeLessThan(bare.stdout.indexOf('Usage:'));
+      for (const action of guidance.actions) {
+        expect(bare.stdout).toContain(action.argv.join(' '));
+      }
+      expect(guidance.actions).toContainEqual(
+        expect.objectContaining({ argv: ['tmt', 'ops', '--help'] })
+      );
+      expect(bare.stdout).not.toContain('tmt ops ui');
+      for (const args of [['--help'], ['help'], ['help', 'setup']]) {
+        const help = await runCli(sandbox, args);
+        expect(help.status, help.stderr).toBe(0);
+        expect(help.stdout).not.toContain('Start here:');
+      }
+      expect(existsSync(marker)).toBe(false);
+      expect(existsSync(sandbox.database)).toBe(false);
+      expect(existsSync(sandbox.globalConfig)).toBe(false);
+      expect(existsSync(sandbox.localConfig)).toBe(false);
+      expect(existsSync(path.join(sandbox.home, '.local'))).toBe(false);
+    });
+  });
+
   it.each(['present', 'configOnly'] as const)(
     'requires consent for %s Muse skills and preserves its settings',
     async (state) => {
@@ -337,6 +376,12 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
         await runCli(sandbox, ['extension', 'ls', '--json'])
       );
       expect(current.extensions).toHaveLength(4);
+      expect(current.guidance).toEqual(publicInventory.guidance);
+      const next = await runCli(sandbox, ['setup']);
+      expect(next.stdout.match(/Next:/g)).toHaveLength(1);
+      for (const action of (current.guidance as { actions: { argv: string[] }[] }).actions) {
+        expect(next.stdout).toContain(action.argv.join(' '));
+      }
       for (const row of current.extensions as Array<Record<string, unknown>>) {
         expect(
           (publicInventory.extensions as Array<Record<string, unknown>>).find(
@@ -352,6 +397,15 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
       expect(listed.status, listed.stdout + listed.stderr).toBe(0);
       expect(listed.stderr).toBe('');
       const rows = parseWholeStdout(listed).extensions as Array<Record<string, unknown>>;
+      expect(parseWholeStdout(listed).guidance).toMatchObject({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'install-colab',
+            kind: 'install',
+            argv: ['tmt', 'extension', 'install', 'colab', '--yes'],
+          }),
+        ]),
+      });
       expect(rows).toHaveLength(4);
       for (const name of ['ops', 'digest', 'remote', 'colab']) {
         const row = rows.find((row) => row.name === name)!;

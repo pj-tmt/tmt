@@ -590,7 +590,7 @@ the frozen parity approval/regeneration gate. Relevant tests live in `view/tests
 thread per open tab that owns the Unix socket: `Hello`, `Welcome`, one `Snapshot`, then live output
 applied on top of the snapshot (frames before `SnapshotStart` are superseded, a second
 `SnapshotStart` discards an unfinished one). The board hands it a sink and sends commands; it
-receives `Event`s (a connection notice, a `Screen` at most every 33 ms, `Exited`, `Evicted`,
+receives `StreamEvent`s (a connection notice, a `Screen` at most every 33 ms, `Exited`, `Evicted`,
 `Refused`, `Lost`), so painting and key handling do no I/O and a late event for an old tab is
 dropped by its epoch. A lost connection or a `TooSlow` eviction reconnects with a fresh `Hello` and
 `Snapshot` after a bounded backoff; `TakenOver`, `Exited` and a refusal do not. A viewer never sends
@@ -599,6 +599,26 @@ sends that window again after a reconnect only while typing (`stop_typing` forge
 viewer that only watches never takes the size back), drops input while not attached, and never
 sends or reads Core's control frames. The screen model and key encoder are `tmt-tui`'s
 `components::terminal`; this module depends on `tmt-pty-protocol` for frames only.
+
+### Terminal tab
+
+`tab::Tab` (on `App`) holds what the tab knows: the answer of `terminal.stream` per member
+(`SelectedRead::TerminalStream`, asked last in the selected lane so the chat's reads never wait
+for it; a member with no stream is asked again after 60 s, a failed answer after 10 s), whether the
+tab is shown, and the one open `Stream` with the view it last drew. A stream that ended
+(`Exited`, `Evicted`, `Refused`, `Lost`) keeps its last screen, dimmed, under a line that says why;
+leaving the tab and coming back asks Core again and reconnects. `Tab::sync`, called once per
+board-loop pass, opens, replaces or drops the stream so it matches what is shown (the selected
+member's, only while the Terminal tab shows); every open takes a new epoch and
+`BoardEvent::Terminal` carries it, so a late event of a replaced stream is dropped.
+
+The tab exists only for the selected member that has a stream; the catalog action `terminal`
+(`t`, Member and Reader scopes) switches it with the chat and is absent from the footer, help and
+Actions menu otherwise. `paint` lays the cells on the pane with the program's own colours
+(`foreign::style`): a bigger screen is cut at the edge (a wide character that would straddle it is
+left out), a smaller one leaves the rest blank, and the screen is dimmed while the stream is not
+live. The program's cursor shows as one reversed cell (not the terminal cursor) in the live state only,
+hidden when the program hides it. The view only watches; typing is a separate slice.
 
 ## Checklist controller
 

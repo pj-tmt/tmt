@@ -27,6 +27,7 @@ fn account<'a>(
         skills,
         repeat: None,
         followups: Followups {
+            guidance: None,
             required: &[],
             optional: &[],
             conflict_hints: Vec::new(),
@@ -68,6 +69,7 @@ fn three_changed_components_make_one_table_one_summary_and_one_next_list() {
     let mut shown = account(&products, &skills, &versions);
     let required = ["Pane option cutover unavailable: boom".to_owned()];
     shown.followups = Followups {
+        guidance: None,
         required: &required,
         optional: &["The previous installation at /x is kept."],
         conflict_hints: vec!["User-owned skill preserved: mv a b".into()],
@@ -302,4 +304,59 @@ fn the_summary_mark_and_the_table_mark_are_one_colour() {
         .collect();
     assert_eq!(marks.len(), 2, "{text:?}");
     assert_eq!(marks[0], marks[1], "{text:?}");
+}
+
+#[test]
+fn discovery_joins_existing_next_after_uncapped_recovery_and_deduplicates_commands() {
+    let products = [current("cli", "5.0.0-alpha.41")];
+    let versions = versions();
+    let skills = skills(true);
+    let mut shown = account(&products, &skills, &versions);
+    let guidance = crate::install_guidance::Guidance {
+        actions: [
+            ("upgrade", vec!["tmt", "upgrade"], "Review updates"),
+            ("help-ops", vec!["tmt", "ops", "--help"], "Explore Ops"),
+        ]
+        .into_iter()
+        .map(|(id, argv, description)| crate::install_guidance::Action {
+            id: id.into(),
+            kind: crate::install_guidance::Kind::Use,
+            argv: argv.into_iter().map(str::to_owned).collect(),
+            description: description.into(),
+        })
+        .collect(),
+    };
+    let required = vec!["tmt upgrade".to_owned(); 7];
+    shown.followups.required = &required;
+    shown.followups.guidance = Some(&guidance);
+    shown.followups.reload_hint = Some("Reload your agent");
+    let text = render(&shown);
+    assert_eq!(text.matches("Next:").count(), 1);
+    assert_eq!(text.matches("tmt upgrade").count(), 1);
+    assert!(text.find("Reload your agent").unwrap() < text.find("tmt ops --help").unwrap());
+}
+
+#[test]
+fn a_missing_extension_keeps_its_existing_exact_prefix_command_once() {
+    let products = [
+        current("cli", "5.0.0-alpha.41"),
+        json!({"product":"ops", "status":"consentRequired", "hint":"tmt extension install ops --yes --prefix /tmp/custom"}),
+    ];
+    let versions = versions();
+    let skills = skills(false);
+    let mut shown = account(&products, &skills, &versions);
+    let guidance = crate::install_guidance::Guidance {
+        actions: vec![crate::install_guidance::Action {
+            id: "install-ops".into(),
+            kind: crate::install_guidance::Kind::Install,
+            argv: ["tmt", "extension", "install", "ops", "--yes"]
+                .map(str::to_owned)
+                .into(),
+            description: "Install optional Ops".into(),
+        }],
+    };
+    shown.followups.guidance = Some(&guidance);
+    let text = render(&shown);
+    assert_eq!(text.matches("tmt extension install ops").count(), 1);
+    assert!(text.contains("--prefix /tmp/custom"));
 }

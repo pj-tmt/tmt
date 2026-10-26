@@ -69,6 +69,8 @@ pub(super) enum SelectedRead {
     PaneOutput(super::recent_responses::AnswerRead),
     /// The shown live screen of one agent, and which read of it this is.
     PaneScreen(super::conversation::ConversationKey, u64),
+    /// Where one member's terminal stream is, asked of core once.
+    TerminalStream(String),
 }
 
 /// The UI's selected-lane demand. Static projections have no live worker.
@@ -156,6 +158,16 @@ impl Worker {
                                 revision,
                                 cancellation: cancellation.clone(),
                             },
+                            SelectedRead::TerminalStream(identity) => {
+                                super::BoardEvent::TerminalLocated {
+                                    located: super::terminal_tab::discovery::locate(
+                                        &reader, &identity,
+                                    ),
+                                    identity,
+                                    revision,
+                                    cancellation: cancellation.clone(),
+                                }
+                            }
                             SelectedRead::Message(key) => super::BoardEvent::Message {
                                 body: key.read(&reader).map_err(|error| error.to_string()),
                                 key,

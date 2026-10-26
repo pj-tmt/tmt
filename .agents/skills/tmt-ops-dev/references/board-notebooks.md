@@ -71,7 +71,7 @@ identity inventory. Matching is case-sensitive, longest-first and word-bounded;
 simple bare words and unavailable or ambiguous identities stay literal. Source
 and annotation byte ranges never change. Normal-weight text-colour underlines
 carry UUID tags into visible wrapped/clipped cells; hover and keyboard focus use
-the selected-row background. Conversation/pane-output Markdown, plain previews,
+the selected-row background. A reference grants no new delivery authority and does no paint/input I/O. Conversation/pane-output Markdown, plain previews,
 board task summaries, KeyValue rows and notices share that resolver and hit owner.
 Rendered projections are cached by text, width/look and inventory generation;
 plain fitted fields resolve their complete original text before deriving visible

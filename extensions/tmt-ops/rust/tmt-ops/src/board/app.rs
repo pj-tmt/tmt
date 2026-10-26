@@ -313,6 +313,8 @@ pub enum Choice {
     AgentsFilter(super::workspace::AgentsFilter),
     /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
+    /// The Talk pane's Chat/Terminal chips: `true` is the terminal.
+    TerminalView(bool),
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Checklist chip of a member's header: opens the list.
     MemberNotes,
@@ -730,8 +732,10 @@ pub struct App {
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
     pub(in crate::board) view_layer: super::view_state::Layer,
-    /// Talk or Measure in the Agents tab's right column (`t`).
+    /// Talk or Measure in the Agents tab's right column (`M`).
     pub(in crate::board) right_tab: super::shell::RightTab,
+    /// The Talk pane's Terminal tab for built-in-host members.
+    pub(in crate::board) terminal: super::terminal_tab::tab::Tab,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) digest_rows: RefCell<super::digest_dashboard::Cache>,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
@@ -3107,6 +3111,7 @@ impl App {
             Choice::FileShow { path, anchor } => self.file_show(&path, anchor),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),
+            Choice::TerminalView(show) => self.show_terminal(show),
             Choice::WorkspaceTarget(target) => {
                 if self
                     .workspace_snapshot()
@@ -4867,6 +4872,13 @@ impl App {
                 .clone()
                 .map(super::refresh::SelectedRead::Status);
         }
+        if self.terminal_showing() {
+            // The terminal is not the chat: none of the chat's reads are made, and the stream
+            // is the loop's, not the selected lane's; only where it is may be asked again.
+            return self
+                .terminal_locate()
+                .map(super::refresh::SelectedRead::TerminalStream);
+        }
         if self.screen_mode() {
             // The chat is not shown, so none of its reads (finals, sends, bodies, pane
             // output) are made; the screen is read when it is due.
@@ -4880,8 +4892,13 @@ impl App {
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }
+        // Where the stream is comes last: the chat's own reads are never made to wait for it.
         self.pane_output_plan()
             .map(super::refresh::SelectedRead::PaneOutput)
+            .or_else(|| {
+                self.terminal_locate()
+                    .map(super::refresh::SelectedRead::TerminalStream)
+            })
     }
 
     /// Exact admitted row data for the selected workspace target.

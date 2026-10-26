@@ -218,6 +218,10 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   state, HTTP or Session lookup. The [Colab contract](../../../../extensions/tmt-colab/contracts/colab-v1.md)
   owns the complete-pair grammar and strict-reader compatibility rules; this native/non-UI
   boundary does not integrate the browser's creator-default toggle.
+- Routing: source/shell actions, attributed creator/question metadata, thread status and proposals
+  publish through the content-publication path (offline, or the local `page-publish` route when `serve`
+  holds the lock); browser Save and closed creator/handled/reopen metadata commands use the owner
+  sync socket, signed by the root-local writer.
 - `page write` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle
   lock from preparation through commit, using `Store::write_existing` and `commit_publication`.
   On a tail-capacity refusal, it makes one bounded combine attempt only if existing

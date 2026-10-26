@@ -61,6 +61,59 @@ gates. The [native installation
 contract](../ARCHITECTURE.md#managed-skills-and-native-installation) owns archive,
 receipt, consent and unavailable-release behavior.
 
+### Installation guidance through the ordinary CLI
+
+`tmt extension ls --json` adds `guidance: {actions: [...]}` beside its existing
+`extensions` rows. This is the shared setup inventory projection for Core,
+TUI, GUI and Remote consumers, not another API operation or installation store.
+Absent `guidance` (an older CLI) and `actions: []` both mean no guidance, not an
+error. Unknown `kind` values render as plain advice without execution.
+Each action has:
+
+| Field         | Meaning                                                                                                          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `id`          | Stable action identifier, such as `install-ops` or `remote-pair`; consumers must tolerate new IDs.               |
+| `kind`        | `use`, `install` or `repair`; rendering advice, never authorization.                                             |
+| `argv`        | An argument array beginning with `tmt`; execute only through the ordinary command's consent and ownership rules. |
+| `description` | Short English display text; not a machine-readable status.                                                       |
+
+Actions are ordered: required recovery first, up to five feature-discovery
+commands, then one install command per genuinely missing optional extension.
+Missing is distinct from damaged, partially removed or unmanaged. Inventory
+verification, command resolution, shadowing, CLI compatibility and Colab's Remote
+dependency govern readiness; installed does not imply running, paired or deployed.
+An entire `argv` element matching `<[a-z][a-z0-9-]*>` is a reserved, unfilled
+input token, never a literal argument. The current tokens `<original-archive>`
+and `<matching-manifest>` require the original archive path and its matching
+manifest path. Consumers must recognize this token form, including unknown
+future names, and keep an action with any unfilled token copy-only: never offer
+or attempt execution until the user supplies every replacement. Other argument
+bytes remain opaque; consumers must not infer inputs from descriptions or invent
+replacement paths.
+
+Install and repair actions can include `--yes`, suppressing the command's own
+prompt. A consumer offering execution must display the complete argument array,
+including filled inputs and `--yes`, and obtain explicit user confirmation before
+running it; that confirmation supplies the command's consent. Agents never run
+these actions unasked. Receiving `argv` with `--yes` grants no authority.
+Optional inspection failure suppresses recommendations without changing an
+operation's result. Existing diagnostics and failure/consent semantics remain authoritative.
+
+The guidance read and bare-root `Start here` use local receipts/files only: no
+network, SQLite/config initialization, extension execution, service start or
+browser open. Ordinary listing retains its existing generic caller-session observation;
+the projection adds no store or service effects. When the version is unknown or older, guidance offers `tmt upgrade`
+and the installed extension's root `--help`. A named start command requires an
+already available current-version fact (an explicit `ls --check` result or a
+successful acquisition/upgrade result matching the freshly verified version).
+There is no per-command version-floor table, capability probe or implicit fetch.
+The same projection supplies setup/upgrade `guidance` JSON and human `Next:`;
+post-apply reads preserve partial-success and no-op behavior. Required
+retry/approval/reload notices remain uncapped and precede discovery in `Next:`.
+Pairing and sharing/sending grants are user actions: agents display those commands
+and never run them. Consumers do not probe extension stores or maintain their own
+installed/missing lists.
+
 Every request has `version`, `operation` and `input`. Writes (`dispatch.create`,
 `rooms.write`, `rooms.retire`) additionally name exactly one originator: `identity`, an active
 identity UUID or name, or `"originator":"anonymous"`, which stores no writer identity,

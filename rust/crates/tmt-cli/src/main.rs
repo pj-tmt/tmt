@@ -36,6 +36,7 @@ mod identity_command;
 mod identity_context;
 mod init_command;
 mod install_command;
+mod install_guidance;
 mod invocation;
 mod mcp_command;
 mod native_install_command;
@@ -239,7 +240,20 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             };
             let mut stdout = tmt_cli_style::stream::stdout(false);
             let terminal = stdout.terminal();
-            help_output::write(&path, &discovered, terminal, &mut stdout)?;
+            let guidance = path.is_empty().then(|| install_guidance::read(None, &[]));
+            if parsed.start_here
+                && let Some(guidance) = &guidance
+            {
+                guidance.write("Start here", terminal, &mut stdout)?;
+                writeln!(stdout)?;
+            }
+            help_output::write_with_inventory(
+                &path,
+                &discovered,
+                guidance.as_ref(),
+                terminal,
+                &mut stdout,
+            )?;
             if path.is_empty()
                 && !parsed.mode.json
                 && tmt_cli_style::Interaction::detect(parsed.mode.json).stdout

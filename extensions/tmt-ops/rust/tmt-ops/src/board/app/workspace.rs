@@ -710,6 +710,7 @@ impl App {
                         .is_some_and(|snapshot| snapshot.hidden_count > 0)
             }
             Verb::Ui(OpsUiAction::Pin) => self.workspace_is_pinned().is_some(),
+            Verb::Ui(OpsUiAction::Terminal) => self.terminal_available(),
             Verb::Ui(OpsUiAction::ClearScope) => !self.workspace.visibility.scope.is_empty(),
             _ => true,
         });
@@ -1162,6 +1163,7 @@ impl App {
             MemberSession => return self.open_member_session(),
             MemberNotes => return self.open_notes(),
             MarkRead => return self.mark_read_selected(),
+            Terminal => return self.toggle_terminal(),
             IdleAlert => return self.open_idle_alert(None),
             NewMember => return self.open_new_member(),
             SwitchTool => return self.open_switch_tool(),
