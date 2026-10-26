@@ -922,7 +922,13 @@ moment, so a withdrawn or replaced item cannot open. `search-entry.tsx` mounts t
 Colab route as `mount(container, { transport, registry, navigate, pageHref, go, projectHref })`
 returning `open(opener)` and `dispose()`, with the bar's one Command/Ctrl+K listener left to the
 shell; the module exports it as `mountSearch`, which links the module's stylesheet for as long as
-it lives. Without a `search` the host is the page switcher it always was.
+it lives. A host with no transport of its own mounts it as `mountSearchSession(container, options)`
+(#5267): `search-session.ts` (`createSearchSession`, no runtime imports) owns `mountedTransport` and
+its close behind one stable `PageTransport` whose reads wait for the bootstrap, so the dialog opens at
+once and shows the loading and failed states it already has; the transport starts when mounted, a
+failed or `pagehide`-closed one is tried again by the next `open`, and `dispose` aborts a running
+bootstrap and closes it once. `options.placeholder` replaces the field's text (`search.placeholder`
+in the host). Without a `search` the host is the page switcher it always was.
 
 In Colab's own shell the router's host is opened by the shared top bar (#5237): `OwnShell` in
 `colab-shell.tsx` installs the common controls (`openSearch` takes the opener into the host's

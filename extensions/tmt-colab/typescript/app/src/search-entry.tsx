@@ -24,6 +24,8 @@ export interface SearchEntryOptions {
   go(href: string): Promise<unknown>;
   /** The page list scoped to one project; without it no project is offered. */
   projectHref?(name: string): string;
+  /** The field's placeholder; without it the placeholder names the groups that are ready. */
+  placeholder?: string;
 }
 
 export interface SearchEntry {
@@ -57,6 +59,7 @@ export function mount(container: HTMLElement, options: SearchEntryOptions): Sear
           registry: options.registry,
           go: options.go,
           ...(options.projectHref ? { projectHref: options.projectHref } : {}),
+          ...(options.placeholder === undefined ? {} : { placeholder: options.placeholder }),
         }}
         shortcut={false}
         onReady={ready}

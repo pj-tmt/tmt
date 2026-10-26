@@ -8,13 +8,17 @@ test.beforeEach(async ({ page }) => {
 });
 
 const fixture = '/test/search-entry-browser.tsx';
-async function mount(page: Page, mode: 'ready' | 'cold-failed' | 'no-colab-data' = 'ready') {
+async function mount(
+  page: Page,
+  mode: 'ready' | 'cold-failed' | 'no-colab-data' = 'ready',
+  placeholder?: string,
+) {
   await page.goto('/');
   await page.evaluate(
-    async ([path, mode]) => {
-      await (await import(/* @vite-ignore */ path!)).mount(mode);
+    async ([path, mode, placeholder]) => {
+      await (await import(/* @vite-ignore */ path!)).mount(mode, placeholder);
     },
-    [fixture, mode],
+    [fixture, mode, placeholder],
   );
   await expect(page.locator('#search-opener')).toBeVisible();
 }
@@ -230,6 +234,24 @@ test('the groups stay when the pages cannot be read, and it says so beneath them
   await expect(opener(page)).toBeFocused();
 });
 
+test('a host that passes a placeholder gets exactly that text, whatever groups are ready', async ({
+  page,
+}) => {
+  await mount(page, 'ready', 'Search TMT…');
+  await opener(page).click();
+  await expect(input(page)).toHaveAttribute('data-placeholder', 'Search TMT…');
+  await call(page, 'setRemote', [
+    {
+      key: 'devices',
+      label: 'Devices',
+      detail: 'Remote',
+      icon: 'monitor-smartphone',
+      href: '/remote/devices',
+    },
+  ]);
+  await expect(dialog(page).getByRole('group', { name: 'Remote' })).toBeVisible();
+  await expect(input(page)).toHaveAttribute('data-placeholder', 'Search TMT…');
+});
 test('disposal closes the dialog, adds no shortcut and leaves the entry inert', async ({
   page,
 }) => {

@@ -24,6 +24,8 @@ import {
   type SearchEntry,
   type SearchEntryOptions,
 } from './search-entry.js';
+import { createSearchSession, type SearchSessionOptions } from './search-session.js';
+import { mountedTransport } from './mounted.js';
 
 /** The paired mount the composed shell names for Colab, or null for the local preview. */
 function pairedMount(slot: ShellSlot): URL | null {
@@ -58,6 +60,31 @@ export function mountSearch(container: HTMLElement, options: SearchEntryOptions)
     open: entry.open,
     dispose() {
       entry.dispose();
+      unstyle();
+    },
+  };
+}
+
+/**
+ * The global search for a host that builds no page transport (#5267): the session owns Colab's
+ * mounted transport and its close, so the host never touches either. It starts when mounted;
+ * `open` before the pages are ready opens the dialog on the groups that are, and `dispose` ends
+ * the transport, a bootstrap still running included.
+ */
+export function mountSearchSession(
+  container: HTMLElement,
+  options: SearchSessionOptions,
+): SearchEntry {
+  const unstyle = stylesheet();
+  const session = createSearchSession(
+    { admit: mountedTransport, mountEntry: mountSearchEntry, page: window },
+    container,
+    options,
+  );
+  return {
+    open: session.open,
+    dispose() {
+      session.dispose();
       unstyle();
     },
   };
