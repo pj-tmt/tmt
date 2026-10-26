@@ -1019,8 +1019,16 @@ fn captures() -> Value {
             for scene in crate::board::conversation::timeline::tests::SCENES {
                 for width in [160, 80] {
                     for height in [50, 8] {
-                        let app = crate::board::conversation::timeline::tests::capture_case(scene, look);
-                        frames.push(capture_frame(&app, scene, look_name, width, height, &mut styles));
+                        let app =
+                            crate::board::conversation::timeline::tests::capture_case(scene, look);
+                        frames.push(capture_frame(
+                            &app,
+                            scene,
+                            look_name,
+                            width,
+                            height,
+                            &mut styles,
+                        ));
                     }
                 }
             }

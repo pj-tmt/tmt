@@ -81,6 +81,20 @@ impl App {
             .then_some(key)
     }
 
+    /// Share the existing admitted timeline with a selected read; never copy its bodies.
+    pub(in crate::board) fn held_conversation_timeline(
+        &self,
+        key: &ConversationKey,
+    ) -> Option<std::sync::Arc<crate::board::recent_responses::Page>> {
+        let state = self.conversation.borrow();
+        match &state.sessions.get(key)?.pane_output {
+            Observation::Observed(page) if page.timeline.is_some() => {
+                Some(std::sync::Arc::clone(page))
+            }
+            _ => None,
+        }
+    }
+
     pub(in crate::board) fn pane_output_plan(
         &self,
     ) -> Option<crate::board::recent_responses::AnswerRead> {

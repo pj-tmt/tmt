@@ -17,7 +17,7 @@ pub(super) struct Message {
     acquired: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(super) struct Plan {
     key: FinalsKey,
     squad: String,
@@ -25,7 +25,25 @@ pub(super) struct Plan {
     sent: bool,
     messages: Vec<Message>,
     pane: Option<recent_responses::AnswerRead>,
+    held_timeline: Option<std::sync::Arc<recent_responses::Page>>,
 }
+
+impl PartialEq for Plan {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+            && self.squad == other.squad
+            && self.finals == other.finals
+            && self.sent == other.sent
+            && self.messages == other.messages
+            && self.pane == other.pane
+            && match (&self.held_timeline, &other.held_timeline) {
+                (None, None) => true,
+                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+                _ => false,
+            }
+    }
+}
+impl Eq for Plan {}
 
 pub(super) struct Projection {
     finals: Option<Result<Vec<Value>, String>>,
@@ -84,6 +102,48 @@ impl Plan {
         sent_texts: &mut SentTexts,
         cancellation: &Cancellation,
     ) -> Projection {
+        let pane = self
+            .pane
+            .as_ref()
+            .filter(|_| !cancellation.cancelled())
+            .map(|read| read.read(core, cancellation));
+        let timeline = pane
+            .as_ref()
+            .and_then(|observation| match observation {
+                recent_responses::Observation::Observed(page) => page.timeline.as_ref(),
+                _ => None,
+            })
+            .or_else(|| self.held_timeline.as_ref()?.timeline.as_ref());
+        if let Some(timeline) = timeline {
+            // The committed stream owns its inputs and replies, including an
+            // unavailable body. A legacy show must not replace that observation.
+            let bodies = self
+                .messages
+                .iter()
+                .filter(|message| !message.acquired && message.key.kind == Kind::Question)
+                .filter(|message| {
+                    !timeline.entries.iter().any(|entry| {
+                        use recent_responses::timeline::Kind;
+                        match &entry.kind {
+                            Kind::Input(input) => input.request == message.key.request,
+                            Kind::Reply { request, .. } => request == &message.key.request,
+                            _ => false,
+                        }
+                    })
+                })
+                .take_while(|_| !cancellation.cancelled())
+                .map(|message| {
+                    let body = message.key.read(core).map_err(|error| error.to_string());
+                    (message.key.clone(), body)
+                })
+                .collect();
+            return Projection {
+                finals: self.finals.then(|| Ok(Vec::new())),
+                sent: self.sent.then(|| Ok(Vec::new())),
+                bodies,
+                pane,
+            };
+        }
         let finals = self
             .finals
             .then(|| self.key.read(core).map_err(|error| error.to_string()));
@@ -149,11 +209,6 @@ impl Plan {
                 .map_err(|error| error.to_string());
             bodies.push((message.key, body));
         }
-        let pane = self
-            .pane
-            .as_ref()
-            .filter(|_| !cancellation.cancelled())
-            .map(|read| read.read(core, cancellation));
         Projection {
             finals,
             sent,
@@ -181,6 +236,8 @@ impl App {
             })
             .collect();
         let pane = self.pane_output_plan();
+        let held_timeline =
+            self.held_conversation_timeline(&(Some(key.sender.clone()), key.agent.clone()));
         if !finals && !sent && pane.is_none() && messages.iter().all(|message| message.acquired) {
             return None;
         }
@@ -193,6 +250,7 @@ impl App {
             sent,
             messages,
             pane,
+            held_timeline,
         })
     }
 
@@ -220,6 +278,9 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod timeline_tests;
 
 #[cfg(test)]
 mod tests {
@@ -288,6 +349,7 @@ mod tests {
                 .map(|i| message(format!("question-{i}"), Kind::Question, i + 10))
                 .collect(),
             pane: None,
+            held_timeline: None,
         };
         let (events, input) = mpsc::channel();
         let worker = super::super::refresh::Worker::spawn(Core::at(fake), false, events, None);
@@ -392,6 +454,7 @@ mod tests {
             finals: false,
             sent: false,
             pane: None,
+            held_timeline: None,
             messages: vec![
                 message("same".into(), Kind::Reply, 1),
                 message("same".into(), Kind::Question, 2),
@@ -726,6 +789,7 @@ mod tests {
             finals: false,
             sent: false,
             pane: None,
+            held_timeline: None,
             messages: vec![
                 message("old-first".into(), Kind::Question, 2),
                 message("old-second".into(), Kind::Question, 1),

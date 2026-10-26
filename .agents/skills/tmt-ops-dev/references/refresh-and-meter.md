@@ -142,10 +142,13 @@
   exchanges, cron or history work never queues in front of the selected member's reads.
   Selection replacement cancels that lane between reads without cancelling or restarting
   base acquisition; explicit base preemption and shutdown cancel both lanes. `board::selected_conversation` gathers the selected
-  conversation's bounded finals, durable sends, missing bodies and provider observations
-  on this lane and publishes one projection. Full request documents are reused within
-  that refresh, so a prompt and reply for one request never cause two shows. Targeted
-  list reads remain unless held-page coverage is proven. There is no per-body publication
+  conversation on this lane and publishes one projection. It acquires the public
+  committed timeline first. Timeline inputs and replies own their inline bodies,
+  including explicit unavailable observations; only independent incoming questions
+  need `requests.show`. A held timeline shares the existing page by `Arc` and compares
+  by pointer, so a failed refresh or a new question does not hydrate covered bodies again.
+  Older Core keeps bounded finals/sends lists and per-refresh request-document reuse,
+  so its prompt and reply for one request never cause two shows. There is no per-body publication
   or growing-transcript render between reads; the existing Session keeps retained content
   while the refresh runs. The live selected-lane demand belongs to App so painters can
   show the shell spinner glyph on the conversation rule, only after `SPINNER_DELAY` and
