@@ -390,6 +390,9 @@ impl Store {
         // publication and pruning together, including the old checkpoint pair.
         capacity(&tx, s.page, 0, false)?;
         tx.commit()?;
+        if paired {
+            schema::reclaim(&self.connection);
+        }
         Ok(Accepted::New)
     }
     /// Install a verified checkpoint pair (or owner fold pair) for a stream this machine holds
