@@ -3791,6 +3791,7 @@ function createShellTopBar(root, bar, navigation) {
 			if (!next) clear();
 			else active?.update();
 		},
+		topBarReady: () => !disposed && options !== void 0,
 		setTopBar() {
 			if (disposed) throw new Error("The shell has been disposed");
 			if (!options) throw new Error("The root must install common controls before adopting the top bar");
@@ -4248,6 +4249,7 @@ function mountShell(root, view, select) {
 	return {
 		tools,
 		setCommonControls: topBar.setCommonControls,
+		topBarReady: topBar.topBarReady,
 		setTopBar: topBar.setTopBar,
 		clearTopBar: topBar.clear,
 		update: render,
@@ -4370,6 +4372,7 @@ function startShellHost(root, routes, options = {}) {
 		main,
 		bar,
 		tools: controls.tools,
+		topBarReady: () => !disposed && current?.generation === mine && controls.topBarReady(),
 		setTopBar: () => current?.generation === mine ? controls.setTopBar() : { actions: document.createElement("div") },
 		basePath: route.paths.at(-1),
 		answer: () => answer,

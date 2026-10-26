@@ -1,10 +1,19 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import {
   BrowserAction,
   BrowserDialog,
   BrowserField,
   BrowserShell,
   BrowserTopBar,
+  useTopBarReady,
 } from '../src/react.js';
 import {
   mountShell,
@@ -57,6 +66,11 @@ const view: ShellView = {
     ],
   },
 };
+
+/** The gallery adopts only when its root has installed the common controls. */
+function ReadyTopBar({ actions }: { actions: ReactNode }) {
+  return useTopBarReady() ? <BrowserTopBar actions={actions} /> : null;
+}
 
 function NativeTopBar({
   common,
@@ -208,7 +222,7 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
       {shown &&
         (renderer === 'react' ? (
           <BrowserShell view={view} commonControls={common} select={() => true}>
-            <BrowserTopBar
+            <ReadyTopBar
               actions={
                 <BrowserAction
                   type="button"

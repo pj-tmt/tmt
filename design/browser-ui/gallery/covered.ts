@@ -47,6 +47,7 @@ export const covered = {
   HostedShell: 'shell',
   useShellBar: 'shell',
   useShellTools: 'shell',
+  useTopBarReady: 'shell',
   BrowserHeader: 'header',
   BrowserAction: 'actions',
   BrowserIconAction: 'icon-actions',

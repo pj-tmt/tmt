@@ -7,6 +7,7 @@ export {
   HostedShell,
   useShellBar,
   useShellTools,
+  useTopBarReady,
 } from './browser-shell.js';
 export type { BrowserShellProps, BrowserTopBarProps, HostedShellProps } from './browser-shell.js';
 export { BrowserCommand } from './command.js';

@@ -181,7 +181,13 @@ counts are rejected before replacing the projection. Updates preserve
 the native link and its focus. Theme reuses the existing browser preference and menu owner;
 System follows the device and blocked storage still applies the current choice.
 
-The root must install common bindings before adopting the new bar. Route departure clears
+The root must install common bindings before adopting the new bar. `ShellControls.topBarReady()`
+reads whether common controls are installed and the shell is live. `ShellSlot.topBarReady()`
+also returns false for a replaced route. React's `useTopBarReady()` reads the hosted slot or
+`BrowserShell` controls once per render, and returns false outside a shell. A module can keep
+its legacy header when the probe is false; `setTopBar()` still throws when controls are absent.
+There is no readiness subscription: the root installs controls before mounting a route and
+replaces the route when clearing them. Route departure clears
 the action slot and transient common UI; root disposal releases listeners and pending route
 loads cannot install a new header. Legacy header/tools slots remain for existing consumers
 until their owning adoption removes them. Gallery `?frame=topbar&renderer=react|native|hosted`
