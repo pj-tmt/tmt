@@ -137,9 +137,24 @@ impl Plan {
                     (message.key.clone(), body)
                 })
                 .collect();
+            // Held/queued sends have no committed input yet. Restore their
+            // Core state and bounded preview without hydrating prompt bodies.
+            let sent = (self.sent && !cancellation.cancelled()).then(|| {
+                SentKey {
+                    sender: self.key.sender.clone(),
+                    agent: self.key.agent.clone(),
+                }
+                .read_with(core, sent_texts, |_| {
+                    Err(crate::core::SquadError::new(
+                        "SQUAD_RESPONSE_UNAVAILABLE",
+                        "The committed conversation owns full prompt bodies.",
+                    ))
+                })
+                .map_err(|error| error.to_string())
+            });
             return Projection {
                 finals: self.finals.then(|| Ok(Vec::new())),
-                sent: self.sent.then(|| Ok(Vec::new())),
+                sent,
                 bodies,
                 pane,
             };

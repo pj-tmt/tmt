@@ -40,18 +40,26 @@ impl Fixture {
             "prompt":{"status":"retained","message":"exact input"}});
         let reply = json!({"requestId":"reply-inline","kind":"request","sender":{"identityId":OWNER},"recipientId":AGENT,
             "final":{"status":"retained","response":"exact reply"}});
+        let pending = json!({"items":[{"requestId":"pending-own","kind":"request",
+            "sender":{"identityId":OWNER},"recipientId":AGENT,"preparedAtMs":1,
+            "preview":"pending own preview","messageState":{"state":"batched","reason":{"text":"Core queued text"}}}],"nextBefore":null});
+        let pending_detail = json!({"requestId":"pending-own","kind":"request",
+            "sender":{"identityId":OWNER},"recipientId":AGENT,
+            "prompt":{"status":"retained","message":"exact pending own"}});
         let fake = dir.join("tmt");
         crate::test_support::write_ready_executable(
             &fake,
             &format!(
-                "#!/bin/sh\nif [ \"$1\" != api ]; then printf '%s\\n' '{{}}'; exit 0; fi\nrequest=$(cat)\nprintf '%s\\n' \"$request\" >> '{}/calls'\ncase \"$request\" in\n*capabilities*) cat '{}/capabilities.json';;\n*responses.timeline*) cat '{}/page.json';;\n*responses.recent*) printf '%s\\n' '{}';;\n*input-inline*) printf '%s\\n' '{}';;\n*reply-inline*) printf '%s\\n' '{}';;\n*requests.show*) printf '%s\\n' '{}';;\n*requests.list*) printf '%s\\n' '{{\"items\":[],\"nextBefore\":null}}';;\n*) printf '%s\\n' '{{}}';;\nesac\n",
+                "#!/bin/sh\nif [ \"$1\" != api ]; then printf '%s\\n' '{{}}'; exit 0; fi\nrequest=$(cat)\nprintf '%s\\n' \"$request\" >> '{}/calls'\ncase \"$request\" in\n*capabilities*) cat '{}/capabilities.json';;\n*responses.timeline*) cat '{}/page.json';;\n*responses.recent*) printf '%s\\n' '{}';;\n*input-inline*) printf '%s\\n' '{}';;\n*reply-inline*) printf '%s\\n' '{}';;\n*pending-own*) printf '%s\\n' '{}';;\n*requests.show*) printf '%s\\n' '{}';;\n*requests.list*) printf '%s\\n' '{}';;\n*) printf '%s\\n' '{{}}';;\nesac\n",
                 dir.display(),
                 dir.display(),
                 dir.display(),
                 recent,
                 input,
                 reply,
-                question
+                pending_detail,
+                question,
+                pending
             ),
         );
         Self {
@@ -94,10 +102,13 @@ fn inline_timeline_bodies_are_acquired_before_legacy_history_and_only_questions_
         .collect();
     assert_eq!(shows.len(), 1, "inline bodies must not be fetched again");
     assert_eq!(shows[0]["input"]["requestId"], "question-independent");
-    assert!(
-        !calls
+    assert_eq!(
+        calls
             .iter()
-            .any(|call| call["operation"] == "requests.list")
+            .filter(|call| call["operation"] == "requests.list")
+            .count(),
+        1,
+        "only the independent pending-send metadata read remains"
     );
     assert_eq!(projection.bodies.len(), 1);
     assert_eq!(
@@ -198,6 +209,8 @@ fn held_timeline_survives_a_failed_refresh_without_rehydration_and_compares_by_p
         panic!("initial page")
     };
     plan.held_timeline = Some(std::sync::Arc::clone(&page));
+    plan.sent = false;
+    plan.finals = false;
     for message in &mut plan.messages {
         if message.key.kind == Kind::Question {
             message.acquired = true;
@@ -278,7 +291,7 @@ fn older_core_keeps_legacy_hydration_with_exact_source_bytes() {
             .iter()
             .filter(|call| call["operation"] == "requests.show")
             .count(),
-        3
+        4
     );
     let bodies: std::collections::BTreeMap<_, _> = projection
         .bodies
@@ -290,5 +303,36 @@ fn older_core_keeps_legacy_hydration_with_exact_source_bytes() {
     assert_eq!(
         bodies["question-independent"],
         "exact independent question\r\n"
+    );
+}
+
+#[test]
+fn an_unhanded_own_send_keeps_its_core_state_and_preview_after_restart() {
+    let fixture = Fixture::new();
+    let projection = plan().read(
+        &fixture.core,
+        &mut SentTexts::default(),
+        &Cancellation::default(),
+    );
+    let sent = projection.sent.unwrap().unwrap();
+    assert_eq!(
+        sent.len(),
+        1,
+        "the committed timeline excludes held sends, not their restoration metadata"
+    );
+    assert_eq!(sent[0]["requestId"], "pending-own");
+    assert_eq!(sent[0]["text"], "pending own preview");
+    assert_eq!(
+        sent[0]["truncated"], true,
+        "a list preview never becomes a full body"
+    );
+    assert_eq!(
+        sent[0]["messageState"]["reason"]["text"],
+        "Core queued text"
+    );
+    let calls = fixture.calls();
+    assert!(
+        !calls.iter().any(|call| call["operation"] == "requests.show"
+            && call["input"]["requestId"] == "pending-own")
     );
 }

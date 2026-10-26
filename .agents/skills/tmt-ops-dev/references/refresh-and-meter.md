@@ -145,7 +145,9 @@
   conversation on this lane and publishes one projection. It acquires the public
   committed timeline first. Timeline inputs and replies own their inline bodies,
   including explicit unavailable observations; only independent incoming questions
-  need `requests.show`. A held timeline shares the existing page by `Arc` and compares
+  need `requests.show`. One bounded own-send metadata list retains held/queued sends,
+  their Core delivery state and preview before a committed input exists; it does not
+  hydrate prompt bodies or treat a preview as full text. A held timeline shares the existing page by `Arc` and compares
   by pointer, so a failed refresh or a new question does not hydrate covered bodies again.
   Older Core keeps bounded finals/sends lists and per-refresh request-document reuse,
   so its prompt and reply for one request never cause two shows. There is no per-body publication
