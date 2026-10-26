@@ -209,7 +209,25 @@ impl Service {
                 owner_name,
                 crate::pairing::now_ms()?,
             )?;
-            emit(json!({"event":"invite","code":invite.token()?}))?;
+            let token = invite.token()?;
+            let mut event = json!({"event":"invite","code":token});
+            let link = crate::deploy_record::read_project(&self.layout, project)
+                .ok()
+                .flatten()
+                .and_then(|record| crate::invite_page::link(&record, &config, &token));
+            if let Some(link) = link {
+                event["link"] = json!(link);
+                // The code remains available even at the private control bound.
+                if serde_json::to_vec(&event)
+                    .map_err(crate::store::database)?
+                    .len()
+                    + 1
+                    > crate::limits::CLOUD_PAIR_CONTROL_BYTES
+                {
+                    event.as_object_mut().expect("invite event").remove("link");
+                }
+            }
+            emit(event)?;
             // The presenter has its own clearing owner; the coordinator remains
             // the sole memory owner of the live offer and its code.
             drop(invite);

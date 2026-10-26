@@ -306,6 +306,11 @@ which uses it for labels/read-back without a second hash implementation. The sam
 executes Hosting and Rules, and joint verification alone records Complete. Hosting read-back
 includes both EXPECTED and ACTIVE files; completion requires the captured file set to be
 ACTIVE and the live release/app/deployment identities to match.
+`invite_page` adds the fixed instructions resources within the same composer bounds and
+content/config digest. Its link presenter requires complete matching publication evidence,
+the current fixed resource identities and their route/headers; older deployments remain
+code-only until the owner redeploys. It does not probe or redeploy, and it never derives a
+site from a project name. The instructions document stays separate from Colab's shell and SDK.
 `remote_link` derives descriptors, including an optional selected Hosting site, only from
 that typed verified publication; the
 [link contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations) owns read-only reprinting and refusal.
@@ -514,7 +519,7 @@ uid before constructing the exact v2 binding. Its current coordinator observatio
 the standalone invite flag. Setup reserves one slot, without retaining the invitation mutex
 through provider I/O; failed setup releases only its own reservation. Pending setup is busy
 and not idle, with no current-offer observation until coordinator creation settles.
-The terminal only presents the code, comparison and separate
+The terminal presents the code, optional verified-published `/join` instructions link, comparison and separate
 default-no sending choices. Version-1 join and original-receipt recovery retain their
 isolated decoder and original expiry; there is no new v1 offer producer.
 

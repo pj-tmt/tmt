@@ -100,7 +100,10 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
     loop {
         if stop.load(Ordering::Acquire) {
             if !join {
-                writeln!(output, "Invite cancelled. The code no longer works.")?;
+                writeln!(
+                    output,
+                    "Invite stopped. Cloud withdrawal is not confirmed; the code still has its original expiry."
+                )?;
             }
             return Ok(());
         }
@@ -153,9 +156,18 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
             .unwrap_or_default();
         match event["event"].as_str() {
             Some("invite") => {
+                writeln!(output, "Invite someone to this machine")?;
+                if let Some(link) = event["link"].as_str() {
+                    writeln!(output, "Share this private invitation link: {link}")?;
+                } else {
+                    writeln!(
+                        output,
+                        "Invitation link unavailable for the current published site. Share the code instead."
+                    )?;
+                }
                 writeln!(
                     output,
-                    "Invite someone to this machine\nShare this code privately: {}\nIt expires in 10 minutes and can be used once.\nWaiting for them to join… (Ctrl+C cancels this invite)",
+                    "Share this code privately: {}\nIt expires in 10 minutes and can be used once.\nWaiting for them to join… (Ctrl+C cancels this invite)",
                     event["code"].as_str().unwrap_or("")
                 )?;
             }

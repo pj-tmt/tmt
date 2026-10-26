@@ -107,6 +107,7 @@ impl Pages {
     pub fn serves(path: &str) -> bool {
         let path = path.split('?').next().unwrap_or(path);
         app_route(path)
+            || crate::invite_page::reserved(path)
             || path == "/remote/pair"
             || path == "/p"
             || path.starts_with("/p/")
@@ -135,6 +136,12 @@ impl Pages {
             ("GET" | "HEAD", path) if app_route(bare) || short_page(bare).is_some() => {
                 // Navigation omits Origin; a cross-origin load is refused.
                 if head.origin.is_some_and(|o| o != self.origin) {
+                    return Err(page_refusal(path, 403));
+                }
+                Ok(0)
+            }
+            ("GET" | "HEAD", path) if crate::invite_page::reserved(path) => {
+                if head.origin.is_some_and(|origin| origin != self.origin) {
                     return Err(page_refusal(path, 403));
                 }
                 Ok(0)
@@ -204,6 +211,23 @@ impl Pages {
             .map_or((request.path.as_str(), ""), |(path, query)| (path, query));
         if app_route(path) {
             return asset("text/html; charset=utf-8", SHELL, Some(SHELL_POLICY));
+        }
+        if let Some((content_type, body, policy)) = crate::invite_page::resource(path) {
+            let mut reply = asset(
+                &format!("{content_type}; charset=utf-8"),
+                &body,
+                policy.as_deref(),
+            );
+            reply
+                .headers
+                .push(("cache-control".into(), "no-store".into()));
+            reply
+                .headers
+                .push(("referrer-policy".into(), "no-referrer".into()));
+            reply
+                .headers
+                .push(("x-content-type-options".into(), "nosniff".into()));
+            return reply;
         }
         if let Some(id) = short_page(path) {
             // The fragment (a reading, anchor or thread) is the browser's and follows the redirect.
