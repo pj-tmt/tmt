@@ -1,3 +1,4 @@
+import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
@@ -94,6 +95,17 @@ export function ReaderApp({
     inset: () => bar.current?.getBoundingClientRect().bottom ?? 0,
   });
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
+  const editLockLayer = useEditLockLayer({
+    page: state.kind === 'ready' ? (state.pageId ?? 'reader') : 'reader',
+    view: state.kind === 'ready' ? state.view : undefined,
+    agents: [],
+    renderer,
+    host,
+    toolbar: bar,
+    state: render,
+    contentRevision: 0,
+    admitted: state.kind === 'ready' && !shell,
+  });
   const imageInput = useRef({ binding: attachments, descriptors });
   imageInput.current = { binding: attachments, descriptors };
   const imageScope = attachments?.scope?.();
@@ -117,6 +129,7 @@ export function ReaderApp({
         setRender(next);
       },
       onLink: requestPageLink,
+      onEditLocks: editLockLayer.onEditLocks,
       viewportInset: () => toolbarInset(bar.current),
       frameLead: noteHeight,
     })
@@ -135,7 +148,7 @@ export function ReaderApp({
       resetPageLinks();
       renderer.current = null;
     };
-  }, [source, shell, resetPageLinks, requestPageLink]);
+  }, [source, shell, resetPageLinks, requestPageLink, editLockLayer.onEditLocks]);
   return (
     <>
       {pageLinkBar}
@@ -261,6 +274,7 @@ export function ReaderApp({
             <div className="workspace">
               <div className="canvas">
                 <div className="frame-host" ref={host} />
+                {editLockLayer.layer}
                 {(render === 'navigation' || render === 'failed') && (
                   <NoticeCard state="blocked" eyebrow={mode} title={text.blocked}>
                     <p>{render === 'navigation' ? text.navigation : text.failed}</p>

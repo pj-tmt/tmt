@@ -1,3 +1,4 @@
+import { editLockTarget, type EditLockTarget } from './edit-locks.js';
 import { rendererBase } from './entry.js';
 import { loadRuntime, wantsRuntime, type PageRuntime } from './page-runtime.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
@@ -30,6 +31,14 @@ const GROWTH_REPORT_LIMIT = 5;
 /** Shared inline geometry budget; reading bands use only slots left by existing controls. */
 export const INLINE_SLOT_LIMIT = 250;
 
+export interface EditLockPosition {
+  id: string;
+  rect: SelectionRect;
+}
+export interface RenderEditLock {
+  id: string;
+  target: EditLockTarget;
+}
 export interface SelectionRect {
   x: number;
   y: number;
@@ -189,6 +198,7 @@ export async function mountRenderer(
     /** The scheme the author's page paints (white when it paints nothing), for cards drawn over it. */
     onScheme?(scheme: PageScheme): void;
     onSlots?(slots: AnchorPosition[]): void;
+    onEditLocks?(positions: EditLockPosition[], checked?: boolean): void;
     onQuestions?(questions: QuestionAnchor[], reviews: ReviewAnchor[], checked?: boolean): void;
     onReadings?(readings: QuestionAnchor[], checked?: boolean): void;
     images?: DocumentImageInput;
@@ -197,6 +207,7 @@ export async function mountRenderer(
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
+  editLocks(locks: RenderEditLock[]): void;
   highlight(
     anchors: { id: string; selector: QuoteSelector; ordinal: number }[],
     draft?: QuoteSelector,
@@ -278,6 +289,8 @@ export async function mountRenderer(
     });
   };
   const stopTheme = subscribeTheme(sendTheme);
+  let lockRequestId = '';
+  let lockTargets: RenderEditLock[] = [];
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector; ordinal?: number }[] = [];
   // The resolved thread open in the Discussion panel: drawn quietly, never selected.
@@ -395,15 +408,23 @@ export async function mountRenderer(
     pendingScroll = undefined;
     readyWaiters.splice(0).forEach((resume) => resume());
     imageResolver?.close();
-    if (ready)
+    if (ready) {
+      channel.port1.postMessage({
+        type: 'colab.render.edit-locks',
+        renderId: snapshot.renderId,
+        requestId: crypto.randomUUID(),
+        locks: [],
+      });
       channel.port1.postMessage({
         type: 'colab.render.images',
         renderId: snapshot.renderId,
         requestId: crypto.randomUUID(),
       });
+    }
     stopped = true;
     stopTheme();
     options.onSlots?.([]);
+    options.onEditLocks?.([]);
     clearTimeout(heightTimer);
     window.removeEventListener('resize', resize);
     window.removeEventListener('message', bound);
@@ -588,6 +609,32 @@ export async function mountRenderer(
           (Object.keys(value).length === 4 && value.ok === false && value.reason === 'remount'))
       )
         pending.settle(value.ok === true ? 'applied' : 'remount');
+      return;
+    }
+    if (value?.type === 'colab.render.edit-locks') {
+      if (
+        Array.isArray(value) ||
+        Object.keys(value).length !== 4 ||
+        value.renderId !== snapshot.renderId ||
+        value.requestId !== lockRequestId ||
+        !Array.isArray(value.positions) ||
+        value.positions.length > lockTargets.length
+      )
+        return;
+      const rows = value.positions as Record<string, unknown>[];
+      if (
+        new Set(rows.map((row) => row?.id)).size !== rows.length ||
+        rows.some(
+          (row) =>
+            !row ||
+            Object.keys(row).length !== 2 ||
+            typeof row.id !== 'string' ||
+            !lockTargets.some((lock) => lock.id === row.id && !('whole' in lock.target)) ||
+            !isRenderRectangle(row.rect),
+        )
+      )
+        return;
+      options.onEditLocks?.(structuredClone(rows) as unknown as EditLockPosition[], true);
       return;
     }
     if (value?.type === 'colab.render.images') {
@@ -906,6 +953,27 @@ export async function mountRenderer(
     }
     selected = id;
     postSelected();
+  };
+  const editLocks = (input: RenderEditLock[]) => {
+    if (stopped) return;
+    let next = input.map(({ id, target }) => ({ id, target: structuredClone(target) }));
+    if (
+      next.length > 1000 ||
+      new Set(next.map((lock) => lock.id)).size !== next.length ||
+      next.some(({ id }) => !/^[0-9a-f-]{36}$/.test(id))
+    )
+      return;
+    for (const { target } of next) editLockTarget(target);
+    lockRequestId = crypto.randomUUID();
+    if (new TextEncoder().encode(JSON.stringify(next)).length > 256 * 1024 - 256) next = [];
+    lockTargets = next;
+    options.onEditLocks?.([]);
+    channel.port1.postMessage({
+      type: 'colab.render.edit-locks',
+      renderId: snapshot.renderId,
+      requestId: lockRequestId,
+      locks: next,
+    });
   };
   const highlight = (
     input: { id: string; selector: QuoteSelector; ordinal: number }[],
@@ -1274,6 +1342,7 @@ export async function mountRenderer(
   return {
     snapshot,
     update,
+    editLocks,
     highlight,
     slots,
     questions,

@@ -308,3 +308,14 @@ a cell; other typed discussion records remain immutable. Effective state chooses
 public Core presence snapshots and post-patch release, without changing source success
 when release fails. The wire and lifecycle rules are owned by the contract's
 [edit-lock section](../../../../extensions/tmt-colab/contracts/colab-v1.md#agent-edit-locks-5293).
+
+`edit-lock-layer.tsx` owns read-only parent identity chips and public-presence
+filtering. The renderer's closed lock port carries only IDs and source selectors;
+its inert source mapping reuses canonical text and quote resolution, then CSS
+Custom Highlights paints the range. Missing/ambiguous mapping falls back to the
+page chip. Reader and hosted-reader projections derive the same owner-member-filtered set;
+`ReaderApp` reuses the parent layer and its stylesheet. No lock node enters authored DOM. `e2e/edit-locks.spec.ts` measures all
+authored blocks, document sizes, chrome and scroll before/after acquisition/release,
+and covers internal scrolling, entity/markup mapping, attribute impostors, presence
+and mobile dark presentation. Its explicit fixture-frame selector and authored
+block count prevent hidden-bootstrap frame false positives.

@@ -25,6 +25,7 @@ export interface RendererHandlers {
  * remounts the renderer, as it always has. */
 export interface RendererLayers {
   onSlots: RendererOptions['onSlots'];
+  onEditLocks?: RendererOptions['onEditLocks'];
   onQuestions: RendererOptions['onQuestions'];
   onReadings: RendererOptions['onReadings'];
 }
@@ -123,7 +124,7 @@ export function usePageRenderer({
     if (!anchor) setMissingAnchor(undefined);
   }, [anchor]);
 
-  const { onSlots, onQuestions, onReadings } = layers;
+  const { onSlots, onQuestions, onReadings, onEditLocks } = layers;
   useEffect(() => {
     const controller = new AbortController();
     if (view.pageType === 'shell') {
@@ -154,6 +155,7 @@ export function usePageRenderer({
       onScheme: setPageScheme,
       onLink: requestPageLink,
       onSlots,
+      onEditLocks,
       onQuestions,
       onReadings,
       viewportInset: () => toolbarInset(toolbar.current),
@@ -205,6 +207,7 @@ export function usePageRenderer({
     toolbar,
     titleRow,
     onSlots,
+    onEditLocks,
     onQuestions,
     onReadings,
     resetPageLinks,

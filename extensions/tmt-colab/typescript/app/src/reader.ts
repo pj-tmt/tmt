@@ -1,3 +1,4 @@
+import { readEditLocks } from './edit-locks.js';
 import { AttachmentService, disclosureScope } from './attachment-service.js';
 import {
   binary,
@@ -172,6 +173,11 @@ export class ReaderSession {
           if (!this.#closed)
             this.publish({
               ...view,
+              editLocks: readEditLocks(
+                view.own ?? {},
+                { spaceId: admission.space, pageId: admission.page, epoch: admission.epoch },
+                (writer) => connection.objects.statusWriter(writer),
+              ),
               threads: readThreads(
                 view.own ?? {},
                 { spaceId: admission.space, pageId: admission.page, epoch: admission.epoch },

@@ -1,3 +1,4 @@
+import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
 import { usePageLinks } from './page-link-bar.js';
@@ -1420,9 +1421,12 @@ function OpenPage({
     snapshot.binding?.ask,
     snapshot.id,
     !!snapshot.binding && !liveError,
-    JSON.stringify(
-      (view.asks ?? []).map(({ writer, operationId }) => [writer, operationId]).sort(),
-    ),
+    JSON.stringify({
+      asks: (view.asks ?? []).map(({ writer, operationId }) => [writer, operationId]).sort(),
+      locks: (view.editLocks ?? [])
+        .map((lock) => [lock.holder.id, lock.lockId, lock.revision])
+        .sort(),
+    }),
   );
   const archived = view.archived ?? snapshot.archived ?? false;
   const wasArchived = useRef(archived);
@@ -1710,6 +1714,17 @@ function OpenPage({
     activeThread,
     setActiveThread,
   });
+  const editLockLayer = useEditLockLayer({
+    page: snapshot.id,
+    view,
+    agents,
+    renderer,
+    host,
+    toolbar,
+    state,
+    contentRevision,
+    admitted: !discussionPending && !liveError && !archived,
+  });
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,
@@ -1721,6 +1736,7 @@ function OpenPage({
     titleRow,
     anchor,
     layers: {
+      onEditLocks: editLockLayer.onEditLocks,
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
       onReadings: onReadingAnchors,
@@ -2109,6 +2125,7 @@ function OpenPage({
             </p>
           )}
           <div className="frame-host" ref={host} />
+          {editLockLayer.layer}
           {!discussionPending && (
             <>
               {/* The proposal and question cards sit on the author's page, so they take the scheme it
