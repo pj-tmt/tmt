@@ -365,7 +365,13 @@ fn the_cursor_is_one_reversed_cell_in_the_live_state_only() {
             screen: Some(Arc::new(screen.frame())),
         };
         let mut drawn = buffer(12, 4);
-        paint::render(&mut drawn, &app, Rect::new(0, 0, 12, 4), Some(&view), "worker");
+        paint::render(
+            &mut drawn,
+            &app,
+            Rect::new(0, 0, 12, 4),
+            Some(&view),
+            "worker",
+        );
         (0..4)
             .flat_map(|y| (0..12).map(move |x| (x, y)))
             .filter(|position| drawn[*position].modifier.contains(Modifier::REVERSED))
@@ -382,7 +388,10 @@ fn the_cursor_is_one_reversed_cell_in_the_live_state_only() {
         Condition::Exited(Exit::Code(0)),
         Condition::Lost("gone".into()),
     ] {
-        assert!(reversed("ab", condition.clone()).is_empty(), "{condition:?}");
+        assert!(
+            reversed("ab", condition.clone()).is_empty(),
+            "{condition:?}"
+        );
     }
     // A cell the program reversed itself shows as the plain cell under the cursor.
     assert!(reversed("\x1b[7ma\x1b[0m\x1b[1D", Condition::Live).is_empty());
