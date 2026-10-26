@@ -4,17 +4,19 @@ use crate::{
 };
 use nix::{errno::Errno, sys::signal::killpg, unistd::Pid};
 use std::{
+    ffi::OsString,
     io::{self, Write},
+    path::Path,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
 
 // Bound stop-flag latency without extending the absolute request deadline.
-const PULSE: Duration = Duration::from_millis(20);
-const CLEANUP: Duration = Duration::from_secs(1);
+pub(crate) const PULSE: Duration = Duration::from_millis(20);
+pub(crate) const CLEANUP: Duration = Duration::from_secs(1);
 
-fn failure(kind: FailureKind, cause: Option<io::Error>) -> InvokeError {
+pub(crate) fn failure(kind: FailureKind, cause: Option<io::Error>) -> InvokeError {
     InvokeError {
         kind,
         cause,
@@ -22,8 +24,18 @@ fn failure(kind: FailureKind, cause: Option<io::Error>) -> InvokeError {
     }
 }
 
-fn remaining(deadline: Instant, stop: Option<&AtomicBool>) -> Result<Duration, InvokeError> {
-    if stop.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+pub(crate) fn remaining(
+    deadline: Instant,
+    stop: Option<&AtomicBool>,
+) -> Result<Duration, InvokeError> {
+    budget(
+        deadline,
+        stop.is_some_and(|flag| flag.load(Ordering::Relaxed)),
+    )
+}
+
+pub(crate) fn budget(deadline: Instant, stopped: bool) -> Result<Duration, InvokeError> {
+    if stopped {
         return Err(failure(FailureKind::Interrupted, None));
     }
     deadline
@@ -37,8 +49,32 @@ pub(crate) fn invoke(
     stop: Option<&AtomicBool>,
 ) -> Result<Output, InvokeError> {
     remaining(request.deadline, stop)?;
-    let mut command = Exec::cmd(request.program);
-    if let Some(directory) = &request.launch.current_dir {
+    let mut child = start(
+        request.program,
+        request.args,
+        &request.launch,
+        Some(request.input),
+    )?;
+    let observed = observe(
+        &mut child.job,
+        request.deadline,
+        request.max_stream_bytes,
+        stop,
+    );
+    let result = finish(observed, || child.cleanup());
+    child.finished = true;
+    result
+}
+
+/// Both waited capture and persistent channels have this one launch/cleanup owner.
+pub(crate) fn start(
+    program: &Path,
+    args: &[OsString],
+    launch: &crate::LaunchOptions<'_>,
+    input: Option<&[u8]>,
+) -> Result<Child, InvokeError> {
+    let mut command = Exec::cmd(program);
+    if let Some(directory) = &launch.current_dir {
         if !directory.is_absolute() {
             return Err(failure(
                 FailureKind::Spawn,
@@ -50,37 +86,30 @@ pub(crate) fn invoke(
         }
         command = command.cwd(directory);
     }
-    command = match request.launch.environment {
+    command = match launch.environment {
         EnvironmentPolicy::Inherit => command,
         EnvironmentPolicy::InheritWith(values) => command.env_extend(values.iter().cloned()),
         EnvironmentPolicy::ClearAllowlist(names) => command
             .env_clear()
             .env_extend(std::env::vars_os().filter(|(name, _)| names.contains(name))),
     };
-    if request.launch.process_group == ProcessGroup::New {
+    if launch.process_group == ProcessGroup::New {
         command = command.setpgid();
     }
-    let job = command
-        .args(request.args.iter().cloned())
-        .stdin(request.input.to_vec())
+    let command = command
+        .args(args.iter().cloned())
         .stdout(Redirection::Pipe)
-        .stderr(Redirection::Pipe)
-        .start()
-        .map_err(|cause| failure(FailureKind::Spawn, Some(cause)))?;
-    let mut child = Child {
+        .stderr(Redirection::Pipe);
+    let job = match input {
+        Some(bytes) => command.stdin(bytes.to_vec()).start(),
+        None => command.stdin(Redirection::Pipe).start(),
+    }
+    .map_err(|cause| failure(FailureKind::Spawn, Some(cause)))?;
+    Ok(Child {
         job,
         finished: false,
-        group: request.launch.process_group,
-    };
-    let observed = observe(
-        &mut child.job,
-        request.deadline,
-        request.max_stream_bytes,
-        stop,
-    );
-    let result = finish(observed, || child.cleanup());
-    child.finished = true;
-    result
+        group: launch.process_group,
+    })
 }
 
 // The private seam keeps exceptional cleanup testable without public runner modes.
@@ -94,11 +123,22 @@ fn finish(
     })
 }
 
-fn observe(
+pub(crate) fn observe(
     job: &mut Job,
     deadline: Instant,
     limit: usize,
     stop: Option<&AtomicBool>,
+) -> Result<Output, InvokeError> {
+    observe_with_stop(job, deadline, limit, || {
+        stop.is_some_and(|flag| flag.load(Ordering::Relaxed))
+    })
+}
+
+pub(crate) fn observe_with_stop(
+    job: &mut Job,
+    deadline: Instant,
+    limit: usize,
+    stopped: impl Fn() -> bool,
 ) -> Result<Output, InvokeError> {
     let mut stdout = Capped::new(limit);
     let mut stderr = Capped::new(limit);
@@ -107,7 +147,7 @@ fn observe(
             .communicate()
             .map_err(|cause| failure(FailureKind::Io(Phase::OpenPipes), Some(cause)))?;
         loop {
-            communication = communication.limit_time(remaining(deadline, stop)?.min(PULSE));
+            communication = communication.limit_time(budget(deadline, stopped())?.min(PULSE));
             match communication.read_to(&mut stdout, &mut stderr) {
                 Ok(()) => break,
                 Err(cause) if cause.kind() == io::ErrorKind::TimedOut => continue,
@@ -126,7 +166,7 @@ fn observe(
     }
     // EOF is not completion. Retain the leader until all pipe observation ends.
     loop {
-        let left = remaining(deadline, stop)?;
+        let left = budget(deadline, stopped())?;
         if let Some(status) = job
             .wait_timeout(left.min(PULSE))
             .map_err(|cause| failure(FailureKind::Io(Phase::Wait), Some(cause)))?
@@ -174,14 +214,14 @@ impl Write for Capped {
     }
 }
 
-struct Child {
-    job: Job,
-    finished: bool,
+pub(crate) struct Child {
+    pub(crate) job: Job,
+    pub(crate) finished: bool,
     group: ProcessGroup,
 }
 
 impl Child {
-    fn cleanup(&mut self) -> Cleanup {
+    pub(crate) fn cleanup(&mut self) -> Cleanup {
         if self.group == ProcessGroup::InheritCaller {
             // No signal, wait or group inspection: this group belongs to the caller.
             self.job.detach();
