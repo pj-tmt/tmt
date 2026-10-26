@@ -16,18 +16,57 @@ const ORIGINS = {
   'a dedicated Hosting site': 'https://demo-tmt-hosted-docs.web.app',
 };
 const INIT_PATH = '/__/firebase/init.json';
-// Files the composer adds next to Colab's manifest; Colab never declares anything under it.
-const COMPOSER_OWNED_PREFIX = '/tmt/declarations/';
+// Remote's exact declaration addition is outside Colab's manifest (#3058).
+const COMPOSER_DECLARATION = '/tmt/declarations/colab.json';
+// #4982 adds these fixed Remote-owned resources. Composition has no owner field.
+const INVITE_RESOURCES = ['/join.html', '/sdk/invite-v1.js', '/sdk/invite.css'];
 const SHELL_ROUTES = ['/', '/colab', '/p/AbCd1234', '/read/AbCd1234', '/pair'];
+
+function colabInventory(
+  files: ReturnType<typeof composed>['view']['files'],
+  declared: readonly { path: string }[],
+) {
+  const paths = new Set(declared.map((file) => file.path));
+  const content = files.filter((file) => file.path !== COMPOSER_DECLARATION);
+  const extras = content
+    .filter((file) => !paths.has(file.path))
+    .map((file) => file.path)
+    .sort();
+  // Main before I4 has none; I4 must have the complete set. Unknown/partial sets fail.
+  expect(extras).toEqual(extras.length === 0 ? [] : INVITE_RESOURCES);
+  return content.filter((file) => paths.has(file.path));
+}
+
+test('composition accepts only no invite extras or the complete Remote I4 resource set', () => {
+  const file = (path: string) => ({
+    path,
+    rawDigest: 'a'.repeat(64),
+    rawLength: 1,
+    contentType: 'text/plain',
+  });
+  const declared = [{ path: '/index.html' }];
+  const baseline = [file('/index.html'), file(COMPOSER_DECLARATION)];
+  for (const extra of [[], INVITE_RESOURCES]) {
+    expect(colabInventory([...baseline, ...extra.map(file)], declared)).toEqual([baseline[0]]);
+  }
+  for (const extra of [
+    INVITE_RESOURCES.slice(0, 1),
+    INVITE_RESOURCES.slice(0, 2),
+    ['/unexpected'],
+    [...INVITE_RESOURCES, '/unexpected'],
+    ['/tmt/declarations/unexpected.json'],
+  ]) {
+    expect(() => colabInventory([...baseline, ...extra.map(file)], declared)).toThrow();
+  }
+});
 
 const bundleServesOn = (HOSTED_ORIGIN: string) => async () => {
   await withWorld(async (world) => {
     const { view, manifest, files } = composed(world);
     const { origin, requests } = await serve(world, view, files);
 
-    // Remote's composition describes exactly what Colab declared. Remote owns the files it adds
-    // under /tmt/declarations/ (the deployed declaration, #3058); they are outside Colab's manifest.
-    const colabFiles = view.files.filter((file) => !file.path.startsWith(COMPOSER_OWNED_PREFIX));
+    // Keep Colab's exact declared paths and byte/type assertions after classifying Remote extras.
+    const colabFiles = colabInventory(view.files, manifest.files);
     expect(colabFiles.map((file) => file.path)).toEqual(manifest.files.map((file) => file.path));
     for (const [index, declared] of manifest.files.entries()) {
       expect(colabFiles[index].rawDigest).toBe(declared.sha256);
