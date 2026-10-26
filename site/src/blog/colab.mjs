@@ -48,7 +48,7 @@ export async function draft({ root, sourcePath, meta, call = tmt }) {
   const article = articleFromSource(await readFile(sourcePath, "utf8"));
   const css = await readFile(join(root, "src/blog/blog.css"), "utf8");
   const e = escapeHtml;
-  const source = `<!doctype html><html lang="${languageInfo(meta.language).tag}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(meta.title)}</title><style>${css}</style></head><body><main class="post-shell"><header class="post-heading"><p class="eyebrow">ARTICLE DRAFT / ${meta.date}</p><h1>${e(meta.title)}</h1><p>${e(meta.summary)}</p></header>${article}</main></body></html>`;
+  const source = `<!doctype html><html lang="${languageInfo(meta.language).tag}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(meta.title)}</title><style>${css}</style></head><body><main class="post-shell"><header class="post-heading"><p class="eyebrow">ARTICLE DRAFT / ${meta.date}</p><h1>${e(meta.title)}</h1><p class="post-summary">${e(meta.summary)}</p></header>${article}</main></body></html>`;
   const directory = join(root, ".private/drafts");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, randomUUID() + ".html");
@@ -126,7 +126,7 @@ export async function prepare({ root, pageId, meta, call = tmt }) {
   const inventory = first.scripts.length
     ? first.scripts.map(({ path, sha256 }) => `- ${path}: SHA-256 ${sha256}`).join("\n")
     : "- None";
-  const proposalBody = `Publish this post?\n\nTitle: ${meta.title}\nSlug: ${meta.slug}\nDate: ${meta.date}\nLanguage: ${meta.language}\nSummary: ${meta.summary}\n\nApproved artifact SHA-256: ${artifactSha256}\n\nArticle modules (exact source is in this page):\n${inventory}\n\nExternal resource/data origins: none allowed by the site CSP. Outbound HTTPS links remain reader actions.\n\nApprove authorizes importing this exact article, scripts, images and metadata into the blog repository for PR review and merge-triggered publication. Discussions and proposals are excluded. Any source revision change requires a new proposal.`;
+  const proposalBody = `Publish this post?\n\nTitle: ${meta.title}\nSlug: ${meta.slug}\nDate: ${meta.date}\nLanguage: ${meta.language}\nSummary: ${meta.summary}\nTags: ${meta.tags?.length ? meta.tags.map((tag) => "#" + tag).join(", ") : "None"}\n\nApproved artifact SHA-256: ${artifactSha256}\n\nArticle modules (exact source is in this page):\n${inventory}\n\nExternal resource/data origins: none allowed by the site CSP. Outbound HTTPS links remain reader actions.\n\nApprove authorizes importing this exact article, scripts, images and metadata into the blog repository for PR review and merge-triggered publication. Discussions and proposals are excluded. Any source revision change requires a new proposal.`;
   if (Buffer.byteLength(proposalBody) > 4096)
     throw new Error("Proposal inventory exceeds Colab limit; reduce scripts or split the post");
   const directory = join(root, ".private/proposals");

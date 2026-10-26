@@ -2,6 +2,7 @@
 
 mod document;
 mod environment;
+pub mod provider_mod;
 mod publication;
 pub mod record;
 mod refresh;
@@ -13,6 +14,8 @@ pub use refresh::{
     RefreshStatus, refresh_recorded,
 };
 
+#[cfg(test)]
+mod provider_mod_tests;
 #[cfg(test)]
 mod refresh_tests;
 

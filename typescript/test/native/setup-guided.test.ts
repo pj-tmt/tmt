@@ -127,7 +127,8 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
       // No terminal and no --yes: the plan is printed, nothing changes.
       const refused = await runCli(sandbox, ['setup']);
       expect(refused.status).toBe(1);
-      expect(refused.stdout).toContain('CHANGES 6');
+      expect(refused.stdout).toContain('CHANGES 7');
+      expect(refused.stdout).toMatch(/mod\s+~\/\.claude\/skills\/tmt-allowance/);
       expect(refused.stdout).toContain('✓  claude');
       expect(refused.stdout).toContain('!  gemini');
       expect(refused.stdout).toContain('✗  agy');
@@ -158,6 +159,14 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
       for (const skill of ['.claude/skills/tmt', '.agents/skills/tmt-inbox']) {
         expect(lstatSync(path.join(sandbox.home, skill)).isSymbolicLink()).toBe(true);
       }
+      // Consented usage also keeps Claude's allowance mod, as a marked copy rather than a link.
+      expect(plan.filter((item) => item.kind === 'mod').map((item) => item.driver)).toEqual([
+        'claude',
+      ]);
+      const allowance = path.join(sandbox.home, '.claude', 'skills', 'tmt-allowance');
+      expect(lstatSync(allowance).isDirectory()).toBe(true);
+      expect(existsSync(path.join(allowance, '.tmt-managed.json'))).toBe(true);
+      expect(existsSync(path.join(allowance, 'hooks', 'register.mjs'))).toBe(true);
       // Present agents get hooks; the user's own hook stays.
       const claude = readFileSync(path.join(sandbox.home, '.claude', 'settings.json'), 'utf8');
       expect(claude).toContain(USER_HOOK);

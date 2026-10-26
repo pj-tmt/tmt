@@ -111,12 +111,31 @@ but excludes the blog. For local article HMR use `TMT_BLOG_DEMO=1 pnpm dev`;
 production artifacts always reject the development policy. Generated `blog/`
 inputs are ignored and rebuilt; approved sources are never cleared by a build.
 
+### Tags
+
+Optional `tags` metadata holds zero to three unique lowercase slugs from the
+fixed vocabulary in [tags.mjs](src/blog/tags.mjs): `announcements` (project news),
+`colab` (Colab use), `design` (interface design), `engineering` (implementation)
+and `workflow` (working with agents). Unknown, duplicate or excessive tags fail
+validation; values are never silently normalized. Omitting tags preserves the
+existing metadata and approval hash. Adding or changing tags requires a new
+approved proposal, whose body lists the tags.
+
+Posts and listing rows show ordinary `#tag` links. The build generates
+`${SITE_BASE}blog/tags/<tag>/` for English, or `blog/<language>/tags/<tag>/` for
+translations, listing only matching approved variants in that language. Tags on
+English fallback articles link to the English topic page. Unused tag/language
+combinations have no empty page and no switcher link; tag alternates include only
+languages with real matching posts. These pages have their own
+canonical URLs and sitemap entries, and each RSS item includes its tags as
+`category` elements. There is no client-side search or separate deployment.
+
 ### Colab review and import
 
 Use the installed native TMT CLI, optionally with `TMT_EXECUTABLE` set to its
 absolute path. Draft source must contain exactly one `article#blog-article`.
-Metadata has exactly `slug`, `title`, `summary`, `date` (YYYY-MM-DD) and
-`language` (`en`, `ja`, `zh-hant` or `zh-hans`). Images use full `colab-attachment:<UUID>` references.
+Metadata requires `slug`, `title`, `summary`, `date` (YYYY-MM-DD) and
+`language` (`en`, `ja`, `zh-hant` or `zh-hans`), with optional `tags` as described above. Images use full `colab-attachment:<UUID>` references.
 Draft creation uses Colab's `column` layout and adds the new page to the `blog`
 project, with strict markup validation and no automatic browser opening.
 

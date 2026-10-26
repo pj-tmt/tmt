@@ -216,7 +216,8 @@ gradient ids.
 
 Notice tone, visible state label, mark and announcement are explicit. No state,
 health, permission or recovery inference occurs. Marks are decorative because
-visible state words carry their meaning.
+visible state words carry their meaning. Notice eyebrows use uppercase 10px/400 body type with
+1.8px tracking; state words retain the host's body type. Other eyebrow contexts are unchanged.
 Optional `variant="tinted"` puts waiting, working, review and blocked notices on their existing
 soft tone surfaces; muted stays on the sheet. Static hosts set the data-tinted presence attribute
 only for tinted notices and omit it for neutral. The default `neutral` keeps the existing markup
@@ -547,7 +548,9 @@ and BrowserDialog also blur the page behind by 3px.
 Optional `headerActions` renders host-owned controls immediately before Close in DOM
 and keyboard order, with shared spacing. Omitted, it adds no element or layout change;
 footer `actions` is separate. Header actions retain their own labels, busy/admission
-state and effects. The leaf does not infer saving or change dismissal/focus ownership.
+state and effects. In both Drawer and Panel, BrowserAction controls in this slot use 11px/620
+body type, 1.35 line height, 7px/10px padding and the canonical 8px radius by default.
+Explicit host control styles retain precedence. Footer/body actions and Close retain their geometry. The leaf does not infer saving or change dismissal/focus ownership.
 
 The host supplies `open`, title/caption, children and `onDismiss(reason, event)`.
 It owns busy admission, drafts, attempts and commands. An optional `notice` slot
@@ -559,7 +562,9 @@ modified or composing keys do not dismiss. Close, backdrop and Escape requests
 carry their original events. Focus returns to the connected visible opener, or
 the host's supplied fallback when the opener disappears.
 
-Menu uses a native top-layer surface with a transparent catching backdrop and
+Menu retains its host row type and padding, with a 4px token inset inside the 8px popup and
+6px row corners so first/last keyboard focus frames stay inside the surface. React and native
+hosts share that presentation. Menu uses a native top-layer surface with a transparent catching backdrop and
 one open menu per document. It closes before invoking the host command, returning
 focus before another dialog opens. Arrows, Home/End and typeahead move among
 enabled items; Tab closes. The host owns checked state, command keys, disabled
@@ -775,7 +780,9 @@ state, a React component.
   and a label that states the value.
 - **Glyph.** `createIcon(name)` (from `@tmt/browser-ui/glyph`, outside the static graph because it reads the
   shell's icon data) returns a `tmt-ui-glyph`: a line icon from the shell's icon set,
-  drawn in the colour of its text and hidden from assistive tech.
+  drawn at 1em in the colour of its text and hidden from assistive tech. `link` and `info` use the
+  pinned Lucide Link/Info nodes; they do not expand the module-describe icon allowlist.
+  `?frame=glyphs` shows both at 14px and 24px.
 - **Page head.** `tmt-ui-page-head` holds a `tmt-ui-page-title` (the display face, the page's
   first read) over a `tmt-ui-page-subtitle`. Static only.
 - **Stats strip.** `tmt-ui-stats` is one bordered strip of `tmt-ui-stat` cells: a mark or glyph, a

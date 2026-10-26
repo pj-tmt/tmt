@@ -185,6 +185,10 @@ main {
   letter-spacing: -0.035em;
   margin: 0 0 30px;
 }
+.index-intro .tag-title {
+  font-size: clamp(36px, 6vw, 80px);
+  overflow-wrap: anywhere;
+}
 .intro-description {
   max-width: 440px;
   font-size: 18px;
@@ -210,12 +214,20 @@ main {
   margin: 0;
 }
 .article-row {
+  position: relative;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) 24px;
   gap: 24px;
   padding: 34px 0;
   border-bottom: 1px solid var(--c-rule);
+}
+.article-row h3 a {
   text-decoration: none;
+}
+.article-row h3 a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
 .article-row:hover h3 {
   color: var(--c-red);
@@ -291,11 +303,34 @@ main {
   line-height: 1.08;
   margin: 0 0 24px;
 }
-.post-heading > p:last-child {
+.post-heading > .post-summary {
   font-size: 19px;
   line-height: 1.65;
   color: var(--c-muted);
   margin: 0;
+}
+.post-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  color: var(--c-muted);
+}
+.post-tags a {
+  position: relative;
+  z-index: 1;
+  text-decoration: none;
+}
+.post-tags a:hover {
+  color: var(--c-red);
+  text-decoration: underline;
 }
 .post-heading .eyebrow span {
   padding: 0 12px;

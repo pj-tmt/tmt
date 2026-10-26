@@ -3,7 +3,10 @@
 //! driver's settings file (installed before the record existed). A hook that
 //! differs from what setup generates is kept and reported.
 
-use super::{PlanError, SetupPlan, apply, plan, publication::remove_lock, read_settings, record};
+use super::{
+    PlanError, SetupPlan, apply, plan, provider_mod, publication::remove_lock, read_settings,
+    record,
+};
 use crate::{drivers::Registry, skill_installation::ProviderEnvironment};
 use std::{
     fs, io,
@@ -85,12 +88,26 @@ pub fn plan_hook_removal(
     Ok(steps)
 }
 
+/// The managed mod directory this step also removes, when TMT's copy is there.
+pub fn mod_target(step: &HookStep) -> Option<PathBuf> {
+    let (provider, settings) = match step {
+        HookStep::Remove(planned) => (planned.provider, &planned.change.path),
+        HookStep::Forget { driver, settings } => (driver.as_str(), settings),
+        HookStep::Keep { .. } => return None,
+    };
+    provider_mod::pending_removal(provider, settings)
+        .ok()
+        .flatten()
+        .map(|pending| pending.target().to_path_buf())
+}
+
 /// Carries out one step and updates the record. A file that held nothing but
 /// TMT's hooks (`{}` once they are removed) is deleted rather than rewritten.
 /// Once no TMT hook is left in a directory, setup's lock there goes too.
 pub fn remove_hooks(global: &Path, step: &HookStep) -> io::Result<()> {
     match step {
         HookStep::Remove(planned) => {
+            remove_mod(planned.provider, &planned.change.path)?;
             if planned.change.after == "{}" {
                 if read_settings(&planned.change.path)? != planned.change.before {
                     return Err(io::Error::other(
@@ -105,9 +122,18 @@ pub fn remove_hooks(global: &Path, step: &HookStep) -> io::Result<()> {
             remove_lock(&planned.change.path)
         }
         HookStep::Forget { driver, settings } => {
+            remove_mod(driver, settings)?;
             record::forget(global, driver, settings)?;
             remove_lock(settings)
         }
         HookStep::Keep { .. } => Ok(()),
     }
+}
+
+/// The managed mod goes with the hooks; a directory that is not TMT's stays.
+fn remove_mod(provider: &str, settings: &Path) -> io::Result<()> {
+    if let Some(pending) = provider_mod::pending_removal(provider, settings)? {
+        pending.apply()?;
+    }
+    Ok(())
 }

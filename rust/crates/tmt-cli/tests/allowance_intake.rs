@@ -1,5 +1,6 @@
 //! The Claude allowance mod's intake keeps pushed windows only for a consenting setup, in a
-//! private file, and never disturbs its caller (#5187).
+//! private file, and never disturbs its caller; consented setup installs the mod and usage off or
+//! removal takes it away (#5187).
 #![cfg(unix)]
 #[allow(dead_code)]
 mod support;
@@ -71,6 +72,14 @@ impl World {
     }
     fn store(&self) -> PathBuf {
         support::state_dir(&self.root).join("claude/allowance.json")
+    }
+    fn mod_dir(&self) -> PathBuf {
+        self.root.join("home/.claude/skills/tmt-allowance")
+    }
+    fn setup(&self, args: &[&str]) -> Output {
+        let output = self.run(args, "");
+        assert!(output.status.success(), "setup failed: {output:?}");
+        output
     }
 }
 impl Drop for World {
@@ -149,4 +158,68 @@ fn an_unknown_provider_is_a_usage_error_not_an_intake() {
     let output = world.run(&["__allowance", "nobody"], "");
     assert!(!output.status.success());
     assert!(!world.store().exists());
+}
+
+#[test]
+fn consented_setup_installs_the_marked_mod_and_usage_off_or_remove_takes_it_away() {
+    let world = World::new(&["setup", "claude", "--yes", "--json"]);
+    let marker = world.mod_dir().join(".tmt-managed.json");
+    for file in [
+        ".claude-plugin/plugin.json",
+        "hooks/hooks.json",
+        "hooks/register.mjs",
+    ] {
+        assert!(world.mod_dir().join(file).is_file(), "{file}");
+    }
+    assert!(marker.is_file());
+
+    // Setup again with nothing to do says so, and the copy stays.
+    let again = world.setup(&["setup", "claude", "--yes"]);
+    assert!(String::from_utf8_lossy(&again.stdout).contains("Already current"));
+    assert!(marker.is_file());
+
+    let off = world.setup(&["setup", "claude", "--no-usage", "--yes", "--json"]);
+    let document: serde_json::Value = serde_json::from_slice(&off.stdout).unwrap();
+    assert_eq!(document["mod"]["status"], "removed");
+    assert!(!world.mod_dir().exists());
+
+    let on = world.setup(&["setup", "claude", "--usage", "--yes", "--json"]);
+    let document: serde_json::Value = serde_json::from_slice(&on.stdout).unwrap();
+    assert_eq!(document["mod"]["status"], "installed");
+    assert!(marker.is_file());
+
+    world.setup(&["setup", "claude", "--remove", "--yes"]);
+    assert!(!world.mod_dir().exists());
+}
+
+#[test]
+fn a_usage_opt_out_setup_never_installs_the_mod() {
+    let world = World::new(&["setup", "claude", "--no-usage", "--yes"]);
+    assert!(!world.mod_dir().exists());
+    world.setup(&["setup", "claude", "--yes"]);
+    assert!(!world.mod_dir().exists(), "the recorded opt-out stays");
+}
+
+#[test]
+fn a_directory_that_is_not_tmts_is_left_alone_and_said_so() {
+    let root = std::env::temp_dir().join(format!(
+        "tmt-allowance-foreign-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let foreign = root.join("home/.claude/skills/tmt-allowance");
+    fs::create_dir_all(foreign.join("hooks")).unwrap();
+    fs::write(foreign.join("hooks/mine.mjs"), "mine").unwrap();
+    // World::new would need an empty root, so lay the world out around the directory.
+    let world = World { root };
+    fs::create_dir(world.root.join("bin")).unwrap();
+    symlink(env!("CARGO_BIN_EXE_tmt"), world.root.join("bin/tmt")).unwrap();
+    let output = world.setup(&["setup", "claude", "--yes"]);
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("not TMT's"), "{text}");
+    assert_eq!(fs::read(foreign.join("hooks/mine.mjs")).unwrap(), b"mine");
+    assert_eq!(fs::read_dir(&foreign).unwrap().count(), 1);
+    // Removal leaves it too.
+    world.setup(&["setup", "claude", "--remove", "--yes"]);
+    assert_eq!(fs::read(foreign.join("hooks/mine.mjs")).unwrap(), b"mine");
 }

@@ -11,8 +11,10 @@ import {
   matchProjects,
   pageValue,
   projectValue,
+  scopeNames,
 } from '../src/quick-switcher-groups.js';
 import type { SwitcherResult } from '../src/quick-switcher.js';
+import { text } from '../src/strings.js';
 
 const item = (key: string, label: string, extra: Partial<SearchItem> = {}): SearchItem => ({
   key,
@@ -175,4 +177,60 @@ it('caps each provider group', () => {
     colabLabel: 'Colab',
   });
   expect(entries).toHaveLength(PROVIDER_RESULTS);
+});
+
+const labelled = (
+  key: string,
+  label: string,
+  state: SearchGroup['state'] = 'ready',
+): SearchGroup => ({
+  key,
+  label,
+  state,
+  items: [],
+});
+const placeholder = (groups: SearchGroup[]) =>
+  text.quickSwitcher.placeholderGlobal(scopeNames(groups, text.quickSwitcher.pagesNoun));
+
+it('names the ready groups in list order, navigation first and Colab pages after it', () => {
+  const groups = [
+    labelled('agents', 'Agents'),
+    labelled(NAVIGATION_GROUP, 'Navigation'),
+    labelled('devices', 'Devices'),
+  ];
+  expect(scopeNames(groups, 'pages')).toEqual(['navigation', 'pages', 'agents', 'devices']);
+  expect(placeholder(groups)).toBe('Search navigation, pages, agents or devices…');
+  expect(placeholder([labelled(NAVIGATION_GROUP, 'Navigation')])).toBe(
+    'Search navigation or pages…',
+  );
+});
+
+it('does not name a group that is unavailable, and follows it when it recovers', () => {
+  const nav = labelled(NAVIGATION_GROUP, 'Navigation');
+  expect(placeholder([nav, labelled('agents', 'Agents', 'unavailable')])).toBe(
+    'Search navigation or pages…',
+  );
+  expect(placeholder([nav, labelled('agents', 'Agents')])).toBe(
+    'Search navigation, pages or agents…',
+  );
+});
+
+it('falls back to Search TMT… until a group is ready, and never names Colab twice', () => {
+  expect(placeholder([])).toBe('Search TMT…');
+  expect(placeholder([labelled(NAVIGATION_GROUP, 'Navigation', 'unavailable')])).toBe(
+    'Search TMT…',
+  );
+  expect(placeholder([labelled(COLAB_GROUP, 'Colab')])).toBe('Search TMT…');
+  expect(
+    placeholder([labelled(NAVIGATION_GROUP, 'Navigation'), labelled(COLAB_GROUP, 'Colab')]),
+  ).toBe('Search navigation or pages…');
+});
+
+it('keeps a label that carries capitals past its first letter', () => {
+  expect(
+    scopeNames(
+      [labelled(NAVIGATION_GROUP, 'Navigation'), labelled('settings', 'TMT settings')],
+      'pages',
+    ),
+  ).toEqual(['navigation', 'pages', 'TMT settings']);
 });

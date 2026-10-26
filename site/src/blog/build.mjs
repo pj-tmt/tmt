@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { extractArticle, articleFromSource, metadata, stableJson } from "./content.mjs";
 import { indexBody, layout, locationConfig, postBody, readPosts, rss } from "./site.mjs";
 import { languages, indexPath, postPath } from "./languages.mjs";
+import { postTags, tagPath } from "./tags.mjs";
 
 // Generated HTML lives under the Vite root so its output paths are blog/**.
 // Only this directory is disposable; approved src/posts and review records are not.
@@ -97,6 +98,31 @@ export async function generate({ root, demo = false, development = false, base, 
       location,
       language.id,
     );
+  }
+  for (const tag of postTags) {
+    const tagged = posts.filter(({ meta }) => meta.tags?.includes(tag));
+    const tagLanguages = languages.filter(({ id }) =>
+      tagged.some(({ meta }) => meta.language === id),
+    );
+    const alternates = tagLanguages.map(({ id }) => ({ language: id, path: tagPath(tag, id) }));
+    for (const language of tagLanguages)
+      await render({
+        path: tagPath(tag, language.id),
+        language: language.tag,
+        requestedLanguage: language.id,
+        tag,
+        alternates,
+        title: `#${tag} · ${site.title}`,
+        description: `Articles tagged #${tag}.`,
+        body: indexBody(
+          tagged.filter(({ meta }) => meta.language === language.id),
+          site,
+          location,
+          language.id,
+          false,
+          { tag },
+        ),
+      });
   }
   const publicFiles = {
     ...publicFeeds,
