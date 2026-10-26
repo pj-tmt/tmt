@@ -1153,21 +1153,17 @@ mod tests {
 
     #[test]
     fn reported_and_bare_paths_keep_underscores_spaces_and_source_mapping() {
-        for source in [
-            reported::PATH,
-            "/tmp/some_dir/file_name.rs",
-            "src/some_module/file_name.rs",
+        for (source, label) in [
+            (reported::PATH, "⧉ Screenshot 2026-10-24 at 10.41.26.png"),
+            ("/tmp/some_dir/file_name.rs", "⧉ file_name.rs"),
+            (
+                "src/some_module/file_name.rs",
+                "src/some_module/file_name.rs",
+            ),
         ] {
             for width in [512, 160, 100, 80, 60, 24] {
                 let mapped = render_conversation_with_members(source, width, Look::default(), None);
                 let rows = text(&mapped.lines);
-                let without_spaces =
-                    |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-                assert_eq!(
-                    without_spaces(&rows.join("")),
-                    without_spaces(source),
-                    "{width}: {rows:?}"
-                );
                 assert!(mapped.lines.iter().all(|line| line.width() <= width));
                 assert!(mapped.sources.iter().all(|source| *source == 0));
                 assert!(
@@ -1177,8 +1173,24 @@ mod tests {
                         .flat_map(|line| &line.spans)
                         .all(|span| !span.style.add_modifier.contains(Modifier::ITALIC))
                 );
+                let links: Vec<_> = mapped.mentions.iter().flatten().collect();
+                if source.starts_with("src/") {
+                    assert!(links.is_empty(), "relative paths stay literal");
+                } else {
+                    assert_eq!(links.len(), 1, "{source}: {width}");
+                    let super::super::member_links::Target::File(path) = &links[0].target else {
+                        panic!("file reference lost its path");
+                    };
+                    let range = &links[0].source.as_ref().unwrap().source;
+                    assert!(source[range.clone()].contains(path));
+                }
                 if width == 512 {
-                    assert_eq!(rows, [source.trim_end()]);
+                    let expected = if source == reported::PATH {
+                        format!("{}{}", source.split('\'').next().unwrap(), label)
+                    } else {
+                        label.to_owned()
+                    };
+                    assert_eq!(rows, [expected]);
                 }
             }
         }

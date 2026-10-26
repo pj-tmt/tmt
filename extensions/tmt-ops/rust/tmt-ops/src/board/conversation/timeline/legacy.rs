@@ -302,6 +302,8 @@ impl<'a> History<'a> {
                 }
                 if let Some(label) = &send.message_state_label {
                     paint.caption(label);
+                } else if let Some(capture) = &send.capture {
+                    paint.caption(capture.delivery_fallback());
                 }
                 if matches!(send.capture, Some(Capture::NoAnswer)) {
                     paint.caption("No turn output was captured for this message.");
@@ -360,7 +362,14 @@ impl<'a> History<'a> {
                     } else {
                         &context.reader
                     },
-                    &entry_stamp("", reply.at_ms),
+                    &session
+                        .finals
+                        .iter()
+                        .position(|held| same_source(held, reply))
+                        .filter(|_| session.change != Change::Current)
+                        .and_then(|index| context.final_ages.get(index))
+                        .cloned()
+                        .unwrap_or_else(|| entry_stamp("", reply.at_ms)),
                     false,
                     reply.key.as_ref().map_or_else(
                         || "unlinked message".into(),

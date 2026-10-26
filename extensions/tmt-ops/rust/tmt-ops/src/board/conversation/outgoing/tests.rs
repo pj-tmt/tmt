@@ -662,7 +662,8 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
         text[3].contains("auth-fix")
             && text[3].contains("→")
             && text[3].contains("Ben")
-            && text[3].contains('—'),
+            && !text[3].contains("ago")
+            && !text[3].contains('—'),
         "unknown settled time is not invented: {text:?}"
     );
     assert_eq!(text[4], " │ answer body");

@@ -601,13 +601,10 @@ impl Session {
                     && accepted.passthrough
                     && accepted.message_state_label.is_none()
                 {
-                    let fallback = match send.capture {
-                        Some(
-                            crate::board::row_detail::Capture::Pending
-                            | crate::board::row_detail::Capture::Bound,
-                        ) => "⠹ working…",
-                        _ => "✓ delivered",
-                    };
+                    let fallback = send.capture.as_ref().map_or(
+                        "✓ delivered",
+                        crate::board::row_detail::Capture::delivery_fallback,
+                    );
                     if entry.feedback != fallback {
                         entry.feedback = fallback.into();
                         changed = true;

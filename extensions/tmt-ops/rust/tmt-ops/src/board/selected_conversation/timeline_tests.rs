@@ -336,3 +336,83 @@ fn an_unhanded_own_send_keeps_its_core_state_and_preview_after_restart() {
             && call["input"]["requestId"] == "pending-own")
     );
 }
+
+#[test]
+fn an_inline_reply_publication_finishes_loading_without_a_legacy_show() {
+    use crate::board::{
+        app::workspace::tests::{MEMBER, board},
+        conversation::Refresh,
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+    let fixture = Fixture::new();
+    let mut app = board();
+    let owner = app.view.as_ref().unwrap().me_id.clone().unwrap();
+    app.home_leads.test_results(
+        &owner,
+        json!({"items":[{
+        "requestId":"reply-inline","kind":"request","sender":{"identityId":owner},
+        "recipientId":MEMBER,"final":{"status":"retained","submittedAtMs":100},
+        "responsePreview":"preview","recipientAcknowledged":true
+    }],"nextBefore":null}),
+    );
+    let draw = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+    draw(&app);
+    let plan = app
+        .conversation_read()
+        .expect("initial selected acquisition");
+    assert!(
+        plan.messages
+            .iter()
+            .any(|message| message.key.kind == Kind::Reply && !message.acquired)
+    );
+    let mut page: Value =
+        serde_json::from_slice(&std::fs::read(fixture.dir.join("page.json")).unwrap()).unwrap();
+    page["identityId"] = json!(MEMBER);
+    page["entries"][0]["sender"]["identityId"] = json!(owner);
+    page["entries"][1]["acknowledgements"][0]["identityId"] = json!(owner);
+    std::fs::write(fixture.dir.join("page.json"), page.to_string()).unwrap();
+    let projection = plan.read(
+        &fixture.core,
+        &mut SentTexts::default(),
+        &Cancellation::default(),
+    );
+    assert!(
+        projection.bodies.is_empty(),
+        "the inline reply is not fetched twice"
+    );
+    app.selected_request = crate::board::refresh::SelectedRequest::Ready(Some(
+        crate::board::refresh::SelectedRead::Conversation(plan.clone()),
+    ));
+    app.apply_conversation(plan, projection);
+    let target = app.conversation_target().unwrap();
+    assert_eq!(
+        app.conversation_refresh(&target),
+        Refresh::Current,
+        "the timeline publication settles its own bodies"
+    );
+    let screen = draw(&app);
+    assert!(screen.contains("exact reply"), "{screen}");
+    assert!(!screen.contains("Loading conversation"), "{screen}");
+    assert!(
+        app.conversation_read().is_none(),
+        "covered legacy bodies never schedule another read"
+    );
+    assert!(
+        !fixture
+            .calls()
+            .iter()
+            .any(|call| call["operation"] == "requests.show")
+    );
+}

@@ -52,6 +52,26 @@ pub(super) struct Projection {
     pane: Option<recent_responses::Observation>,
 }
 
+/// A published timeline owns its request-keyed bodies, including unavailable
+/// bodies. Only an independent incoming question retains legacy hydration.
+pub(super) fn needs_request_body(
+    key: &MessageKey,
+    timeline: Option<&recent_responses::timeline::Page>,
+) -> bool {
+    let Some(timeline) = timeline else {
+        return true;
+    };
+    key.kind == Kind::Question
+        && !timeline.entries.iter().any(|entry| {
+            use recent_responses::timeline::Kind;
+            match &entry.kind {
+                Kind::Input(input) => input.request == key.request,
+                Kind::Reply { request, .. } => request == &key.request,
+                _ => false,
+            }
+        })
+}
+
 impl Plan {
     #[cfg(test)]
     pub(super) fn test_message_key(&self) -> &MessageKey {
@@ -120,16 +140,8 @@ impl Plan {
             let bodies = self
                 .messages
                 .iter()
-                .filter(|message| !message.acquired && message.key.kind == Kind::Question)
                 .filter(|message| {
-                    !timeline.entries.iter().any(|entry| {
-                        use recent_responses::timeline::Kind;
-                        match &entry.kind {
-                            Kind::Input(input) => input.request == message.key.request,
-                            Kind::Reply { request, .. } => request == &message.key.request,
-                            _ => false,
-                        }
-                    })
+                    !message.acquired && needs_request_body(&message.key, Some(timeline))
                 })
                 .take_while(|_| !cancellation.cancelled())
                 .map(|message| {
@@ -239,20 +251,24 @@ impl App {
         let detail = self.detail(&Target::Row(self.conversation_target()?))?;
         let finals = self.finals_read().is_some();
         let sent = finals || self.sent_read().is_some();
+        let pane = self.pane_output_plan();
+        let held_timeline =
+            self.held_conversation_timeline(&(Some(key.sender.clone()), key.agent.clone()));
+        let timeline = held_timeline
+            .as_ref()
+            .and_then(|page| page.timeline.as_ref());
         let messages: Vec<_> = detail
             .messages()
             .into_iter()
             .filter_map(|reply| {
-                Some(Message {
-                    key: reply.key.clone()?,
+                let key = reply.key.as_ref()?;
+                needs_request_body(key, timeline).then(|| Message {
+                    key: key.clone(),
                     at_ms: reply.at_ms,
                     acquired: reply.acquired,
                 })
             })
             .collect();
-        let pane = self.pane_output_plan();
-        let held_timeline =
-            self.held_conversation_timeline(&(Some(key.sender.clone()), key.agent.clone()));
         if !finals && !sent && pane.is_none() && messages.iter().all(|message| message.acquired) {
             return None;
         }

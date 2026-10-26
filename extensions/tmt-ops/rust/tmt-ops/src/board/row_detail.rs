@@ -149,6 +149,13 @@ pub(super) enum Capture {
     NoAnswer,
 }
 impl Capture {
+    pub(super) fn delivery_fallback(&self) -> &'static str {
+        match self {
+            Self::Pending | Self::Bound => "⠹ working…",
+            Self::Answered { .. } | Self::NoAnswer => "✓ delivered",
+        }
+    }
+
     pub(super) fn response_id(&self) -> Option<&str> {
         match self {
             Self::Answered { response_id, .. } => response_id.as_deref(),
@@ -650,6 +657,9 @@ impl App {
         let Some(owner) = detail.agent.as_ref() else {
             return false;
         };
+        let held =
+            self.held_conversation_timeline(&(Some(owner.sender.clone()), owner.agent.clone()));
+        let timeline = held.as_ref().and_then(|page| page.timeline.as_ref());
         !self
             .row_details
             .agent_finals
@@ -660,7 +670,12 @@ impl App {
                 && (self.row_details.sent_stale
                     || !self.row_details.agent_sent.iter()
                         .any(|(key, _)| key == &sent_key(owner))))
-            || detail.messages().iter().any(|message| !message.acquired)
+            || detail.messages().iter().any(|message| {
+                !message.acquired
+                    && message.key.as_ref().is_none_or(|key| {
+                        super::selected_conversation::needs_request_body(key, timeline)
+                    })
+            })
     }
 
     /// The conversation's agent, until its own finals have been read once.
