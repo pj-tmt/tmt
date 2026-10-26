@@ -430,10 +430,42 @@ fn an_inline_reply_publication_finishes_loading_without_a_legacy_show() {
 
 #[test]
 fn timeline_read_keeps_off_home_reply_age_and_exact_source_without_a_show() {
+    assert_off_home_reply_metadata(false);
+}
+
+#[test]
+fn common_pool_timeline_reply_keeps_age_and_exact_source_without_a_show() {
+    assert_off_home_reply_metadata(true);
+}
+
+fn assert_off_home_reply_metadata(pool: bool) {
     use crate::board::app::workspace::tests::{MEMBER, board};
+    use crate::board::workspace::OpsTarget;
     use ratatui::{Terminal, backend::TestBackend};
     let fixture = Fixture::new();
     let mut app = board();
+    let previous = app.workspace.selected.clone().unwrap();
+    let selected = if pool {
+        OpsTarget::Member {
+            room_id: None,
+            identity_id: MEMBER.into(),
+        }
+    } else {
+        previous.clone()
+    };
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut row = snapshot.rows.remove(&previous).unwrap();
+    if pool {
+        snapshot.roster.squads[0].members.clear();
+        row.as_object_mut().unwrap().remove("squad");
+    } else {
+        row["squad"] = json!("product");
+    }
+    snapshot.rows.insert(selected.clone(), row);
+    app.workspace.pool_expanded = pool;
+    app.workspace.selected = Some(selected);
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
     let owner = app.view.as_ref().unwrap().me_id.clone().unwrap();
     let at = crate::status::now_ms().saturating_sub(42_000);
     let target = app.conversation_target().unwrap();
@@ -523,6 +555,7 @@ fn timeline_read_keeps_off_home_reply_age_and_exact_source_without_a_show() {
     assert_eq!(key.sender, owner);
     assert_eq!(key.lead, MEMBER);
     assert_eq!(key.kind, Kind::Reply);
+    assert_eq!(key.squad, if pool { "Common pool" } else { "product" });
     let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, &app))
