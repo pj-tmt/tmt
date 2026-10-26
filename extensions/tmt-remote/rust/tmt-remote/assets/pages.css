@@ -1,4 +1,21 @@
 /* Remote-owned layout and explicit host metrics; shared presentation is embedded first. */
+/* Same in-flow title-row type as Colab's own shell (#5252); the common bar draws no title. */
+.root-title-row {
+  margin: 32px auto 0;
+}
+.root-title-row .tmt-ui-title {
+  font: var(--tmt-ui-header-title-weight) var(--tmt-ui-header-title-size) /
+    var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
+  letter-spacing: normal;
+}
+.root-search-status:not([hidden]) {
+  position: fixed;
+  bottom: var(--tmt-ui-space-l);
+  right: var(--tmt-ui-space-l);
+  padding: var(--tmt-ui-space-m);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+}
 :root {
   color-scheme: light dark;
   --tmt-ui-host-focus-offset: 3px;
@@ -55,8 +72,11 @@ body:not(:has(.tmt-ui-shell)) {
 }
 /* Remote's page column. Its class and the element rules below stay scoped to it: a module route
    (Colab) shares this document and keeps its own layout and type. */
-.tmt-page {
+.tmt-page,
+.root-title-row {
   width: min(100% - 32px, 820px);
+}
+.tmt-page {
   margin: 32px auto 64px;
 }
 .tmt-ui-notice-mark {

@@ -37,7 +37,22 @@ Static markup uses shared class/slot and native accessibility contracts.
 never establish access. Socket tests verify exact shared-plus-host CSS bytes and
 unchanged CSP/types. Browser cases compare computed presentation with current browser
 tokens at 1440/390 light/dark and 320 fit, retaining keyboard focus and disabled/loading
-states. The card heading is the page's `h2`; the header title is its only `h1`.
+states. The card heading is the page's `h2`; the original page title remains its only `h1`.
+
+The SPA root installs shared top-bar bindings before route adoption. Remote-owned routes move
+their original title into the content column, using the same title-row type as Colab's own shell,
+and put only module actions in the bar's existing action slot. The GUI-owned leaf controls their
+order. The leaf owns the single trusted Command/Ctrl+K listener; Remote owns the
+confined module prefetch, registry and pending-open lifetime. Navigation is unavailable until the
+live composed shell describes its admitted modules and sections. Unconfirmed session counts stay
+unconfirmed, rather than using a device count. Search uses Colab's `mountSearchSession` entry;
+Colab owns transport admission, the dialog and focus return. Prefetch imports code only after a
+live description admits the entry; an unpaired page acquires no extra session or read. Route or
+verified Session replacement disposes search and provider registrations, and a late import cannot
+open an old route. Root search navigation reuses the management model's existing hold reason for
+unsent names and unconfirmed operations. `Search TMT…` names no adapter that has not shipped.
+After disposal, a persisted document restoration reloads through the normal entry, preserving
+the stored pairing rather than keeping ended sessions or asking to pair again.
 
 ## Browser entry
 

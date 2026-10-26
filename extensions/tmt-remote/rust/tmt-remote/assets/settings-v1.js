@@ -339,7 +339,7 @@ function remoteMenu(actions, shell = void 0) {
 	document.addEventListener("focusin", entered, { signal: shell.signal });
 	return (next) => {
 		projection = next;
-		if (next.current.connection.word === "Connected" && next.address) shell.describe(next.address);
+		if (next.current.connection.word === "connected" && next.address) shell.describe(next.address);
 		paint();
 	};
 }
@@ -1838,7 +1838,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const joinHost = document.getElementById("remote-join");
 	const joinMenu = mountBrowserMenu(joinHost, {
 		label: "Join a Remote",
-		triggerText: "Join a Remote",
+		...shell?.actions ? {} : { triggerText: "Join a Remote" },
 		items: [{
 			key: "invite",
 			label: "Join with an invitation"
@@ -2220,6 +2220,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			return () => listeners.delete(listener);
 		},
 		blockedBy: (reason) => {
+			(shell ?? void 0)?.holdNavigation?.(reason);
 			heldBy = reason;
 		}
 	});
@@ -3338,8 +3339,10 @@ async function settingsPage(shell, registry, initial) {
 	}, { signal: shell?.signal });
 	async function initialize(session) {
 		if (page) return;
+		shell?.observedSession?.(session);
 		page = new ManagementPage(management(session), async () => {
 			session = await reopenSession(session, { retry: "bounded" });
+			shell?.observedSession?.(session);
 			return management(session);
 		});
 		await run(() => refreshView());

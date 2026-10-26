@@ -5,7 +5,8 @@ import path from 'node:path';
 import { build } from 'vite';
 
 const assets = new URL('../../../rust/tmt-remote/assets/', import.meta.url);
-const origin = 'http://digest.test';
+// Intercepted pages need the same trustworthy WebCrypto context as the real loopback door.
+const origin = 'https://digest.test';
 let harness = '';
 let page_html = '';
 let css = '';

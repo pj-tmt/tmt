@@ -87,7 +87,7 @@ export function remoteRegistryPage(
   const joinHost = document.getElementById('remote-join')!;
   const joinMenu = mountBrowserMenu(joinHost, {
     label: 'Join a Remote',
-    triggerText: 'Join a Remote',
+    ...(shell?.actions ? {} : { triggerText: 'Join a Remote' }),
     items: [
       { key: 'invite', label: 'Join with an invitation' },
       { key: 'address', label: 'Remember a Remote', separated: true },
@@ -558,6 +558,7 @@ export function remoteRegistryPage(
       return () => listeners.delete(listener);
     },
     blockedBy: (reason: () => string): void => {
+      (shell ?? remoteShell())?.holdNavigation?.(reason);
       heldBy = reason;
     },
   });

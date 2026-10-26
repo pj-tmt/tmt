@@ -166,6 +166,6 @@
 /* Domain layout only; tab behavior and visual roles remain the shared static contract. */
 .remote-context { margin-bottom: var(--tmt-ui-space-m); }
 .remote-context > p { margin-bottom: var(--tmt-ui-space-m); }
-#remote-head a[data-variant='primary'] { text-decoration: none; }
+.remote-head-actions a[data-variant='primary'] { text-decoration: none; }
 
 .remote-tab-content > .tmt-page { margin-top: 0; }
