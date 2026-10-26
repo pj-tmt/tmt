@@ -269,11 +269,17 @@ impl Supervisor {
                 if other == id || validate(&directory, other).is_err() {
                     continue;
                 }
+                let socket = socket_path(&directory, other);
+                // A starter opens its lock before taking the flock and only
+                // binds its socket afterwards. Leave lock-only neighbours alone.
+                if fs::symlink_metadata(&socket).is_err() {
+                    continue;
+                }
                 let Ok(_neighbour_lock) = file_lock::exclusive(&entry.path()) else {
                     // WouldBlock is live; every other failure is unknown.
                     continue;
                 };
-                if let Err(error) = fs::remove_file(socket_path(&directory, other))
+                if let Err(error) = fs::remove_file(socket)
                     && error.kind() != io::ErrorKind::NotFound
                 {
                     continue;

@@ -256,8 +256,9 @@ stream through the public `terminal.stream` API rather than deriving socket path
   does: it tells attached clients (`Exited`), then removes its socket and lock. A supervisor
   that dies, even by SIGKILL, closes the terminal and the kernel hangs the program up. The
   next `Supervisor::start`, after taking its own lock, scans at most 64 directory entries and
-  reclaims another ID's socket then lock only while holding that ID's nonblocking exclusive
-  flock; live or unknown locks and scan/removal errors are left alone without failing startup.
+  only tries another ID's lock when its socket exists, then reclaims the socket and lock while
+  holding that ID's nonblocking exclusive flock. Lock-only starters, live or unknown locks and
+  scan/removal errors are left alone without failing startup.
 - **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
   (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
   `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);

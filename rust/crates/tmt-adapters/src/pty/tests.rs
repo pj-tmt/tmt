@@ -696,21 +696,64 @@ fn starting_a_different_member_reclaims_unlocked_neighbours_and_preserves_live_o
 }
 
 #[test]
+fn an_unlocked_neighbour_without_a_socket_is_left_alone() {
+    let root = TestDirectory::new();
+    let directory = root.path.join("pty");
+    ensure_private_directory(&directory).unwrap();
+    let starting = "pty_starting";
+    // exclusive opens the file before taking its flock. A concurrent starter
+    // must not acquire or unlink that lock before this member has bound a socket.
+    drop(crate::file_lock::exclusive(&lock_path(&directory, starting)).unwrap());
+    let supervisor =
+        Supervisor::start(launch(&directory, "pty_new", &["sh", "-c", "exit 0"])).unwrap();
+    supervisor.run().unwrap();
+    assert!(lock_path(&directory, starting).exists());
+    assert!(!socket_path(&directory, starting).exists());
+}
+
+#[test]
 fn startup_reclamation_stops_after_64_directory_entries() {
     let root = TestDirectory::new();
     let directory = root.path.join("pty");
     ensure_private_directory(&directory).unwrap();
+    // First prove that a reclaimable pair is actually removed; directory entry
+    // order is unspecified, so the larger bounded scan need not reach a lock.
+    fs::write(lock_path(&directory, "pty_control"), "").unwrap();
+    drop(UnixListener::bind(socket_path(&directory, "pty_control")).unwrap());
+    let error = Supervisor::start(launch(
+        &directory,
+        "pty_control_start",
+        &["/nonexistent/program"],
+    ))
+    .err()
+    .unwrap();
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert!(!lock_path(&directory, "pty_control").exists());
+    assert!(!socket_path(&directory, "pty_control").exists());
+
     for index in 0..80 {
-        fs::write(lock_path(&directory, &format!("pty_dead{index}")), "").unwrap();
+        let id = format!("pty_dead{index}");
+        fs::write(lock_path(&directory, &id), "").unwrap();
+        drop(UnixListener::bind(socket_path(&directory, &id)).unwrap());
     }
     let error = Supervisor::start(launch(&directory, "pty_new", &["/nonexistent/program"]))
         .err()
         .unwrap();
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
-    let remaining = fs::read_dir(&directory).unwrap().count();
+    let remaining = fs::read_dir(&directory)
+        .unwrap()
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "lock")
+        })
+        .count();
     assert!(
-        (16..80).contains(&remaining),
-        "a start must reclaim some neighbours but inspect no more than 64 entries: {remaining}"
+        (16..=80).contains(&remaining),
+        "a start must inspect no more than 64 entries: {remaining} locks remain"
     );
 }
 
