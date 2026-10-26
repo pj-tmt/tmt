@@ -965,7 +965,10 @@ it('loads v1 history and delivers one aggregate through fake gh/tmt CLI ports', 
     mkdirSync(directory);
     const time = Math.floor(Date.now() / 1000) * 1000;
     const state = newWatchState(time);
-    observeRun(state, run(), jobs, routing, time - 1000);
+    // The watcher process prunes `seen` entries older than two lookback windows against the
+    // real clock, so the recorded run must be anchored to `time`, not to the fixed fixture clock.
+    const recorded = run({ created_at: iso(time - 60_000), updated_at: iso(time - 1000) });
+    observeRun(state, recorded, jobs, routing, time - 1000);
     deliverWatchAlerts(state, effects(), time - 1000);
     const key = Object.keys(state.alerts)[0];
     delete state.alerts[key].jobs;
@@ -1073,7 +1076,7 @@ console.log(JSON.stringify({status:'sent',requestId:'fixture-request'}));
     ) as WatchState;
     expect(saved.version).toBe(1);
     expect(saved.alerts[key]).toEqual(historical);
-    expect(saved.seen[`${run().id}:1`]).toBe(state.seen[`${run().id}:1`]);
+    expect(saved.seen[`${recorded.id}:1`]).toBe(state.seen[`${recorded.id}:1`]);
     expect(saved.green).toEqual(state.green);
   } finally {
     rmSync(root, { recursive: true, force: true });
