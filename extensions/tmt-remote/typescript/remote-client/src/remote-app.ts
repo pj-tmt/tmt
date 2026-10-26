@@ -46,7 +46,7 @@ export async function remoteApp(
   let observed: RemoteRegistryView | undefined;
   let admitted: Session | undefined;
   let observeSession: ((session: Session) => void) | undefined;
-  const tabs = REMOTE_ITEMS.filter((item) => item.id !== 'remotes');
+  const tabs = REMOTE_ITEMS.filter((item) => item.id !== 'remotes' && item.id !== 'create');
   const frame = document.createElement('div');
   frame.id = 'remote-context';
   frame.className = `tmt-page remote-context ${c.tabs}`;
@@ -150,7 +150,8 @@ export async function remoteApp(
         : reportedNeeds === 0
           ? 'Nothing needs you.'
           : `${reportedNeeds} ${reportedNeeds === 1 ? 'item needs' : 'items need'} your attention.`;
-    frame.hidden = shown.id === 'remotes';
+    const global = shown.id === 'remotes' || shown.id === 'create';
+    frame.hidden = global;
     heading.textContent = `${observed?.current.name ?? 'This Remote'} · ${observed?.current.roleLabel ?? 'Role unknown'}`;
     designation.textContent =
       role === 'owner'
@@ -176,8 +177,8 @@ export async function remoteApp(
       panels.get(item.id)!.hidden = !selected;
     }
     keepTabVisible();
-    globalPanel.hidden = shown.id !== 'remotes';
-    const panel = shown.id === 'remotes' ? globalPanel : panels.get(shown.id)!;
+    globalPanel.hidden = !global;
+    const panel = global ? globalPanel : panels.get(shown.id)!;
     // Move the same retained models, never clone/restart their forms or original outcomes.
     for (const model of models) {
       if (model.parentElement !== panel) panel.append(model);

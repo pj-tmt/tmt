@@ -9,6 +9,13 @@ var REMOTE_ITEMS = [
 		page: "settings"
 	},
 	{
+		id: "create",
+		path: "/remote/create",
+		label: "Create a Remote",
+		title: "Create a Remote",
+		page: "settings"
+	},
+	{
 		id: "overview",
 		path: "/remote/overview",
 		label: "Overview",
@@ -300,7 +307,7 @@ function remoteMenu(actions, shell = void 0) {
 		const remotes = [{
 			...item("overview"),
 			label: `This Remote · ${view?.text ?? "Checking"}`,
-			current: showing !== "remotes"
+			current: showing !== "remotes" && showing !== "create"
 		}];
 		if (view?.action) {
 			run.set("recover", () => actions.recover(view.action));
@@ -1785,14 +1792,14 @@ var remoteRegistry = {
 //#endregion
 //#region src/remote-registry-page.ts
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
-function node$1(tag, text = "") {
+function node$2(tag, text = "") {
 	const result = document.createElement(tag);
 	result.textContent = text;
 	return result;
 }
 function action(text, run, variant) {
-	const button = node$1("button");
-	const label = node$1("span", text);
+	const button = node$2("button");
+	const label = node$2("span", text);
 	label.className = browserUiClasses.actionLabel;
 	button.append(label);
 	if (variant) button.dataset.variant = variant;
@@ -1803,13 +1810,13 @@ function action(text, run, variant) {
 }
 var fieldCount = 0;
 function field(label, value) {
-	const wrapper = node$1("div");
+	const wrapper = node$2("div");
 	wrapper.className = browserUiClasses.field;
-	const input = node$1("input");
+	const input = node$2("input");
 	input.id = `remote-field-${++fieldCount}`;
 	input.className = browserUiClasses.fieldControl;
 	input.value = value;
-	const text = node$1("label", label);
+	const text = node$2("label", label);
 	text.className = browserUiClasses.fieldLabel;
 	text.htmlFor = input.id;
 	wrapper.append(text, input);
@@ -1894,21 +1901,21 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	};
 	const dialog = (title, opener) => {
 		currentDialog?.close();
-		const box = node$1("dialog");
+		const box = node$2("dialog");
 		box.className = browserUiClasses.dialog;
-		const header = node$1("header");
+		const header = node$2("header");
 		header.className = browserUiClasses.dialogHeader;
-		const heading = node$1("h2", title);
+		const heading = node$2("h2", title);
 		heading.id = "remote-dialog-heading";
 		header.append(heading);
 		box.setAttribute("aria-labelledby", heading.id);
-		const content = node$1("div");
+		const content = node$2("div");
 		content.className = browserUiClasses.dialogBody;
-		const body = node$1("div");
-		const message = node$1("p");
+		const body = node$2("div");
+		const message = node$2("p");
 		message.setAttribute("role", "status");
 		content.append(body, message);
-		const buttons = node$1("footer");
+		const buttons = node$2("footer");
 		buttons.className = browserUiClasses.dialogActions;
 		box.append(header, content, buttons);
 		document.body.append(box);
@@ -1950,25 +1957,25 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	};
 	const importView = (plan) => {
 		const view = dialog("Add these remotes to this browser?", join);
-		view.body.append(node$1("p", "Only names and addresses are copied. No keys, pairings or drafts."));
+		view.body.append(node$2("p", "Only names and addresses are copied. No keys, pairings or drafts."));
 		const choices = [];
 		for (const row of plan.rows) {
-			const item = node$1("section");
+			const item = node$2("section");
 			item.className = browserUiClasses.section;
-			const name = node$1("h3", row.entry.name);
+			const name = node$2("h3", row.entry.name);
 			name.className = browserUiClasses.sectionHeading;
 			name.dataset.variant = "title";
-			item.append(name, node$1("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
+			item.append(name, node$2("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
 			if (row.status === "duplicate") {
-				item.append(node$1("p", `Already added as ${row.existingName}`));
+				item.append(node$2("p", `Already added as ${row.existingName}`));
 				choices.push(() => null);
 			} else if (row.status === "collision") {
-				item.append(node$1("p", `You already have a remote named ${row.entry.name}`));
+				item.append(node$2("p", `You already have a remote named ${row.entry.name}`));
 				const alias = field("Remote name", row.suggestedName);
-				const skip = node$1("input");
+				const skip = node$2("input");
 				skip.type = "checkbox";
 				skip.className = browserUiClasses.checkbox;
-				const skipLabel = node$1("label", "Skip");
+				const skipLabel = node$2("label", "Skip");
 				skipLabel.className = browserUiClasses.checkboxLabel;
 				skipLabel.prepend(skip);
 				item.append(alias.label, skipLabel);
@@ -1990,7 +1997,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	};
 	const confirmAdd = (entry, opener) => {
 		const view = dialog(entry.kind === "firestore" ? `Add Firebase remote ${entry.project}?` : `Add remote ${entry.name}?`, opener);
-		view.body.append(node$1("p", entry.kind === "firestore" ? new URL(entry.url).host : entry.url));
+		view.body.append(node$2("p", entry.kind === "firestore" ? new URL(entry.url).host : entry.url));
 		view.buttons.append(action("Add", () => {
 			save(() => remoteRegistry.add(entry.name, entry.url), view);
 		}), action("Cancel", view.end));
@@ -2012,11 +2019,11 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	};
 	const remove = (entry, opener) => {
 		const view = dialog(`Forget ${entry.name} in this browser?`, opener);
-		view.body.append(node$1("p", "This only removes the entry here. It does not sign out or revoke access."));
+		view.body.append(node$2("p", "This only removes the entry here. It does not sign out or revoke access."));
 		view.buttons.append(action("Forget", () => {
 			save(() => remoteRegistry.remove(entry.name), view).then((saved) => {
 				if (!saved) return;
-				status.replaceChildren(node$1("span", `Forgot ${entry.name} in this browser. Access is unchanged. `), action("Undo", () => {
+				status.replaceChildren(node$2("span", `Forgot ${entry.name} in this browser. Access is unchanged. `), action("Undo", () => {
 					remoteRegistry.add(entry.name, entry.url).then(async () => {
 						await render();
 						status.textContent = `Restored ${entry.name}.`;
@@ -2059,21 +2066,21 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		rowMenus.forEach((item) => item.dispose());
 		rowMenus = [];
 		list.replaceChildren(...projection.rows.map((entry) => {
-			const row = node$1("li");
+			const row = node$2("li");
 			row.className = browserUiClasses.listRow;
 			row.dataset.remote = entry.id;
 			row.dataset.thisMachine = String(entry.thisMachine);
 			row.dataset.url = entry.url;
 			row.dataset.kind = entry.reference?.kind ?? "local";
 			row.dataset.leading = "";
-			const leading = node$1("div");
+			const leading = node$2("div");
 			leading.className = browserUiClasses.listLeading;
 			leading.append(createIcon(entry.backend === "Local" ? "terminal" : "box"));
-			const title = node$1("div");
+			const title = node$2("div");
 			title.className = browserUiClasses.listTitle;
-			const label = node$1("span");
+			const label = node$2("span");
 			label.className = `${browserUiClasses.listLabel} remote-label`;
-			const open = node$1("a", entry.name);
+			const open = node$2("a", entry.name);
 			open.href = entry.thisMachine ? new URL(remotePath("overview"), location.href).href : entry.url;
 			open.dataset.action = "open";
 			open.setAttribute("role", "link");
@@ -2097,9 +2104,9 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			});
 			label.append(open);
 			const chip = (text) => {
-				const box = node$1("span");
+				const box = node$2("span");
 				box.className = browserUiClasses.chip;
-				const value = node$1("span", text);
+				const value = node$2("span", text);
 				value.className = browserUiClasses.chipLabel;
 				box.append(value);
 				return box;
@@ -2110,20 +2117,20 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			role.dataset.role = "";
 			role.dataset.roleTone = entry.role === "owner" ? "selected" : entry.role === void 0 ? "muted" : "neutral";
 			label.append(role);
-			const description = node$1("span", `${entry.backend}${entry.project ? ` · ${entry.project}` : ""} · ${entry.url}`);
+			const description = node$2("span", `${entry.backend}${entry.project ? ` · ${entry.project}` : ""} · ${entry.url}`);
 			description.className = browserUiClasses.listDescription;
 			title.append(label, description);
-			const meta = node$1("div");
+			const meta = node$2("div");
 			meta.className = browserUiClasses.listMeta;
-			const state = node$1("div", `${entry.connection.mark} ${entry.connection.text}`);
+			const state = node$2("div", `${entry.connection.mark} ${entry.connection.text}`);
 			state.className = browserUiClasses.listState;
 			state.dataset.tone = entry.connection.tone;
 			meta.append(state);
-			const actions = node$1("div");
+			const actions = node$2("div");
 			actions.className = browserUiClasses.listActions;
 			if (entry.reference) {
 				const reference = entry.reference;
-				const destructive = node$1("span", "Forget");
+				const destructive = node$2("span", "Forget");
 				destructive.className = "remote-forget";
 				const rowMenu = mountBrowserMenu(actions, {
 					label: `Actions for ${entry.name}`,
@@ -2227,11 +2234,29 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 }
 var service_commands_default = {
 	status: "tmt remote status --layers",
-	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json"
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
+	nodeVersion: "node --version",
+	firebaseVersion: "firebase --version",
+	firebaseInstall: "npm install -g firebase-tools@15.29.0",
+	firebaseLogin: "firebase login"
 };
 //#endregion
+//#region src/service-commands.ts
+/** Copy-only terminal references. Native grammar tests admit the same product catalog. */
+var serviceCommands = Object.freeze(service_commands_default);
+/** Accept concrete native input spellings only; no shell syntax can enter a printed command. */
+function deploymentCommands(project, region) {
+	if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project)) throw new Error("Enter a Firebase project ID: 6–30 lowercase letters, digits or hyphens.");
+	if (!/^[a-z0-9-]{1,32}$/.test(region)) throw new Error("Enter the database region from your Firebase project.");
+	const fill = (template) => template.replace("<project-id>", project).replace("<region>", region);
+	return {
+		preview: fill(service_commands_default.preview),
+		deploy: fill(service_commands_default.deploy)
+	};
+}
+//#endregion
 //#region src/firestore.ts
-/** Strict browser projection of the existing Remote readiness table; no provider I/O. */
 var firestoreTitles = {
 	sharing: "Page sharing",
 	operations: "Colab sync",
@@ -2246,8 +2271,6 @@ var firestoreItems = {
 	quota: "Free-plan quota",
 	support: "Availability in this release"
 };
-/** Copy-only references; the browser never submits these commands. */
-var serviceCommands = Object.freeze(service_commands_default);
 var firestoreReasons = {
 	project: {
 		"not-configured": ["No Firebase project is set up.", true],
@@ -2346,17 +2369,17 @@ var states = {
 		"waiting"
 	]
 };
-function node(tag, text = "") {
+function node$1(tag, text = "") {
 	const element = document.createElement(tag);
 	element.textContent = text;
 	return element;
 }
 function mark(state) {
 	const [icon, text, tone] = states[state];
-	const label = node("span");
+	const label = node$1("span");
 	label.dataset.tone = tone;
 	label.className = browserUiClasses.listState;
-	const symbol = node("span", icon);
+	const symbol = node$1("span", icon);
 	symbol.setAttribute("aria-hidden", "true");
 	label.append(symbol, document.createTextNode(` ${text}`));
 	return label;
@@ -2374,157 +2397,459 @@ function allowance(amount, bytes, period) {
 	return `${written}${period ? ` per ${period}` : ""}`;
 }
 function link(text, href) {
-	const anchor = node("a", text);
+	const anchor = node$1("a", text);
 	anchor.href = href;
 	anchor.target = "_blank";
 	anchor.rel = "noopener noreferrer";
 	return anchor;
 }
 function checks() {
-	const section = node("section");
+	const section = node$1("section");
 	section.className = "firestore-layer";
 	section.setAttribute("aria-label", "Checks before an update");
-	section.append(node("h3", "Before an update"));
-	const rows = [
-		{
-			id: "version",
-			title: "Deployed version and required version",
-			detail: "Version comparison is not available here. Check this Remote’s setup in this machine’s terminal before upgrading.",
-			command: serviceCommands.status
-		},
-		{
-			id: "changes",
-			title: "What will change",
-			detail: "No deployment plan has been checked here. Preview the exact changes in this machine’s terminal.",
-			command: serviceCommands.preview
-		},
-		{
-			id: "permissions",
-			title: "Account permissions",
-			detail: "Permissions have not been checked here. Use the Firebase account that manages the project in this machine’s terminal to check them.",
-			command: serviceCommands.preview
-		}
-	];
+	section.append(node$1("h3", "Before an update"));
+	const rows = [{
+		id: "version",
+		title: "Deployed version and required version",
+		detail: "Version comparison is not available here. Check this Remote’s setup in this machine’s terminal before upgrading.",
+		command: serviceCommands.status
+	}, {
+		id: "changes",
+		title: "What will change and account permissions",
+		detail: "No deployment plan or account permissions have been checked here. Use the Firebase account that manages the project to preview both in this machine’s terminal.",
+		command: serviceCommands.preview
+	}];
 	for (const row of rows) {
-		const item = node("section");
+		const item = node$1("section");
 		item.dataset.serviceCheck = row.id;
-		const title = node("h4", `${row.title}: `);
+		const title = node$1("h4", `${row.title}: `);
 		title.append(mark("unknown"));
-		item.append(title, node("p", row.detail), commandCopy(row.command));
+		item.append(title, node$1("p", row.detail), commandCopy(row.command));
 		section.append(item);
 	}
-	section.append(node("p", "Replace <project-id> and <region> with your Firebase project and its region. The preview command does not authorize deployment."));
+	section.append(node$1("p", "Replace <project-id> and <region> with your Firebase project and its region. The preview command does not authorize deployment."));
 	return section;
 }
 function guidance() {
-	const section = node("section");
+	const section = node$1("section");
 	section.className = "firestore-layer";
-	section.append(node("h3", "Where to check and make changes"));
-	const steps = node("ol");
-	const consoleStep = node("li", "In the provider console, choose your Firebase project. Review its sign-in, database rules and usage. ");
+	section.append(node$1("h3", "Where to check and make changes"));
+	const steps = node$1("ol");
+	const consoleStep = node$1("li", "In the provider console, choose your Firebase project. Review its sign-in, database rules and usage. ");
 	consoleStep.append(link("Open Firebase console", "https://console.firebase.google.com/"));
-	const permissionStep = node("li", "In the provider console, open Project settings → Users and permissions. Ask the project administrator for missing access. ");
+	const permissionStep = node$1("li", "In the provider console, open Project settings → Users and permissions. Ask the project administrator for missing access. ");
 	permissionStep.append(link("Firebase roles and permissions", "https://firebase.google.com/docs/projects/iam/roles"));
-	steps.append(node("li", "In this machine’s terminal, install the Firebase CLI and sign in with the account that manages the project."), consoleStep, node("li", "In this machine’s terminal, copy the preview command above to review changes and check permissions. Review and authorize any deployment there."), permissionStep, node("li", "After you act in the terminal or provider console, return here and use Refresh values. That rechecks this machine’s saved setup facts; it does not run a live provider check."));
+	steps.append(node$1("li", "In this machine’s terminal, install the Firebase CLI and sign in with the account that manages the project."), consoleStep, node$1("li", "In this machine’s terminal, copy the preview command above to review changes and check permissions. Review and authorize any deployment there."), permissionStep, node$1("li", "After you act in the terminal or provider console, return here and use Refresh values. That rechecks this machine’s saved setup facts; it does not run a live provider check."));
 	section.append(steps);
 	return section;
 }
 function paidStorage() {
-	const paid = node("p", "Paid Firebase Blaze usage and separate consent are required when file storage becomes available. ");
+	const paid = node$1("p", "Paid Firebase Blaze usage and separate consent are required when file storage becomes available. ");
 	paid.append(link("Firebase pricing plans", "https://firebase.google.com/docs/projects/billing/firebase-pricing-plans"));
 	return paid;
 }
 function futureServices(includeStorage = false) {
-	const section = node("section");
+	const section = node$1("section");
 	section.className = "firestore-layer";
 	section.setAttribute("aria-label", "Other services");
-	section.append(node("h3", "Other services"));
-	if (includeStorage) section.append(node("p", "File storage (paid add-on) — Not available in this release."), paidStorage());
-	section.append(node("p", "Cloudflare — Coming soon."));
+	section.append(node$1("h3", "Other services"));
+	if (includeStorage) section.append(node$1("p", "File storage (paid add-on) — Not available in this release."), paidStorage());
+	section.append(node$1("p", "Cloudflare — Coming soon."));
 	return section;
 }
 var painted = /* @__PURE__ */ new WeakMap();
-function renderFirestore(target, access, view) {
-	const projection = JSON.stringify([access, view]);
+function renderFirestore(target, access, view, options = {}) {
+	const projection = JSON.stringify([
+		access,
+		view,
+		options.commands
+	]);
 	if (painted.get(target) === projection) return;
 	painted.set(target, projection);
-	const announcement = document.getElementById("firestore-announcement");
+	const announcement = options.announcement ?? document.getElementById("firestore-announcement");
 	const summary = access === "checking" ? "" : access !== "confirmed" || !view ? "Service status could not be confirmed." : !view.firestoreLayers.length ? "Firestore is not configured." : view.firestoreLayers.map((layer) => `${firestoreTitles[layer.layer]}: ${layer.prerequisites.some((item) => item.item === "support" && item.reason === "not-implemented") ? "Not available in this release" : states[layer.state][1]}.`).join(" ");
 	if (summary && announcement.textContent !== summary) announcement.textContent = summary;
 	target.replaceChildren();
 	if (access !== "confirmed" || !view) {
-		target.append(node("p", access === "checking" ? "Checking service status…" : "Service status could not be confirmed."));
-		if (access !== "checking") target.append(checks(), guidance(), futureServices(true));
+		target.append(node$1("p", access === "checking" ? "Checking service status…" : "Service status could not be confirmed."));
+		if (access !== "checking" && options.commands !== false) target.append(checks(), guidance(), futureServices(true));
 		target.dataset.tone = access === "checking" ? "waiting" : "blocked";
 		return;
 	}
 	target.dataset.tone = "review";
-	target.append(node("p", view.firestoreLayers.length ? "Cloud service: Firebase (Firestore)." : "Firestore is not configured."));
-	target.append(node("p", "These setup facts come from this machine. They are not a live check of your Firebase project."));
+	target.append(node$1("p", view.firestoreLayers.length ? "Cloud service: Firebase (Firestore)." : "Firestore is not configured."));
+	target.append(node$1("p", "These setup facts come from this machine. They are not a live check of your Firebase project."));
 	for (const layer of view.firestoreLayers) {
-		const group = node("section");
+		const group = node$1("section");
 		group.className = "firestore-layer";
-		group.dataset.layer = layer.layer;
+		group.dataset[options.prefix ? `${options.prefix}Layer` : "layer"] = layer.layer;
 		const title = firestoreTitles[layer.layer];
 		if (layer.prerequisites.some((p) => p.item === "support" && p.reason === "not-implemented")) {
-			const line = node("h3", `${title} — Not available in this release.`);
+			const line = node$1("h3", `${title} — Not available in this release.`);
 			group.append(line);
 			if (layer.layer === "attachments") group.append(paidStorage());
 		} else {
-			const heading = node("h3", `${title} `);
+			const heading = node$1("h3", `${title} `);
 			heading.append(mark(layer.state));
 			group.append(heading);
-			const list = node("ul");
+			const list = node$1("ul");
 			for (const item of layer.prerequisites) {
-				const row = node("li");
-				row.dataset.item = item.item;
+				const row = node$1("li");
+				row.dataset[options.prefix ? `${options.prefix}Item` : "item"] = item.item;
 				const displayState = item.item === "indexes" && item.state !== "enabled" ? item.reason === "building" ? "building" : "unknown" : item.state;
-				row.append(node("span", `${firestoreItems[item.item]}: `), mark(displayState));
-				if (item.reason) row.append(node("p", firestoreReasons[item.item][item.reason][0]));
-				if (item.next) {
+				row.append(node$1("span", `${firestoreItems[item.item]}: `), mark(displayState));
+				if (item.reason) row.append(node$1("p", firestoreReasons[item.item][item.reason][0]));
+				if (item.next && options.commands !== false) {
 					const nextLine = firestoreReasons[item.item][item.reason][2];
-					const hint = node("p", nextLine ?? "Run this in this machine’s terminal:");
+					const hint = node$1("p", nextLine ?? "Run this in this machine’s terminal:");
 					row.append(hint, commandCopy(item.next));
 				}
 				list.append(row);
 			}
 			group.append(list);
-			if (layer.layer === "sharing" && layer.state === "enabled") group.append(node("p", "Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests."));
+			if (layer.layer === "sharing" && layer.state === "enabled") group.append(node$1("p", "Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests."));
 		}
 		target.append(group);
 	}
-	target.append(checks(), guidance(), futureServices(!view.firestoreLayers.some((layer) => layer.layer === "attachments")));
-	const details = node("details");
-	details.id = "firestore-budget";
+	if (options.commands !== false) target.append(checks(), guidance());
+	target.append(futureServices(!view.firestoreLayers.some((layer) => layer.layer === "attachments")));
+	const details = node$1("details");
+	details.id = `${options.prefix ? `${options.prefix}-` : ""}firestore-budget`;
 	details.className = browserUiClasses.disclosure;
-	details.append(node("summary", "Firestore free-plan limits"));
+	details.append(node$1("summary", "Firestore free-plan limits"));
 	const published = view.firestoreBudget;
-	details.append(node("h3", `Published limits as of ${published.readOn}`));
-	const table = node("table");
+	details.append(node$1("h3", `Published limits as of ${published.readOn}`));
+	const table = node$1("table");
 	table.className = browserUiClasses.table;
-	const head = node("tr");
+	const head = node$1("tr");
 	for (const text of ["Limit", "Published allowance"]) {
-		const cell = node("th", text);
+		const cell = node$1("th", text);
 		cell.scope = "col";
 		head.append(cell);
 	}
-	const thead = node("thead");
+	const thead = node$1("thead");
 	thead.append(head);
 	table.append(thead);
-	const body = node("tbody");
+	const body = node$1("tbody");
 	for (const [key, label, per, bytes] of budget.publishedLimitRows) {
-		const row = node("tr");
-		const title = node("th", label);
+		const row = node$1("tr");
+		const title = node$1("th", label);
 		title.scope = "row";
-		row.append(title, node("td", allowance(published.limits[key], bytes, per)));
+		row.append(title, node$1("td", allowance(published.limits[key], bytes, per)));
 		body.append(row);
 	}
 	table.append(body);
 	details.append(table);
-	details.append(node("p", "Google may change these limits. They are shared by the whole Firebase project. Daily limits reset around midnight Pacific time."));
-	details.append(node("p", "Remote can't see your actual usage; check it in the Firebase console."));
-	details.append(node("p", `Each device warns at ${published.guard.warnPercent}% and stops at ${published.guard.refusePercent}% of its share of the daily limits.`));
+	details.append(node$1("p", "Google may change these limits. They are shared by the whole Firebase project. Daily limits reset around midnight Pacific time."));
+	details.append(node$1("p", "Remote can't see your actual usage; check it in the Firebase console."));
+	details.append(node$1("p", `Each device warns at ${published.guard.warnPercent}% and stops at ${published.guard.refusePercent}% of its share of the daily limits.`));
 	target.append(details);
+}
+//#endregion
+//#region src/create-page.ts
+/** A terminal/provider-console guide over the retained management observation, never a deploy runner. */
+function node(tag, text = "") {
+	const element = document.createElement(tag);
+	element.textContent = text;
+	return element;
+}
+function external(text, href) {
+	const link = node("a", text);
+	link.href = href;
+	link.target = "_blank";
+	link.rel = "noopener noreferrer";
+	return link;
+}
+function createPage(target, options) {
+	const { signal } = options;
+	let type = "local";
+	let step = 1;
+	const visited = /* @__PURE__ */ new Set();
+	let rechecking = false;
+	const buttons = [];
+	const panels = [];
+	const titles = [
+		"Type",
+		"Prepare",
+		"Details",
+		"Review",
+		"Check result"
+	];
+	const steps = node("ol");
+	steps.className = "create-steps";
+	steps.setAttribute("aria-label", "Create guide progress");
+	steps.setAttribute("aria-description", "Done marks visited guide steps, not checked prerequisites or deployment completion.");
+	const content = node("div");
+	const reference = (command) => {
+		const block = commandCopy(command);
+		block.querySelector("code").replaceChildren(...command.split(/( +)/).map((part) => {
+			if (/^ +$/.test(part)) return document.createTextNode(part);
+			const token = node("span", part);
+			token.className = "create-command-token";
+			return token;
+		}));
+		return block;
+	};
+	const actions = node("div");
+	actions.className = `${browserUiClasses.actions} create-actions`;
+	const action = (label, run, primary = false) => {
+		const button = node("button");
+		button.type = "button";
+		button.className = browserUiClasses.action;
+		if (primary) button.dataset.variant = "primary";
+		const text = node("span", label);
+		text.className = browserUiClasses.actionLabel;
+		button.append(text);
+		button.addEventListener("click", run, { signal });
+		return button;
+	};
+	const field = (label, hint) => {
+		const wrap = node("label");
+		wrap.className = browserUiClasses.field;
+		const name = node("span", label);
+		name.className = browserUiClasses.fieldLabel;
+		const input = node("input");
+		input.className = browserUiClasses.fieldControl;
+		input.autocomplete = "off";
+		input.spellcheck = false;
+		const description = node("span", hint);
+		description.className = browserUiClasses.fieldDescription;
+		wrap.append(name, input, description);
+		return {
+			wrap,
+			input
+		};
+	};
+	for (const [index, title] of titles.entries()) {
+		const item = node("li");
+		const button = action(`${index + 1} ${title}`, () => show(index + 1));
+		button.className = `${browserUiClasses.action} ${browserUiClasses.chip} create-step`;
+		item.append(button);
+		steps.append(item);
+		buttons.push(button);
+		const panel = node("section");
+		panel.className = "create-step-panel";
+		panel.dataset.createStep = String(index + 1);
+		panel.hidden = true;
+		const heading = node("h2", title);
+		heading.className = "create-step-heading";
+		panel.append(heading);
+		panels.push(panel);
+		content.append(panel);
+	}
+	const choose = node("fieldset");
+	choose.className = browserUiClasses.choices;
+	const legend = node("legend", "Choose a connection type");
+	legend.className = browserUiClasses.choicesLegend;
+	choose.append(legend);
+	for (const [value, label, detail] of [
+		[
+			"local",
+			"This machine",
+			"Use the door on this machine. No cloud account is needed."
+		],
+		[
+			"firebase",
+			"Firebase · Free Spark plan",
+			"Follow the terminal and console steps for an existing Firebase project."
+		],
+		[
+			"cloudflare",
+			"Cloudflare · Coming soon",
+			"Not available in this release."
+		]
+	]) {
+		const row = node("label");
+		row.className = browserUiClasses.choice;
+		const radio = node("input");
+		radio.type = "radio";
+		radio.name = "create-type";
+		radio.value = value;
+		radio.className = browserUiClasses.radio;
+		radio.checked = value === type;
+		radio.disabled = value === "cloudflare";
+		radio.addEventListener("change", () => {
+			if (radio.checked && (value === "local" || value === "firebase")) {
+				type = value;
+				visited.clear();
+				show(1, false);
+			}
+		}, { signal });
+		const copy = node("span");
+		const name = node("span", label);
+		name.className = browserUiClasses.choiceText;
+		const description = node("span", detail);
+		description.className = browserUiClasses.choiceDescription;
+		copy.append(name, description);
+		row.append(radio, copy);
+		choose.append(row);
+	}
+	panels[0].append(choose);
+	panels[1].querySelector("h2").textContent = "Prepare Firebase";
+	const card = node("div");
+	card.className = `${browserUiClasses.card} create-prerequisites`;
+	card.append(node("p", "Not checked: the browser cannot check these. Do them in this machine’s terminal or the Firebase console."));
+	const checks = node("ul");
+	checks.className = "create-checks";
+	for (const [label, detail, commands] of [
+		[
+			"Node.js",
+			"Check the installed version in this machine’s terminal.",
+			[serviceCommands.nodeVersion]
+		],
+		[
+			"Firebase CLI",
+			"Check or install the supported CLI in this machine’s terminal.",
+			[serviceCommands.firebaseVersion, serviceCommands.firebaseInstall]
+		],
+		[
+			"Your Firebase account",
+			"Sign in from this machine’s terminal. Firebase opens its own sign-in page.",
+			[serviceCommands.firebaseLogin]
+		],
+		[
+			"Project and Authentication",
+			"In the Firebase console, choose an existing Spark project and select Authentication → Get started.",
+			[]
+		]
+	]) {
+		const row = node("li");
+		const mark = node("span", "◌");
+		mark.className = "create-check-mark";
+		mark.setAttribute("role", "img");
+		mark.setAttribute("aria-label", "Not checked");
+		const copy = node("div");
+		copy.append(node("strong", label), node("p", detail));
+		for (const command of commands) copy.append(reference(command));
+		if (!commands.length) copy.append(external("Open Firebase console", "https://console.firebase.google.com/"));
+		row.append(mark, copy);
+		checks.append(row);
+	}
+	card.append(checks);
+	panels[1].append(card);
+	const firebaseInputs = node("div");
+	const project = field("Firebase project ID", "Use your existing project ID from the Firebase console. No account inventory is read here.");
+	const region = field("Database region", "The region cannot change after authorization. Use the region of an existing database.");
+	const invalid = node("p");
+	invalid.className = browserUiClasses.fieldError;
+	invalid.setAttribute("role", "alert");
+	firebaseInputs.append(project.wrap, region.wrap, invalid, node("p", "Defaults use the (default) database, a new Web App and dedicated Hosting site, and anonymous sign-in. No paid features are set up."));
+	const name = node("p");
+	const localState = node("p");
+	const rename = action("Name in this browser", () => options.registry.renameCurrent(rename));
+	const unsubscribe = options.registry.watch((view) => {
+		name.textContent = `Name in this browser: ${view.current.name}. This names the current known Remote only.`;
+		localState.textContent = `This door’s observed connection: ${view.current.connection.text}.`;
+	});
+	signal.addEventListener("abort", unsubscribe, { once: true });
+	panels[2].append(firebaseInputs, name, rename, node("p", "Names stay in this browser. A browser name is never a Firebase deployment input."));
+	const review = node("div");
+	panels[3].append(review);
+	const result = panels[4];
+	const resultCard = node("div");
+	resultCard.className = `${browserUiClasses.card} create-result-card`;
+	const completion = node("p");
+	const saved = node("div");
+	saved.className = "create-saved-facts";
+	const announcement = node("p");
+	announcement.className = browserUiClasses.visuallyHidden;
+	announcement.setAttribute("role", "status");
+	const refreshReason = node("p");
+	refreshReason.id = "create-recheck-reason";
+	const refreshFeedback = node("p");
+	refreshFeedback.setAttribute("role", "status");
+	const refresh = action("Recheck saved facts", () => {
+		if (signal.aborted || rechecking || !options.canRefresh()) return;
+		rechecking = true;
+		updateRefresh();
+		refreshFeedback.textContent = "";
+		options.refresh(refresh).catch(() => {
+			if (!signal.aborted) refreshFeedback.textContent = "Saved facts could not be checked. Keep the original terminal result.";
+		}).finally(() => {
+			if (signal.aborted) return;
+			rechecking = false;
+			updateRefresh();
+		});
+	});
+	refresh.dataset.variant = "secondary";
+	refresh.setAttribute("aria-describedby", refreshReason.id);
+	refresh.disabled = true;
+	const overview = action("Open this Remote", () => options.navigate("/remote/overview"));
+	const invites = action("Invite someone", () => options.navigate("/remote/invites"), true);
+	resultCard.append(completion, localState, announcement, saved, refresh, refreshReason, refreshFeedback);
+	result.append(resultCard);
+	const back = action("Back", () => show(step === 3 && type === "local" ? 1 : step - 1));
+	const next = action("Continue", () => show(step === 1 && type === "local" ? 3 : step + 1), true);
+	const cancel = action("Cancel", () => options.navigate("/remote/"));
+	actions.append(cancel, back, next, overview, invites);
+	target.append(steps, content, actions);
+	function show(selected, focus = true) {
+		if (signal.aborted || selected < 1 || selected > 5 || selected === 2 && type === "local") return;
+		let commands;
+		if (type === "firebase" && selected >= 4) try {
+			commands = deploymentCommands(project.input.value, region.input.value);
+		} catch (error) {
+			show(3, false);
+			invalid.textContent = error instanceof Error ? error.message : "Check the project and region.";
+			project.input.focus();
+			return;
+		}
+		invalid.textContent = "";
+		if (selected !== step) visited.add(step);
+		step = selected;
+		panels.forEach((panel, index) => {
+			panel.hidden = index + 1 !== step;
+		});
+		buttons.forEach((button, index) => {
+			const number = index + 1;
+			const state = number === step ? "current" : visited.has(number) ? "done" : "upcoming";
+			button.querySelector("span").textContent = `${state === "done" ? "✓ " : ""}${number} ${titles[index]}`;
+			button.dataset.stepState = state;
+			button.setAttribute("aria-label", `${number} ${titles[index]} · ${state}`);
+			if (number === step) button.setAttribute("aria-current", "step");
+			else button.removeAttribute("aria-current");
+			button.disabled = type === "local" && number === 2;
+		});
+		firebaseInputs.hidden = type !== "firebase";
+		review.replaceChildren();
+		if (commands) {
+			review.append(node("h3", "Preview changes and permissions · Not checked"), node("p", "Copy this preview into this machine’s terminal with the Firebase account that manages the project. It does not authorize deployment."), reference(commands.preview));
+			const terminal = node("section");
+			terminal.append(node("h3", "Your terminal step"), node("p", "In your own terminal, review the captured changes, including replacement of Security rules or Hosting files, and answer y/N there. The browser does not approve or execute this step."), reference(commands.deploy));
+			review.append(terminal);
+		} else review.append(node("p", "This machine uses its current door. No cloud account or deployment is needed. Open Overview to check the connection."));
+		completion.textContent = type === "firebase" ? "Deployment completion · Not checked. A copied command or enabled layer does not verify a completed deployment. For a partial or unknown result, keep the printed record and follow the original run’s terminal guidance; do not reset it or repeat unknown work." : "No cloud deployment is involved. The connection below is the existing observation, not a new setup check.";
+		saved.hidden = type !== "firebase";
+		refresh.hidden = type !== "firebase";
+		overview.hidden = step !== 5;
+		invites.hidden = step !== 5 || type !== "firebase";
+		actions.dataset.step = String(step);
+		updateRefresh();
+		back.hidden = step === 1;
+		cancel.hidden = step !== 1;
+		next.hidden = step === 5;
+		if (focus) {
+			const heading = panels[step - 1].querySelector("h2");
+			heading.tabIndex = -1;
+			heading.focus();
+		}
+	}
+	function updateRefresh(access) {
+		refresh.disabled = rechecking || access === "checking" || !options.canRefresh();
+		refreshReason.textContent = !refresh.disabled ? "" : rechecking || access === "checking" ? "Checking the existing saved facts." : "Pair this browser and confirm readable management access to recheck saved facts.";
+		refreshReason.hidden = type !== "firebase" || !refresh.disabled;
+	}
+	updateRefresh();
+	show(1, false);
+	return { observe(access, view) {
+		if (signal.aborted) return;
+		updateRefresh(access);
+		renderFirestore(saved, access, view, {
+			commands: false,
+			announcement,
+			prefix: "create"
+		});
+	} };
 }
 //#endregion
 //#region src/management-page.ts
@@ -2808,6 +3133,18 @@ async function settingsPage(shell, registry, initial) {
 	}
 	let page;
 	const registryState = registry ?? remoteRegistryPage(void 0, shell);
+	const guideTarget = shell && document.getElementById("remote-create");
+	const guide = shell && guideTarget ? createPage(guideTarget, {
+		signal: shell.signal,
+		registry: registryState,
+		navigate: (path) => shell.navigate(new URL(path, location.href).href),
+		canRefresh: () => !!page && page.access === "live",
+		refresh: (owner) => run(() => refreshView(), owner)
+	}) : void 0;
+	function renderService() {
+		renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
+		guide?.observe(page.firestoreAccess, page.firestore);
+	}
 	registryState.blockedBy(() => {
 		if (!page) return "";
 		if (page.busy) return "A request is in progress. Wait for its outcome.";
@@ -2862,7 +3199,7 @@ async function settingsPage(shell, registry, initial) {
 		if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
 	});
 	function syncBusyMark() {
-		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked")) markSlot(button);
+		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #remote-create")) markSlot(button);
 		busyMark.set(page.busy);
 	}
 	function saveState(form, hint, changed, valid) {
@@ -2937,7 +3274,7 @@ async function settingsPage(shell, registry, initial) {
 			const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
 			if (!page.writable || !target || targetSignature(target) !== confirmation.signature) cancelConfirmation();
 		}
-		renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
+		renderService();
 		const capacity = capacityCopy(page.accessRefusal);
 		const access = capacity ?? {
 			checking: "Checking current access…",
@@ -3202,7 +3539,7 @@ async function settingsPage(shell, registry, initial) {
 	async function refreshView(cursor) {
 		await page.refresh(cursor);
 		render();
-		if (page.access === "live") page.observeFirestore().then(() => renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore));
+		if (page.access === "live") page.observeFirestore().then(renderService);
 	}
 	async function change(intent, owner) {
 		await run(() => page.submit(intent), owner);
@@ -3348,6 +3685,7 @@ async function settingsPage(shell, registry, initial) {
 		await run(() => refreshView());
 	}
 	function unavailable(error, report = true) {
+		guide?.observe("unconfirmed");
 		const capacity = capacityCopy(error instanceof RefusalError ? error : void 0);
 		const ended = error instanceof RefusalError && [
 			"REMOTE_DEVICE_REVOKED",

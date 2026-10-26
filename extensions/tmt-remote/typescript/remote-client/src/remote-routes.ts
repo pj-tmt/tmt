@@ -3,6 +3,7 @@ import type { ViewerRole } from './remote-state.js';
 
 export type RemoteView =
   | 'remotes'
+  | 'create'
   | 'overview'
   | 'members'
   | 'invites'
@@ -19,6 +20,13 @@ export interface RemoteItem {
 }
 export const REMOTE_ITEMS: readonly RemoteItem[] = [
   { id: 'remotes', path: '/remote/', label: 'My Remotes', title: 'My Remotes', page: 'settings' },
+  {
+    id: 'create',
+    path: '/remote/create',
+    label: 'Create a Remote',
+    title: 'Create a Remote',
+    page: 'settings',
+  },
   {
     id: 'overview',
     path: '/remote/overview',

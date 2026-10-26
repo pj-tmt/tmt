@@ -216,6 +216,63 @@ function render(
   renderFirestore(target as unknown as HTMLElement, 'confirmed', view);
   return target;
 }
+test('the guide renders only saved facts with its own disclosure and clears them on uncertainty', () => {
+  try {
+    const target = render(enabledFixture());
+    const view = {
+      firestoreLayers: parseFirestoreLayers(enabledFixture()),
+      firestoreBudget: parsePublishedLimits(publishedFixture()),
+    } as FirestoreSettingsView;
+    const unchanged = JSON.stringify(view);
+    const announcement = new FirestoreDomNode('p');
+    renderFirestore(target as unknown as HTMLElement, 'confirmed', view, {
+      commands: false,
+      prefix: 'create',
+      announcement: announcement as unknown as HTMLElement,
+    });
+    assert.equal(target.find('section').filter((row) => row.dataset.serviceCheck).length, 0);
+    assert.equal(
+      target.find('section').filter((row) => row.dataset.createLayer === 'sharing').length,
+      1,
+    );
+    assert.equal(target.find('li').filter((row) => row.dataset.item).length, 0);
+    assert.equal(target.find('li').filter((row) => row.dataset.createItem === 'rules').length, 1);
+    assert.equal(target.find('details')[0]!.id, 'create-firestore-budget');
+    assert.ok(target.text().includes('Enabled'));
+    assert.equal(target.text().includes(serviceCommands.preview), false);
+    assert.equal(target.text().includes('deployment complete'), false);
+    assert.equal(JSON.stringify(view), unchanged);
+    const partial = enabledFixture();
+    Object.assign(partial[0]!.prerequisites[2]!, {
+      state: 'not-enabled',
+      reason: 'partial',
+      next: 'tmt remote deploy firestore',
+    });
+    partial[0]!.state = 'not-enabled';
+    renderFirestore(
+      target as unknown as HTMLElement,
+      'confirmed',
+      { ...view, firestoreLayers: parseFirestoreLayers(partial) },
+      {
+        commands: false,
+        prefix: 'create',
+        announcement: announcement as unknown as HTMLElement,
+      },
+    );
+    assert.ok(target.text().includes('Firestore rules are only partly deployed.'));
+    assert.equal(target.find('button').length, 0);
+    renderFirestore(target as unknown as HTMLElement, 'unconfirmed', undefined, {
+      commands: false,
+      prefix: 'create',
+      announcement: announcement as unknown as HTMLElement,
+    });
+    assert.equal(target.find('details').length, 0);
+    assert.equal(target.find('section').length, 0);
+    assert.equal(target.text(), 'Service status could not be confirmed.');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 test('every visible sharing prerequisite has exact state, fixed sentence and only the allowed command', () => {
   try {
     for (const [item, reason, sentence, next] of cases) {
@@ -438,13 +495,12 @@ test('service guidance keeps missing version, plan and permission observations e
     const checks = target.find('section').filter((section) => section.dataset.serviceCheck);
     assert.deepEqual(
       checks.map((section) => section.dataset.serviceCheck),
-      ['version', 'changes', 'permissions'],
+      ['version', 'changes'],
     );
     assert.deepEqual(
       checks.map((section) => section.find('code')[0]!.text()),
       [
         'tmt remote status --layers',
-        "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
         "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
       ],
     );
@@ -454,6 +510,11 @@ test('service guidance keeps missing version, plan and permission observations e
       assert.ok(check.text().includes('this machine’s terminal'));
     }
     assert.equal(serviceCommands.preview.includes('--authorize'), false);
+    assert.equal(
+      target.find('code').filter((code) => code.text() === serviceCommands.preview).length,
+      1,
+    );
+    assert.ok(checks[1]!.text().includes('account permissions'));
     assert.ok(target.text().includes('not a live check'));
     assert.ok(target.text().includes('Cloudflare — Coming soon.'));
     const storage = target
@@ -489,6 +550,18 @@ test('service guidance keeps missing version, plan and permission observations e
     });
     await checks[0]!.find('button')[0]!.click();
     assert.ok(checks[0]!.text().includes('Copy failed. Select the command and copy it manually.'));
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        writeText: async (value: string) => {
+          copied.push(value);
+        },
+      },
+    });
+    await checks[0]!.find('button')[0]!.click();
+    assert.ok(checks[0]!.text().includes('Copied.'));
+    assert.equal(checks[0]!.text().includes('Copy failed.'), false);
+    assert.equal(copied.at(-1), serviceCommands.status);
+
     assert.equal(JSON.stringify(layers), before);
     const unconfigured = render([]);
     assert.ok(unconfigured.text().includes('Firestore is not configured.'));
@@ -497,12 +570,12 @@ test('service guidance keeps missing version, plan and permission observations e
     );
     assert.equal(
       unconfigured.find('section').filter((section) => section.dataset.serviceCheck).length,
-      3,
+      2,
     );
     renderFirestore(target as unknown as HTMLElement, 'unconfirmed');
     assert.equal(
       target.find('section').filter((section) => section.dataset.serviceCheck).length,
-      3,
+      2,
     );
     assert.equal(target.find('section').filter((section) => section.dataset.layer).length, 0);
     assert.ok(target.text().includes('Service status could not be confirmed.'));

@@ -1723,11 +1723,23 @@ mod tests {
             serde_json::from_str(include_str!("../assets/service-commands.json")).unwrap();
         assert_eq!(
             references.keys().copied().collect::<Vec<_>>(),
-            ["preview", "status"]
+            [
+                "deploy",
+                "firebaseInstall",
+                "firebaseLogin",
+                "firebaseVersion",
+                "nodeVersion",
+                "preview",
+                "status"
+            ]
         );
         let status = references["status"];
         let preview = references["preview"];
-        for (printed, action) in [(status, "status"), (preview, "deploy")] {
+        for (printed, action) in [
+            (status, "status"),
+            (preview, "deploy"),
+            (references["deploy"], "deploy"),
+        ] {
             let argv = tmt_cli_style::Example {
                 command: printed,
                 note: "Service copy-only reference",
@@ -1746,12 +1758,53 @@ mod tests {
             } else {
                 let selected = selected.subcommand_matches("firestore").unwrap();
                 let input = tmt_remote::deploy_cli::arguments(selected).unwrap();
-                assert!(input.json);
+                assert_eq!(input.json, printed == preview);
                 assert!(input.defaults);
                 assert_eq!(input.authorize, None);
                 assert_eq!(input.project, "<project-id>");
                 assert_eq!(input.region, "<region>");
+                let concrete = printed
+                    .replace("<project-id>", "demo-guide")
+                    .replace("<region>", "asia-east1");
+                let argv = tmt_cli_style::ShownExample {
+                    command: concrete,
+                    note: "Guide input projection".into(),
+                }
+                .argv()
+                .unwrap();
+                let parsed = grammar()
+                    .try_get_matches_from(argv.into_iter().skip(1))
+                    .unwrap();
+                let input = tmt_remote::deploy_cli::arguments(
+                    parsed
+                        .subcommand_matches("deploy")
+                        .unwrap()
+                        .subcommand_matches("firestore")
+                        .unwrap(),
+                )
+                .unwrap();
+                assert!(tmt_remote::deploy_cli::inputs::validate_supplied(&input).is_ok());
             }
+        }
+        // External tool references are argv-checked only, never launched by this proof.
+        for (key, expected) in [
+            ("nodeVersion", vec!["node", "--version"]),
+            ("firebaseVersion", vec!["firebase", "--version"]),
+            (
+                "firebaseInstall",
+                vec!["npm", "install", "-g", "firebase-tools@15.29.0"],
+            ),
+            ("firebaseLogin", vec!["firebase", "login"]),
+        ] {
+            assert_eq!(
+                tmt_cli_style::Example {
+                    command: references[key],
+                    note: "External terminal reference"
+                }
+                .argv()
+                .unwrap(),
+                expected
+            );
         }
     }
 

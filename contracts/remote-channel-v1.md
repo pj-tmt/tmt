@@ -107,7 +107,7 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
-`/remote`, `/remote/`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
+`/remote`, `/remote/`, `/remote/create`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
 `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
 `/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
@@ -131,6 +131,10 @@ their [owner browser reads](#owner-browser-reads). Until a page has a browser re
 that shows the same facts and shows no values. Home preferences remain a
 separate consumer. Remote has two levels under one app route. `/remote/` (`/remote` names the same entry)
 is My Remotes, the origin-local public registry. Its rows open the selected door's `/remote/overview`.
+`/remote/create` is a global, copy-only setup guide outside the current-door tabs. It reads only
+the existing recorded layers/budget observation; prerequisites and deployment completion remain
+Not checked, with the work done by the person in the terminal or provider console. Its name is
+browser-local. It adds no native read, endpoint, provider call or automatic completion check.
 The current door's persistent tabs are `/remote/overview`, `/remote/members`, `/remote/invites`,
 `/remote/my-devices`, `/remote/settings` and `/remote/service`; no Remote ID appears in a path.
 `remote-routes.ts` owns their browser route/menu declaration; native page admission mirrors the explicit

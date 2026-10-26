@@ -74,6 +74,7 @@ test('Remote routes separate the global list and current-door tabs without obsol
     REMOTE_ITEMS.map((item) => item.path),
     [
       '/remote/',
+      '/remote/create',
       '/remote/overview',
       '/remote/members',
       '/remote/invites',

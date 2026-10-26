@@ -6,6 +6,7 @@ import type { RemoteShell } from './remote-shell.js';
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
 import type { Session } from './device.js';
 import { renderFirestore } from './firestore-page.js';
+import { createPage } from './create-page.js';
 import { ManagementPage, type PageIntent } from './management-page.js';
 import { browserUiClasses, createActionMark } from '@tmt/browser-ui/static';
 import { createBusyMarkGate } from '@tmt/browser-ui/busy-mark';
@@ -78,6 +79,21 @@ export async function settingsPage(
   }
   let page: ManagementPage;
   const registryState = registry ?? remoteRegistryPage(undefined, shell);
+  const guideTarget = shell && document.getElementById('remote-create');
+  const guide =
+    shell && guideTarget
+      ? createPage(guideTarget, {
+          signal: shell.signal,
+          registry: registryState,
+          navigate: (path) => shell.navigate(new URL(path, location.href).href),
+          canRefresh: () => !!page && page.access === 'live',
+          refresh: (owner) => run(() => refreshView(), owner),
+        })
+      : undefined;
+  function renderService(): void {
+    renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore);
+    guide?.observe(page.firestoreAccess, page.firestore);
+  }
   registryState.blockedBy(() => {
     if (!page) return '';
     if (page.busy) return 'A request is in progress. Wait for its outcome.';
@@ -146,7 +162,7 @@ export async function settingsPage(
     for (const button of document.querySelectorAll<HTMLElement>('button.tmt-ui-action'))
       if (
         !button.closest(
-          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked',
+          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #remote-create',
         )
       )
         markSlot(button);
@@ -266,7 +282,7 @@ export async function settingsPage(
       if (!page.writable || !target || targetSignature(target) !== confirmation.signature)
         cancelConfirmation();
     }
-    renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore);
+    renderService();
     const capacity = capacityCopy(page.accessRefusal);
     const access =
       capacity ??
@@ -623,12 +639,7 @@ export async function settingsPage(
   async function refreshView(cursor?: string | null): Promise<void> {
     await page.refresh(cursor);
     render();
-    if (page.access === 'live')
-      void page
-        .observeFirestore()
-        .then(() =>
-          renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore),
-        );
+    if (page.access === 'live') void page.observeFirestore().then(renderService);
   }
   async function change(intent: PageIntent, owner: HTMLElement): Promise<void> {
     await run(() => page.submit(intent), owner);
@@ -790,6 +801,7 @@ export async function settingsPage(
     await run(() => refreshView());
   }
   function unavailable(error: unknown, report = true): void {
+    guide?.observe('unconfirmed');
     const capacity = capacityCopy(error instanceof RefusalError ? error : undefined);
     const ended =
       error instanceof RefusalError &&
