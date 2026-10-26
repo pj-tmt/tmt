@@ -661,6 +661,60 @@ fn a_second_supervisor_for_the_member_is_refused_and_a_dead_ones_socket_is_repla
 }
 
 #[test]
+fn starting_a_different_member_reclaims_unlocked_neighbours_and_preserves_live_or_unknown_ones() {
+    let member = Member::start(&["sh", "-c", "read l; echo got:$l"]);
+    let directory = &member.directory;
+    // Model the files and kernel-released flock of a killed supervisor. The
+    // process-level kill test separately verifies this exact crash transition.
+    let dead = "pty_dead";
+    drop(crate::file_lock::exclusive(&lock_path(directory, dead)).unwrap());
+    drop(UnixListener::bind(socket_path(directory, dead)).unwrap());
+
+    // Unknown locks and a socket that cannot be removed must be left alone.
+    std::os::unix::fs::symlink(
+        lock_path(directory, &member.id),
+        lock_path(directory, "pty_unknown"),
+    )
+    .unwrap();
+    drop(UnixListener::bind(socket_path(directory, "pty_unknown")).unwrap());
+    drop(crate::file_lock::exclusive(&lock_path(directory, "pty_unremovable")).unwrap());
+    fs::create_dir(socket_path(directory, "pty_unremovable")).unwrap();
+
+    let supervisor = Supervisor::start(launch(directory, "pty_new", &["sh", "-c", "exit 0"]))
+        .expect("unknown neighbours must not fail the new start");
+    supervisor.run().unwrap();
+    for extension in ["sock", "lock"] {
+        assert!(!directory.join(format!("{dead}.{extension}")).exists());
+        for id in [&member.id, "pty_unknown", "pty_unremovable"] {
+            assert!(directory.join(format!("{id}.{extension}")).exists());
+        }
+    }
+    let mut client = member.connect();
+    client.input(b"still-live\r").unwrap();
+    collect(&mut client, says("got:still-live"));
+    member.finish().unwrap();
+}
+
+#[test]
+fn startup_reclamation_stops_after_64_directory_entries() {
+    let root = TestDirectory::new();
+    let directory = root.path.join("pty");
+    ensure_private_directory(&directory).unwrap();
+    for index in 0..80 {
+        fs::write(lock_path(&directory, &format!("pty_dead{index}")), "").unwrap();
+    }
+    let error = Supervisor::start(launch(&directory, "pty_new", &["/nonexistent/program"]))
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    let remaining = fs::read_dir(&directory).unwrap().count();
+    assert!(
+        (16..80).contains(&remaining),
+        "a start must reclaim some neighbours but inspect no more than 64 entries: {remaining}"
+    );
+}
+
+#[test]
 fn a_start_that_cannot_proceed_leaves_nothing_behind() {
     let root = TestDirectory::new();
 

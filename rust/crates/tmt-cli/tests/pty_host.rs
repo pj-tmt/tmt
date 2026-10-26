@@ -724,47 +724,13 @@ fn supervisor_loss_after_paste_is_uncertain_and_never_replayed() {
     assert!(world.clean());
 }
 
-#[test]
-#[ignore = "flaky on hosted runners; see #4767"]
-fn a_hook_recorded_session_resumes_in_a_new_pty_without_tmux() {
-    let mut world = World::new();
-    let example = std::path::Path::new(env!("CARGO_BIN_EXE_tmt"))
-        .parent()
-        .unwrap()
-        .join("examples/provider-script-fixture");
-    assert!(
-        example.is_file(),
-        "build the shared fixture first: cargo build --locked -p tmt-adapters --example provider-script-fixture"
-    );
-    let provider = world.root.join("bin/claude");
-    tmt_test_support::write_executable(&provider, &fs::read(&example).unwrap(), 0o755).unwrap();
-    let interpreter = world.root.join("fixture-interpreter");
-    let tmt = env!("CARGO_BIN_EXE_tmt");
-    let root = world.root.display();
-    let session = "11111111-1111-4111-8111-111111111111";
-    let script = format!(
-        r#"#!/bin/sh
-printf '%s' "$PPID" > '{root}/alpha.pid'
-printf '%s' "$$" > '{root}/alpha-peer.pid'
-printf '%s\n' "$@" >> '{root}/provider-argv'
-IFS= read -r release_hook
-printf '%s' '{{"hook_event_name":"SessionStart","session_id":"{session}","source":"startup","cwd":"{root}","model":"fixture-model"}}' | '{tmt}' __hook claude > '{root}/hook.out' 2> '{root}/hook.err'
-printf '%s' "$?" > '{root}/hook.status.tmp'
-/bin/mv '{root}/hook.status.tmp' '{root}/hook.status'
-printf 'provider-ready\n'
-IFS= read -r line
-"#
-    );
-    tmt_test_support::write_executable(&interpreter, script.as_bytes(), 0o755).unwrap();
-    world.interpreter = Some(interpreter);
-    let started = world.run(&[
-        "run",
-        "--no-channel",
-        "--save",
-        "alpha",
-        provider.to_str().unwrap(),
-    ]);
-    assert!(started.status.success(), "{started:?}");
+// Both resume scenarios release their single SessionStart only after exact Running
+// provider/owner evidence, then wait for the committed session rather than hook exit.
+fn record_provider_session(
+    world: &World,
+    previous_pane: Option<&str>,
+    session: &str,
+) -> (String, String, String) {
     let wait_hook = |world: &World, deadline: Instant, phase: &str| {
         while !world.root.join("hook.status").is_file() {
             assert!(
@@ -883,15 +849,17 @@ IFS= read -r line
         );
         std::thread::sleep(Duration::from_millis(10));
     };
-    let (identity, pane, before_session) = wait_launch(&world, None, deadline);
-    assert!(
-        before_session.is_none(),
-        "the held hook must cause session recording"
-    );
+    let (identity, pane, before_session) = wait_launch(world, previous_pane, deadline);
+    if previous_pane.is_none() {
+        assert!(
+            before_session.is_none(),
+            "the held hook must cause session recording"
+        );
+    }
     assert!(!world.root.join("hook.status").exists());
-    release_hook(&world, &pane);
-    wait_hook(&world, deadline, "initial");
-    let (recorded_identity, recorded_pane, recorded) = wait_session(&world, None, deadline);
+    release_hook(world, &pane);
+    wait_hook(world, deadline, "initial");
+    let (recorded_identity, recorded_pane, recorded) = wait_session(world, previous_pane, deadline);
     assert_eq!(recorded_identity, identity);
     assert_eq!(recorded_pane, pane);
     assert_eq!(
@@ -900,6 +868,52 @@ IFS= read -r line
         "hook diagnostics: {}",
         fs::read_to_string(world.root.join("hook.err")).unwrap()
     );
+    (identity, pane, recorded)
+}
+
+#[test]
+#[ignore = "flaky on hosted runners; see #4767"]
+fn a_hook_recorded_session_resumes_in_a_new_pty_without_tmux() {
+    let mut world = World::new();
+    let example = std::path::Path::new(env!("CARGO_BIN_EXE_tmt"))
+        .parent()
+        .unwrap()
+        .join("examples/provider-script-fixture");
+    assert!(
+        example.is_file(),
+        "build the shared fixture first: cargo build --locked -p tmt-adapters --example provider-script-fixture"
+    );
+    let provider = world.root.join("bin/claude");
+    tmt_test_support::write_executable(&provider, &fs::read(&example).unwrap(), 0o755).unwrap();
+    let interpreter = world.root.join("fixture-interpreter");
+    let tmt = env!("CARGO_BIN_EXE_tmt");
+    let root = world.root.display();
+    let session = "11111111-1111-4111-8111-111111111111";
+    let script = format!(
+        r#"#!/bin/sh
+printf '%s' "$PPID" > '{root}/alpha.pid'
+printf '%s' "$$" > '{root}/alpha-peer.pid'
+printf '%s\n' "$@" >> '{root}/provider-argv'
+IFS= read -r release_hook
+printf '%s' '{{"hook_event_name":"SessionStart","session_id":"{session}","source":"startup","cwd":"{root}","model":"fixture-model"}}' | '{tmt}' __hook claude > '{root}/hook.out' 2> '{root}/hook.err'
+printf '%s' "$?" > '{root}/hook.status.tmp'
+/bin/mv '{root}/hook.status.tmp' '{root}/hook.status'
+printf 'provider-ready\n'
+IFS= read -r line
+"#
+    );
+    tmt_test_support::write_executable(&interpreter, script.as_bytes(), 0o755).unwrap();
+    world.interpreter = Some(interpreter);
+    let started = world.run(&[
+        "run",
+        "--no-channel",
+        "--save",
+        "alpha",
+        provider.to_str().unwrap(),
+    ]);
+    assert!(started.status.success(), "{started:?}");
+    let (identity, pane, recorded) = record_provider_session(&world, None, session);
+    assert_eq!(recorded, session);
     world.remember_programs();
     let old_program = fs::read_to_string(world.root.join("alpha.pid"))
         .unwrap()
@@ -927,13 +941,8 @@ IFS= read -r line
         &[old_program],
         || assert!(resumed.status.success(), "{resumed:?}"),
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let (resumed_identity, resumed_pane, _) = wait_launch(&world, Some(&pane), deadline);
-    assert_eq!(resumed_identity, identity);
-    release_hook(&world, &resumed_pane);
-    wait_hook(&world, deadline, "resumed");
-    let (after_identity, after_pane, after_session) = wait_session(&world, Some(&pane), deadline);
-    assert_eq!(after_pane, resumed_pane);
+    let (after_identity, after_pane, after_session) =
+        record_provider_session(&world, Some(&pane), session);
     assert_eq!(after_identity, identity);
     assert_ne!(after_pane, pane);
     assert_eq!(after_session, session);
@@ -945,7 +954,6 @@ IFS= read -r line
             .any(|words| words == ["--resume", session]),
         "{argv}"
     );
-    drop(db);
     assert!(world.clean());
 }
 
