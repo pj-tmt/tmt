@@ -399,8 +399,8 @@ own module/drawing boundaries and verification.
   and Switch tool (same UUID, requested running driver). Core owns
   handoff/stop; Ops never writes private Core/host/provider state. Digest owns
   locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs.
-  Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`;
-  dev-only `tmt-test-support`.
+  Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`,
+  `tmt-pty-protocol` (a built-in host's terminal-stream frames); dev-only `tmt-test-support`.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. Retired
