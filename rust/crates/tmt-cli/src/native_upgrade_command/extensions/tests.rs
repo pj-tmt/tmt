@@ -363,6 +363,7 @@ fn progress_is_negotiated_read_only_and_old_candidates_apply_once() {
             |_| {},
             None,
             Some(OutputMode { json: true }),
+            None,
         );
         assert!(rows.iter().all(|row| row["status"] == "changed"));
         let calls = runner.calls.borrow();
@@ -409,6 +410,7 @@ fn a_failed_probe_is_not_an_apply_and_a_bad_stream_never_replays_apply() {
             |_| {},
             None,
             Some(OutputMode { json: true }),
+            None,
         );
         assert!(rows.iter().all(|row| row["status"] == "failed"));
         assert_eq!(

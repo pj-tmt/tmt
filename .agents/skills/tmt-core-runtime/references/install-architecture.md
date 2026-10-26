@@ -325,9 +325,11 @@ the move is a bootstrap reinstall.
   activation or foreign link is preserved. Skills-only retry uses the captured immutable release.
   Legacy installed-only callers retain their protocol; capability fallback never applies missing
   items, retries an apply, or runs the old updater. Independent failures retain completed results;
-  interruption is honoured between items within one apply process and exits 130. Root terminal
-  Ctrl-C is not yet forwarded to that separate process; [#5180](https://github.com/tmt-ninja/tmt/issues/5180)
-  owns the forwarding seam. CLI failure stops the phase; a pinned CLI permits it.
+  root Ctrl-C forwards SIGINT through the bounded process owner to the apply group. Child
+  checkpoints stop later items, retain completed results and exit 130. A repeat expires the
+  wait early; deadline/forced group cleanup is uncertain and never replays apply. Older
+  installed-only targets keep their own checkpoint capabilities. CLI failure stops the phase;
+  a pinned CLI permits it.
 - After a completed unpinned upgrade, the activated CLI's bounded
   `__native-refresh-integrations --json` phase refreshes only previously recorded setup scopes;
   the [setup owner](identity-bindings.md#hooks-setup-and-uninstall) retains file and consent

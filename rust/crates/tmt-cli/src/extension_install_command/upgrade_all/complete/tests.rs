@@ -1,5 +1,9 @@
 use super::*;
 use crate::setup_command::guided::tests::Directory;
+use std::{
+    fs,
+    time::{Duration, Instant},
+};
 
 fn plan() -> Plan {
     Plan {installed:super::super::Plan {products:vec![],pending:vec![]},missing:setup::PRODUCTS.iter().map(|product|
@@ -145,6 +149,77 @@ fn an_in_process_installer_interrupt_keeps_completed_work_and_stops_later_items(
     assert_eq!(result["interrupted"], true);
     assert_eq!(result["products"][0]["status"], "changed");
     assert_eq!(result["products"][3]["status"], "failed");
+}
+
+/// A real apply owner for the parent's SIGINT/process-boundary regression.
+#[test]
+fn signal_apply_fixture() {
+    let Some(root) = std::env::var_os("TMT_UPGRADE_SIGNAL_ROOT") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    let mode = std::env::var("TMT_UPGRADE_SIGNAL_MODE").unwrap();
+    let mut input = Vec::new();
+    io::stdin().read_to_end(&mut input).unwrap();
+    let plan = Plan::parse(&input).unwrap();
+    let interrupt = tmt_adapters::interrupt::Interrupt::install().unwrap();
+    let result = apply_with(
+        &root.join("prefix"),
+        plan,
+        false,
+        &|| interrupt.is_interrupted(),
+        |product, _, version, _| {
+            fs::write(
+                root.join(format!("{}.started", product.as_str())),
+                b"started",
+            )
+            .unwrap();
+            if product == Product::Remote && !matches!(mode.as_str(), "success" | "late") {
+                let blocker = root.join("blocked.fifo");
+                nix::unistd::mkfifo(
+                    &blocker,
+                    nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+                )
+                .unwrap();
+                fs::write(root.join("ready"), std::process::id().to_string()).unwrap();
+                interrupt
+                    .wait_until(Instant::now() + Duration::from_secs(30))
+                    .unwrap();
+                assert!(
+                    interrupt.is_interrupted(),
+                    "parent SIGINT never reached apply"
+                );
+                fs::write(root.join("signal-seen"), b"SIGINT").unwrap();
+                if mode == "stubborn" || mode == "deadline" {
+                    // Acknowledge actual forwarding, then deliberately stop
+                    // reaching checkpoints until bounded group cleanup.
+                    let _ = fs::OpenOptions::new().read(true).open(&blocker).unwrap();
+                    unreachable!("the test never connects to the blocker");
+                }
+                return Err(Failure::new(
+                    "EXTENSION_INSTALL_FAILED",
+                    "interrupted at checkpoint",
+                    130,
+                ));
+            }
+            fs::write(
+                root.join(format!("{}.completed", product.as_str())),
+                version.unwrap().as_bytes(),
+            )
+            .unwrap();
+            Ok(json!({"changed":true,"version":version,"skills":{"status":"current"}}))
+        },
+    );
+    fs::write(
+        root.join("child-report"),
+        serde_json::to_vec(&result).unwrap(),
+    )
+    .unwrap();
+    std::process::exit(if result["interrupted"] == true {
+        130
+    } else {
+        0
+    });
 }
 
 #[test]

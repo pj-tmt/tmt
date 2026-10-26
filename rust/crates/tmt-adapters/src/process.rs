@@ -24,6 +24,10 @@ use std::{
 use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
 
 pub(crate) const CLEANUP_TIMEOUT: Duration = Duration::from_secs(1);
+// subprocess's resumable communicator cannot wait on our notification socket.
+// Only cancellable calls use bounded blocking slices; no reader/signal thread
+// can outlive the child owner, and every slice retains the original deadline.
+const INTERRUPT_SLICE: Duration = Duration::from_millis(50);
 
 pub struct CommandRequest<'a> {
     pub program: &'a OsStr,
@@ -152,6 +156,19 @@ pub trait CommandRunner {
         Ok(output)
     }
 
+    /// Forward invocation SIGINT to the owned group and keep collecting its
+    /// checkpoint report. A repeat shortens the wait to cleanup, never replay.
+    /// Scripted runners may settle synchronously through their existing port.
+    fn execute_cancellable(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+        _interrupt: &crate::interrupt::Interrupt,
+    ) -> Result<CommandOutput, CommandError> {
+        self.execute_observed(request, stderr_limit, observer)
+    }
+
     /// Child-only overrides. Runners without this capability refuse before any spawn.
     fn execute_with_environment(
         &self,
@@ -175,6 +192,15 @@ pub trait CommandRunner {
 /// A borrowed runner, so a short-lived caller (one external host driver per
 /// binding session) runs through its handle's runner.
 impl<R: CommandRunner + ?Sized> CommandRunner for &R {
+    fn execute_cancellable(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+        interrupt: &crate::interrupt::Interrupt,
+    ) -> Result<CommandOutput, CommandError> {
+        (**self).execute_cancellable(request, stderr_limit, observer, interrupt)
+    }
     fn execute_observed(
         &self,
         request: CommandRequest<'_>,
@@ -273,6 +299,19 @@ impl CommandRunner for SupervisedProbeRunner {
 }
 
 impl CommandRunner for UnixCommandRunner {
+    fn execute_cancellable(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+        interrupt: &crate::interrupt::Interrupt,
+    ) -> Result<CommandOutput, CommandError> {
+        if interrupt.is_interrupted() {
+            return Err(CommandError::new(CommandFailure::Timeout));
+        }
+        self.start(request)?
+            .wait_with_interrupt(stderr_limit, observer, Some(interrupt))
+    }
     fn execute_observed(
         &self,
         request: CommandRequest<'_>,
@@ -373,9 +412,18 @@ impl RunningCommand {
     }
 
     fn wait_observed(
+        self,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+    ) -> Result<CommandOutput, CommandError> {
+        self.wait_with_interrupt(stderr_limit, observer, None)
+    }
+
+    fn wait_with_interrupt(
         mut self,
         stderr_limit: usize,
         observer: &mut dyn FnMut(&[u8]),
+        interrupt: Option<&crate::interrupt::Interrupt>,
     ) -> Result<CommandOutput, CommandError> {
         match communicate(
             &mut self.job,
@@ -383,6 +431,7 @@ impl RunningCommand {
             self.max_output_bytes,
             stderr_limit,
             observer,
+            interrupt,
         ) {
             Ok(output) => {
                 self.finished = true;
@@ -409,40 +458,66 @@ fn communicate(
     max_output_bytes: usize,
     stderr_limit: usize,
     observer: &mut dyn FnMut(&[u8]),
+    interrupt: Option<&crate::interrupt::Interrupt>,
 ) -> Result<CommandOutput, CommandError> {
     let mut stdout = CappedOutput::new(max_output_bytes);
     let mut stderr = CappedOutput::new(stderr_limit);
+    let mut forwarded = false;
     {
         // Keep the Job. Exec::communicate detaches; consuming convenience
         // timeout methods can instead block inside Process::drop on failure.
         let mut communication = job
             .communicate()
-            .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?
-            .limit_time(remaining(deadline)?);
-        if let Err(cause) = communication.read_to(
-            &mut stdout,
-            &mut ObservedOutput {
-                output: &mut stderr,
-                observer,
-            },
-        ) {
-            let kind = if stdout.exceeded || stderr.exceeded {
-                CommandFailure::OutputLimit
-            } else if cause.kind() == io::ErrorKind::TimedOut {
-                CommandFailure::Timeout
+            .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+        loop {
+            forward_interrupt(job, interrupt, &mut forwarded)?;
+            let budget = remaining(deadline)?;
+            communication = communication.limit_time(if interrupt.is_some() {
+                budget.min(INTERRUPT_SLICE)
             } else {
-                CommandFailure::Io
-            };
-            return Err(CommandError::io(kind, cause));
+                budget
+            });
+            match communication.read_to(
+                &mut stdout,
+                &mut ObservedOutput {
+                    output: &mut stderr,
+                    observer,
+                },
+            ) {
+                Ok(()) => break,
+                Err(cause) => {
+                    let kind = if stdout.exceeded || stderr.exceeded {
+                        CommandFailure::OutputLimit
+                    } else if cause.kind() == io::ErrorKind::TimedOut {
+                        if interrupt.is_some() {
+                            continue;
+                        }
+                        CommandFailure::Timeout
+                    } else {
+                        CommandFailure::Io
+                    };
+                    return Err(CommandError::io(kind, cause));
+                }
+            }
         }
     }
     // EOF is not process completion: a child can close both pipes then hang.
     // Conversely, do not reap the leader while a descendant holds its pipes:
     // retaining the leader lets failure cleanup safely signal its group.
-    let status = job
-        .wait_timeout(remaining(deadline)?)
-        .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?
-        .ok_or_else(|| CommandError::new(CommandFailure::Timeout))?;
+    let status = loop {
+        forward_interrupt(job, interrupt, &mut forwarded)?;
+        let budget = remaining(deadline)?;
+        let status = job
+            .wait_timeout(if interrupt.is_some() {
+                budget.min(INTERRUPT_SLICE)
+            } else {
+                budget
+            })
+            .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+        if let Some(status) = status {
+            break status;
+        }
+    };
     if !status.success() {
         let mut error = CommandError::new(CommandFailure::Exit {
             code: status.code(),
@@ -458,6 +533,35 @@ fn communicate(
         stdout: stdout.bytes,
         stderr: stderr.bytes,
     })
+}
+
+fn forward_interrupt(
+    job: &Job,
+    interrupt: Option<&crate::interrupt::Interrupt>,
+    forwarded: &mut bool,
+) -> Result<(), CommandError> {
+    let Some(interrupt) = interrupt else {
+        return Ok(());
+    };
+    let notifications = interrupt
+        .take_notifications()
+        .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+    if notifications == 0 {
+        return Ok(());
+    }
+    if !*forwarded {
+        // The unreaped leader still reserves its group ID. Signal only this
+        // command's private group, leaving publication/rollback to its owner.
+        job.send_signal_group(Signal::SIGINT as i32)
+            .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+        *forwarded = true;
+        if notifications == 1 {
+            return Ok(());
+        }
+    }
+    // A repeat expires this wait early. The same RunningCommand performs its
+    // ordinary group cleanup; no partial bytes become a confirmed report.
+    Err(CommandError::new(CommandFailure::Timeout))
 }
 
 struct CappedOutput {
