@@ -318,7 +318,7 @@ mod tests {
             observation(42, 946684800, b'Z'),
             Some(ProcessObservation::UnreapedZombie(key))
         );
-        for reaped in [b'X', b'x'] {
+        for reaped in *b"Xx" {
             assert_eq!(
                 observation(42, 946684800, reaped),
                 Some(ProcessObservation::Gone),
