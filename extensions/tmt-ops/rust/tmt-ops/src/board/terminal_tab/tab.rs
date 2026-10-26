@@ -6,13 +6,15 @@ use super::{
     discovery::{Address, Located},
     stream::{Stream, StreamEvent},
 };
+use ratatui::layout::Rect;
 use std::{
+    cell::Cell,
     collections::{HashMap, HashSet},
     sync::Arc,
     time::Duration,
 };
-use tmt_pty_protocol::{Eviction, Exit, Refusal};
-use tmt_tui::components::terminal::Frame as Screenful;
+use tmt_pty_protocol::{Eviction, Exit, Refusal, Size};
+use tmt_tui::components::terminal::{Frame as Screenful, Modes};
 
 /// How long a member with no stream is believed before core is asked again.
 const NO_STREAM_FOR_MS: u64 = 60_000;
@@ -63,8 +65,10 @@ struct Open {
     address: Address,
     epoch: u64,
     view: View,
+    /// The window this viewer last asked the terminal for; none until it types.
+    window: Option<Size>,
     /// Dropping it detaches from the supervisor.
-    _stream: Stream,
+    stream: Stream,
 }
 
 #[derive(Default)]
@@ -76,6 +80,12 @@ pub(in crate::board) struct Tab {
     epoch: u64,
     /// Members whose stream ended while shown: the next time the tab opens on one, core is asked.
     ended: HashSet<String>,
+    /// Keys go to the program, byte for byte.
+    typing: bool,
+    /// The tab fills the board.
+    zoomed: bool,
+    /// Where the last frame drew the screen, which is the size the program is given.
+    area: Cell<Option<Rect>>,
 }
 
 impl Tab {
@@ -168,10 +178,107 @@ impl Tab {
                     condition: Condition::Connecting { attempt: 1 },
                     screen: None,
                 },
-                _stream: connect(self.epoch, address.clone()),
+                window: None,
+                stream: connect(self.epoch, address.clone()),
             });
         }
+        // Typing and zoom belong to one stream: they end with it.
+        self.typing = false;
+        self.zoomed &= self.open.is_some();
         true
+    }
+
+    /// Drops the open stream so the next [`Tab::sync`] opens a fresh one: `⏎` after the stream
+    /// ended. Core is asked again, since the program may have been started anew.
+    pub(in crate::board) fn reattach(&mut self) {
+        if let Some(open) = self.open.take() {
+            self.ended.remove(&open.identity);
+            if let Some(seen) = self.seen.get_mut(&open.identity) {
+                seen.stale = true;
+            }
+        }
+        self.typing = false;
+    }
+
+    pub(in crate::board) fn typing(&self) -> bool {
+        self.typing
+    }
+
+    /// Starts typing when a live stream is open. True when it did.
+    pub(in crate::board) fn start_typing(&mut self) -> bool {
+        let live = self
+            .open
+            .as_ref()
+            .is_some_and(|open| !open.view.condition.ended());
+        self.typing = live;
+        if live && let Some(open) = self.open.as_mut() {
+            // The window is asked for on the next pass, once the area it has is known.
+            open.window = None;
+        }
+        live
+    }
+
+    /// Typing ended: the window is no longer this viewer's, and nothing is resized back.
+    pub(in crate::board) fn stop_typing(&mut self) {
+        if !self.typing {
+            return;
+        }
+        self.typing = false;
+        if let Some(open) = self.open.as_mut() {
+            open.window = None;
+            open.stream.stop_typing();
+        }
+    }
+
+    /// Bytes for the program; dropped by the stream while it is not attached.
+    pub(in crate::board) fn send(&self, bytes: &[u8]) {
+        if let Some(open) = &self.open {
+            open.stream.input(bytes);
+        }
+    }
+
+    /// The input modes the program has set on the screen last shown.
+    pub(in crate::board) fn modes(&self) -> Modes {
+        self.open
+            .as_ref()
+            .and_then(|open| open.view.screen.as_ref())
+            .map(|screen| screen.modes)
+            .unwrap_or_default()
+    }
+
+    pub(in crate::board) fn zoomed(&self) -> bool {
+        self.zoomed
+    }
+
+    pub(in crate::board) fn set_zoomed(&mut self, zoomed: bool) {
+        self.zoomed = zoomed;
+    }
+
+    /// Where the screen was drawn in the last frame.
+    pub(in crate::board) fn area(&self) -> Option<Rect> {
+        self.area.get()
+    }
+
+    pub(in crate::board) fn drew(&self, area: Rect) {
+        self.area.set(Some(area));
+    }
+
+    /// While typing, the program is given the room the screen has: the size when typing began,
+    /// and again whenever the area changes. A viewer that only watches never asks.
+    pub(in crate::board) fn fit_window(&mut self) {
+        if !self.typing {
+            return;
+        }
+        let (Some(open), Some(area)) = (self.open.as_mut(), self.area.get()) else {
+            return;
+        };
+        let Ok(size) = Size::new(area.width, area.height) else {
+            return;
+        };
+        if open.window != Some(size) {
+            open.window = Some(size);
+            open.stream.resize(size);
+        }
     }
 
     /// What the stream thread reported; events of a stream that was since replaced are dropped.
@@ -194,6 +301,8 @@ impl Tab {
         }
         if open.view.condition.ended() {
             self.ended.insert(open.identity.clone());
+            // The program is gone or the stream is over: keys are the board's again.
+            self.typing = false;
         }
         true
     }

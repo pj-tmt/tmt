@@ -224,7 +224,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.focused() == Pane::Replies,
         app.look(),
     );
+    // While typing every key is the terminal's, so the composer (and its key hints) is not offered.
     let admitted_input = retained.is_none()
+        && !app.terminal.typing()
         && app.composer_projection().is_some_and(|projection| {
             projection.key.is_some() && (projection.focused || app.composer_start().is_some())
         });

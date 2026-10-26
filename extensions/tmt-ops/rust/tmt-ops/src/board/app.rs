@@ -315,6 +315,8 @@ pub enum Choice {
     RightTab(super::shell::RightTab),
     /// The Talk pane's Chat/Terminal chips: `true` is the terminal.
     TerminalView(bool),
+    /// The Terminal tab's Zoom chip.
+    TerminalZoom,
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Checklist chip of a member's header: opens the list.
     MemberNotes,
@@ -2532,6 +2534,9 @@ impl App {
         };
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
+            Verb::Talk if action.args.is_empty() && self.terminal_showing() => {
+                return self.type_into_terminal();
+            }
             Verb::Talk | Verb::Annotate | Verb::Reply | Verb::UpdateStatus => {
                 return self.compose(action, &row);
             }
@@ -3112,6 +3117,7 @@ impl App {
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),
             Choice::TerminalView(show) => self.show_terminal(show),
+            Choice::TerminalZoom => self.toggle_terminal_zoom(),
             Choice::WorkspaceTarget(target) => {
                 if self
                     .workspace_snapshot()
@@ -3252,6 +3258,9 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
+        if let Some(effect) = self.terminal_paste(text) {
+            return effect;
+        }
         self.composer.paste_preview.get_mut().take();
         self.composer.invalidate();
         if self.checklist_shown()
@@ -4031,6 +4040,9 @@ impl App {
             self.invalidate_frame_geometry();
             return Effect::None;
         }
+        if let Some(effect) = self.terminal_key(key) {
+            return effect;
+        }
         self.set_notice(None, false);
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
@@ -4462,6 +4474,9 @@ impl App {
         if event.kind == MouseEventKind::Moved {
             self.move_pointer(event);
             return Effect::None;
+        }
+        if let Some(effect) = self.terminal_mouse(event) {
+            return effect;
         }
         self.conversation_source_outside_press(event);
         // Activation never transfers hover to a replacement modal or control.

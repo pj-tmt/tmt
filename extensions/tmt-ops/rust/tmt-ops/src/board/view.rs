@@ -114,6 +114,10 @@ pub(in crate::board) fn render_frame(
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
+    if app.terminal_zoomed() {
+        super::terminal_tab::paint::zoomed(frame, app);
+        return;
+    }
     let home_history_pending = !app.loading()
         && (app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Agents)
         && app

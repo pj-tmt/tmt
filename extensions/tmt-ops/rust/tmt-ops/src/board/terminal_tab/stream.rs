@@ -484,4 +484,4 @@ fn send(socket: &mut UnixStream, message: &ClientMessage) -> Result<(), String> 
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

@@ -711,6 +711,7 @@ impl App {
             }
             Verb::Ui(OpsUiAction::Pin) => self.workspace_is_pinned().is_some(),
             Verb::Ui(OpsUiAction::Terminal) => self.terminal_available(),
+            Verb::Ui(OpsUiAction::TerminalZoom) => self.terminal_showing(),
             Verb::Ui(OpsUiAction::ClearScope) => !self.workspace.visibility.scope.is_empty(),
             _ => true,
         });
@@ -1164,6 +1165,7 @@ impl App {
             MemberNotes => return self.open_notes(),
             MarkRead => return self.mark_read_selected(),
             Terminal => return self.toggle_terminal(),
+            TerminalZoom => return self.toggle_terminal_zoom(),
             IdleAlert => return self.open_idle_alert(None),
             NewMember => return self.open_new_member(),
             SwitchTool => return self.open_switch_tool(),
