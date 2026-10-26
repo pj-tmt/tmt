@@ -94,8 +94,9 @@ selects app-suite inputs, `ci.yml`, or `chrome.rs`, `socket.rs`, `assets.rs` and
 and applies the complete-listed-case guard (`colab-native-spec-report.mjs`) with one worker
 and no retries. `Native package matrix` requires it: selected means success, unselected
 means skipped; no required name changes. It restores caches without saving, except
-Chromium on main. Both Colab chrome and component jobs use `install-chromium-deps`,
-the one pinned Chromium package list through the bounded apt action; browser downloads stay separate.
+Chromium on main. Chromium-only CI jobs use `install-chromium-deps`, the one pinned
+Chromium package list through the bounded apt action; browser downloads stay separate.
+The Colab three-engine safety net retains Playwright's own dependency installation.
 
 `browser-ui` runs the design gallery's six computed-style audits and overlay motion checks
 in Chromium, with seeded negative controls. `browser_ui` selects `design/browser-ui/**`,

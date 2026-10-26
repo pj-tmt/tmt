@@ -87,10 +87,13 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: colab-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-      - name: Install Chromium and Linux dependencies for PRs
+      - name: Install Linux dependencies for PRs
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/install-chromium-deps
+      - name: Install Chromium for PRs
         if: github.event_name == 'pull_request'
         working-directory: typescript
-        run: pnpm --filter @tmt/colab-client exec playwright install --with-deps chromium
+        run: pnpm --filter @tmt/colab-client exec playwright install chromium
       - name: Install all three engines and Linux dependencies for the safety net
         if: github.event_name != 'pull_request'
         working-directory: typescript
@@ -305,9 +308,10 @@ jobs:
       - name: Install frozen Remote client tooling for the hosted bundle
         working-directory: typescript
         run: pnpm --filter @tmt/remote-client... --fail-if-no-match install --frozen-lockfile --ignore-scripts
-      - name: Install Chromium and Linux dependencies
+      - uses: ./.github/actions/install-chromium-deps
+      - name: Install Chromium
         working-directory: typescript
-        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+        run: pnpm --filter @tmt/colab-app exec playwright install chromium
       - name: Build the app before embedding it
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app --fail-if-no-match build
@@ -414,9 +418,10 @@ jobs:
       - name: Install frozen Remote client tooling for the hosted bundle
         working-directory: typescript
         run: pnpm --filter @tmt/remote-client... --fail-if-no-match install --frozen-lockfile --ignore-scripts
-      - name: Install Chromium and Linux dependencies
+      - uses: ./.github/actions/install-chromium-deps
+      - name: Install Chromium
         working-directory: typescript
-        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+        run: pnpm --filter @tmt/colab-app exec playwright install chromium
       - name: Build the app before embedding it
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app --fail-if-no-match build
