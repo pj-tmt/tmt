@@ -273,18 +273,34 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         // exchange rule yields too, keeping one gap below the focus title.
         blank(area, &mut y);
     } else {
+        let terminal = retained.is_none() && app.terminal_showing();
+        if retained.is_none() && app.terminal_available() && remaining > 4 {
+            crate::board::terminal_tab::paint::chips(
+                frame.buffer_mut(),
+                app,
+                Rect::new(area.x, y, area.width, 1),
+            );
+            y += 1;
+        }
         let shown = recipient
             .as_ref()
-            .filter(|_| app.screen_mode() && retained.is_none());
+            .filter(|_| app.screen_mode() && retained.is_none() && !terminal);
         rule(
             frame,
             app,
             area,
             &mut y,
-            &shown.map_or_else(
-                || "Conversation".to_owned(),
-                |target| conversation::screen::title(app, target, usize::from(area.width)),
-            ),
+            &if terminal {
+                crate::board::terminal_tab::paint::title(
+                    app.terminal_view(),
+                    usize::from(area.width),
+                )
+            } else {
+                shown.map_or_else(
+                    || "Conversation".to_owned(),
+                    |target| conversation::screen::title(app, target, usize::from(area.width)),
+                )
+            },
             recipient
                 .as_ref()
                 .and_then(|target| app.conversation_spinner(target))
@@ -316,7 +332,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         0
     };
     let gap = u16::from(input > 0 && available > input);
-    if app.screen_mode() && retained.is_none() {
+    if app.terminal_showing() && retained.is_none() {
+        // The terminal takes the exchanges' place; the composer below stays.
+        crate::board::terminal_tab::paint::render(
+            frame.buffer_mut(),
+            app,
+            Rect::new(area.x, y, area.width, available.saturating_sub(input + gap)),
+            app.terminal_view(),
+            row.and_then(|row| row["name"].as_str()).unwrap_or("agent"),
+        );
+    } else if app.screen_mode() && retained.is_none() {
         // The live screen takes the exchanges' place; the composer below stays.
         conversation::screen::render(
             frame,
