@@ -1508,9 +1508,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             const style = getComputedStyle(sheet);
             return {
               header: (() => {
-                const header = document.querySelector('.header')!;
+                const header = document.querySelector('.tmt-ui-topbar,.header')!;
                 const box = header.getBoundingClientRect();
-                // The shell's bar draws the title alone; only the refusal page keeps the brand parts.
+                // Adopted routes put their original title in content; standalone views keep it here.
                 const part = (selector: string) => {
                   const element = document.querySelector(selector);
                   if (!element) return null;
@@ -1531,6 +1531,10 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                   mark: part('.header-mark'),
                   wordmark: part('.header-wordmark'),
                   title: part('.header-title')!,
+                  titleBelowBar: document.querySelector('.root-title-row')
+                    ? document.querySelector('.root-title-row')!.getBoundingClientRect().top >=
+                      box.bottom
+                    : false,
                   markViewBox:
                     document.querySelector('.header-mark')?.getAttribute('viewBox') ?? null,
                   markPaths: document.querySelectorAll('.header-mark path').length,
@@ -1586,9 +1590,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           // The landing page states connection in words only, in the neutral tone.
           if (state !== 'landing')
             await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
-          // The shared header, from the same tokens. Inside the shell it sits in the top bar beside
-          // the rail and draws the page title alone; the refusal page keeps the fixed full-width
-          // header with mark, product, then the title.
+          // The shared bar keeps the same token geometry; adopted titles now scroll as content.
           const header = look.header;
           // The brand heads the rail now, so the shell's header runs from the rail's edge.
           const beside =
@@ -1602,10 +1604,29 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             position: state === 'error' ? 'fixed' : 'static',
             // The refusal page's fixed header draws its own band; in the shell the bar does.
             rule: state === 'error' ? '1px' : '0px',
-            background:
-              state === 'error' ? tokenRgb('surface', 'sheet', colorScheme) : 'rgba(0, 0, 0, 0)',
             headings: 1,
           });
+          if (state === 'landing') {
+            expect(header.titleBelowBar).toBe(true);
+            const mixed = await page.evaluate(
+              ({ paper, sheet }) => {
+                const probe = document.createElement('span');
+                probe.style.backgroundColor = `color-mix(in srgb, ${paper} 95%, ${sheet})`;
+                document.body.append(probe);
+                const value = getComputedStyle(probe).backgroundColor;
+                probe.remove();
+                return value;
+              },
+              {
+                paper: tokenRgb('surface', 'paper', colorScheme),
+                sheet: tokenRgb('surface', 'sheet', colorScheme),
+              },
+            );
+            expect(header.background).toBe(mixed);
+          } else
+            expect(header.background).toBe(
+              state === 'error' ? tokenRgb('surface', 'sheet', colorScheme) : 'rgba(0, 0, 0, 0)',
+            );
           expect(header.title).toMatchObject({
             size: headerTokens['title-size'],
             weight: headerTokens['title-weight'],
@@ -2517,7 +2538,8 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   try {
     await gotoSettings(page, { waitUntil: 'commit' });
     await loading.reached;
-    await expect(page.locator('header')).toHaveClass('header tmt-ui-header');
+    await expect(page.locator('header')).toHaveClass('tmt-ui-topbar');
+    await expect(page.locator('.root-title-row .header-title')).toHaveText('Settings');
     await captureState(
       page,
       'settings-loading',
@@ -5072,6 +5094,222 @@ test('legacy pair redirect retains the auto fragment and erases it before every 
   } finally {
     await page.close();
   }
+});
+
+// This public-entry stand-in proves root/leaf ownership, not Colab's transport or dialog design.
+test('a restored browser document reloads its disposed root without enrolling', async () => {
+  const page = await browser.newPage();
+  const pairingPosts: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/pair'))
+      pairingPosts.push(request.url());
+  });
+  await page.goto(`${origin}/remote/`);
+  await expect(page.locator('#state-label')).toHaveText('Not paired');
+  await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toBeVisible();
+  // Playwright disables BFCache by default; drive its document lifecycle events explicitly.
+  await page.evaluate(() =>
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })),
+  );
+  await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toHaveCount(0);
+  await page.evaluate(() =>
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })),
+  );
+  await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toBeVisible();
+  await expect(page.locator('#state-label')).toHaveText('Not paired');
+  expect(pairingPosts).toEqual([]);
+  await page.close();
+});
+
+test('a departed Remote stylesheet cannot initialize its controls into the next route', async () => {
+  const page = await browser.newPage();
+  const sheet = routeBarrier();
+  const joined = routeBarrier();
+  await page.route('**/sdk/settings.css', async (route) => {
+    sheet.arrive();
+    try {
+      await sheet.held;
+      await route.continue();
+    } finally {
+      joined.arrive();
+    }
+  });
+  try {
+    await page.goto(`${origin}/remote/`, { waitUntil: 'commit' });
+    await sheet.reached;
+    await page.evaluate(async () => {
+      const sdk = (await import('/sdk/remote-v1.js' as string)) as {
+        shellApp(): { navigate(href: string): void } | undefined;
+      };
+      sdk.shellApp()?.navigate('/');
+    });
+    await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+    sheet.release();
+    await joined.reached;
+    // Stylesheet removal joins the departed mount's cleanup, rather than guessing a delay.
+    await expect(page.locator('link[href="/sdk/settings.css"]')).toHaveCount(0);
+    await expect(page).toHaveURL(`${origin}/`);
+    await expect(page.locator('#remote-context')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+  } finally {
+    sheet.release();
+    await page.unrouteAll({ behavior: 'wait' });
+    await page.close();
+  }
+});
+
+test('the root prefetches one confined search entry and owns one shortcut across routes', async () => {
+  const page = await browser.newPage();
+  const captures =
+    process.env.TMT_REMOTE_CAPTURE_DIR ??
+    (process.env.CI ? test.info().outputPath('root-search-captures') : undefined);
+  // A described public-entry stand-in: no Colab transport or page authority is fabricated.
+  await page.route('**/x/-/shell', async (route) =>
+    route.fulfill({
+      json: {
+        version: 1,
+        modules: [
+          {
+            extension: 'colab',
+            rail: { label: 'Colab', icon: 'file-text', path: `${mounts}colab/`, order: 1 },
+            menu: [{ id: 'pages', label: 'Pages', path: `${new URL(mounts).pathname}colab/` }],
+            settings: [],
+            entry: 'assets/colab-module.js',
+          },
+        ],
+      },
+    }),
+  );
+  let imports = 0;
+  await page.route('**/x/colab/assets/colab-module.js', async (route) => {
+    imports++;
+    await route.fulfill({
+      contentType: 'text/javascript',
+      body: `
+        window.searchProof = { mounts: 0, opens: 0, closes: 0 };
+        export function mountSearchSession(container, options) {
+          window.searchProof.mounts++;
+          const dialog = document.createElement('dialog');
+          dialog.setAttribute('aria-label', 'Root search fixture');
+          const input = document.createElement('input');
+          input.placeholder = options.placeholder;
+          input.setAttribute('aria-label', 'Search');
+          const list = document.createElement('div');
+          dialog.append(input, list);
+          container.append(dialog);
+          let opener;
+          dialog.addEventListener('close', () => { if (opener?.isConnected) opener.focus(); });
+          return {
+            open(button) {
+              window.searchProof.opens++;
+              opener = button;
+              list.replaceChildren();
+              for (const group of options.registry.groups()) for (const item of group.items) {
+                const target = document.createElement('button');
+                target.textContent = item.label;
+                target.onclick = () => { dialog.close(); void options.go(item.href); };
+                list.append(target);
+              }
+              if (!dialog.open) dialog.showModal();
+              input.focus();
+            },
+            dispose() { window.searchProof.closes++; dialog.close(); dialog.remove(); }
+          };
+        }
+      `,
+    });
+  });
+  await page.goto(`${origin}/remote/`);
+  await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toBeVisible();
+  await expect(page.locator('#state-label')).toHaveText('Not paired');
+  expect(imports).toBe(0);
+  await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
+  await expect(page.locator('.root-search-status')).toHaveText(
+    'Search is not available until this door describes Colab.',
+  );
+  expect(imports).toBe(0);
+
+  pair = spawn(BINARY, ['pair', '--json', '--talk'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Root search browser');
+  await page.click('button[type="submit"]');
+  await expect(page.locator('#words')).toBeVisible();
+  expect((await events.next()).event).toBe('candidate');
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await page.goto(`${origin}/remote/`);
+  await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
+  await page.waitForFunction(() => 'searchProof' in window);
+  expect(imports).toBe(1);
+  const proof = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            searchProof: { mounts: number; opens: number; closes: number };
+          }
+        ).searchProof,
+    );
+  expect(await proof()).toEqual({ mounts: 0, opens: 0, closes: 0 });
+  await captureState(
+    page,
+    'root-remote-actions',
+    'Remote actions use the existing leaf action slot',
+    [390, 1440],
+    ['light', 'dark'],
+    undefined,
+    captures,
+  );
+  const search = page.getByRole('button', { name: 'Search TMT', exact: true });
+  await search.focus();
+  const shortcut = process.platform === 'darwin' ? 'Meta+k' : 'Control+k';
+  await page.keyboard.press(shortcut);
+  const dialog = page.getByRole('dialog', { name: 'Root search fixture' });
+  await expect(dialog.getByRole('textbox', { name: 'Search', exact: true })).toHaveAttribute(
+    'placeholder',
+    'Search TMT…',
+  );
+  expect(await proof()).toEqual({ mounts: 1, opens: 1, closes: 0 });
+  // The same trusted shortcut inside an editor does not activate the root again.
+  await page.keyboard.press(shortcut);
+  expect((await proof()).opens).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(search).toBeFocused();
+  await search.click();
+  expect((await proof()).opens).toBe(2);
+  await dialog.getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(page).toHaveURL(`${origin}/`);
+  await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+  expect((await proof()).closes).toBe(1);
+  expect(imports).toBe(1);
+  await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
+  expect(await proof()).toEqual({ mounts: 2, opens: 3, closes: 1 });
+  await page.keyboard.press('Escape');
+  await page.mouse.move(500, 500);
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  await captureState(
+    page,
+    'root-shared-bar',
+    'Root-owned common controls, original content heading',
+    [390, 1440],
+    ['light', 'dark'],
+    undefined,
+    captures,
+  );
+  await page.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as {
+      shellApp(): { dispose(): void } | undefined;
+    };
+    sdk.shellApp()?.dispose();
+  });
+  expect((await proof()).closes).toBe(2);
+  await page.keyboard.press(shortcut);
+  expect((await proof()).opens).toBe(3);
+  await page.close();
 });
 
 test('Home and TMT settings render in the shell and fit both sizes and themes', async () => {

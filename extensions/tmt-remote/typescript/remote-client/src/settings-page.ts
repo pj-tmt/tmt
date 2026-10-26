@@ -781,8 +781,10 @@ export async function settingsPage(
     );
   async function initialize(session: Session): Promise<void> {
     if (page) return;
+    shell?.observedSession?.(session);
     page = new ManagementPage(management(session), async () => {
       session = await reopenSession(session, { retry: 'bounded' });
+      shell?.observedSession?.(session);
       return management(session);
     });
     await run(() => refreshView());

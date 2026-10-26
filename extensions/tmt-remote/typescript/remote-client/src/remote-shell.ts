@@ -4,6 +4,8 @@ import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 
 type Select = (id: string, href: string) => boolean;
 export interface RemoteShell {
+  /** Only the module action slot; the root retains the common controls. */
+  readonly actions?: HTMLElement;
   /** The module menu this page shows; `select` takes over a plain click on one of its items. */
   setMenu(menu: ShellMenu | undefined, select?: Select): void;
   /** Go to another TMT URL without reloading; the same route only follows the new path. */
@@ -18,6 +20,10 @@ export interface RemoteShell {
   describe(address?: string): void;
   /** Called once the composed shell is read: the answer, or undefined without an owner session. */
   described(listener: (answer: ShellAnswer | undefined) => void): void;
+  /** A verified Session replacement invalidates root-owned search state, never grants authority. */
+  observedSession?(session: object): void;
+  /** Reuse the settings model's existing hold reason for root search navigation. */
+  holdNavigation?(reason: () => string): void;
   /** Aborted when the route unmounts: page code ends its listeners, checks and sessions on it. */
   readonly signal: AbortSignal;
 }
@@ -30,14 +36,26 @@ export function remoteShell(): RemoteShell | undefined {
 }
 
 /** Give Remote's page code the mounted route's slot and lifetime; `undefined` when it unmounts. */
-export function hostRemote(slot: ShellSlot | undefined, signal?: AbortSignal): void {
+export function hostRemote(
+  slot: ShellSlot | undefined,
+  signal?: AbortSignal,
+  observedSession?: (session: object) => void,
+  holdNavigation?: (reason: () => string) => void,
+): void {
   current = slot &&
     signal && {
+      actions: slot.topBarReady() ? slot.setTopBar().actions : undefined,
       setMenu: (menu, select) => slot.setMenu(menu, select),
       navigate: (href) => slot.navigate(href),
       setTitle: (title) => slot.setTitle(title),
       describe: (address) => slot.describe(address),
       described: (listener) => slot.described(listener),
+      observedSession: (session) => {
+        if (!signal.aborted) observedSession?.(session);
+      },
+      holdNavigation: (reason) => {
+        if (!signal.aborted) holdNavigation?.(reason);
+      },
       signal,
     };
 }

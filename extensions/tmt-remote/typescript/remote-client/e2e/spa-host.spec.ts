@@ -467,7 +467,7 @@ test.describe('the app in a browser', () => {
       .toEqual([view.id === 'remotes' ? 'remotes' : 'overview']);
     if (view.id !== 'remotes')
       await expect(page.locator(`#remote-tab-${view.id}`)).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('.tmt-ui-shell-bar h1'), view.id).toHaveText(view.h1);
+    await expect(page.locator('.root-title-row h1'), view.id).toHaveText(view.h1);
     await expect(page.locator(view.shown), view.id).toBeVisible();
     await expect(page.locator(view.hidden), view.id).toBeHidden();
     await expect(page, view.id).toHaveTitle(`${view.h1} · TMT`);
@@ -674,9 +674,8 @@ test.describe('the app in a browser', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const rail = page.locator('nav.tmt-ui-rail');
     const brand = rail.locator('> .tmt-ui-shell-brand');
-    const header = page.locator('.tmt-ui-shell-bar > .tmt-ui-header');
-    // The brand sits once, at the head of the rail; the host's header (the page title) starts the
-    // content column beside it.
+    const header = page.locator('.root-title-row');
+    // The brand sits once in the rail; the adopted page title starts the content column.
     await expect(brand).toContainText('tmt');
     await expect(header).toContainText('Agents');
     const [railBox, brandBox, headerBox] = await Promise.all(

@@ -1611,13 +1611,20 @@ function remoteShell() {
 	return current;
 }
 /** Give Remote's page code the mounted route's slot and lifetime; `undefined` when it unmounts. */
-function hostRemote(slot, signal) {
+function hostRemote(slot, signal, observedSession, holdNavigation) {
 	current = slot && signal && {
+		actions: slot.topBarReady() ? slot.setTopBar().actions : void 0,
 		setMenu: (menu, select) => slot.setMenu(menu, select),
 		navigate: (href) => slot.navigate(href),
 		setTitle: (title) => slot.setTitle(title),
 		describe: (address) => slot.describe(address),
 		described: (listener) => slot.described(listener),
+		observedSession: (session) => {
+			if (!signal.aborted) observedSession?.(session);
+		},
+		holdNavigation: (reason) => {
+			if (!signal.aborted) holdNavigation?.(reason);
+		},
 		signal
 	};
 }
@@ -1736,7 +1743,7 @@ function remoteMenu(actions, shell = remoteShell()) {
 	document.addEventListener("focusin", entered, { signal: shell.signal });
 	return (next) => {
 		projection = next;
-		if (next.current.connection.word === "Connected" && next.address) shell.describe(next.address);
+		if (next.current.connection.word === "connected" && next.address) shell.describe(next.address);
 		paint();
 	};
 }
@@ -3090,7 +3097,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const joinHost = document.getElementById("remote-join");
 	const joinMenu = mountBrowserMenu(joinHost, {
 		label: "Join a Remote",
-		triggerText: "Join a Remote",
+		...shell?.actions ? {} : { triggerText: "Join a Remote" },
 		items: [{
 			key: "invite",
 			label: "Join with an invitation"
@@ -3472,6 +3479,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			return () => listeners.delete(listener);
 		},
 		blockedBy: (reason) => {
+			(shell ?? remoteShell())?.holdNavigation?.(reason);
 			heldBy = reason;
 		}
 	});
@@ -7200,6 +7208,15 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	if (shell.signal.aborted) return;
 	const models = [...main.querySelectorAll(":scope > [data-page]")];
 	const registry = remoteRegistryPage(void 0, shell);
+	const listActions = main.querySelector(".remote-head-actions");
+	if (shell.actions && listActions) {
+		shell.actions.append(listActions);
+		main.querySelector("#remote-head .settings-title")?.remove();
+		const create = listActions.querySelector("a[data-variant=\"primary\"]");
+		create?.setAttribute("aria-label", "Create a Remote");
+		const label = create?.querySelector(".tmt-ui-action-label");
+		if (label) label.textContent = "Create";
+	}
 	const started = /* @__PURE__ */ new Map();
 	let shown;
 	let observed;
@@ -7260,7 +7277,8 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	locked.append(lockTitle, lockReason, request);
 	let requestText = "";
 	frame.append(heading, designation, needsYou, strip);
-	main.prepend(frame, globalPanel, ...panels.values());
+	const titleRow = main.querySelector(":scope > .root-title-row");
+	main.prepend(...titleRow ? [titleRow] : [], frame, globalPanel, ...panels.values());
 	function keepTabVisible() {
 		const button = shown && buttons.get(shown.id);
 		if (!button || frame.hidden) return;
@@ -7273,6 +7291,7 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	shell.signal.addEventListener("abort", () => resize.disconnect(), { once: true });
 	function layout() {
 		if (!shown) return;
+		if (listActions && shell.actions) listActions.hidden = shown.id !== "remotes";
 		const localName = document.getElementById("remote-local-name-value");
 		if (localName) localName.textContent = observed?.current.name ?? "This machine";
 		const renameLabel = document.querySelector("#remote-local-rename .tmt-ui-action-label");
@@ -7339,6 +7358,7 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 				if (shell.signal.aborted) return;
 				if (page === "landing") await code.landing(shell.signal, registry, (session) => {
 					admitted = session;
+					shell.observedSession?.(session);
 					if (observeSession) observeSession(session);
 					else start("settings");
 				});
@@ -7356,8 +7376,9 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 		shown = item;
 		document.documentElement.dataset.tmtPage = item.page;
 		layout();
-		bar.querySelector("header")?.setAttribute("aria-label", `Remote · ${item.title}`);
-		const title = bar.querySelector(".header-title");
+		const row = main.querySelector(".root-title-row");
+		row?.setAttribute("aria-label", `Remote · ${item.title}`);
+		const title = row?.querySelector(".header-title") ?? bar.querySelector(".header-title");
 		if (title) title.textContent = item.title;
 		shell.setTitle(item.title);
 		if (changed && !first) window.scrollTo({ top: 0 });
@@ -7991,26 +8012,297 @@ function tmtSettingsPage(shell, source = settingsSource) {
 	});
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/search.ts
+var noop = () => {};
+function isRoute(href) {
+	return href.startsWith("/") && !href.startsWith("//") && !href.startsWith("/\\") && !/\s/.test(href) && ![...href].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127);
+}
+var isText = (value) => typeof value === "string" && value !== "";
+function itemProblem(item) {
+	if (typeof item !== "object" || item === null) return "an item is not an object";
+	const { key, label, detail, words, icon, href } = item;
+	if (!isText(key)) return "an item has no key";
+	if (!isText(label)) return `item ${key} has no label`;
+	if (typeof href !== "string" || !isRoute(href)) return `item ${key} has no route of this origin`;
+	if (detail !== void 0 && typeof detail !== "string") return `item ${key} has a bad detail`;
+	if (icon !== void 0 && typeof icon !== "string") return `item ${key} has a bad icon`;
+	if (words !== void 0 && (!Array.isArray(words) || words.some((w) => typeof w !== "string"))) return `item ${key} has bad words`;
+}
+/** Why a snapshot is not admitted, or nothing when it is. Provider tests can assert on it. */
+function searchSnapshotProblem(snapshot) {
+	if (typeof snapshot !== "object" || snapshot === null) return "the snapshot is not an object";
+	const { state, items } = snapshot;
+	if (state === "unavailable") return void 0;
+	if (state !== "ready" || !Array.isArray(items)) return "the snapshot is neither unavailable nor ready with items";
+	const keys = /* @__PURE__ */ new Set();
+	for (const item of items) {
+		const problem = itemProblem(item);
+		if (problem) return problem;
+		const { key } = item;
+		if (keys.has(key)) return `item ${key} appears twice`;
+		keys.add(key);
+	}
+}
+/** A group never shows rows the provider did not admit: a bad or throwing snapshot is unavailable. */
+function admitted(provider) {
+	try {
+		const snapshot = provider.getSnapshot();
+		if (!searchSnapshotProblem(snapshot)) return snapshot;
+	} catch {}
+	return { state: "unavailable" };
+}
+function groupOf(provider, snapshot) {
+	return {
+		key: provider.key,
+		label: provider.label,
+		state: snapshot.state,
+		items: snapshot.state === "ready" ? snapshot.items : []
+	};
+}
+function createSearchRegistry() {
+	const entries = /* @__PURE__ */ new Map();
+	const listeners = /* @__PURE__ */ new Set();
+	let cache;
+	let disposed = false;
+	const changed = () => {
+		cache = void 0;
+		for (const listener of Array.from(listeners)) listener();
+	};
+	const groups = () => cache ??= [...entries.values()].map((entry) => entry.group ??= groupOf(entry.provider, admitted(entry.provider)));
+	return {
+		register(provider) {
+			if (disposed) return noop;
+			if (!isText(provider.key) || !isText(provider.label)) throw new Error("A search provider needs a key and a label");
+			if (entries.has(provider.key)) throw new Error(`A search provider is already registered for ${provider.key}`);
+			const snapshot = provider.getSnapshot();
+			const problem = searchSnapshotProblem(snapshot);
+			if (problem) throw new Error(`Search provider ${provider.key}: ${problem}`);
+			const stop = provider.subscribe(() => {
+				const own = entries.get(provider.key);
+				if (own?.provider !== provider) return;
+				own.group = void 0;
+				changed();
+			});
+			const entry = {
+				provider,
+				stop,
+				group: groupOf(provider, snapshot)
+			};
+			entries.set(provider.key, entry);
+			changed();
+			return () => {
+				if (entries.get(provider.key) !== entry) return;
+				entries.delete(provider.key);
+				stop();
+				changed();
+			};
+		},
+		groups,
+		find: (groupKey, itemKey) => groups().find((group) => group.key === groupKey)?.items.find((item) => item.key === itemKey),
+		subscribe(listener) {
+			if (disposed) return noop;
+			listeners.add(listener);
+			return () => void listeners.delete(listener);
+		},
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			for (const { stop } of entries.values()) stop();
+			entries.clear();
+			listeners.clear();
+			cache = void 0;
+		}
+	};
+}
+//#endregion
+//#region src/root-search.ts
+/** Root-owned global search lifetime. Colab owns its transport and dialog; the leaf owns keys. */
+/** Same described routes as the rail. Unavailable modules and cross-origin URLs contribute none. */
+function navigationSnapshot(answer, rail, here, href) {
+	if (!answer) return { state: "unavailable" };
+	const origin = new URL(here).origin;
+	const items = [];
+	const seen = /* @__PURE__ */ new Set();
+	const add = (key, label, path, icon, detail) => {
+		let url;
+		try {
+			url = new URL(path, here);
+		} catch {
+			return;
+		}
+		if (url.origin !== origin || url.username || url.password || seen.has(key)) return;
+		seen.add(key);
+		items.push({
+			key,
+			label,
+			href: url.pathname + url.search + url.hash,
+			icon,
+			detail
+		});
+	};
+	for (const item of rail) {
+		if (item.disabled) continue;
+		const module = answer.modules.find((module) => module.extension === item.id);
+		if (!module && item.id !== "home" && item.id !== "settings") continue;
+		add(item.id, item.label, item.href, item.icon);
+		if (!module) continue;
+		for (const section of [...module.menu, ...module.settings]) add(`${module.extension}:${section.id}`, section.label, href(section.path), item.icon, item.label);
+	}
+	return {
+		state: "ready",
+		items
+	};
+}
+/**
+* A route owns its pending open and Colab session. The module import is cached across routes;
+* registry registrations and transport never outlive the route/session context that admitted them.
+*/
+var RootSearch = class {
+	options;
+	imports = /* @__PURE__ */ new Map();
+	lifetime = 0;
+	request = 0;
+	closed = false;
+	entry;
+	session;
+	host;
+	registry = createSearchRegistry();
+	snapshot = { state: "unavailable" };
+	listeners = /* @__PURE__ */ new Set();
+	constructor(options) {
+		this.options = options;
+		this.registerNavigation();
+	}
+	registerNavigation() {
+		this.registry.register({
+			key: "navigation",
+			label: "Navigation",
+			getSnapshot: () => this.snapshot,
+			subscribe: (listener) => {
+				this.listeners.add(listener);
+				return () => void this.listeners.delete(listener);
+			}
+		});
+	}
+	/** Existing adapters register only snapshots they already hold, on this context's registry. */
+	register(provider) {
+		return this.registry.register(provider);
+	}
+	clear() {
+		++this.lifetime;
+		++this.request;
+		this.session?.dispose();
+		this.session = void 0;
+		this.host?.remove();
+		this.host = void 0;
+		this.registry.dispose();
+		this.listeners.clear();
+		this.registry = createSearchRegistry();
+		this.registerNavigation();
+	}
+	/** Called for route or verified session/context replacement, never to acquire a session. */
+	replace() {
+		if (this.closed) return;
+		this.entry = void 0;
+		this.snapshot = { state: "unavailable" };
+		this.clear();
+	}
+	update(entry, snapshot) {
+		if (this.closed) return;
+		if (entry !== this.entry) this.clear();
+		this.entry = entry;
+		this.snapshot = snapshot;
+		for (const listener of this.listeners) listener();
+		if (entry) this.prefetch(entry).catch(() => {});
+	}
+	prefetch(entry) {
+		let pending = this.imports.get(entry);
+		if (!pending) {
+			pending = this.options.load(entry);
+			this.imports.set(entry, pending);
+		}
+		return pending;
+	}
+	open = async (opener) => {
+		if (this.closed) return;
+		const mine = ++this.request;
+		const lifetime = this.lifetime;
+		const current = () => !this.closed && lifetime === this.lifetime && mine === this.request;
+		if (!this.entry) {
+			this.options.failed("Search is not available until this door describes Colab.");
+			return;
+		}
+		try {
+			const module = await this.prefetch(this.entry);
+			if (!current() || !opener.isConnected) return;
+			if (!this.session) {
+				this.host = this.options.container();
+				const pageHref = (id) => `/colab/pages/${encodeURIComponent(id)}`;
+				const go = async (href) => this.options.navigate(href);
+				this.session = module.mountSearchSession(this.host, {
+					registry: this.registry,
+					navigate: (id) => go(pageHref(id)),
+					pageHref,
+					go,
+					projectHref: (name) => `/colab/?scope=${encodeURIComponent(name)}`,
+					placeholder: "Search TMT…"
+				});
+			}
+			if (current()) this.session.open(opener);
+		} catch {
+			if (!current()) return;
+			this.session?.dispose();
+			this.session = void 0;
+			this.host?.remove();
+			this.host = void 0;
+			this.options.failed("Search could not load. Reload this page to try again.");
+			if (opener.isConnected) opener.focus();
+		}
+	};
+	dispose() {
+		if (this.closed) return;
+		this.clear();
+		this.registry.dispose();
+		this.closed = true;
+		this.imports.clear();
+	}
+};
+//#endregion
 //#region src/shell-app.ts
 /**
 * The one TMT web app the door serves at every TMT route (#3937): one document, one shell, one
 * router. Remote's own pages are route modules here; Colab is loaded lazily from its own mount.
 */
 /**
-* Put a page's markup into the slot: its header into the shell bar, its content into the main
-* area, its title and page name onto the document. The page files stay the one source of each
+* Put a page's markup into the slot: actions into the common bar, heading and content into the
+* main area, its title and page name onto the document. The page files stay the one source of each
 * page's markup; the door no longer serves them as documents.
 */
 async function adopt(slot, html) {
 	const page = new DOMParser().parseFromString(html, "text/html");
 	const release = await pageStyles(page);
+	if (!slot.topBarReady()) {
+		release();
+		return () => {};
+	}
 	const bar = page.querySelector(".tmt-ui-shell-bar");
 	const main = page.querySelector(".tmt-ui-shell-main");
-	slot.bar.replaceChildren(...bar ? [...bar.childNodes].map((node) => document.adoptNode(node)) : []);
 	slot.main.replaceChildren(...main ? [...main.childNodes].map((node) => document.adoptNode(node)) : []);
+	adoptBar(slot, bar);
 	document.documentElement.dataset.tmtPage = page.documentElement.dataset.tmtPage ?? "";
 	slot.setTitle(page.title.replace(/ · TMT$/, ""));
 	return release;
+}
+/** The common bar draws controls; the original title is content, in the shared title-row type. */
+function adoptBar(slot, source) {
+	const { actions } = slot.setTopBar();
+	const header = source?.querySelector("header");
+	if (!header) return;
+	const row = document.createElement("div");
+	row.className = "root-title-row";
+	for (const node of Array.from(header.children)) if (node.matches(".header-actions,.tmt-ui-header-actions")) actions.append(document.adoptNode(node));
+	else row.append(document.adoptNode(node));
+	if (row.childNodes.length) slot.main.prepend(row);
 }
 /**
 * The door's own stylesheets a page names beyond the shell's `/sdk/pages.css` (Remote settings has
@@ -8037,7 +8329,7 @@ async function pageStyles(page) {
 }
 /**
 * Remote's connection check and settings forms as one document of views: both pages' markup in the
-* slot (each page's `main` marked `data-page`), the connection page's header in the bar. The
+* slot (each page's `main` marked `data-page`), the connection page's title in content. The
 * page's own code decides which view shows (`remote-app.ts`). The settings stylesheet loads with
 * the first settings view, not with the route: the connection check stays a page that asks the
 * door for nothing. `settingsStyles` resolves once it has loaded.
@@ -8047,17 +8339,21 @@ async function adoptRemote(slot, status, forms, settingsStyles) {
 	const landingPage = parser.parseFromString(status, "text/html");
 	const settingsPage = parser.parseFromString(forms, "text/html");
 	const releaseLanding = await pageStyles(landingPage);
+	if (!slot.topBarReady()) {
+		releaseLanding();
+		return () => {};
+	}
 	let settingsSheets;
 	settingsStyles.load = async () => {
 		settingsSheets ??= pageStyles(settingsPage);
 		await settingsSheets;
 	};
 	const bar = landingPage.querySelector(".tmt-ui-shell-bar");
-	slot.bar.replaceChildren(...bar ? [...bar.childNodes].map((node) => document.adoptNode(node)) : []);
 	slot.main.replaceChildren(...[["landing", landingPage], ["settings", settingsPage]].flatMap(([name, page]) => [...page.querySelector(".tmt-ui-shell-main")?.childNodes ?? []].map((node) => {
 		if (node instanceof Element && node.localName === "main") node.dataset.page = name;
 		return document.adoptNode(node);
 	})));
+	adoptBar(slot, bar);
 	document.documentElement.dataset.tmtPage = "landing";
 	return () => {
 		releaseLanding();
@@ -8068,13 +8364,24 @@ async function adoptRemote(slot, status, forms, settingsStyles) {
 function remotePage(html, run) {
 	return { async mount(slot) {
 		const unstyle = await (typeof html === "string" ? adopt(slot, html) : html(slot));
+		const routeSignal = slot.routeSignal;
+		if (routeSignal?.aborted || !slot.topBarReady()) {
+			unstyle();
+			return;
+		}
 		const lifetime = new AbortController();
-		hostRemote(slot, lifetime.signal);
+		hostRemote(slot, lifetime.signal, observedSession, (reason) => heldBy = reason);
+		let ended = false;
 		const end = () => {
+			if (ended) return;
+			ended = true;
+			routeSignal?.removeEventListener("abort", end);
 			lifetime.abort();
 			unstyle();
 			hostRemote(void 0);
+			heldBy = void 0;
 		};
+		routeSignal?.addEventListener("abort", end, { once: true });
 		let release;
 		try {
 			release = await run(slot);
@@ -8205,6 +8512,19 @@ async function reopened() {
 /** Remote's settings page code, served beside the SDK. */
 var settingsEntry = "/sdk/settings-v1.js";
 var started;
+var search;
+var session;
+var answer;
+var observed = false;
+var publishSearch;
+var heldBy;
+/** A verified replacement retires the old search transport/providers; it grants no access. */
+function observedSession(next) {
+	if (session === next) return;
+	session = next;
+	search?.replace();
+	publishSearch?.();
+}
 /** Start the app once in the served shell document. */
 function shellApp() {
 	const root = document.querySelector(".tmt-ui-shell");
@@ -8220,10 +8540,131 @@ function shellApp() {
 		mountShell(root, { rail: appRail(rememberedShellAnswer(), routes$1, place, remote) });
 		return;
 	}
-	started = startShellHost(root, routes$1, { failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
+	const status = document.createElement("p");
+	status.className = "root-search-status";
+	status.setAttribute("role", "status");
+	status.hidden = true;
+	root.append(status);
+	search = new RootSearch({
+		load: (entry) => import(
+			/* @vite-ignore */
+			entry
+),
+		container: () => document.body.appendChild(document.createElement("div")),
+		failed: (message) => {
+			status.textContent = message;
+			status.hidden = false;
+		},
+		navigate: (href) => {
+			const destination = new URL(href, location.href);
+			const reason = heldBy?.();
+			if (reason && started?.route(destination.pathname) !== started?.route(location.pathname)) {
+				status.textContent = reason;
+				status.hidden = false;
+				return;
+			}
+			started?.navigate(href);
+		}
+	});
+	let currentRoute;
+	const host = startShellHost(root, routes$1.map((route) => ({
+		...route,
+		async load(remembered, settled) {
+			currentRoute?.abort();
+			const lifetime = new AbortController();
+			currentRoute = lifetime;
+			search.replace();
+			status.hidden = true;
+			settled().then((read) => {
+				if (!observed) {
+					observed = true;
+					answer = read;
+				}
+				publishSearch?.();
+			});
+			const module = await route.load(remembered, settled);
+			return { async mount(slot) {
+				if (lifetime.signal.aborted) return;
+				let active = true;
+				let adopted = false;
+				const publish = () => {
+					if (!active || !adopted || !slot.topBarReady()) return;
+					const place = {
+						origin: location.origin,
+						href: location.href
+					};
+					const rail = appRail(answer, routes$1, place);
+					search.update(colabLoad(answer)?.entry, navigationSnapshot(answer, [...rail.main, ...rail.bottom], location.href, (path) => appHref(routes$1, path)));
+				};
+				publishSearch = publish;
+				const hosted = {
+					...slot,
+					routeSignal: lifetime.signal,
+					setTopBar() {
+						const bar = slot.setTopBar();
+						adopted = true;
+						publish();
+						return bar;
+					}
+				};
+				const release = await module.mount(hosted);
+				return () => {
+					active = false;
+					if (publishSearch === publish) publishSearch = void 0;
+					release?.();
+				};
+			} };
+		}
+	})), { failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
 		className: "page",
 		textContent: "This page could not load. Reload to try again."
 	})) });
+	host.setCommonControls({
+		openSearch: (opener) => {
+			status.hidden = true;
+			search?.open(opener);
+		},
+		remote: {
+			kind: "unconfirmed",
+			href: "/remote/"
+		}
+	});
+	const dispose = () => {
+		currentRoute?.abort();
+		search?.dispose();
+		host.dispose();
+		status.remove();
+		window.removeEventListener("pagehide", hide);
+		window.removeEventListener("pageshow", restore);
+		window.removeEventListener("popstate", changed);
+		window.removeEventListener("hashchange", changed);
+	};
+	const changed = () => {
+		search?.replace();
+		publishSearch?.();
+	};
+	const restore = (event) => {
+		if (event.persisted) location.reload();
+	};
+	const hide = () => {
+		dispose();
+		window.addEventListener("pageshow", restore, { once: true });
+	};
+	started = {
+		...host,
+		async redescribe() {
+			search?.replace();
+			const read = await host.redescribe();
+			answer = read;
+			observed = true;
+			publishSearch?.();
+			return read;
+		},
+		dispose
+	};
+	window.addEventListener("pagehide", hide, { once: true });
+	window.addEventListener("popstate", changed);
+	window.addEventListener("hashchange", changed);
 	return started;
 }
 //#endregion

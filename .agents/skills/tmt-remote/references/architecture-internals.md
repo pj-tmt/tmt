@@ -145,6 +145,13 @@ shared static tab semantics add no authority. Browser-local naming reuses regist
 the existing signed owner. The document-level modal closes on route abort and fences late validation.
 The public contract owns exact paths and locked-tab behavior.
 
+`shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
+confined Colab import per entry and a disposable route/session registry; Navigation comes from
+the same live composition as the rail. Colab's search-session entry owns its transport and dialog,
+so the root neither implements Colab admission nor adds a keyboard listener. Existing Remote
+Session observations invalidate search; the existing management hold reason fences navigation.
+These UI lifetimes add no native endpoint, stored authority or provider observation.
+
 ## Member storage
 
 `members` keeps the per-Remote person mapping and owner/user policy in the existing
