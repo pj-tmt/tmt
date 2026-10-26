@@ -66,7 +66,7 @@ let scope = 'epoch-1';
 let pageEpoch = '1';
 let openGate: (() => void) | undefined;
 let ownerDevice = true;
-let hooks: { seed(): void; agentResolves(): void } | undefined;
+let hooks: { seed(body?: string): Promise<unknown>; agentResolves(): void } | undefined;
 /** These scenarios model admitted first-party pages. Explicitly supply their registry instead
  * of making the UI infer registration authority from markup. Keep removed registrations. */
 function registerFixtureQuestions() {
@@ -694,7 +694,7 @@ export async function mount(
           find(ref),
           resolved,
           'person',
-          structuredClone([...(recipients ?? [])]),
+          structuredClone([...((await recipients) ?? [])]),
         ),
       };
     },
@@ -846,8 +846,8 @@ export async function mount(
     return status;
   }
   hooks = {
-    seed() {
-      void discussion.create('Opening note', {
+    seed(body = 'Opening note') {
+      return discussion.create(body, {
         exact: 'Exact selected text',
         prefix: '',
         suffix: '',
@@ -1133,7 +1133,11 @@ export function releaseOpen() {
   openGate?.();
 }
 export function seedThread() {
-  hooks!.seed();
+  return hooks!.seed();
+}
+export async function seedManyThreads(count = 500) {
+  for (let index = 0; index < count; index++)
+    await hooks!.seed(index === 0 ? '@Agent 1 Opening note' : `Background thread ${index}`);
 }
 /** The agent's winning resolution arrives from another stream. */
 export function agentResolves() {

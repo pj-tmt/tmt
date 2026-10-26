@@ -15,6 +15,7 @@ import {
   type Registration,
 } from '../src/registration.js';
 import { Live } from '../src/live.js';
+import * as discussionRecords from '../src/thread-records.js';
 import { text } from '../src/strings.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
 import {
@@ -93,6 +94,7 @@ vi.mock('../src/admission.js', () => ({
     root = {};
     validatePage = vi.fn();
     ownerDevice = () => true;
+    author = vi.fn();
     constructor(
       readonly space: string,
       readonly page: string,
@@ -2489,5 +2491,53 @@ it('metadata revision capture refuses unseen choices and a lost reply is recover
     expect(saves.status.mock.calls.at(-1)?.[1]).toBe(operationId);
   } finally {
     live.close();
+  }
+});
+
+it('discussion reuses only the current own projection and re-reads while a newer snapshot is verifying', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, action: () => unknown) => action() },
+  });
+  const reads = vi.spyOn(discussionRecords, 'readThreads');
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      projectPins: { names: [], automatic: true },
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000003', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  const ref = {
+    writer: '00000000-0000-4000-8000-000000000004',
+    id: '00000000-0000-4000-8000-000000000005',
+  };
+  let release!: () => void;
+  try {
+    await vi.waitFor(() => expect(reads).toHaveBeenCalled());
+    reads.mockClear();
+    await expect(live.discussion.reply(ref, 'missing')).rejects.toThrow();
+    expect(reads).not.toHaveBeenCalled();
+    asks.project.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve([]);
+        }),
+    );
+    connections.at(-1)!.publish({ source: 'new own snapshot', title: 'Page', own: {} });
+    await expect(live.discussion.reply(ref, 'missing')).rejects.toThrow();
+    expect(reads).toHaveBeenCalledOnce();
+    release();
+    await vi.waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
+  } finally {
+    release?.();
+    live.close();
+    reads.mockRestore();
+    vi.unstubAllGlobals();
   }
 });

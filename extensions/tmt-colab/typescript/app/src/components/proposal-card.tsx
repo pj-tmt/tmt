@@ -16,6 +16,7 @@ export function ProposalCard({
   readOnly = false,
   canDecide,
   statusError,
+  pendingResolved,
   detached,
   decide,
   followUp,
@@ -36,6 +37,7 @@ export function ProposalCard({
   readOnly?: boolean;
   canDecide: boolean;
   statusError?: boolean;
+  pendingResolved?: boolean;
   detached?: boolean;
   decide(decision: 'approved' | 'declined'): void;
   followUp(): void;
@@ -60,7 +62,11 @@ export function ProposalCard({
   const followUpControl = useRef<HTMLSpanElement>(null);
   const focused = useRef<HTMLElement | null>(null);
   const returning = useRef(false);
-  const busy = sending || outcome?.state === 'deciding' || outcome?.state === 'notifying';
+  const busy =
+    pendingResolved !== undefined ||
+    sending ||
+    outcome?.state === 'deciding' ||
+    outcome?.state === 'notifying';
   const deciding = outcome?.state === 'deciding';
   const busyOutcome = deciding || outcome?.state === 'notifying';
   // The decision being saved: only its button carries the busy mark, though both stay inert.
@@ -170,9 +176,9 @@ export function ProposalCard({
           <BrowserAction
             type="button"
             variant="text"
-            label={text.threadReopen}
+            label={pendingResolved === false ? text.threadReopening : text.threadReopen}
             busy={busy}
-            disabled={disabled}
+            disabled={disabled || pendingResolved !== undefined}
             onActivate={(event) => {
               if (event.isTrusted) resolve();
             }}
@@ -245,9 +251,17 @@ export function ProposalCard({
               <BrowserAction
                 type="button"
                 variant="text"
-                label={thread.resolved ? text.threadReopen : text.threadResolve}
+                label={
+                  pendingResolved !== undefined
+                    ? pendingResolved
+                      ? text.threadResolving
+                      : text.threadReopening
+                    : thread.resolved
+                      ? text.threadReopen
+                      : text.threadResolve
+                }
                 busy={busy}
-                disabled={disabled}
+                disabled={disabled || pendingResolved !== undefined}
                 onActivate={(e) => {
                   if (e.isTrusted) resolve();
                 }}

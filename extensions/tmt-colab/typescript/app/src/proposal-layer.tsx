@@ -58,6 +58,26 @@ export function useProposalLayer({
   const targets = useRef(new Map<string, HTMLDivElement>());
   const [revealedHistory, setRevealedHistory] = useState<string>();
   useEffect(() => setRevealedHistory(undefined), [snapshot.id]);
+  const [proposalStatusPending, setProposalStatusPending] = useState(new Map<string, boolean>());
+  const statusChanging = useRef(new Set<string>());
+  useEffect(() => {
+    setProposalStatusPending(new Map());
+    statusChanging.current.clear();
+  }, [snapshot.id]);
+  useEffect(() => {
+    setProposalStatusPending(
+      (previous) =>
+        new Map(
+          [...previous].filter(
+            ([id, resolved]) =>
+              !view.threads?.some(
+                (thread) =>
+                  `${thread.ref.writer}:${thread.ref.id}` === id && thread.resolved === resolved,
+              ),
+          ),
+        ),
+    );
+  }, [view.threads]);
   const [proposalStatusErrors, setProposalStatusErrors] = useState(new Set<string>());
   const [proposalOutcomes, setProposalOutcomes] = useState(new Map<string, ProposalOutcome>());
   const proposalContext = useRef({ discussionBlocked, snapshot, view, binding });
@@ -104,19 +124,33 @@ export function useProposalLayer({
     setProposalComposer({ id, key: crypto.randomUUID(), location });
   }
   function changeProposalStatus(thread: ThreadView, location: 'inline' | 'comments') {
-    if (!statusCoordinator) return;
     const id = `${thread.ref.writer}:${thread.ref.id}`;
+    if (!statusCoordinator || statusChanging.current.has(id)) return;
+    statusChanging.current.add(id);
+    setProposalStatusPending((previous) => new Map(previous).set(id, !thread.resolved));
     setProposalStatusErrors((previous) => new Set([...previous].filter((value) => value !== id)));
     void statusCoordinator
       .change(thread, !thread.resolved)
-      .then(() => {
+      .then((result) => {
+        if (!result.changed)
+          setProposalStatusPending((previous) => {
+            const next = new Map(previous);
+            next.delete(id);
+            return next;
+          });
         if (location === 'comments')
           setActiveThread((previous) => (thread.resolved ? id : previous === id ? null : previous));
       })
       .catch(() => {
+        setProposalStatusPending((previous) => {
+          const next = new Map(previous);
+          next.delete(id);
+          return next;
+        });
         setProposalStatusErrors((previous) => new Set(previous).add(id));
         if (location === 'comments') setActiveThread(id);
-      });
+      })
+      .finally(() => statusChanging.current.delete(id));
   }
   function proposalCard(
     thread: ThreadView,
@@ -142,6 +176,7 @@ export function useProposalLayer({
         thread={thread}
         outcome={outcome}
         statusError={proposalStatusErrors.has(id)}
+        pendingResolved={proposalStatusPending.get(id)}
         resolvedLabel={resolvedLabel(status)}
         unseen={status?.unseen}
         historyOpen={location === 'comments' ? activeThread === id : revealedHistory === id}
@@ -313,6 +348,7 @@ export function useProposalLayer({
       }
       return 'comments' as const;
     },
+    proposalStatusPending,
     reopenProposal: (thread: ThreadView) => changeProposalStatus(thread, 'comments'),
     inline: (
       <>

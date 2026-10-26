@@ -651,7 +651,13 @@ export function ThreadWindow({
           >
             {thread.resolved ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
             <span className={ui.actionLabel}>
-              {thread.resolved ? text.threadReopen : text.threadResolve}
+              {pendingResolved !== undefined
+                ? pendingResolved
+                  ? text.threadResolving
+                  : text.threadReopening
+                : thread.resolved
+                  ? text.threadReopen
+                  : text.threadResolve}
             </span>
           </button>,
           headerSlot,
@@ -733,11 +739,15 @@ export function ThreadWindow({
                 disabled={blocked}
                 busy={busy}
                 label={
-                  thread.resolved
-                    ? text.threadReopen
-                    : layout === 'anchored'
-                      ? text.threadResolveAction
-                      : text.threadResolve
+                  pendingResolved !== undefined
+                    ? pendingResolved
+                      ? text.threadResolving
+                      : text.threadReopening
+                    : thread.resolved
+                      ? text.threadReopen
+                      : layout === 'anchored'
+                        ? text.threadResolveAction
+                        : text.threadResolve
                 }
                 icon={thread.resolved ? <RotateCcw /> : <CircleCheck />}
                 onActivate={(event) => {
@@ -956,6 +966,7 @@ export function ThreadPanel({
   onBusy,
   renderProposal,
   reopenProposal,
+  proposalStatusPending,
   showInPage,
   headerSlot,
 }: {
@@ -984,6 +995,7 @@ export function ThreadPanel({
   onBusy?(busy: boolean): void;
   renderProposal?(thread: ThreadView): ReactNode;
   reopenProposal?(thread: ThreadView): void;
+  proposalStatusPending?: ReadonlyMap<string, boolean>;
   /** The Discussion view's anchor. */
   showInPage?(ref: DiscussionRef): void;
   /** Where the Discussion view puts its Resolve control: the Comments panel's header. */
@@ -1245,8 +1257,13 @@ export function ThreadPanel({
                               <BrowserAction
                                 type="button"
                                 variant="text"
-                                label={text.threadReopen}
-                                disabled={blocked}
+                                label={
+                                  proposalStatusPending?.has(id)
+                                    ? text.threadReopening
+                                    : text.threadReopen
+                                }
+                                busy={proposalStatusPending?.has(id)}
+                                disabled={blocked || proposalStatusPending?.has(id)}
                                 onActivate={(event) => {
                                   if (event.isTrusted) reopenProposal(thread);
                                 }}

@@ -7,7 +7,11 @@ import {
   type OwnRecord,
   type OwnState,
 } from '../src/fold-protocol.js';
-import { foldProposalDecision, type ProposalDecisionRecord } from '../src/thread-status.js';
+import {
+  foldProposalDecision,
+  type ProposalDecisionRecord,
+  type ThreadStatusRecord,
+} from '../src/thread-status.js';
 import { relativeTime } from '../src/display-time.js';
 import { attachment, strictJson, text as bytesOf } from '@tmt/colab-client';
 import corpus from '../../../contracts/vectors/attachment-v1.json';
@@ -29,7 +33,11 @@ const fixture = JSON.parse(
 const a = fixture.thread.senderDevice as string,
   b = fixture.comment.senderDevice as string;
 const roots = () => ({ threads: {}, messages: {}, intents: {}, replies: {} });
-function put(own: OwnState, record: ThreadRecord | CommentRecord, writer = record.senderDevice) {
+function put(
+  own: OwnState,
+  record: ThreadRecord | CommentRecord | ThreadStatusRecord,
+  writer = record.senderDevice,
+) {
   own[writer] ??= roots();
   own[writer][record.kind === 'thread' ? 'threads' : 'messages'][discussionKey(record)] =
     structuredClone(record) as unknown as JsonValue;
@@ -221,7 +229,7 @@ it('projects revisions and terminal tombstones but rejects changed references, m
   });
   expect(read()[0].comments).toEqual([]);
 });
-function storeFixture() {
+function storeFixture(options: { admitted?(): void } = {}) {
   let connections = 0;
   let device = a,
     denied = false,
@@ -248,6 +256,7 @@ function storeFixture() {
       validatePage() {},
       ownerDevice: () => owner,
       author() {
+        options.admitted?.();
         if (denied) throw new Error('Denied');
       },
     },
@@ -1072,4 +1081,29 @@ it('question answers bind the ID before publication and preserve it through edit
     f.store.create('Invalid binding', fixture.thread.anchor, undefined, 'bad'),
   ).rejects.toThrow();
   expect(f.own).toEqual(before);
+});
+
+it('admits while recipients load, then reads the latest thread under the lock before publication', async () => {
+  let admitted = () => {};
+  const f = storeFixture({ admitted: () => admitted() });
+  const created = await f.store.create('Opening', fixture.thread.anchor);
+  let release!: (value: []) => void;
+  const recipients = new Promise<[]>((resolve) => {
+    release = resolve;
+  });
+  let statusAdmitted!: () => void;
+  const statusReady = new Promise<void>((resolve) => {
+    statusAdmitted = resolve;
+  });
+  admitted = statusAdmitted;
+  const before = f.batches.length;
+  const pending = f.store.setStatus(created.thread, null, true, recipients);
+  await statusReady;
+  expect(f.batches).toHaveLength(before);
+  // A remote action admitted during discovery must make the captured causal base stale.
+  release([]);
+  const status = { ...fixture.recipientCases[0].record, thread: created.thread };
+  put(f.own, status);
+  await expect(pending).rejects.toThrow();
+  expect(f.batches).toHaveLength(before);
 });

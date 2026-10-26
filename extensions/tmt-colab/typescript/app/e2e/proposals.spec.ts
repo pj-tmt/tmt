@@ -661,3 +661,37 @@ for (const theme of ['light', 'dark'])
     await sweep();
     await frameLowControl(`floating-clear-composer-390-${theme}`);
   });
+
+test('proposal row Reopen shows progress, restores its error and opens only after confirmation', async ({
+  page,
+}) => {
+  await showResolvedOn(page);
+  await mount(page, 'detached');
+  await run(page, 'agentResolves');
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+  const panel = commentsRegion(page);
+  const row = panel.locator('.annotation-list-item[data-resolved]');
+  await run(page, 'holdStatusOnce');
+  await row.getByRole('button', { name: 'Reopen', exact: true }).click();
+  const pending = row.getByRole('button', { name: 'Reopening…', exact: true });
+  await expect(pending).toBeDisabled();
+  await expect(pending).toHaveAttribute('aria-busy', 'true');
+  await capture(page, 'row-reopening');
+  await expect(row.getByTestId('annotation-row')).toHaveAttribute('data-resolved', 'true');
+  await page.evaluate(
+    async (fixture) => (await import(fixture)).releaseStatus({ fail: true }),
+    fixture,
+  );
+  const card = panel.locator('.proposal-card');
+  await expect(card.getByRole('alert')).toHaveText(text.commentFailed);
+  await expect(card).toHaveAttribute('data-resolved', 'true');
+  await run(page, 'holdStatusOnce');
+  await card.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect(card.getByRole('button', { name: 'Reopening…', exact: true })).toBeDisabled();
+  await run(page, 'releaseStatus');
+  await expect(card).not.toHaveAttribute('data-resolved', 'true');
+  await expect(card.getByRole('alert')).toHaveCount(0);
+  expect(
+    (await run(page, 'proof')).actions.filter((action: string) => action.startsWith('status:')),
+  ).toEqual(['status:reopen']);
+});

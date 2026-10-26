@@ -85,6 +85,7 @@ export class Live implements PageBinding {
   #attempts = 0;
   #diagnosing: LiveOpen | null = null;
   #projection: PageView = { source: '', title: '' };
+  #threadProjection?: { connection: Connection; admission: Admission; view: PageView };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #verifiedAsks = new VerifiedAsks();
   #error: Error | null = null;
@@ -112,6 +113,12 @@ export class Live implements PageBinding {
       deviceId: () => this.registration.deviceId,
       deviceName: () => this.registration.deviceName ?? '',
       own: () => this.#admitted.own ?? {},
+      views: (connection) =>
+        connection === this.#threadProjection?.connection &&
+        connection.admission === this.#threadProjection.admission &&
+        this.#threadProjection.view.own === this.#admitted.own
+          ? this.#threadProjection.view.threads
+          : undefined,
       connection: () => this.#current,
       settled: () => this.#settled(),
       reopen: (from) => this.#reopenForObjects(from),
@@ -131,12 +138,13 @@ export class Live implements PageBinding {
       binding: this.discussion,
       asks: () => this.#projection.asks ?? [],
       destinations: async () => (this.ask ? this.ask.destinations() : []),
-      notify: async (status, recipient, thread) =>
+      notify: async (status, recipient, thread, destinations) =>
         this.ask
           ? this.ask.notifyStatus(
               { status: status.ref, recipient, thread },
               this.#admitted.title,
               this.mount.href,
+              destinations,
             )
           : { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' },
     });
@@ -472,6 +480,7 @@ export class Live implements PageBinding {
             agentActivity: this.#projection.agentActivity,
             messageStates: this.#projection.messageStates,
           };
+          this.#threadProjection = { connection, admission, view: this.#projection };
           this.#discussionVerified = true;
           this.#publish();
           this.#observe();

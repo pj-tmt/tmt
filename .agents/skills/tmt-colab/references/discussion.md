@@ -25,9 +25,16 @@ owns record fields, limits, revision semantics and trust boundaries.
   creation, anchor, deletion or comment-edit ownership. `ThreadBinding.setStatus` uses a
   captured previous-action reference; publication failures preserve the effective state.
 - `thread-status-coordinator.ts` freezes unique mentions and prior signed recipient UUIDs,
-  publishes status/operation IDs before sequential notification attempts, and coalesces
-  the explicit parent action. `LiveAsk.notifyStatus` reuses FrozenAsk, AskController and
-  the existing own ledger; it never runs during loading or result re-checking.
+  overlaps recipient discovery with writer admission, then confirms the durable status before
+  detached sequential notification attempts. The per-thread fence remains held until those
+  attempts settle; opposite status actions refuse while it is held. The same directory snapshot
+  supplies every attempt; `LiveAsk.notifyStatus` retains FrozenAsk, AskController and the own
+  ledger's current admission/grant checks. Loading and result re-checking never notify.
+  `Live` supplies `ThreadStore` its verified thread projection only for the exact current
+  own snapshot, connection and admission; otherwise the store re-reads admitted records.
+  Resolve/Reopen controls show their pending action with a busy/disabled fence. Proposal
+  cards and list rows share the proposal layer's pending map; confirmed projection replaces
+  it, and publication failure clears it and shows the existing error.
   `thread-status-notification.ts` re-admits the committed action/recipient and captured
   discussion before Ask freezing, then projects held/refused/failure/uncertain outcomes
   without granting dispatch. `thread-status-view.ts` owns the shared status metadata,
