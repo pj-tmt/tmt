@@ -1146,6 +1146,7 @@ impl Config {
     pub fn bindings(&self, tmux: bool, panes: &[Pane]) -> Result<Bindings, SquadError> {
         let mut bindings = preset(tmux, panes);
         bindings.extend(self.configured_bindings()?);
+        crate::action::drop_unbound(&mut bindings);
         Ok(bindings)
     }
 
@@ -1160,6 +1161,7 @@ impl Config {
         if key == crate::tabs::ALL {
             let mut bindings = crate::action::all_preset();
             bindings.extend(settings.all);
+            crate::action::drop_unbound(&mut bindings);
             return Ok(bindings);
         }
         let mut bindings = self.bindings(tmux, panes)?;
@@ -1173,6 +1175,7 @@ impl Config {
         {
             bindings.extend(tab.selection.bind.clone());
         }
+        crate::action::drop_unbound(&mut bindings);
         Ok(bindings)
     }
 
@@ -3554,6 +3557,16 @@ sort = ["state", "-name"]
             config.bindings(false, &[]).unwrap()["double-click"].verb,
             crate::action::Verb::Menu
         );
+        // `unbound` removes a preset key for every reader of `[bind]`, and leaves the rest.
+        fs::write(&path, "[bind]\ny = \"unbound\"\nf5 = \"unbound\"\n").unwrap();
+        let unbound = Config::read(path.clone()).unwrap();
+        for tmux in [true, false] {
+            let bindings = unbound.bindings(tmux, &[]).unwrap();
+            assert!(!bindings.contains_key("y") && !bindings.contains_key("f5"));
+            assert_eq!(bindings["ctrl-r"].verb, crate::action::Verb::Refresh);
+            let tab = unbound.bindings_for_tab("squad", tmux, &[]).unwrap();
+            assert!(!tab.contains_key("y"));
+        }
         for body in [
             "[bind]\nhold = \"refresh\"\n",
             "[bind]\no = \"launch\"\n",

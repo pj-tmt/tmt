@@ -671,8 +671,10 @@ Every filled Run argument stays one argv element with no shell expansion, and
 `ctrl-r` refreshes without discarding entered text. `/` searches. `?` help and the
 footer use the same effective binding table as dispatch: defaults, global `[bind]`,
 host overrides, then section overrides. Compatible explicit bindings keep their
-meaning, including an explicit `f5 = "refresh"` binding. Whole optional hints drop
-when space is short; help remains available.
+meaning, including an explicit `f5 = "refresh"` binding. `C = "unbound"` removes the default
+binding of `C` (in `[bind]` it applies to every scope; in a host table, to that host); the footer,
+help and keycaps then show nothing for it. A key no scope binds by default gets a notice instead.
+Whole optional hints drop when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
 Their Esc back action cannot be rebound. At the base list, Esc clears an active
 launch scope through the effective `clear-scope` binding; otherwise it stays put.

@@ -234,6 +234,8 @@ pub enum OpsKeyScope {
 }
 
 impl OpsKeyScope {
+    pub(crate) const ALL: [Self; 4] = [Self::Squad, Self::Member, Self::Pool, Self::Reader];
+
     pub(crate) fn is_reader(self) -> bool {
         self == Self::Reader
     }
@@ -876,6 +878,22 @@ impl Config {
             configured.extend(section.clone());
         }
         for (key, action) in configured {
+            if action.verb == Verb::Unbound {
+                // `[bind]` is one table for every scope: the key loses its default here, and a key
+                // that no scope binds by default has nothing to lose.
+                let removed = effective.remove(&key).is_some();
+                sources.remove(&key);
+                if !removed
+                    && !OpsKeyScope::ALL
+                        .iter()
+                        .any(|scope| defaults(*scope).contains_key(&key))
+                {
+                    notices.push(format!(
+                        "`bind.{key}` = unbound: `{key}` has no default binding to remove."
+                    ));
+                }
+                continue;
+            }
             if let Err(error) = admit_action(&action, &format!("bind.{key}")) {
                 notices.push(error.message);
                 if matches!(
@@ -1336,6 +1354,101 @@ mod tests {
             assert_eq!(configured.sources["backtab"], "bind.backtab");
         }
     }
+    #[test]
+    fn unbound_removes_the_default_of_its_key_in_every_scope_and_layer() {
+        for scope in OpsKeyScope::ALL {
+            let factory = config("").workspace_keys(scope, None, None).unwrap();
+            let keys = config("[bind]\nC='unbound'\n")
+                .workspace_keys(scope, None, None)
+                .unwrap();
+            assert!(!keys.bindings.contains_key("C"), "{scope:?}");
+            assert!(!keys.sources.contains_key("C"), "{scope:?}");
+            assert!(keys.notices.is_empty(), "{scope:?}: {:?}", keys.notices);
+            // Nothing else moves.
+            let mut expected = factory.bindings.clone();
+            expected.remove("C");
+            assert_eq!(keys.bindings, expected, "{scope:?}");
+        }
+        // A host table may remove it for that host only, and a later layer may bind it again.
+        let host = config("[bind.tmux]\nC='unbound'\n");
+        assert!(
+            !host
+                .workspace_keys(OpsKeyScope::Member, Some("tmux"), None)
+                .unwrap()
+                .bindings
+                .contains_key("C")
+        );
+        assert!(
+            host.workspace_keys(OpsKeyScope::Member, None, None)
+                .unwrap()
+                .bindings
+                .contains_key("C")
+        );
+        let rebound = config("[bind]\nC='unbound'\n[bind.tmux]\nC='copy'\n");
+        assert_eq!(
+            rebound
+                .workspace_keys(OpsKeyScope::Member, Some("tmux"), None)
+                .unwrap()
+                .bindings["C"]
+                .verb,
+            Verb::Copy
+        );
+    }
+
+    #[test]
+    fn unbound_on_a_key_nothing_binds_by_default_is_a_notice_not_an_error() {
+        for scope in OpsKeyScope::ALL {
+            let keys = config("[bind]\nctrl-g='unbound'\n")
+                .workspace_keys(scope, None, None)
+                .unwrap();
+            assert!(!keys.bindings.contains_key("ctrl-g"), "{scope:?}");
+            assert!(
+                keys.notices
+                    .iter()
+                    .any(|notice| notice.contains("`bind.ctrl-g`")
+                        && notice.contains("no default binding to remove")),
+                "{scope:?}: {:?}",
+                keys.notices
+            );
+        }
+        // A key that is a default in some other scope is not a no-op, so it is not noticed.
+        let keys = config("[bind]\nx='unbound'\n")
+            .workspace_keys(OpsKeyScope::Squad, None, None)
+            .unwrap();
+        assert!(
+            defaults(OpsKeyScope::Member).contains_key("x")
+                && !defaults(OpsKeyScope::Squad).contains_key("x")
+        );
+        assert!(keys.notices.is_empty(), "{:?}", keys.notices);
+    }
+
+    #[test]
+    fn a_misspelt_unbound_keeps_the_unknown_action_error() {
+        let error = config("[bind]\nC='unbund'\n")
+            .workspace_keys(OpsKeyScope::Member, None, None)
+            .err()
+            .expect("an unknown action is refused");
+        assert!(
+            error.message.contains("'unbund' is not an action"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn unbound_takes_no_arguments_and_reads_back_as_written() {
+        assert!(Action::parse("unbound now").is_err());
+        let action = Action::parse("unbound").unwrap();
+        assert_eq!(action.verb, Verb::Unbound);
+        assert_eq!(action.text, "unbound");
+        let document = config("[bind]\nC='unbound'\n");
+        assert_eq!(
+            document.configured_bindings().unwrap()["C"].verb,
+            Verb::Unbound,
+            "the authored word is kept in the table"
+        );
+    }
+
     #[test]
     fn checklist_action_uses_its_current_name_without_a_legacy_alias() {
         let keys = config("[bind]\nN='member-checklist'\n")

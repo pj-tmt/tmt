@@ -337,7 +337,9 @@ scoped override semantics; CLI configuration remains available for explicit edit
   missing values refuse rather than constructing a partial action. A
   `[bind.<host>]` table takes the same events and actions as `[bind]`, is parsed apart from
   the flat entries (`Config::host_bindings`), and its name must be a host token
-  (`[a-z][a-z0-9-]{0,31}`); an unknown host never matches. One parser/dispatcher owns
+  (`[a-z][a-z0-9-]{0,31}`); an unknown host never matches. `Verb::Unbound` (`KEY = "unbound"`)
+  removes the key's default wherever `[bind]` is read: `workspace_keys` drops the key and its
+  source (a notice when no scope binds it by default), the other readers use `drop_unbound`. One parser/dispatcher owns
   `toggle <pane>...`.
 - `effects` holds the row actions behind plain `jump`, `open` and `copy` and the board.
   `template` fills `{field}` placeholders into one value and refuses empty values. Built-in
