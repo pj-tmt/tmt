@@ -283,7 +283,8 @@ body:not(:has(.tmt-ui-shell)) {
 
 /* The title row takes its place in the flow: what fills the viewport below it is that much shorter. */
 .tmt-ui-shell-main:has(> .colab-title-row),
-.page:has(> .colab-title-row) {
+.page:has(> .colab-title-row),
+[data-page-frame]:has(> .colab-title-row) {
   --colab-title-row-size: var(--tmt-ui-header-height);
 }
 /* In Colab's own shell the shared bar draws no title: the page's title row is content, on the
