@@ -422,6 +422,11 @@ smaller. The Sender distinguishes fresh-write refusals from original-request rec
 missing/invalid owner answers unconfirmed. Core preparation, receipts and replay ownership do not move.
 The [contract activation section](../../../../contracts/remote-channel-v1.md#public-native-agent-activation)
 owns the handoff and uncertainty boundary.
+Agent `check` reuses that UUID-pinned query after resolving the admitted UUID's name.
+Both queries and `check --capture-only --json` share one deadline; `--` keeps the frozen
+name literal. Expected-name refusal prevents capture and capture-only prevents Digest
+input. The later query-to-capture window remains until Core #5154 and Remote #5254;
+there is no before/after observation or retry that claims to close it.
 No enrolled peer means no provider poll. Legacy reciprocal discovery keeps one negative timestamp
 per project/peer in existing `cloud_transport` checkpoint storage. A missing machine row is read
 at most once per `limits::CLOUD_PEER_DISCOVERY_RETRY_MS` (24 hours), including after reopen; a later

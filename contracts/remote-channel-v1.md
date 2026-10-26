@@ -1495,7 +1495,7 @@ Remote narrows supported operations/authority before core calls.
 | `capabilities`                                                                                  | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                                                 |
 | `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional runtime/activity evidence below, without pane address/cwd/process/profile.                                                                         |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                                           |
-| `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                                          |
+| `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --capture-only --json` returns locally. Read-only; it never writes to a pane.                                                                                                                          |
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                                                    |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                               |
@@ -1518,6 +1518,15 @@ Remote forwards it unchanged and never infers it from panes; until core publishe
 the [public dispatch readiness and input-safety contract](extension-api.md#dispatch-readiness-and-input-safety)
 owns the shipped guarantees and limits. Diagnostic `check` capture and presence never prove
 safe input.
+
+For `check`, Remote resolves the admitted agent UUID with public `identity show`, freezes
+its current name, and verifies it with `identity show --expect-name=<name> -- <uuid>`
+before the capture-only call. A changed name refuses with `REMOTE_AGENT_STALE` before
+capture; missing UUIDs return `REMOTE_AGENT_NOT_FOUND`. Resolution, the pinned query
+and capture share one Core-call deadline. Capture uses the frozen name and never
+flushes Digest input. A later rename or name reassignment can still race the
+name-addressed capture: atomic UUID + expected-name capture depends on Core #5154,
+with Remote adoption tracked in #5254.
 
 Optional `runningDriver` uses Core's [List runtime driver](identity-status-v1.md#list-runtime-driver)
 provenance. Remote forwards only nonempty strings of at most 32 bytes in `[a-z0-9-]`; otherwise
