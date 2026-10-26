@@ -98,7 +98,7 @@ export async function verifyExtensionUpgrade(values, runCommand = runPackedComma
       const driver = path.join(driverSource, 'tmt');
       assertMacOsArchitecture(driver, target, { cwd: root, env });
       const run = (args, expectedStatus = 0) =>
-        JSON.parse(runCommand(driver, args, { cwd: root, env, expectedStatus }));
+        JSON.parse(runCommand(driver, args, { cwd: root, env, expectedStatus, timeoutMs: 60_000 }));
       const install = (archive, manifest, expectedStatus = 0) =>
         run(
           [

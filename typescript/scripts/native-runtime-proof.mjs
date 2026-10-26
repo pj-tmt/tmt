@@ -147,7 +147,7 @@ export async function verifyNativeRuntime({
     assertMacOsArchitecture(executable, target, { cwd, env });
     verifyLinkage(executable, cwd, env, subject);
 
-    const run = (args) => runPackedCommand(executable, args, { cwd, env });
+    const run = (args) => runPackedCommand(executable, args, { cwd, env, timeoutMs: 60_000 });
     assert(
       ['cli', 'ops', 'squad', 'digest', 'driver-herdr', 'remote', 'colab'].includes(product),
       'Unknown native runtime product'
@@ -159,7 +159,11 @@ export async function verifyNativeRuntime({
         'Herdr proof requires its independent version'
       );
       assertHerdrCapabilities(
-        runPackedCommand(driver, ['__tmt-driver', '1', 'capabilities'], { cwd, env }),
+        runPackedCommand(driver, ['__tmt-driver', '1', 'capabilities'], {
+          cwd,
+          env,
+          timeoutMs: 60_000,
+        }),
         expectedVersion,
         subject
       );

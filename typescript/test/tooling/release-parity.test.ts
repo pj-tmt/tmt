@@ -219,8 +219,13 @@ describe('release gate parity inventory', () => {
       expect(value.workflows[file][job].releaseOnly.length, `${file}:${job}`).toBeGreaterThan(40);
       expect(value.workflows[file][job].followUp, `${file}:${job}`).toBeUndefined();
     }
-    for (const issue of ['1534', '1541', '1604', '1616', '1646', '1680'])
+    for (const issue of ['1534', '1541', '1604', '1616', '1646', '1680', '5311'])
       expect(value.incidents[issue].preMerge, issue).toEqual([rehearsal]);
+    expect(value.incidents['5311'].release).toEqual({
+      workflow: 'native-release-upgrade-prove.yml',
+      job: 'prove',
+      step: 'name:Prove last-published and declared-floor installation and bootstrap recovery',
+    });
     expect(value.incidents['1680'].release).toEqual({
       workflow: 'native-release-prepare.yml',
       job: 'verify',
