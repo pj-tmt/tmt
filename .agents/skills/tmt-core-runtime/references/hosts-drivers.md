@@ -21,6 +21,10 @@ channels and the driver protocol. The owner map is in
 
 - A running-command handle separates launch from wait but keeps the original deadline and
   cleanup; an abandoned handle stops and reaps its child. There is no second runner.
+- `process::runtime` uses the runner's native process evidence before bounded `ps` fallback.
+  Native Unknown or late evidence grants nothing and never triggers a second acquisition;
+  only unavailable native acquisition falls back. Owned unreaped children retain zombie
+  identity; ordinary runtime observations treat zombies as gone.
 - `process::interactive` runs direct-terminal children: terminal interrupts reach the child,
   wrapper TERM/HUP are forwarded to the owned child only, and a notification failure degrades
   supervision instead of killing a live agent. Abandonment terminates, then kills and reaps

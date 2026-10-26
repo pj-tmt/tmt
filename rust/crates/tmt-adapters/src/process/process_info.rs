@@ -204,8 +204,18 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::process::{UnixCommandRunner, runtime::observe_start};
+    use crate::process::{
+        CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner,
+        runtime::observe_start,
+    };
     use std::time::Duration;
+
+    struct Ps;
+    impl CommandRunner for Ps {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            UnixCommandRunner.execute(request)
+        }
+    }
 
     #[test]
     fn native_start_and_parent_equal_the_existing_ps_identity() {
@@ -217,9 +227,7 @@ mod tests {
         };
         assert_eq!(
             Some(native.start_identity()),
-            observe_start(&UnixCommandRunner, pid, deadline)
-                .unwrap()
-                .as_deref()
+            observe_start(&Ps, pid, deadline).unwrap().as_deref()
         );
         assert_eq!(
             parent(pid, deadline),
@@ -249,9 +257,7 @@ mod tests {
 
     #[test]
     fn stopped_and_exited_owned_children_keep_batch_parity() {
-        use crate::process::{
-            CommandError, CommandOutput, CommandRequest, CommandRunner, runtime::observe_starts,
-        };
+        use crate::process::runtime::observe_starts;
         use nix::{
             sys::{
                 signal::{Signal, kill},
@@ -264,12 +270,6 @@ mod tests {
             fn drop(&mut self) {
                 let _ = self.0.kill();
                 let _ = self.0.wait();
-            }
-        }
-        struct Ps;
-        impl CommandRunner for Ps {
-            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
-                UnixCommandRunner.execute(request)
             }
         }
         let mut child = Child(
