@@ -216,6 +216,7 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
     assert_eq!(
         parsed(&["talk", "peer", "hello", "--json", "--no-preamble"]),
         Parsed {
+            start_here: false,
             legacy_hook: false,
             invocation: Invocation::Talk {
                 target: "peer".into(),

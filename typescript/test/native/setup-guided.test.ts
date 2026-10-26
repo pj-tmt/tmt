@@ -337,6 +337,12 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
         await runCli(sandbox, ['extension', 'ls', '--json'])
       );
       expect(current.extensions).toHaveLength(4);
+      expect(current.guidance).toEqual(publicInventory.guidance);
+      const next = await runCli(sandbox, ['setup']);
+      expect(next.stdout.match(/Next:/g)).toHaveLength(1);
+      for (const action of (current.guidance as { actions: { argv: string[] }[] }).actions) {
+        expect(next.stdout).toContain(action.argv.join(' '));
+      }
       for (const row of current.extensions as Array<Record<string, unknown>>) {
         expect(
           (publicInventory.extensions as Array<Record<string, unknown>>).find(
@@ -352,6 +358,15 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
       expect(listed.status, listed.stdout + listed.stderr).toBe(0);
       expect(listed.stderr).toBe('');
       const rows = parseWholeStdout(listed).extensions as Array<Record<string, unknown>>;
+      expect(parseWholeStdout(listed).guidance).toMatchObject({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'install-colab',
+            kind: 'install',
+            argv: ['tmt', 'extension', 'install', 'colab', '--yes'],
+          }),
+        ]),
+      });
       expect(rows).toHaveLength(4);
       for (const name of ['ops', 'digest', 'remote', 'colab']) {
         const row = rows.find((row) => row.name === name)!;

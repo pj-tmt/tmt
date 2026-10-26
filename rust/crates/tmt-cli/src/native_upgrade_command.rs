@@ -574,6 +574,15 @@ fn publish_products_with_hints(
         .chain(provider_setup)
         .any(|p| p["status"] == "failed");
     document["products"] = json!(products);
+    let guidance = report.map(|report| {
+        crate::install_guidance::read(
+            native_install::release_prefix(&report.installation.active_executable),
+            &products[1..],
+        )
+    });
+    if let Some(guidance) = &guidance {
+        document["guidance"] = guidance.document();
+    }
     if !rename_hints.is_empty() {
         document["paneRenameHints"] = json!(rename_hints);
     }
@@ -640,6 +649,7 @@ fn publish_products_with_hints(
                 skills: &document["skills"],
                 repeat,
                 followups: summary::Followups {
+                    guidance: guidance.as_ref(),
                     required: &required,
                     optional: &optional,
                     conflict_hints,

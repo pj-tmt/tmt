@@ -19,6 +19,7 @@ fn run_identity_starts_an_opaque_command_tail() {
     assert_eq!(
         parse(&argv).unwrap(),
         Parsed {
+            start_here: false,
             legacy_hook: false,
             invocation: Invocation::Run {
                 host: None,

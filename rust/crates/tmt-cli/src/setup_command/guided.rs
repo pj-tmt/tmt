@@ -348,10 +348,14 @@ pub(super) fn run(
         if mode.json {
             let mut document = document(&plan, false, &[]);
             document["extensions"] = json!(extensions.current_document());
+            document["guidance"] = crate::install_guidance::read(None, &[]).document();
             writeln!(output, "{document}").map_err(failure)?;
         } else {
             message::success(output, terminal, "Everything is set up").map_err(failure)?;
             backup_warnings(&plan, output, terminal)?;
+            crate::install_guidance::read(None, &[])
+                .write("Next", terminal, output)
+                .map_err(failure)?;
         }
         return Ok(0);
     }
@@ -389,6 +393,7 @@ pub(super) fn run(
                 .map_or(&[], |report| report.skipped.as_slice()),
         );
         document["extensions"] = json!(extension_rows);
+        document["guidance"] = crate::install_guidance::read(None, &extension_rows).document();
         let errors: Vec<_> = match &agents {
             Ok(report) => report
                 .failures
@@ -432,6 +437,9 @@ pub(super) fn run(
             .map_err(failure)?;
         }
         backup_warnings(&plan, output, terminal)?;
+        crate::install_guidance::read(None, &extension_rows)
+            .write("Next", terminal, output)
+            .map_err(failure)?;
     }
     Ok(status)
 }

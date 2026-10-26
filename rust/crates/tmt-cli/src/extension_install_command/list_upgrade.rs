@@ -4,8 +4,7 @@ use super::post_upgrade::PostUpgradeNotice;
 use super::skills::settle_skills;
 use super::{
     ExtensionListRow, Human, INSTALLABLE_EXTENSIONS, Outcome, ask, extension, extension_list,
-    failure, installed, interruptible, prefix, repair_command, repair_required,
-    require_installable,
+    failure, installed, interruptible, prefix, repair_required, require_installable,
 };
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
@@ -184,14 +183,24 @@ pub(super) fn upgrade_at_observed(
     Ok(Some((document, human)))
 }
 
-pub(super) fn listing(
+pub(crate) fn listing(
     prefix: &Path,
     check: bool,
     search: &std::ffi::OsStr,
 ) -> Result<(Value, Human), Failure> {
+    listing_with_guidance(prefix, check, search, &[]).map(|(document, human, _)| (document, human))
+}
+
+pub(crate) fn listing_with_guidance(
+    prefix: &Path,
+    check: bool,
+    search: &std::ffi::OsStr,
+    confirmed: &[Value],
+) -> Result<(Value, Human, crate::install_guidance::Guidance), Failure> {
     let inventory = super::setup::inventory(prefix);
     let mut rows = Vec::new();
     let mut lines = Vec::new();
+    let mut recovery = Vec::new();
     for entry in &inventory {
         let product = entry.product;
         let name = product.as_str();
@@ -246,6 +255,15 @@ pub(super) fn listing(
                 .map(ToString::to_string)
         );
         row["commands"] = json!(product.links());
+        let selected = tmt_adapters::extension_command::resolve(name, search)
+            .ok()
+            .flatten();
+        row["onPath"] = json!(
+            selected
+                .and_then(|path| fs::canonicalize(path).ok())
+                .zip(fs::canonicalize(prefix.join("bin").join(product.executable())).ok())
+                .is_some_and(|(selected, managed)| selected == managed)
+        );
         row["shadowedBy"] = json!(shadowed);
         if frozen {
             row["frozen"] = true.into();
@@ -260,11 +278,21 @@ pub(super) fn listing(
         if partial {
             row["status"] = "partiallyRemoved".into();
             row["hint"] = hint.clone().into();
+            recovery.push(crate::install_guidance::Action::repair(
+                name,
+                removal_argv(product, prefix),
+                "Finish removing this installation",
+            ));
         }
         let mut notes = Vec::new();
         if let Some(cli) = cli {
             row["cli"] = cli.to_json();
             if !cli.compatible() {
+                recovery.push(crate::install_guidance::Action::repair(
+                    "cli",
+                    vec!["tmt".into(), "upgrade".into()],
+                    "Update TMT before using this extension",
+                ));
                 notes.push(format!(
                     "requires tmt {} or newer (running {}); run tmt upgrade",
                     cli.minimum, cli.running
@@ -291,6 +319,20 @@ pub(super) fn listing(
             row["detail"] = issue.detail.clone().into();
             row["hint"] = issue.hint(product, prefix).into();
             notes.push(issue.hint(product, prefix));
+            if !issue.unmanaged {
+                recovery.push(crate::install_guidance::Action::repair(
+                    name,
+                    issue
+                        .repair
+                        .clone()
+                        .unwrap_or_else(|| removal_argv(product, prefix)),
+                    if issue.repair.is_some() {
+                        "Repair this release"
+                    } else {
+                        "Remove invalid commands before reinstalling"
+                    },
+                ));
+            }
         }
         let status = if let Some(issue) = &issue {
             format!(
@@ -329,10 +371,28 @@ pub(super) fn listing(
         });
         rows.push(row);
     }
+    let guidance =
+        crate::install_guidance::project(&rows, confirmed, recovery, non_default(prefix), search);
+    for row in &mut rows {
+        row.as_object_mut().expect("inventory row").remove("onPath");
+    }
     Ok((
-        json!({"extensions": rows}),
+        json!({"extensions": rows, "guidance": guidance.document()}),
         extension_list(&lines, env::home_dir().as_deref()),
+        guidance,
     ))
+}
+
+fn removal_argv(product: Product, prefix: &Path) -> Vec<String> {
+    vec![
+        "tmt".into(),
+        "extension".into(),
+        "rm".into(),
+        product.as_str().into(),
+        "--yes".into(),
+        "--prefix".into(),
+        prefix.to_string_lossy().into_owned(),
+    ]
 }
 
 /// The prefix only when it is not the one `tmt extension` uses by default, so a
@@ -365,7 +425,7 @@ struct Issue {
     unmanaged: bool,
     detail: String,
     /// The exact repair when verification found damage the installer can restore.
-    repair: Option<String>,
+    repair: Option<Vec<String>>,
 }
 
 impl Issue {
@@ -388,7 +448,7 @@ impl Issue {
 
     fn io(product: Product, prefix: &Path, error: &io::Error) -> Self {
         let mut issue = Self::new(product, prefix, error);
-        issue.repair = repair_required(error).map(repair_command);
+        issue.repair = repair_required(error).map(super::repair_argv);
         issue
     }
 
@@ -407,7 +467,10 @@ impl Issue {
         let name = product.as_str();
         let prefix = crate::output::shell_word(&prefix.to_string_lossy());
         if let Some(command) = &self.repair {
-            format!("repair this release with: {command}")
+            format!(
+                "repair this release with: {}",
+                crate::install_guidance::command(command)
+            )
         } else if self.unmanaged {
             format!(
                 "move or remove {}, then install the managed one with: tmt extension install {name} --yes --prefix {prefix}",

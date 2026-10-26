@@ -11,9 +11,9 @@ mod skills;
 pub(crate) mod upgrade_all;
 
 use install::install;
-use list_upgrade::listing;
 #[cfg(test)]
 use list_upgrade::shadowing_in;
+pub(crate) use list_upgrade::{listing, listing_with_guidance};
 use repair::repair_extension;
 pub(crate) use skills::retired_squad_hint;
 use skills::{global_dir, settle_skills};
@@ -159,16 +159,33 @@ fn repair_required(error: &io::Error) -> Option<&native_install::RepairRequired>
         .and_then(|cause| cause.downcast_ref::<native_install::RepairRequired>())
 }
 
-fn repair_command(required: &native_install::RepairRequired) -> String {
-    let mut command = format!(
-        "tmt extension install {} --repair --yes --prefix {}",
-        required.product.as_str(),
-        crate::output::shell_word(&required.prefix.to_string_lossy())
-    );
+fn repair_argv(required: &native_install::RepairRequired) -> Vec<String> {
+    let mut argv = vec![
+        "tmt".into(),
+        "extension".into(),
+        "install".into(),
+        required.product.as_str().into(),
+        "--repair".into(),
+        "--yes".into(),
+        "--prefix".into(),
+        required.prefix.to_string_lossy().into_owned(),
+    ];
     if required.requires_archive {
-        command.push_str(" --archive '<original-archive>' --manifest '<matching-manifest>'");
+        argv.extend(
+            [
+                "--archive",
+                "<original-archive>",
+                "--manifest",
+                "<matching-manifest>",
+            ]
+            .map(str::to_owned),
+        );
     }
-    command
+    argv
+}
+
+fn repair_command(required: &native_install::RepairRequired) -> String {
+    crate::install_guidance::command(&repair_argv(required))
 }
 
 fn failure(code: &'static str, error: io::Error) -> Failure {
@@ -859,7 +876,11 @@ mod presentation_tests {
         let result = listing(&root, false, root.join("empty-bin").as_os_str());
         fs::remove_dir_all(&root).unwrap();
         let (document, _) = result.unwrap();
-        insta::assert_snapshot!(document.to_string());
+        insta::assert_snapshot!(
+            document
+                .to_string()
+                .replace(root.to_str().unwrap(), "/fixture")
+        );
     }
 
     fn render(human: Human, terminal: tmt_cli_style::Terminal) -> String {
@@ -948,14 +969,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
             ("{name}", "ops"),
             ("{}", "ops"),
             ("{SUGGESTED_EXTENSION}", "ops"),
-        ],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "tmt extension install {} --repair --yes --prefix {}",
-        &[""],
-        &[
-            ("tmt extension install {}", "tmt extension install ops"),
-            ("{}", "/tmp/hint-prefix"),
         ],
     ),
     crate::cli_style_tests::HintSpec::core(
