@@ -20,17 +20,19 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
     })
 }
 
-pub(super) fn read(paths: &ConfigPaths, id: String) -> Result<Vec<u8>, Fault> {
-    notes::read_with_open_error(paths, &id)
+pub(super) fn open_fault(error: crate::storage::StorageError) -> Fault {
+    Fault::new(
+        "NOTEBOOK_UNAVAILABLE",
+        "Saved-identity notes could not be read.",
+    )
+    .with_storage_open(error)
+}
+pub(super) fn read(
+    paths: &ConfigPaths,
+    storage: &mut crate::storage::Storage,
+    id: String,
+) -> Result<Vec<u8>, Fault> {
+    notes::read_with_storage(paths, storage, &id)
         .map(|note| notes::encode(&note))
-        .map_err(|error| match error {
-            notes::NotebookReadError::Open(error) => Fault::new(
-                "NOTEBOOK_UNAVAILABLE",
-                "Saved-identity notes could not be read.",
-            )
-            .with_storage_open(error),
-            notes::NotebookReadError::Notebook(error) => {
-                Fault::new(error.code(), "Saved-identity notes could not be read.")
-            }
-        })
+        .map_err(|error| Fault::new(error.code(), "Saved-identity notes could not be read."))
 }

@@ -83,11 +83,14 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     }
     root = root.subcommand(storage(spec!(
         "api",
-        "Versioned JSON extension interface (one request on stdin)",
+        "Versioned JSON extension interface on stdin",
+        details = "By default, close stdin after one request. --session accepts ordered JSON lines and retains one storage connection until EOF.",
         [
             "Answer one JSON request read from stdin" => "tmt api",
+            "Serve ordered requests until stdin closes" => "tmt api --session",
         ]
-    )));
+    )).arg(Arg::new("session").long("session").action(ArgAction::SetTrue)
+        .help("Serve ordered JSON lines until stdin closes")));
     root = root.subcommand(base(spec!(
         "mcp",
         "Serve local exchange tools over MCP stdio",

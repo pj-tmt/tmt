@@ -58,38 +58,41 @@ impl NotebookError {
 
 /// The browser selects an identity, never a path. Reading does not initialize notes.
 pub fn read(paths: &ConfigPaths, identity_id: &str) -> Result<Notebook, NotebookError> {
-    read_with_open_error(paths, identity_id).map_err(|error| match error {
-        NotebookReadError::Open(_) => NotebookError::Unavailable,
-        NotebookReadError::Notebook(error) => error,
-    })
-}
-
-pub(crate) enum NotebookReadError {
-    Open(crate::storage::StorageError),
-    Notebook(NotebookError),
-}
-
-impl From<NotebookError> for NotebookReadError {
-    fn from(error: NotebookError) -> Self {
-        Self::Notebook(error)
-    }
-}
-
-pub(crate) fn read_with_open_error(
-    paths: &ConfigPaths,
-    identity_id: &str,
-) -> Result<Notebook, NotebookReadError> {
     if !tmt_core::dispatch::canonical_id(identity_id) {
-        return Err(NotebookError::InvalidIdentity.into());
+        return Err(NotebookError::InvalidIdentity);
     }
     let mut storage =
-        crate::storage::Storage::open(&paths.database).map_err(NotebookReadError::Open)?;
-    let pending = storage.find_active_identity_by_id(identity_id);
+        crate::storage::Storage::open(&paths.database).map_err(|_| NotebookError::Unavailable)?;
+    let pending = admit(&mut storage, identity_id);
     let closed = storage.close();
-    let identity = pending
-        .map_err(|_| NotebookError::Unavailable)?
-        .ok_or(NotebookError::IdentityNotFound)?;
+    let identity = pending?;
     closed.map_err(|_| NotebookError::Unavailable)?;
+    read_identity(paths, identity)
+}
+
+fn admit(
+    storage: &mut crate::storage::Storage,
+    identity_id: &str,
+) -> Result<tmt_core::identity::Identity, NotebookError> {
+    if !tmt_core::dispatch::canonical_id(identity_id) {
+        return Err(NotebookError::InvalidIdentity);
+    }
+    storage
+        .find_active_identity_by_id(identity_id)
+        .map_err(|_| NotebookError::Unavailable)?
+        .ok_or(NotebookError::IdentityNotFound)
+}
+pub(crate) fn read_with_storage(
+    paths: &ConfigPaths,
+    storage: &mut crate::storage::Storage,
+    identity_id: &str,
+) -> Result<Notebook, NotebookError> {
+    read_identity(paths, admit(storage, identity_id)?)
+}
+fn read_identity(
+    paths: &ConfigPaths,
+    identity: tmt_core::identity::Identity,
+) -> Result<Notebook, NotebookError> {
     let notes_id = NotesIdentityId::try_from(&identity).map_err(|error| match error {
         tmt_core::identity::NotesIdentityError::SavedIdentityRequired => {
             NotebookError::SavedIdentityRequired

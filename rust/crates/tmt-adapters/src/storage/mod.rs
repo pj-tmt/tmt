@@ -121,6 +121,9 @@ pub struct Storage {
 }
 
 impl Storage {
+    pub fn compiled_schema_version() -> u32 {
+        migrations::VERSION
+    }
     pub fn compiled_schema() -> CompiledSchema {
         migrations::compiled_schema()
     }
@@ -271,6 +274,17 @@ impl Storage {
             .map(|value| value.unsigned_abs())
     }
 
+    /// Current application schema without reopening or validating the migration history.
+    pub fn schema_version(&self) -> Result<u32, StorageError> {
+        self.connection()?
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM _migrations",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| classify(error, "Read schema version"))
+    }
+
     pub fn health(&self) -> Result<StorageHealth, StorageError> {
         let connection = self.connection()?;
         let policy = connection.query_row(
@@ -282,13 +296,7 @@ impl Storage {
                 "The SQLite connection does not match storage policy",
             ));
         }
-        let version = connection
-            .query_row(
-                "SELECT COALESCE(MAX(version), 0) FROM _migrations",
-                [],
-                |row| row.get::<_, u32>(0),
-            )
-            .map_err(|error| classify(error, "Read schema version"))?;
+        let version = self.schema_version()?;
         Ok(StorageHealth {
             path: self.path.clone(),
             schema_version: version,
@@ -304,13 +312,19 @@ impl Storage {
         checkpoint(self.connection()?, &self.path, mode)
     }
 
+    /// Drain committed lifecycle evidence at an invocation or request boundary.
+    pub fn flush_observations(&self) {
+        if self.capturing
+            && let Some(connection) = &self.connection
+        {
+            crate::extension_hooks::drain(connection);
+        }
+    }
     pub fn close(&mut self) -> Result<(), StorageError> {
+        self.flush_observations();
         let Some(connection) = self.connection.take() else {
             return Ok(());
         };
-        if self.capturing {
-            crate::extension_hooks::drain(&connection);
-        }
         let checkpoint_result = checkpoint(&connection, &self.path, CheckpointMode::Passive);
         let close_result = connection
             .close()
@@ -334,11 +348,7 @@ impl Storage {
 
 impl Drop for Storage {
     fn drop(&mut self) {
-        if self.capturing
-            && let Some(connection) = &self.connection
-        {
-            crate::extension_hooks::drain(connection);
-        }
+        self.flush_observations();
     }
 }
 

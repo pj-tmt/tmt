@@ -45,6 +45,68 @@ function everyTable(sandbox: Sandbox) {
 }
 
 describe('public local extension API', () => {
+  it('serves ordered session requests through errors and observes writes before the next read', async () => {
+    await withSandbox(async (sandbox) => {
+      const id = await identity(sandbox, 'Session Ada');
+      const request = (operation: string, input: unknown) =>
+        JSON.stringify({ version: 1, operation, input });
+      const result = await runCli(sandbox, ['api', '--session'], {
+        stdin:
+          [
+            request('capabilities', {}),
+            '{}',
+            request('changes.cursor', {}),
+            request('identity.rename', {
+              identityId: id,
+              expectedName: 'Session Ada',
+              name: 'Session Grace',
+            }),
+            request('references.resolve', { identityIds: [id] }),
+            request('changes.cursor', {}),
+          ].join('\n') + '\n',
+      });
+      expect(result.status).toBe(0);
+      expect(result.signal).toBeNull();
+      expect(result.stderr).toBe('');
+      const frames = result.stdout
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(frames).toHaveLength(6);
+      expect(frames[0].session).toEqual({ framing: 'ndjson' });
+      expect(frames[1].error.code).toBe('API_INPUT_INVALID');
+      expect(frames[3].outcome).toBe('applied');
+      expect(frames[4].identities[0]).toMatchObject({ id, found: true, name: 'Session Grace' });
+      expect(frames[5].cursor).not.toBe(frames[2].cursor);
+      const oracle = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(oracle.prepare('SELECT name FROM identities WHERE id=?').pluck().get(id)).toBe(
+          'Session Grace'
+        );
+      } finally {
+        oracle.close();
+      }
+    });
+  });
+
+  it('ends an incomplete session frame after publishing only the preceding complete response', async () => {
+    await withSandbox(async (sandbox) => {
+      const result = await runCli(sandbox, ['api', '--session'], {
+        stdin: JSON.stringify({ version: 1, operation: 'capabilities', input: {} }) + '\n{',
+      });
+      expect(result.status).toBe(1);
+      expect(result.signal).toBeNull();
+      expect(result.stderr).toContain('Incomplete stdio frame');
+      const frames = result.stdout
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(frames).toHaveLength(1);
+      expect(frames[0].session.framing).toBe('ndjson');
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('pins consumption.history batches of one refresh to one cut and refuses stale, future or unaligned cuts', async () => {
     await withSandbox(async (sandbox) => {
       const first = await identity(sandbox, 'Meter A');

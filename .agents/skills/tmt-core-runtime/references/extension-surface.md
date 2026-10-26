@@ -57,9 +57,19 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
 ## Local API and MCP
 
 - `tmt-adapters::api` owns envelope admission and composition; the facade `api.rs` keeps the
-  dispatcher, bounds, settings selection and storage lifetime, and private `api/` modules own
-  operation families. Capabilities and unsupported-version discovery never open storage.
-  Explicit identity selects write attribution, not privilege.
+  dispatcher, bounds, per-request settings/admission and lazy `Session` storage lifetime;
+  private `api/` modules own operation families. Explicit `tmt api --session` reuses one
+  resource connection and drains lifecycle observations per request, with no transaction across frames.
+  The sole exception, `workspace.capture`, retains its bounded zero-busy-timeout read-only
+  identity snapshot and its no-create/current-schema admission.
+  Each request checks the current application schema; `API_SESSION_STALE` rejects the request
+  and ends the session so consumers reopen the current executable. Capabilities and
+  unsupported-version discovery never open storage; after a connection opens, discovery
+  also passes that schema fence. Explicit identity selects write attribution, not privilege.
+- `framed_stdio` owns invocation-descriptor newline acquisition/publication for API and MCP:
+  bounded frames, idle blocking, partial-frame/write deadlines, no worker or fd-flag mutation.
+  The ports own their envelopes, error recovery and clean EOF. API closes its connection on
+  every exit; notebook admission reuses it through the existing notebook owner.
 - `identity.rename` admits an exact UUID/name CAS through the binding owner, without host
   observation; CLI name-based rename shares its transaction-local policy.
 - `rooms.roster` reads membership, metadata and status from one deferred SQLite snapshot and
@@ -98,7 +108,8 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   an observer already captured by the current process.
 - Capture installs temporary triggers in `Storage::open` only for the `tmt` CLI with an
   enabled `lifecycle_observations_v1` observer; the temporary table follows the transaction,
-  so a rollback leaves no evidence. Delivery runs after the command under one aggregate
+  so a rollback leaves no evidence. API sessions drain/deliver at each request boundary;
+  other invocations do so after the command, under one aggregate
   deadline, its output is discarded and no failure changes the result. `TMT_HOOK_DELIVERY=1`
   stops nested capture.
 - Context contributions (`context_v1`, via `context_command::verified_document`) are asked

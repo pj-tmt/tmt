@@ -25,6 +25,8 @@ pub mod extension_hooks;
 #[cfg(unix)]
 pub mod file_lock;
 #[cfg(unix)]
+pub mod framed_stdio;
+#[cfg(unix)]
 pub mod hint_cadence;
 #[cfg(unix)]
 pub mod host;

@@ -218,7 +218,7 @@ fn texts(matches: &ArgMatches, id: &str) -> Vec<String> {
 
 fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     Ok(match path {
-        ["api"] => Invocation::Api,
+        ["api"] => if flag(m, "session") { Invocation::ApiSession } else { Invocation::Api },
         ["workspace", "restore"] => Invocation::WorkspaceRestore {
             socket: text(m, "socket"),
             name: m.get_one::<tmt_core::workspace::SnapshotSelector>("name").cloned(),
