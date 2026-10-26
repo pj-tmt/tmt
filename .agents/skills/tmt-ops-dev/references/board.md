@@ -611,10 +611,12 @@ room chooser, independent filters, item selection, authored fields and exact
 confirmation. A visible selected squad or its member in Agents/Digest freezes
 the acquired room UUID; the flat list, Common pool and hidden/missing targets require an explicit
 room choice. Closing retains workspace UUID selection and focus without legacy
-row-index restoration. Default scope is Open / Squad-wide / archived excluded.
-The unfiltered total uses the same archive scope as the matched count. Item Enter
-opens details; explicit named controls perform edits, assignment, completion,
-archive, delete and full inventory reorder. Archived items expose Restore/Delete.
+row-index restoration. Lists and their assignment-filtered choices contain only open,
+nonarchived items, with no completion or archived-inclusion toggle. Item Enter opens
+details; explicit named controls perform edits, assignment, completion, archive and
+delete. Completing removes the row and shows `✓ Completed <title>`; reopening remains
+available through the CLI. Reorder presents only open items but swaps their positions
+inside the full frozen inventory, preserving hidden UUIDs and revision checks.
 Delete uses Review delete / Confirm delete, with its title in text colour and
 muted UUID/revision context outside the selectable choices. Details keeps IDs
 muted; single-line Body previews show only the first line, followed by an ellipsis

@@ -83,10 +83,11 @@ await withNativeArtifact(values.archive, current, async (source) => {
         LANG: 'C',
         TMPDIR: root,
       };
-      const options = { cwd: root, env };
+      const options = { cwd: root, env, timeoutMs: 60_000 };
+      const inspectionOptions = { cwd: root, env };
       const installer = path.join(source, 'tmt');
-      assertMacOsArchitecture(installer, values.target, options);
-      assertMacOsArchitecture(path.join(oldSource, 'tmt'), values.target, options);
+      assertMacOsArchitecture(installer, values.target, inspectionOptions);
+      assertMacOsArchitecture(path.join(oldSource, 'tmt'), values.target, inspectionOptions);
       if (values.bootstrap) {
         if (hasInstallerHandoff(sourceRoot)) {
           requireInstallerProtocol(installer, options);
@@ -152,7 +153,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
             `../${CLI_NAMESPACE}/current/tmt`
           );
       }
-      assertMacOsArchitecture(managed, values.target, options);
+      assertMacOsArchitecture(managed, values.target, inspectionOptions);
       assert.equal(initial.changed, true);
       assert.equal(run(['--version']).trim(), previous.version);
       assert(
@@ -182,7 +183,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
 
       const upgraded = install(values.archive, values.manifest, ['--unpin']);
       const upgradedLayout = readCliLayout(prefix);
-      assertMacOsArchitecture(managed, values.target, options);
+      assertMacOsArchitecture(managed, values.target, inspectionOptions);
       assert.equal(upgraded.changed, true);
       assert.notEqual(upgradedLayout.executable, initialLayout.executable);
       assert.equal(run(['--version']).trim(), current.version);

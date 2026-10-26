@@ -74,6 +74,51 @@ const HOUR: u64 = 3_600_000;
 const MINUTE: u64 = 60_000;
 
 #[test]
+fn completed_links_and_todos_leave_the_display_without_removing_the_source_items() {
+    let mut hidden = item(5, None, Completion::Open, None, None);
+    hidden.item.archived = true;
+    let source = preview(vec![
+        item(
+            1,
+            Some("https://example.org/open"),
+            Completion::Open,
+            None,
+            None,
+        ),
+        item(2, None, Completion::Open, None, None),
+        item(
+            3,
+            Some("https://example.org/done"),
+            Completion::Complete,
+            None,
+            None,
+        ),
+        item(4, None, Completion::Complete, None, None),
+        hidden,
+    ]);
+    let shown = rows(&source, NOW);
+    assert_eq!(
+        shown
+            .iter()
+            .map(|row| row.title.as_str())
+            .collect::<Vec<_>>(),
+        ["item 1", "item 2"]
+    );
+    assert_eq!(
+        source.current.items.len(),
+        5,
+        "references retain the full source"
+    );
+    assert!(
+        rows(
+            &preview(vec![item(6, None, Completion::Complete, None, None)]),
+            NOW
+        )
+        .is_empty()
+    );
+}
+
+#[test]
 fn who_added_an_item_is_you_a_roster_name_a_short_id_or_nobody() {
     let rows = rows(
         &preview(vec![
@@ -101,12 +146,12 @@ fn who_added_an_item_is_you_a_roster_name_a_short_id_or_nobody() {
 }
 
 #[test]
-fn a_link_shows_its_host_and_a_done_todo_when_it_was_done() {
+fn a_link_shows_its_host_and_completed_items_have_no_display_rows() {
     let rows = rows(
         &preview(vec![
             item(
                 1,
-                Some("https://github.com/pj-tmt/tmt/pull/4554?x=1"),
+                Some("https://example.org/pull/4554?x=1"),
                 Completion::Open,
                 Some(stamp(ALICE, HOUR)),
                 None,
@@ -118,34 +163,15 @@ fn a_link_shows_its_host_and_a_done_todo_when_it_was_done() {
                 Some(stamp(ME, 5 * HOUR)),
                 Some(stamp(ALICE, 2 * MINUTE)),
             ),
-            item(
-                3,
-                None,
-                Completion::Complete,
-                Some(stamp(ME, 5 * HOUR)),
-                None,
-            ),
-            item(4, None, Completion::Complete, None, Some(stamp(ME, HOUR))),
-            item(5, None, Completion::Complete, None, None),
+            item(3, None, Completion::Complete, None, None),
         ]),
         NOW,
     );
-    let kinds: Vec<_> = rows.iter().map(|row| row.kind).collect();
     assert_eq!(
-        kinds,
-        [Kind::Link, Kind::Done, Kind::Done, Kind::Done, Kind::Done]
+        rows.iter().map(|row| row.kind).collect::<Vec<_>>(),
+        [Kind::Link]
     );
-    let metas: Vec<_> = rows.iter().map(|row| row.meta(usize::MAX)).collect();
-    assert_eq!(
-        metas,
-        [
-            "github.com  alice · 1h",
-            "you · done 2m",
-            "you · done",
-            "done 1h",
-            "done"
-        ]
-    );
+    assert_eq!(rows[0].meta(usize::MAX), "example.org  alice · 1h");
 }
 
 #[test]
@@ -165,7 +191,7 @@ fn a_host_stops_at_the_path_and_a_bare_reference_is_its_own_host() {
 
 #[test]
 fn every_row_mark_is_a_registered_board_mark() {
-    for kind in [Kind::Link, Kind::Todo, Kind::Done] {
+    for kind in [Kind::Link, Kind::Todo] {
         let row = format!("{} title", kind.mark());
         assert_eq!(
             crate::board::glyph_guard::glyph_error(&row),

@@ -158,10 +158,13 @@ Completion v1 is optional, bounded and falls back to file completion on any fail
 
 `tmt api` is the public, same-user process port for machine-shaped gaps in the
 ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
-stdout. It is neither an authentication boundary nor a daemon, batch or stream.
-`tmt-adapters::api` owns envelope admission and composition; the CLI owns bounded
-stdin, publication and exit status. Protocol major 1 accepts additive operations and
-fields; incompatible changes need a new major.
+stdout. Explicit `--session` uses ordered JSON lines and a lazy resource connection;
+workspace capture retains its bounded read-only snapshot.
+Request admission stays fresh and a schema change ends it with a reopen code.
+`tmt-adapters::api` owns composition/storage; shared `framed_stdio` bounds API/MCP
+frames. The CLI owns publication, request boundaries and cleanup, with no listener
+or daemon. Protocol major 1 accepts additive operations and fields; incompatible
+changes need a new major.
 [Optional extension uses](contracts/extension-api.md#optional-cross-extension-uses) follow the receipt-only query contract.
 Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The
@@ -570,7 +573,8 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
   from a browser. Public short entries bootstrap from validated `tmt-mount` without device context;
   Colab resolves page prefixes from its verified catalog; reader seeds stay in fragments.
-  It stores ciphertext, never decodes Yjs.
+  It stores ciphertext, never decodes Yjs; the sync owner serializes authority
+  changes with delivery and shares bounded admission sweeps ([sync rules](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#stream-sync)).
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,

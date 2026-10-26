@@ -1061,6 +1061,26 @@
           ]
         }
       ]
+    },
+    "5311": {
+      "release": {
+        "workflow": "native-release-upgrade-prove.yml",
+        "job": "prove",
+        "step": "name:Prove last-published and declared-floor installation and bootstrap recovery"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        }
+      ]
     }
   }
 }

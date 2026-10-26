@@ -8,11 +8,45 @@ printf '%s\n' '{"version":1,"operation":"capabilities","input":{}}' |
 ```
 
 No extension installation is required. Capabilities list supported operations and
-byte bounds without creating state. Close stdin within five seconds. Exit 0
-means the operation returned a resource; exit 1 returns
+byte bounds without creating state. In the default one-request mode, close stdin
+within five seconds. Exit 0 means the operation returned a resource; exit 1 returns
 `{"error":{"code":"...","message":"..."}}`. This is a local same-user
 interface, not remote authorization. The [architecture contract](../ARCHITECTURE.md#local-extension-api-v1)
 owns compatibility, transport and persistence rules.
+
+## Persistent session
+
+`tmt api --session` accepts the same versioned requests as newline-delimited JSON
+on redirected stdin and emits one compact resource or error JSON line per request
+on stdout, in order, without a second wrapper. `capabilities.session.framing` is
+`"ndjson"` when this mode is available. No startup frame or request ID is added.
+Each input payload and output resource retains the advertised byte bound, excluding
+the newline delimiter. A request cannot contain a literal newline; JSON string
+newlines must be escaped. Ordinary request errors, including malformed JSON on a
+complete line, produce their normal error resource and leave the session usable.
+
+The process waits for idle input without a timer. Once a partial frame arrives it
+has five seconds to finish; each response also has a five-second write bound.
+Incomplete EOF, an oversized frame, terminal stdio or failed/timed-out transport
+ends the process with a nonzero status and a stderr diagnostic. Earlier complete
+response lines remain valid; a missing response does not authorize replaying a
+mutation. Clean EOF closes storage and exits 0 even if individual requests failed.
+
+The API resource connection opens lazily once and is reused. The one exception is
+`workspace.capture`: its owner retains a bounded, zero-busy-timeout read-only
+identity snapshot, preserving its no-create and current-schema admission behavior.
+Constant capabilities and `storage.root`
+create no storage. Every operation still validates its own input and current
+identity/role/retirement state; delivery settings reload per request. No database
+transaction spans frames. Lifecycle observations drain and deliver after each
+request, retaining the existing process-level consent snapshot.
+
+After storage opens, a cheap schema-version check precedes each request, including
+discovery. If another process migrates the database, the next request returns
+`{"error":{"code":"API_SESSION_STALE","message":"..."}}` and the session
+closes with exit 1 without executing that request or any following queued request.
+Consumers reopen using the current executable; normal consent and operation-ID
+recovery rules still apply. A session adds no listener, socket or daemon.
 
 Official executable installation is a local CLI operation (`tmt extension
 install|upgrade|rm`), separate from this process API and its `skills.install`

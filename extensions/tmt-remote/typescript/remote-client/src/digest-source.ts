@@ -51,10 +51,35 @@ export interface UsageUnavailable {
   reason: string;
 }
 
+/**
+ * Which of a provider's accounts a limit belongs to, as Core reports it in `rateLimits.account`
+ * (#5274): an opaque grouping key, never shown, and a display label, shown as text.
+ */
+export interface LimitAccount {
+  key: string;
+  label: string;
+}
+
+const ACCOUNT_KEY = /^[0-9a-f]{12}$/;
+const ACCOUNT_LABEL = /^[A-Za-z0-9._-]{1,32}$/;
+
+/** The shape Core writes; anything else is no account, so it cannot fold into another's. */
+export function isLimitAccount(value: unknown): value is LimitAccount {
+  const account = value as Partial<LimitAccount> | null;
+  return (
+    typeof account?.key === 'string' &&
+    ACCOUNT_KEY.test(account.key) &&
+    typeof account.label === 'string' &&
+    ACCOUNT_LABEL.test(account.label)
+  );
+}
+
 /** An account window, newest observation wins; windows are never summed. */
 export interface LimitWindow {
   /** The driver of the source line, as Core reports it; never inferred from a seat's models. */
   provider: string;
+  /** Absent for a provider with one implicit account and for a Core that predates the field. */
+  account?: LimitAccount;
   windowMinutes: number;
   resetsAtMs: number;
   usedPercent: number;
@@ -87,6 +112,7 @@ export interface FlowPair {
  */
 export interface LimitHistory {
   provider: string;
+  account?: LimitAccount;
   windowMinutes: number;
   resetsAtMs: number;
   points: readonly { atMs: number; percentLeft: number }[];
@@ -140,6 +166,8 @@ interface DigestPayload {
 interface LimitsPayload {
   limitHistory: readonly {
     provider: string;
+    /** Present only for an account Core named. */
+    account?: LimitAccount;
     windowMinutes: number;
     /** `[observedAtMs, percentLeft, resetsAtMs]`, oldest first. */
     points: readonly (readonly [number, number, number])[];
@@ -179,7 +207,8 @@ export function limitHistoryFrom(
     if (
       typeof history?.provider !== 'string' ||
       !Number.isFinite(history.windowMinutes) ||
-      !Array.isArray(history.points)
+      !Array.isArray(history.points) ||
+      (history.account != null && !isLimitAccount(history.account))
     )
       return [];
     const groups = new Map<number, { atMs: number; percentLeft: number }[]>();
@@ -190,6 +219,7 @@ export function limitHistoryFrom(
     }
     return [...groups].map(([resetsAtMs, points]) => ({
       provider: history.provider!,
+      ...(history.account ? { account: history.account } : {}),
       windowMinutes: history.windowMinutes as number,
       resetsAtMs,
       points: points.sort((a, b) => a.atMs - b.atMs),

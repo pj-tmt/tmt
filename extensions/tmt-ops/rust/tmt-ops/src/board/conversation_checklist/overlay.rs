@@ -89,7 +89,7 @@ impl Controller {
         self.ui.borrow_mut().invalidate();
     }
 
-    /// The items as the overlay lists them: links first, then todos open and done.
+    /// The items as the overlay lists them: open links first, then other open todos.
     pub(super) fn items(&self, notes: &State) -> Vec<Row> {
         let mut items = notes
             .preview(&self.key)
@@ -221,7 +221,7 @@ impl Controller {
     }
 
     /// Enter on an item: a link row does what `board.checklist_enter` says, open or tick; any
-    /// other row ticks a todo and unticks a done one.
+    /// other row completes a todo.
     fn activate(&mut self, app: &mut App, items: &[Row], id: &str) -> Effect {
         let Some(row) = items.iter().find(|row| row.id.as_str() == id) else {
             return Effect::None;
@@ -264,7 +264,7 @@ impl Controller {
         let write = Write::Toggle {
             item: row.id.clone(),
             revision,
-            complete: !row.completed,
+            complete: true,
         };
         self.write(&mut app.notes, write)
     }
@@ -478,7 +478,19 @@ impl Controller {
     pub(in crate::board) fn written(&mut self, notes: &State, written: &Written) {
         match &written.result {
             Ok(()) => {
-                self.notice = None;
+                self.notice = written.item.as_ref().and_then(|id| {
+                    notes
+                        .preview(&self.key)?
+                        .current
+                        .items
+                        .iter()
+                        .find(|view| {
+                            &view.item.id == id
+                                && view.item.completion
+                                    == crate::checklist::model::Completion::Complete
+                        })
+                        .map(|view| format!("✓ Completed {}", view.item.content.title))
+                });
                 *self.reveal.borrow_mut() = written.item.clone();
             }
             Err(error) => self.notice = Some(match error.code {

@@ -5179,6 +5179,13 @@ var USAGE_RANGES = [
 	"7d",
 	"30d"
 ];
+var ACCOUNT_KEY = /^[0-9a-f]{12}$/;
+var ACCOUNT_LABEL = /^[A-Za-z0-9._-]{1,32}$/;
+/** The shape Core writes; anything else is no account, so it cannot fold into another's. */
+function isLimitAccount(value) {
+	const account = value;
+	return typeof account?.key === "string" && ACCOUNT_KEY.test(account.key) && typeof account.label === "string" && ACCOUNT_LABEL.test(account.label);
+}
 /** One plain sentence per reason, each saying what the person can do. */
 var REASONS$1 = {
 	not_installed: "Digest is not installed on your machine. Run `tmt extension install digest`, then reload this page.",
@@ -5199,7 +5206,7 @@ function limitHistoryFrom(answer) {
 	const isPoint = (point) => Array.isArray(point) && point.length === 3 && point.every((value) => Number.isFinite(value));
 	return histories.flatMap((entry) => {
 		const history = entry;
-		if (typeof history?.provider !== "string" || !Number.isFinite(history.windowMinutes) || !Array.isArray(history.points)) return [];
+		if (typeof history?.provider !== "string" || !Number.isFinite(history.windowMinutes) || !Array.isArray(history.points) || history.account != null && !isLimitAccount(history.account)) return [];
 		const groups = /* @__PURE__ */ new Map();
 		for (const [atMs, percentLeft, reset] of history.points.filter(isPoint)) {
 			const points = groups.get(reset) ?? [];
@@ -5211,6 +5218,7 @@ function limitHistoryFrom(answer) {
 		}
 		return [...groups].map(([resetsAtMs, points]) => ({
 			provider: history.provider,
+			...history.account ? { account: history.account } : {},
 			windowMinutes: history.windowMinutes,
 			resetsAtMs,
 			points: points.sort((a, b) => a.atMs - b.atMs)
@@ -5380,15 +5388,20 @@ function providerStyle(provider) {
 }
 /** Exact source/window/reset identity, also used for history and stable disclosure IDs. */
 function windowKey(window) {
-	return `${encodeURIComponent(window.provider)}-${window.windowMinutes}-${window.resetsAtMs}`;
+	const account = window.account ? `.${window.account.key}` : "";
+	return `${encodeURIComponent(window.provider)}${account}-${window.windowMinutes}-${window.resetsAtMs}`;
 }
 /** Weekly windows still active at the owner's read time. Unknown sources stay explicit. */
 function allowance(doc) {
 	const seats = new Map([...doc.usage.seats, ...doc.usage.unavailable].map((seat) => [seat.id, seat]));
-	return doc.limits.filter((limit) => typeof limit.provider === "string" && limit.provider.length > 0 && limit.windowMinutes === 10080 && limit.resetsAtMs > doc.observedAtMs).map((limit) => ({
+	const active = doc.limits.filter((limit) => typeof limit.provider === "string" && limit.provider.length > 0 && limit.windowMinutes === 10080 && limit.resetsAtMs > doc.observedAtMs && (limit.account == null || isLimitAccount(limit.account)));
+	const accounts = /* @__PURE__ */ new Map();
+	for (const limit of active) if (limit.account) accounts.set(limit.provider, (accounts.get(limit.provider) ?? /* @__PURE__ */ new Set()).add(limit.account.key));
+	return active.map((limit) => ({
 		key: windowKey(limit),
 		source: limit.provider,
-		provider: PROVIDER_LABELS[limit.provider] ?? limit.provider,
+		provider: (PROVIDER_LABELS[limit.provider] ?? limit.provider) + ((accounts.get(limit.provider)?.size ?? 0) > 1 ? ` · ${limit.account?.label ?? "unknown account"}` : ""),
+		accountKey: limit.account?.key ?? null,
 		leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
 		elapsedPercent: limit.elapsedPercent,
 		paceDeltaPoints: limit.paceDeltaPoints,
@@ -5434,15 +5447,19 @@ function providerGroups(doc) {
 		"codex",
 		"claude",
 		...views.map((view) => view.source)
-	])].map((source) => {
+	])].flatMap((source) => {
 		const windows = views.filter((view) => view.source === source);
-		const primary = windows.find((view) => view.current);
-		return {
-			source,
-			label: PROVIDER_LABELS[source] ?? source,
-			primary,
-			other: windows.filter((view) => view !== primary)
-		};
+		return (new Set(windows.flatMap((view) => view.accountKey ? [view.accountKey] : [])).size > 1 ? [...new Set(windows.map((view) => view.accountKey))] : [void 0]).map((account) => {
+			const own = account === void 0 ? windows : windows.filter((view) => view.accountKey === account);
+			const primary = own.find((view) => view.current);
+			return {
+				id: account === void 0 ? source : `${source}-${account ?? "unknown"}`,
+				source,
+				label: account === void 0 ? PROVIDER_LABELS[source] ?? source : own[0].provider,
+				primary,
+				other: own.filter((view) => view !== primary)
+			};
+		});
 	});
 }
 /** Age against the owner's clock, never the browser's possibly different wall clock. */
@@ -5663,7 +5680,7 @@ function allowanceRow(report, state) {
 	if (providers.length > 2) groups.dataset.many = "";
 	for (const group of providers) {
 		const host = el$1("div", "digest-provider-group");
-		host.id = `digest-provider-${encodeURIComponent(group.source)}`;
+		host.id = `digest-provider-${encodeURIComponent(group.id)}`;
 		if (group.primary) host.append(providerRow(group.primary, doc.observedAtMs));
 		else {
 			const label = el$1("div", "digest-provider-label");

@@ -67,6 +67,7 @@ describe('native runtime proof boundary', () => {
         let stdout = '';
         if (command === executable) {
           calls.push(words);
+          expect((options as { timeout: number }).timeout).toBe(60_000);
           expect(env.TMT_AGENT).toBe('1');
           expect(env.BROWSER).toBe('/usr/bin/true');
           expect(env.TMUX).toBeUndefined();

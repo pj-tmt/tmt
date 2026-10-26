@@ -7,7 +7,10 @@ use std::{
     io::Write,
     os::unix::net::UnixStream,
     path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tmt_colab::{
@@ -28,8 +31,16 @@ struct Policy {
     denied: Option<Code>,
     baseline: Option<Vec<u8>>,
     owner: [u8; 32],
+    checks: Arc<AtomicUsize>,
+    external_denial: Arc<Mutex<Option<Code>>>,
 }
 impl Admission for Policy {
+    fn alive(&self, _: &str) -> Result<(), Code> {
+        self.checks.fetch_add(1, Ordering::Relaxed);
+        self.denied
+            .or(*self.external_denial.lock().unwrap())
+            .map_or(Ok(()), Err)
+    }
     fn catchup_context(
         &self,
         _: &str,
@@ -52,7 +63,8 @@ impl Admission for Policy {
         scope: &SyncScope,
         access: Access<'_>,
     ) -> Result<[u8; 32], Code> {
-        if let Some(code) = self.denied {
+        self.checks.fetch_add(1, Ordering::Relaxed);
+        if let Some(code) = self.denied.or(*self.external_denial.lock().unwrap()) {
             return Err(code);
         }
         if scope.space != self.space || scope.page != PAGE {
@@ -136,6 +148,8 @@ impl Fixture {
                 denied: None,
                 baseline: None,
                 owner: alice.verifying_key().to_bytes(),
+                checks: Arc::default(),
+                external_denial: Arc::default(),
             },
         );
         Self {
@@ -602,6 +616,139 @@ fn revocation_drops_queued_ciphertext_and_expiry_is_distinct() {
     assert_eq!(a.1.poll(), Progress::Closed);
     closed(&mut a, "EXPIRED");
 }
+#[test]
+fn idle_tabs_share_one_admission_sweep_per_second() {
+    let f = Fixture::new();
+    let mut peers: Vec<_> = (0..5)
+        .map(|_| {
+            let mut peer = f.peer(ALICE);
+            send(&mut peer, f.frame("subscribe", json!({"cursors":[]})));
+            peer
+        })
+        .collect();
+    let mut checks = None;
+    f.server
+        .update_admission(|policy| checks = Some(Arc::clone(&policy.checks)))
+        .unwrap();
+    let checks = checks.unwrap();
+    checks.store(0, Ordering::Relaxed);
+    let start = Instant::now() + Duration::from_secs(2);
+    // Five workers, each turning every 20 ms, used to perform 3,750 authorizations.
+    for tick in 0..50 {
+        for peer in &mut peers {
+            assert_eq!(
+                peer.1.poll_at(start + Duration::from_millis(tick * 20)),
+                Progress::Pending
+            );
+        }
+        assert_eq!(checks.load(Ordering::Relaxed), 10);
+    }
+    assert_eq!(
+        peers[0].1.poll_at(start + Duration::from_secs(1)),
+        Progress::Pending
+    );
+    assert_eq!(checks.load(Ordering::Relaxed), 20);
+}
+
+#[test]
+fn a_new_peer_cannot_reuse_an_existing_peers_admission_sweep() {
+    let f = Fixture::new();
+    let mut existing = f.peer(ALICE);
+    let mut denial = None;
+    f.server
+        .update_admission(|policy| denial = Some(Arc::clone(&policy.external_denial)))
+        .unwrap();
+    assert_eq!(existing.1.poll(), Progress::Pending);
+    *denial.unwrap().lock().unwrap() = Some(Code::Denied);
+    let mut fresh = f.peer(BOB);
+    assert_eq!(fresh.1.poll(), Progress::Closed);
+    closed(&mut fresh, "DENIED");
+}
+
+#[test]
+fn an_external_revocation_or_expiry_ends_idle_access_at_one_second() {
+    for (code, reason) in [
+        (Code::Denied, "DENIED"),
+        (Code::Expired, "EXPIRED"),
+        (Code::StaleEpoch, "STALE_EPOCH"),
+    ] {
+        let f = Fixture::new();
+        let mut peer = f.peer(BOB);
+        send(&mut peer, f.frame("subscribe", json!({"cursors":[]})));
+        let mut denial = None;
+        f.server
+            .update_admission(|policy| denial = Some(Arc::clone(&policy.external_denial)))
+            .unwrap();
+        let start = Instant::now() + Duration::from_secs(2);
+        assert_eq!(peer.1.poll_at(start), Progress::Pending);
+        // Model an owner-store transition from another process: no in-memory generation bump.
+        *denial.unwrap().lock().unwrap() = Some(code);
+        assert_eq!(
+            peer.1.poll_at(start + Duration::from_millis(999)),
+            Progress::Pending
+        );
+        assert_eq!(
+            peer.1.poll_at(start + Duration::from_secs(1)),
+            Progress::Closed
+        );
+        closed(&mut peer, reason);
+    }
+}
+
+#[test]
+fn the_expired_sweep_discards_queued_bytes_and_pre_hello_access() {
+    let f = Fixture::new();
+    let mut writer = f.peer(ALICE);
+    let mut reader = f.peer(BOB);
+    let mut pre_hello = f.peer(BOB);
+    send(&mut reader, f.frame("subscribe", json!({"cursors":[]})));
+    let mut denial = None;
+    f.server
+        .update_admission(|policy| denial = Some(Arc::clone(&policy.external_denial)))
+        .unwrap();
+    let start = Instant::now() + Duration::from_secs(2);
+    assert_eq!(reader.1.poll_at(start), Progress::Pending);
+    let (frame, _, _) = f.append(ALICE, 1, [0; 32], "content", 4);
+    send(&mut writer, frame);
+    receive(&mut writer);
+    *denial.unwrap().lock().unwrap() = Some(Code::Denied);
+    // Neither the queued broadcast nor a pre-hello connection survives the next sweep.
+    assert_eq!(
+        reader.1.poll_at(start + Duration::from_secs(1)),
+        Progress::Closed
+    );
+    closed(&mut reader, "DENIED");
+    assert_eq!(
+        pre_hello.1.poll_at(start + Duration::from_secs(1)),
+        Progress::Closed
+    );
+    closed(&mut pre_hello, "DENIED");
+}
+
+#[test]
+fn management_invalidates_the_shared_admission_window_before_delivery() {
+    let f = Fixture::new();
+    let mut a = f.peer(ALICE);
+    let mut b = f.peer(BOB);
+    send(&mut b, f.frame("subscribe", json!({"cursors":[]})));
+    let (frame, _, _) = f.append(ALICE, 1, [0; 32], "content", 4);
+    send(&mut a, frame);
+    receive(&mut a);
+    f.server
+        .manage(|policy| {
+            policy.epoch = "2".into();
+            Ok(tmt_colab::management::Applied {
+                body: Vec::new(),
+                resync_page: None,
+                deleted_page: None,
+                touched: vec![PAGE.into()],
+            })
+        })
+        .unwrap();
+    assert_eq!(b.1.poll(), Progress::Closed);
+    closed(&mut b, "STALE_EPOCH");
+}
+
 #[test]
 fn strict_frames_and_connection_capacity() {
     let f = Fixture::new();

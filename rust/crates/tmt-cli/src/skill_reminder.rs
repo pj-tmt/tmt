@@ -51,6 +51,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
             parsed.invocation,
             Invocation::Extension { .. }
                 | Invocation::Api
+                | Invocation::ApiSession
                 | Invocation::Mcp { .. }
                 | Invocation::Help(_)
                 | Invocation::Version
@@ -101,6 +102,7 @@ pub fn works_with_hosts(invocation: &Invocation) -> bool {
         invocation,
         Invocation::Extension { .. }
             | Invocation::Api
+            | Invocation::ApiSession
             | Invocation::Mcp { .. }
             | Invocation::Help(_)
             | Invocation::Version

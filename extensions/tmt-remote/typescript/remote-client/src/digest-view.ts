@@ -4,6 +4,7 @@
  * it is never turned into a zero here.
  */
 import type { Layer, SeriesChartOptions } from '@tmt/browser-ui/chart';
+import { isLimitAccount } from './digest-source.js';
 import type { LimitWindow, UsageDocument, UsagePoint } from './digest-source.js';
 
 const HOUR = 3_600_000;
@@ -159,15 +160,20 @@ export function providerStyle(provider: string): number {
 
 /** Exact source/window/reset identity, also used for history and stable disclosure IDs. */
 export function windowKey(
-  window: Pick<LimitWindow, 'provider' | 'windowMinutes' | 'resetsAtMs'>,
+  window: Pick<LimitWindow, 'provider' | 'account' | 'windowMinutes' | 'resetsAtMs'>,
 ): string {
-  return `${encodeURIComponent(window.provider)}-${window.windowMinutes}-${window.resetsAtMs}`;
+  // The account key is hex, so it needs no encoding; a window without one keeps its old key.
+  const account = window.account ? `.${window.account.key}` : '';
+  return `${encodeURIComponent(window.provider)}${account}-${window.windowMinutes}-${window.resetsAtMs}`;
 }
 
 export interface AllowanceRow {
   key: string;
   source: string;
+  /** The provider's name, with its account label after it only where the provider has several. */
   provider: string;
+  /** Grouping only; never shown. Null for a window that names no account. */
+  accountKey: string | null;
   leftPercent: number;
   /** Share of the window elapsed, null for a stale observation. */
   elapsedPercent: number | null;
@@ -186,18 +192,34 @@ export function allowance(doc: UsageDocument): AllowanceRow[] {
     [...doc.usage.seats, ...doc.usage.unavailable].map((seat) => [seat.id, seat]),
   );
   // Core owns exact source/window/reset deduplication. The page only selects active weeks.
-  return doc.limits
-    .filter(
-      (limit) =>
-        typeof limit.provider === 'string' &&
-        limit.provider.length > 0 &&
-        limit.windowMinutes === 10080 &&
-        limit.resetsAtMs > doc.observedAtMs,
-    )
+  const active = doc.limits.filter(
+    (limit) =>
+      typeof limit.provider === 'string' &&
+      limit.provider.length > 0 &&
+      limit.windowMinutes === 10080 &&
+      limit.resetsAtMs > doc.observedAtMs &&
+      // A malformed account is no window at all, so it cannot fold into another account's.
+      (limit.account == null || isLimitAccount(limit.account)),
+  );
+  // Accounts are named only where a provider has more than one: one account, or none, reads as
+  // the provider alone, and the windows that name none beside several are the unknown account.
+  const accounts = new Map<string, Set<string>>();
+  for (const limit of active)
+    if (limit.account)
+      accounts.set(
+        limit.provider,
+        (accounts.get(limit.provider) ?? new Set()).add(limit.account.key),
+      );
+  return active
     .map((limit) => ({
       key: windowKey(limit),
       source: limit.provider,
-      provider: PROVIDER_LABELS[limit.provider] ?? limit.provider,
+      provider:
+        (PROVIDER_LABELS[limit.provider] ?? limit.provider) +
+        ((accounts.get(limit.provider)?.size ?? 0) > 1
+          ? ` · ${limit.account?.label ?? 'unknown account'}`
+          : ''),
+      accountKey: limit.account?.key ?? null,
       leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
       elapsedPercent: limit.elapsedPercent,
       paceDeltaPoints: limit.paceDeltaPoints,
@@ -260,6 +282,8 @@ export function providers(doc: UsageDocument, zone?: string): ProviderView[] {
 }
 
 export interface ProviderGroup {
+  /** Stable element ID part: the source, and the account key when the provider has several. */
+  id: string;
   source: string;
   label: string;
   primary: ProviderView | undefined;
@@ -270,15 +294,25 @@ export interface ProviderGroup {
 export function providerGroups(doc?: UsageDocument): ProviderGroup[] {
   const views = doc ? providers(doc) : [];
   const sources = [...new Set(['codex', 'claude', ...views.map((view) => view.source)])];
-  return sources.map((source) => {
+  return sources.flatMap((source) => {
     const windows = views.filter((view) => view.source === source);
-    const primary = windows.find((view) => view.current);
-    return {
-      source,
-      label: PROVIDER_LABELS[source] ?? source,
-      primary,
-      other: windows.filter((view) => view !== primary),
-    };
+    // One group per account only where the provider has several; views arrive newest first, so
+    // the account seen most recently leads. One account, or none, is one group, as before.
+    const several = new Set(windows.flatMap((view) => (view.accountKey ? [view.accountKey] : [])));
+    const accounts =
+      several.size > 1 ? [...new Set(windows.map((view) => view.accountKey))] : [undefined];
+    return accounts.map((account) => {
+      const own =
+        account === undefined ? windows : windows.filter((view) => view.accountKey === account);
+      const primary = own.find((view) => view.current);
+      return {
+        id: account === undefined ? source : `${source}-${account ?? 'unknown'}`,
+        source,
+        label: account === undefined ? (PROVIDER_LABELS[source] ?? source) : own[0]!.provider,
+        primary,
+        other: own.filter((view) => view !== primary),
+      };
+    });
   });
 }
 

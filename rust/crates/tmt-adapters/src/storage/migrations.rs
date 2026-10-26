@@ -404,6 +404,8 @@ pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
     apply_through(connection, MIGRATIONS.len())
 }
 
+pub(super) const VERSION: u32 = MIGRATIONS.len() as u32;
+
 /// Compiled migration authority, with the actual Rust/SQL source closure.
 /// This is not a filesystem scan or a count inferred by release tooling.
 pub(super) fn compiled_schema() -> super::CompiledSchema {
@@ -436,7 +438,7 @@ pub(super) fn compiled_schema() -> super::CompiledSchema {
     }
     sources.sort_by_key(|source| source.path);
     super::CompiledSchema {
-        version: MIGRATIONS.len() as u32,
+        version: VERSION,
         sources,
     }
 }

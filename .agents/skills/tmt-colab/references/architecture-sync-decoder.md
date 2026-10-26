@@ -13,8 +13,12 @@ and `limits.rs`; do not restate them.
 - The caller implements `Admission` from its verified owner log and device chains (live
   page, role, namespace, revision, expiry, epoch). The server checks exact model
   envelope, header, hash and signature bindings, then calls the create-only `Store`. It
-  never decrypts and never calls the decoder. An exact retry returns the same receipt
-  without a rebroadcast; awareness is ephemeral.
+  never decrypts and never calls the decoder. Request admission remains fresh. Idle
+  peers share a generation-fenced sweep for less than `limits::ADMISSION_RECHECK`;
+  `update_admission`, management and a rekey pass invalidate it under the sync lock.
+  The supplied monotonic poll clock bounds expiry/external-store detection; queued
+  and buffered delivery stays under that lock. An exact retry returns the same
+  receipt without a rebroadcast; awareness is ephemeral.
 - Owner folds (#3983, colab-v1 "Owner fold"): the model decodes the `fold` object kind
   (`object::seal_fold`, `open_fold`, `check_anchor`; a fold header has one more field, so a reader
   of the thirteen-field header refuses it) and a `device.revoke` carries the fold hashes it accepts
