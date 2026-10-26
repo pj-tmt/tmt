@@ -5,6 +5,8 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 mod paging;
+#[cfg(test)]
+pub(in crate::board) mod timeline;
 pub(super) use paging::AnswerRead;
 
 pub(super) const MAX_ITEMS: usize = 50;

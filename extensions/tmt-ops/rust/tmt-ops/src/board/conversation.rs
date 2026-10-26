@@ -21,6 +21,8 @@ use unicode_width::UnicodeWidthStr;
 
 mod activity;
 mod answer_order;
+#[cfg(test)]
+mod committed;
 mod copy;
 pub(in crate::board) mod exchange;
 mod history;

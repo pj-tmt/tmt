@@ -2139,3 +2139,92 @@ fn plain_chat_uses_the_public_dispatch_wire_and_keeps_core_questions_untouched()
             .any(|call| call["command"][0] == "answer")
     );
 }
+
+#[test]
+fn submitted_reply_reconciliation_keeps_one_body_and_an_independent_provider_final() {
+    use crate::board::app::workspace::tests::MEMBER;
+    const NOW: u64 = 1_791_600_000_000;
+    const INPUT: &str = "A request with its own submitted answer";
+    const BODY: &str = "Submitted and independently emitted final";
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let mut app = crate::board::app::workspace::tests::board();
+            let completion = if restored {
+                None
+            } else {
+                let (ticket, _) = begin(&mut app, INPUT);
+                Some(Completed {
+                    ticket: Some(ticket),
+                    outcome: Ok(Accepted {
+                        request: "req-submitted".into(),
+                        disposition: Disposition::Sent,
+                        passthrough: false,
+                        message_state_label: None,
+                        can_send_now: false,
+                        working: false,
+                        fallback: None,
+                        warning: None,
+                    }),
+                    what: "Message".into(),
+                    to: "worker".into(),
+                })
+            };
+            board_frame(&app, 160, 51);
+            let selected = app.conversation_finals().unwrap();
+            let key = crate::board::home_leads::SentKey {
+                sender: selected.sender,
+                agent: selected.agent,
+            };
+            if let Some(completion) = completion {
+                finish(&mut app, completion);
+            }
+            app.apply_sent(
+                key.clone(),
+                Ok(vec![history_send("req-submitted", NOW, INPUT)]),
+            );
+            app.view.as_mut().unwrap().replies.push(json!({
+                "recipientId":MEMBER,"requestId":"req-submitted",
+                "submittedAtMs":NOW + 1000,"response":BODY
+            }));
+            for _ in 0..2 {
+                let screen = draw(&app);
+                assert_eq!(
+                    screen.matches(INPUT).count(),
+                    1,
+                    "restored={restored}: {screen}"
+                );
+                assert_eq!(
+                    screen.matches(BODY).count(),
+                    1,
+                    "restored={restored}: {screen}"
+                );
+                app.apply_sent(
+                    key.clone(),
+                    Ok(vec![history_send("req-submitted", NOW, INPUT)]),
+                );
+            }
+            app.conversation.borrow_mut().refresh_pane_output();
+            let pane_key = app.pane_output_read().unwrap();
+            app.apply_pane_output(
+                pane_key,
+                crate::board::recent_responses::Observation::observed(vec![
+                    crate::board::recent_responses::Item {
+                        response_id: Some("rsp_independent".into()),
+                        text: BODY.into(),
+                        provider: "codex".into(),
+                        ended_ms: NOW + 2000,
+                        truncated: false,
+                        original_bytes: BODY.len() as u64,
+                        session: None,
+                    },
+                ]),
+            );
+            let screen = draw(&app);
+            assert_eq!(
+                screen.matches(BODY).count(),
+                2,
+                "distinct sources must survive: {screen}"
+            );
+        }
+    });
+}
