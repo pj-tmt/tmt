@@ -313,7 +313,7 @@ self-toggle, explicitly reopen and read only the original receipt.
 After self-rename, keep the live Session and read the original receipt; rename changes no authority.
 After a lost self-revoke acknowledgment, make one fresh read-only admission
 attempt with the same paired identity/current trusted door descriptor. If admission is refused,
-show lost current access **and unknown operation outcome**, with `tmt remote devices` for local
+show lost current access **and unknown operation outcome**, with `tmt remote members` for local
 confirmation. Do not claim revoke committed or offer a mutation retry. Transport failure or an
 unverified/stale descriptor is unconfirmed access and unknown outcome. All reads require a live
 grant; no historical-key reader or general recovery endpoint exists. Losing designation alone

@@ -463,7 +463,7 @@ export async function landingPage(
     },
     { once: true },
   );
-  const commandActions = ['pair', 'devices', 'status'] as const;
+  const commandActions = ['pair', 'members', 'status'] as const;
   let guidanceState: EntryState = 'checking';
   let guidanceEnded = false;
   function showGuidance(): void {

@@ -43,8 +43,8 @@ a:not(.tmt-ui-action, .tmt-ui-rail *, .tmt-ui-module-menu *, .tmt-ui-list-title 
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
     .needs-filter-button
   )[aria-pressed='true'] {
-  border-color: var(--c-accent);
-  background: var(--c-accent-soft);
+  border-color: var(--tmt-ui-color-accent);
+  background: var(--tmt-ui-surface-selection);
 }
 /* One focus frame (#3998): one inset outline; a control with its own border recolours that border
    instead, in its own rule. */
@@ -2116,8 +2116,8 @@ button.discussion-quote:focus-visible {
 .selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
   width: auto;
   padding: 0 14px;
-  background: var(--c-accent-soft);
-  color: var(--c-accent);
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-accent);
 }
 .selection-mode .tmt-ui-icon-action-icon {
   width: auto;

@@ -26,24 +26,69 @@ fn driver(row: &Value) -> Option<Provider> {
     Provider::from_driver(row["resume"]["driver"].as_str()?)
 }
 
-/// Providers with at least one listed session.
+/// Providers with at least one listed session: the driver, or the driver and the account its
+/// session's limits name (#5274). A driver's sessions that name none stay the plain driver.
 pub(in crate::board) fn present(listed: &Value) -> BTreeSet<Provider> {
-    rows(listed).filter_map(driver).collect()
+    rows(listed)
+        .filter_map(|row| {
+            let plain = driver(row)?;
+            let named = reading(&row["resume"]["consumption"]["rateLimits"])
+                .and_then(|(_, account)| account)
+                .map(|account| plain.clone().with_account(&account));
+            Some(named.unwrap_or(plain))
+        })
+        .collect()
 }
 
-/// The newest limits each provider's listed sessions report themselves.
+/// The providers the board shows: the `live` ones with a listed session and the `kept` ones the
+/// history holds. A driver with one account is that account alone, so the plain driver folds into
+/// it and the board reads as it did before accounts were named. A driver with two or more accounts
+/// keeps the plain driver only while a live session names none: readings kept for the plain driver
+/// before accounts were named cannot be told apart and are never a row of their own.
+pub(in crate::board) fn providers(
+    live: &BTreeSet<Provider>,
+    kept: impl IntoIterator<Item = Provider>,
+) -> BTreeSet<Provider> {
+    let mut all = live.clone();
+    all.extend(kept);
+    let accounts = |driver: &str| {
+        all.iter()
+            .filter(|provider| provider.id() == driver && provider.account_key().is_some())
+            .count()
+    };
+    all.iter()
+        .filter(|provider| {
+            provider.account_key().is_some()
+                || match accounts(provider.id()) {
+                    0 => true,
+                    1 => false,
+                    _ => live.contains(*provider),
+                }
+        })
+        .cloned()
+        .collect()
+}
+
+/// The newest limits each provider's listed sessions report themselves. Two accounts of one
+/// driver are two providers; the key carries the label of the newest reading.
 pub(in crate::board) fn reported(listed: &Value) -> BTreeMap<Provider, Reading> {
     let mut newest: BTreeMap<Provider, Reading> = BTreeMap::new();
     for row in rows(listed) {
-        let (Some(provider), Some(reading)) = (
+        let (Some(plain), Some((reading, account))) = (
             driver(row),
             reading(&row["resume"]["consumption"]["rateLimits"]),
         ) else {
             continue;
         };
+        let provider = match account {
+            Some(account) => plain.with_account(&account),
+            None => plain,
+        };
         match newest.get(&provider) {
             Some(known) if known.observed_at_ms >= reading.observed_at_ms => {}
             _ => {
+                // The map keeps the key it first saw, so replace it to carry the newest label.
+                newest.remove(&provider);
                 newest.insert(provider, reading);
             }
         }
@@ -82,8 +127,8 @@ pub(in crate::board) fn footer_candidates(listed: &Value) -> BTreeMap<Provider, 
 }
 
 /// The public `rateLimits` document as a reading, in percent left: the window
-/// of about a week and, when present, the one of about five hours.
-fn reading(limits: &Value) -> Option<Reading> {
+/// of about a week and, when present, the one of about five hours, with the account it names.
+fn reading(limits: &Value) -> Option<(Reading, Option<super::observation::Account>)> {
     let report = super::observation::Report::read(limits)?;
     let window_of = |kind: QuotaWindow| report.window(kind).map(|point| point.balance());
     let weekly = window_of(QuotaWindow::Weekly)?;
@@ -93,7 +138,7 @@ fn reading(limits: &Value) -> Option<Reading> {
         weekly,
         short,
     };
-    reading.valid().then_some(reading)
+    reading.valid().then_some((reading, report.account))
 }
 
 #[cfg(test)]

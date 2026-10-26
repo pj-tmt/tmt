@@ -527,6 +527,17 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// The counters as a sample carries them into history and `ls` (#5274): `state_consumption`
+    /// plus what the 1024-byte remembered state cannot hold, today the account of the allowance
+    /// windows. The remembered state itself never carries it.
+    fn sampled_consumption(
+        &self,
+        state: &DriverState,
+        _environment: &ProviderEnvironment,
+    ) -> Option<super::consumption::Consumption> {
+        self.state_consumption(state)
+    }
+
     /// An admitted runtime may outlive its owned foreground client. None keeps
     /// the generic exact-child exit path; a value is the driver's disconnect state.
     fn disconnected(

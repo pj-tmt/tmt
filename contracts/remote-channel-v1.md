@@ -774,7 +774,9 @@ boolean, and effective policy changes advance the member revision.
 
 Migration creates exactly one member per existing grant with `member_id=client_id`,
 preserving names, sending state and all grant fields, native pins, receipts and
-session counters. Only the exact existing key-bound local browser designation
+session counters. For a migrated disabled grant, `revokedAtMs` is initialized from
+that grant's `issuedAtMs`: it is an approximate legacy baseline, not a recorded
+revocation event time. Only the exact existing key-bound local browser designation
 establishes an owner role; browser kind, names, emails and provider uids cannot do
 so. Local machine owner authority remains the bootstrap. A role alone never
 substitutes for current signed designation/grant authority.
@@ -818,9 +820,47 @@ observed or re-adopted by that new member. Cloud final selection and mapped resu
 reads use the same ownership fence.
 
 The shared member roster/policy service and the retained devices facade consume these
-Store identities and writers; the signed management protocol is specified below. This adds
-no CLI vocabulary or invitation transport. Member-wide sending changes reuse post-commit
-session cleanup; machine-specific removal retains its grant semantics.
+Store identities and writers; the signed management protocol is specified below. Member-wide
+sending changes reuse post-commit session cleanup; machine-specific removal retains its grant semantics.
+
+### Local members commands
+
+`tmt remote members [--json] [--cursor <cursor>] [--limit <1-50>]` reads the local
+person roster; `members machines <member-id|unique-name>` reads one bounded machine page.
+Stable member IDs take precedence over exact display names; duplicate names refuse with
+`REMOTE_MEMBER_AMBIGUOUS`. A machine operation requires an exact client ID. Names never
+confer authority, and a public/imported `--remote` reference cannot manage this host.
+Explicit `--remote local` selects this host; a configured targeting default grants nothing.
+
+Person actions are `members rename <member-id|unique-name> <name>`,
+`members sending <member-id|unique-name> on|off`, and
+`members revoke <member-id|unique-name>`. Each accepts `--member-revision <revision>`.
+Exact-machine actions are `members rename-machine <client-id> <name>`,
+`members remove-machine <client-id>`, `members designate <client-id>` and
+`members undesignate`; these additionally accept `--grant-revision <revision>`.
+Removal affects only that machine; its person becomes a tombstone only after the last
+non-disabled machine is removed. Person rename and machine rename are separate.
+Sending preserves recipient scopes, expiry, explicit hold and narrower per-machine policy.
+Expired/revoked rows remain observable without becoming live authority. Designation still
+requires a live local browser with the exact current/remembered door origin and key.
+
+Terminal mutations use the owner-only private control socket while serving, or the
+exclusive serve lease while stopped. One IMMEDIATE transaction rechecks the local Remote,
+member association and captured member revision; machine effects also recheck grant revision,
+and undesignate rechecks the captured designation. A conflict returns `REMOTE_MEMBER_CONFLICT`
+without a write. Same-state rename/sending is committed no-change; already-revoked removal
+reports no change. Sessions end and the existing route worker wakes only after commit and
+Store release. Local revocation may be committed while provider removal remains pending;
+an old publication ACK cannot acknowledge removal. Without a live observation owner,
+activity and provider cleanup are unknown, never inferred zero or complete.
+
+This terminal path has no local-owner journal, original-ID recovery or schema migration;
+`management_receipts` stays browser-only and historical bytes/IDs stay unchanged. After an
+interrupted or unverifiable answer (`REMOTE_MEMBER_UNCONFIRMED`), re-read `members` and its
+machine page before explicitly rerunning with the newly observed revisions. The command
+never resends or falls back to another writer after a live request. Stale-revision reruns refuse.
+The legacy `devices` grammar, JSON, talk and designation behavior remain independently available
+until the Colab consumer moves to `members`; this is not an alias or an immediate removal.
 
 ### Trust grants and remote lifecycle
 
@@ -1021,8 +1061,9 @@ nested unbounded arrays. Their 54-character base64url cursor contains SHA-256 of
 caller, visibility scope, view and target, followed by the row position; it grants no authority
 or snapshot lease. Authority and current machine association/revision are rechecked before
 returning observations. The private owner-only control socket accepts `members.list` and
-`members.machines` with the same inputs/projections, using the serving Store; terminal mutation
-and mutation-journal adapters are deferred and are not control operations.
+`members.machines` with the same inputs/projections, using the serving Store. Typed local
+`members.read`, `members.mutate` and `members.machine.mutate` additionally serve the
+[terminal members path](#local-members-commands); none is a browser journal adapter.
 
 `invitation` is null for non-administrators. For administrators, `invitationView` is exactly
 `{state:"unavailable"}`, `{state:"no-current-offer"}`, or `{state:"current",expiresAtMs:null|integer,
@@ -1095,7 +1136,7 @@ Changed inventory yields `REMOTE_DEVICE_LIST_CHANGED` without mutation; above th
 `REMOTE_DEVICE_REMOVAL_LIMIT`, never a partial batch. Keeper authority is unchanged; target
 sessions end after commit. Local owner `tmt remote devices remove-others --keep <client-id>` uses
 the same atomic inventory/revocation owner, with an explicit live keeper. A non-designated browser
-can read its own inventory and sees its exact local `tmt remote devices designate <client-id>` command;
+can read its own inventory and sees its exact local `tmt remote members designate <client-id>` command;
 it cannot designate itself or execute removal. Re-pair short-circuit preserves the existing
 designation because the device identity stays unchanged.
 
@@ -1152,7 +1193,7 @@ unknown ID into eligibility. These are cumulative retained-identity limits, not 
 only bounds outcome availability: expiry does not physically delete identity/receipt rows or
 make their IDs eligible again. `REMOTE_MANAGEMENT_CAPACITY` is a signed pre-effect refusal with
 no adoption/effect. Existing live original-ID reads remain available at capacity. Show the local
-`tmt remote settings` / `tmt remote devices` path without retrying, resetting the database or
+`tmt remote settings` / `tmt remote members` path without retrying, resetting the database or
 allocating replacement IDs; preserve any previous unknown outcome. Compaction/reclamation is
 a deferred improvement.
 
@@ -1165,8 +1206,8 @@ committed. A later file write/sync or receipt failure retains unknown. Crash, pe
 settlement failure never authorize another setter; current values cannot establish that original
 operation's outcome. Explicit original-ID lookup is read-only.
 
-Local owner commands `tmt remote devices designate <client-id>` and
-`tmt remote devices undesignate` select/remove the persisted machine/device/key designation
+Local owner commands `tmt remote members designate <client-id>` and
+`tmt remote members undesignate` select/remove the persisted machine/device/key designation
 through the existing control socket or stopped serve lock. Designation validates a live browser
 and exact current/remembered door origin. It is never automatic or remotely callable. Revoke or
 same-key re-pair clears it; rename retains identity and live Sessions. The
@@ -1181,7 +1222,7 @@ Freeze the original input/ID independently of subsequent form editing.
 After self-rename, the same live Session can read its original receipt by ID, without replay. After
 a lost self-revoke acknowledgment, make one read-only fresh-admission attempt with the same paired identity and the current trusted door
 descriptor. If admitted, read the original operation. If refused, show loss of current access
-separately from an accurate unknown outcome and the local `tmt remote devices` confirmation path;
+separately from an accurate unknown outcome and the local `tmt remote members` confirmation path;
 do not assert committed revoke, mint an ID, resend or offer a mutation retry. Transport error,
 stale/unavailable descriptor and malformed/unverified response remain unknown/unconfirmed, not
 proof of permanent grant loss or committed revoke. Expiry, local revoke, re-pair and key change
@@ -2695,7 +2736,7 @@ ten-minute code. `tmt remote join <code>` validates its public project configura
 owner UUID/key. Both terminals show the same four key-fingerprint words. The owner answers
 `Do the words match? [y/N]`, then `Let <person> send messages to your agents? [y/N]` in the same
 ceremony. Both default to no. No grant or route exists before explicit word confirmation. Sending
-defaults off and requires the second answer or later `tmt remote devices talk <person> on`.
+defaults off and requires the second answer or later `tmt remote members sending <member-id> on`.
 After verifying the authenticated receipt, the joiner answers one
 `Let <owner> send messages to your agents? [y/N]` question in that same ceremony, also default no.
 Its receiving grant, reverse recovery hash and connection commit together. The joiner registers

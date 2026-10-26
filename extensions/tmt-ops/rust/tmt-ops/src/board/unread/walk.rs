@@ -12,7 +12,8 @@ pub(in crate::board) struct Body {
     pub member: String,
     pub request: String,
     pub kind: BodyKind,
-    pub at_ms: u64,
+    /// Legacy bodies carry their public answer time; frozen timeline revisions need no clock.
+    pub at_ms: Option<u64>,
     pub revision: Option<u64>,
 }
 
@@ -95,7 +96,7 @@ impl Walk {
                         if answer.member == body.member && answer.request == body.request {
                             found = true;
                             answer.kind == Some(body.kind)
-                                && answer.answered_at_ms == body.at_ms
+                                && Some(answer.answered_at_ms) == body.at_ms
                                 && body
                                     .revision
                                     .is_none_or(|revision| revision == answer.revision)
@@ -314,7 +315,7 @@ mod tests {
                 member: MEMBER.into(),
                 request: "old".into(),
                 kind: BodyKind::Turn,
-                at_ms: 90,
+                at_ms: Some(90),
                 revision: None,
             }),
         );
@@ -330,7 +331,7 @@ mod tests {
                 member: MEMBER.into(),
                 request: "new-turn".into(),
                 kind: BodyKind::Final,
-                at_ms: 101,
+                at_ms: Some(101),
                 revision: None,
             }),
         );

@@ -239,13 +239,13 @@ pub(in crate::board) fn expected(scene: &str) -> &'static str {
         "chat-pending" => "delivered",
         "chat-bound" => "the agent has started on it",
         "chat-unbound" => "session not bound",
-        "chat-answered" | "chat-reconciled" | "chat-reconciled-restored" => "turn output",
+        "chat-answered" | "chat-reconciled" | "chat-reconciled-restored" => "in turn",
         "chat-linked-different-text"
         | "chat-unlinked-identical"
         | "chat-distinct-identical"
         | "chat-pruned-final"
-        | "chat-joined-answer" => "turn output",
-        "chat-truncated" => "turn output · truncated",
+        | "chat-joined-answer" => "in turn",
+        "chat-truncated" => "answer truncated",
         "chat-no-answer" => "No turn output was captured for this message.",
         "chat-fallback" => "Sent as a request:",
         _ => unreachable!(),
@@ -303,7 +303,18 @@ fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
                         .collect();
                     assert_eq!(
                         incoming_headers.len(),
-                        usize::from(scene == "sent-replied"),
+                        match scene {
+                            "chat-unlinked-identical" | "chat-distinct-identical" => 2,
+                            "sent-replied"
+                            | "chat-answered"
+                            | "chat-truncated"
+                            | "chat-reconciled"
+                            | "chat-reconciled-restored"
+                            | "chat-linked-different-text"
+                            | "chat-pruned-final"
+                            | "chat-joined-answer" => 1,
+                            _ => 0,
+                        },
                         "only the settled reply owns an incoming heading: {text}"
                     );
                     if let Some((y, header)) = incoming_headers.first() {
@@ -469,7 +480,12 @@ fn core_text_changes_reach_live_and_restored_chat_without_local_activity_inferen
                         .map(|c| c.progress),
                     Some(crate::board::conversation::outgoing::progress::Progress::Stated { .. })
                 ));
-                assert!(session.outgoing[0].capture.is_some());
+                assert!(
+                    session
+                        .sent
+                        .iter()
+                        .any(|send| send.request == REQUEST && send.capture.is_some())
+                );
             }
             let live = board_frame(&app, 160, 51);
             assert!(live.contains(text), "{live}");
@@ -561,7 +577,7 @@ fn one_provider_final_with_different_observation_and_settlement_clocks_paints_on
                 1,
                 "restored={restored}: {frame}"
             );
-            assert!(frame.contains("turn output"), "{frame}");
+            assert!(frame.contains("in turn"), "{frame}");
             assert!(!frame.contains("pane output"), "{frame}");
             let state = app.conversation.borrow();
             let session = state.sessions.get(state.active.as_ref().unwrap()).unwrap();
@@ -643,7 +659,7 @@ fn another_turn_with_identical_text_is_kept_and_ambiguous_observations_are_not_h
             observe_pane(&app, vec![earlier, matched.clone()]);
             let frame = board_frame(&app, 160, 51);
             assert_eq!(frame.matches(REPLY).count(), 2, "{frame}");
-            assert_eq!(frame.matches("pane output").count(), 1, "{frame}");
+            assert_eq!(frame.matches("in turn").count(), 2, "{frame}");
             let mut independent = matched.clone();
             independent.response_id = Some("rsp_independent".into());
             let mut another = independent.clone();
@@ -655,7 +671,7 @@ fn another_turn_with_identical_text_is_kept_and_ambiguous_observations_are_not_h
                 3,
                 "two indistinguishable pane turns remain: {frame}"
             );
-            assert_eq!(frame.matches("pane output").count(), 2, "{frame}");
+            assert_eq!(frame.matches("in turn").count(), 3, "{frame}");
         }
     });
 }
@@ -666,25 +682,24 @@ fn capture_pairing_uses_only_the_response_id_even_when_text_or_clocks_differ() {
     crate::status::with_now_ms(NOW, || {
         for restored in [false, true] {
             let app = window_capture_fixture(restored, Look::default(), NOW);
-            let state = app.conversation.borrow();
-            let session = state.sessions.values().next().unwrap();
             let mut matching = window_item(NOW);
             matching.text = "longer provider final than the captured prefix".into();
             matching.provider = "claude".into();
             matching.truncated = true;
             matching.ended_ms = NOW - 90_000;
-            assert_eq!(
-                session.captured_outputs(std::slice::from_ref(&matching)),
-                [0]
-            );
-            matching.response_id = Some("rsp_distinct".into());
+            observe_pane(&app, vec![matching.clone()]);
+            let frame = board_frame(&app, 160, 51);
             assert!(
-                session
-                    .captured_outputs(std::slice::from_ref(&matching))
-                    .is_empty()
+                !frame.contains(&matching.text),
+                "the linked request copy owns that body: {frame}"
             );
+            assert_eq!(frame.matches(REPLY).count(), 1, "{frame}");
+            matching.response_id = Some("rsp_distinct".into());
+            observe_pane(&app, vec![matching.clone()]);
+            assert!(board_frame(&app, 160, 51).contains(&matching.text));
             matching.response_id = None;
-            assert!(session.captured_outputs(&[matching]).is_empty());
+            observe_pane(&app, vec![matching.clone()]);
+            assert!(board_frame(&app, 160, 51).contains(&matching.text));
         }
     });
 }
@@ -799,7 +814,7 @@ fn one_turn_for_three_sends(restored: bool, now: u64) -> App {
             send(
                 0,
                 json!({"state":"answered","boundAtMs":now - 119_000,"settledAtMs":now - 1_000,
-                    "answer":{"text":TURN_ANSWER,"truncated":false,"provider":"claude","endedMs":now - 1_000}}),
+                    "answer":{"responseId":"rsp_explicit","text":TURN_ANSWER,"truncated":false,"provider":"claude","endedMs":now - 1_000}}),
             ),
             send(1, json!({"state":"no_answer"})),
             send(2, json!({"state":"no_answer"})),
@@ -811,7 +826,45 @@ fn one_turn_for_three_sends(restored: bool, now: u64) -> App {
         session.outgoing.clear();
         session.refresh_outgoing();
     }
+    committed_inputs(
+        &app,
+        &TURN_TEXTS,
+        &TURN_REQUESTS,
+        Some(("rsp_explicit", TURN_ANSWER, now - 1_000)),
+    );
     app
+}
+
+fn committed_inputs(
+    app: &App,
+    texts: &[&str],
+    requests: &[&str],
+    response: Option<(&str, &str, u64)>,
+) {
+    use crate::board::recent_responses::{Observation, Page, timeline};
+    let read = app.pane_output_plan().unwrap_or_else(|| {
+        app.conversation.borrow_mut().refresh_pane_output();
+        app.pane_output_plan().unwrap()
+    });
+    let viewer = app.view.as_ref().unwrap().me_id.as_deref().unwrap();
+    let mut entries = texts.iter().zip(requests).map(|(text, request)| json!({
+        "entryId":request,"inputBatchId":"explicit-batch","kind":"input","requestId":request,
+        "sender":{"identityId":viewer,"name":"you"},"delivery":"delivered","availability":"retained", "text":text,"truncated":false,"originalBytes":text.len()
+    })).collect::<Vec<_>>();
+    let mut responses = Vec::new();
+    if let Some((id, text, ended)) = response {
+        entries.push(json!({"entryId":"explicit-final","inputBatchId":"explicit-batch","kind":"final","responseId":id,"availability":"retained","acknowledgements":[],"acknowledgementsTruncated":false}));
+        responses.push(json!({"responseId":id,"text":text,"provider":"claude","endedMs":ended,"truncated":false,"originalBytes":text.len()}));
+    }
+    let value = json!({"identityId":read.key.1,"entries":entries,"responses":responses,"coverage":{"olderDropped":false},"capture":{"enabled":true}});
+    let timeline = timeline::parse(&read.key.1, &value).unwrap();
+    app.apply_answer_read(
+        &read,
+        Observation::Observed(std::sync::Arc::new(Page {
+            timeline: Some(timeline),
+            ..Default::default()
+        })),
+    );
 }
 
 /// Regression guard for several sends typed during one agent turn (#4631): the turn's one answer
@@ -1033,7 +1086,7 @@ fn failed_specs(now: u64) -> Vec<Spec> {
 }
 
 #[test]
-fn sends_typed_while_the_turn_works_read_as_one_block_with_one_working_status() {
+fn unlinked_sends_do_not_group_from_working_or_settlement_observations() {
     const NOW: u64 = 1_791_600_000_000;
     crate::status::with_now_ms(NOW, || {
         for restored in [false, true] {
@@ -1053,17 +1106,17 @@ fn sends_typed_while_the_turn_works_read_as_one_block_with_one_working_status() 
             let shown = rows.join("\n");
             assert_eq!(
                 count_rows(&rows, "you → worker"),
-                1,
+                3,
                 "restored={restored}: {shown}"
             );
             assert_eq!(
-                count_rows(&rows, "⠹ working…"),
+                count_rows(&rows, "working…"),
                 1,
                 "restored={restored}: {shown}"
             );
             assert_eq!(
                 count_rows(&rows, "✓ delivered"),
-                0,
+                2,
                 "restored={restored}: {shown}"
             );
             let (a, b, c) = (
@@ -1071,14 +1124,13 @@ fn sends_typed_while_the_turn_works_read_as_one_block_with_one_working_status() 
                 row_of(&rows, "second message"),
                 row_of(&rows, "third message"),
             );
-            assert_eq!(
-                (b - a, c - b),
-                (1, 1),
-                "restored={restored}: each body starts on the next line, no separator\n{shown}"
+            assert!(
+                a < b && b < c,
+                "each unlinked input stays in item order: {shown}"
             );
             assert!(
-                row_of(&rows, "⠹ working…") > c,
-                "restored={restored}: the status closes the block\n{shown}"
+                row_of(&rows, "working…") > a && row_of(&rows, "working…") < b,
+                "the status stays with its input: {shown}"
             );
             assert_eq!(count_rows(&rows, "turn output"), 0, "no answer yet");
         }
@@ -1105,7 +1157,7 @@ fn a_send_after_the_answer_settled_starts_a_new_block() {
             let shown = rows.join("\n");
             assert_eq!(
                 count_rows(&rows, "you → worker"),
-                2,
+                3,
                 "restored={restored}: {shown}"
             );
             let (a, b, answer, later) = (
@@ -1174,6 +1226,15 @@ fn a_multi_paragraph_body_is_set_off_by_a_blank_line_from_its_short_neighbours()
                 spec("short closer", NOW - 70_000, json!({"state":"no_answer"})),
             ];
             let app = sends_scene(restored, &specs);
+            let requests = (0..3)
+                .map(|index| format!("req_7{index:07}-1111-4111-8111-111111111111"))
+                .collect::<Vec<_>>();
+            committed_inputs(
+                &app,
+                &specs.iter().map(|spec| spec.text).collect::<Vec<_>>(),
+                &requests.iter().map(String::as_str).collect::<Vec<_>>(),
+                None,
+            );
             let rows = rows(&app, 160, 60);
             let shown = rows.join("\n");
             let (opener, one, two, three, closer) = (

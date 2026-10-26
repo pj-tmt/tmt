@@ -61,7 +61,7 @@ Rules that are easy to get wrong:
   owner. A finite subscribe does not acknowledge; only the explicit signed ack does.
 - **One opener.** `store::Store` opens only with the `state::Serving` proof of the
   serve lock. Pairing and device commands reach state through serve's control
-  socket; `tmt remote devices` without serve takes the lock itself.
+  socket; local `members` and legacy `devices` take the serve lock when stopped.
 - **Authority lives in the transaction.** An effect runs in `Store::effect`: it
   rereads the persisted grant (revision, liveness, scope, recipients, expiry)
   inside an IMMEDIATE transaction and performs the core call under that fence. A
@@ -145,6 +145,13 @@ shared static tab semantics add no authority. Browser-local naming reuses regist
 the existing signed owner. The document-level modal closes on route abort and fences late validation.
 The public contract owns exact paths and locked-tab behavior.
 
+`shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
+confined Colab import per entry and a disposable route/session registry; Navigation comes from
+the same live composition as the rail. Colab's search-session entry owns its transport and dialog,
+so the root neither implements Colab admission nor adds a keyboard listener. Existing Remote
+Session observations invalidate search; the existing management hold reason fences navigation.
+These UI lifetimes add no native endpoint, stored authority or provider observation.
+
 ## Member storage
 
 `members` keeps the per-Remote person mapping and owner/user policy in the existing
@@ -196,7 +203,14 @@ client/member identity; no journal migration or second ledger is introduced.
 `members::reads` adapts signed reads and the private control socket to one Store
 projection. Session activity is gathered outside the Store guard, then authority,
 association and revision are rechecked before disclosure. Without a Session owner,
-activity remains unknown. Terminal mutations remain outside this adapter.
+activity remains unknown. `members::terminal` and `terminal_machines` own typed local
+reads/effects; selectors resolve stable person IDs before unique names and machines by exact
+client ID. `members_cli` and its `machines` child compose the same private-control or offline
+serve-lease adapter. Each terminal effect rechecks captured member/grant revisions under one
+IMMEDIATE writer transaction and uses shared policy/grant/designation SQL, with no journal or
+migration. Same-state effects do not widen narrower machine scope. Session cleanup and existing
+route-worker wakes follow Store release; an uncertain answer never causes resend or fallback.
+The legacy `devices` handler remains independent during consumer migration.
 `members::observations` captures the existing invitation coordinator before acquiring
 live/Store locks, and aggregates existing desired-route/ACK rows under the same Store.
 The Cloud composition attaches a weak link once, avoiding a Cloud/Operations cycle.

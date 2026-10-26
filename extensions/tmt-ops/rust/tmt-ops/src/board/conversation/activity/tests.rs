@@ -136,8 +136,7 @@ fn wrapped_activity_is_literal_copyable_and_has_no_source_or_acknowledgment_span
     let look = Look::default();
     for width in [160, 100, 80, 60, 20] {
         let inventory = Inventory::default();
-        let mapped = markdown::render_conversation_with_members("", width, look, None);
-        let rendered = session.merge_pane_output(mapped, width, 0, look, &inventory);
+        let rendered = session.timeline_transcript(width, look, &inventory);
         if width == 160 {
             assert_eq!(
                 rendered.mapped.lines.len(),
@@ -145,15 +144,11 @@ fn wrapped_activity_is_literal_copyable_and_has_no_source_or_acknowledgment_span
                 "consecutive activity is compact"
             );
         }
-        assert!(rendered.final_spans.is_empty());
-        assert!(rendered.capture_spans.is_empty());
         assert!(
             rendered
-                .response_sources
-                .as_ref()
-                .unwrap()
+                .timeline_spans
                 .iter()
-                .all(Option::is_none)
+                .all(|span| span.source.is_none() && span.legacy.is_none())
         );
         assert!(
             rendered.mapped.mentions.iter().all(Vec::is_empty),

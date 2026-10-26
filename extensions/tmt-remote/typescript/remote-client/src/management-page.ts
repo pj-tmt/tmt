@@ -231,7 +231,7 @@ export class ManagementPage {
         this.intent?.kind === 'revoke' || this.intent?.kind === 'remove-others'
           ? 'Could not confirm the removal. Check its result before trying again.'
           : this.freshAttempted
-            ? 'The saved value is still unconfirmed. Check with tmt remote settings or tmt remote devices.'
+            ? 'The saved value is still unconfirmed. Check with tmt remote settings or tmt remote members.'
             : 'This change could not be confirmed. Check the saved value before making another change.';
     else if (this.outcome?.state === 'refused')
       this.notice =

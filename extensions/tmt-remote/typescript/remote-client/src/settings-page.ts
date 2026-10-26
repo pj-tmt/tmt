@@ -292,7 +292,7 @@ export async function settingsPage(
     const designation = element('designation-command');
     designation.hidden = editable || page.access !== 'live';
     if (!designation.hidden)
-      element('designation-code').textContent = `tmt remote devices designate ${page.clientId}`;
+      element('designation-code').textContent = `tmt remote members designate ${page.clientId}`;
     element('access-notice').dataset.tone =
       page.access === 'live'
         ? editable
@@ -717,7 +717,7 @@ export async function settingsPage(
   }
   element('copy-designation').addEventListener('click', () => {
     if (page.access !== 'live') return;
-    void navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(
+    void navigator.clipboard.writeText(`tmt remote members designate ${page.clientId}`).then(
       () => {
         element('designation-copy-feedback').textContent = 'Copied.';
       },
@@ -781,8 +781,10 @@ export async function settingsPage(
     );
   async function initialize(session: Session): Promise<void> {
     if (page) return;
+    shell?.observedSession?.(session);
     page = new ManagementPage(management(session), async () => {
       session = await reopenSession(session, { retry: 'bounded' });
+      shell?.observedSession?.(session);
       return management(session);
     });
     await run(() => refreshView());

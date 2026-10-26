@@ -531,6 +531,18 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         crate::runtime::driver_state::state_consumption(state).map(|state| state.value)
     }
 
+    fn sampled_consumption(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+        environment: &crate::skill_installation::ProviderEnvironment,
+    ) -> Option<crate::runtime::consumption::Consumption> {
+        let mut consumption = self.state_consumption(state)?;
+        if let Some(limits) = consumption.rate_limits.as_mut() {
+            limits.account = allowance::rate_account(environment);
+        }
+        Some(consumption)
+    }
+
     fn decode_prompt(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
         crate::runtime::hook_protocol::decode_prompt(bytes)
     }

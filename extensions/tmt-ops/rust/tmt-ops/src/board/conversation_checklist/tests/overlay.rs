@@ -1121,3 +1121,84 @@ fn an_outside_press_on_a_dialog_above_the_list_keeps_the_lists_unsent_form() {
     );
     assert!(app.notes.draft(&key).is_some(), "its unsent form survives");
 }
+
+fn enter_means(app: &mut App, enter: crate::config::ChecklistEnter) {
+    app.view.as_mut().unwrap().checklist_enter = enter;
+}
+
+fn opened_link(effect: &Effect) -> bool {
+    matches!(effect, Effect::Act(Request::Open { link, .. }) if link == "https://example.com/a")
+}
+
+#[test]
+fn enter_on_a_link_row_follows_the_setting_and_space_and_o_always_do_the_other() {
+    use crate::config::ChecklistEnter::{Open, Tick};
+    let ticks = |effect: Effect| {
+        let (_, write) = write_of(effect);
+        assert!(matches!(write, Write::Toggle { complete: true, .. }));
+    };
+    for enter in [Open, Tick] {
+        // Each key starts from a fresh list: a write in flight blocks the next one.
+        let press_on_link = |code| {
+            let (mut app, _) = opened(vec![link(1)]);
+            enter_means(&mut app, enter);
+            press(&mut app, code)
+        };
+        match enter {
+            Open => assert!(opened_link(&press_on_link(KeyCode::Enter)), "{enter:?}"),
+            Tick => ticks(press_on_link(KeyCode::Enter)),
+        }
+        ticks(press_on_link(KeyCode::Char(' ')));
+        assert!(opened_link(&press_on_link(KeyCode::Char('o'))), "{enter:?}");
+    }
+}
+
+#[test]
+fn enter_on_a_todo_row_ticks_whatever_the_setting_says_and_o_says_there_is_no_link() {
+    use crate::config::ChecklistEnter::{Open, Tick};
+    for enter in [Open, Tick] {
+        let (mut app, _) = opened(vec![todo(1)]);
+        enter_means(&mut app, enter);
+        let (_, write) = write_of(press(&mut app, KeyCode::Enter));
+        assert!(
+            matches!(write, Write::Toggle { complete: true, .. }),
+            "{enter:?}"
+        );
+        assert_eq!(press(&mut app, KeyCode::Char('o')), Effect::None);
+        assert!(paint(&app).contains("This item has no link."), "{enter:?}");
+    }
+}
+
+#[test]
+fn ticking_a_completed_link_row_reopens_it() {
+    let (mut app, _) = opened(vec![view(
+        1,
+        Some("https://example.com/a"),
+        Completion::Complete,
+        false,
+    )]);
+    let (_, write) = write_of(press(&mut app, KeyCode::Char(' ')));
+    assert!(matches!(
+        write,
+        Write::Toggle {
+            complete: false,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn the_footer_names_what_enter_does_under_each_setting_and_keeps_esc_close_in_view() {
+    use crate::config::ChecklistEnter::{Open, Tick};
+    let (mut app, _) = opened(vec![link(1)]);
+    enter_means(&mut app, Open);
+    assert!(paint(&app).contains("Enter open/tick · a add"));
+    assert!(paint(&app).contains("Esc close"));
+    enter_means(&mut app, Tick);
+    let screen = paint(&app);
+    assert!(screen.contains("Enter tick · o open"));
+    assert!(
+        screen.contains("Esc close"),
+        "the longer footer is not cut: {screen}"
+    );
+}

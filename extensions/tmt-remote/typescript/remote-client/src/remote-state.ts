@@ -70,14 +70,14 @@ export function pairingGuidance(
   state: string,
   authorityEnded: boolean,
   invite: boolean,
-): { pair: boolean; devices: boolean; status: boolean } {
+): { pair: boolean; members: boolean; status: boolean } {
   return {
     pair:
       invite ||
       state === 'missing' ||
       state === 'different' ||
       (state === 'refused' && authorityEnded),
-    devices: state === 'refused' && authorityEnded && !invite,
+    members: state === 'refused' && authorityEnded && !invite,
     status: state === 'unconfirmed' && !invite,
   };
 }

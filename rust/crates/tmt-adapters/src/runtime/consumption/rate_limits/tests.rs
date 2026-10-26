@@ -66,6 +66,7 @@ fn one_weekly_window_keeps_the_line_time_and_converts_reset_seconds() {
                 used_percent: 78.0,
                 resets_at_ms: 1_791_948_558_000,
             }],
+            account: None,
         }
     );
     assert!(limits.valid());
@@ -225,6 +226,7 @@ fn validity_requires_one_to_two_strictly_ascending_windows() {
         provider: "codex".into(),
         observed_at_ms: 1,
         windows,
+        account: None,
     };
     assert!(limits(vec![window(300), window(10_080)]).valid());
     for windows in [
@@ -246,4 +248,103 @@ fn validity_requires_one_to_two_strictly_ascending_windows() {
     let mut nan = limits(vec![window(300)]);
     nan.windows[0].used_percent = f64::NAN;
     assert!(!nan.valid());
+}
+
+#[test]
+fn an_account_is_an_opaque_key_and_a_clean_label_that_never_carry_the_raw_id() {
+    let account = RateAccount::derive(
+        "claude",
+        "11111111-2222-3333-4444-555555555555",
+        ".claude-work",
+    );
+    assert_eq!(account.label, "claude-work");
+    assert_eq!(account.key.len(), 12);
+    assert!(
+        account
+            .key
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    );
+    assert!(!"11111111-2222-3333-4444-555555555555".contains(&account.key));
+    // Stable for one account, distinct per account and per provider.
+    assert_eq!(
+        account,
+        RateAccount::derive(
+            "claude",
+            "11111111-2222-3333-4444-555555555555",
+            ".claude-work"
+        )
+    );
+    let other = RateAccount::derive(
+        "claude",
+        "11111111-2222-3333-4444-555555555556",
+        ".claude-work",
+    );
+    assert_ne!(account.key, other.key);
+    assert_ne!(
+        account.key,
+        RateAccount::derive(
+            "codex",
+            "11111111-2222-3333-4444-555555555555",
+            ".claude-work"
+        )
+        .key
+    );
+    // The label is the root's name: default root, spaces, over-long, empty and address-like names.
+    for (root, label) in [
+        (".claude", "claude"),
+        ("Claude Work", "Claude-Work"),
+        (&"a".repeat(80), &"a".repeat(32)),
+        ("", "claude"),
+        ("...", "claude"),
+        ("me@example.com", "claude"),
+    ] {
+        let named = RateAccount::derive("claude", "id", root);
+        assert_eq!(named.label, label, "{root:?}");
+        assert!(named.valid(), "{root:?}");
+    }
+}
+
+#[test]
+fn the_account_is_optional_additive_and_validated() {
+    let window = Window {
+        window_minutes: 300,
+        used_percent: 1.0,
+        resets_at_ms: 1,
+    };
+    let mut limits = RateLimits {
+        provider: "claude".into(),
+        observed_at_ms: 1,
+        windows: vec![window],
+        account: None,
+    };
+    // Absent stays absent in the stored and public shape, so an earlier value is unchanged.
+    let bare = serde_json::to_value(&limits).unwrap();
+    assert!(bare.get("account").is_none());
+    assert_eq!(serde_json::from_value::<RateLimits>(bare).unwrap(), limits);
+    limits.account = Some(RateAccount::derive("claude", "id", ".claude"));
+    assert!(limits.valid());
+    let shown = serde_json::to_value(&limits).unwrap();
+    assert_eq!(shown["account"]["label"], "claude");
+    assert_eq!(
+        serde_json::from_value::<RateLimits>(shown.clone()).unwrap(),
+        limits
+    );
+    // Another field of the account, or a key or label of the wrong shape, is refused.
+    let mut extra = shown;
+    extra["account"]["email"] = "x".into();
+    assert!(serde_json::from_value::<RateLimits>(extra).is_err());
+    for (key, label) in [
+        ("ABCDEF012345", "claude"),
+        ("abc", "claude"),
+        ("0123456789ab", ""),
+        ("0123456789ab", "a b"),
+        ("0123456789ab", "a@b"),
+    ] {
+        limits.account = Some(RateAccount {
+            key: key.into(),
+            label: label.into(),
+        });
+        assert!(!limits.valid(), "{key} {label}");
+    }
 }

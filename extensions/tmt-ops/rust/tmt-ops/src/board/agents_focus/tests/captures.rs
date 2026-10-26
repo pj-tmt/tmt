@@ -365,7 +365,7 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                         text.contains("8 squads · 28 agents"),
                         "{selected}/{width}: {text}"
                     );
-                    assert!(text.contains("Exchanges with you"));
+                    assert!(text.contains("Conversation"));
                     if selected == "tmt-night" {
                         let pane_text = buffer
                             .content

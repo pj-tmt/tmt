@@ -416,7 +416,7 @@ own module/drawing boundaries and verification.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   `board::unread` projects Core answer revisions; its ordered lane acknowledges painted body rows and explicit Mark read through public `requests.ack`, and consumes legacy cutoffs through bounded pages under Config's lock.
-  `board::selected_conversation` publishes one bounded refresh per selection on the selected worker lane; the [acquisition guide](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker) owns its lifecycle.
+  `board::selected_conversation` acquires public `responses.timeline` order and frozen body acknowledgment keys off-thread, joining one bounded finals list for reply times/source keys to inline reply bodies by request ID; [lifecycle](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
   The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.
@@ -540,7 +540,7 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 Remote uses only public Core JSON via absolute `TMT_EXECUTABLE`/`tmt-invoke`; agent checks use capture-only and UUID-pinned name queries.
 Core never uses Remote trust. Other extensions use public CLI/SDK/`tmt-extension-objects`,
-never Remote state files. Remote owns member/channel authority, roster and invitations; UI grants none;
+never Remote state files. Remote owns member/channel authority, roster, revision-fenced local management and invitations; UI grants none;
 Firestore uses Auth/Rules only. Read-only auto-pair; no companions/skills.
 Emulation never ships.
 

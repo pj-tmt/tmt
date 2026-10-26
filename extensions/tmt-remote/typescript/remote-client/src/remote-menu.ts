@@ -87,7 +87,7 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
   document.addEventListener('focusin', entered, { signal: shell.signal });
   return (next: RemoteRegistryView) => {
     projection = next;
-    if (next.current.connection.word === 'Connected' && next.address) shell.describe(next.address);
+    if (next.current.connection.word === 'connected' && next.address) shell.describe(next.address);
     paint();
   };
 }

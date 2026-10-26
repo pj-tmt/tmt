@@ -1,5 +1,5 @@
 //! Cursor-chain acquisition runs on the selected lane. No transcript or retention policy lives here.
-use super::{Observation, Page, canonical_identity, page_with};
+use super::{Cursor, Observation, Page, canonical_identity, page_with};
 use crate::{board::conversation::ConversationKey, core::Core, runner::Cancellation};
 use serde_json::Value;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[derive(Clone, Debug)]
 pub(in crate::board) struct AnswerRead {
     pub key: ConversationKey,
-    pub before: Option<u64>,
+    pub before: Option<Cursor>,
     pub held: Option<Arc<Page>>,
     pub rebuild: bool,
 }
@@ -46,6 +46,14 @@ impl AnswerRead {
         let Some(capabilities) = call("capabilities", serde_json::json!({})) else {
             return Observation::Unavailable;
         };
+        if capabilities["operations"]
+            .as_array()
+            .is_some_and(|ops| ops.iter().any(|op| op == "responses.timeline"))
+        {
+            return self
+                .acquire_timeline(&mut call)
+                .map_or(Observation::Unavailable, Observation::Observed);
+        }
         if !capabilities["operations"]
             .as_array()
             .is_some_and(|ops| ops.iter().any(|operation| operation == "responses.recent"))
@@ -57,10 +65,15 @@ impl AnswerRead {
     }
 
     fn acquire(&self, call: &mut impl FnMut(&str, Value) -> Option<Value>) -> Option<Arc<Page>> {
-        let first = page_with(&self.key.1, self.before, call)?;
+        let before = match &self.before {
+            Some(Cursor::Recent(before)) => Some(*before),
+            Some(Cursor::Timeline(_)) => return None,
+            None => None,
+        };
+        let first = page_with(&self.key.1, before, call)?;
         if self.before.is_some() {
             let held = self.held.as_ref()?;
-            if self.before != held.next_before {
+            if self.before != held.cursor() {
                 return None;
             }
             let mut page = first;
@@ -139,6 +152,121 @@ impl AnswerRead {
     }
 }
 
+impl AnswerRead {
+    fn acquire_timeline(
+        &self,
+        call: &mut impl FnMut(&str, Value) -> Option<Value>,
+    ) -> Option<Arc<Page>> {
+        use super::timeline;
+        let before = match &self.before {
+            Some(Cursor::Timeline(cursor)) => Some(cursor.as_str()),
+            Some(Cursor::Recent(_)) => return None,
+            None => None,
+        };
+        let read = |before: Option<&str>, call: &mut dyn FnMut(&str, Value) -> Option<Value>| {
+            let mut input = serde_json::json!({"identityId":self.key.1,"limit":super::MAX_ITEMS});
+            if let Some(cursor) = before {
+                input["before"] = serde_json::json!(cursor);
+            }
+            let page = timeline::parse(&self.key.1, &call("responses.timeline", input)?)?;
+            if page.next_before.as_deref() == before && before.is_some()
+                || page.entries.is_empty() && page.next_before.is_some()
+            {
+                return None;
+            }
+            Some(page)
+        };
+        let mut page = read(before, call)?;
+        if before.is_some() {
+            let held = self.held.as_ref()?.timeline.as_ref()?;
+            if self.before != self.held.as_ref()?.cursor() {
+                return None;
+            }
+            return timeline_join(page, held.clone()).map(timeline_observation);
+        }
+        let held = self.held.as_ref().and_then(|held| held.timeline.as_ref());
+        let mut cursors = std::collections::HashSet::new();
+        for _ in 0..20 {
+            if !self.rebuild
+                && let Some(held) = held.filter(|held| !held.entries.is_empty())
+                && let Some(position) = page
+                    .entries
+                    .iter()
+                    .position(|entry| entry.id == held.entries.last().unwrap().id)
+            {
+                let mut result = held.clone();
+                // Immutable entry IDs align the held window. Fresh availability and
+                // canonical bodies replace metadata only for the same IDs.
+                for old in &mut result.entries {
+                    if let Some(fresh) = page.entries.iter().find(|entry| entry.id == old.id) {
+                        *old = fresh.clone();
+                    }
+                }
+                result
+                    .entries
+                    .extend(page.entries[position + 1..].iter().cloned());
+                result.responses.extend(page.responses);
+                result.coverage = page.coverage;
+                result.capture = page.capture;
+                if page.next_before.is_none() {
+                    result.next_before = None;
+                }
+                let result = timeline_observation(result);
+                if self.held.as_ref().is_some_and(|held| **held == *result) {
+                    return self.held.clone();
+                }
+                return Some(result);
+            }
+            if held.is_none_or(|held| page.entries.len() >= held.entries.len())
+                || page.next_before.is_none()
+            {
+                return Some(timeline_observation(page));
+            }
+            let cursor = page.next_before.clone()?;
+            if !cursors.insert(cursor.clone()) {
+                return None;
+            }
+            let older = read(Some(&cursor), call)?;
+            page = timeline_join(older, page)?;
+        }
+        None
+    }
+}
+
+fn timeline_observation(timeline: super::timeline::Page) -> Arc<Page> {
+    Arc::new(Page {
+        coverage: timeline.coverage.clone(),
+        capture: timeline.capture,
+        timeline: Some(timeline),
+        ..Page::default()
+    })
+}
+
+fn timeline_join(
+    mut older: super::timeline::Page,
+    newer: super::timeline::Page,
+) -> Option<super::timeline::Page> {
+    let ids = older
+        .entries
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    if newer
+        .entries
+        .iter()
+        .any(|entry| ids.contains(entry.id.as_str()))
+    {
+        return None;
+    }
+    older.entries.extend(newer.entries);
+    older.responses.extend(newer.responses);
+    // Coverage is identity-wide, not page-relative (extension-api: Ordered
+    // captured conversation / Recent agent responses). Keep the newer observation.
+    older.coverage = newer.coverage;
+    older.capture = newer.capture;
+    Some(older)
+}
+
 fn join(pages: Vec<Page>) -> Page {
     let capture = pages.first().and_then(|page| page.capture);
     let coverage = pages
@@ -147,6 +275,7 @@ fn join(pages: Vec<Page>) -> Page {
         .unwrap_or_default();
     let next_before = pages.last().and_then(|page| page.next_before);
     Page {
+        timeline: None,
         items: pages
             .into_iter()
             .rev()
@@ -169,7 +298,7 @@ mod tests {
         AnswerRead {
             key: (Some("person".into()), ID.into()),
             held,
-            before,
+            before: before.map(Cursor::Recent),
             rebuild,
         }
     }
@@ -506,5 +635,113 @@ mod tests {
             json!({"identityId":ID,"before":50,"limit":50})
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+    fn timeline_resource(start: usize, end: usize, next: Option<&str>) -> Value {
+        let entries = (start..end).map(|n| json!({"entryId":format!("entry{n}"),"kind":"final",
+            "availability":"retained","responseId":format!("rsp_{n}"),"acknowledgements":[],"acknowledgementsTruncated":false})).collect::<Vec<_>>();
+        let responses = (start..end).map(|n| json!({"responseId":format!("rsp_{n}"),"text":format!("body{n}"),
+            "provider":"claude","endedMs":10000-n,"truncated":false,"originalBytes":format!("body{n}").len()})).collect::<Vec<_>>();
+        let mut value = json!({"identityId":ID,"entries":entries,"responses":responses,"coverage":{"olderDropped":false},"capture":{"enabled":true}});
+        if let Some(next) = next {
+            value["nextBefore"] = json!(next);
+        }
+        value
+    }
+
+    fn timeline_read(read: &AnswerRead, document: Value, calls: &mut Vec<Value>) -> Observation {
+        read.read_with(|operation, input| {
+            if operation == "capabilities" {
+                return Some(json!({"operations":["responses.recent","responses.timeline"]}));
+            }
+            assert_eq!(operation, "responses.timeline");
+            calls.push(input);
+            Some(document.clone())
+        })
+    }
+
+    #[test]
+    fn timeline_paging_prepends_opaque_cursor_entries_without_timestamp_sorting() {
+        let mut calls = Vec::new();
+        let first = observed(timeline_read(
+            &request(None, None, false),
+            timeline_resource(2, 4, Some("older-page")),
+            &mut calls,
+        ));
+        let read = AnswerRead {
+            key: (Some("person".into()), ID.into()),
+            held: Some(first),
+            before: Some(Cursor::Timeline("older-page".into())),
+            rebuild: false,
+        };
+        let older = observed(timeline_read(
+            &read,
+            timeline_resource(0, 2, None),
+            &mut calls,
+        ));
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1]["before"], "older-page");
+        let page = older.timeline.as_ref().unwrap();
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|e| e.id.as_str())
+                .collect::<Vec<_>>(),
+            ["entry0", "entry1", "entry2", "entry3"]
+        );
+        assert!(older.cursor().is_none());
+    }
+
+    #[test]
+    fn timeline_refresh_aligns_by_entry_identity_and_publishes_the_retained_chain_once() {
+        let mut calls = Vec::new();
+        let held = observed(timeline_read(
+            &request(None, None, false),
+            timeline_resource(0, 2, None),
+            &mut calls,
+        ));
+        let mut fresh = timeline_resource(1, 3, Some("older"));
+        fresh["responses"][0]["text"] = json!("fresh body");
+        fresh["responses"][0]["originalBytes"] = json!(10);
+        let result = observed(timeline_read(
+            &request(Some(held), None, false),
+            fresh,
+            &mut calls,
+        ));
+        let page = result.timeline.as_ref().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|e| e.id.as_str())
+                .collect::<Vec<_>>(),
+            ["entry0", "entry1", "entry2"]
+        );
+        assert_eq!(page.responses["rsp_1"].text, "fresh body");
+        assert!(page.next_before.is_none());
+    }
+
+    #[test]
+    fn timeline_cursor_never_accepts_a_recent_cursor_or_a_nonadvancing_page() {
+        let mut calls = Vec::new();
+        let held = observed(timeline_read(
+            &request(None, None, false),
+            timeline_resource(2, 4, Some("older")),
+            &mut calls,
+        ));
+        let wrong = request(Some(Arc::clone(&held)), Some(2), false);
+        assert_eq!(
+            timeline_read(&wrong, timeline_resource(0, 2, None), &mut calls),
+            Observation::Unavailable
+        );
+        let read = AnswerRead {
+            key: (Some("person".into()), ID.into()),
+            held: Some(held),
+            before: Some(Cursor::Timeline("older".into())),
+            rebuild: false,
+        };
+        assert_eq!(
+            timeline_read(&read, timeline_resource(0, 2, Some("older")), &mut calls),
+            Observation::Unavailable
+        );
     }
 }

@@ -806,6 +806,9 @@ fn setting_name(key: &str) -> (&str, &str) {
     if key == "board.startup_tab" {
         return ("board", "startup tab");
     }
+    if key == "board.checklist_enter" {
+        return ("board", "checklist enter");
+    }
     key.split_once('.').unwrap_or(match key {
         "layout" => ("layout", "preset"),
         "rows" => ("rows", "grid"),

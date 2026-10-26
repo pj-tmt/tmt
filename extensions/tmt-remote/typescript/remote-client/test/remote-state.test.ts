@@ -105,14 +105,14 @@ test('one pairing guidance owner preserves uncertainty and verified-refusal boun
   assert.equal(pairingGuidance('different', false, false).pair, true);
   assert.deepEqual(pairingGuidance('refused', true, false), {
     pair: true,
-    devices: true,
+    members: true,
     status: false,
   });
   for (const state of ['unreadable', 'checking', 'connected', 'refused'])
     assert.equal(pairingGuidance(state, false, false).pair, false);
   assert.deepEqual(pairingGuidance('unconfirmed', false, false), {
     pair: false,
-    devices: false,
+    members: false,
     status: true,
   });
   assert.equal(pairingGuidance('connected', false, true).pair, true);

@@ -887,3 +887,88 @@ fn member_route_observation_uses_existing_queue_and_ack_without_provider_identif
         assert!(encoded.get(key).is_none());
     }
 }
+
+#[test]
+fn terminal_member_revoke_keeps_route_cleanup_pending_until_the_exact_removal_ack() {
+    use crate::members::{
+        observations::MemberRouteView,
+        terminal::{MemberTerminalMutation, MemberTerminalTarget},
+    };
+    let (root, serving, candidate) = world();
+    let mut store = Store::open(&serving).unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
+        .unwrap();
+    let member = store
+        .member_for_client(&candidate.candidate.peer)
+        .unwrap()
+        .unwrap();
+    let publication = store.cloud_route_changes().unwrap().remove(0);
+    let receipts: Vec<(String, String)> = store
+        .connection
+        .prepare("SELECT id,outcome FROM management_receipts ORDER BY id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    let (answer, clients) = store
+        .member_terminal_effect(&MemberTerminalMutation::Revoke {
+            target: MemberTerminalTarget {
+                remote_id: member.remote_id,
+                member_id: member.member_id,
+                member_revision: member.revision,
+            },
+        })
+        .unwrap();
+    assert_eq!(answer["state"], "committed");
+    assert_eq!(clients, vec![candidate.candidate.peer.clone()]);
+    assert!(
+        store
+            .grant(&candidate.candidate.peer)
+            .unwrap()
+            .unwrap()
+            .disabled
+    );
+    let pending = MemberRouteView::Recorded {
+        publication_pending: false,
+        removal_pending: true,
+    };
+    assert_eq!(store.member_route_view(None).unwrap(), pending);
+    let removal = store.cloud_route_changes().unwrap().remove(0);
+    assert!(removal.revoked);
+    store.cloud_route_published(&publication).unwrap();
+    assert_eq!(
+        store.member_route_view(None).unwrap(),
+        pending,
+        "a late publication ACK is not a removal ACK"
+    );
+    drop(store);
+    let store = Store::open(&serving).unwrap();
+    assert_eq!(store.member_route_view(None).unwrap(), pending);
+    assert_eq!(
+        store.cloud_route_changes().unwrap().as_slice(),
+        std::slice::from_ref(&removal)
+    );
+    store.cloud_route_published(&removal).unwrap();
+    assert_eq!(
+        store.member_route_view(None).unwrap(),
+        MemberRouteView::Recorded {
+            publication_pending: false,
+            removal_pending: false
+        }
+    );
+    assert!(store.cloud_route_changes().unwrap().is_empty());
+    let after: Vec<(String, String)> = store
+        .connection
+        .prepare("SELECT id,outcome FROM management_receipts ORDER BY id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(after, receipts);
+    drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
+}

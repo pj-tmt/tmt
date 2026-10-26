@@ -220,12 +220,18 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
                         if talk { "on" } else { "off" }
                     )?;
                     if !talk {
-                        let person = event["hintPerson"].as_str().unwrap_or(name);
-                        writeln!(
-                            output,
-                            "To allow it later: tmt remote devices talk {} on",
-                            tmt_remote::state::shell_quote(person)
-                        )?;
+                        if let Some(member) = event["memberId"].as_str() {
+                            writeln!(
+                                output,
+                                "To allow it later: tmt remote members sending {} on",
+                                tmt_remote::state::shell_quote(member)
+                            )?;
+                        } else {
+                            writeln!(
+                                output,
+                                "To allow it later: read tmt remote members, then run tmt remote members sending <member-id> on."
+                            )?;
+                        }
                     }
                 }
                 if let Some(reference) = event["remote"].as_str() {

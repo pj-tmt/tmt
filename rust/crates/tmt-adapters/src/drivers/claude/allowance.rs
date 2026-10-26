@@ -2,7 +2,7 @@
 //! first-party mod pushes (#5187). Never refresh the cache, read credentials, or retain unrelated
 //! configuration fields. The newest observation per account wins, whole.
 use crate::{
-    runtime::consumption::{RateLimits, RateWindow},
+    runtime::consumption::{RateAccount, RateLimits, RateWindow},
     skill_installation::ProviderEnvironment,
 };
 use serde::{Deserialize, Serialize};
@@ -113,6 +113,23 @@ pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<Rat
     }
 }
 
+/// The account of `environment`'s Claude root as consumers group it (#5274): an opaque key over
+/// the root's `oauthAccount.accountUuid` and the root's name. Both allowance sources are this
+/// account's (the cache is admitted only when its account is the file's own). It is attached to
+/// sampled readings and never stored in the 1024-byte remembered state.
+pub(super) fn rate_account(environment: &ProviderEnvironment) -> Option<RateAccount> {
+    let bytes =
+        crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES).ok()?;
+    let uuid = account(&bytes)?;
+    let root = super::config_root(environment);
+    let name = root.file_name().and_then(|name| name.to_str());
+    Some(RateAccount::derive(
+        super::NAME,
+        uuid,
+        name.unwrap_or_default(),
+    ))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OauthAccountShape<'a> {
@@ -204,6 +221,7 @@ pub(super) fn push(
         provider: super::NAME.into(),
         observed_at_ms: now_ms,
         windows,
+        account: None,
     };
     if limits
         .windows
@@ -266,6 +284,7 @@ fn parse(bytes: &[u8], now_ms: u64) -> Option<RateLimits> {
         provider: super::NAME.into(),
         observed_at_ms: cache.fetched_at_ms,
         windows: Vec::new(),
+        account: None,
     };
     for (minutes, window) in [
         (300, cache.utilization.five_hour),

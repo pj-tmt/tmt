@@ -31,6 +31,16 @@ export async function remoteApp(
   if (shell.signal.aborted) return;
   const models = [...main.querySelectorAll<HTMLElement>(':scope > [data-page]')];
   const registry = remoteRegistryPage(undefined, shell);
+  const listActions = main.querySelector<HTMLElement>('.remote-head-actions');
+  if (shell.actions && listActions) {
+    shell.actions.append(listActions);
+    // The original route h1 now names this content; do not repeat its old content subtitle.
+    main.querySelector('#remote-head .settings-title')?.remove();
+    const create = listActions.querySelector<HTMLAnchorElement>('a[data-variant="primary"]');
+    create?.setAttribute('aria-label', 'Create a Remote');
+    const label = create?.querySelector('.tmt-ui-action-label');
+    if (label) label.textContent = 'Create';
+  }
   const started = new Map<RemoteItem['page'], Promise<void>>();
   let shown: RemoteItem | undefined;
   let observed: RemoteRegistryView | undefined;
@@ -107,7 +117,8 @@ export async function remoteApp(
   locked.append(lockTitle, lockReason, request);
   let requestText = '';
   frame.append(heading, designation, needsYou, strip);
-  main.prepend(frame, globalPanel, ...panels.values());
+  const titleRow = main.querySelector(':scope > .root-title-row');
+  main.prepend(...(titleRow ? [titleRow] : []), frame, globalPanel, ...panels.values());
 
   function keepTabVisible(): void {
     const button = shown && buttons.get(shown.id);
@@ -122,6 +133,7 @@ export async function remoteApp(
   shell.signal.addEventListener('abort', () => resize.disconnect(), { once: true });
   function layout(): void {
     if (!shown) return;
+    if (listActions && shell.actions) listActions.hidden = shown.id !== 'remotes';
     const localName = document.getElementById('remote-local-name-value');
     if (localName) localName.textContent = observed?.current.name ?? 'This machine';
     const renameLabel = document.querySelector('#remote-local-rename .tmt-ui-action-label');
@@ -206,6 +218,7 @@ export async function remoteApp(
         if (page === 'landing')
           await code.landing(shell.signal, registry, (session) => {
             admitted = session;
+            shell.observedSession?.(session);
             if (observeSession) observeSession(session);
             else void start('settings');
           });
@@ -223,8 +236,9 @@ export async function remoteApp(
     shown = item;
     document.documentElement.dataset.tmtPage = item.page;
     layout();
-    bar.querySelector('header')?.setAttribute('aria-label', `Remote · ${item.title}`);
-    const title = bar.querySelector('.header-title');
+    const row = main.querySelector('.root-title-row');
+    row?.setAttribute('aria-label', `Remote · ${item.title}`);
+    const title = row?.querySelector('.header-title') ?? bar.querySelector('.header-title');
     if (title) title.textContent = item.title;
     shell.setTitle(item.title);
     if (changed && !first) window.scrollTo({ top: 0 });

@@ -7,7 +7,6 @@ use crate::{
         row_detail::{Reply, Target},
     },
     core::SquadError,
-    look::Look,
     send::{Accepted, Disposition},
 };
 
@@ -20,17 +19,6 @@ const SENDING_DELAY_MS: u64 = 400;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 
 mod progress;
-
-/// Generated metadata is literal inside the Markdown transcript. Message and
-/// reply bodies retain their original source and Markdown behavior.
-fn push_literal(text: &mut String, value: &str) {
-    for ch in value.chars() {
-        if ch.is_ascii_punctuation() {
-            text.push('\\');
-        }
-        text.push(ch);
-    }
-}
 
 /// A painted feedback label, independent of conversation acquisition or authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,14 +129,10 @@ impl Completed {
 pub(super) struct Entry {
     ticket: Ticket,
     pub(super) started_ms: u64,
-    /// A direct chat message (Talk), the only kind that can join a block.
-    talk: bool,
     outcome: Option<Result<Accepted, SquadError>>,
     /// The agent question that opened this send's group, when it arrived after
     /// earlier sends; the first group's question is `Session::before_send`.
     pub(super) lead_in: Option<Reply>,
-    pub(super) reply: Option<Reply>,
-    capture: Option<crate::board::row_detail::Capture>,
     feedback: String,
     feedback_clock: Option<FeedbackClock>,
     /// The first frame time at which `sending…` was painted.
@@ -160,18 +144,6 @@ impl Entry {
     pub(super) fn pending(&self) -> bool {
         self.outcome.is_none()
     }
-    /// A direct message that no agent question or reply came with: the only send that joins or
-    /// opens a block. One still sending counts, so a second quick send groups at once.
-    fn direct(&self) -> bool {
-        self.talk
-            && self.lead_in.is_none()
-            && self.reply.is_none()
-            && match &self.outcome {
-                None => true,
-                Some(Ok(accepted)) => accepted.passthrough,
-                Some(Err(_)) => false,
-            }
-    }
     pub(super) fn request(&self) -> Option<&str> {
         let outcome = self.outcome.as_ref()?;
         outcome.as_ref().map_or_else(
@@ -180,13 +152,7 @@ impl Entry {
         )
     }
     fn bytes(&self) -> usize {
-        self.ticket.text.len()
-            + self.reply.as_ref().map_or(0, |reply| reply.body.len())
-            + self.lead_in.as_ref().map_or(0, |reply| reply.body.len())
-            + self.capture.as_ref().map_or(0, |capture| match capture {
-                crate::board::row_detail::Capture::Answered { text, .. } => text.len(),
-                _ => 0,
-            })
+        self.ticket.text.len() + self.lead_in.as_ref().map_or(0, |reply| reply.body.len())
     }
     /// Time-driven only: advances the R1 sending row; returns whether it changed.
     fn observe_sending(&mut self, now_ms: u64) -> bool {
@@ -211,7 +177,16 @@ impl Entry {
             _ => None,
         }
     }
-    fn status(&self) -> String {
+    pub(super) fn text(&self) -> &str {
+        &self.ticket.text
+    }
+    pub(super) fn sequence(&self) -> u64 {
+        self.ticket.sequence
+    }
+    pub(super) fn has_core_state(&self) -> bool {
+        matches!(&self.outcome, Some(Ok(accepted)) if accepted.message_state_label.is_some())
+    }
+    pub(super) fn status(&self) -> String {
         if let Some(Ok(accepted)) = &self.outcome
             && let Some(text) = &accepted.message_state_label
         {
@@ -224,15 +199,12 @@ impl Entry {
             None if self.sending_shown_ms.is_some() => "sending…".into(),
             None => String::new(),
             Some(Ok(accepted))
-                if accepted.passthrough
-                    && (self.capture.is_some() || accepted.disposition == Disposition::Sent) =>
+                if accepted.passthrough && accepted.disposition == Disposition::Sent =>
             {
-                match self.capture.as_ref() {
-                    Some(
-                        crate::board::row_detail::Capture::Pending
-                        | crate::board::row_detail::Capture::Bound,
-                    ) => "⠹ working…".into(),
-                    _ => "✓ delivered".into(),
+                if self.feedback.is_empty() {
+                    "✓ delivered".into()
+                } else {
+                    self.feedback.clone()
                 }
             }
             Some(Ok(accepted)) => match accepted.disposition {
@@ -293,60 +265,13 @@ impl Session {
     }
 
     pub(super) fn local_finals(&self) -> impl Iterator<Item = &Reply> {
-        self.outgoing
-            .iter()
-            .filter_map(|entry| entry.reply.as_ref())
-    }
-
-    /// How the live sends group into message blocks (see `answer_order`).
-    pub(super) fn answer_places(&self) -> Vec<super::answer_order::Place> {
-        super::answer_order::place(
-            &self
-                .outgoing
-                .iter()
-                .map(|entry| super::answer_order::Probe {
-                    at_ms: entry.started_ms,
-                    capture: entry.capture.as_ref(),
-                    direct: entry.direct(),
-                })
-                .collect::<Vec<_>>(),
-        )
-    }
-
-    /// The status line painted under the send at `index`: its own, or its block's.
-    fn status_in(&self, places: &[super::answer_order::Place], index: usize) -> String {
-        if places[index].role != super::answer_order::Role::Last {
-            return self.outgoing[index].status();
-        }
-        let first = (0..=index)
-            .rev()
-            .find(|member| places[*member].role == super::answer_order::Role::First)
-            .unwrap_or(index);
-        let lines: Vec<String> = self
-            .outgoing
-            .iter()
-            .skip(first)
-            .take(index - first + 1)
-            .map(Entry::status)
-            .collect();
-        super::answer_order::block_status(lines.iter().map(String::as_str))
-    }
-
-    pub(super) fn grouped_feedback(
-        &self,
-        sequence: u64,
-        width: usize,
-        look: Look,
-    ) -> Option<Vec<ratatui::text::Line<'static>>> {
-        let index = self
-            .outgoing
-            .iter()
-            .position(|entry| entry.ticket.sequence == sequence)?;
-        let status = self.status_in(&self.answer_places(), index);
-        Some(super::super::markdown::wrap_styled(
-            super::super::exchange_view::feedback_content(&status, look),
-            width,
-        ))
+        self.finals.iter().filter(|reply| {
+            reply.key.as_ref().is_some_and(|key| {
+                self.outgoing
+                    .iter()
+                    .any(|entry| entry.request() == Some(key.request.as_str()))
+            })
+        })
     }
 
     pub(super) fn observe_progress(
@@ -358,6 +283,13 @@ impl Session {
     ) {
         let mut changed = false;
         let pending = &self.pending_replies;
+        let answered = self
+            .finals
+            .iter()
+            .filter_map(|reply| reply.key.as_ref())
+            .filter(|key| key.kind == crate::board::home_leads::Kind::Reply)
+            .map(|key| key.request.as_str())
+            .collect::<std::collections::HashSet<_>>();
         for entry in &mut self.outgoing {
             changed |= entry.observe_sending(now_ms);
             if matches!(&entry.outcome, Some(Ok(accepted)) if accepted.passthrough || accepted.message_state_label.is_some())
@@ -380,7 +312,9 @@ impl Session {
             if entry
                 .request()
                 .is_some_and(|request| pending.contains(request))
-                || entry.reply.is_some()
+                || entry
+                    .request()
+                    .is_some_and(|request| answered.contains(request))
                 || !matches!(
                     &entry.outcome,
                     Some(Ok(Accepted {
@@ -440,11 +374,7 @@ impl Session {
         let mut clock = clock.clone();
         // A wrapped continuation can show elapsed text while the spinner is
         // above the viewport. It needs no animation-frequency wakeup.
-        clock.motion &= line
-            .spans
-            .iter()
-            .find(|span| !span.content.is_empty())
-            .is_some_and(|span| span.content.starts_with("⠹"));
+        clock.motion &= line.spans.iter().any(|span| span.content.starts_with("⠹"));
         let mut clocks = app.frame_clocks.borrow_mut();
         if let Some(held) = clocks.iter_mut().find_map(|surface| match surface {
             crate::board::view::ClockSurface::OutgoingFeedback(held)
@@ -462,42 +392,21 @@ impl Session {
 
     fn feedback_clock(&self, source: usize) -> Option<&FeedbackClock> {
         self.status_entry(source)
-            .filter(|entry| entry.reply.is_none())
             .and_then(|entry| entry.feedback_clock.as_ref())
-    }
-
-    /// The sent message's age, like every other stamp; it admits its own clock.
-    pub(super) fn outgoing_stamp(&self, app: &App, sequence: u64) -> String {
-        let Some(entry) = self.outgoing.iter().find(|e| e.ticket.sequence == sequence) else {
-            return "now".into();
-        };
-        let mut clocks = app.frame_clocks.borrow_mut();
-        let at = entry.started_ms;
-        if !clocks.iter().any(|held| {
-            matches!(held, crate::board::view::ClockSurface::ActivityAge(known) if *known == at)
-        }) {
-            clocks.push(crate::board::view::ClockSurface::ActivityAge(at));
-        }
-        super::exchange::age_stamp(&crate::requests::age(crate::status::now_ms(), at))
     }
 
     /// The send whose status row paints at this source line.
     fn status_entry(&self, source: usize) -> Option<&Entry> {
-        let source = self.rendered.as_ref().and_then(|rendered| {
-            rendered
-                .response_sources
-                .as_ref()
-                .map_or(Some(source), |sources| {
-                    sources.get(source).copied().flatten()
-                })
-        })?;
-        let Some(super::AuthoredLine::Status { sequence }) = self.authored_lines.get(&source)
-        else {
-            return None;
-        };
+        let rendered = self.rendered.as_ref()?;
+        let original = *rendered.anchor_sources.get(source)?;
+        let sequence = rendered
+            .feedback
+            .iter()
+            .find(|(range, _)| range.contains(&original))?
+            .1;
         self.outgoing
             .iter()
-            .find(|entry| entry.ticket.sequence == *sequence)
+            .find(|entry| entry.ticket.sequence == sequence)
     }
 
     pub(super) fn feedback_line<'a>(
@@ -513,7 +422,7 @@ impl Session {
             && let Some(span) = painted
                 .spans
                 .iter_mut()
-                .find(|span| !span.content.is_empty())
+                .find(|span| span.content.starts_with("⠹"))
             && let Some(rest) = span.content.strip_prefix("⠹")
         {
             span.content =
@@ -522,11 +431,45 @@ impl Session {
         painted
     }
     fn trim_outgoing(&mut self) {
-        while self.outgoing.len() > MAX_ITEMS
-            || self.outgoing.iter().map(Entry::bytes).sum::<usize>() > MAX_BYTES
-        {
-            self.outgoing.pop_front();
+        while self.outgoing.len() > MAX_ITEMS || self.outgoing_bytes() > MAX_BYTES {
+            let Some(entry) = self.outgoing.pop_front() else {
+                break;
+            };
+            if let Some(request) = entry.request() {
+                self.sent.retain(|send| send.request != request);
+                self.finals
+                    .retain(|reply| reply.key.as_ref().is_none_or(|key| key.request != request));
+            }
         }
+    }
+    fn outgoing_bytes(&self) -> usize {
+        self.outgoing
+            .iter()
+            .map(|entry| {
+                entry.bytes()
+                    + entry.request().map_or(0, |request| {
+                        self.finals
+                            .iter()
+                            .filter(|reply| {
+                                reply.key.as_ref().is_some_and(|key| key.request == request)
+                            })
+                            .map(|reply| reply.body.len())
+                            .sum::<usize>()
+                            + self
+                                .sent
+                                .iter()
+                                .filter(|send| send.request == request)
+                                .filter_map(|send| send.capture.as_ref())
+                                .map(|capture| match capture {
+                                    crate::board::row_detail::Capture::Answered {
+                                        text, ..
+                                    } => text.len(),
+                                    _ => 0,
+                                })
+                                .sum::<usize>()
+                    })
+            })
+            .sum()
     }
     pub(super) fn correlate(&mut self, incoming: Option<&Reply>) {
         if let Some(reply) = incoming.filter(|reply| {
@@ -583,28 +526,30 @@ impl Session {
         let Some(key) = &reply.key else {
             return;
         };
-        let Some(entry) = self.outgoing.iter_mut().find(|entry| {
+        if !self.outgoing.iter().any(|entry| {
             entry.ticket.key.0 == key.sender
                 && entry.ticket.key.1 == key.lead
                 && entry.request() == Some(key.request.as_str())
                 && key.kind == crate::board::home_leads::Kind::Reply
-        }) else {
+        }) {
             return;
-        };
-        if entry
-            .reply
-            .as_ref()
-            .is_none_or(|old| !super::same_source(old, reply) || old.body != reply.body)
+        }
+        if self
+            .finals
+            .iter()
+            .find(|old| super::same_source(old, reply))
+            .is_none_or(|old| old.body != reply.body || !old.acquired)
         {
+            self.finals.retain(|old| !super::same_source(old, reply));
+            self.finals.push(reply.clone());
             self.reply = Some(reply.clone());
-            entry.reply = Some(reply.clone());
             self.trim_outgoing();
             self.refresh_outgoing();
         }
     }
     pub(super) fn correlate_loaded(&mut self, app: &App, name: &str) {
-        let mut changed = false;
-        for entry in &mut self.outgoing {
+        let mut incoming = Vec::new();
+        for entry in &self.outgoing {
             let Some(request) = entry.request() else {
                 continue;
             };
@@ -612,63 +557,38 @@ impl Session {
                 sender: entry.ticket.key.0.clone(),
                 lead: entry.ticket.key.1.clone(),
                 squad: entry.ticket.squad.clone(),
-                request: request.to_owned(),
+                request: request.into(),
                 kind: crate::board::home_leads::Kind::Reply,
             };
             let Some(body) = app.loaded_reply_body(&key) else {
                 continue;
             };
-            if entry.reply.as_ref().is_none_or(|reply| reply.body != body) {
-                let reply = Reply {
-                    from: name.to_owned(),
-                    age: "now".into(),
-                    at_ms: None,
-                    body: body.to_owned(),
+            if self
+                .finals
+                .iter()
+                .find(|reply| {
+                    reply
+                        .key
+                        .as_ref()
+                        .is_some_and(|held| held.same_source(&key))
+                })
+                .is_none_or(|reply| reply.body != body || !reply.acquired)
+            {
+                incoming.push(Reply {
+                    from: name.into(),
+                    age: "—".into(),
+                    at_ms: app.loaded_reply_time(&key),
+                    body: body.into(),
                     key: Some(key),
                     acquired: true,
                     source: true,
-                };
-                self.reply = Some(reply.clone());
-                entry.reply = Some(reply);
-                changed = true;
+                });
             }
         }
-        if changed {
-            self.trim_outgoing();
-            self.refresh_outgoing();
+        for reply in incoming {
+            self.correlate(Some(&reply));
         }
     }
-    pub(super) fn outgoing_capture_ids(&self) -> impl Iterator<Item = &str> {
-        self.outgoing
-            .iter()
-            .filter_map(|entry| entry.capture.as_ref())
-            .filter_map(crate::board::row_detail::Capture::response_id)
-    }
-
-    /// Prefer a captured answer under its request. No text, provider or clock
-    /// comparison can link two observations; only Core's responseId does.
-    pub(super) fn captured_outputs(
-        &self,
-        items: &[crate::board::recent_responses::Item],
-    ) -> Vec<usize> {
-        let mut seen = self
-            .restored_sends()
-            .filter_map(|send| send.capture.as_ref())
-            .filter_map(crate::board::row_detail::Capture::response_id)
-            .chain(self.outgoing_capture_ids())
-            .collect::<std::collections::BTreeSet<_>>();
-        items
-            .iter()
-            .enumerate()
-            .filter_map(|(index, item)| {
-                item.response_id
-                    .as_deref()
-                    .filter(|id| !seen.insert(id))
-                    .map(|_| index)
-            })
-            .collect()
-    }
-
     pub(super) fn observe_captures(&mut self) {
         let mut changed = false;
         for entry in &mut self.outgoing {
@@ -677,10 +597,18 @@ impl Session {
                 .iter()
                 .find(|send| Some(send.request.as_str()) == entry.request())
             {
-                if entry.capture != send.capture {
-                    entry.capture = send.capture.clone();
-                    entry.feedback_clock = None;
-                    changed = true;
+                if let Some(Ok(accepted)) = &entry.outcome
+                    && accepted.passthrough
+                    && accepted.message_state_label.is_none()
+                {
+                    let fallback = send.capture.as_ref().map_or(
+                        "✓ delivered",
+                        crate::board::row_detail::Capture::delivery_fallback,
+                    );
+                    if entry.feedback != fallback {
+                        entry.feedback = fallback.into();
+                        changed = true;
+                    }
                 }
                 if let Some(Ok(accepted)) = &mut entry.outcome
                     && (accepted.message_state_label != send.message_state_label
@@ -693,218 +621,16 @@ impl Session {
                 }
             }
         }
+        // Captured bodies can grow without changing the delivery label.
+        // Admission enforces the same retained-byte bound in either case.
+        self.trim_outgoing();
         if changed {
-            self.trim_outgoing();
             self.refresh_outgoing();
         }
     }
 
     pub(super) fn refresh_outgoing(&mut self) {
-        self.outgoing_note_sources = Default::default();
-        self.capture_body_spans.clear();
-        let mut text = self.before_send.as_ref().map_or_else(String::new, |reply| {
-            crate::board::notes::sanitize(&reply.body)
-        });
-        self.response_spans.clear();
-        if let Some(reply) = self
-            .before_send
-            .as_ref()
-            .filter(|reply| reply.acquired && reply.source)
-            && let Some(key) = &reply.key
-        {
-            self.response_spans.push((
-                None,
-                key.clone(),
-                0..text.bytes().filter(|byte| *byte == b'\n').count() + 1,
-            ));
-        }
-        self.authored_lines.clear();
-        self.compact_separators.clear();
-        let places = self.answer_places();
-        let statuses: Vec<String> = (0..self.outgoing.len())
-            .map(|index| self.status_in(&places, index))
-            .collect();
-        let lines = |text: &str| text.bytes().filter(|byte| *byte == b'\n').count();
-        let mut captured = std::collections::BTreeSet::new();
-        for (index, entry) in self.outgoing.iter().enumerate() {
-            let place = &places[index];
-            if place.header() {
-                if let Some(question) = &entry.lead_in {
-                    push_question(
-                        &mut text,
-                        &mut self.authored_lines,
-                        &mut self.compact_separators,
-                        &mut self.response_spans,
-                        question,
-                    );
-                }
-                if !text.is_empty() {
-                    text.push_str("\n\n");
-                }
-                let header_line = lines(&text);
-                self.authored_lines.insert(
-                    header_line,
-                    super::AuthoredLine::Outgoing {
-                        answer: false,
-                        sequence: entry.ticket.sequence,
-                    },
-                );
-                self.compact_separators.insert(header_line + 1);
-                text.push_str("You · now\n\n");
-            } else {
-                // A stacked body follows the previous one on the next line: the blank line
-                // that keeps the two Markdown blocks apart is compacted away, unless either
-                // body has several paragraphs.
-                let before = lines(&text);
-                text.push_str("\n\n");
-                if !super::answer_order::spaced(
-                    &self.outgoing[index - 1].ticket.text,
-                    &entry.ticket.text,
-                ) {
-                    self.compact_separators.insert(before + 1);
-                }
-            }
-            let note_start = lines(&text);
-            text.push_str(crate::board::notes::sanitize(&entry.ticket.text).trim_end_matches('\n'));
-            self.outgoing_note_sources.range(
-                note_start..lines(&text) + 1,
-                entry
-                    .request()
-                    .map_or(super::note_source::Source::Unavailable, |request| {
-                        super::note_source::Source::request("you", request, entry.started_ms)
-                    }),
-            );
-            let message_end = lines(&text);
-            if place.status() && entry.reply.is_none() {
-                self.compact_separators.insert(message_end + 1);
-                self.authored_lines.insert(
-                    message_end + 2,
-                    super::AuthoredLine::Status {
-                        sequence: entry.ticket.sequence,
-                    },
-                );
-                text.push_str("\n\n");
-                push_literal(&mut text, &statuses[index]);
-            }
-            // A lone send keeps its own answer; a block's answer follows its last send.
-            let own = entry
-                .capture
-                .as_ref()
-                .filter(|capture| {
-                    place.role == super::answer_order::Role::Single
-                        && !matches!(
-                            capture,
-                            crate::board::row_detail::Capture::Pending
-                                | crate::board::row_detail::Capture::Bound
-                        )
-                })
-                .map(|capture| (entry.request(), capture));
-            let held = place.answers.iter().filter_map(|answered| {
-                let entry = &self.outgoing[*answered];
-                Some((entry.request(), entry.capture.as_ref()?))
-            });
-            for (request, capture) in own.into_iter().chain(held) {
-                if !capture.first(&mut captured) {
-                    continue;
-                }
-                text.push_str("\n\n");
-                let note_start = lines(&text);
-                text.push_str(&capture.markdown());
-                if let Some(request) = request
-                    && let crate::board::row_detail::Capture::Answered {
-                        settled_ms: Some(at),
-                        ..
-                    } = capture
-                {
-                    // The capture's label and separating blank line are not its answer body.
-                    self.capture_body_spans.push((
-                        note_start + 2..lines(&text) + 1,
-                        request.into(),
-                        *at,
-                    ));
-                }
-                let note_source =
-                    request.map_or(super::note_source::Source::Unavailable, |request| {
-                        super::note_source::Source::capture(
-                            &self.transcript_context.name,
-                            request,
-                            capture,
-                        )
-                    });
-                self.outgoing_note_sources
-                    .range(note_start..lines(&text) + 1, note_source);
-            }
-            if let Some(reply) = &entry.reply {
-                text.push_str("\n\n");
-                let header_line = text.bytes().filter(|byte| *byte == b'\n').count();
-                self.authored_lines
-                    .insert(header_line, super::AuthoredLine::ReplyHeading);
-                self.compact_separators.insert(header_line + 1);
-                push_literal(
-                    &mut text,
-                    &format!(
-                        "{} · now\n\n",
-                        crate::board::notes::single_line(&reply.from)
-                    ),
-                );
-                let start = text.bytes().filter(|byte| *byte == b'\n').count();
-                text.push_str(crate::board::notes::sanitize(&reply.body).trim_end_matches('\n'));
-                if reply.acquired
-                    && reply.source
-                    && let Some(key) = &reply.key
-                {
-                    self.response_spans.push((
-                        Some(entry.ticket.sequence),
-                        key.clone(),
-                        start..text.bytes().filter(|byte| *byte == b'\n').count() + 1,
-                    ));
-                }
-            }
-        }
-        if let Some(question) = &self.tail {
-            push_question(
-                &mut text,
-                &mut self.authored_lines,
-                &mut self.compact_separators,
-                &mut self.response_spans,
-                question,
-            );
-        }
-        self.text = text;
         self.stale = true;
-    }
-}
-
-/// An agent question shown between or after sends, headed like an agent reply.
-fn push_question(
-    text: &mut String,
-    authored_lines: &mut std::collections::BTreeMap<usize, super::AuthoredLine>,
-    compact_separators: &mut std::collections::BTreeSet<usize>,
-    response_spans: &mut Vec<(
-        Option<u64>,
-        crate::board::home_leads::MessageKey,
-        std::ops::Range<usize>,
-    )>,
-    question: &Reply,
-) {
-    let lines = |text: &str| text.bytes().filter(|byte| *byte == b'\n').count();
-    if !text.is_empty() {
-        text.push_str("\n\n");
-    }
-    let header_line = lines(text);
-    authored_lines.insert(header_line, super::AuthoredLine::ReplyHeading);
-    compact_separators.insert(header_line + 1);
-    text.push_str(&format!(
-        "{} · now\n\n",
-        crate::board::notes::sanitize(&question.from)
-    ));
-    let start = lines(text);
-    text.push_str(crate::board::notes::sanitize(&question.body).trim_end_matches('\n'));
-    if question.acquired
-        && question.source
-        && let Some(key) = &question.key
-    {
-        response_spans.push((None, key.clone(), start..lines(text) + 1));
     }
 }
 
@@ -946,6 +672,18 @@ impl App {
                     && reply["requestId"].as_str() == Some(&key.request)
             })?["response"]
             .as_str()
+    }
+
+    fn loaded_reply_time(&self, key: &crate::board::home_leads::MessageKey) -> Option<u64> {
+        self.home_leads
+            .replies
+            .iter()
+            .chain(self.view.iter().flat_map(|view| &view.replies))
+            .find(|reply| {
+                reply["recipientId"].as_str() == Some(key.lead.as_str())
+                    && reply["requestId"].as_str() == Some(key.request.as_str())
+            })?["submittedAtMs"]
+            .as_u64()
     }
 
     pub(in crate::board) fn chat_fallback(
@@ -1014,11 +752,8 @@ impl App {
         session.outgoing.push_back(Entry {
             ticket: ticket.clone(),
             started_ms: crate::status::now_ms(),
-            talk: matches!(input.compose, crate::board::app::Compose::Talk { .. }),
             outcome: None,
             lead_in,
-            reply: None,
-            capture: None,
             feedback: String::new(),
             feedback_clock: None,
             sending_shown_ms: None,

@@ -101,6 +101,7 @@ fn every_oracle_scene_shows_its_answer_state_at_all_capture_widths() {
 
 fn page(start: u64, end: u64, next: Option<u64>) -> Arc<Page> {
     Arc::new(Page {
+        timeline: None,
         items: (start..end)
             .map(|index| {
                 let text = format!("Answer {index}\nExact second line {index}");
@@ -145,7 +146,10 @@ fn upward_page_demand_uses_the_same_lane_and_prepend_preserves_the_reading_ancho
         let older = app
             .pane_output_plan()
             .expect("deliberate upward boundary crossing");
-        assert_eq!(older.before, Some(50));
+        assert_eq!(
+            older.before,
+            Some(crate::board::recent_responses::Cursor::Recent(50))
+        );
         let before = {
             let state = app.conversation.borrow();
             state.sessions[state.active.as_ref().unwrap()]
@@ -242,7 +246,10 @@ fn failed_older_page_keeps_answers_and_cursor_without_an_automatic_retry() {
         );
     }
     app.scroll_pane(Pane::Replies, Step::Top);
-    assert_eq!(app.pane_output_plan().unwrap().before, Some(50));
+    assert_eq!(
+        app.pane_output_plan().unwrap().before,
+        Some(crate::board::recent_responses::Cursor::Recent(50))
+    );
 }
 
 #[test]
@@ -360,14 +367,11 @@ fn capture_and_coverage_captions_keep_data_and_never_create_request_authority() 
             "truncation belongs inside the answer gutter: {lines:#?}"
         );
         assert!(text.contains("Answer 0"));
-        assert!(rendered.final_spans.is_empty());
         assert!(
             rendered
-                .response_sources
-                .as_ref()
-                .unwrap()
+                .timeline_spans
                 .iter()
-                .all(Option::is_none)
+                .all(|span| span.source.is_none() && span.legacy.is_none())
         );
     }
     value.capture = None;
