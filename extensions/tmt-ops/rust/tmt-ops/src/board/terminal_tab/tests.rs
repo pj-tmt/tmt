@@ -122,17 +122,17 @@ fn a_member_with_a_stream_gets_chips_and_t_swaps_chat_and_terminal() {
     with_stream(&mut app);
     let chat = text(&app);
     assert!(chat.contains("Chat") && chat.contains("Terminal"), "{chat}");
-    assert!(chat.contains("Exchanges with you"));
+    assert!(chat.contains("Conversation"));
     assert!(app.bindings().contains_key("t"));
     press_t(&mut app);
     assert!(app.terminal_showing());
     assert_eq!(app.selected_read(), None, "the chat is not read behind it");
     let terminal = text(&app);
-    assert!(!terminal.contains("Exchanges with you"));
+    assert!(!terminal.contains("Conversation"));
     assert!(terminal.contains("Terminal"));
     press_t(&mut app);
     assert!(!app.terminal_showing());
-    assert!(text(&app).contains("Exchanges with you"));
+    assert!(text(&app).contains("Conversation"));
 }
 
 #[test]
