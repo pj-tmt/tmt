@@ -330,7 +330,8 @@ windows to `tmt __allowance claude` (#5187). The marketplace stays picker-only. 
 nothing without usage consent and never opens the SQL store: it writes one private JSON file
 under the data root, and `claude/allowance.rs` returns the newer of that entry and the
 `cachedUsageUtilization` cache ([extension API](../../../../contracts/extension-api.md)).
-Its own test runs under `claude plugin test`.
+Consented setup installs it (see [setup and uninstall](identity-bindings.md#hooks-setup-and-uninstall));
+its own test runs under `claude plugin test`.
 
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for

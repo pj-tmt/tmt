@@ -81,7 +81,8 @@
   position: fixed;
   inset: auto;
   margin: 0;
-  padding: 0;
+  /* Keep the first and last focus frames inside the rounded popup. */
+  padding: var(--tmt-ui-space-xs);
   min-width: 160px;
   width: max-content;
   max-width: calc(100vw - 16px);
@@ -135,6 +136,7 @@
   /* 10px block padding keeps the existing row height; the inline side is a token. */
   padding: 10px var(--tmt-ui-space-m);
   border: 0;
+  border-radius: var(--tmt-ui-radius-s);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -142,6 +144,16 @@
   cursor: pointer;
 }
 .tmt-ui-menu-item[data-separated] {
+  position: relative;
+  /* Preserve the separator's existing row footprint without bending its rule around the control. */
+  padding-top: calc(10px + var(--tmt-ui-rule-width));
+}
+.tmt-ui-menu-item[data-separated]::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  /* Internal list dividers stay square; the interactive row and its focus frame are rounded. */
+  border-radius: 0;
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-menu-item {

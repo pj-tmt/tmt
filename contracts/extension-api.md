@@ -599,7 +599,9 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   root's `oauthAccount.accountUuid`, and stamps `observedAtMs` with its own receive time,
   never the mod's. The reader returns whichever of the pushed entry and the cache has
   the newer `observedAtMs`, whole; a tie prefers the cache. Windows of the two are never
-  merged or summed. `observedAtMs` is `fetchedAtMs`, never read time or file mtime; future
+  merged or summed. Setup installs the mod only with usage consented, as a marked copy
+  in Claude's skills root; `--no-usage`, `--remove` and uninstall remove it, and a
+  directory that is not TMT's is never overwritten. `observedAtMs` is `fetchedAtMs`, never read time or file mtime; future
   fetch times are dropped. `five_hour` and `seven_day` map to 300 and 10,080 minutes;
   `utilization` is a percentage (0–100, never rescaled), and ISO resets become UTC
   milliseconds. Missing/null windows are optional; a malformed or partial window

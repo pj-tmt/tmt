@@ -963,7 +963,10 @@ these are the agent's own final answers for display, not delivered replies.
 Answers already kept stop appearing when they expire; later collection
 removes them. With `--no-usage` the Stop hook stays for the agent's answers only: no usage,
 consumption or transcript data is read or stored. An install made with `--no-usage` before that
-has no Stop hook until `tmt setup` runs again. Consumption reports cumulative
+has no Stop hook until `tmt setup` runs again. With usage on, setup also keeps a small managed
+Claude Code mod in Claude's skills root that hands its rate-limit windows to TMT, so allowance
+figures stay fresh; `--no-usage`, `--remove` and uninstall remove it, and a directory that is
+not TMT's is left alone. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input. Foreground `tmt run`/`resume` observes accepted
 completed-request evidence every five seconds during a turn. Listing never reads

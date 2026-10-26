@@ -36,7 +36,7 @@ import {
 } from './page-list-search.js';
 import { pageTitle } from './page-index.js';
 import { rankPages } from './quick-switcher.js';
-import { composeEntries, type SwitcherEntry } from './quick-switcher-groups.js';
+import { composeEntries, scopeNames, type SwitcherEntry } from './quick-switcher-groups.js';
 import { useSwitcherSource } from './quick-switcher-source.js';
 import { QuickSwitcherContext, useQuickSwitcher } from './quick-switcher-context.js';
 import { admitsSwitcherShortcut, usesCommandKey } from './quick-switcher-key.js';
@@ -349,7 +349,11 @@ export function QuickSwitcherHost({
                       authors={source.state === 'ready' ? authorCounts(source.pages) : []}
                       onApply={setEdit}
                       onClear={() => setOpen(false)}
-                      placeholder={search ? t.placeholderGlobal : t.placeholder}
+                      placeholder={
+                        search
+                          ? t.placeholderGlobal(scopeNames(providers, t.pagesNoun))
+                          : t.placeholder
+                      }
                       label={search ? t.titleGlobal : undefined}
                       resultTrigger={trigger}
                       onUnhandledKeyDown={(event) => {

@@ -403,6 +403,12 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// The managed files setup keeps beside this provider's settings once the user consented
+    /// (#5187). Most drivers keep none.
+    fn provider_mod(&self) -> Option<&'static crate::setup::provider_mod::ProviderMod> {
+        None
+    }
+
     /// Keep allowance windows the provider's own first-party mod pushed (#5187). Most drivers
     /// have no such mod and keep nothing; `Ok(false)` means nothing was stored.
     fn accept_allowance(

@@ -167,8 +167,10 @@ for (const width of [390, 1024, 1280, 1440])
       const save = page.getByRole('button', { name: text.save, exact: true });
       await expect(save).toBeDisabled();
       await save.hover({ force: true });
-      // Actions use the standard action text size; the metadata and code keep their compact density.
-      await expect(save).toHaveCSS('font-size', '14px');
+      // Header Save uses the shared compact metrics; disabled paint and draft admission stay owned.
+      await expect(save).toHaveCSS('font-size', '11px');
+      await expect(save).toHaveCSS('font-weight', '620');
+      expect((await save.boundingBox())!.height).toBeCloseTo(30.84375, 2);
       await expect(page.getByTestId('source-draft-status')).toHaveCSS('font-size', '11px');
       // The editor steps down a point on a phone, as the website's does.
       await expect(page.locator('#source-edit')).toHaveCSS(
@@ -319,12 +321,16 @@ for (const theme of ['light', 'dark'] as const)
       .getByRole('button', { name: text.save, exact: true });
     const area = source.locator('#source-edit');
     await expect(save).toBeDisabled();
-    await expect(save).toHaveCSS('font-size', '14px');
+    await expect(save).toHaveCSS('font-size', '11px');
+    await expect(save).toHaveCSS('font-weight', '620');
+    expect((await save.boundingBox())!.height).toBeCloseTo(30.84375, 2);
     await expect(source.getByTestId('source-draft-status')).toHaveCSS('font-size', '11px');
     await expect(area).toHaveCSS('font-size', '11px');
     await area.fill('<main>Edited source</main>');
     await expect(save).toBeEnabled();
-    await expect(save).toHaveCSS('font-size', '14px');
+    await expect(save).toHaveCSS('font-size', '11px');
+    await expect(save).toHaveCSS('font-weight', '620');
+    expect((await save.boundingBox())!.height).toBeCloseTo(30.84375, 2);
     await page.screenshot({ path: capturePath(`source-toolbar-owner-1024-${theme}.png`) });
   });
 
