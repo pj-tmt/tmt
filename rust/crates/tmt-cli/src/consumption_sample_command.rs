@@ -185,7 +185,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     let next_counted = next.is_some();
     let consumption = next
         .as_ref()
-        .and_then(|state| lifecycle.state_consumption(state));
+        .and_then(|state| lifecycle.sampled_consumption(state, &environment));
     let mut preferences = stored.preferences.clone();
     if let Some(next) = next {
         preferences.remembered.as_mut().ok_or(())?.state = Some(next);

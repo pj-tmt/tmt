@@ -41,7 +41,7 @@ pub use bindings::PurgedSession;
 pub use compaction::{AutoVacuum, Compaction, DatabasePages, compact_database, observe_pages};
 pub use consumption_history::{
     BUCKET_MS, ConsumptionLatest, HISTORY_MS, MAX_BUCKETS, MAX_RESPONSE_BUCKETS,
-    RuntimeObservation, TurnBoundary, window_resolution_ms,
+    RuntimeObservation, SampledAccount, TurnBoundary, window_resolution_ms,
 };
 pub use context::{ContextRequests, IdentityContextSnapshot};
 pub use database_rename::{DatabaseRename, Kept, rename_database};

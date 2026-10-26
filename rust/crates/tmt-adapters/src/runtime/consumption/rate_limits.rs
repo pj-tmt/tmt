@@ -23,6 +23,82 @@ pub struct RateLimits {
     pub provider: String,
     pub observed_at_ms: u64,
     pub windows: Vec<Window>,
+    /// Which of the provider's accounts these windows belong to, when the source can tell. Absent
+    /// for a provider with one implicit account (Codex, agy) and for every value stored before
+    /// the field: a consumer treats absence as that one account (#5274).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<RateAccount>,
+}
+
+/// A provider account as a consumer may show and group it: an opaque key and a short label,
+/// never the raw account id, an email or an organization name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RateAccount {
+    /// Stable per provider account: the first 12 hex digits of SHA-256 over the provider and
+    /// the account id. It is not reversible to the account id.
+    pub key: String,
+    /// A display name taken from the account's local config root, for example `claude-work`.
+    pub label: String,
+}
+
+const ACCOUNT_KEY_LENGTH: usize = 12;
+const ACCOUNT_LABEL_MAX: usize = 32;
+
+impl RateAccount {
+    /// `account_id` is the provider's own stable id for the account and `root_name` the file
+    /// name of its config root. Only `[A-Za-z0-9._-]` survives into the label, so an address or
+    /// a name with spaces never appears; an empty result falls back to the provider.
+    pub fn derive(provider: &str, account_id: &str, root_name: &str) -> Self {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::new()
+            .chain_update(provider.as_bytes())
+            .chain_update([0])
+            .chain_update(account_id.as_bytes())
+            .finalize();
+        let key = digest
+            .iter()
+            .flat_map(|byte| [byte >> 4, byte & 0xf])
+            .take(ACCOUNT_KEY_LENGTH)
+            .map(|nibble| char::from_digit(u32::from(nibble), 16).unwrap_or('0'))
+            .collect();
+        // A name that looks like an address is never shown, even cleaned.
+        let root_name = if root_name.contains('@') {
+            ""
+        } else {
+            root_name
+        };
+        let label: String = root_name
+            .trim_start_matches('.')
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .take(ACCOUNT_LABEL_MAX)
+            .collect();
+        let label = label.trim_matches(|c| matches!(c, '.' | '-' | '_'));
+        Self {
+            key,
+            label: if label.is_empty() { provider } else { label }.into(),
+        }
+    }
+
+    fn valid(&self) -> bool {
+        self.key.len() == ACCOUNT_KEY_LENGTH
+            && self
+                .key
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            && (1..=ACCOUNT_LABEL_MAX).contains(&self.label.len())
+            && self
+                .label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+    }
 }
 
 fn codex_provider() -> String {
@@ -62,6 +138,7 @@ impl RateLimits {
                 .windows
                 .windows(2)
                 .all(|pair| pair[0].window_minutes < pair[1].window_minutes)
+            && self.account.as_ref().is_none_or(RateAccount::valid)
     }
 }
 
@@ -86,6 +163,7 @@ pub(super) fn codex(entry: &Value) -> Option<RateLimits> {
         provider: codex_provider(),
         observed_at_ms: timestamp_ms(entry["timestamp"].as_str()?)?,
         windows,
+        account: None,
     };
     parsed.valid().then_some(parsed)
 }

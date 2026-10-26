@@ -398,7 +398,15 @@ delivery. They install and launch nothing.
   cache, with same-file account equality and the original fetch time. It never
   refreshes the cache, reads credentials or changes provider configuration. The
   [allowance contract](../../../../contracts/extension-api.md#consumption-history)
-  owns age, reset expiry and unavailable-window semantics.
+  owns age, reset expiry and unavailable-window semantics, and the `account {key,label}`
+  that names the root's account (#5274). `RateAccount::derive` hashes the provider and the
+  account id and labels it with the root's name. The remembered state is capped at 1024 bytes
+  (real Claude seats use 955-1006), so it never holds the account and the pushed store stays
+  keyed by the raw id: `RuntimeLifecycle::sampled_consumption` (Claude: `allowance::rate_account`)
+  attaches it to the readings the hook and the sampler record into history, and
+  `Storage::sampled_rate_account` lets `ls`/`identity show` overlay the newest sample's account
+  on `resume.consumption.rateLimits` for the same driver, session and provider. History
+  continuity ignores the account: gaining or losing it is not a new reading.
   The same line's `credits` (balance text, never arithmetic) and the newest
   `thread_settings_applied` `service_tier` in the attribution tail are read the same way:
   each is dropped whole when invalid, absent tier means unknown (never `default`), and

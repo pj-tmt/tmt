@@ -5,7 +5,7 @@ use super::{
     errors::classify, identities::with_immediate_transaction,
 };
 use crate::runtime::consumption::{
-    Consumption, Credits, ModelUsage, RateLimits, valid_service_tier,
+    Consumption, Credits, ModelUsage, RateAccount, RateLimits, valid_service_tier,
 };
 mod details;
 use details::Details;
@@ -74,6 +74,33 @@ pub struct ConsumptionLatest {
     pub driver: String,
     pub session: String,
     pub consumption: Consumption,
+}
+
+/// The account a sampled reading named, with the reading it belongs to: a consumer applies it to
+/// a remembered session's limits only when the driver, session, provider and observation time are
+/// the same, so one account's numbers are never labelled with another account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SampledAccount {
+    pub driver: String,
+    pub session: String,
+    pub provider: String,
+    /// The observation time of the limits it names: a consumer applies the account only to the
+    /// same observation, never to another reading of the same session.
+    pub observed_at_ms: u64,
+    pub account: RateAccount,
+}
+
+/// Whether two readings are the same evidence. The account only names whose windows they are,
+/// so gaining or losing it is not a new reading and must not break history's continuity.
+fn same_evidence(a: &Consumption, b: &Consumption) -> bool {
+    let bare = |reading: &Consumption| {
+        let mut reading = reading.clone();
+        if let Some(limits) = reading.rate_limits.as_mut() {
+            limits.account = None;
+        }
+        reading
+    };
+    bare(a) == bare(b)
 }
 
 /// A main-session turn boundary the hook admitted. A passthrough's text is matched to the turn
@@ -479,6 +506,35 @@ impl Storage {
         self.connection()?.query_row("SELECT locator FROM consumption_sources WHERE identity_id=? AND binding_id=? AND driver=? AND session=?",params![id,binding,driver,session],|row|row.get::<_,Option<String>>(0)).optional().map(Option::flatten).map_err(|e|classify(e,"Read consumption locator"))
     }
 
+    /// The account the newest sample named for `id`'s remembered session (#5274): sampled
+    /// readings carry it, the 1024-byte remembered state cannot. None when nothing was sampled
+    /// or the sample names no account.
+    pub fn sampled_rate_account(&self, id: &str) -> Result<Option<SampledAccount>, StorageError> {
+        let latest: Option<String> = self
+            .connection()?
+            .query_row(
+                "SELECT latest FROM consumption_sources WHERE identity_id=?",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| classify(e, "Read sampled consumption"))?
+            .flatten();
+        let Some(latest) = latest else {
+            return Ok(None);
+        };
+        let latest: ConsumptionLatest = serde_json::from_str(&latest).map_err(|_| invalid())?;
+        Ok(latest.consumption.rate_limits.and_then(|limits| {
+            Some(SampledAccount {
+                driver: latest.driver,
+                session: latest.session,
+                provider: limits.provider,
+                observed_at_ms: limits.observed_at_ms,
+                account: limits.account?,
+            })
+        }))
+    }
+
     /// One deferred read snapshot; no source access or history renewal/pruning.
     /// Windows up to an hour read the 5-second buckets, longer ones the 5-minute
     /// rollup. A retired identity is answered only when `include_retired` is set.
@@ -820,7 +876,7 @@ fn record_sample(
             && next.consumption.cached_input_tokens - old.consumption.cached_input_tokens
                 <= next.consumption.input_tokens - old.consumption.input_tokens
             && (next.consumption.sequence != old.consumption.sequence
-                || next.consumption == old.consumption)
+                || same_evidence(&next.consumption, &old.consumption))
     });
     let encoded = next
         .as_ref()

@@ -431,3 +431,55 @@ fn without_a_data_root_the_cache_alone_answers() {
         ProviderEnvironment::from_parts(&pushed.home.path, &pushed.home.path, Vec::new(), []);
     assert_eq!(read(&rootless, NOW).unwrap().observed_at_ms, FETCHED);
 }
+
+#[test]
+fn the_account_is_named_by_the_root_and_never_by_a_reading() {
+    let pushed = PushedFixture::new(&config());
+    // A reading, from the cache or from a newer push, carries no account: it is stored in a
+    // 1024-byte state that has no room for one (#5274).
+    assert!(pushed.read(NOW).unwrap().account.is_none());
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    assert!(pushed.read(NOW).unwrap().account.is_none());
+    // The root's account names both: the default root `~/.claude` is labelled `claude`.
+    let account = rate_account(&pushed.environment()).unwrap();
+    assert_eq!(account.label, "claude");
+    assert!(!account.key.contains("account-a"));
+    // The pushed store keeps no account: it is keyed by the account id already.
+    let store = fs::read_to_string(pushed.data.path.join(STORE)).unwrap();
+    assert!(!store.contains("\"account\"") && !store.contains(&account.key));
+    // Another account is another key.
+    let mut other = config();
+    other["oauthAccount"]["accountUuid"] = json!("account-b");
+    pushed.config(&other);
+    assert_ne!(
+        rate_account(&pushed.environment()).unwrap().key,
+        account.key
+    );
+    // The same account under another root keeps its key and takes that root's name.
+    let home = TestDirectory::new();
+    let root = home.path.join(".claude-work");
+    fs::create_dir(&root).unwrap();
+    fs::write(
+        root.join(".claude.json"),
+        serde_json::to_vec(&config()).unwrap(),
+    )
+    .unwrap();
+    let selected = ProviderEnvironment::from_parts(
+        &home.path,
+        &home.path,
+        Vec::new(),
+        [("CLAUDE_CONFIG_DIR", root.clone())],
+    );
+    let work = rate_account(&selected).unwrap();
+    assert_eq!(
+        (work.key.as_str(), work.label.as_str()),
+        (account.key.as_str(), "claude-work")
+    );
+    // No account in the file, or no readable file, names none.
+    let mut anonymous = config();
+    anonymous["oauthAccount"]["accountUuid"] = json!("");
+    pushed.config(&anonymous);
+    assert_eq!(rate_account(&pushed.environment()), None);
+    fs::remove_file(pushed.home.path.join(".claude.json")).unwrap();
+    assert_eq!(rate_account(&pushed.environment()), None);
+}

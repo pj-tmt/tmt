@@ -169,7 +169,10 @@ fn shown(storage: &Storage, identity: Identity) -> Result<Report, Failure> {
         .session_preferences(&identity.id)
         .map_err(unavailable)?;
     let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
-    let resume = crate::output::resume_document(&preferences, &registry);
+    let sampled = storage
+        .sampled_rate_account(&identity.id)
+        .map_err(unavailable)?;
+    let resume = crate::output::resume_document(&preferences, &registry, sampled.as_ref());
     let learning = crate::session_learning::identity_view(storage, &identity, &preferences)
         .map_err(unavailable)?;
     Ok(Report::Shown(identity, resume, None, learning))

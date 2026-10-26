@@ -584,6 +584,35 @@ fn claude_cache_windows_survive_the_normal_model_activity_and_cursor_state() {
         driver_state::state_model(&state).as_deref(),
         Some("claude-opus-5-5")
     );
+    // The account is never part of this state (it is capped at 1024 bytes); the sampled reading
+    // names it from the root (#5274).
+    assert!(
+        consumption
+            .value
+            .rate_limits
+            .as_ref()
+            .unwrap()
+            .account
+            .is_none()
+    );
+    let sampled = claude::ClaudeLifecycle
+        .sampled_consumption(&state, &environment)
+        .unwrap();
+    let account = sampled
+        .rate_limits
+        .as_ref()
+        .unwrap()
+        .account
+        .clone()
+        .unwrap();
+    assert_eq!(account.label, "claude");
+    assert!(sampled.valid());
+    let mut bare = sampled.clone();
+    bare.rate_limits.as_mut().unwrap().account = None;
+    assert_eq!(
+        Some(bare),
+        claude::ClaudeLifecycle.state_consumption(&state)
+    );
 }
 
 #[test]

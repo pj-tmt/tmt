@@ -105,8 +105,37 @@ struct Credit {
 struct Observed {
     /// The driver of the source line, as Core reports it.
     provider: String,
+    /// The provider account the windows belong to, when Core names one (#5274).
+    account: Option<LimitAccount>,
     observed_at_ms: u64,
     windows: Vec<(u64, f64, u64)>,
+}
+
+/// A provider account as Core publishes it in `rateLimits.account`: an opaque key and a label.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LimitAccount {
+    key: String,
+    label: String,
+}
+
+impl LimitAccount {
+    /// The key is 12 lowercase hex digits and the label 1 to 32 of `[A-Za-z0-9._-]`, as Core
+    /// writes them; any other shape is no account, never a guessed one.
+    fn read(value: &Value) -> Option<Self> {
+        let (key, label) = (value["key"].as_str()?, value["label"].as_str()?);
+        (key.len() == 12
+            && key
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            && (1..=32).contains(&label.len())
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)))
+        .then(|| Self {
+            key: key.into(),
+            label: label.into(),
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -321,8 +350,15 @@ fn observed(value: &Value) -> Option<Observed> {
     // Never inferred: a Core from before the field names no source, so its observation is
     // dropped like any other incomplete one.
     let provider = value["provider"].as_str().filter(|id| provider_id(id))?;
+    // Absent is one implicit account. A present but malformed one drops the observation: it
+    // must not fold into another account's windows.
+    let account = match value.get("account") {
+        None | Some(Value::Null) => None,
+        Some(account) => Some(LimitAccount::read(account)?),
+    };
     Some(Observed {
         provider: provider.into(),
+        account,
         observed_at_ms: number(&value["observedAtMs"])?,
         windows,
     })
@@ -468,8 +504,9 @@ fn lines(seats: &[Seat]) -> Result<BTreeMap<&'static str, Line>, Error> {
     Ok(lines)
 }
 
-/// One window as seats reported it, deduplicated by provider, length and reset.
-struct Account {
+/// One window as seats reported it, deduplicated by provider, account, length and reset.
+struct Account<'a> {
+    account: Option<&'a LimitAccount>,
     observed_at_ms: u64,
     used_percent: f64,
     seats: BTreeSet<String>,
@@ -480,29 +517,36 @@ fn rounded(value: f64) -> f64 {
 }
 
 fn limits(seats: &[Seat], as_of_ms: u64) -> Vec<Value> {
-    let mut accounts = BTreeMap::<(&str, u64, u64), Account>::new();
+    let mut accounts = BTreeMap::<(&str, Option<&str>, u64, u64), Account<'_>>::new();
     for seat in seats {
         let Some(observed) = &seat.limits else {
             continue;
         };
+        let account = observed.account.as_ref();
         for &(minutes, used, resets) in &observed.windows {
-            let account = accounts
-                .entry((observed.provider.as_str(), minutes, resets))
+            let held = accounts
+                .entry((
+                    observed.provider.as_str(),
+                    account.map(|account| account.key.as_str()),
+                    minutes,
+                    resets,
+                ))
                 .or_insert(Account {
+                    account,
                     observed_at_ms: observed.observed_at_ms,
                     used_percent: used,
                     seats: BTreeSet::new(),
                 });
-            if observed.observed_at_ms > account.observed_at_ms {
-                account.observed_at_ms = observed.observed_at_ms;
-                account.used_percent = used;
+            if observed.observed_at_ms > held.observed_at_ms {
+                held.observed_at_ms = observed.observed_at_ms;
+                held.used_percent = used;
             }
-            account.seats.insert(seat.label.id.clone());
+            held.seats.insert(seat.label.id.clone());
         }
     }
     accounts
         .into_iter()
-        .map(|((provider, minutes, resets), account)| {
+        .map(|((provider, _, minutes, resets), held)| {
             let length = minutes.saturating_mul(60_000);
             let start = resets.saturating_sub(length);
             // A window that already reset says nothing about the current pace.
@@ -510,15 +554,19 @@ fn limits(seats: &[Seat], as_of_ms: u64) -> Vec<Value> {
             let elapsed = live.then(|| {
                 rounded(as_of_ms.saturating_sub(start).min(length) as f64 / length as f64 * 100.0)
             });
-            json!({
+            let mut limit = json!({
                 "provider": provider,
                 "windowMinutes": minutes, "resetsAtMs": resets,
-                "usedPercent": account.used_percent, "observedAtMs": account.observed_at_ms,
+                "usedPercent": held.used_percent, "observedAtMs": held.observed_at_ms,
                 "elapsedPercent": elapsed,
-                "paceDeltaPoints": elapsed.map(|elapsed| rounded(account.used_percent - elapsed)),
+                "paceDeltaPoints": elapsed.map(|elapsed| rounded(held.used_percent - elapsed)),
                 "stale": !live,
-                "seats": account.seats,
-            })
+                "seats": held.seats,
+            });
+            if let Some(account) = held.account {
+                limit["account"] = json!({"key": account.key, "label": account.label});
+            }
+            limit
         })
         .collect()
 }

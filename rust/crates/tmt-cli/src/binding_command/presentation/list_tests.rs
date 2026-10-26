@@ -509,6 +509,7 @@ fn running_row_with_usage(
             remembered: row.remembered.clone(),
         },
         &tmt_adapters::runtime::RuntimeRegistry::first_party(),
+        None,
     );
     row
 }

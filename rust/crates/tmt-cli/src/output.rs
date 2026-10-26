@@ -14,6 +14,7 @@ pub use tmt_core::names::command_word as shell_word;
 pub fn resume_document(
     preferences: &tmt_core::binding::session::SessionPreferences,
     registry: &tmt_adapters::runtime::RuntimeRegistry,
+    sampled: Option<&tmt_adapters::storage::SampledAccount>,
 ) -> Option<serde_json::Value> {
     preferences.remembered.as_ref().map(|session| {
         let mut resume = serde_json::json!({
@@ -29,7 +30,17 @@ pub fn resume_document(
         if let Some(usage) = registry.remembered_usage(session) {
             resume["usage"] = usage.document();
         }
-        if let Some(consumption) = registry.remembered_consumption(session) {
+        if let Some(mut consumption) = registry.remembered_consumption(session) {
+            // The remembered state is capped at 1024 bytes and carries no account; the newest
+            // sample names it only when it is the same observation (#5274).
+            if let (Some(limits), Some(sampled)) = (consumption.rate_limits.as_mut(), sampled)
+                && sampled.driver == session.harness.as_str()
+                && sampled.session == session.provider_session.as_str()
+                && sampled.provider == limits.provider
+                && sampled.observed_at_ms == limits.observed_at_ms
+            {
+                limits.account = Some(sampled.account.clone());
+            }
             resume["consumption"] = consumption.document();
         }
         resume
@@ -115,7 +126,7 @@ mod tests {
             }),
         };
         let registry = RuntimeRegistry::first_party();
-        let legacy = resume_document(&preferences, &registry).unwrap();
+        let legacy = resume_document(&preferences, &registry, None).unwrap();
         assert_eq!(
             legacy,
             serde_json::json!({
@@ -133,14 +144,83 @@ mod tests {
         let counters = State::read(&serde_json::json!({"value":public})).unwrap();
         preferences.remembered.as_mut().unwrap().state =
             driver_state::after_observation(Some(usage), Some(counters), Some(&original));
-        let mut projected = resume_document(&preferences, &registry).unwrap();
+        let mut projected = resume_document(&preferences, &registry, None).unwrap();
         assert_eq!(projected["consumption"], public);
         projected.as_object_mut().unwrap().remove("consumption");
         assert_eq!(
             projected, legacy,
             "existing fields are byte-equivalent values"
         );
-        assert!(resume_document(&SessionPreferences::default(), &registry).is_none());
+        assert!(resume_document(&SessionPreferences::default(), &registry, None).is_none());
+    }
+
+    #[test]
+    fn a_sampled_account_names_only_the_limits_of_the_same_observation() {
+        use tmt_adapters::{
+            runtime::{
+                RuntimeRegistry,
+                consumption::{RateAccount, State},
+                driver_state,
+            },
+            storage::SampledAccount,
+        };
+        use tmt_core::binding::session::{
+            HarnessId, ProviderSessionId, RememberedSession, RuntimeMode, SessionPreferences,
+        };
+        let public = serde_json::json!({
+            "inputTokens":10,"outputTokens":2,"cachedInputTokens":5,
+            "epoch":"00000000-0000-4000-8000-000000000001","sequence":1,
+            "observedAtMs":100,"complete":false,"gap":true,
+            "rateLimits":{"provider":"claude","observedAtMs":90,"windows":[{"windowMinutes":10080,"usedPercent":78.5,"resetsAtMs":1_791_948_558_000u64}]}
+        });
+        let counters = State::read(&serde_json::json!({"value":public})).unwrap();
+        let preferences = SessionPreferences {
+            retained: Vec::new(),
+            channel: None,
+            preferred_harness: None,
+            remembered: Some(RememberedSession {
+                harness: HarnessId::new("claude").unwrap(),
+                mode: RuntimeMode::new("independent").unwrap(),
+                provider_session: ProviderSessionId::new("s").unwrap(),
+                state: driver_state::after_observation(None, Some(counters), None),
+                stale_at_ms: None,
+                resume_pending_at_ms: None,
+            }),
+        };
+        let registry = RuntimeRegistry::first_party();
+        let account = RateAccount::derive("claude", "account-a", ".claude-work");
+        let sampled = |driver: &str, session: &str, provider: &str, observed: u64| SampledAccount {
+            driver: driver.into(),
+            session: session.into(),
+            provider: provider.into(),
+            observed_at_ms: observed,
+            account: account.clone(),
+        };
+        let limits = |sampled: Option<&SampledAccount>| {
+            resume_document(&preferences, &registry, sampled).unwrap()["consumption"]["rateLimits"]
+                .clone()
+        };
+        // Without a sample, or with one of another session, driver, provider or observation (a
+        // later reading may belong to another account), nothing is added.
+        assert!(limits(None).get("account").is_none());
+        for other in [
+            sampled("claude", "other", "claude", 90),
+            sampled("codex", "s", "claude", 90),
+            sampled("claude", "s", "codex", 90),
+            sampled("claude", "s", "claude", 91),
+            sampled("claude", "s", "claude", 89),
+        ] {
+            assert!(limits(Some(&other)).get("account").is_none(), "{other:?}");
+        }
+        let named = limits(Some(&sampled("claude", "s", "claude", 90)));
+        assert_eq!(
+            named["account"],
+            serde_json::json!({"key": account.key, "label": "claude-work"})
+        );
+        // Everything else in the limits is the stored value, unchanged.
+        let mut bare = named;
+        bare.as_object_mut().unwrap().remove("account");
+        assert_eq!(bare, public["rateLimits"]);
     }
 
     #[test]
@@ -164,7 +244,7 @@ mod tests {
                     resume_pending_at_ms: None,
                 }),
             };
-            resume_document(&preferences, &registry).unwrap()
+            resume_document(&preferences, &registry, None).unwrap()
         };
         let started = driver_state::after_start(Some("gpt-5.2-codex"), None, None, 100);
         assert_eq!(

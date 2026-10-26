@@ -67,7 +67,7 @@ with Core's usual 15 seconds and 1 MiB per call:
   (`claude-*`), `gpt` (`gpt-*`), `other`, and `unattributed` for totals Core could
   not attribute. `seats` counts identities contributing; `partialSeats` those whose
   coverage is not complete. The family is a presentation label, not a provider claim.
-- `limits[]`: account windows, deduplicated by `(provider, windowMinutes, resetsAtMs)`
+- `limits[]`: account windows, deduplicated by `(provider, account key, windowMinutes, resetsAtMs)`
   across seats and buckets; the newest observation wins and windows are never summed.
   The report also reads `latest.consumption.rateLimits` from Core's closed-history
   seed: a Claude cache's original fetch may predate the displayed buckets while its
@@ -77,7 +77,10 @@ with Core's usual 15 seconds and 1 MiB per call:
   window that the reader already removed at reset.
   Each has `provider` (the driver of the source line, as Core reports it in
   `rateLimits.provider`; never inferred, so an observation without a driver id, as from a
-  Core that predates the field, is dropped), `usedPercent`, `observedAtMs`, `seats` (UUIDs), `stale` (`resetsAtMs` is not
+  Core that predates the field, is dropped), `account` (`{key,label}` as Core reports it in
+  `rateLimits.account`; absent when Core names none, which reads as the provider's one
+  implicit account. A present but malformed one drops the observation, so it never folds
+  into another account's windows), `usedPercent`, `observedAtMs`, `seats` (UUIDs), `stale` (`resetsAtMs` is not
   after `observedAtMs` of the report), `elapsedPercent` (share of the window length
   elapsed at the report's `observedAtMs`, clamped to 0–100, two decimals) and
   `paceDeltaPoints` (`usedPercent - elapsedPercent`; negative is under an even pace).

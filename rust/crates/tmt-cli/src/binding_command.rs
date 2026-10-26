@@ -606,7 +606,19 @@ fn operation(
                     } else {
                         unbound
                     };
-                    let resume = crate::output::resume_document(&preferences, &registry);
+                    let sampled =
+                        storage
+                            .sampled_rate_account(&row.identity.id)
+                            .map_err(|error| {
+                                Failure::new(
+                                    "IDENTITY_ERROR",
+                                    "Could not read remembered sessions.",
+                                    1,
+                                )
+                                .caused_by(error)
+                            })?;
+                    let resume =
+                        crate::output::resume_document(&preferences, &registry, sampled.as_ref());
                     let runtime = row
                         .binding
                         .as_ref()
