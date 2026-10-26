@@ -124,7 +124,7 @@ test('erases before resources, copies only on explicit action and keeps no brows
       true,
     );
     await page.screenshot({
-      path: `/private/tmp/remote-4-4982-invite-${name}.png`,
+      path: test.info().outputPath(`invite-${name}.png`),
       fullPage: true,
     });
   }
