@@ -3,6 +3,8 @@ WORKDIR /native/rust
 COPY rust/ ./
 COPY drivers/herdr/rust/ ../drivers/herdr/rust/
 COPY skills/ ../skills/
+# The Claude allowance mod setup embeds (include_bytes).
+COPY drivers/claude/plugins/tmt-allowance/ ../drivers/claude/plugins/tmt-allowance/
 # The squad extension: built for its E2E scenarios.
 COPY extensions/tmt-ops/ ../extensions/tmt-ops/
 COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
