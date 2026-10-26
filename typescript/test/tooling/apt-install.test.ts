@@ -46,23 +46,57 @@ printf '%s\\n' "$*" >> "$LOG_DIR/mirror-edits"
   tool('awk', '[ "$AWK_FAILURE" = 0 ] || exit "$AWK_FAILURE"; exec /usr/bin/awk "$@"');
   tool('sleep', 'printf "%s\\n" "$*" >> "$LOG_DIR/sleeps"');
   // Simulate timeout exit 124; GNU timeout itself is provided by the Linux runner.
+  // Phases: update, download (--download-only), unpack (--no-download), configure
+  // (dpkg --configure -a), and install (one combined download and unpack).
   tool(
     'timeout',
     `printf '%s\\n' "$*" >> "$LOG_DIR/timeouts"
-case " $* " in *' update '*) phase=update; bound=60s;; *) phase=install; bound=120s;; esac
+case " $* " in
+  *' update '*) phase=update; bound=60s;;
+  *' --download-only '*) phase=download; bound=120s;;
+  *' --no-download '*) phase=unpack; bound=240s;;
+  *' dpkg '*) phase=configure; bound=240s;;
+  *) phase=install; bound=120s;;
+esac
 [ "$1" = --verbose ] && [ "$2" = --kill-after=10s ] && [ "$3" = "$bound" ] || exit 98
 shift 3
 printf '%s\\n' "$phase" >> "$LOG_DIR/$phase"
 count=$(wc -l < "$LOG_DIR/$phase")
 count=$((count))
-if [ "$phase" = install ] && [ -f "$APT_MIRRORS" ]; then /bin/cp "$APT_MIRRORS" "$LOG_DIR/mirrors-$count"; fi
-if { [ "$phase" = "$FAIL_PHASE" ] || [ "$FAIL_PHASE" = both ]; } && [ "$count" -le "$FAIL_COUNT" ]; then
+case $phase in download | install)
+  if [ -f "$APT_MIRRORS" ]; then /bin/cp "$APT_MIRRORS" "$LOG_DIR/mirrors-$count"; fi;;
+esac
+# A kill while dpkg unpacks leaves dpkg interrupted, as on the hosted runner.
+case $phase in unpack | install)
+  printf '%s\\n' "$phase" >> "$LOG_DIR/dpkg-runs"
+  if [ "$(wc -l < "$LOG_DIR/dpkg-runs")" -le "$DPKG_KILLS" ]; then
+    : > "$LOG_DIR/dpkg-interrupted"
+    exit 124
+  fi;;
+esac
+case $FAIL_PHASE:$phase in both:update | both:download) failing=$phase;; *) failing=$FAIL_PHASE;; esac
+if [ "$phase" = "$failing" ] && [ "$count" -le "$FAIL_COUNT" ]; then
   if [ "$count" -eq 1 ]; then exit "$FIRST_FAIL_STATUS"; fi
   exit "$FAIL_STATUS"
 fi
 exec "$@"`
   );
-  tool('apt-get', 'printf "%s\\n" "$*" >> "$LOG_DIR/apt"');
+  tool(
+    'apt-get',
+    `printf '%s\\n' "$*" >> "$LOG_DIR/apt"
+case " $* " in *' --download-only '*) exit 0;; *' install '*)
+  if [ -e "$LOG_DIR/dpkg-interrupted" ]; then
+    echo "E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a' to correct the problem." >&2
+    exit 100
+  fi;;
+esac`
+  );
+  tool(
+    'dpkg',
+    `printf '%s\\n' "$*" >> "$LOG_DIR/dpkg"
+[ "$*" = '--configure -a' ] || exit 97
+/bin/rm -f "$LOG_DIR/dpkg-interrupted"`
+  );
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -88,6 +122,7 @@ function run(
     firstFailStatus?: string;
     awkFailure?: string;
     missingSources?: boolean;
+    dpkgKills?: string;
   } = {}
 ) {
   const dir = mkdtempSync(path.join(root, 'case-'));
@@ -111,6 +146,7 @@ function run(
       FIRST_FAIL_STATUS: input.firstFailStatus ?? input.failStatus ?? '124',
       AWK_FAILURE: input.awkFailure ?? '0',
       SED_FAILURE: input.sedFailure ?? '0',
+      DPKG_KILLS: input.dpkgKills ?? '0',
       APT_SOURCES: sources,
       APT_MIRRORS: list,
       TMPDIR: scratch,
@@ -135,7 +171,10 @@ function run(
 
 const options = '-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30';
 const update = `${options} update`;
-const install = `${options} install --no-install-recommends -y zsh binutils musl-tools`;
+const packages = 'install --no-install-recommends -y';
+const download = `${options} ${packages} --download-only zsh binutils musl-tools`;
+const unpack = `${options} ${packages} --no-download zsh binutils musl-tools`;
+const interrupted = 'E: dpkg was interrupted';
 
 describe('apt-install composite action', () => {
   it('pins the production source paths without exposing new action inputs', () => {
@@ -150,13 +189,14 @@ describe('apt-install composite action', () => {
     expect(mirrorBytes()).toBe(mirrors);
     expect(beforeInstall(1)).toBe(mirrors);
     expect(lines('mirror-edits')).toEqual([]);
+    expect(lines('dpkg')).toEqual([]);
     expect(result.stdout).not.toContain('apt-install:');
   });
 
   it.each(['1', '2'])(
-    'removes only Azure before the second install after %s timeout(s)',
+    'removes only Azure before the second download after %s timeout(s)',
     (count) => {
-      const { result, lines, mirrorBytes, beforeInstall, list } = run('install', count);
+      const { result, lines, mirrorBytes, beforeInstall, list } = run('download', count);
       expect(result.status).toBe(0);
       expect(beforeInstall(1)).toBe(mirrors);
       expect(beforeInstall(2)).toBe(remainingMirrors);
@@ -166,35 +206,38 @@ describe('apt-install composite action', () => {
       expect(result.stdout).toContain(
         `removed http://azure.archive.ubuntu.com/ubuntu/ from ${list}`
       );
-      expect(lines('apt')).toEqual([update, install]);
+      expect(lines('apt')).toEqual([update, download, unpack]);
     }
   );
 
-  it('retains fallback and returns the last timeout after all three install attempts', () => {
-    const { result, lines, mirrorBytes, beforeInstall } = run('install', '99');
+  it('retains fallback and returns the last timeout after all three download attempts', () => {
+    const { result, lines, mirrorBytes, beforeInstall } = run('download', '99');
     expect(result.status).toBe(124);
     expect(beforeInstall(1)).toBe(mirrors);
     expect(beforeInstall(2)).toBe(remainingMirrors);
     expect(beforeInstall(3)).toBe(remainingMirrors);
     expect(mirrorBytes()).toBe(remainingMirrors);
     expect(lines('mirror-edits')).toHaveLength(1);
-    expect(lines('install')).toHaveLength(3);
+    expect(lines('download')).toHaveLength(3);
     expect(lines('sleeps')).toEqual(['5', '10']);
   });
 
-  it.each(['2', '99'])('never switches for non-timeout install failures (%s failures)', (count) => {
-    const { result, lines, mirrorBytes } = run('install', count, { failStatus: '100' });
-    expect(result.status).toBe(count === '2' ? 0 : 100);
-    expect(mirrorBytes()).toBe(mirrors);
-    expect(lines('mirror-edits')).toEqual([]);
-    expect(lines('install')).toHaveLength(3);
-    expect(lines('sleeps')).toEqual(['5', '10']);
-  });
+  it.each(['2', '99'])(
+    'never switches for non-timeout download failures (%s failures)',
+    (count) => {
+      const { result, lines, mirrorBytes } = run('download', count, { failStatus: '100' });
+      expect(result.status).toBe(count === '2' ? 0 : 100);
+      expect(mirrorBytes()).toBe(mirrors);
+      expect(lines('mirror-edits')).toEqual([]);
+      expect(lines('download')).toHaveLength(3);
+      expect(lines('sleeps')).toEqual(['5', '10']);
+    }
+  );
 
   it('does not arm fallback for a later timeout after a first non-timeout failure', () => {
-    const { result, lines, mirrorBytes } = run('install', '2', { firstFailStatus: '100' });
+    const { result, lines, mirrorBytes } = run('download', '2', { firstFailStatus: '100' });
     expect(result.status).toBe(0);
-    expect(lines('install')).toHaveLength(3);
+    expect(lines('download')).toHaveLength(3);
     expect(lines('mirror-edits')).toEqual([]);
     expect(mirrorBytes()).toBe(mirrors);
     expect(result.stderr).toContain('attempt 1 of 3 with status 100');
@@ -248,45 +291,46 @@ describe('apt-install composite action', () => {
   ] as const)(
     'reports an explicit no-op for %s and preserves bytes/status/retry policy',
     (_, input) => {
-      const { result, lines, mirrorBytes, originalMirrors } = run('install', '99', input);
+      const { result, lines, mirrorBytes, originalMirrors } = run('download', '99', input);
       expect(result.status).toBe(124);
       expect(mirrorBytes()).toBe(originalMirrors);
       expect(lines('mirror-edits')).toEqual([]);
       expect(result.stderr.match(/apt-install: mirror fallback no-op:/g)).toHaveLength(1);
-      expect(lines('install')).toHaveLength(3);
+      expect(lines('download')).toHaveLength(3);
       expect(lines('sleeps')).toEqual(['5', '10']);
     }
   );
 
   it('retains a mirror-write failure instead of running apt or reporting fallback success', () => {
-    const { result, lines, mirrorBytes } = run('install', '99', { sedFailure: '13' });
+    const { result, lines, mirrorBytes } = run('download', '99', { sedFailure: '13' });
     expect(result.status).toBe(13);
-    expect(lines('install')).toHaveLength(1);
+    expect(lines('download')).toHaveLength(1);
     expect(lines('mirror-edits')).toHaveLength(2);
     expect(mirrorBytes()).toBe(mirrors);
     expect(result.stdout).not.toContain('apt-install: removed');
     expect(result.stderr).toContain('attempt 3 of 3 with status 13');
   });
 
-  it('removes Chrome sources and preserves package arguments with bounded update and install', () => {
+  it('removes Chrome sources and preserves package arguments with bounded update, download and unpack', () => {
     const { result, lines } = run();
     expect(result.status).toBe(0);
     expect(lines('removals')).toEqual(['-f /etc/apt/sources.list.d/google-chrome.list']);
-    expect(lines('apt')).toEqual([update, install]);
+    expect(lines('apt')).toEqual([update, download, unpack]);
     expect(lines('sudo')).toEqual([
       'rm -f /etc/apt/sources.list.d/google-chrome.list',
       `timeout --verbose --kill-after=10s 60s apt-get ${update}`,
-      `timeout --verbose --kill-after=10s 120s apt-get ${install}`,
+      `timeout --verbose --kill-after=10s 120s apt-get ${download}`,
+      `timeout --verbose --kill-after=10s 240s apt-get ${unpack}`,
     ]);
     expect(lines('sleeps')).toEqual([]);
   });
 
-  it.each(['update', 'install'])('retries each timed-out %s attempt and recovers', (phase) => {
+  it.each(['update', 'download'])('retries each timed-out %s attempt and recovers', (phase) => {
     const { result, lines } = run(phase, '2');
     expect(result.status).toBe(0);
     expect(lines(phase)).toHaveLength(3);
-    expect(lines('timeouts')).toHaveLength(4);
-    expect(lines('apt')).toEqual([update, install]);
+    expect(lines('timeouts')).toHaveLength(5);
+    expect(lines('apt')).toEqual([update, download, unpack]);
     expect(lines('sleeps')).toEqual(['5', '10']);
     expect(result.stderr).toContain('attempt 2 of 3 with status 124');
   });
@@ -295,16 +339,17 @@ describe('apt-install composite action', () => {
     const { result, lines } = run('both', '2');
     expect(result.status).toBe(0);
     expect(lines('update')).toHaveLength(3);
-    expect(lines('install')).toHaveLength(3);
+    expect(lines('download')).toHaveLength(3);
     expect(lines('timeouts')).toEqual([
       ...Array(3).fill(`--verbose --kill-after=10s 60s apt-get ${update}`),
-      ...Array(3).fill(`--verbose --kill-after=10s 120s apt-get ${install}`),
+      ...Array(3).fill(`--verbose --kill-after=10s 120s apt-get ${download}`),
+      `--verbose --kill-after=10s 240s apt-get ${unpack}`,
     ]);
     expect(lines('sleeps')).toEqual(['5', '10', '5', '10']);
-    expect(lines('apt')).toEqual([update, install]);
+    expect(lines('apt')).toEqual([update, download, unpack]);
   });
 
-  it.each(['update', 'install'])(
+  it.each(['update', 'download'])(
     'stops after three timed-out %s attempts with clear failure',
     (phase) => {
       const { result, lines } = run(phase, '99');
@@ -313,7 +358,58 @@ describe('apt-install composite action', () => {
       expect(lines('sleeps')).toEqual(['5', '10']);
       expect(result.stderr).toContain('attempt 3 of 3 with status 124');
       expect(lines('apt')).toEqual(phase === 'update' ? [] : [update]);
-      if (phase === 'update') expect(lines('install')).toEqual([]);
+      if (phase === 'update') expect(lines('download')).toEqual([]);
+      expect(lines('unpack')).toEqual([]);
     }
   );
+
+  it('repairs dpkg and recovers after an unpack attempt is killed mid-dpkg', () => {
+    const { result, lines, mirrorBytes } = run('', '0', { dpkgKills: '1' });
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toContain(interrupted);
+    expect(lines('download')).toHaveLength(1);
+    expect(lines('unpack')).toHaveLength(2);
+    expect(lines('dpkg')).toEqual(['--configure -a']);
+    expect(lines('timeouts')).toEqual([
+      `--verbose --kill-after=10s 60s apt-get ${update}`,
+      `--verbose --kill-after=10s 120s apt-get ${download}`,
+      `--verbose --kill-after=10s 240s apt-get ${unpack}`,
+      '--verbose --kill-after=10s 240s dpkg --configure -a',
+      `--verbose --kill-after=10s 240s apt-get ${unpack}`,
+    ]);
+    expect(lines('apt')).toEqual([update, download, unpack]);
+    expect(result.stdout).toContain('apt-install: running dpkg --configure -a');
+    expect(result.stderr).toContain('attempt 1 of 2 with status 124');
+    expect(lines('sleeps')).toEqual(['5']);
+    // An unpack timeout is local, so it never arms the mirror fallback.
+    expect(mirrorBytes()).toBe(mirrors);
+    expect(lines('mirror-edits')).toEqual([]);
+  });
+
+  it('returns the last unpack timeout after two killed attempts without another download', () => {
+    const { result, lines, mirrorBytes } = run('', '0', { dpkgKills: '2' });
+    expect(result.status).toBe(124);
+    expect(result.stderr).not.toContain(interrupted);
+    expect(result.stderr).toContain('attempt 2 of 2 with status 124');
+    expect(lines('download')).toHaveLength(1);
+    expect(lines('unpack')).toHaveLength(2);
+    expect(lines('dpkg')).toEqual(['--configure -a']);
+    expect(lines('sleeps')).toEqual(['5']);
+    expect(mirrorBytes()).toBe(mirrors);
+  });
+
+  it('arms the fallback once on a download timeout, then recovers a killed unpack', () => {
+    const { result, lines, mirrorBytes, beforeInstall, list } = run('download', '1', {
+      dpkgKills: '1',
+    });
+    expect(result.status).toBe(0);
+    expect(beforeInstall(1)).toBe(mirrors);
+    expect(beforeInstall(2)).toBe(remainingMirrors);
+    expect(mirrorBytes()).toBe(remainingMirrors);
+    expect(lines('mirror-edits')).toEqual([`-i 1d ${list}`]);
+    expect(lines('unpack')).toHaveLength(2);
+    expect(lines('dpkg')).toEqual(['--configure -a']);
+    expect(lines('sleeps')).toEqual(['5', '5']);
+    expect(result.stderr).not.toContain(interrupted);
+  });
 });
