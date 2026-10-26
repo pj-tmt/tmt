@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { metadata, validateApproval, validateStoredArticle } from "./content.mjs";
+import { languages, languageInfo, indexPath, postPath } from "./languages.mjs";
 
 export const escapeHtml = (value) =>
   String(value)
@@ -48,21 +49,35 @@ export async function readPosts(directory) {
     if (item.name === ".gitkeep") continue;
     if (!item.isDirectory() || item.isSymbolicLink())
       throw new Error(`Unexpected post entry: ${item.name}`);
-    const files = await filesBelow(join(directory, item.name));
-    for (const required of ["meta.json", "article.html", "approval.json"])
-      if (!files[required]) throw new Error(`${item.name}: missing ${required}`);
-    const meta = metadata(JSON.parse(files["meta.json"]));
-    if (meta.slug !== item.name) throw new Error("Post directory must match slug");
-    const html = files["article.html"].toString("utf8");
-    const approval = JSON.parse(files["approval.json"]);
-    const assets = Object.fromEntries(
-      Object.entries(files).filter(
-        ([path]) => !["meta.json", "article.html", "approval.json"].includes(path),
-      ),
-    );
-    validateStoredArticle(html, assets);
-    validateApproval(approval, meta, html, assets);
-    posts.push({ meta, html, assets });
+    const allFiles = await filesBelow(join(directory, item.name));
+    for (const language of languages) {
+      const prefix = language.id === "en" ? "" : language.id + "/";
+      const files = Object.fromEntries(
+        Object.entries(allFiles)
+          .filter(([path]) =>
+            prefix
+              ? path.startsWith(prefix)
+              : !languages.some(({ id }) => id !== "en" && path.startsWith(id + "/")),
+          )
+          .map(([path, bytes]) => [path.slice(prefix.length), bytes]),
+      );
+      if (prefix && !Object.keys(files).length) continue;
+      for (const required of ["meta.json", "article.html", "approval.json"])
+        if (!files[required]) throw new Error(`${item.name}: missing ${required}`);
+      const meta = metadata(JSON.parse(files["meta.json"]));
+      if (meta.slug !== item.name) throw new Error("Post directory must match slug");
+      if (meta.language !== language.id) throw new Error("Post directory must match language");
+      const html = files["article.html"].toString("utf8");
+      const approval = JSON.parse(files["approval.json"]);
+      const assets = Object.fromEntries(
+        Object.entries(files).filter(
+          ([path]) => !["meta.json", "article.html", "approval.json"].includes(path),
+        ),
+      );
+      validateStoredArticle(html, assets);
+      validateApproval(approval, meta, html, assets);
+      posts.push({ meta, html, assets });
+    }
   }
   return posts.sort(
     (a, b) => b.meta.date.localeCompare(a.meta.date) || a.meta.slug.localeCompare(b.meta.slug),
@@ -79,44 +94,69 @@ export function layout({
   body,
   demo = false,
   development = false,
+  requestedLanguage = "en",
+  alternates = [],
+  canonicalPath = path,
+  fallback = false,
+  slug,
 }) {
   const e = escapeHtml;
   const policy = development
     ? csp.replace("connect-src 'none'", "connect-src 'self' ws://127.0.0.1:*")
     : csp;
+  const languageIndex = location.base + indexPath(requestedLanguage);
+  const alternateLinks = alternates
+    .map(
+      ({ language, path }) =>
+        `<link rel="alternate" hreflang="${e(languageInfo(language).tag)}" href="${e(location.url + path)}">`,
+    )
+    .join("");
+  const canonical = `<link rel="canonical" href="${e(location.url + canonicalPath)}">`;
+  const defaultAlternate = alternates.length
+    ? `<link rel="alternate" hreflang="x-default" href="${e(location.url + (slug ? postPath(slug, "en") : ""))}">`
+    : "";
+  const switcher = languages
+    .map(({ id, tag, label }) => {
+      const available = !slug || alternates.some((item) => item.language === id);
+      const name = label + (available ? "" : " (English fallback)");
+      const url = location.base + (slug ? postPath(slug, id) : indexPath(id));
+      return `<a href="${e(url)}"${id === requestedLanguage ? ' aria-current="page"' : ""} aria-label="${e(name)}" title="${e(name)}">${e(id === "en" ? "EN" : id === "ja" ? "JA" : tag)}</a>`;
+    })
+    .join("");
   return `<!doctype html>
 <html lang="${e(language)}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${e(policy)}">
 <title>${e(title)}</title><meta name="description" content="${e(description)}">
-${demo ? '<meta name="robots" content="noindex,nofollow">' : `<link rel="canonical" href="${e(location.url + path)}">`}
-<link vite-ignore rel="alternate" type="application/rss+xml" title="${e(site.title)}" href="${e(location.base)}feed.xml">
+${demo ? '<meta name="robots" content="noindex,nofollow">' : `${fallback ? '<meta name="robots" content="noindex,follow">' : ""}${canonical}${alternateLinks}${defaultAlternate}`}
+<link vite-ignore rel="alternate" type="application/rss+xml" title="${e(site.title)}" href="${e(languageIndex)}feed.xml">
 <link vite-ignore rel="icon" href="${e(location.base)}mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/src/blog/blog.css">
 </head><body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header class="site-header"><a class="brand" href="${e(location.base)}"><img vite-ignore src="${e(location.base)}mark.svg" width="30" height="30" alt=""><span>tmt</span><span class="brand-divider"></span><span>journal</span></a><nav aria-label="Main"><a href="${e(location.base)}">Articles</a><a href="${e(location.base)}feed.xml">RSS ↗</a><a href="${e(location.siteBase)}">Explore TMT ↗</a></nav></header>
+<a class="skip-link" lang="en" href="#main">Skip to content</a>
+<header class="site-header" lang="en"><a class="brand" href="${e(languageIndex)}"><img vite-ignore src="${e(location.base)}mark.svg" width="30" height="30" alt=""><span>tmt</span><span class="brand-divider"></span><span>journal</span></a><nav aria-label="Main"><a href="${e(languageIndex)}">Articles</a><a href="${e(languageIndex)}feed.xml">RSS ↗</a><a href="${e(location.siteBase)}">Explore TMT ↗</a></nav></header>
+<nav class="language-switcher" aria-label="${slug ? "Article" : "Index"} language" lang="en">${switcher}</nav>
 ${demo ? '<div class="preview-notice">◇ Template preview · Example content, not a published post</div>' : ""}
 <main id="main">${body}</main>
-<footer class="site-footer"><span>TMT Journal</span><span>Tools for people and agents.</span><a href="${e(location.siteBase)}">TMT ↗</a></footer>
+<footer class="site-footer" lang="en"><span>TMT Journal</span><span>Tools for people and agents.</span><a href="${e(location.siteBase)}">TMT ↗</a></footer>
 </body></html>\n`;
 }
 
-export function indexBody(posts, site, location) {
+export function indexBody(posts, site, location, language = "en") {
   const e = escapeHtml;
-  return `<section class="index-intro"><p class="eyebrow">THE TMT JOURNAL</p><h1>Field notes.<br>Working ideas.</h1><p class="intro-description">${e(site.description)}</p></section>
-<section class="article-index" aria-labelledby="articles-title"><div class="section-heading"><h2 id="articles-title">All articles</h2><span>${String(posts.length).padStart(2, "0")} ARTICLES</span></div>
-${posts.length ? posts.map(({ meta }, index) => `<a class="article-row" href="${e(location.base)}posts/${meta.slug}/"><span class="article-number">${String(index + 1).padStart(2, "0")}</span><div><time datetime="${meta.date}">${meta.date}</time><h3>${e(meta.title)}</h3><p>${e(meta.summary)}</p></div><span class="article-arrow" aria-hidden="true">↗</span></a>`).join("\n") : '<div class="empty-state"><p class="eyebrow">A SPACE FOR WHAT COMES NEXT</p><h3>The first note is on its way.</h3><p>New articles will appear here when they are ready.</p></div>'}
+  return `<section class="index-intro" lang="en"><p class="eyebrow">THE TMT JOURNAL</p><h1>Field notes.<br>Working ideas.</h1><p class="intro-description">${e(site.description)}</p></section>
+<section class="article-index" aria-labelledby="articles-title"><div class="section-heading" lang="en"><h2 id="articles-title">All articles</h2><span>${String(posts.length).padStart(2, "0")} ARTICLES</span></div>
+${posts.length ? posts.map(({ meta }, index) => `<a class="article-row" lang="${languageInfo(meta.language).tag}" href="${e(location.base + postPath(meta.slug, language))}"><span class="article-number">${String(index + 1).padStart(2, "0")}</span><div><time datetime="${meta.date}">${meta.date}</time><h3>${e(meta.title)}</h3><p>${e(meta.summary)}</p>${meta.language !== language ? '<p class="fallback-label" lang="en">English · translation not available yet</p>' : ""}</div><span class="article-arrow" aria-hidden="true">↗</span></a>`).join("\n") : '<div class="empty-state" lang="en"><p class="eyebrow">A SPACE FOR WHAT COMES NEXT</p><h3>The first note is on its way.</h3><p>New articles will appear here when they are ready.</p></div>'}
 </section>`;
 }
 
-export function postBody(post, location) {
+export function postBody(post, location, language = "en") {
   const e = escapeHtml;
   const { meta } = post;
-  return `<div class="post-shell"><a class="back-link" href="${e(location.base)}">← All articles</a><header class="post-heading"><p class="eyebrow">TMT JOURNAL <span> / </span> <time datetime="${meta.date}">${meta.date}</time></p><h1>${e(meta.title)}</h1><p>${e(meta.summary)}</p></header>${post.html}</div>`;
+  return `<div class="post-shell"><a class="back-link" lang="en" href="${e(location.base + indexPath(language))}">← All articles</a>${meta.language !== language ? `<p class="translation-notice" lang="en">${e(languageInfo(language).label)} translation is not available yet. Showing the English article.</p>` : ""}<header class="post-heading"><p class="eyebrow">TMT JOURNAL <span> / </span> <time datetime="${meta.date}">${meta.date}</time></p><h1>${e(meta.title)}</h1><p>${e(meta.summary)}</p></header>${post.html}</div>`;
 }
 
-export function rss(posts, site, location) {
+export function rss(posts, site, location, language = "en") {
   const e = escapeHtml;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel><title>${e(site.title)}</title><link>${e(location.url)}</link><description>${e(site.description)}</description>${posts.map(({ meta }) => `<item><title>${e(meta.title)}</title><link>${e(location.url)}posts/${meta.slug}/</link><guid isPermaLink="true">${e(location.url)}posts/${meta.slug}/</guid><description>${e(meta.summary)}</description><pubDate>${new Date(meta.date + "T00:00:00Z").toUTCString()}</pubDate></item>`).join("")}</channel></rss>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel><title>${e(site.title)}</title><link>${e(location.url + indexPath(language))}</link><language>${languageInfo(language).tag}</language><description>${e(site.description)}</description>${posts.map(({ meta }) => `<item><title>${e(meta.title)}</title><link>${e(location.url + postPath(meta.slug, language))}</link><guid isPermaLink="true">${e(location.url + postPath(meta.slug, language))}</guid><description>${e(meta.summary)}</description><pubDate>${new Date(meta.date + "T00:00:00Z").toUTCString()}</pubDate></item>`).join("")}</channel></rss>\n`;
 }

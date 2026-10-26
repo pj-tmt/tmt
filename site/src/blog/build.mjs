@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rm, copyFile, realpath } from "node:fs/prom
 import { dirname, join } from "node:path";
 import { extractArticle, articleFromSource, metadata, stableJson } from "./content.mjs";
 import { indexBody, layout, locationConfig, postBody, readPosts, rss } from "./site.mjs";
+import { languages, indexPath, postPath } from "./languages.mjs";
 
 // Generated HTML lives under the Vite root so its output paths are blog/**.
 // Only this directory is disposable; approved src/posts and review records are not.
@@ -22,50 +23,87 @@ export async function generate({ root, demo = false, development = false, base, 
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, bytes);
   };
-  const entries = [join(output, "index.html")];
-  await write(
-    "index.html",
-    layout({
-      site,
-      location,
-      title: site.title,
-      description: site.description,
-      demo,
-      development,
-      body: indexBody(posts, site, location),
-    }),
-  );
-  for (const post of posts) {
-    const path = `posts/${post.meta.slug}/`;
+  const entries = [];
+  const pages = [];
+  const english = posts.filter(({ meta }) => meta.language === "en");
+  const render = async ({ path, language, canonicalPath = path, ...options }) => {
     entries.push(join(output, path, "index.html"));
+    pages.push({
+      path,
+      language,
+      ...(canonicalPath !== path ? { fallbackTo: canonicalPath } : {}),
+    });
     await write(
       path + "index.html",
       layout({
         site,
         location,
-        title: `${post.meta.title} · ${site.title}`,
-        description: post.meta.summary,
-        path,
-        language: post.meta.language,
         demo,
         development,
-        body: postBody(post, location),
+        path,
+        language,
+        canonicalPath,
+        ...options,
       }),
     );
-    for (const [asset, bytes] of Object.entries(post.assets)) await write(path + asset, bytes);
+  };
+  const publicFeeds = {};
+  for (const language of languages) {
+    const translated = posts.filter(({ meta }) => meta.language === language.id);
+    const visible = english.map(
+      (post) => translated.find(({ meta }) => meta.slug === post.meta.slug) ?? post,
+    );
+    await render({
+      path: indexPath(language.id),
+      language: language.tag,
+      requestedLanguage: language.id,
+      title: site.title,
+      description: site.description,
+      body: indexBody(visible, site, location, language.id),
+      alternates: languages.map(({ id }) => ({ language: id, path: indexPath(id) })),
+    });
+    for (const post of visible) {
+      const { meta } = post;
+      const path = postPath(meta.slug, language.id);
+      const canonicalPath = postPath(meta.slug, meta.language);
+      const variants = posts.filter((item) => item.meta.slug === meta.slug);
+      await render({
+        path,
+        canonicalPath,
+        language: languages.find((item) => item.id === meta.language).tag,
+        requestedLanguage: language.id,
+        slug: meta.slug,
+        fallback: meta.language !== language.id,
+        title: `${meta.title} · ${site.title}`,
+        description: meta.summary,
+        alternates: variants.map(({ meta }) => ({
+          language: meta.language,
+          path: postPath(meta.slug, meta.language),
+        })),
+        body: postBody(post, location, language.id),
+      });
+      // Fallback routes reuse approved English bytes, including their relative asset references.
+      for (const [asset, bytes] of Object.entries(post.assets)) await write(path + asset, bytes);
+    }
+    publicFeeds[indexPath(language.id) + "feed.xml"] = rss(
+      demo ? [] : translated,
+      site,
+      location,
+      language.id,
+    );
   }
   const publicFiles = {
-    "feed.xml": rss(demo ? [] : posts, site, location),
+    ...publicFeeds,
     "robots.txt": demo
       ? "User-agent: *\nDisallow: /\n"
       : `User-agent: *\nAllow: ${location.base}\nSitemap: ${location.url}sitemap.xml\n`,
-    "sitemap.xml": `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${(demo ? [] : ["", ...posts.map(({ meta }) => `posts/${meta.slug}/`)]).map((path) => `<url><loc>${location.url}${path}</loc></url>`).join("")}</urlset>\n`,
+    "sitemap.xml": `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${(demo ? [] : pages.filter((page) => !page.fallbackTo).map((page) => page.path)).map((path) => `<url><loc>${location.url}${path}</loc></url>`).join("")}</urlset>\n`,
     "build-info.json": stableJson({
       demo,
       development,
       base: location.base,
       siteBase: location.siteBase,
-      articles: posts.map(({ meta }) => meta.slug),
+      pages,
     }),
     ".nojekyll": "",
   };

@@ -110,6 +110,40 @@ canvas {
 .site-header nav a:hover {
   color: var(--c-text);
 }
+.language-switcher {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 12px clamp(22px, 4vw, 64px);
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  color: var(--c-muted);
+}
+.language-switcher a {
+  text-decoration: none;
+}
+.language-switcher a[aria-current="page"] {
+  color: var(--c-text);
+  text-decoration: underline;
+  text-decoration-color: var(--c-red);
+}
+.language-switcher a:hover {
+  color: var(--c-text);
+}
+.translation-notice {
+  max-width: 760px;
+  margin: 24px auto 0;
+  padding: 12px 16px;
+  border-left: 2px solid var(--c-red);
+  background: var(--c-accent-soft);
+  color: var(--c-text);
+  font-size: 14px;
+  line-height: 1.6;
+}
 main {
   flex: 1;
   width: 100%;

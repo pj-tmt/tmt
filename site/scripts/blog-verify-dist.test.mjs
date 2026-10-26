@@ -17,8 +17,8 @@ const policy =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const head = `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
 const fixture = {
-  "index.html": `<!doctype html><html><head>${head}<link rel="canonical" href="${origin}/blog/"></head><body><h1>Index</h1><a href="/blog/">Home</a><a href="/blog/posts/one/">One</a></body></html>`,
-  "posts/one/index.html": `<!doctype html><html><head>${head}<link rel="canonical" href="${origin}/blog/posts/one/"></head><body><h1>One</h1><article id="blog-article"><p>Complete article body.</p></article><script type="module" src="/blog/assets/one.js"></script></body></html>`,
+  "index.html": `<!doctype html><html lang="en"><head>${head}<link rel="canonical" href="${origin}/blog/"></head><body><h1>Index</h1><a href="/blog/">Home</a><a href="/blog/posts/one/">One</a></body></html>`,
+  "posts/one/index.html": `<!doctype html><html lang="en"><head>${head}<link rel="canonical" href="${origin}/blog/posts/one/"></head><body><h1>One</h1><article id="blog-article"><p>Complete article body.</p></article><script type="module" src="/blog/assets/one.js"></script></body></html>`,
   "assets/one.js": 'console.log("reviewed module")',
   "feed.xml":
     '<?xml version="1.0"?><rss version="2.0"><channel><title>Blog</title><link>https://example.com/blog/</link><item><title>One</title><link>https://example.com/blog/posts/one/</link></item></channel></rss>',
@@ -26,7 +26,14 @@ const fixture = {
     '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/blog/posts/one/</loc></url></urlset>',
   "robots.txt": "User-agent: *\nAllow: /blog/\n",
   ".nojekyll": "",
-  "build-info.json": JSON.stringify({ demo: false, base: "/blog/", articles: ["one"] }),
+  "build-info.json": JSON.stringify({
+    demo: false,
+    base: "/blog/",
+    pages: [
+      { path: "", language: "en" },
+      { path: "posts/one/", language: "en" },
+    ],
+  }),
 };
 
 async function world(changes, run) {
@@ -62,7 +69,14 @@ test("public article slugs and generated chunks may contain conversations", asyn
       [`assets/${chunk}`]: fixture["assets/one.js"],
       "feed.xml": fixture["feed.xml"].replaceAll("posts/one/", `posts/${slug}/`),
       "sitemap.xml": fixture["sitemap.xml"].replaceAll("posts/one/", `posts/${slug}/`),
-      "build-info.json": JSON.stringify({ demo: false, base: "/blog/", articles: [slug] }),
+      "build-info.json": JSON.stringify({
+        demo: false,
+        base: "/blog/",
+        pages: [
+          { path: "", language: "en" },
+          { path: `posts/${slug}/`, language: "en" },
+        ],
+      }),
     },
     async (root) => verifyDist(root),
   );
@@ -99,7 +113,10 @@ test("production verification is default and demo verification requires an expli
       demo: true,
       development: false,
       base: "/blog/",
-      articles: ["one"],
+      pages: [
+        { path: "", language: "en" },
+        { path: "posts/one/", language: "en" },
+      ],
     }),
     "feed.xml":
       '<?xml version="1.0"?><rss version="2.0"><channel><title>Preview</title><link>https://example.com/blog/</link></channel></rss>',
@@ -125,7 +142,10 @@ test("production verification is default and demo verification requires an expli
           demo: allowedDemo,
           development: true,
           base: "/blog/",
-          articles: ["one"],
+          pages: [
+            { path: "", language: "en" },
+            { path: "posts/one/", language: "en" },
+          ],
         }),
       },
       async (root) => assert.rejects(verifyDist(root, { demo: allowedDemo }), /Development policy/),
@@ -160,7 +180,10 @@ test("built artifact rejects missing assets, malformed RSS, empty shells and sou
           demo: false,
           development: true,
           base: "/blog/",
-          articles: ["one"],
+          pages: [
+            { path: "", language: "en" },
+            { path: "posts/one/", language: "en" },
+          ],
         }),
       },
       /Development policy/,
@@ -227,7 +250,10 @@ async function sharedArtifact(root) {
         demo: false,
         siteBase: "/tmt/",
         base: "/tmt/blog/",
-        articles: ["one"],
+        pages: [
+          { path: "", language: "en" },
+          { path: "posts/one/", language: "en" },
+        ],
       });
     else if (path.endsWith(".html") || path.endsWith(".xml"))
       content = bytes

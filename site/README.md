@@ -58,10 +58,30 @@ preferences, rice-paper text, a red accent and a file-backed hooded mark.
 Provenance is recorded in [the blog style source note](src/blog/PROVENANCE.md).
 
 Marketing owns and reviews the blog end to end: code in `src/blog/` and approved
-English articles in `src/posts/<slug>/`, each with `article.html`, `meta.json`, `approval.json`,
-`scripts/` and raster `images/` as needed. No article language except English is
-enabled; a new language needs a repository `languageExceptions` entry and
-corresponding metadata validation change.
+articles in `src/posts/<slug>/`. English (`en`) stays at the slug root. Each
+translation has its own `ja/`, `zh-hant/` or `zh-hans/` subdirectory with the same
+`article.html`, `meta.json`, `approval.json`, `scripts/` and raster `images/` files
+as needed. Metadata `slug` identifies the English post and `language` identifies
+the variant. English must exist before importing translations; each language
+requires its own proposal and trusted owner approval of its exact bytes.
+
+English URLs remain `${SITE_BASE}blog/` and `blog/posts/<slug>/`. Other languages
+use `blog/<language>/` and `blog/<language>/posts/<slug>/`. The link switcher keeps
+the article slug and selects an index language; it needs no client script. Shell
+labels remain English and declare `lang="en"`; article HTML uses `en`, `ja`,
+`zh-Hant` or `zh-Hans` as appropriate. Indexes show the approved translation or
+label an English fallback. A missing article translation renders English with a
+visible notice, English canonical URL and `noindex,follow`; it is excluded from
+article alternates, feeds and the sitemap. Each language has its own `feed.xml`
+with its RSS language tag and only approved variants. The sitemap lists all
+language indexes and actual approved article URLs, never fallback article URLs.
+
+Before committing a translation, add its exact directory (for example
+`site/src/posts/example-post/ja`: `ja`) to the repository `languageExceptions` map
+in the same PR, with Core review. Only article prose and metadata title/summary
+may use that language; keys, code and comments remain English. The layout guard
+requires the complete article/metadata/approval bundle; wildcard and empty
+allowances are rejected. Each translation is delivered as a separate approved post PR.
 
 Run from `site/`:
 
@@ -93,7 +113,7 @@ inputs are ignored and rebuilt; approved sources are never cleared by a build.
 Use the installed native TMT CLI, optionally with `TMT_EXECUTABLE` set to its
 absolute path. Draft source must contain exactly one `article#blog-article`.
 Metadata has exactly `slug`, `title`, `summary`, `date` (YYYY-MM-DD) and
-`language` (`en`). Images use full `colab-attachment:<UUID>` references.
+`language` (`en`, `ja`, `zh-hant` or `zh-hans`). Images use full `colab-attachment:<UUID>` references.
 Draft creation uses Colab's `column` layout and adds the new page to the `blog`
 project, with strict markup validation and no automatic browser opening.
 
@@ -135,11 +155,14 @@ Home; it can access that origin's DOM/storage. Do not include secrets or assume
 an article is sandboxed. Inline event handlers and external resource URLs are
 rejected; inline article CSS cannot load resources.
 
-Import refuses to overwrite an existing post. For a revision, privately back up
-the current post, prepare and approve a new proposal, remove only that post's
-tracked directory in the feature branch and import again. Review the complete
-diff; restore the backup if import fails. Never edit committed article/assets or
-metadata without renewing approval.
+Import refuses to overwrite an existing language variant. For a revision, privately
+back up the variant, prepare and approve a new proposal, remove that variant's
+tracked directory in the feature branch and import again. For English, back up
+the entire slug directory first; after importing the approved English revision,
+restore its translation directories unchanged before checking the result.
+Review the complete diff and restore the backup if import fails. Changing English
+does not approve or rewrite existing translations. Never edit committed
+article/assets or metadata without renewing approval.
 
 Only the existing `Build site` job checks/builds and verifies the output before
 upload. Production verification is the default; demo requires `--demo` and

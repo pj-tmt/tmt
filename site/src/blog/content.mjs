@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parse, parseFragment, serialize, serializeOuter } from "parse5";
+import { languageInfo } from "./languages.mjs";
 
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const stableJson = (value) => JSON.stringify(value, null, 2) + "\n";
@@ -58,10 +59,7 @@ export function metadata(value) {
     new Date(value.date).toISOString().slice(0, 10) !== value.date
   )
     throw new Error("Invalid post date");
-  if (value.language !== "en")
-    throw new Error(
-      "Posts are English-only; add a repository language exception before enabling another language",
-    );
+  languageInfo(value.language);
   return value;
 }
 
