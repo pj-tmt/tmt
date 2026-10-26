@@ -129,6 +129,31 @@ it('reads each history entry as data: a malformed one shows no history for its p
   expect(limitHistoryFrom(answer(undefined))).toBeUndefined();
 });
 
+it('keeps the account a history entry names and drops one whose account is malformed', () => {
+  const entry = { provider: 'claude', windowMinutes: 10080, points: [[1, 50, 100]] };
+  const account = { key: '0123456789ab', label: 'work' };
+  const answer = (limitHistory: unknown) => ({
+    state: 'ok' as const,
+    observedAtMs: 1,
+    payload: { limitHistory } as never,
+  });
+  const history = limitHistoryFrom(
+    answer([
+      entry,
+      { ...entry, account },
+      { ...entry, account: null },
+      { ...entry, account: { key: '0123456789AB', label: 'work' } },
+      { ...entry, account: { key: '0123456789ab', label: 'a b' } },
+      { ...entry, account: { key: '0123456789ab' } },
+      { ...entry, account: 'work' },
+    ]),
+  )!;
+  expect(history).toHaveLength(3);
+  expect(history[0]).not.toHaveProperty('account');
+  expect(history[1]!.account).toEqual(account);
+  expect(history[2]).not.toHaveProperty('account');
+});
+
 it('reads fixed weekly allowance for every range, sharing the selected 7d read and abort signal', async () => {
   const { mockDocument } = await import('../src/digest-mock.js');
   const signal = new AbortController().signal;

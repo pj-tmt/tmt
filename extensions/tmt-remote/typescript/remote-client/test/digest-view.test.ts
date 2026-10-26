@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vite-plus/test';
 import { mockDocument } from '../src/digest-mock.js';
-import type { UsageDocument } from '../src/digest-source.js';
+import type { LimitAccount, UsageDocument } from '../src/digest-source.js';
 import {
   allowance,
   exchange,
@@ -259,4 +259,100 @@ it('matches history only to the same source, duration and reset, keeping multipl
   );
   expect(observedAgo(day.observedAtMs - 600_000, day.observedAtMs)).toBe('10m ago');
   expect(observedAgo(day.observedAtMs + 1, day.observedAtMs)).toBe('just now');
+});
+
+const WORK: LimitAccount = { key: '0123456789ab', label: 'work' };
+const HOME: LimitAccount = { key: 'ba9876543210', label: 'home' };
+
+/** The mock's three weekly windows, newest first, each named by `accounts` (null: no account). */
+function named(accounts: readonly (LimitAccount | null)[]): UsageDocument {
+  const weekly = day.limits.filter((limit) => limit.windowMinutes === 10080);
+  expect(weekly).toHaveLength(accounts.length);
+  return {
+    ...day,
+    limits: weekly.map((limit, at) =>
+      accounts[at] ? { ...limit, account: accounts[at]! } : limit,
+    ),
+  };
+}
+
+it('one account, or none, reads exactly as a provider without accounts', () => {
+  const shape = (doc: UsageDocument) =>
+    providerGroups(doc).map((group) => [
+      group.id,
+      group.label,
+      group.primary?.provider,
+      group.primary?.leftPercent,
+      group.other.length,
+    ]);
+  const plain = shape(named([null, null, null]));
+  expect(plain[0]).toEqual(['codex', 'OpenAI', 'OpenAI', 55, 2]);
+  expect(shape(named([WORK, WORK, WORK]))).toEqual(plain);
+  // One named account beside windows that name none is still one account.
+  expect(shape(named([WORK, null, null]))).toEqual(plain);
+  expect(allowance(named([WORK, WORK, WORK])).every((row) => row.provider === 'OpenAI')).toBe(true);
+});
+
+it('shows one entry per account when a provider has several, labelled by the account', () => {
+  const doc = named([WORK, WORK, HOME]);
+  const groups = providerGroups(doc);
+  const codex = groups.filter((group) => group.source === 'codex');
+  expect(codex.map((group) => [group.id, group.label])).toEqual([
+    ['codex-0123456789ab', 'OpenAI · work'],
+    ['codex-ba9876543210', 'OpenAI · home'],
+  ]);
+  // Newest first: the account seen most recently leads, and each keeps only its own windows.
+  expect(codex[0]!.primary!.leftPercent).toBe(55);
+  expect(codex[0]!.other).toHaveLength(1);
+  expect(codex[1]!.primary!.leftPercent).toBe(62);
+  expect(codex[1]!.other).toHaveLength(0);
+  expect(new Set(providers(doc).map((view) => view.key)).size).toBe(3);
+  // The key only groups; neither the labels nor any shown name carry it.
+  expect(
+    JSON.stringify([
+      ...groups.map((group) => group.label),
+      ...allowance(doc).map((row) => row.provider),
+    ]),
+  ).not.toContain('0123456789ab');
+  expect(groups.find((group) => group.source === 'claude')!.id).toBe('claude');
+});
+
+it('names the windows that report no account when a provider has several', () => {
+  const groups = providerGroups(named([WORK, HOME, null])).filter(
+    (group) => group.source === 'codex',
+  );
+  expect(groups.map((group) => group.label).sort()).toEqual([
+    'OpenAI · home',
+    'OpenAI · unknown account',
+    'OpenAI · work',
+  ]);
+  expect(groups.map((group) => group.id)).toContain('codex-unknown');
+});
+
+it('matches history only to the account it names', () => {
+  const doc = named([WORK, null, null]);
+  const first = day.limitHistory![0]!;
+  const chartOf = (history: object) =>
+    providers({ ...doc, limitHistory: [{ ...first, ...history }] }).find(
+      (view) => view.accountKey === WORK.key,
+    )!.chart;
+  expect(chartOf({ account: WORK })).toBeDefined();
+  expect(chartOf({ account: HOME })).toBeUndefined();
+  expect(chartOf({ account: undefined })).toBeUndefined();
+  expect(windowKey({ ...first, account: WORK })).not.toBe(windowKey(first));
+});
+
+it('ignores a window whose account is malformed instead of folding it into another account', () => {
+  const doc = named([WORK, HOME, null]);
+  for (const bad of [
+    { key: '0123456789AB', label: 'work' },
+    { key: '0123456789ab', label: 'has space' },
+    { key: '0123456789ab', label: '<b>x</b>' },
+    { key: '0123456789ab' },
+    'work',
+  ]) {
+    const limits = [...doc.limits];
+    limits[2] = { ...limits[2]!, account: bad as never };
+    expect(allowance({ ...doc, limits })).toHaveLength(2);
+  }
 });

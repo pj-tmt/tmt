@@ -304,6 +304,10 @@ result. There is no global cache. Limit titles come only from the explicit sourc
 never seat model families. Active weekly windows group by provider, duration and reset; the
 newest observation reported by a current seat leads each provider, with other windows folded
 and labeled by reset, reporter seats and observation age. Histories match that exact window.
+A provider with two or more accounts (Core's optional `account {key,label}`, #5274) gets one card per
+account, titled such as `OpenAI · work`, and the windows that name none are `unknown account`; one
+account, or none, is one card as before. The key only groups and is never shown, the label is plain
+text, and a window or history entry with a malformed account is dropped, never folded into another's.
 Claude stays explicitly not reported until Core has a real source. Provider history and method
 stay disclosures. Provider cards use a horizontal snap carousel with equal heights, a next-card peek
 on phones and previous/next controls when it overflows. The page owns range, chart style, scale,

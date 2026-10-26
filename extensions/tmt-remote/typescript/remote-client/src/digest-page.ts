@@ -285,7 +285,7 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
   if (providers.length > 2) groups.dataset.many = '';
   for (const group of providers) {
     const host = el('div', 'digest-provider-group');
-    host.id = `digest-provider-${encodeURIComponent(group.source)}`;
+    host.id = `digest-provider-${encodeURIComponent(group.id)}`;
     if (group.primary) host.append(providerRow(group.primary, doc!.observedAtMs));
     else {
       const label = el('div', 'digest-provider-label');

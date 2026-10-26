@@ -2150,7 +2150,9 @@ below; the browser renders it as inert text.
 
 **Limits payload** (`state:"ok"`): `limitHistory[]`, the weekly-limit samples the board keeps in its local cache,
 as printed by `tmt ops limits --json` (a read-only command; it needs no Core and never writes): `provider` (a driver
-ID), `windowMinutes` (10080) and `points`, oldest first, each `[observedAtMs, percentLeft, resetsAtMs]` with the
+ID), an optional `account` (`{key,label}` as Core names it in `rateLimits.account`, present only for an account
+Core named; a client groups by `key`, never shows it, and ignores an entry whose `account` is malformed),
+`windowMinutes` (10080) and `points`, oldest first, each `[observedAtMs, percentLeft, resetsAtMs]` with the
 percentage rounded to two decimals; the reset time rides with every point because the kept 8 days can span two
 windows. The cache has at most 8 providers and 10-minute buckets, and the board samples only while it is open, so
 history has gaps and a machine whose board never ran has none: that answer is `not_sampled`, never an empty list.
