@@ -562,7 +562,7 @@ modified or composing keys do not dismiss. Close, backdrop and Escape requests
 carry their original events. Focus returns to the connected visible opener, or
 the host's supplied fallback when the opener disappears.
 
-Menu keeps its 42px rows and 14px host type, with a 4px token inset inside the 8px popup and
+Menu retains its host row type and padding, with a 4px token inset inside the 8px popup and
 6px row corners so first/last keyboard focus frames stay inside the surface. React and native
 hosts share that presentation. Menu uses a native top-layer surface with a transparent catching backdrop and
 one open menu per document. It closes before invoking the host command, returning
