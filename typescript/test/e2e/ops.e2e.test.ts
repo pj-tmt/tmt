@@ -1541,7 +1541,13 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         expect(durableState(fixture)).toEqual(state);
         expect(requestAttempts(fixture)).toEqual(beforeRequests);
         expect(readConfig()).toEqual(config);
-        await fixture.waitForCapture((screen) => screen.includes('hidden by filters'), shell.pane);
+        await fixture.waitForCapture(
+          (screen) =>
+            screen.includes('✓ Completed Native board item') &&
+            screen.includes('Checklist is empty') &&
+            !screen.includes('○ Native board item'),
+          shell.pane
+        );
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
           (screen) =>
@@ -1622,7 +1628,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           screen.includes('○ 1 todo') &&
           /\bC[ \t]+Checklist\b/.test(screen) &&
           memberRow(screen)?.includes('· 1 todo') === true &&
-          screen.includes('1 todo · 0 done'),
+          screen.includes('Checklist · 1 todo') &&
+          !screen.includes('1 todo · 0 done'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'C']);
@@ -1639,6 +1646,13 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         'Checklist Done publication'
       );
       expect(read().items[0]).toMatchObject({ id: item, completion: 'complete', revision: 2 });
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('✓ Completed Finish the causal Checklist check') &&
+          screen.includes('No items yet') &&
+          !screen.includes('○ Finish the causal Checklist check'),
+        shell.pane
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture((screen) => {
         const row = memberRow(screen);
@@ -1646,7 +1660,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           row !== undefined &&
           !row.includes('todo') &&
           screen.includes('○ 0 todo') &&
-          screen.includes('0 todo · 1 done')
+          screen.includes('Checklist · empty') &&
+          !screen.includes('0 todo · 1 done')
         );
       }, shell.pane);
       expect(requestAttempts(fixture)).toEqual(beforeRequests);
