@@ -398,6 +398,8 @@ per source. Acquisition is injected; production candidate delegation and real
 candidate execution are exercised by the candidate adapter. Public downloads and
 `tmt upgrade` remain the separate post-publication smoke.
 
+The shared runtime proof and the extension, Herdr and managed CLI upgrade proofs bound native
+commands at 60 seconds for cold Rosetta starts; timeout errors still abort the proof.
 Keep each prove job's thirteen-minute timeout and per-source bootstrap/adapter plus compile durations.
 Successful main-ref Darwin CLI proofs may seed the purpose-specific adapter dependency cache, reusing the existing compilation when applicable and its environment hash; PRs, Linux and non-CLI proofs only restore. Adapter stderr separately records compile, discovery and each source run's start plus returned/failed elapsed seconds; a returned command is not proof acceptance, and a start without a terminal line has no measured completion. Do not dispatch a publishing workflow to obtain proof.
 

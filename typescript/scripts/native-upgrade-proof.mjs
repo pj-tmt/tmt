@@ -117,7 +117,8 @@ export function proveSourceBootstrap({
     PATH: '',
     LANG: 'C',
   };
-  const options = { cwd: root, env };
+  const options = { cwd: root, env, timeoutMs: 60_000 };
+  const inspectionOptions = { cwd: root, env };
   const installed = path.join(prefix, 'bin/tmt');
   const sourceInstall = (inputArchive, inputManifest, expectedStatus = 0) =>
     JSON.parse(
@@ -141,7 +142,7 @@ export function proveSourceBootstrap({
   assert.equal(sourceInstall(previousArchive, previousManifest).changed, true);
   const originalLayout = readCliLayout(prefix);
   const pointer = originalLayout.current;
-  assertMacOsArchitecture(installed, previous.target, options);
+  assertMacOsArchitecture(installed, previous.target, inspectionOptions);
   assert.equal(runPackedCommand(installed, ['--version'], options).trim(), previous.version);
   const protocol = installerProtocol(installed, options);
   const run = (args) => runPackedCommand(installed, args, options);
@@ -250,7 +251,7 @@ export function proveSourceBootstrap({
       'Bootstrap changed rollback prefix'
     );
   }
-  assertMacOsArchitecture(installed, current.target, options);
+  assertMacOsArchitecture(installed, current.target, inspectionOptions);
   assert(
     fs.readFileSync(readCoreDatabase(state)).equals(databaseBytes),
     'Bootstrap changed application state'

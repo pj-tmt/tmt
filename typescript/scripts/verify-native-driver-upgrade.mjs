@@ -70,6 +70,7 @@ export async function verifyDriverUpgrade(values) {
                 cwd: root,
                 env,
                 expectedStatus,
+                timeoutMs: 60_000,
               })
             );
           const list = () => run(['driver', 'ls']).drivers;
