@@ -557,7 +557,9 @@ A squad member's header shows its Checklist chip, `Checklist · 3 links · 2 tod
 (` C  Checklist · …`; no keycap when the key is unbound). `C` or a click on the chip opens the list: links
 first, then items without links, each row with who added it and how long ago (`you`, the member's
 name, or nothing for an item stored before the board recorded it). `↑↓`/`jk` choose,
-Enter opens a link or ticks a todo, `a` adds (a web address becomes a link; `Tab` moves
+Enter opens a link or ticks a todo (global `board.checklist_enter`, `open` by default: `tick` makes
+Enter tick a link row too; edit **checklist enter** in Ops Config or run
+`tmt ops sq config set board.checklist_enter tick`), Space always ticks and `o` always opens the link, `a` adds (a web address becomes a link; `Tab` moves
 between Title and Link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.

@@ -489,6 +489,7 @@ pub(super) fn board(sections: Value) -> App {
         view: Ok(View {
             history_pending: false,
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
+            checklist_enter: Default::default(),
             token_rate: None,
             home_rate: Default::default(),
             exchanges: Vec::new(),

@@ -4,7 +4,10 @@ use crate::split::{Size, Split};
 
 impl Config {
     fn setting_key_in_scope(key: &str, squad: Option<&str>) -> bool {
-        if matches!(key, "board.startup_tab" | "opener") {
+        if matches!(
+            key,
+            "board.startup_tab" | "board.checklist_enter" | "opener"
+        ) {
             return squad.is_none();
         }
         matches!(
@@ -78,6 +81,11 @@ impl Config {
                 .ok_or_else(|| {
                     invalid("`board.startup_tab` must be last, agents or digest (overview opens agents).")
                 });
+        }
+        if key == "board.checklist_enter" {
+            return ChecklistEnter::parse(text)
+                .map(|enter| value(enter.name()))
+                .ok_or_else(|| invalid("`board.checklist_enter` must be open or tick."));
         }
         if matches!(key, "reminders.enabled" | "idle_alert.enabled") {
             return text

@@ -195,6 +195,8 @@ impl Controller {
                     self.closed = true;
                     return Effect::None;
                 }
+                KeyCode::Char(' ') if plain(key) => return self.tick_selected(app, &items),
+                KeyCode::Char('o') if plain(key) => return self.open_selected(app, &items),
                 KeyCode::Char('a') if plain(key) => return self.begin(app, Draft::add()),
                 KeyCode::Char('e') if plain(key) => return self.edit(app, &items),
                 KeyCode::Char('d') if plain(key) => {
@@ -218,24 +220,51 @@ impl Controller {
         }
     }
 
-    /// Enter on an item: open a link, or tick a todo and untick a done one.
+    /// Enter on an item: a link row does what `board.checklist_enter` says, open or tick; any
+    /// other row ticks a todo and unticks a done one.
     fn activate(&mut self, app: &mut App, items: &[Row], id: &str) -> Effect {
         let Some(row) = items.iter().find(|row| row.id.as_str() == id) else {
             return Effect::None;
         };
-        if let (Kind::Link, Some(link)) = (row.kind, &row.reference) {
-            return Effect::Act(Request::Open {
-                link: link.clone(),
-                opener: app.view.as_ref().and_then(|view| view.opener.clone()),
-            });
+        let enter = app.view.as_ref().map(|view| view.checklist_enter);
+        match (&row.reference, enter) {
+            (Some(_), Some(crate::config::ChecklistEnter::Tick)) => self.tick(app, row),
+            (Some(link), _) => Self::open(app, link),
+            (None, _) => self.tick(app, row),
         }
+    }
+
+    /// Space ticks the chosen row whatever Enter is set to do.
+    fn tick_selected(&mut self, app: &mut App, items: &[Row]) -> Effect {
+        match self.selected(items) {
+            Some(row) => self.tick(app, &row),
+            None => Effect::None,
+        }
+    }
+
+    /// `o` opens the chosen row's link whatever Enter is set to do.
+    fn open_selected(&mut self, app: &mut App, items: &[Row]) -> Effect {
+        match self.selected(items).and_then(|row| row.reference) {
+            Some(link) => Self::open(app, &link),
+            None => self.say("This item has no link."),
+        }
+    }
+
+    fn open(app: &App, link: &str) -> Effect {
+        Effect::Act(Request::Open {
+            link: link.to_owned(),
+            opener: app.view.as_ref().and_then(|view| view.opener.clone()),
+        })
+    }
+
+    fn tick(&mut self, app: &mut App, row: &Row) -> Effect {
         let Some(revision) = self.revision(&app.notes, &row.id) else {
             return Effect::None;
         };
         let write = Write::Toggle {
             item: row.id.clone(),
             revision,
-            complete: row.kind == Kind::Todo,
+            complete: !row.completed,
         };
         self.write(&mut app.notes, write)
     }
