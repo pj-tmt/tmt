@@ -385,9 +385,9 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
         )
       ).toEqual([
         ['ops', 'current'],
-        ['digest', 'current'],
         ['remote', 'failed'],
         ['colab', 'skipped'],
+        ['digest', 'current'],
       ]);
       expect(readFileSync(remote, 'utf8')).toBe('foreign executable; never overwrite\n');
       rmSync(remote);

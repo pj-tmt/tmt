@@ -11,7 +11,8 @@ mod registry;
 mod retired;
 mod setup_plan;
 pub use setup_plan::{
-    CorePublication, SkillState, SkillTarget, plan_core, plan_owned, publish_core, publish_owned,
+    CorePublication, SkillState, SkillTarget, plan_core, plan_owned, publish_core,
+    publish_missing_core, publish_owned, recorded_targets,
 };
 mod uninstall;
 pub use refresh::{RefreshFailure, RefreshReport, RefreshedSkill, refresh};

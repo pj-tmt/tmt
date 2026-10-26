@@ -316,11 +316,58 @@ pub(crate) fn install_offered(
     product: Product,
     progress: native_install::ProgressObserver<'_>,
 ) -> Result<(Value, Human), Failure> {
+    install_offered_at(product, None, None, progress)
+}
+
+pub(crate) fn install_offered_at(
+    product: Product,
+    selected_prefix: Option<&Path>,
+    selected_version: Option<&str>,
+    progress: native_install::ProgressObserver<'_>,
+) -> Result<(Value, Human), Failure> {
+    if let (Some(prefix), Some(selected)) = (selected_prefix, selected_version) {
+        let target = tmt_core::native_install::native_target(env::consts::OS, env::consts::ARCH)
+            .ok_or_else(|| {
+                Failure::new(
+                    "EXTENSION_UNSUPPORTED",
+                    "This platform has no native release.",
+                    1,
+                )
+            })?;
+        let report = native_install::install_missing_release_observed(
+            product,
+            native_install::ReleaseInstallRequest {
+                prefix,
+                target,
+                channel: tmt_core::native_install::Channel::Alpha,
+                exact: Some(selected),
+            },
+            None,
+            interruptible("Extension installation interrupted before activation.")?,
+            progress,
+        )
+        .map_err(|error| failure("EXTENSION_INSTALL_FAILED", error))?;
+        let mut document = json!({"extension":product.as_str(),"installed":true,"changed":report.changed,"version":report.version,"executable":report.executable});
+        let mut human = Human::done(format!(
+            "Installed {} {} at {}.",
+            product.as_str(),
+            report.version,
+            report.executable.display()
+        ));
+        settle_skills(
+            product,
+            &report.active_executable,
+            &[],
+            &mut document,
+            &mut human,
+        )?;
+        return Ok((document, human));
+    }
     let request = ExtensionInstallRequest::Install {
         name: product.as_str().into(),
-        prefix: None,
+        prefix: selected_prefix.map(|path| path.to_string_lossy().into_owned()),
         channel: None,
-        to: None,
+        to: selected_version.map(str::to_owned),
         archive: None,
         manifest: None,
         yes: true,
@@ -646,10 +693,10 @@ mod tests {
             assert!(
                 error
                     .message
-                    .ends_with("Official extensions: ops, digest, remote, colab.")
+                    .ends_with("Official extensions: ops, remote, colab, digest.")
             );
         }
-        assert_eq!(names(), "ops, digest, remote, colab");
+        assert_eq!(names(), "ops, remote, colab, digest");
     }
 
     #[test]

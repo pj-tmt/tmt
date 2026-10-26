@@ -160,3 +160,48 @@ Unknown fields, versions, products, malformed or incomplete lines invalidate
 the progress report; they never authorize a second apply or prove rollback. Final
 activation/skills results still come only from the validated stdout document and exit.
 Failure to render or emit observations cannot veto a verified publication.
+
+## Whole upgrade plan v2
+
+The updater may negotiate `__native-upgrade-extensions --json --plan --progress --complete`
+read-only. A capable target returns the whole plan on stdout and exactly
+`{"upgradePlan":2}` plus newline on stderr. A clean exit 2 permits the existing installed-only
+negotiation, never a missing-item apply. Other probe failures refuse the phase. Legacy callers
+without `--complete` retain the preceding plan/result and progress contracts unchanged.
+
+The version-2 plan has exactly `version: 2`, `installed` (the legacy plan), `missing` and
+`providers`. Each missing row identifies an official `product`, `action` (`install` or `skills`),
+`version` when pending, `status`, Boolean `selected` and exact `hint`; new installations declare
+`channel: "alpha"`. Failed previews carry `message`. Provider rows identify `provider`, `status`,
+Boolean `selected` and exact supported `hint`; pending rows include skill names/paths and hook
+paths, stable launcher, input/output hashes, event scope and usage choice. Settings bodies are
+never transferred. There are at most the official-product count of missing rows and 16 provider
+rows, within the existing 64 KiB plan/input/output bounds. Unknown row fields, duplicate names,
+unsupported products/providers and invalid version operands refuse before apply.
+
+Root upgrade freezes this scope before approval, then compares the activated executable's
+read-only plan, ignoring only selection and diagnostic wording. Interactive approval can select
+new provider scopes; `--yes` always deselects them, including at a human TTY. Without extension
+consent the parent does not invoke an apply child. A no-action plan also needs no child invocation.
+The unselected rows retain their exact setup/install commands. Old targets may complete supported
+installed-only upgrades but report missing-item work for a newer CLI or explicit setup command.
+
+A capable target receives the approved whole plan once on stdin with
+`--json --yes --progress --complete`. New provider scopes reuse guided setup's publisher;
+input bytes and scope are checked again, and new Core skill links require continued absence under
+its installer lock. Missing products reuse the verified installer in the managed CLI's prefix,
+select exact approved release bytes without a pin, and require continued absence under the
+activation lock. Skills-only retry uses its captured verified release. No services or provider
+applications are started. Remote is installed before Colab; unavailable Remote blocks Colab only.
+Ordinary independent failures keep successful work and continue. Interruption stops later actions.
+
+The final document has exactly `products`, `providers` and Boolean `interrupted`. Product rows
+retain the existing statuses and add selection/action/details for missing-item outcomes; provider
+statuses are `changed`, `consentRequired`, `needsApproval`, `skipped` or `failed`. Successful rows
+must name an approved target/scope. Exit 0 means no selected action failed; exit 1 keeps partial
+outcomes; exit 130 requires `interrupted: true` and retains completed rows. Root JSON exposes the
+provider rows as additive `providerSetup`; the separate recorded `integrations` report remains
+advisory. Extension progress retains its existing bounded event stream. The phase keeps the
+180-second bound, adding Remote's existing restart allowance only for a pending Remote upgrade.
+A timeout, malformed report or missing output is uncertain and never authorizes an apply retry,
+old-process fallback or rollback claim.

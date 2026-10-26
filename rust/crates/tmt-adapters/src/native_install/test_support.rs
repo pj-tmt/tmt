@@ -96,7 +96,7 @@ pub(super) fn install_downloaded(
             prefix: &current.prefix,
             channel,
             pin,
-            expected: Some(current.id),
+            expected: Some(current.id).into(),
             provenance: Some(downloaded.provenance.clone()),
             verifier: None,
             explicit_channel: true,

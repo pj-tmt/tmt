@@ -63,6 +63,36 @@ pub(super) fn write(
     table.write(output, terminal)
 }
 
+pub(super) fn write_setup(
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    rows: &[Value],
+) -> io::Result<()> {
+    use tmt_cli_style::table::{Cell, Column, Table};
+    let mut table = Table::new(&[Column::Name, Column::Fixed]);
+    for row in rows {
+        table.row([
+            Cell::from(format!(
+                "{} integration",
+                row["provider"].as_str().unwrap_or("provider")
+            )),
+            Cell::from(match row["status"].as_str() {
+                Some("changed") => "configured",
+                Some("failed") => "failed",
+                Some("skipped") => "skipped",
+                _ => "needs approval",
+            }),
+        ]);
+    }
+    table.write(output, terminal)?;
+    for row in rows {
+        if let Some(message) = row["message"].as_str() {
+            tmt_cli_style::message::warning(output, terminal, message, None)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

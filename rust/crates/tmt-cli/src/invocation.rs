@@ -280,6 +280,7 @@ pub enum Invocation {
     NativeUpgradeExtensions {
         plan: bool,
         progress: bool,
+        complete: bool,
     },
     Uninstall {
         purge: bool,

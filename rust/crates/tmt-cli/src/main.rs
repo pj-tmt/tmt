@@ -134,6 +134,18 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     // The updater's frozen skill-refresh protocol owns its own path admission
     // and output. Driver registration would discover configuration first and
     // print a directory-move diagnostic before that protocol can silence it.
+    if let Invocation::NativeUpgradeExtensions {
+        plan,
+        progress,
+        complete: true,
+    } = &parsed.invocation
+    {
+        return extension_install_command::upgrade_all::complete::execute(
+            *plan,
+            *progress,
+            parsed.mode,
+        );
+    }
     if matches!(parsed.invocation, Invocation::NativeRefreshIntegrations) {
         return setup_command::refresh::execute(parsed.mode);
     }
@@ -485,7 +497,18 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 parsed.mode,
             );
         }
-        Invocation::NativeUpgradeExtensions { plan, progress } => {
+        Invocation::NativeUpgradeExtensions {
+            plan,
+            progress,
+            complete,
+        } => {
+            if complete {
+                return extension_install_command::upgrade_all::complete::execute(
+                    plan,
+                    progress,
+                    parsed.mode,
+                );
+            }
             return extension_install_command::upgrade_all::execute(plan, progress, parsed.mode);
         }
         Invocation::NativeRefreshSkills { managed } => {

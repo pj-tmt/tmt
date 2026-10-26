@@ -1,7 +1,9 @@
 //! Native update composition; the new executable owns skill refresh and extensions.
 
 mod compaction;
+mod complete;
 mod database;
+pub(crate) use extensions::targets as extension_targets;
 mod extensions;
 mod integrations;
 mod preview;
@@ -91,12 +93,13 @@ pub fn execute_with_schema_consent(
             request(),
             allow_schema_ahead,
         )?;
-        let extensions =
-            crate::extension_install_command::upgrade_all::plan(prepared.current().prefix());
+        let mut extensions = crate::extension_install_command::upgrade_all::complete::Plan::read(
+            prepared.current().prefix(),
+        );
         checkpoint()?;
         let approval = preview::approve(
             &prepared,
-            &extensions,
+            &mut extensions,
             channel.is_some() || exact.is_some() || unpin,
             yes,
             mode,
@@ -233,7 +236,7 @@ struct Prior {
     repeat: String,
     ran_from_moved_prefix: bool,
     versions: BTreeMap<String, String>,
-    extensions: crate::extension_install_command::upgrade_all::Plan,
+    extensions: crate::extension_install_command::upgrade_all::complete::Plan,
 }
 
 /// The bare retry the extension rows suggest; a repeated invocation replaces it.
@@ -305,8 +308,8 @@ fn finish(
 ) -> io::Result<u8> {
     let integration_report = (failure.is_none() && !report.skipped_pinned)
         .then(|| integrations::run(&report.installation.active_executable, &UnixCommandRunner));
-    let extensions = if failure.is_none() {
-        extensions::upgrade_frozen(
+    let phase = if failure.is_none() {
+        complete::run(
             &report.installation.active_executable,
             &prior.extensions,
             yes,
@@ -314,7 +317,7 @@ fn finish(
             &UnixCommandRunner,
         )
     } else {
-        Vec::new()
+        complete::Outcome::default()
     };
     let after_upgrade = failure.is_none() && !report.skipped_pinned;
     let rename_hints = if after_upgrade {
@@ -360,8 +363,10 @@ fn finish(
         Some(report),
         skills,
         failure,
-        extensions,
+        phase.products,
         Notices {
+            provider_setup: &phase.providers,
+            interrupted: phase.interrupted,
             integrations: integration_report.as_ref(),
             pane_rename: &rename_hints,
             named: &named_hints,
@@ -479,6 +484,8 @@ fn publish_products(
 /// the retained former prefix) and the database rename and compaction outcomes.
 #[derive(Default)]
 struct Notices<'a> {
+    provider_setup: &'a [Value],
+    interrupted: bool,
     integrations: Option<&'a tmt_adapters::setup::IntegrationRefreshReport>,
     pane_rename: &'a [String],
     named: &'a [(&'a str, &'a str)],
@@ -499,6 +506,8 @@ fn publish_products_with_hints(
     mode: OutputMode,
 ) -> io::Result<u8> {
     let Notices {
+        provider_setup,
+        interrupted,
         integrations: integration_report,
         pane_rename: rename_hints,
         named: named_hints,
@@ -526,6 +535,7 @@ fn publish_products_with_hints(
         "pinned": report.state.pinned_version.is_some(),
         "skippedPinned": report.skipped_pinned,
     }));
+    document["providerSetup"] = json!(provider_setup);
     document["skills"] = skills.unwrap_or(Value::Null);
     document["integrations"] = integration_report.map_or(Value::Null, |report| {
         serde_json::to_value(&report.integrations).expect("typed integration rows")
@@ -540,7 +550,11 @@ fn publish_products_with_hints(
     }
     let mut products = product_rows(report, failure.as_ref(), extensions);
     products[0]["skills"] = document["skills"].clone();
-    let extension_failed = products.iter().skip(1).any(|p| p["status"] == "failed");
+    let extension_failed = products
+        .iter()
+        .skip(1)
+        .chain(provider_setup)
+        .any(|p| p["status"] == "failed");
     document["products"] = json!(products);
     if !rename_hints.is_empty() {
         document["paneRenameHints"] = json!(rename_hints);
@@ -579,6 +593,13 @@ fn publish_products_with_hints(
             .cloned()
             .chain(database.and_then(database::hint))
             .chain(integration_report.into_iter().flat_map(integrations::hints))
+            .chain(
+                provider_setup
+                    .iter()
+                    .filter(|row| row["status"] != "changed")
+                    .filter_map(|row| row["hint"].as_str())
+                    .map(str::to_owned),
+            )
             .collect::<Vec<_>>();
         let compaction_hint = compaction.and_then(compaction::hint);
         let optional = named_hints
@@ -589,6 +610,7 @@ fn publish_products_with_hints(
         if let Some(report) = integration_report {
             integrations::write(&mut stdout, terminal, report)?;
         }
+        integrations::write_setup(&mut stdout, terminal, provider_setup)?;
         summary::write(
             &mut stdout,
             terminal,
@@ -619,7 +641,11 @@ fn publish_products_with_hints(
             failure.publish(mode)?;
         }
     }
-    Ok(failure.map_or(u8::from(extension_failed), |failure| failure.status))
+    Ok(if interrupted {
+        130
+    } else {
+        failure.map_or(u8::from(extension_failed), |failure| failure.status)
+    })
 }
 
 fn failure_document(failure: &Failure) -> Value {
@@ -764,3 +790,6 @@ pub(crate) use extensions::PRINTED_HINTS as EXTENSIONS_HINTS;
 
 #[cfg(test)]
 pub(crate) use rename::PRINTED_HINTS as RENAME_HINTS;
+
+#[cfg(test)]
+pub(crate) use complete::PRINTED_HINTS as COMPLETE_HINTS;

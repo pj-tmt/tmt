@@ -391,6 +391,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["__native-upgrade-extensions"] => Invocation::NativeUpgradeExtensions {
             plan: flag(m, "plan"),
             progress: flag(m, "progress"),
+            complete: flag(m, "complete"),
         },
         ["uninstall"] => Invocation::Uninstall {
             purge: flag(m, "purge"),

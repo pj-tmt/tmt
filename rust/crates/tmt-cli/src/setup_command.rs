@@ -1,7 +1,7 @@
 //! Setup consent and presentation; provider file policy belongs to adapters.
 //! `tmt setup` without a driver is the guided flow in [`guided`].
 
-mod guided;
+pub(crate) mod guided;
 pub(crate) mod refresh;
 
 use crate::{invocation::OutputMode, output::Failure};
@@ -28,10 +28,10 @@ pub fn execute(
 }
 
 /// What the usage hook reads, shown wherever setup plans it.
-const USAGE_NOTE: &str = "Usage and recent responses: after each turn, TMT reads token counts and keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). Use --no-usage to stop collecting.";
+pub(crate) const USAGE_NOTE: &str = "Usage and recent responses: after each turn, TMT reads token counts and keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). Use --no-usage to stop collecting.";
 
 /// What the turn-end hook keeps when usage collection is off: the agent's answers for the chat.
-const ANSWERS_NOTE: &str = "Chat answers: after each turn, TMT keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). No usage data is read or stored.";
+pub(crate) const ANSWERS_NOTE: &str = "Chat answers: after each turn, TMT keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). No usage data is read or stored.";
 
 fn failure(error: impl std::error::Error + 'static) -> Failure {
     Failure::new("SETUP_ERROR", error.to_string(), 1).caused_by(error)

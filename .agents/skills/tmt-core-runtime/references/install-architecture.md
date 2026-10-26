@@ -309,22 +309,23 @@ the move is a bootstrap reinstall.
   child, and the parent never reads the candidate's inventory. Pre-activation failures keep the
   previous release; a reported post-activation failure keeps the active result; a missing report
   is uncertain and asks the user to inspect before retrying.
-- Root upgrade prepares a metadata-only, frozen CLI and installed-extension preview before one
-  human approval (`[Y/n]`: Enter agrees, end of input declines). Decline or failure to prepare
-  the CLI target changes no component; unavailable extension rows remain per-product failures.
-  `--yes` uses the same frozen selection; JSON, pipes and agent callers
-  never prompt. Machine runs retain CLI update behavior and report extension `consentRequired`
-  without `--yes`. The CLI then activates and refreshes managed skills through the new executable,
-  which keeps extension inventory authority. Its hidden `__native-upgrade-extensions --json --plan`
-  must match the consented products, installed versions, pin states and exact targets before the
-  parent sends the legacy plan on stdin with `--yes`. Optional live child observations use
-  the [consented progress contract](../../../../contracts/native-install-handoff-v1.md#consented-extension-progress)
-  through the existing bounded process owner, keeping the final JSON separate. Capability
-  fallback is read-only planning, never an apply retry. The apply child refuses a changed old
-  version or a newly pinned installation before acquisition; its immutable executable and the
-  adapter's current-id publication fence retain that observation. Unsupported targets fail with
-  a rerun hint, without an old-process fallback, activation retry or rollback. Product failures
-  remain independent; CLI failure stops extensions, and a pinned CLI permits them.
+- Root upgrade freezes CLI/extension targets and setup's missing inventory before one
+  human approval (`[Y/n]`: Enter agrees, EOF declines). Missing extensions and detected new
+  provider scopes are selectable; Remote precedes Colab. Declines are invocation-local.
+  `--yes` installs missing official extensions/bundled skills but never a new provider's
+  hooks or Core skill scope, even at a human terminal. JSON/pipes/agents never prompt;
+  without `--yes` they retain CLI update and recorded refresh but only report missing items.
+  The activated CLI rechecks approved versions, pins, absence and provider scope/input hashes.
+  Changed scope refuses reapproval rather than expanding consent. The setup owner publishes
+  new scopes only after interactive consent; recorded refresh keeps its narrower authority.
+- `upgrade_all::complete` composes the existing upgrade, setup and installer owners under the
+  [whole-plan handoff](../../../../contracts/native-install-handoff-v1.md#whole-upgrade-plan-v2).
+  The upgrading CLI's verified prefix is authoritative. New products select the displayed alpha
+  release without creating a pin; the activation lock requires continued absence. A concurrent
+  activation or foreign link is preserved. Skills-only retry uses the captured immutable release.
+  Legacy installed-only callers retain their protocol; capability fallback never applies missing
+  items, retries an apply, or runs the old updater. Independent failures retain completed results;
+  interruption stops later actions and exits 130. CLI failure stops the phase; a pinned CLI permits it.
 - After a completed unpinned upgrade, the activated CLI's bounded
   `__native-refresh-integrations --json` phase refreshes only previously recorded setup scopes;
   the [setup owner](identity-bindings.md#hooks-setup-and-uninstall) retains file and consent

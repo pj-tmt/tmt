@@ -168,6 +168,7 @@ fn internal_extension_upgrade_requires_plan_or_consent() {
     assert_eq!(
         parsed(&["__native-upgrade-extensions", "--plan", "--json"]).invocation,
         Invocation::NativeUpgradeExtensions {
+            complete: false,
             plan: true,
             progress: false
         }
@@ -181,6 +182,7 @@ fn internal_extension_upgrade_requires_plan_or_consent() {
         ])
         .invocation,
         Invocation::NativeUpgradeExtensions {
+            complete: false,
             plan: true,
             progress: true
         }
@@ -188,6 +190,7 @@ fn internal_extension_upgrade_requires_plan_or_consent() {
     assert_eq!(
         parsed(&["__native-upgrade-extensions", "--yes", "--json"]).invocation,
         Invocation::NativeUpgradeExtensions {
+            complete: false,
             plan: false,
             progress: false
         }
