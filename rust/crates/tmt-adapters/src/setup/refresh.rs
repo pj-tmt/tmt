@@ -1,5 +1,5 @@
 //! Refresh only the provider scopes the user already approved through setup.
-use super::{UsageHook, apply, document, plan_with_choice, read_settings, record};
+use super::{UsageHook, apply, document, plan_with_choice, provider_mod, read_settings, record};
 use crate::drivers::Registry;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -169,12 +169,31 @@ fn refresh_one(
     }
     match record::refresh(global, entry, plan.usage, || apply(&plan)) {
         Ok(_) => {
-            row.status = if plan.change.changed() {
+            // The managed mod follows this build and the usage choice; it is never created here,
+            // because the approval was for the hooks, not for files a later build adds.
+            let mod_changed =
+                match provider_mod::pending_refresh(driver.name(), &entry.settings, plan.usage)
+                    .and_then(|pending| pending.map(|pending| pending.apply()).transpose())
+                {
+                    Ok(outcome) => {
+                        outcome.is_some_and(|outcome| outcome != provider_mod::ModOutcome::Blocked)
+                    }
+                    Err(error) => {
+                        row.reason = RefreshReason::PublicationFailed;
+                        row.message = bounded(format!(
+                            "The {} mod could not be refreshed: {error}",
+                            driver.name()
+                        ));
+                        return row;
+                    }
+                };
+            let changed = plan.change.changed() || mod_changed;
+            row.status = if changed {
                 RefreshStatus::Updated
             } else {
                 RefreshStatus::Unchanged
             };
-            row.reason = if plan.change.changed() {
+            row.reason = if changed {
                 RefreshReason::Refreshed
             } else {
                 RefreshReason::Current

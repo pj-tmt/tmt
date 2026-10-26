@@ -596,6 +596,10 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             .state
     }
 
+    fn provider_mod(&self) -> Option<&'static crate::setup::provider_mod::ProviderMod> {
+        Some(&allowance::MOD)
+    }
+
     /// Keep the rate-limit windows the first-party Claude mod pushed, for the account of the
     /// environment's Claude root; the reader keeps the newest observation per account.
     fn accept_allowance(

@@ -13,7 +13,11 @@ use std::{io::Write, path::PathBuf};
 use tmt_adapters::{
     config::ConfigPaths,
     drivers::{Detection, DriverDefinition, Registry},
-    setup::{self, SetupEnvironment, SetupPlan, UsageHook, record},
+    setup::{
+        self, SetupEnvironment, SetupPlan, UsageHook,
+        provider_mod::{self, PendingMod},
+        record,
+    },
     skill_installation::{self, ProviderEnvironment, SkillState, SkillTarget},
 };
 use tmt_cli_style::{
@@ -33,6 +37,8 @@ struct Plan {
     owned: Vec<SkillTarget>,
     /// Every hook-capable present driver's plan, current or not.
     hooks: Vec<SetupPlan>,
+    /// The managed mod each consenting driver keeps, when it is not as wanted yet (#5187).
+    mods: Vec<PendingMod>,
 }
 
 impl Plan {
@@ -44,10 +50,15 @@ impl Plan {
         self.hooks.iter().filter(|plan| plan.change.changed())
     }
 
+    fn mod_changes(&self) -> impl Iterator<Item = &PendingMod> {
+        self.mods.iter().filter(|pending| pending.changes())
+    }
+
     fn is_current(&self) -> bool {
         self.core_changes().next().is_none()
             && self.owned.is_empty()
             && self.hook_changes().next().is_none()
+            && self.mod_changes().next().is_none()
     }
 }
 
@@ -120,11 +131,20 @@ fn plan_for(
             .map_err(failure)?,
         );
     }
+    let mods = hooks
+        .iter()
+        .map(|plan| provider_mod::pending(plan.provider, &plan.change.path, plan.usage))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(failure)?
+        .into_iter()
+        .flatten()
+        .collect();
     Ok(Plan {
         detections,
         core,
         owned,
         hooks,
+        mods,
     })
 }
 
@@ -198,7 +218,20 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
             ),
         ]);
     }
-    let change_count = plan.core_changes().count() + plan.owned.len() + plan.hook_changes().count();
+    for pending in plan.mod_changes() {
+        changes.row([
+            Cell::styled("mod", Token::Dim),
+            Cell::from(home(pending.target())),
+            Cell::styled(
+                format!("{}; {}", pending.provider(), pending.purpose()),
+                Token::Dim,
+            ),
+        ]);
+    }
+    let change_count = plan.core_changes().count()
+        + plan.owned.len()
+        + plan.hook_changes().count()
+        + plan.mod_changes().count();
     let mut sections = vec![Section {
         title: "agents",
         count: Some(found),
@@ -224,6 +257,9 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
     }
     if plan.hook_changes().any(|hooks| hooks.usage) {
         writeln!(output, "{USAGE_NOTE}")?;
+    }
+    for pending in plan.mods.iter().filter(|pending| !pending.changes()) {
+        writeln!(output, "{}", super::mod_note(pending))?;
     }
     Ok(())
 }
@@ -253,6 +289,9 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
     );
     changes.extend(plan.hook_changes().map(
         |hooks| json!({"kind": "hooks", "driver": hooks.provider, "path": hooks.change.path}),
+    ));
+    changes.extend(plan.mod_changes().map(
+        |pending| json!({"kind": "mod", "driver": pending.provider(), "path": pending.target()}),
     ));
     let mut document = json!({
         "detectedProviders": plan.detections.iter().filter(|(_, detection)| gets_skills(detection)).map(|(driver, _)| driver.name()).collect::<Vec<_>>(),
@@ -505,6 +544,26 @@ fn apply_with_policy(
             ),
         }
     }
+    for pending in plan.mod_changes() {
+        match pending.apply() {
+            Ok(outcome) => done(format!(
+                "{} the {} mod",
+                super::capitalized(outcome.label()),
+                pending.provider()
+            ))?,
+            Err(error) => failures.push(
+                Failure::new(
+                    "SETUP_ERROR",
+                    format!(
+                        "The {} mod could not be set up: {error}",
+                        pending.provider()
+                    ),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        }
+    }
     if !mode.json {
         for path in &skipped {
             message::warning(
@@ -611,6 +670,7 @@ pub(crate) mod tests {
             core: Vec::new(),
             owned: Vec::new(),
             hooks,
+            mods: Vec::new(),
         };
         std::fs::create_dir_all(paths[0].parent().unwrap()).unwrap();
         std::fs::write(&paths[0], b"user changed this after planning").unwrap();

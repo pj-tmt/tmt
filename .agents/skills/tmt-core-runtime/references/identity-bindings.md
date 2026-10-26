@@ -496,6 +496,13 @@ delivery. They install and launch nothing.
   authority. Skill publication admits only still-absent planned targets under the installer lock;
   provider input bytes, collection choices and scope are rechecked before publication. Unrelated
   settings, unsafe files and user-owned targets are preserved with an exact supported setup command.
+- A driver's managed mod (`setup::provider_mod`, from `RuntimeLifecycle::provider_mod`; Claude's
+  allowance mod, #5187) follows consented usage. Setup and guided setup preview it and keep a
+  copy beside the settings file (`skills/tmt-allowance`), published through a staging directory
+  with a `.tmt-managed.json` marker holding the shipped digest, so it is locked to the installed
+  TMT. `--no-usage`, `--remove` and uninstall remove it. Upgrade refresh updates an installed
+  copy or removes one left behind a recorded opt-out and never creates one. A directory without
+  TMT's marker, or behind a link, is left alone and reported.
 - Guided `tmt setup` plans agents from filesystem-only detection and offers ops, digest,
   remote and colab selected by default, with visible Colab→Remote dependency toggles.
   Selection is read-only; one approval covers the complete plan (`SETUP_CONSENT_REQUIRED`
@@ -505,7 +512,7 @@ delivery. They install and launch nothing.
   extension outcome is additive JSON; partial failure keeps completed work and exits nonzero.
   An interrupted installer stops later items, retains completed outcomes and exits 130.
 - `tmt uninstall` plans read-only, asks once (`--yes` never implies `--purge`) and then removes
-  hooks (the exact inverse of setup), owners' skills and bundled links, extensions before the
+  hooks and a marked mod (the exact inverse of setup), owners' skills and bundled links, extensions before the
   CLI, the setup record and, with `--purge`, the data directory. An unreadable record stops it
   first; anything differing from what TMT wrote is kept and reported; a failed step stops and a
   rerun resumes. Product removal order derives from `Product::ALL`.
