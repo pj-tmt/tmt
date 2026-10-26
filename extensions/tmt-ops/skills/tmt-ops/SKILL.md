@@ -522,8 +522,14 @@ With tree focus, ↑/↓ move, Right expands and Left collapses. From either pan
 factory Enter replies to an observed question or messages the selected member or
 squad's observed current lead; `j` uses that recipient's guarded host action.
 A missing lead or Common pool grants no substitute recipient. The focus shows
-member identity/stat tiles or squad Board/Usage/Timers, then `Exchanges with you`
-(the currently observed actor-only history). Its filled input follows the last
+member identity/stat tiles or squad Board/Usage/Timers, then `Conversation`.
+Captured inputs, finals and submitted replies follow Core's committed order;
+linked finals render once by responseId and submitted replies once by requestId.
+Entries without a link remain separate. A known entry time appears as an age at
+the right edge; consecutive grouped inputs share their first known age. Frozen
+acknowledgment keys apply only to answer body rows that were painted, never to
+input or failure rows. On an older Core, the observed exchange remains available.
+Its filled input follows the last
 group with one blank row, and pins to the bottom only on overflow. Key hints stay
 in the effective footer, and the link line shows only its resolved target.
 These defaults are the same on every host (tmux, Herdr or unknown); a
