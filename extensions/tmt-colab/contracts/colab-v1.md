@@ -5640,11 +5640,11 @@ this version instead, stop Colab and replace space.db with the backup from befor
 (<path>); changes made since then are lost.", and is unchanged when there is none. No command restores a copy.
 
 After schema migrations commit, `Store::open` separately converts a store to SQLite
-`auto_vacuum=INCREMENTAL` with `VACUUM` outside any transaction, after the same pre-update
-copy (including for a current-schema legacy store). This physical conversion is best effort:
-a backup or conversion failure leaves the current-schema store usable and retries on the next
-open; old copies are pruned only after conversion succeeds. The stored vacuum mode marks
-completion, with no schema-version change. Reads never convert or reclaim the file.
+`auto_vacuum=INCREMENTAL` with `VACUUM` outside any transaction. This physical conversion
+is transactional and creates no backup; copies and their pruning remain tied to schema
+migrations only. Conversion is best effort: failure leaves the store usable and retries on
+the next open. The stored vacuum mode marks completion, with no schema-version change.
+Reads never convert or reclaim the file; per-prune reclaim failures stay silent.
 
 ### Projects (#3747)
 

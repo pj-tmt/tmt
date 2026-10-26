@@ -211,6 +211,7 @@ impl Store {
         schema::check_version(&connection)?;
         connection.pragma_update(None, "journal_mode", "DELETE")?;
         schema::migrate(&mut connection)?;
+        schema::enable_incremental(&connection);
         Ok(Self {
             connection,
             clock: Arc::new(now_ms),

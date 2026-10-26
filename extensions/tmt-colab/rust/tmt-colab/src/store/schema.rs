@@ -207,22 +207,12 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     // Recheck after acquiring the writer lock: another opener may have migrated.
     let version = check_version(&tx)?;
-    let convert: bool =
-        tx.pragma_query_value(None, "auto_vacuum", |r| Ok(r.get::<_, u32>(0)? != 2))?;
     // An existing store is copied once before the first step. The writer lock is held and the
     // journal mode is DELETE, so the file is complete and nothing can change it. A failed copy stops
     // here, with the store untouched; a fresh store (version 0) holds nothing to keep.
     let copied = match &path {
-        Some(store) if version > 0 && (version < CURRENT_VERSION || convert) => {
-            if let Err(error) = backup(store, version) {
-                if version < CURRENT_VERSION {
-                    return Err(error);
-                }
-                reclaim_warning(&format!(
-                    "Colab could not back up the space for disk reclaim: {error}. It will retry on the next open."
-                ));
-                return Ok(());
-            }
+        Some(store) if version > 0 && version < CURRENT_VERSION => {
+            backup(store, version)?;
             Some(version)
         }
         _ => None,
@@ -232,19 +222,11 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
         tx.pragma_update(None, "user_version", (index + 1) as u32)?;
     }
     if version == CURRENT_VERSION {
-        // No schema write occurred. Release the backup's writer reservation without COMMIT's
+        // No schema write occurred. Release the writer reservation without COMMIT's
         // exclusive-lock upgrade: a reader may defer physical conversion, never this open.
         tx.rollback()?;
     } else {
         tx.commit()?;
-    }
-    // VACUUM takes its own writer lock and cannot run in the migration transaction. Its mode
-    // is the durable marker: failed conversion leaves a usable store and retries on next open.
-    if convert && let Err(error) = enable_incremental(connection) {
-        reclaim_warning(&format!(
-            "Colab could not enable disk reclaim: {error}. It will retry on the next open."
-        ));
-        return Ok(());
     }
     if let (Some(taken), Some(store)) = (copied, &path) {
         // The migration is committed: failing to tidy an old copy must not fail the open. The copy
@@ -260,25 +242,36 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     Ok(())
 }
 
-fn enable_incremental(connection: &Connection) -> rusqlite::Result<()> {
-    connection.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
-    connection.execute_batch("VACUUM")
+/// VACUUM takes its own writer lock after migrations finish. Its mode is the durable marker:
+/// failed conversion leaves a usable store and retries on next open, without copying the file.
+pub(super) fn enable_incremental(connection: &Connection) {
+    let convert = || -> rusqlite::Result<()> {
+        if connection.pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))? == 2 {
+            return Ok(());
+        }
+        connection.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
+        connection.execute_batch("VACUUM")
+    };
+    if let Err(error) = convert() {
+        let mut output = tmt_cli_style::stream::stderr();
+        let terminal = output.terminal();
+        // A diagnostic failure cannot turn best-effort maintenance into a failed open.
+        let _ = tmt_cli_style::message::warning(
+            &mut output,
+            terminal,
+            &format!(
+                "Colab could not enable disk reclaim: {error}. It will retry on the next open."
+            ),
+            None,
+        );
+    }
 }
 
 /// Physical reclaim follows the committed prune, so an I/O error cannot roll its write back.
 pub(super) fn reclaim(connection: &Connection) {
-    if let Err(error) = reclaim_free_pages(connection) {
-        reclaim_warning(&format!(
-            "Colab could not reclaim free pages: {error}. The write is saved."
-        ));
-    }
-}
-
-fn reclaim_warning(message: &str) {
-    let mut output = tmt_cli_style::stream::stderr();
-    let terminal = output.terminal();
-    // Logging a best-effort maintenance failure must not turn it into a failed open or write.
-    let _ = tmt_cli_style::message::warning(&mut output, terminal, message, None);
+    // Match best-effort backup cleanup: repeated maintenance failures stay silent, and the
+    // next committed prune retries. The durable write's result never depends on reclaim.
+    let _ = reclaim_free_pages(connection);
 }
 
 fn reclaim_free_pages(connection: &Connection) -> rusqlite::Result<()> {
