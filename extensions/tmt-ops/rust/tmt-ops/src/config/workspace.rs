@@ -883,7 +883,11 @@ impl Config {
                 // that no scope binds by default has nothing to lose.
                 let removed = effective.remove(&key).is_some();
                 sources.remove(&key);
-                if !removed && !OpsKeyScope::ALL.iter().any(|scope| defaults(*scope).contains_key(&key)) {
+                if !removed
+                    && !OpsKeyScope::ALL
+                        .iter()
+                        .any(|scope| defaults(*scope).contains_key(&key))
+                {
                     notices.push(format!(
                         "`bind.{key}` = unbound: `{key}` has no default binding to remove."
                     ));
@@ -1394,13 +1398,15 @@ mod tests {
     #[test]
     fn unbound_on_a_key_nothing_binds_by_default_is_a_notice_not_an_error() {
         for scope in OpsKeyScope::ALL {
-            let keys = config("[bind]\nx='unbound'\n")
+            let keys = config("[bind]\nctrl-g='unbound'\n")
                 .workspace_keys(scope, None, None)
                 .unwrap();
-            assert!(!keys.bindings.contains_key("x"), "{scope:?}");
+            assert!(!keys.bindings.contains_key("ctrl-g"), "{scope:?}");
             assert!(
-                keys.notices.iter().any(|notice| notice.contains("`bind.x`")
-                    && notice.contains("no default binding to remove")),
+                keys.notices
+                    .iter()
+                    .any(|notice| notice.contains("`bind.ctrl-g`")
+                        && notice.contains("no default binding to remove")),
                 "{scope:?}: {:?}",
                 keys.notices
             );
@@ -1418,7 +1424,11 @@ mod tests {
             .workspace_keys(OpsKeyScope::Member, None, None)
             .err()
             .expect("an unknown action is refused");
-        assert!(error.message.contains("'unbund' is not an action"), "{}", error.message);
+        assert!(
+            error.message.contains("'unbund' is not an action"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]

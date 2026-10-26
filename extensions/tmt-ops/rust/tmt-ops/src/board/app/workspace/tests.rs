@@ -1,6 +1,6 @@
 mod host_action;
-mod unbound;
 pub(in crate::board) mod idle_alert;
+mod unbound;
 use super::*;
 use crate::board::workspace::{
     OpsMember, OpsObservation, OpsRoster, OpsSquad,

@@ -40,14 +40,26 @@ fn an_unbound_checklist_key_leaves_the_footer_help_and_the_chip() {
     let mut app = board();
     app.focus = 0;
     let before = text(&app);
-    assert!(before.contains("C  Checklist"), "the chip leads with its key\n{before}");
+    assert!(
+        before.contains("C  Checklist"),
+        "the chip leads with its key\n{before}"
+    );
     assert!(app.bindings().contains_key("C"));
     configured(&mut app, "[bind]\nC = 'unbound'\n", "checklist");
     assert!(!app.bindings().contains_key("C"), "the key is free");
     let after = text(&app);
-    assert!(after.contains("Checklist"), "the chip keeps its label\n{after}");
-    assert!(!after.contains("C  Checklist"), "and loses the keycap\n{after}");
-    assert!(!after.contains("C checklist"), "the footer drops the hint\n{after}");
+    assert!(
+        after.contains("Checklist"),
+        "the chip keeps its label\n{after}"
+    );
+    assert!(
+        !after.contains("C  Checklist"),
+        "and loses the keycap\n{after}"
+    );
+    assert!(
+        !after.contains("C checklist"),
+        "the footer drops the hint\n{after}"
+    );
     let help = crate::board::help::model(&app);
     assert!(
         !help
@@ -68,7 +80,7 @@ fn an_unbound_checklist_key_leaves_the_footer_help_and_the_chip() {
 #[test]
 fn a_no_op_unbound_is_noticed_in_the_workspace_notices() {
     let mut app = board();
-    configured(&mut app, "[bind]\nx = 'unbound'\n", "noop");
+    configured(&mut app, "[bind]\nctrl-g = 'unbound'\n", "noop");
     let notices = &app
         .view
         .as_ref()
@@ -81,7 +93,7 @@ fn a_no_op_unbound_is_noticed_in_the_workspace_notices() {
     assert!(
         notices
             .iter()
-            .any(|notice| notice.contains("`bind.x`") && notice.contains("no default binding")),
+            .any(|notice| notice.contains("`bind.ctrl-g`") && notice.contains("no default binding")),
         "{notices:?}"
     );
 }
