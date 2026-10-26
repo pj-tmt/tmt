@@ -115,7 +115,7 @@ const SPECS: &[OpsUiSpec] = &[
         "terminal",
         "terminal",
         "switch the selected built-in-host agent between its chat and its live terminal",
-        12
+        6
     ),
     spec!(
         MarkRead,

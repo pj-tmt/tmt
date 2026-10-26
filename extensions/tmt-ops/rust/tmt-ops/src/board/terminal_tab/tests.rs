@@ -396,3 +396,38 @@ fn the_cursor_is_one_reversed_cell_in_the_live_state_only() {
     // A cell the program reversed itself shows as the plain cell under the cursor.
     assert!(reversed("\x1b[7ma\x1b[0m\x1b[1D", Condition::Live).is_empty());
 }
+
+#[test]
+fn the_key_is_a_keycap_right_before_terminal_and_its_hit_covers_both() {
+    let mut app = reader();
+    with_stream(&mut app);
+    let drawn = text(&app);
+    let line = drawn
+        .lines()
+        .find(|line| line.contains("Chat"))
+        .expect("the chips row");
+    assert!(line.contains("Chat   t  Terminal"), "{line}");
+    let chat = line.chars().position(|c| c == 'C').unwrap();
+    let hits = app.workspace_strip_hits.borrow().clone();
+    let (area, _) = hits
+        .iter()
+        .find(|(_, choice)| matches!(choice, Choice::TerminalView(true)))
+        .expect("the Terminal chip");
+    assert_eq!(usize::from(area.x), chat + 6, "from the keycap");
+    assert_eq!(usize::from(area.right()), chat + 19, "to the end of the label");
+    let (chat_area, _) = hits
+        .iter()
+        .find(|(_, choice)| matches!(choice, Choice::TerminalView(false)))
+        .expect("the Chat chip");
+    assert!(chat_area.right() <= area.x, "Chat has no keycap of its own");
+}
+
+#[test]
+fn the_footer_names_t_terminal_only_while_the_selected_member_has_a_stream() {
+    let mut app = reader();
+    assert!(!text(&app).contains("t terminal"));
+    with_stream(&mut app);
+    assert!(text(&app).contains("t terminal"));
+    app.apply_terminal_located(MEMBER, Located::NoStream);
+    assert!(!text(&app).contains("t terminal"));
+}

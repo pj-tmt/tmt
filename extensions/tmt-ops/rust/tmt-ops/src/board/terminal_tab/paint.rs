@@ -24,47 +24,52 @@ use unicode_width::UnicodeWidthStr;
 
 const OPTIONS: [(&str, &str, bool); 2] = [("chat", "Chat", false), ("terminal", "Terminal", true)];
 
-/// Paints `Chat  Terminal` on `row`, led by the key that switches them.
+/// Paints `Chat  t  Terminal` on `row`: the key that switches the views is a keycap right before
+/// the label it opens, as on the tab labels, and the chip's hit covers both.
 pub(in crate::board) fn chips(buffer: &mut Buffer, app: &App, row: Rect) {
     let action = crate::action::OpsUiAction::Terminal;
     let cap = keycap::key(app, action, "t").map(|key| keycap::control_span(app, &key, action));
-    let cap_width = cap.as_ref().map_or(0, Span::width);
-    let showing = app.terminal_showing();
+    let cap_width = cap.as_ref().map_or(0, Span::width) as u16;
     let width = cap_width
         + OPTIONS
             .iter()
-            .map(|(_, label, _)| label.width() + 3)
-            .sum::<usize>();
-    if row.height == 0 || usize::from(row.width) < width + 2 {
+            .map(|(_, label, _)| label.width() as u16 + 3)
+            .sum::<u16>();
+    if row.height == 0 || row.width < width + 2 {
         return;
     }
-    let mut area = Rect::new(row.x + 1, row.y, width as u16, 1);
-    if let Some(cap) = cap {
-        strip::paint_left(buffer, area, Line::from(vec![cap]));
-        area.x += cap_width as u16;
-        area.width -= cap_width as u16;
-    }
-    let groups = [chip_group::ChipGroup {
-        label: String::new(),
-        choices: OPTIONS
-            .iter()
-            .map(|(id, label, terminal)| chip_group::Choice {
-                id: (*id).into(),
+    let showing = app.terminal_showing();
+    let mut x = row.x + 1;
+    for (id, label, terminal) in OPTIONS {
+        let from = x;
+        if terminal && let Some(cap) = cap.clone() {
+            strip::paint_left(
+                buffer,
+                Rect::new(x, row.y, cap_width, 1),
+                Line::from(vec![cap]),
+            );
+            x += cap_width;
+        }
+        let chip = label.width() as u16 + 3;
+        let groups = [chip_group::ChipGroup {
+            label: String::new(),
+            choices: vec![chip_group::Choice {
+                id: id.into(),
                 actionable: true,
                 text: format!(" {label} "),
                 gap: " ".into(),
-                selected: *terminal == showing,
+                selected: terminal == showing,
                 disabled: false,
                 cursor: false,
-            })
-            .collect(),
-    }];
-    for hit in chip_group::paint(buffer, area, &groups, app, None) {
-        if let Some((_, _, terminal)) = OPTIONS.iter().find(|(id, _, _)| *id == hit.id) {
+            }],
+        }];
+        for hit in chip_group::paint(buffer, Rect::new(x, row.y, chip, 1), &groups, app, None) {
+            let area = Rect::new(from, hit.area.y, hit.area.right() - from, hit.area.height);
             app.workspace_strip_hits
                 .borrow_mut()
-                .push((hit.area, Choice::TerminalView(*terminal)));
+                .push((area, Choice::TerminalView(terminal)));
         }
+        x += chip;
     }
 }
 
