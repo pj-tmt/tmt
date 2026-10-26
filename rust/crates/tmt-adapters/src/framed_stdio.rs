@@ -22,12 +22,17 @@ pub fn require_redirected(input: &impl AsFd, output: &impl AsFd) -> io::Result<(
     Ok(())
 }
 
-fn wait(fd: &impl AsFd, flags: PollFlags, deadline: Option<Instant>) -> io::Result<()> {
+fn wait(
+    fd: &impl AsFd,
+    flags: PollFlags,
+    deadline: Option<Instant>,
+    now: &impl Fn() -> Instant,
+) -> io::Result<()> {
     loop {
         let timeout = match deadline {
             Some(deadline) => {
                 let remaining = deadline
-                    .checked_duration_since(Instant::now())
+                    .checked_duration_since(now())
                     .filter(|d| !d.is_zero())
                     .ok_or_else(|| {
                         io::Error::new(io::ErrorKind::TimedOut, "stdio frame deadline exceeded")
@@ -43,7 +48,7 @@ fn wait(fd: &impl AsFd, flags: PollFlags, deadline: Option<Instant>) -> io::Resu
             Err(error) => return Err(error.into()),
             Ok(_) => {}
         }
-        if deadline.is_some_and(|d| Instant::now() >= d) {
+        if deadline.is_some_and(|d| now() >= d) {
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 "stdio frame deadline exceeded",
@@ -61,21 +66,28 @@ fn wait(fd: &impl AsFd, flags: PollFlags, deadline: Option<Instant>) -> io::Resu
     }
 }
 
-pub struct Reader<'a, F> {
+pub struct Reader<'a, F, C = fn() -> Instant> {
     fd: &'a F,
     maximum: usize,
     bytes: Vec<u8>,
     searched: usize,
     deadline: Option<Instant>,
+    now: C,
 }
 impl<'a, F: AsFd> Reader<'a, F> {
     pub fn new(fd: &'a F, maximum: usize) -> Self {
+        Self::with_clock(fd, maximum, Instant::now)
+    }
+}
+impl<'a, F: AsFd, C: Fn() -> Instant> Reader<'a, F, C> {
+    fn with_clock(fd: &'a F, maximum: usize, now: C) -> Self {
         Self {
             fd,
             maximum,
             bytes: Vec::new(),
             searched: 0,
             deadline: None,
+            now,
         }
     }
     pub fn read_frame(&mut self) -> io::Result<Option<Vec<u8>>> {
@@ -93,11 +105,9 @@ impl<'a, F: AsFd> Reader<'a, F> {
                 }
                 let line: Vec<u8> = self.bytes.drain(..=end).collect();
                 self.searched = 0;
-                self.deadline = if self.bytes.is_empty() {
-                    None
-                } else {
-                    self.deadline
-                };
+                // Buffered bytes of the next frame start their own interval
+                // when reading resumes; handler time is not acquisition time.
+                self.deadline = None;
                 return Ok(Some(line));
             }
             self.searched = self.bytes.len();
@@ -107,14 +117,17 @@ impl<'a, F: AsFd> Reader<'a, F> {
                     "stdio input exceeds its bound",
                 ));
             }
-            wait(self.fd, PollFlags::POLLIN, self.deadline)?;
+            if self.deadline.is_none() && !self.bytes.is_empty() {
+                self.deadline = Some((self.now)() + IO_TIMEOUT);
+            }
+            wait(self.fd, PollFlags::POLLIN, self.deadline, &self.now)?;
             let mut chunk = [0; 8192];
             let count = match read(self.fd, &mut chunk) {
                 Err(Errno::EINTR | Errno::EAGAIN) => continue,
                 Err(error) => return Err(error.into()),
                 Ok(count) => count,
             };
-            if self.deadline.is_some_and(|d| Instant::now() >= d) {
+            if self.deadline.is_some_and(|d| (self.now)() >= d) {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "stdio frame deadline exceeded",
@@ -129,9 +142,6 @@ impl<'a, F: AsFd> Reader<'a, F> {
                         "Incomplete stdio frame",
                     ))
                 };
-            }
-            if self.deadline.is_none() {
-                self.deadline = Some(Instant::now() + IO_TIMEOUT);
             }
             self.bytes.extend_from_slice(&chunk[..count]);
         }
@@ -150,7 +160,7 @@ pub fn publish(fd: &impl AsFd, body: &[u8], maximum: usize) -> io::Result<()> {
     let deadline = Instant::now() + IO_TIMEOUT;
     let mut offset = 0;
     while offset < bytes.len() {
-        wait(fd, PollFlags::POLLOUT, Some(deadline))?;
+        wait(fd, PollFlags::POLLOUT, Some(deadline), &Instant::now)?;
         // One output writer; pipe writes stay below POSIX's minimum PIPE_BUF.
         let count = match write(fd, &bytes[offset..(offset + 512).min(bytes.len())]) {
             Err(Errno::EINTR | Errno::EAGAIN) => continue,
@@ -167,3 +177,6 @@ pub fn publish(fd: &impl AsFd, body: &[u8], maximum: usize) -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

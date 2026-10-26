@@ -174,6 +174,41 @@ fn stdio_closes_a_stalled_output_pipe_without_a_worker_or_core_cancellation() {
 }
 
 #[test]
+fn stdio_answers_pipelined_frames_split_across_writes_in_order() {
+    // Each write ends inside the next frame, so every boundary leaves buffered input.
+    use nix::unistd::pipe;
+    use std::{
+        fs::File,
+        io::{BufRead, BufReader, Write},
+        thread,
+    };
+    let (input, client_input) = pipe().unwrap();
+    let (client_output, output) = pipe().unwrap();
+    let server =
+        thread::spawn(move || stdio::serve(&input, &output, |_| panic!("unexpected command")));
+    let mut client = File::from(client_input);
+    let mut responses = BufReader::new(File::from(client_output));
+    let mut next = || {
+        let mut line = String::new();
+        responses.read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+    client.write_all(br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+{"jsonrpc":"2.0","method":"notif"#).unwrap();
+    assert_eq!(next()["id"], 1);
+    client
+        .write_all(b"ications/initialized\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"meth")
+        .unwrap();
+    client
+        .write_all(b"od\":\"ping\"}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}\n")
+        .unwrap();
+    assert_eq!(next(), json!({"jsonrpc":"2.0","id":2,"result":{}}));
+    assert_eq!(next(), json!({"jsonrpc":"2.0","id":3,"result":{}}));
+    drop(client);
+    server.join().unwrap().unwrap();
+}
+
+#[test]
 fn protocol_metadata_is_descriptive_and_null_parameters_are_invalid() {
     let mut session = initialized(PROTOCOLS[0]);
     let value = message(&mut session, json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"identity":"Other","progressToken":"read"}}})).unwrap();
