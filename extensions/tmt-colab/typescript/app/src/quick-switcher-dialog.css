@@ -95,7 +95,7 @@
   border-radius: var(--tmt-ui-radius);
 }
 .quick-switcher-dialog .tmt-listbox-results-list .tmt-listbox-option[data-active='true'] {
-  border-color: var(--c-accent);
+  border-color: var(--tmt-ui-color-accent);
   background: var(--tmt-ui-surface-selection);
 }
 .quick-switcher-file {
