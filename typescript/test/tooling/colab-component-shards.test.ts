@@ -101,7 +101,7 @@ it('puts every component file in exactly one shard and retains unknown files wit
   const files = listComponentFiles();
   const weights = loadComponentWeights();
   expect(files.length).toBeGreaterThan(50);
-  for (const count of [1, 2, 3, COMPONENT_SHARDS, 7]) {
+  for (const count of [1, 2, 3, 7, 8, 9, 10, COMPONENT_SHARDS]) {
     const shards = splitSpecFiles(files, count, weights);
     expect(shards.flatMap((shard) => shard.files).sort()).toEqual(files);
     expect(splitSpecFiles([...files].reverse(), count, weights)).toEqual(shards);
