@@ -925,7 +925,11 @@ shell; the module exports it as `mountSearch`, which links the module's styleshe
 it lives. A host with no transport of its own mounts it as `mountSearchSession(container, options)`
 (#5267): `search-session.ts` (`createSearchSession`, no runtime imports) owns `mountedTransport` and
 its close behind one stable `PageTransport` whose reads wait for the bootstrap, so the dialog opens at
-once and shows the loading and failed states it already has; the transport starts when mounted, a
+once and shows the loading and failed states it already has. The document is not Colab's, so the
+session names the mount from the module's own URL (`mountOfModule(import.meta.url)`, the confined
+import) and `mountedTransport(signal, { mount })` runs `discover(..., { locate: false })` through the
+`ManagementClient` too: no location read, no `history.replaceState`, no `hostInShell`. The transport
+starts when mounted, a
 failed or `pagehide`-closed one is tried again by the next `open`, and `dispose` aborts a running
 bootstrap and closes it once. `options.placeholder` replaces the field's text (`search.placeholder`
 in the host). Without a `search` the host is the page switcher it always was.

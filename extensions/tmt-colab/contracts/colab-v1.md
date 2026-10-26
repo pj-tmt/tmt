@@ -4586,7 +4586,11 @@ A host that has no page transport of its own mounts the same search with
 `mountSearchSession(container, options)` (#5267), where `options` is `mountSearch`'s without
 `transport`, `space` and `pageId`. The session owns Colab's mounted transport (its admission,
 bootstrap and lifetime) and closes it, so the host never builds or closes one; it keeps the import,
-the prefetch and its own generation and disposal. The transport starts when the session is mounted.
+the prefetch and its own generation and disposal. The paired mount is the one this module was
+loaded from (`<mount>assets/colab-module.js`), so the host passes none and the session works from a
+document that is not Colab's: its discovery neither reads nor rewrites the document's location, and a
+module that was not loaded from a same-origin Colab mount never reaches the pages (the dialog says so
+as it does for any failed read). The transport starts when the session is mounted.
 `open(opener)` opens the dialog at once, on the groups that are ready, and the pages join when the
 transport is; the dialog says so while they load and when they cannot (the same states the search
 has), and a failed start is tried again by the next `open`. `dispose()` aborts a bootstrap that is

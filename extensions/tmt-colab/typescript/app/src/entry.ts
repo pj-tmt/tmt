@@ -32,6 +32,15 @@ export function rendererBase(): string {
   if (publicEntry()) return entryMount().href;
   return inShell() ? new URL('/colab/', location.href).href : document.baseURI;
 }
+/** The paired mount a module script was loaded from (`<mount>assets/colab-module.js`): the global
+ * search reads Colab's pages through it from a document that is not Colab's. Null for a script that
+ * did not come from a same-origin Colab mount (the dev server, a copy). */
+export function mountOfModule(script: string | URL, origin = location.origin): URL | null {
+  const mount = new URL('../', script);
+  return mount.origin === origin && /^\/r\/[a-z2-7]{16}\/x\/colab\/$/.test(mount.pathname)
+    ? mount
+    : null;
+}
 export function entryMount(): URL {
   const supplied =
     shellMount?.pathname ??

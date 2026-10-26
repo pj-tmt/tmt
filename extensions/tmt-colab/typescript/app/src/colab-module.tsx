@@ -14,7 +14,7 @@ import { ColabModuleBoundary } from './colab-module-boundary.js';
 import '@tmt/browser-ui/static.css';
 import './style.css';
 import { ShellHostSlot } from './colab-shell.js';
-import { hostInShell } from './entry.js';
+import { hostInShell, mountOfModule } from './entry.js';
 import { previewTransport } from './local-pages.js';
 import { MountedApp } from './mounted-app.js';
 import { UnsupportedBrowserNotice } from './notice-card.js';
@@ -77,7 +77,18 @@ export function mountSearchSession(
 ): SearchEntry {
   const unstyle = stylesheet();
   const session = createSearchSession(
-    { admit: mountedTransport, mountEntry: mountSearchEntry, page: window },
+    {
+      // The document is another module's: name the mount this script was loaded from, so discovery
+      // never reads or rewrites the location.
+      admit: (signal) => {
+        const mount = mountOfModule(import.meta.url);
+        return mount
+          ? mountedTransport(signal, { mount })
+          : Promise.reject(new Error('Colab was not loaded from its mount'));
+      },
+      mountEntry: mountSearchEntry,
+      page: window,
+    },
     container,
     options,
   );

@@ -77,6 +77,33 @@ it('preserves out-of-ID-order pins while matching the sorted catalog with delete
   expect(boot.pageIds).toEqual(body.pageIds);
   expect(verify).toHaveBeenCalledWith(boot.space, boot.owner);
 });
+it('a caller whose document is another module’s neither reads nor rewrites its location', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  await response([{ ...metadata, title: 'Alpha' }]);
+  const reads: string[] = [];
+  const replaceState = vi.fn();
+  // The global search on the Ops page: a fragment that is not Colab's, on a path that is not Colab's.
+  vi.stubGlobal('location', {
+    origin: 'https://example.test',
+    pathname: '/ops/',
+    search: '',
+    get hash() {
+      reads.push('hash');
+      return '#agents';
+    },
+  });
+  vi.stubGlobal('history', { state: null, replaceState });
+  // Colab's own discovery holds the document to Colab's grammar: this one it refuses.
+  await expect(discover(mount)).rejects.toThrow();
+  reads.length = 0;
+  replaceState.mockClear();
+  const boot = await discover(mount, undefined, undefined, { locate: false });
+  expect(boot.pages).toHaveLength(1);
+  expect(reads).toEqual([]);
+  expect(replaceState).not.toHaveBeenCalled();
+});
 it('refuses duplicate or mismatched live IDs even when pins use display order', async () => {
   const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
   const pages = [

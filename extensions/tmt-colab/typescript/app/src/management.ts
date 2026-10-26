@@ -476,12 +476,15 @@ export class ManagementClient implements ManagementPort {
   constructor(
     readonly mount: URL,
     readonly registration: Registration,
+    /** False when the document's location is another module's: discovery then leaves it alone. */
+    readonly locate = true,
   ) {}
   async snapshot(signal?: AbortSignal, context?: { page: string; exclude?: boolean }) {
     const boot = await discover(
       this.mount,
       (space, owner) => verifyRegistration(this.registration, space, owner),
       signal,
+      { locate: this.locate },
     );
     const page = context?.exclude
       ? boot.pages.find((p) => p.pageId !== context.page)
