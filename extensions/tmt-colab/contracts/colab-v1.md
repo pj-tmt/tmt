@@ -6310,6 +6310,60 @@ more times; an edit to the addressed text makes that evaluation fail with `COLAB
 `--expected-revision` is the optional strict fence of the whole-source write: with it any change
 to the page since that revision, anywhere, is `COLAB_STALE_BASE`, and nothing is retried.
 
+### Agent edit locks (#5293)
+
+`page lock PAGE (--find TEXT | --whole)` and `page unlock PAGE [LOCK] [--stale]`
+publish signed own records without changing source. A lock is advisory: people
+are never blocked. Browser overlays (#5294) and agent overlap refusal (#5295)
+are separate work. `--find` must match exactly once and captures the shared quote
+selector (`exact`, `prefix`, `suffix`); `--whole` captures `{whole:true}`.
+
+The closed `edit-lock` v1 record is defined by the independent literal
+[`edit-lock-v1.json`](vectors/edit-lock-v1.json): `version`, `kind`, `spaceId`,
+`pageId`, `epoch`, `senderDevice`, `revision`, `lockId`, `holder:{id,name}`,
+`target`, and `released`. It occupies `messages["<holder.id>:edit-lock"]`.
+Scope, IDs, quote bounds and label bounds use the existing typed-record grammar;
+`revision` is a positive canonical decimal no greater than `MAX_SEQUENCE`.
+Only owner-member writer provenance contributes effective locks. Labels and the
+asserted Core identity grant no dispatch authority.
+
+Each writer retains one current cell per identity, including release tombstones,
+with at most 1000 distinct holder cells. A typed same-key replacement must preserve
+scope, writer and holder ID and strictly increase its revision; deletion and stale
+replacement are refused. Other typed own records stay immutable. Effective state
+across writers uses greatest numeric `(revision, senderDevice)`; a publisher
+increments the greatest revision observed for that identity. A new lock gets a
+fresh lock ID and replaces its previous target. A release preserves that lock ID.
+Acquisition allows at most eight effective unreleased locks attributed to the local
+writer. Normal compaction collects overwritten values in complete own documents;
+steps with pending structs or delete sets retain the exact raw merge until their
+dependencies arrive. Sealed update history is reclaimed by normal compaction;
+repeated lock/unlock does not grow an action ledger.
+
+Locks belong to the Core identity UUID. A restarted identity can retain its lock.
+Presence filtering is a read-only projection: a returning same-UUID holder may see
+its old lock again. Durable release happens only through unlock, the holder's patch,
+or acquisition cleanup of observed-gone holders on the local writer.
+They have no timer. A successful public bounded `tmt ls --json` observation of
+`offline` or activity `ended` hides a lock; active and unknown preserve it. A missing
+row is Ended only when the lock belongs to this machine's local writer; an absent
+foreign-writer holder stays Unknown. Failed or malformed
+presence observations preserve locks. Normal unlock releases only the caller's
+identity. `--stale` lets anyone release a holder not observed active, including
+unknown, but requires a successful fresh observation. A selected active holder is
+refused. LOCK is a unique lowercase UUID prefix of at least eight characters.
+
+The holder's successful overlapping `page patch` captures its current lock ID before
+committing content and releases only that ID in a follow-up own publication after
+confirmed content success. Unrelated, failed and no-op patches keep the lock. Whole
+locks cover every source change; quote locks use the existing content hunks, with
+missing or ambiguous quotes conservatively covering the page. If release fails,
+the content stays saved. JSON includes `lockRelease:{confirmed:false,released:[],warning}`
+and any uncertain release operation ID; the warning gives the exact unlock command
+for the captured ID. Never replay the source patch to recover release. Successful
+release reports `confirmed:true`, released IDs and its publication operation ID;
+the receipt revision includes that follow-up publication.
+
 ### Page usage and requested compaction (#2846)
 
 `page read --json` reports `usage`, the accounting a write is refused against:

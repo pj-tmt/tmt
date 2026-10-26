@@ -260,3 +260,109 @@ mod tests {
         );
     }
 }
+
+/// One bounded public presence snapshot, containing only observed IDs. The lock owner
+/// distinguishes local retirement from foreign absence. Failed reads clear nothing.
+pub fn lock_presence(
+    ids: &[String],
+) -> crate::Result<std::collections::BTreeMap<String, crate::edit_lock::LockHolderState>> {
+    if ids
+        .iter()
+        .any(|id| tmt_colab_model::values::core_id(id).is_err())
+    {
+        return Err("Invalid lock holder identity.".into());
+    }
+    if ids.is_empty() {
+        return Ok(Default::default());
+    }
+    let executable = tmt_invoke::invoking_tmt()?;
+    let output = tmt_invoke::invoke(
+        Request {
+            program: &executable,
+            args: &["ls".into(), "--json".into()],
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(5),
+            max_stream_bytes: 4 * 1024 * 1024,
+            launch: Default::default(),
+        },
+        None,
+    )?;
+    if !output.status.success() {
+        return Err(
+            "Could not observe lock holders. Reconnect and retry; no lock was cleared.".into(),
+        );
+    }
+    lock_presence_from_reply(&output.stdout, ids)
+        .ok_or_else(|| "Could not verify lock-holder presence; no lock was cleared.".into())
+}
+fn lock_presence_from_reply(
+    bytes: &[u8],
+    ids: &[String],
+) -> Option<std::collections::BTreeMap<String, crate::edit_lock::LockHolderState>> {
+    use crate::edit_lock::LockHolderState;
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    let rows = value["identities"].as_array()?;
+    let mut found = std::collections::BTreeMap::new();
+    for row in rows {
+        let id = row["id"].as_str()?;
+        tmt_colab_model::values::core_id(id).ok()?;
+        let presence = match row["presence"].as_str()? {
+            "active"
+                if row
+                    .pointer("/session/activity/state")
+                    .and_then(Value::as_str)
+                    == Some("ended") =>
+            {
+                LockHolderState::Ended
+            }
+            "active" => LockHolderState::Active,
+            "offline" => LockHolderState::Offline,
+            "unknown" => LockHolderState::Unknown,
+            _ => return None,
+        };
+        if found.insert(id.to_owned(), presence).is_some() {
+            return None;
+        }
+    }
+    // Absence is meaningful for a local-writer lock only after the whole snapshot is valid.
+    found.retain(|id, _| ids.iter().any(|wanted| wanted == id));
+    Some(found)
+}
+
+#[cfg(test)]
+mod edit_lock_tests {
+    use super::*;
+    use crate::edit_lock::LockHolderState;
+    const ID: &str = "50000000-0000-7000-8000-000000000001";
+    #[test]
+    fn public_presence_preserves_absence_and_distinguishes_ended() {
+        let ids = vec![ID.to_owned()];
+        assert!(
+            lock_presence_from_reply(br#"{"identities":[]}"#, &ids)
+                .unwrap()
+                .is_empty()
+        );
+        for (presence, activity, expected) in [
+            ("active", "idle", LockHolderState::Active),
+            ("active", "ended", LockHolderState::Ended),
+            ("offline", "unknown", LockHolderState::Offline),
+            ("unknown", "unknown", LockHolderState::Unknown),
+        ] {
+            let bytes=serde_json::to_vec(&json!({"identities":[{"id":ID,"presence":presence,"session":{"activity":{"state":activity}}}]})).unwrap();
+            assert_eq!(
+                lock_presence_from_reply(&bytes, &ids).unwrap()[ID],
+                expected
+            );
+        }
+        for reply in [
+            br#"{}"#.as_slice(),
+            br#"{"identities":[{"id":"50000000-0000-7000-8000-000000000001"}]}"#,
+            br#"{"identities":[{"id":"50000000-0000-7000-8000-000000000001","presence":"guess"}]}"#,
+            br#"{"identities":[{"id":"invalid","presence":"active"}]}"#,
+            br#"{"identities":[{"id":"50000000-0000-7000-8000-000000000002","presence":"guess"}]}"#,
+            br#"{"identities":[{"id":"50000000-0000-7000-8000-000000000002","presence":"active"},{"id":"50000000-0000-7000-8000-000000000002","presence":"active"}]}"#,
+        ] {
+            assert!(lock_presence_from_reply(reply, &ids).is_none());
+        }
+    }
+}

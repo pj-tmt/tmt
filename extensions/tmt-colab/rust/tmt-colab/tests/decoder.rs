@@ -2903,3 +2903,73 @@ fn question_metadata_belongs_only_to_ordinary_pages() {
         );
     }
 }
+
+#[test]
+fn own_merge_preserves_pending_structs_and_delete_sets_as_exact_raw_merges() {
+    for deletion in [false, true] {
+        let doc = Doc::with_client_id(5293);
+        for root in ["threads", "messages", "intents", "replies"] {
+            doc.get_or_insert_map(root);
+        }
+        let map = doc.get_or_insert_map("messages");
+        map.insert(&mut doc.transact_mut(), "legacy", "Historical own value");
+        let prerequisite = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let later = Doc::with_client_id(5294);
+        later
+            .transact_mut()
+            .apply_update(Update::decode_v1(&prerequisite).unwrap())
+            .unwrap();
+        let messages = later.get_or_insert_map("messages");
+        let vector = later.transact().state_vector();
+        if deletion {
+            messages.remove(&mut later.transact_mut(), "legacy");
+        } else {
+            messages.insert(&mut later.transact_mut(), "legacy", "Dependent own value");
+        }
+        let tail = later.transact().encode_state_as_update_v1(&vector);
+        let incomplete = Doc::new();
+        incomplete
+            .transact_mut()
+            .apply_update(Update::decode_v1(&tail).unwrap())
+            .unwrap();
+        assert!(if deletion {
+            incomplete.transact().store().pending_ds().is_some()
+        } else {
+            incomplete.transact().store().pending_update().is_some()
+        });
+        let expected = yrs::merge_updates_v1([tail.as_slice()]).unwrap();
+        let mut decoder = owner();
+        let merged = decoder.merge(Namespace::Own, &[&tail], None).unwrap();
+        assert_eq!(merged, expected, "deletion={deletion}");
+        let replay = Doc::new();
+        let messages = replay.get_or_insert_map("messages");
+        replay
+            .transact_mut()
+            .apply_update(Update::decode_v1(&merged).unwrap())
+            .unwrap();
+        assert!(if deletion {
+            replay.transact().store().pending_ds().is_some()
+        } else {
+            replay.transact().store().pending_update().is_some()
+        });
+        replay
+            .transact_mut()
+            .apply_update(Update::decode_v1(&prerequisite).unwrap())
+            .unwrap();
+        assert!(replay.transact().store().pending_update().is_none());
+        assert!(replay.transact().store().pending_ds().is_none());
+        if deletion {
+            assert!(messages.get(&replay.transact(), "legacy").is_none());
+        } else {
+            assert_eq!(
+                messages
+                    .get(&replay.transact(), "legacy")
+                    .unwrap()
+                    .to_string(&replay.transact()),
+                "Dependent own value"
+            );
+        }
+    }
+}

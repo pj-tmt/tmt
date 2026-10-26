@@ -2,6 +2,7 @@ mod cli_attachments;
 mod cli_compact;
 mod cli_dashboard;
 mod cli_edit_hint;
+mod cli_edit_locks;
 mod cli_grammar;
 mod cli_layout;
 mod cli_management;
@@ -427,6 +428,8 @@ fn grammar() -> Command {
                             ),
                     )
                     .subcommand(cli_patch::command())
+                    .subcommand(cli_edit_locks::lock_command())
+                    .subcommand(cli_edit_locks::unlock_command())
                     .subcommand(cli_layout::command())
                     .subcommand(cli_metadata::creator_command()),
             )
@@ -847,6 +850,7 @@ fn print_receipt(
     warnings: &[tmt_colab::page_check::Finding],
     json_output: bool,
     written: &str,
+    lock_release: Option<&cli_edit_locks::PatchRelease>,
 ) -> Result<()> {
     let mut output = tmt_cli_style::stream::stdout(json_output);
     // A normal edit stays quiet; the reference is named only when the edit went off-guidance.
@@ -864,6 +868,9 @@ fn print_receipt(
                 .as_array_mut()
                 .expect("warnings array")
                 .push(json!({"code":"large-patch", "message":message}));
+        }
+        if let Some(release) = lock_release {
+            value["lockRelease"] = serde_json::to_value(release)?;
         }
         if off_guidance.is_some() {
             value["read"] = json!([cli_edit_hint::EDITING]);
@@ -896,6 +903,11 @@ fn print_receipt(
             let mut err = tmt_cli_style::stream::stderr();
             let terminal = err.terminal();
             tmt_cli_style::message::warning(&mut err, terminal, message, None)?;
+        }
+        if let Some(warning) = lock_release.and_then(|release| release.warning.as_deref()) {
+            let mut err = tmt_cli_style::stream::stderr();
+            let terminal = err.terminal();
+            tmt_cli_style::message::hint(&mut err, terminal, warning)?;
         }
         if let Some(reason) = off_guidance {
             let mut err = tmt_cli_style::stream::stderr();
@@ -949,6 +961,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             &hints,
             metadata,
         );
+    }
+    if matches!(command, "lock" | "unlock") {
+        return cli_edit_locks::run(root, command, args);
     }
     if command == "patch" {
         return cli_patch::run(root, args);

@@ -575,7 +575,8 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote`; core is reached through `$TMT_EXECUTABLE api` and the fixed,
-  bounded public `identity show ... --json` observations for display and routing references.
+  bounded public `identity show ... --json` observations for display and routing references,
+  and `ls --json` presence snapshots for advisory edit-lock lifecycle.
   The architecture guard enforces this set, that only `tmt-colab` consumes the model and `html5ever`,
   and that only `decoder/child.rs` imports `yrs`.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback

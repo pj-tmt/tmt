@@ -100,6 +100,12 @@ impl From<&statement::Head> for Head {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
+    /// Root-local provenance for CLI presence policy; never serialized as page content.
+    #[serde(skip)]
+    pub local_writer: String,
+    /// Effective signed lock state; the CLI filters only conclusive public offline/ended observations.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub edit_locks: Vec<crate::edit_lock::Action>,
     /// Read-only projection; content metadata cannot assert an answered state.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub question_states: Vec<serde_json::Value>,
@@ -463,7 +469,19 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
     } else {
         Vec::new()
     };
+    let edit_locks = crate::edit_lock::project(
+        &view.own,
+        &view.status_writers,
+        &key.space_id,
+        page,
+        &s.epoch.to_string(),
+    )?
+    .into_iter()
+    .filter(|lock| !lock.released)
+    .collect();
     Ok(Page {
+        local_writer: key.local_writer()?.0,
+        edit_locks,
         question_states,
         creator: view.meta.get("creator").cloned(),
         questions: view.meta.get("questions").cloned(),
@@ -774,7 +792,7 @@ pub fn prepare_structured_publication(
     )?;
     Ok(PublicationPreparation::Write(frozen))
 }
-/// One immutable own-namespace update of the local writer's stream, frozen through the same
+/// One own-namespace update of the local writer's stream, frozen through the same
 /// signed publication as a content batch (status actions; the decoder prepared `update`).
 pub(crate) fn prepare_own_publication(
     key: &Keyring,
@@ -845,7 +863,7 @@ pub(crate) fn freeze_own_records(
         now,
     )
 }
-/// Publishes immutable records into the local writer's own stream through the same job a
+/// Publishes typed records into the local writer's own stream through the same job a
 /// status action uses. A record already present with the same value is left out of the edit.
 pub fn prepare_own_records(
     store: &Store,

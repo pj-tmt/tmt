@@ -108,7 +108,7 @@ tmt colab page patch PAGE --find 'quoted text' --replace 'new text' --json
 ```
 
 `--lines A:B` reads a range; an annotation's quote makes a good `--find`. See
-[editing](references/editing.md) (`tmt colab skill editing`) for forms, conflicts and design.
+[editing](references/editing.md) (`tmt colab skill editing`) for locks and patch forms.
 On `COLAB_PATCH_CONFLICT`, reread and rebuild the patch. Existing pages use `page patch`;
 `page write` refuses them. Repeat `--find/--replace` pairs for several non-overlapping changes
 against the original source in one revision. Patches replacing over half the source warn. Use `page create --file` for a new page.

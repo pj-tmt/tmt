@@ -239,6 +239,11 @@ pub const DATA_IMAGE_BYTES: usize = 32 * 1024;
 pub const DATA_IMAGES_TOTAL_BYTES: usize = 256 * 1024;
 /// Unique `colab-attachment:` references one render resolves (`IMAGE_REFERENCES` in the app).
 pub const ATTACHMENT_REFS: usize = 128;
+/// Effective unreleased identity edit locks attributed to one writer.
+pub const EDIT_LOCKS_PER_WRITER: usize = 8;
+/// Current identity lock cells in one writer, including release tombstones.
+pub const EDIT_LOCK_HOLDERS_PER_WRITER: usize = 1000;
+
 #[cfg(test)]
 mod tests {
     use super::*;

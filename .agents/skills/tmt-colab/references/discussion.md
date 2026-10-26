@@ -296,3 +296,15 @@ capture/resolution and containment. `acceptance/discussion.spec.ts` uses two rea
 paired browsers, foreign-stream replies, reload/restart, exact explicit Ask effect
 counts and desktop/mobile theme screenshots. Use the existing acceptance harness
 and [commands](development.md); no separate server or state store is introduced.
+
+## Advisory agent edit locks
+
+`edit_lock.rs` and `edit-locks.ts` share the literal `edit-lock-v1.json` grammar.
+Owner-member own streams hold one versioned `messages["<identity>:edit-lock"]` cell per
+identity. Only a strictly higher revision in the same scope/writer/holder can replace
+a cell; other typed discussion records remain immutable. Effective state chooses
+`(revision, writer)` across writers. Normal own compaction collects replaced values.
+`edit_locks.rs` owns revision-fenced publication; `cli_edit_locks.rs` supplies bounded
+public Core presence snapshots and post-patch release, without changing source success
+when release fails. The wire and lifecycle rules are owned by the contract's
+[edit-lock section](../../../../extensions/tmt-colab/contracts/colab-v1.md#agent-edit-locks-5293).

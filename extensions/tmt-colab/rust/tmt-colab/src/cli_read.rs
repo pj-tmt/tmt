@@ -238,8 +238,21 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let value = page::read(&store, &key, &id, &mut decoder);
     let closed = store.close();
-    let value = value?;
+    let mut value = value?;
     closed?;
+    if !value.edit_locks.is_empty() {
+        let ids = value
+            .edit_locks
+            .iter()
+            .map(|lock| lock.holder.id.clone())
+            .collect::<Vec<_>>();
+        if let Ok(presence) = tmt_colab::core::lock_presence(&ids) {
+            value.edit_locks.retain(|lock| {
+                tmt_colab::edit_lock::holder_state(lock, &value.local_writer, &presence)
+                    .keeps_lock()
+            });
+        }
+    }
     let selected = args
         .get_one::<(usize, usize)>("lines")
         .map(|&(a, b)| block(&value.source, a, b))

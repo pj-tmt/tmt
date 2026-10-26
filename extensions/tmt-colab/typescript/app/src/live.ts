@@ -1,3 +1,4 @@
+import { readEditLocks } from './edit-locks.js';
 import { canonical } from './closed.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
 import { disclosureScope } from './attachment-service.js';
@@ -416,6 +417,7 @@ export class Live implements PageBinding {
     const {
       asks: _asks,
       threads: _threads,
+      editLocks: _locks,
       threadPresentations: _presentations,
       ...document
     } = value;
@@ -467,6 +469,11 @@ export class Live implements PageBinding {
             ...value,
             asks,
             threads,
+            editLocks: readEditLocks(
+              value.own ?? {},
+              { spaceId: admission.space, pageId: admission.page, epoch: admission.epoch },
+              (writer) => connection.objects.statusWriter(writer),
+            ),
             // Seen state and owner authority are read only when a thread needs them.
             threadPresentations: threads.length
               ? projectThreadPresentations(

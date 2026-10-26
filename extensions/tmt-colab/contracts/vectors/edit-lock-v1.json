@@ -1,0 +1,36 @@
+{
+  "provenance": "Literal versioned-state examples for #5293; expected winners are independent of product implementations.",
+  "scope": {
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pageId": "10000000-0000-4000-8000-000000000001",
+    "epoch": "1"
+  },
+  "record": {
+    "version": 1,
+    "kind": "edit-lock",
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pageId": "10000000-0000-4000-8000-000000000001",
+    "epoch": "1",
+    "senderDevice": "20000000-0000-4000-8000-000000000001",
+    "lockId": "40000000-0000-4000-8000-000000000001",
+    "holder": {
+      "id": "50000000-0000-7000-8000-000000000001",
+      "name": "night-5"
+    },
+    "target": {
+      "exact": "A precise passage",
+      "prefix": "Before ",
+      "suffix": " after"
+    },
+    "released": false,
+    "revision": "1"
+  },
+  "whole": {
+    "whole": true
+  },
+  "quoteBytes": 16384,
+  "contextBytes": 128,
+  "contextPoints": 32,
+  "perWriter": 8,
+  "holdersPerWriter": 1000
+}
