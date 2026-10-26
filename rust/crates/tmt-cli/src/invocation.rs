@@ -168,6 +168,7 @@ pub enum Invocation {
         target: String,
         lines: Option<u64>,
         capture_only: bool,
+        expect_name: Option<String>,
     },
     /// An identity name, or a pane target (for example a previous `from`).
     Focus {

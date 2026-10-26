@@ -606,6 +606,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             }),
         },
         ["check"] => {
+            let target = required(m, "target");
+            let capture_only = flag(m, "capture-only");
+            let expect_name = text(m, "expect-name");
+            if expect_name.is_some()
+                && (!capture_only || !tmt_core::identity::canonical_identity_id(&target))
+            {
+                return Err("--expect-name needs --capture-only and the identity's canonical UUIDv4.".into());
+            }
             let positional = text(m, "capture-lines")
                 .map(|value| integer(&value, "lines", 0, MAX_CAPTURE_LINES))
                 .transpose()?;
@@ -613,9 +621,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 .map(|value| integer(&value, "lines", 0, MAX_CAPTURE_LINES))
                 .transpose()?;
             Invocation::Check {
-                target: required(m, "target"),
+                target,
                 lines: positional.or(flagged),
-                capture_only: flag(m, "capture-only"),
+                capture_only,
+                expect_name,
             }
         }
         ["extension", "hooks", "enable"] => {

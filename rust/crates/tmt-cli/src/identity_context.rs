@@ -10,6 +10,56 @@ use tmt_adapters::{
 };
 use tmt_core::{binding, identity::Identity};
 
+pub fn expect_name(identity: &Identity, expected: &str) -> Result<(), Failure> {
+    if identity.canonical_name != tmt_core::names::normalize_name(expected) {
+        return Err(Failure::new(
+            "IDENTITY_CHANGED",
+            format!(
+                "The identity {} is now named '{}', not '{expected}'.",
+                identity.id, identity.name
+            ),
+            5,
+        ));
+    }
+    Ok(())
+}
+
+/// A name pin reads the UUID directly; retired IDs never fall back to names.
+pub fn pinned_identity(
+    storage: &mut Storage,
+    id: &str,
+    expected: &str,
+) -> Result<Identity, Failure> {
+    let unavailable = |error| {
+        Failure::new(
+            "IDENTITY_ERROR",
+            "Could not complete the identity operation.",
+            1,
+        )
+        .caused_by(error)
+    };
+    let identity = storage
+        .find_active_identity_by_id(id)
+        .map_err(unavailable)?;
+    let Some(identity) = identity else {
+        return if storage
+            .find_identity_by_id(id)
+            .map_err(unavailable)?
+            .is_some()
+        {
+            Err(Failure::new(
+                "IDENTITY_CHANGED",
+                format!("The identity {id} has been retired."),
+                5,
+            ))
+        } else {
+            Err(identity_missing(id))
+        };
+    };
+    expect_name(&identity, expected)?;
+    Ok(identity)
+}
+
 pub enum Selector {
     Explicit(String),
     /// A session-pinned UUID; never fall back to a display name.

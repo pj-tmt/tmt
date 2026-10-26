@@ -198,13 +198,16 @@ resume/external dispatch in created panes. Layout-only grants no launch authorit
 One typed result serves human and JSON output; `identity show`
 without a name uses the shared verified-caller selector and never falls back to
 a working directory, active pane or sole identity.
+`check --capture-only` shares UUID binding selection and `identity_context`'s
+expected-name guard with pinned identity reads, before host capture; ordinary
+check keeps name/pane routing and its existing Digest opportunity.
 
 ## Domain and state ownership
 
 ### Identity, names and bindings
 
 - `tmt-core::names` owns canonical names; hosts own pane-target syntax.
-  `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
+  `identity` owns canonical UUID spelling and lifetime/create/promote; `identity_metadata`/`identity_status`
   own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
   `binding` owns evidence, retirement, binds/moves and CAS rename.
   [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`.

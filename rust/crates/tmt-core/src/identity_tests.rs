@@ -1,5 +1,29 @@
 use crate::identity::*;
 
+#[test]
+fn identity_uuid_requires_canonical_lowercase_rfc4122_v4() {
+    assert!(canonical_identity_id(
+        "6c57fcc9-96b1-4022-b071-870b81288814"
+    ));
+    for input in [
+        "6C57FCC9-96B1-4022-B071-870B81288814",
+        "6c57fcc996b14022b071870b81288814",
+        "{6c57fcc9-96b1-4022-b071-870b81288814}",
+        " 6c57fcc9-96b1-4022-b071-870b81288814 ",
+        "6c57fcc9-96b1-1022-b071-870b81288814",
+        "6c57fcc9-96b1-4022-7071-870b81288814",
+        "00000000-0000-0000-0000-000000000000",
+        "worker",
+        "%14",
+        "fake:f1",
+    ] {
+        assert!(
+            !canonical_identity_id(input),
+            "{input} is not a canonical identity UUID"
+        );
+    }
+}
+
 struct ForbiddenRepository;
 
 impl IdentityReader for ForbiddenRepository {
