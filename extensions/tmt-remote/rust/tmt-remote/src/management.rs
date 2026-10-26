@@ -278,6 +278,30 @@ fn setting_outcome(
     }
 }
 
+pub(crate) fn designation_in(c: &Connection) -> Result<Option<Grant>> {
+    let client: Option<String> = c.query_row("SELECT d.client_id FROM settings_designation d JOIN machine m ON m.singleton=d.singleton JOIN grants g ON g.client_id=d.client_id WHERE d.machine_id=m.machine_id AND d.public_key=g.public_key", [], |r| r.get(0)).optional().map_err(database)?;
+    client
+        .map(|id| grant_in(c, &id))
+        .transpose()
+        .map(Option::flatten)
+}
+pub(crate) fn designate_in(c: &Connection, client: &str, origin: &str, now: u64) -> Result<Grant> {
+    let grant = grant_in(c, client)?.ok_or_else(invalid)?;
+    if grant.kind != "browser" || grant.origin != origin || !grant.live_at(now) {
+        return Err(invalid());
+    }
+    c.execute("INSERT INTO settings_designation SELECT 1,machine_id,?1,?2 FROM machine WHERE singleton=1 ON CONFLICT(singleton) DO UPDATE SET machine_id=excluded.machine_id,client_id=excluded.client_id,public_key=excluded.public_key",params![client,grant.public_key.as_slice()]).map_err(database)?;
+    crate::members::sync_designation(c)?;
+    Ok(grant)
+}
+pub(crate) fn undesignate_in(c: &Connection) -> Result<usize> {
+    let removed = c
+        .execute("DELETE FROM settings_designation", [])
+        .map_err(database)?;
+    crate::members::sync_designation(c)?;
+    Ok(removed)
+}
+
 impl Store {
     /// Local owner authority only; this method is not a signed operation.
     pub fn designate(&mut self, client: &str, origin: &str, now: u64) -> Result<Grant> {
@@ -285,12 +309,7 @@ impl Store {
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(database)?;
-        let grant = grant_in(&tx, client)?.ok_or_else(invalid)?;
-        if grant.kind != "browser" || grant.origin != origin || !grant.live_at(now) {
-            return Err(invalid());
-        }
-        tx.execute("INSERT INTO settings_designation SELECT 1,machine_id,?1,?2 FROM machine WHERE singleton=1 ON CONFLICT(singleton) DO UPDATE SET machine_id=excluded.machine_id,client_id=excluded.client_id,public_key=excluded.public_key",params![client,grant.public_key.as_slice()]).map_err(database)?;
-        crate::members::sync_designation(&tx)?;
+        let grant = designate_in(&tx, client, origin, now)?;
         tx.commit().map_err(database)?;
         Ok(grant)
     }
@@ -299,9 +318,7 @@ impl Store {
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(database)?;
-        tx.execute("DELETE FROM settings_designation", [])
-            .map_err(database)?;
-        crate::members::sync_designation(&tx)?;
+        undesignate_in(&tx)?;
         tx.commit().map_err(database)
     }
     /// SQL keyset pagination happens before any grants are materialized. The cursor

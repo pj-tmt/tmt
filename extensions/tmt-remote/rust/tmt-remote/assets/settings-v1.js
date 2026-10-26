@@ -2694,7 +2694,7 @@ var ManagementPage = class {
 			const intent = this.intent;
 			this.notice = intent?.kind === "setting" ? intent.input.setting === "open" ? "Browser opening saved." : "Session limit saved. Applies to new sessions." : intent?.kind === "rename" ? "Device renamed." : intent?.kind === "talk" ? intent.input.enabled ? "Sending enabled for this device." : "Sending disabled for this device." : intent?.kind === "remove-others" ? "The other devices were removed. This browser stays connected." : "Device removed.";
 			if (this.outcome.sessionEnded) this.notice += " This session ended. Use the local CLI to continue.";
-		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The saved value is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check the saved value before making another change.";
+		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The saved value is still unconfirmed. Check with tmt remote settings or tmt remote members." : "This change could not be confirmed. Check the saved value before making another change.";
 		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_DEVICE_LIST_CHANGED" ? "The device list changed. Review it, then confirm again." : this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI to make changes." : "Change refused. Check the current values or use the local CLI.";
 	}
 };
@@ -2956,7 +2956,7 @@ async function settingsPage(shell, registry, initial) {
 		element("read-only").hidden = editable || page.access !== "live";
 		const designation = element("designation-command");
 		designation.hidden = editable || page.access !== "live";
-		if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
+		if (!designation.hidden) element("designation-code").textContent = `tmt remote members designate ${page.clientId}`;
 		element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
 		const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check the saved value first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
 		element("controls-reason").textContent = reason;
@@ -3285,7 +3285,7 @@ async function settingsPage(shell, registry, initial) {
 	}
 	element("copy-designation").addEventListener("click", () => {
 		if (page.access !== "live") return;
-		navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(() => {
+		navigator.clipboard.writeText(`tmt remote members designate ${page.clientId}`).then(() => {
 			element("designation-copy-feedback").textContent = "Copied.";
 		}, () => {
 			element("designation-copy-feedback").textContent = "Copy failed. Select the command and copy it manually.";

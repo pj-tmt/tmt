@@ -253,13 +253,10 @@ impl Service {
                         .store()?
                         .grant(&snapshot.candidate.machine)?
                         .ok_or_else(wire::invalid)?;
-                    let unique = self
+                    let member = self
                         .store()?
-                        .active_grants()?
-                        .iter()
-                        .filter(|g| g.name == grant.name)
-                        .count()
-                        == 1;
+                        .member_for_client(&grant.client_id)?
+                        .ok_or_else(wire::invalid)?;
                     let reference = self
                         .store()?
                         .cloud_connection(&grant.client_id)?
@@ -267,7 +264,7 @@ impl Service {
                         .name;
                     emit(
                         json!({"event":"connected","name":grant.name,"talk":grant.permits_scope("talk"),"clientId":grant.client_id,
-                        "hintPerson":if unique {&grant.name}else{&grant.client_id},"remote":reference}),
+                        "memberId":member.member_id,"remote":reference}),
                     )?;
                     self.request_reconcile();
                     return Ok(());

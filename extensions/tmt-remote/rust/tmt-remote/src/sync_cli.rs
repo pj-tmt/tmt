@@ -34,7 +34,7 @@ const SIGN_IN: CommandSpec = CommandSpec {
         note: "Sign this machine in to the saved remote",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. After it ends, signing in creates a new identity. For a remote added with tmt remote add, page access for this machine is not available yet. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.\nTo revoke a paired device instead, use tmt remote devices revoke <client-id>.",
+    details: "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. After it ends, signing in creates a new identity. For a remote added with tmt remote add, page access for this machine is not available yet. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.\nTo revoke a paired device instead, use tmt remote members remove-machine <client-id>.",
 };
 const REVOKE: CommandSpec = CommandSpec {
     name: "revoke",
@@ -44,7 +44,7 @@ const REVOKE: CommandSpec = CommandSpec {
         note: "End the selected Firestore sign-in",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "An unconfirmed revoke keeps the sign-in blocked; run this command again to finish. Other machines' identities and paired devices are unchanged.\nTo revoke a paired device instead, use tmt remote devices revoke <client-id>.",
+    details: "An unconfirmed revoke keeps the sign-in blocked; run this command again to finish. Other machines' identities and paired devices are unchanged.\nTo revoke a paired device instead, use tmt remote members remove-machine <client-id>.",
 };
 pub(crate) fn command() -> Command {
     tmt_cli_style::command(&SYNC)
