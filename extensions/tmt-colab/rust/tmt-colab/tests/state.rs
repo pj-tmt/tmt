@@ -86,6 +86,59 @@ fn keyring_is_stable_private_and_no_follow_with_owned_service_lock() {
     assert!(!fixture.0.join("outside").exists());
 }
 #[test]
+fn paired_prune_returns_freed_payload_pages_to_disk_and_keeps_receipts() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page("page").unwrap();
+    let bytes = vec![42; 192 * 1024];
+    for seq in 1..=4 {
+        store
+            .append(&Envelope {
+                bytes: &bytes,
+                ..envelope(seq, Namespace::Content)
+            })
+            .unwrap();
+    }
+    let path = layout.directory.join("space.db");
+    let before = fs::metadata(&path).unwrap().len();
+    let checkpoint = Envelope {
+        hash: [9; 32],
+        previous: [4; 32],
+        bytes: b"retained-checkpoint",
+        ..envelope(4, Namespace::Content)
+    };
+    store.checkpoint(&checkpoint).unwrap();
+    let after = fs::metadata(&path).unwrap().len();
+    eprintln!("space.db after committed prune: {before} -> {after} bytes");
+    assert!(
+        after < before,
+        "prune did not shrink space.db: {before} -> {after}"
+    );
+    store.close().unwrap();
+    let mut reopened = Store::open(&layout).unwrap();
+    for seq in 1..=4 {
+        assert_eq!(reopened.payload(scope(), seq).unwrap(), None);
+        assert_eq!(
+            reopened
+                .append(&Envelope {
+                    bytes: &bytes,
+                    ..envelope(seq, Namespace::Content)
+                })
+                .unwrap(),
+            Accepted::Replay
+        );
+    }
+    let retained = reopened
+        .namespace_next(scope(), Namespace::Content, Default::default())
+        .unwrap()
+        .unwrap();
+    assert!(retained.checkpoint);
+    assert_eq!(retained.bytes, checkpoint.bytes);
+    reopened.close().unwrap();
+}
+
+#[test]
 fn checkpoint_waits_for_pair_then_prunes_both_prefixes_preserving_tail_and_fork_receipts() {
     let fixture = Fixture::new();
     let layout = fixture.layout();
