@@ -57,6 +57,15 @@ impl Config {
         if let Some(notice) = notice {
             out.notices.push(notice);
         }
+        let (checklist_enter, notice) = self.checklist_enter();
+        out.push(
+            "board.checklist_enter",
+            json!(checklist_enter.name()),
+            self.source(&["board", "checklist_enter"], "default:open"),
+        );
+        if let Some(notice) = notice {
+            out.notices.push(notice);
+        }
         self.row_settings(key, &mut out)?;
         self.notebook_settings(key, &mut out)?;
         self.meter_settings(key, &mut out)?;
@@ -395,6 +404,41 @@ mod tests {
         assert_eq!(entry(&all, "bind.,").value, "settings");
         assert!(cfg.settings(Some("@tab:missing"), false, None).is_err());
     }
+    #[test]
+    fn checklist_enter_is_global_editable_and_a_bad_value_is_only_noticed() {
+        for (value, expected) in [
+            ("open", ChecklistEnter::Open),
+            ("tick", ChecklistEnter::Tick),
+        ] {
+            let cfg = config(&format!(
+                "[board]\nchecklist_enter = {value:?} # retained\n"
+            ));
+            assert_eq!(cfg.checklist_enter(), (expected, None));
+            let shown = cfg.settings(None, false, None).unwrap();
+            let row = shown
+                .entries
+                .iter()
+                .find(|row| row.key == "board.checklist_enter")
+                .unwrap();
+            assert_eq!(row.value, json!(value));
+            assert!(row.editable);
+            assert!(!cfg.can_edit_setting("board.checklist_enter", Some("worker")));
+        }
+        assert_eq!(config("").checklist_enter(), (ChecklistEnter::Open, None));
+        for value in ["\"later\"", "7", "true"] {
+            let cfg = config(&format!("[board]\nchecklist_enter = {value} # keep this\n"));
+            let original = cfg.document.to_string();
+            let (enter, notice) = cfg.checklist_enter();
+            assert_eq!(enter, ChecklistEnter::Open);
+            assert!(notice.unwrap().contains("Ignored board.checklist_enter"));
+            assert!(
+                cfg.settings(None, false, None).is_ok(),
+                "the board still opens"
+            );
+            assert_eq!(cfg.document.to_string(), original);
+        }
+    }
+
     #[test]
     fn startup_tab_is_global_editable_and_invalid_authored_values_are_only_noticed() {
         for (value, expected) in [

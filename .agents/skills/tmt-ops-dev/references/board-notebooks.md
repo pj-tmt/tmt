@@ -351,6 +351,12 @@ The canonical authored action is `member-checklist`, still bound to `N` for memb
 and the Reader. This breaking rename before launch has no `member-notes` alias;
 an authored former action gets the ordinary unknown-action notice.
 
+Enter on a link row follows the global `board.checklist_enter` (`open` by default, or `tick`; a todo
+row always ticks). It is a `View` field built beside `ask_lead`, edited on the `,` page and by
+`tmt ops sq config set`; a bad authored value is noticed and reads as `open`. Space always ticks and
+`o` always opens the link, so both actions stay reachable under either value; the footer names
+`Enter tick · o open` only under `tick`.
+
 `n Add to checklist` in the conversation Link popover or Selection menu opens the existing
 checklist draft. Links preselect Link and keep the full URL, with its last path segment
 (or host) as the editable title; selections preselect Todo with the selected source
