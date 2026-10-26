@@ -599,6 +599,98 @@ fn a_paste_and_the_wheel_go_to_the_program_while_typing() {
     assert!(attached.peer.quiet(), "and the press itself sends no bytes");
 }
 
+fn mouse_at(
+    kind: ratatui::crossterm::event::MouseEventKind,
+    column: u16,
+    row: u16,
+) -> ratatui::crossterm::event::MouseEvent {
+    ratatui::crossterm::event::MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+#[test]
+fn a_press_just_outside_the_screen_ends_typing_on_every_side_and_a_press_inside_does_not() {
+    use ratatui::crossterm::event::{MouseButton, MouseEventKind::Down};
+    let now = std::time::Instant::now();
+    let mut probe = Attached::new(b"hi");
+    probe.start_typing();
+    let area = probe.app.terminal.area().unwrap();
+    assert!(area.x > 0 && area.y > 0, "room on the left and above");
+    let sides = [
+        ("left", area.x - 1, area.y + 1),
+        ("right", area.right(), area.y + 1),
+        ("above", area.x + 1, area.y - 1),
+        ("below", area.x + 1, area.bottom()),
+    ];
+    for (side, column, row) in sides {
+        let mut attached = Attached::new(b"hi");
+        attached.start_typing();
+        attached
+            .app
+            .mouse(mouse_at(Down(MouseButton::Left), column, row), now);
+        assert!(
+            !attached.app.terminal.typing(),
+            "a press {side} of it ends typing"
+        );
+        assert!(
+            attached.peer.quiet(),
+            "the press {side} sends the program nothing"
+        );
+    }
+    let mut attached = Attached::new(b"hi");
+    attached.start_typing();
+    let inside = attached.app.terminal.area().unwrap();
+    for button in [MouseButton::Left, MouseButton::Right] {
+        attached
+            .app
+            .mouse(mouse_at(Down(button), inside.x + 1, inside.y + 1), now);
+    }
+    assert!(
+        attached.app.terminal.typing(),
+        "a press on the screen keeps typing"
+    );
+    assert!(attached.peer.quiet(), "and sends nothing");
+}
+
+#[test]
+fn only_a_press_outside_ends_typing_and_it_lands_on_what_it_hit() {
+    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+    let now = std::time::Instant::now();
+    let mut attached = Attached::new(b"hi");
+    attached.start_typing();
+    for kind in [
+        MouseEventKind::Up(MouseButton::Left),
+        MouseEventKind::Drag(MouseButton::Left),
+        MouseEventKind::Moved,
+    ] {
+        attached.app.mouse(mouse_at(kind, 0, 0), now);
+        assert!(
+            attached.app.terminal.typing(),
+            "{kind:?} elsewhere keeps typing"
+        );
+    }
+    let hits = attached.app.workspace_strip_hits.borrow().clone();
+    let chat = hits
+        .iter()
+        .find(|(_, choice)| matches!(choice, Choice::TerminalView(false)))
+        .expect("the Chat chip")
+        .0;
+    assert!(attached.app.terminal.shown());
+    attached.app.mouse(
+        mouse_at(MouseEventKind::Down(MouseButton::Left), chat.x, chat.y),
+        now,
+    );
+    assert!(!attached.app.terminal.typing(), "the press ends typing");
+    assert!(
+        !attached.app.terminal.shown(),
+        "and lands on the Chat chip as it would have without typing"
+    );
+}
+
 #[test]
 fn a_paste_with_ctrl_backslash_bytes_is_text_for_the_program_and_does_not_leave() {
     let mut attached = Attached::new(b"hi");
