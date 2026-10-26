@@ -342,564 +342,706 @@ fn capture_frame(
     captured
 }
 
-fn captures() -> Value {
-    const NOW: u64 = 1_791_600_000_000;
-    crate::status::with_now_ms(NOW, || {
-        let mut styles = Styles::default();
-        let mut frames = Vec::new();
-        for (look_name, look) in looks() {
-            // `overview` and the `*-overview` names below are frozen fixture names;
-            // they now render the merged Agents tab.
-            for state in [
-                "overview",
-                "agents",
-                "agents-sorted",
-                "agents-state-sorted",
-                "agents-header-hover",
-                "digest",
-                "digest-first-open",
-                "digest-busy-late",
-                "digest-retained-pick",
-                "digest-empty-flow",
-                "digest-unavailable-flow",
-                "digest-no-agents",
-                "digest-allowance",
-                "digest-allowance-tokens",
-                "empty",
-                "pool",
-                "dense",
-                "squads-eight",
-                "squads-thirty-six",
-                "partial",
-                "stale",
-                "help",
-                "review",
-                "result",
-                "conversation",
-                "composer-empty",
-                "composer-2",
-                "composer-6",
-                "composer-8",
-                "header-usage",
-                "unread-working",
-                "unread-idle",
-                "unread-waiting",
-                "unread-squads",
-                "unread-cleared",
-                "unread-turn",
-                "unread-core-final",
-                "unread-core-capture",
-                "unread-core-conflict",
-            ]
-            .into_iter()
-            .chain(
-                crate::board::conversation::outgoing::tests::captures::SCENES
-                    .iter()
-                    .copied(),
-            ) {
-                for width in [160, 100, 80, 60] {
-                    for height in [36, 8] {
-                        let app = if matches!(
-                            state,
-                            "digest-first-open"
-                                | "digest-busy-late"
-                                | "digest-retained-pick"
-                                | "digest-empty-flow"
-                                | "digest-unavailable-flow"
-                                | "digest-no-agents"
-                        ) {
-                            crate::board::digest_dashboard::tests::capture_case(state, look)
-                        } else if state == "header-usage" {
-                            metered(look)
-                        } else if crate::board::conversation::outgoing::tests::captures::SCENES
-                            .contains(&state)
-                        {
-                            crate::board::conversation::outgoing::tests::captures::fixture(
-                                state, look, NOW,
-                            )
-                        } else {
-                            capture_case(state, look)
-                        };
-                        let captured =
-                            capture_frame(&app, state, look_name, width, height, &mut styles);
-                        if state.starts_with("chat-") && width == 160 && height == 36 {
-                            let text = captured["lines"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .map(|line| line.as_str().unwrap())
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            assert!(
-                                text.contains(
-                                    crate::board::conversation::outgoing::tests::captures::expected(
-                                        state
-                                    )
-                                ),
-                                "missing capture state {state}: {text}"
-                            );
-                        }
-                        frames.push(captured);
-                    }
-                }
+/// The width x height pairs of a scene, widths outermost.
+fn grid(widths: &[u16], heights: &[u16]) -> Vec<(u16, u16)> {
+    widths
+        .iter()
+        .flat_map(|width| heights.iter().map(move |height| (*width, *height)))
+        .collect()
+}
+
+/// Every look x state x size of one scene group, in that order. `sizes` gives the (width, height)
+/// pairs of a state, `build` makes its board and `extra` adds a group-specific field to the frame.
+///
+/// `captures()` renders all groups on one thread, and a function's debug stack frame holds every
+/// local of every loop inlined into it. Each group therefore lives in its own function (this one,
+/// or a dedicated one when its boards need more than a builder), so adding a group cannot push
+/// the test thread's stack past its limit.
+#[inline(never)]
+fn scene_group(
+    styles: &mut Styles,
+    states: &[&str],
+    sizes: impl Fn(&str) -> Vec<(u16, u16)>,
+    build: impl Fn(&str, crate::look::Look, u16, u16) -> App,
+    extra: impl Fn(&mut Value, &App),
+) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for &state in states {
+            for (width, height) in sizes(state) {
+                let app = build(state, look, width, height);
+                let mut captured = capture_frame(&app, state, look_name, width, height, styles);
+                extra(&mut captured, &app);
+                frames.push(captured);
             }
         }
-        for (look_name, look) in looks() {
-            for state in crate::board::overview::chart::host::tests::cases::NAMES {
-                for width in [60, 100, 103, 148, 200] {
-                    let app = crate::board::overview::chart::host::tests::cases::board_case(
-                        state, look, width,
-                    );
-                    frames.push(capture_frame(
-                        &app,
+    }
+    frames
+}
+
+/// The Terminal tab of a built-in-host member, with a published screen injected.
+///
+/// `captures()` is one very large function whose debug stack frame grows with every inlined scene
+/// loop, so groups added late live in their own functions to keep the test thread's stack small.
+fn terminal_tab_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::terminal_tab::scenes::SCENES,
+        |_| grid(&[100, 60], &[36]),
+        |scene, look, _, _| crate::board::terminal_tab::scenes::capture_case(scene, look),
+        |_, _| {},
+    )
+}
+
+/// The Settings page's keys group: scrolled to the checklist key, and its editor open.
+fn settings_keys_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &["squad-settings-keys", "squad-settings-key-edit"],
+        |_| grid(&[100, 60], &[36]),
+        |state, look, _, _| capture_case(state, look),
+        |_, _| {},
+    )
+}
+
+#[inline(never)]
+fn base_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        // `overview` and the `*-overview` names below are frozen fixture names;
+        // they now render the merged Agents tab.
+        for state in [
+            "overview",
+            "agents",
+            "agents-sorted",
+            "agents-state-sorted",
+            "agents-header-hover",
+            "digest",
+            "digest-first-open",
+            "digest-busy-late",
+            "digest-retained-pick",
+            "digest-empty-flow",
+            "digest-unavailable-flow",
+            "digest-no-agents",
+            "digest-allowance",
+            "digest-allowance-tokens",
+            "empty",
+            "pool",
+            "dense",
+            "squads-eight",
+            "squads-thirty-six",
+            "partial",
+            "stale",
+            "help",
+            "review",
+            "result",
+            "conversation",
+            "composer-empty",
+            "composer-2",
+            "composer-6",
+            "composer-8",
+            "header-usage",
+            "unread-working",
+            "unread-idle",
+            "unread-waiting",
+            "unread-squads",
+            "unread-cleared",
+            "unread-turn",
+            "unread-core-final",
+            "unread-core-capture",
+            "unread-core-conflict",
+        ]
+        .into_iter()
+        .chain(
+            crate::board::conversation::outgoing::tests::captures::SCENES
+                .iter()
+                .copied(),
+        ) {
+            for width in [160, 100, 80, 60] {
+                for height in [36, 8] {
+                    let app = if matches!(
                         state,
-                        look_name,
-                        width,
-                        51,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        // All-key Settings and inert parameter previews use the actual board owner.
-        for (look_name, look) in looks() {
-            for state in [
-                "bindings-list",
-                "bindings-punctuation",
-                "bindings-preview",
-                "bindings-unavailable",
-                "bindings-masked",
-                "bindings-j-preset",
-                "bindings-inventory-scrolled",
-            ] {
-                for width in [160, 100, 80, 60] {
-                    for height in [36, 8] {
-                        let app = crate::board::settings::tests::host_action::capture_case(
-                            state, look, width, height,
+                        "digest-first-open"
+                            | "digest-busy-late"
+                            | "digest-retained-pick"
+                            | "digest-empty-flow"
+                            | "digest-unavailable-flow"
+                            | "digest-no-agents"
+                    ) {
+                        crate::board::digest_dashboard::tests::capture_case(state, look)
+                    } else if state == "header-usage" {
+                        metered(look)
+                    } else if crate::board::conversation::outgoing::tests::captures::SCENES
+                        .contains(&state)
+                    {
+                        crate::board::conversation::outgoing::tests::captures::fixture(
+                            state, look, NOW,
+                        )
+                    } else {
+                        capture_case(state, look)
+                    };
+                    let captured = capture_frame(&app, state, look_name, width, height, styles);
+                    if state.starts_with("chat-") && width == 160 && height == 36 {
+                        let text = captured["lines"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|line| line.as_str().unwrap())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        assert!(
+                            text.contains(
+                                crate::board::conversation::outgoing::tests::captures::expected(
+                                    state
+                                )
+                            ),
+                            "missing capture state {state}: {text}"
                         );
-                        frames.push(capture_frame(
-                            &app,
-                            state,
-                            look_name,
-                            width,
-                            height,
-                            &mut styles,
-                        ));
                     }
+                    frames.push(captured);
                 }
             }
         }
-        // Idle alert and the squad settings reached from the Workspace menu: additive scenes.
-        for (look_name, look) in looks() {
-            for state in [
-                "idle-alert",
-                "idle-alert-overview",
-                "settings-menu",
-                "settings-menu-pool",
-                "squad-settings",
-            ] {
-                for width in [160, 100, 80, 60] {
-                    let app = capture_case(state, look);
-                    frames.push(capture_frame(
-                        &app,
-                        state,
-                        look_name,
-                        width,
-                        36,
-                        &mut styles,
-                    ));
+    }
+    frames
+}
+
+fn chart_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &crate::board::overview::chart::host::tests::cases::NAMES,
+        |_| grid(&[60, 100, 103, 148, 200], &[51]),
+        |state, look, width, _| {
+            crate::board::overview::chart::host::tests::cases::board_case(state, look, width)
+        },
+        |_, _| {},
+    )
+}
+
+/// All-key Settings and inert parameter previews use the actual board owner.
+fn bindings_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &[
+            "bindings-list",
+            "bindings-punctuation",
+            "bindings-preview",
+            "bindings-unavailable",
+            "bindings-masked",
+            "bindings-j-preset",
+            "bindings-inventory-scrolled",
+        ],
+        |_| grid(&[160, 100, 80, 60], &[36, 8]),
+        crate::board::settings::tests::host_action::capture_case,
+        |_, _| {},
+    )
+}
+
+/// Idle alert and the squad settings reached from the Workspace menu: additive scenes.
+fn settings_menu_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &[
+            "idle-alert",
+            "idle-alert-overview",
+            "settings-menu",
+            "settings-menu-pool",
+            "squad-settings",
+        ],
+        |_| grid(&[160, 100, 80, 60], &[36]),
+        |state, look, _, _| capture_case(state, look),
+        |_, _| {},
+    )
+}
+
+/// Measure, the right column's summary view: an agent, a squad and the Agents chip.
+#[inline(never)]
+fn measure_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in ["measure-agent", "measure-squad", "measure-agents-chip"] {
+            for width in [160, 100] {
+                let mut app = crate::board::app::workspace::tests::populated_board(1, 24);
+                app.view.as_mut().unwrap().look = look;
+                let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                for squad in &workspace.roster.squads {
+                    workspace.squad_looks.insert(squad.room_id.clone(), look);
                 }
+                let member = workspace
+                    .rows
+                    .keys()
+                    .find(|target| {
+                        matches!(target, crate::board::workspace::OpsTarget::Member { .. })
+                    })
+                    .cloned()
+                    .unwrap();
+                let room = workspace.roster.squads[0].room_id.clone();
+                app.shell.tab = crate::board::shell::OpsTab::Agents;
+                app.right_tab = crate::board::shell::RightTab::Measure;
+                app.workspace.filter = if scene == "measure-agents-chip" {
+                    crate::board::workspace::AgentsFilter::Agents
+                } else {
+                    crate::board::workspace::AgentsFilter::All
+                };
+                crate::board::overview::capture::populate_lower_band(&mut app, "digest-rows");
+                crate::board::overview::capture::populate_final(&mut app, "digest-rows");
+                app.workspace.expanded.insert(room.clone());
+                app.workspace.selected = Some(if scene == "measure-squad" {
+                    crate::board::workspace::OpsTarget::Squad(room)
+                } else {
+                    member
+                });
+                app.workspace_reconcile();
+                frames.push(capture_frame(&app, scene, look_name, width, 51, styles));
             }
         }
-        // Measure, the right column's summary view: an agent, a squad and the Agents chip.
-        for (look_name, look) in looks() {
-            for scene in ["measure-agent", "measure-squad", "measure-agents-chip"] {
-                for width in [160, 100] {
-                    let mut app = crate::board::app::workspace::tests::populated_board(1, 24);
+    }
+    frames
+}
+
+/// Search has its own committed indicator and clear hit. These additive
+/// scenes keep the existing unfiltered baseline independently frozen.
+#[inline(never)]
+fn search_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for mode in [
+            "overview-agents",
+            "overview-squads",
+            "agents-all",
+            "agents-pinned",
+        ] {
+            for state in ["matches", "empty"] {
+                for width in [160, 100, 80] {
+                    let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
                     app.view.as_mut().unwrap().look = look;
                     let workspace =
                         &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
                     for squad in &workspace.roster.squads {
                         workspace.squad_looks.insert(squad.room_id.clone(), look);
                     }
-                    let member = workspace
-                        .rows
-                        .keys()
-                        .find(|target| {
-                            matches!(target, crate::board::workspace::OpsTarget::Member { .. })
-                        })
-                        .cloned()
-                        .unwrap();
-                    let room = workspace.roster.squads[0].room_id.clone();
+                    if mode == "agents-pinned" {
+                        workspace
+                            .preferences
+                            .pinned
+                            .insert(workspace.roster.squads[7].room_id.clone());
+                        app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
+                    }
                     app.shell.tab = crate::board::shell::OpsTab::Agents;
-                    app.right_tab = crate::board::shell::RightTab::Measure;
-                    app.workspace.filter = if scene == "measure-agents-chip" {
-                        crate::board::workspace::AgentsFilter::Agents
-                    } else {
-                        crate::board::workspace::AgentsFilter::All
-                    };
-                    crate::board::overview::capture::populate_lower_band(&mut app, "digest-rows");
-                    crate::board::overview::capture::populate_final(&mut app, "digest-rows");
-                    app.workspace.expanded.insert(room.clone());
-                    app.workspace.selected = Some(if scene == "measure-squad" {
-                        crate::board::workspace::OpsTarget::Squad(room)
-                    } else {
-                        member
-                    });
-                    app.workspace_reconcile();
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        51,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        // Search has its own committed indicator and clear hit. These additive
-        // scenes keep the existing unfiltered baseline independently frozen.
-        for (look_name, look) in looks() {
-            for mode in [
-                "overview-agents",
-                "overview-squads",
-                "agents-all",
-                "agents-pinned",
-            ] {
-                for state in ["matches", "empty"] {
-                    for width in [160, 100, 80] {
-                        let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
-                        app.view.as_mut().unwrap().look = look;
-                        let workspace =
-                            &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-                        for squad in &workspace.roster.squads {
-                            workspace.squad_looks.insert(squad.room_id.clone(), look);
-                        }
-                        if mode == "agents-pinned" {
-                            workspace
-                                .preferences
-                                .pinned
-                                .insert(workspace.roster.squads[7].room_id.clone());
-                            app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
-                        }
-                        app.shell.tab = crate::board::shell::OpsTab::Agents;
-                        if mode != "agents-pinned" {
-                            app.workspace.filter = if mode == "overview-squads" {
-                                crate::board::workspace::AgentsFilter::All
-                            } else {
-                                crate::board::workspace::AgentsFilter::Agents
-                            };
-                        }
-                        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-                        app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
-                        app.paste(if state == "matches" {
-                            "agent-00007"
+                    if mode != "agents-pinned" {
+                        app.workspace.filter = if mode == "overview-squads" {
+                            crate::board::workspace::AgentsFilter::All
                         } else {
-                            "no-such-agent"
-                        });
-                        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-                        let mut captured = capture_frame(
-                            &app,
-                            &format!("search-{mode}-{state}"),
-                            look_name,
-                            width,
-                            36,
-                            &mut styles,
-                        );
-                        captured["stripHits"] =
-                            json!(format!("{:?}", app.workspace_strip_hits.borrow()));
-                        frames.push(captured);
+                            crate::board::workspace::AgentsFilter::Agents
+                        };
                     }
-                }
-            }
-        }
-        // Measure's `Exchanges · <range>` section with one, a few and many agents: additive scenes.
-        for (look_name, look) in looks() {
-            for (scene, extra, flows) in [
-                ("measure-exchanges-one", 0, &[][..]),
-                (
-                    "measure-exchanges-three",
-                    2,
-                    &[(1, 2, 7), (2, 0, 3), (0, 1, 12)][..],
-                ),
-                (
-                    "measure-exchanges-many",
-                    8,
-                    &[(8, 7, 90), (7, 8, 80), (1, 2, 1), (0, 3, 4000), (3, 0, 2)][..],
-                ),
-            ] {
-                for width in [200, 160, 140] {
-                    let mut app = capture_case("agents", look);
-                    crate::board::app::workspace::tests::measure_exchanges(&mut app, extra, flows);
-                    frames.push(capture_frame(
+                    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+                    app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+                    app.paste(if state == "matches" {
+                        "agent-00007"
+                    } else {
+                        "no-such-agent"
+                    });
+                    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    let mut captured = capture_frame(
                         &app,
-                        scene,
-                        look_name,
-                        width,
-                        51,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        // Paste attachments and forms share their scene owner with decoded review.
-        for (look_name, look) in looks() {
-            for state in crate::board::composer::paste::tests::SCENES {
-                let height = crate::board::composer::paste::tests::capture_height(state);
-                for width in [160, 100, 80] {
-                    let app = crate::board::composer::paste::tests::capture_case(
-                        state, look, width, height,
-                    );
-                    let mut captured =
-                        capture_frame(&app, state, look_name, width, height, &mut styles);
-                    captured["paste"] =
-                        crate::board::composer::paste::tests::capture_metadata(&app);
-                    frames.push(captured);
-                }
-            }
-        }
-        // Dropped files become chips in the same composer; the scenes use fixed, synthetic paths.
-        for (look_name, look) in looks() {
-            for state in crate::board::composer::files::tests::SCENES {
-                let height = if *state == "file-tiny" { 8 } else { 36 };
-                for width in [160, 100, 80] {
-                    let app = crate::board::composer::files::tests::capture_case(
-                        state, look, width, height,
-                    );
-                    let mut captured =
-                        capture_frame(&app, state, look_name, width, height, &mut styles);
-                    captured["files"] =
-                        crate::board::composer::files::tests::capture_metadata(&app);
-                    frames.push(captured);
-                }
-            }
-        }
-        // Inline quote and answer placement uses the existing paste/file fold owner.
-        for (look_name, look) in looks() {
-            for state in crate::board::composer::tests::QUOTE_SCENES {
-                let height = if *state == "quote-tiny" { 8 } else { 36 };
-                for width in [160, 100, 80, 60] {
-                    let app = crate::board::composer::tests::quote_capture_case(
-                        state, look, width, height,
-                    );
-                    let mut captured =
-                        capture_frame(&app, state, look_name, width, height, &mut styles);
-                    captured["quotes"] =
-                        crate::board::composer::tests::quote_capture_metadata(&app);
-                    frames.push(captured);
-                }
-            }
-        }
-        // A link in the chat opens a small popover; the address is fixed and synthetic.
-        for (look_name, look) in looks() {
-            for state in crate::board::member_links::popover::SCENES {
-                for width in [160, 100, 60] {
-                    let app =
-                        crate::board::member_links::popover::capture_case(state, look, width, 36);
-                    frames.push(capture_frame(
-                        &app,
-                        state,
+                        &format!("search-{mode}-{state}"),
                         look_name,
                         width,
                         36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        for (look_name, look) in looks() {
-            for state in crate::board::member_links::tests::FILE_SCENES {
-                for width in [160, 100, 80, 60] {
-                    let app = crate::board::member_links::tests::capture_file_case(
-                        state, look, width, 36,
+                        styles,
                     );
-                    let mut captured =
-                        capture_frame(&app, state, look_name, width, 36, &mut styles);
-                    captured["references"] =
-                        json!(crate::board::member_links::tests::capture_file_hits(&app));
+                    captured["stripHits"] =
+                        json!(format!("{:?}", app.workspace_strip_hits.borrow()));
                     frames.push(captured);
                 }
             }
         }
-        // The Talk pane's live screen of the selected agent, in each state it can be in.
-        for (look_name, look) in looks() {
-            for state in crate::board::conversation::screen::tests::SCENES {
-                for width in [160, 100, 60] {
-                    let app = crate::board::conversation::screen::tests::capture_case(
-                        state, look, width, 40,
-                    );
-                    frames.push(capture_frame(
-                        &app,
-                        state,
-                        look_name,
-                        width,
-                        40,
-                        &mut styles,
-                    ));
+    }
+    frames
+}
+
+/// Measure's `Exchanges · <range>` section with one, a few and many agents: additive scenes.
+#[inline(never)]
+fn measure_exchanges_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for (scene, extra, flows) in [
+            ("measure-exchanges-one", 0, &[][..]),
+            (
+                "measure-exchanges-three",
+                2,
+                &[(1, 2, 7), (2, 0, 3), (0, 1, 12)][..],
+            ),
+            (
+                "measure-exchanges-many",
+                8,
+                &[(8, 7, 90), (7, 8, 80), (1, 2, 1), (0, 3, 4000), (3, 0, 2)][..],
+            ),
+        ] {
+            for width in [200, 160, 140] {
+                let mut app = capture_case("agents", look);
+                crate::board::app::workspace::tests::measure_exchanges(&mut app, extra, flows);
+                frames.push(capture_frame(&app, scene, look_name, width, 51, styles));
+            }
+        }
+    }
+    frames
+}
+
+/// Paste attachments and forms share their scene owner with decoded review.
+fn paste_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::composer::paste::tests::SCENES,
+        |state| {
+            grid(
+                &[160, 100, 80],
+                &[crate::board::composer::paste::tests::capture_height(state)],
+            )
+        },
+        crate::board::composer::paste::tests::capture_case,
+        |captured, app| {
+            captured["paste"] = crate::board::composer::paste::tests::capture_metadata(app);
+        },
+    )
+}
+
+/// Dropped files become chips in the same composer; the scenes use fixed, synthetic paths.
+fn file_chip_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::composer::files::tests::SCENES,
+        |state| {
+            grid(
+                &[160, 100, 80],
+                &[if state == "file-tiny" { 8 } else { 36 }],
+            )
+        },
+        crate::board::composer::files::tests::capture_case,
+        |captured, app| {
+            captured["files"] = crate::board::composer::files::tests::capture_metadata(app);
+        },
+    )
+}
+
+/// Inline quote and answer placement uses the existing paste/file fold owner.
+fn quote_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::composer::tests::QUOTE_SCENES,
+        |state| {
+            grid(
+                &[160, 100, 80, 60],
+                &[if state == "quote-tiny" { 8 } else { 36 }],
+            )
+        },
+        crate::board::composer::tests::quote_capture_case,
+        |captured, app| {
+            captured["quotes"] = crate::board::composer::tests::quote_capture_metadata(app);
+        },
+    )
+}
+
+/// A link in the chat opens a small popover; the address is fixed and synthetic.
+fn link_popover_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::member_links::popover::SCENES,
+        |_| grid(&[160, 100, 60], &[36]),
+        crate::board::member_links::popover::capture_case,
+        |_, _| {},
+    )
+}
+
+fn link_file_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::member_links::tests::FILE_SCENES,
+        |_| grid(&[160, 100, 80, 60], &[36]),
+        crate::board::member_links::tests::capture_file_case,
+        |captured, app| {
+            captured["references"] =
+                json!(crate::board::member_links::tests::capture_file_hits(app));
+        },
+    )
+}
+
+/// The Talk pane's live screen of the selected agent, in each state it can be in.
+fn talk_screen_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::conversation::screen::tests::SCENES,
+        |_| grid(&[160, 100, 60], &[40]),
+        crate::board::conversation::screen::tests::capture_case,
+        |_, _| {},
+    )
+}
+
+/// One loading mark or a retained conversation plus its refresh status,
+/// then a single complete publication through the real selected owner.
+fn conversation_refresh_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &crate::board::conversation::tests::refresh::SCENES,
+        |_| grid(&[160, 100, 80, 60], &[36, 8]),
+        crate::board::conversation::tests::refresh::capture_case,
+        |_, _| {},
+    )
+}
+
+/// Exact reported Markdown sources through the live conversation projection.
+fn markdown_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &crate::board::conversation::tests::markdown_packet::REPORTED_SCENES,
+        |_| grid(&[160, 100, 80, 60], &[36]),
+        |scene, look, _, _| {
+            crate::board::conversation::tests::markdown_packet::reported_case(scene, look)
+        },
+        |_, _| {},
+    )
+}
+
+/// A drag selection and the Selection menu opened below its end.
+#[inline(never)]
+fn selection_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::conversation::source::scenes::SCENES {
+            let app = crate::board::conversation::source::scenes::capture_case(scene, look);
+            let (width, height) = crate::board::conversation::source::scenes::size(scene);
+            frames.push(capture_frame(&app, scene, look_name, width, height, styles));
+        }
+    }
+    frames
+}
+
+fn member_session_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::member_session::tests::SCENES,
+        |_| grid(&[160, 100, 80, 60], &[36, 8]),
+        |scene, look, _, _| crate::board::member_session::tests::capture_case(scene, look),
+        |captured, app| {
+            if app.member_session.is_some() {
+                captured["session"] = crate::board::member_session::tests::capture_metadata(app);
+            }
+        },
+    )
+}
+
+/// The Checklist chip once its read has answered: additive scenes.
+fn checklist_chip_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::conversation_checklist::tests::SCENES,
+        |_| grid(&[100, 80], &[36]),
+        |scene, look, _, _| crate::board::conversation_checklist::tests::capture_case(scene, look),
+        |_, _| {},
+    )
+}
+
+/// The conversation checklist overlay: additive scenes.
+#[inline(never)]
+fn checklist_overlay_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::conversation_checklist::tests::overlay::LIST_SCENES {
+            // The list also paints where its title, host and author give way.
+            let widths: &[u16] = if *scene == "notes-list" {
+                &[100, 160, 60]
+            } else {
+                &[100]
+            };
+            for width in widths {
+                let app =
+                    crate::board::conversation_checklist::tests::overlay::list_case(scene, look);
+                frames.push(capture_frame(&app, scene, look_name, *width, 36, styles));
+            }
+        }
+    }
+    frames
+}
+
+/// One turn that answered three sends, painted under the last of them: additive scenes.
+fn one_turn_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &crate::board::conversation::outgoing::tests::captures::ONE_TURN_SCENES,
+        |_| grid(&[100, 80], &[51]),
+        |scene, look, _, _| {
+            crate::board::conversation::outgoing::tests::captures::one_turn_scene(scene, look, NOW)
+        },
+        |_, _| {},
+    )
+}
+
+/// The running versions in the header and Help: additive scenes.
+fn versions_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::versions::tests::SCENES,
+        |_| grid(&[150, 80], &[36]),
+        |scene, look, width, _| crate::board::versions::tests::capture_case(scene, look, width),
+        |_, _| {},
+    )
+}
+
+fn new_member_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::new_member::tests::captures::SCENES,
+        |_| grid(&[80, 150], &[43, 8]),
+        |scene, look, _, _| crate::board::new_member::tests::captures::case(scene, look),
+        |captured, app| {
+            captured["newMember"] = crate::board::new_member::tests::captures::metadata(app);
+        },
+    )
+}
+
+/// The unread count under the pointer: one additive scene, appended so the style table keeps its order.
+fn unread_hover_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &["unread-chip-hover"],
+        |_| grid(&[160, 100, 80, 60], &[36]),
+        |state, look, _, _| capture_case(state, look),
+        |_, _| {},
+    )
+}
+
+#[inline(never)]
+fn checklist_capture_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::conversation_checklist::tests::captures::SCENES {
+            for (width, height) in [(160, 36), (120, 40), (100, 32)] {
+                let app = crate::board::conversation_checklist::tests::captures::case(scene, look);
+                frames.push(capture_frame(&app, scene, look_name, width, height, styles));
+            }
+        }
+        for scene in crate::board::conversation_checklist::tests::captures::ROOM_SCENES {
+            for (width, height) in [(160, 36), (100, 36), (80, 36), (60, 36)] {
+                let app =
+                    crate::board::conversation_checklist::tests::captures::room_case(scene, look);
+                let mut captured = capture_frame(&app, scene, look_name, width, height, styles);
+                captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+                frames.push(captured);
+            }
+        }
+    }
+    frames
+}
+
+fn action_needed_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &["action-needed"],
+        |_| vec![(160, 36), (120, 40), (100, 32)],
+        |_, look, _, _| crate::board::recovery::tests::action_needed_case(look),
+        |_, _| {},
+    )
+}
+
+#[inline(never)]
+fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::digest_dashboard::tests::impact::SCENES {
+            for (width, height) in [(160, 50), (120, 40), (100, 32)] {
+                let mut app =
+                    crate::board::digest_dashboard::tests::impact::capture_case(scene, look);
+                if *scene == "impact-basis" {
+                    let _ = capture_frame(&app, scene, look_name, width, height, styles);
+                    app.choose(crate::board::app::Choice::DigestBasis);
                 }
+                let mut captured = capture_frame(&app, scene, look_name, width, height, styles);
+                captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+                frames.push(captured);
             }
         }
-        // One loading mark or a retained conversation plus its refresh status,
-        // then a single complete publication through the real selected owner.
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation::tests::refresh::SCENES {
-                for width in [160, 100, 80, 60] {
-                    for height in [36, 8] {
-                        let app = crate::board::conversation::tests::refresh::capture_case(
-                            scene, look, width, height,
-                        );
-                        frames.push(capture_frame(
-                            &app,
-                            scene,
-                            look_name,
-                            width,
-                            height,
-                            &mut styles,
-                        ));
-                    }
-                }
-            }
-        }
-        // Exact reported Markdown sources through the live conversation projection.
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation::tests::markdown_packet::REPORTED_SCENES {
-                for width in [160, 100, 80, 60] {
-                    let app = crate::board::conversation::tests::markdown_packet::reported_case(
-                        scene, look,
-                    );
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        // A drag selection and the Selection menu opened below its end.
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation::source::scenes::SCENES {
-                let app = crate::board::conversation::source::scenes::capture_case(scene, look);
-                let (width, height) = crate::board::conversation::source::scenes::size(scene);
-                frames.push(capture_frame(
-                    &app,
-                    scene,
-                    look_name,
-                    width,
-                    height,
-                    &mut styles,
-                ));
-            }
-        }
-        for (look_name, look) in looks() {
-            for scene in crate::board::member_session::tests::SCENES {
-                for width in [160, 100, 80, 60] {
-                    for height in [36, 8] {
-                        let app = crate::board::member_session::tests::capture_case(scene, look);
-                        let mut captured =
-                            capture_frame(&app, scene, look_name, width, height, &mut styles);
-                        if app.member_session.is_some() {
-                            captured["session"] =
-                                crate::board::member_session::tests::capture_metadata(&app);
-                        }
-                        frames.push(captured);
-                    }
-                }
-            }
-        }
-        // The Checklist chip once its read has answered: additive scenes.
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation_checklist::tests::SCENES {
-                for width in [100, 80] {
-                    let app =
-                        crate::board::conversation_checklist::tests::capture_case(scene, look);
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
+    }
+    frames
+}
+
+fn answer_paging_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &crate::board::conversation::tests::answer_paging::SCENES,
+        |_| grid(&[160, 100, 80, 60], &[36]),
+        |scene, look, _, _| {
+            crate::board::conversation::tests::answer_paging::capture_case(scene, look)
+        },
+        |_, _| {},
+    )
+}
+
+fn checklist_activity_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::conversation_checklist::tests::activity_scenes::SCENES,
+        |_| grid(&[160, 100, 80, 60], &[36]),
+        |scene, look, _, _| {
+            crate::board::conversation_checklist::tests::activity_scenes::capture_case(scene, look)
+        },
+        |_, _| {},
+    )
+}
+
+fn timeline_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::conversation::timeline::tests::SCENES,
+        |_| grid(&[160, 80], &[50, 8]),
+        |scene, look, _, _| crate::board::conversation::timeline::tests::capture_case(scene, look),
+        |_, _| {},
+    )
+}
+
+fn snapshot_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &[
+            "snapshots-generations",
+            "snapshots-generation-preview",
+            "snapshots-save-latest",
+        ],
+        |_| grid(&[150, 80], &[43]),
+        |scene, look, _, _| crate::board::recovery::tests::generation_case(scene, look),
+        |_, _| {},
+    )
+}
+
+const NOW: u64 = 1_791_600_000_000;
+
+fn captures() -> Value {
+    crate::status::with_now_ms(NOW, || {
+        let mut styles = Styles::default();
+        let mut frames = Vec::new();
+        frames.extend(base_frames(&mut styles));
+        frames.extend(chart_frames(&mut styles));
+        frames.extend(bindings_frames(&mut styles));
+        frames.extend(settings_menu_frames(&mut styles));
+        frames.extend(measure_frames(&mut styles));
+        frames.extend(search_frames(&mut styles));
+        frames.extend(measure_exchanges_frames(&mut styles));
+        frames.extend(paste_frames(&mut styles));
+        frames.extend(file_chip_frames(&mut styles));
+        frames.extend(quote_frames(&mut styles));
+        frames.extend(link_popover_frames(&mut styles));
+        frames.extend(link_file_frames(&mut styles));
+        frames.extend(talk_screen_frames(&mut styles));
+        frames.extend(conversation_refresh_frames(&mut styles));
+        frames.extend(markdown_frames(&mut styles));
+        frames.extend(selection_frames(&mut styles));
+        frames.extend(member_session_frames(&mut styles));
+        frames.extend(checklist_chip_frames(&mut styles));
         frames.extend(add_note_frames(&mut styles));
-        // The conversation checklist overlay: additive scenes.
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation_checklist::tests::overlay::LIST_SCENES {
-                // The list also paints where its title, host and author give way.
-                let widths: &[u16] = if *scene == "notes-list" {
-                    &[100, 160, 60]
-                } else {
-                    &[100]
-                };
-                for width in widths {
-                    let app = crate::board::conversation_checklist::tests::overlay::list_case(
-                        scene, look,
-                    );
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        *width,
-                        36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        // One turn that answered three sends, painted under the last of them: additive scenes.
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation::outgoing::tests::captures::ONE_TURN_SCENES {
-                for width in [100, 80] {
-                    let app = crate::board::conversation::outgoing::tests::captures::one_turn_scene(
-                        scene, look, NOW,
-                    );
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        51,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        // The running versions in the header and Help: additive scenes.
-        for (look_name, look) in looks() {
-            for scene in crate::board::versions::tests::SCENES {
-                for width in [150, 80] {
-                    let app = crate::board::versions::tests::capture_case(scene, look, width);
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        for (look_name, look) in looks() {
-            for scene in crate::board::new_member::tests::captures::SCENES {
-                for width in [80, 150] {
-                    for height in [43, 8] {
-                        let app = crate::board::new_member::tests::captures::case(scene, look);
-                        let mut captured =
-                            capture_frame(&app, scene, look_name, width, height, &mut styles);
-                        captured["newMember"] =
-                            crate::board::new_member::tests::captures::metadata(&app);
-                        frames.push(captured);
-                    }
-                }
-            }
-        }
+        frames.extend(checklist_overlay_frames(&mut styles));
+        frames.extend(one_turn_frames(&mut styles));
+        frames.extend(versions_frames(&mut styles));
+        frames.extend(new_member_frames(&mut styles));
         frames.extend(switch_frames(
             crate::board::switch_tool::tests::captures::SCENES,
             &mut styles,
@@ -909,181 +1051,16 @@ fn captures() -> Value {
             crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
             &mut styles,
         ));
-        // The unread count under the pointer: one additive scene, appended so the style table keeps its order.
-        for (look_name, look) in looks() {
-            for width in [160, 100, 80, 60] {
-                let app = capture_case("unread-chip-hover", look);
-                frames.push(capture_frame(
-                    &app,
-                    "unread-chip-hover",
-                    look_name,
-                    width,
-                    36,
-                    &mut styles,
-                ));
-            }
-        }
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation_checklist::tests::captures::SCENES {
-                for (width, height) in [(160, 36), (120, 40), (100, 32)] {
-                    let app =
-                        crate::board::conversation_checklist::tests::captures::case(scene, look);
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        height,
-                        &mut styles,
-                    ));
-                }
-            }
-            for scene in crate::board::conversation_checklist::tests::captures::ROOM_SCENES {
-                for (width, height) in [(160, 36), (100, 36), (80, 36), (60, 36)] {
-                    let app = crate::board::conversation_checklist::tests::captures::room_case(
-                        scene, look,
-                    );
-                    let mut captured =
-                        capture_frame(&app, scene, look_name, width, height, &mut styles);
-                    captured["stripHits"] =
-                        json!(format!("{:?}", app.workspace_strip_hits.borrow()));
-                    frames.push(captured);
-                }
-            }
-        }
-        for (look_name, look) in looks() {
-            for (width, height) in [(160, 36), (120, 40), (100, 32)] {
-                let app = crate::board::recovery::tests::action_needed_case(look);
-                frames.push(capture_frame(
-                    &app,
-                    "action-needed",
-                    look_name,
-                    width,
-                    height,
-                    &mut styles,
-                ));
-            }
-        }
-        for (look_name, look) in looks() {
-            for scene in crate::board::digest_dashboard::tests::impact::SCENES {
-                for (width, height) in [(160, 50), (120, 40), (100, 32)] {
-                    let mut app =
-                        crate::board::digest_dashboard::tests::impact::capture_case(scene, look);
-                    if *scene == "impact-basis" {
-                        let _ = capture_frame(&app, scene, look_name, width, height, &mut styles);
-                        app.choose(crate::board::app::Choice::DigestBasis);
-                    }
-                    let mut captured =
-                        capture_frame(&app, scene, look_name, width, height, &mut styles);
-                    captured["stripHits"] =
-                        json!(format!("{:?}", app.workspace_strip_hits.borrow()));
-                    frames.push(captured);
-                }
-            }
-        }
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation::tests::answer_paging::SCENES {
-                for width in [160, 100, 80, 60] {
-                    let app =
-                        crate::board::conversation::tests::answer_paging::capture_case(scene, look);
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation_checklist::tests::activity_scenes::SCENES {
-                for width in [160, 100, 80, 60] {
-                    let app =
-                        crate::board::conversation_checklist::tests::activity_scenes::capture_case(
-                            scene, look,
-                        );
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        for (look_name, look) in looks() {
-            for scene in crate::board::conversation::timeline::tests::SCENES {
-                for width in [160, 80] {
-                    for height in [50, 8] {
-                        let app =
-                            crate::board::conversation::timeline::tests::capture_case(scene, look);
-                        frames.push(capture_frame(
-                            &app,
-                            scene,
-                            look_name,
-                            width,
-                            height,
-                            &mut styles,
-                        ));
-                    }
-                }
-            }
-        }
-        for (look_name, look) in looks() {
-            for scene in [
-                "snapshots-generations",
-                "snapshots-generation-preview",
-                "snapshots-save-latest",
-            ] {
-                for width in [150, 80] {
-                    let app = crate::board::recovery::tests::generation_case(scene, look);
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        43,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        // The Terminal tab of a built-in-host member, with a published screen injected.
-        for (look_name, look) in looks() {
-            for scene in crate::board::terminal_tab::scenes::SCENES {
-                for width in [100, 60] {
-                    let app = crate::board::terminal_tab::scenes::capture_case(scene, look);
-                    frames.push(capture_frame(
-                        &app,
-                        scene,
-                        look_name,
-                        width,
-                        36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
-        // The Settings page's keys group: scrolled to the checklist key, and its editor open.
-        for (look_name, look) in looks() {
-            for state in ["squad-settings-keys", "squad-settings-key-edit"] {
-                for width in [100, 60] {
-                    let app = capture_case(state, look);
-                    frames.push(capture_frame(
-                        &app,
-                        state,
-                        look_name,
-                        width,
-                        36,
-                        &mut styles,
-                    ));
-                }
-            }
-        }
+        frames.extend(unread_hover_frames(&mut styles));
+        frames.extend(checklist_capture_frames(&mut styles));
+        frames.extend(action_needed_frames(&mut styles));
+        frames.extend(digest_impact_frames(&mut styles));
+        frames.extend(answer_paging_frames(&mut styles));
+        frames.extend(checklist_activity_frames(&mut styles));
+        frames.extend(timeline_frames(&mut styles));
+        frames.extend(snapshot_frames(&mut styles));
+        frames.extend(terminal_tab_frames(&mut styles));
+        frames.extend(settings_keys_frames(&mut styles));
         let styles = styles
             .0
             .into_iter()
