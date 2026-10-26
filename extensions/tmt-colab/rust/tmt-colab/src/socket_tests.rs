@@ -884,7 +884,19 @@ fn mounted_blocked_readers_drop_frames_and_chunk_continuations_twice() {
                 change_reader(&mut f, &mount, change);
                 blocked.store(false, Ordering::SeqCst);
                 budget.store(usize::MAX, Ordering::SeqCst);
-                assert_eq!(connection.poll(), Progress::Closed);
+                // Passive expiry advances the fixture's wall clock without an admission
+                // update. Its first resumed write is at the bounded sweep deadline.
+                // Explicit policy/revoke transitions must still stop it immediately.
+                let progress = if matches!(change, ReaderChange::Expire) {
+                    connection.poll_at(Instant::now() + limits::ADMISSION_RECHECK)
+                } else {
+                    connection.poll()
+                };
+                assert_eq!(
+                    progress,
+                    Progress::Closed,
+                    "change={change:?}, chunk={chunk}"
+                );
                 assert_eq!(
                     written.load(Ordering::SeqCst),
                     before,
