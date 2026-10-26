@@ -687,3 +687,21 @@ pub(crate) fn write_cloud_connection_in(
         params![record.name,record.owner,serde_json::to_string(record).map_err(database)?]).map_err(database)?;
     Ok(())
 }
+
+impl Store {
+    /// Local aggregate of the existing desired-route queue/ACK owner, with no provider read.
+    pub fn member_route_view(
+        &self,
+        member: Option<&str>,
+    ) -> Result<crate::members::observations::MemberRouteView, crate::error::RemoteError> {
+        let (count,publication,removal):(i64,bool,bool)=self.connection.query_row("SELECT COUNT(*),COALESCE(MAX(r.pending=1 AND r.revoked=0),0),COALESCE(MAX(r.pending=1 AND r.revoked=1),0) FROM cloud_peer_routes r JOIN cloud_peers p ON p.project=r.project AND p.client_id=r.client_id JOIN member_machines m ON m.remote_id=p.owner AND m.client_id=r.client_id WHERE m.remote_id=(SELECT machine_id FROM machine WHERE singleton=1) AND (?1 IS NULL OR m.member_id=?1)",[member],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(crate::store::database)?;
+        Ok(if count == 0 {
+            crate::members::observations::MemberRouteView::NotRecorded
+        } else {
+            crate::members::observations::MemberRouteView::Recorded {
+                publication_pending: publication,
+                removal_pending: removal,
+            }
+        })
+    }
+}

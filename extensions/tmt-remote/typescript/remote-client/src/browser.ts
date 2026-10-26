@@ -93,6 +93,20 @@ import { channelFor } from './session-channel.js';
 import { RefusalError, parseCapabilities, verifiedSessionRequest } from './operations.js';
 export { operations, ClientError, RefusalError } from './operations.js';
 export { management } from './management.js';
+export { members } from './members.js';
+export type {
+  RemoteMembers,
+  RemoteMember,
+  MemberRoster,
+  MemberMachines,
+  MemberMachine,
+  MemberPage,
+  MemberChange,
+  MemberOutcome,
+  MemberOriginalOutcome,
+  MemberInvitationView,
+  MemberRouteView,
+} from './members.js';
 export * as budget from './budget.js';
 export type {
   RemoteManagement,

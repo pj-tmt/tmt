@@ -290,7 +290,8 @@ itself before the free-plan limits. TMT does not check the project's remaining q
 refuse requests." The CLI follows the shared style's final-period omission; the page retains the period.
 This adds no wire member or quota probe.
 
-Device pages omit revoked rows and add nullable durable `lastUsedAtMs`; null means not recorded,
+Device pages show the administrator's full inventory or the caller's own member machines,
+omit revoked rows and add nullable durable `lastUsedAtMs`; null means not recorded,
 not never used. `clientId` on the management helper is the admitted caller, also used for the
 local designation command. `previewRemoveOthers()` returns the full bounded inventory count
 and fingerprint; a second deliberate action submits `removeOthers({operationId,fingerprint})`.
@@ -329,6 +330,32 @@ not physical deletion or a rolling allowance. `REMOTE_MANAGEMENT_CAPACITY` refus
 adoption before effects; an existing original-ID read still works at capacity. Show the
 local CLI management path, preserve any earlier unknown outcome, and do not retry, reset
 the database or invent a replacement ID to bypass the limit. Compaction is deferred.
+
+### Members and machine policy
+
+`members(session)` shares the verified Session lane and immutable management journal.
+Use `list({cursor:null,limit:50})` for the current Remote roster and
+`machines({memberId,cursor:null,limit:50})` for one person's bounded machine page.
+Follow `nextCursor` only for an explicit next-page read. The
+[protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol) owns
+exact fields, cursor bounds and neutral observation states. Role, sending, delivery
+and recipient restrictions are separate; activity and provider cleanup can be unknown.
+A normal Member sees only their own person/machines. Full inventory and administration
+require the exact current designated owner browser; an owner-looking label is insufficient.
+
+`rename({operationId,remoteId,memberId,memberRevision,name})` renames a person:
+Admin may rename any member; a Member may rename only themself. `sending({...target,enabled})`
+and `revoke(target)` are Admin only, where `target` contains the four identity/revision fields.
+`renameRemote({operationId,remoteId,name})` is also Admin only. These change neither another
+name's scope nor browser-local catalog labels. The helper freezes inputs and verifies
+Remote/member/result correlation. Mutations return committed/refused/unknown outcomes;
+`operation(originalId)` reads either member/name outcomes or exact older device outcomes,
+without resending, reapplying a policy or renewing a deadline. The current member must still
+own that original; historical unbound receipts may become unavailable after an association
+or re-pair. Preserve the unknown outcome and inspect current state separately.
+
+The native private-control adapter exposes the same roster/machine reads. Terminal
+member mutations belong to a later adapter; this SDK adds no CLI command or UI flow.
 
 The Remote-owned current-door tab frame uses shared browser presentation and
 server-admitted values/sources/warnings/capabilities. Its separately built `settings-v1.js`

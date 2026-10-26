@@ -574,6 +574,31 @@ fn session(
                     cloud.status()
                 }),
         ),
+        Some("members.list" | "members.machines") => Some((|| {
+            let mut input = request
+                .as_object()
+                .cloned()
+                .ok_or_else(crate::operations::invalid)?;
+            let op = input
+                .remove("op")
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .ok_or_else(crate::operations::invalid)?;
+            {
+                let empty = crate::members::observations::NoMemberObservations;
+                let source = door
+                    .views
+                    .cloud
+                    .as_deref()
+                    .map(|s| s as &dyn crate::members::observations::MemberObservationSource)
+                    .unwrap_or(&empty);
+                crate::members::reads::local(
+                    devices,
+                    source,
+                    &format!("remote.{op}"),
+                    &Value::Object(input),
+                )
+            }
+        })()),
         Some("devices") => Some(devices.visible().map(|rows| json!({"devices":rows}))),
         Some("remove-others") if request.as_object().is_some_and(|row| row.len() == 2) => Some(
             request
