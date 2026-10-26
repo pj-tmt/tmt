@@ -284,9 +284,13 @@ for (const width of [1440, 390])
       await page.keyboard.press('Escape');
       await expect(more).toHaveAttribute('aria-expanded', 'false');
       await expect(more).toBeFocused();
-      await more.press('Enter');
+      // Theme is the shared bar's menu.
+      const themeMenu = page
+        .locator('.tmt-ui-topbar-common')
+        .getByRole('button', { name: /^Theme:/ });
+      await themeMenu.press('Enter');
       const themeOption = page.getByRole('menuitemradio', {
-        name: `Theme: ${theme === 'dark' ? 'Light' : 'Dark'}`,
+        name: theme === 'dark' ? 'Light' : 'Dark',
         exact: true,
       });
       await themeOption.focus();
@@ -296,6 +300,6 @@ for (const width of [1440, 390])
         'data-theme',
         theme === 'dark' ? 'light' : 'dark',
       );
-      await expect(more).toBeFocused();
+      await expect(themeMenu).toBeFocused();
     });
   }
