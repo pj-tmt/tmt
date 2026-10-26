@@ -40,6 +40,7 @@ export function ColabHeader({
   home,
   headerRef,
   barRef,
+  rowRef,
   status,
   remote,
   remoteMenu = true,
@@ -57,6 +58,8 @@ export function ColabHeader({
   headerRef?: Ref<HTMLElement>;
   /** The sticky chrome the page measures from (the header; in the shared bar, the bar itself). */
   barRef?: Ref<HTMLElement>;
+  /** The title row, when the shared bar draws no title and the row is content under it. */
+  rowRef?: Ref<HTMLDivElement>;
   status?: ReactNode;
   remote?: { deviceName?: string };
   remoteMenu?: boolean;
@@ -169,7 +172,11 @@ export function ColabHeader({
             </>
           }
         />
-        {row && <div className="colab-title-row">{header}</div>}
+        {row && (
+          <div className="colab-title-row" ref={rowRef}>
+            {header}
+          </div>
+        )}
       </>
     );
   }

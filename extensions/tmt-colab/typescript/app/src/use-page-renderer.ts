@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { mountRenderer, sourceFrameKey } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
-import { frameInset } from './toolbar-inset.js';
+import { toolbarInset } from './toolbar-inset.js';
 import type { PageSnapshot, PageView } from './transport.js';
 
 type RendererOptions = Parameters<typeof mountRenderer>[2];
@@ -46,6 +46,7 @@ export function usePageRenderer({
   renderer,
   setState,
   toolbar,
+  titleRow,
   anchor,
   layers,
   handlers,
@@ -60,6 +61,9 @@ export function usePageRenderer({
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   setState(state: RenderState | 'loading'): void;
   toolbar: RefObject<HTMLElement | null>;
+  /** The page's title row when it is content under the shared bar: it takes room from a frame that
+   * fills the viewport, but not from where a revealed element lands. */
+  titleRow: RefObject<HTMLElement | null>;
   /** The element a shell item opened the page at. */
   anchor: string | undefined;
   layers: RendererLayers;
@@ -152,7 +156,8 @@ export function usePageRenderer({
       onSlots,
       onQuestions,
       onReadings,
-      viewportInset: () => frameInset(host.current, toolbar.current),
+      viewportInset: () => toolbarInset(toolbar.current),
+      frameLead: () => titleRow.current?.offsetHeight ?? 0,
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {
         setResolved(ids);

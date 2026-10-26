@@ -130,7 +130,8 @@ the one ⌘K listener), Theme is the bar's menu, and the page's status (needs-yo
 actions, with More (no Theme or Remote entries), go into the bar's action slot through
 `BrowserTopBar`. The bar draws no title: the title row (title, crumb, project menu, caption) is
 content under it, static, on the content background, and a route whose content names itself has none;
-`barRef` hands the page the sticky bar to measure from, and `frameInset` the frame's own top. The
+`barRef` hands the page the sticky bar to measure its clearances from, and `rowRef` the title row, which
+the renderer takes as the content between the bar and the frame (`frameLead`). The
 hosted mount still portals the header into the shell's `bar` and `tools` slots (Search and the
 Remote chip) until it adopts the bar. A standalone header (reader, mounted and
 native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the

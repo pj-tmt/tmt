@@ -1321,6 +1321,7 @@ function OpenPage({
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
+  const titleRow = useRef<HTMLDivElement>(null);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -1717,6 +1718,7 @@ function OpenPage({
     renderer,
     setState,
     toolbar,
+    titleRow,
     anchor,
     layers: {
       onSlots: inlineSlots.onSlots,
@@ -1916,6 +1918,7 @@ function OpenPage({
         }
         crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
         barRef={toolbar}
+        rowRef={titleRow}
         title={view.title || snapshot.title || text.unknownPageTitle}
         remote={{ deviceName: transport.backendName }}
         caption={
