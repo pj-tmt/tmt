@@ -836,7 +836,9 @@
                       selection.anchorOffset === range.startOffset;
                     box = boxes[forward ? boxes.length - 1 : 0] ?? range.getBoundingClientRect();
                   }
-                  rect = { x: box.x, y: box.y, width: box.width, height: box.height };
+                  if (box.height > 0)
+                    rect = { x: box.x, y: box.y, width: box.width, height: box.height };
+                  else selector = null;
                 }
               }
             } catch {
@@ -860,7 +862,18 @@
               '*',
             );
           }
+          // Gesture endpoints can arrive outside this frame (focus loss or a released drag).
+          // Always let the next selection report through, even when its matching up event was lost.
+          const endGesture = () => {
+            pointerSelecting = false;
+            keyboardSelecting = false;
+            return capture();
+          };
           const selectionChanged = () => {
+            if (getSelection()?.isCollapsed) {
+              endGesture();
+              return;
+            }
             if (stopped || pointerSelecting || keyboardSelecting || selectionFrame !== undefined)
               return;
             selectionFrame = requestAnimationFrame(() => {
@@ -882,8 +895,7 @@
           };
           const finishSelection = (event) => {
             if (!pointerSelecting) return;
-            pointerSelecting = false;
-            const quote = capture();
+            const quote = endGesture();
             if (
               selecting &&
               event.isTrusted &&
@@ -908,8 +920,7 @@
           };
           const finishKeyboardSelection = (event) => {
             if (!keyboardSelecting) return;
-            keyboardSelecting = false;
-            const quote = capture();
+            const quote = endGesture();
             if (selecting && event.isTrusted && !editingTarget(event.target) && quote)
               parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
           };
@@ -1661,6 +1672,7 @@
             resolve();
             measureHeight();
             measureScheme();
+            endGesture();
             return true;
           }
           port.onmessage = (event) => {
@@ -2061,7 +2073,12 @@
               document.addEventListener('selectionchange', selectionChanged);
               document.addEventListener('pointerdown', startSelection, true);
               document.addEventListener('pointerup', finishSelection, true);
-              document.addEventListener('pointercancel', cancelSelection, true);
+              document.addEventListener('pointercancel', endGesture, true);
+              document.addEventListener('lostpointercapture', endGesture, true);
+              document.addEventListener('mouseup', endGesture, true);
+              document.addEventListener('pointerleave', endGesture);
+              document.addEventListener('visibilitychange', endGesture);
+              addEventListener('blur', endGesture);
               document.addEventListener('keyup', finishKeyboardSelection, true);
               document.addEventListener('pointermove', hoverTarget, true);
               sizeObserver.observe(document.documentElement);
@@ -2152,6 +2169,10 @@
             if (isColabShortcut(event, editing)) {
               event.preventDefault();
               if (event.key === 'Escape' || event.key === '@') {
+                if (event.key === 'Escape') {
+                  getSelection()?.removeAllRanges();
+                  cancelSelection();
+                }
                 parent.postMessage({ type: 'colab.render.key', renderId, key: event.key }, '*');
               } else {
                 const type =
@@ -2199,7 +2220,12 @@
               document.removeEventListener('selectionchange', selectionChanged);
               document.removeEventListener('pointerdown', startSelection, true);
               document.removeEventListener('pointerup', finishSelection, true);
-              document.removeEventListener('pointercancel', cancelSelection, true);
+              document.removeEventListener('pointercancel', endGesture, true);
+              document.removeEventListener('lostpointercapture', endGesture, true);
+              document.removeEventListener('mouseup', endGesture, true);
+              document.removeEventListener('pointerleave', endGesture);
+              document.removeEventListener('visibilitychange', endGesture);
+              removeEventListener('blur', endGesture);
               document.removeEventListener('keyup', finishKeyboardSelection, true);
               document.removeEventListener('click', chooseTarget, true);
               document.removeEventListener('pointermove', hoverTarget, true);

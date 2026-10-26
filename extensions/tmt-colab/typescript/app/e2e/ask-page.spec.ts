@@ -1205,3 +1205,82 @@ for (const width of [1440, 390])
     await expect(page.getByTestId('chat-panel')).toHaveCount(0);
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
+
+for (const ending of [
+  'Escape',
+  'blur',
+  'keyboard blur',
+  'empty click',
+  'scroll away',
+  'release outside',
+  'source update',
+] as const)
+  test(`selection affordance clears after ${ending}`, async ({ page }) => {
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(
+      page,
+      'change',
+      '<p id="selected" style="display:inline-block">Exact selected text</p><div style="height:2000px"></div>',
+    );
+    const target = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+    await expect(target).toHaveText('Exact selected text');
+    const action = page.getByTestId('selection-ask');
+    const select = async () => {
+      const box = (await target.boundingBox())!;
+      await page.mouse.move(box.x + 1, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+      return box;
+    };
+    await select();
+    await page.mouse.up();
+    await expect(action).toBeVisible();
+    const renderId = await page.locator('#ask-page-fixture iframe').getAttribute('data-render-id');
+    if (ending === 'Escape') {
+      await page.keyboard.press('Escape');
+    } else if (ending === 'empty click') {
+      await page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator('body')
+        .click({ position: { x: 300, y: 150 } });
+    } else if (ending === 'scroll away') {
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    } else if (ending === 'source update') {
+      await run(page, 'change', '<p id="selected" style="display:none">Exact selected text</p>');
+      await expect(target).toBeHidden();
+      await expect(page.locator('#ask-page-fixture iframe')).toHaveAttribute(
+        'data-render-id',
+        renderId!,
+      );
+    } else {
+      if (ending === 'keyboard blur') {
+        await page.keyboard.down('Shift');
+        await page.keyboard.down('ArrowLeft');
+        await page.locator('.tmt-ui-topbar:visible').getByRole('button').first().focus();
+        await page.keyboard.up('ArrowLeft');
+        await page.keyboard.up('Shift');
+      } else await select();
+      if (ending === 'release outside') {
+        await page.mouse.move(4, 4, { steps: 4 });
+        await page.mouse.up();
+      } else {
+        await page.locator('.tmt-ui-topbar:visible').getByRole('button').first().focus();
+        await page.mouse.up();
+      }
+      // Simulate the page clearing its selection after the gesture lost its iframe endpoint.
+      await target.evaluate((node) => node.ownerDocument.getSelection()?.removeAllRanges());
+    }
+    await expect(action).toBeHidden();
+    // A later completed selection must still publish, without select-and-cancel recovery.
+    if (ending !== 'source update' && ending !== 'scroll away') {
+      await target.evaluate((node) => {
+        const range = node.ownerDocument.createRange();
+        range.selectNodeContents(node);
+        node.ownerDocument.getSelection()?.removeAllRanges();
+        node.ownerDocument.getSelection()?.addRange(range);
+      });
+      await expect(action).toBeVisible();
+    }
+    expect((await run(page, 'proof')).sends).toEqual([]);
+  });
