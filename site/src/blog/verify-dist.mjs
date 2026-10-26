@@ -5,6 +5,7 @@ import { SaxesParser } from "saxes";
 import { attr, walk } from "./content.mjs";
 import { assertSiteOrigin, filesBelow, csp } from "./site.mjs";
 import { languageInfo } from "./languages.mjs";
+import { postTags } from "./tags.mjs";
 
 // A production artifact is checked against the origin it was built for (SITE_ORIGIN): its canonical
 // links, RSS and sitemap must name it. A demo artifact has no canonical links and an empty feed.
@@ -66,11 +67,13 @@ export async function verifyDist(
     const page = expectedPages.get(path);
     if (!page) throw new Error(`Unexpected HTML page: ${path}`);
     const route = page.path.match(
-      /^(?:(ja|zh-hant|zh-hans)\/)?(?:posts\/([a-z0-9]+(?:-[a-z0-9]+)*)\/)?$/,
+      /^(?:(ja|zh-hant|zh-hans)\/)?(?:(posts|tags)\/([a-z0-9]+(?:-[a-z0-9]+)*)\/)?$/,
     );
     if (!route) throw new Error(`Invalid blog route: ${path}`);
     const fallback = page.fallbackTo !== undefined;
-    const englishTarget = route[2] ? `posts/${route[2]}/` : "";
+    const englishTarget = route[2] === "posts" ? `posts/${route[3]}/` : "";
+    if (route[2] === "tags" && (!postTags.includes(route[3]) || fallback))
+      throw new Error(`Invalid tag page: ${path}`);
     if (fallback && (!route[1] || page.fallbackTo !== englishTarget))
       throw new Error(`Invalid English fallback target: ${path}`);
     if (route[1] && !route[2]) {
@@ -171,6 +174,8 @@ export async function verifyDist(
       throw error;
     });
     xml.on("text", (value) => {
+      if (element === "category" && !postTags.includes(value))
+        throw new Error(`Unknown RSS tag: ${value}`);
       if (["link", "guid", "loc"].includes(element) && value.startsWith("https://")) {
         const parsed = new URL(value);
         if (!demo && parsed.origin !== origin)
