@@ -4075,7 +4075,7 @@ function mountShell(root, view, select) {
 	watchTools?.observe(toolsRoot);
 	reserve();
 	const moduleGroup = () => {
-		const header = bar.querySelector(":scope > .tmt-ui-header");
+		const header = bar.querySelector(":scope > .tmt-ui-header:not([data-shell-placeholder])");
 		return {
 			header,
 			nodes: (header ? [...header.querySelectorAll(":scope > .tmt-ui-status, :scope > .tmt-ui-actions")] : []).filter((node) => node.getClientRects().length > 0)
@@ -4083,7 +4083,7 @@ function mountShell(root, view, select) {
 	};
 	const inset = () => {
 		const { header, nodes } = moduleGroup();
-		const reach = nodes.length ? bar.getBoundingClientRect().right - nodes[0].getBoundingClientRect().left : 0;
+		const reach = nodes.length ? toolsRoot.getBoundingClientRect().right - nodes[0].getBoundingClientRect().left : 0;
 		if (header && reach > 0) {
 			const gap = Number.parseFloat(getComputedStyle(header).columnGap);
 			root.style.setProperty("--tmt-ui-shell-tools-inset", `${reach + (gap > 0 ? gap : 0)}px`);
@@ -4093,7 +4093,11 @@ function mountShell(root, view, select) {
 	const watchBar = () => {
 		watchModule?.disconnect();
 		const { header, nodes } = moduleGroup();
-		for (const node of header ? [header, ...nodes] : []) watchModule?.observe(node);
+		for (const node of header ? [
+			toolsRoot,
+			header,
+			...nodes
+		] : [toolsRoot]) watchModule?.observe(node);
 		inset();
 	};
 	const barChanges = new MutationObserver(watchBar);

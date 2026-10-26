@@ -423,10 +423,13 @@ export function mountShell(
   watchTools?.observe(toolsRoot);
   reserve();
   // The module's own right group (its status and actions) closes the bar: the cluster's inset is how
-  // far that group reaches in from the bar's right edge, plus the header's gap. A module with no
-  // group leaves the stylesheet's default, the header's own inset.
+  // far that group reaches in from the cluster's own right edge, plus the header's gap. A module with
+  // no group leaves the stylesheet's default, the header's own inset.
   const moduleGroup = () => {
-    const header = bar.querySelector<HTMLElement>(':scope > .tmt-ui-header');
+    // The shell's placeholder header names the module until the module's own header arrives.
+    const header = bar.querySelector<HTMLElement>(
+      ':scope > .tmt-ui-header:not([data-shell-placeholder])',
+    );
     const nodes = header
       ? [
           ...header.querySelectorAll<HTMLElement>(
@@ -438,8 +441,9 @@ export function mountShell(
   };
   const inset = () => {
     const { header, nodes } = moduleGroup();
+    // The cluster's right edge is where it is anchored (the bar's, or the window's on a phone).
     const reach = nodes.length
-      ? bar.getBoundingClientRect().right - nodes[0]!.getBoundingClientRect().left
+      ? toolsRoot.getBoundingClientRect().right - nodes[0]!.getBoundingClientRect().left
       : 0;
     if (header && reach > 0) {
       const gap = Number.parseFloat(getComputedStyle(header).columnGap);
@@ -450,7 +454,9 @@ export function mountShell(
   const watchBar = () => {
     watchModule?.disconnect();
     const { header, nodes } = moduleGroup();
-    for (const node of header ? [header, ...nodes] : []) watchModule?.observe(node);
+    // The cluster's own box counts too: it has no size until a module fills a slot.
+    for (const node of header ? [toolsRoot, header, ...nodes] : [toolsRoot])
+      watchModule?.observe(node);
     inset();
   };
   const barChanges = new MutationObserver(watchBar);
