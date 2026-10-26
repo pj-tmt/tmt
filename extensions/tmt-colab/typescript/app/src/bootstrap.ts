@@ -218,11 +218,14 @@ export function mountUrl(): URL {
   return url;
 }
 /** Owner-only paired mount discovery is the sole TOFU exception. Later discovery
- * must match the durable origin/mount pin and fragment, with no silent re-pin. */
+ * must match the durable origin/mount pin and fragment, with no silent re-pin. It also keeps the
+ * document's location canonical for Colab's own routes; a caller whose document belongs to another
+ * module (`locate: false`, the global search) neither reads nor writes the location. */
 export async function discover(
   mount: URL,
   verify?: (space: string, owner: Uint8Array) => Promise<unknown>,
   signal?: AbortSignal,
+  { locate = true }: { locate?: boolean } = {},
 ): Promise<Bootstrap> {
   const value = await jsonResponse(
     await fetch(new URL('api/pages', mount), {
@@ -339,7 +342,7 @@ export async function discover(
   await verify?.(value.spaceId, owner);
   await navigator.locks.request(`colab-pin:${mount.href}`, async () => {
     const pin = await record<{ space: string; owner: Uint8Array }>(`pin:${mount.href}`),
-      fragment = new URLSearchParams(location.hash.slice(1)).get('space');
+      fragment = locate ? new URLSearchParams(location.hash.slice(1)).get('space') : null;
     requireValue(
       (!fragment || fragment === value.spaceId) &&
         (!pin || (pin.space === value.spaceId && equal(pin.owner, owner))),
@@ -347,13 +350,13 @@ export async function discover(
     // The location keeps only the canonical fragment of its display target: a plain #id becomes
     // #anchor=<id>, and a fragment that names none is dropped, so nothing downstream (a copied
     // link, an Ask's page link) carries it.
-    if (publicEntry()) {
+    if (locate && publicEntry()) {
       const canonical = entryHash(entryOpenTarget());
       if (location.hash !== canonical)
         history.replaceState(history.state, '', location.pathname + location.search + canonical);
     }
     let path: string | null = null;
-    if (!fragment && !publicEntry()) {
+    if (locate && !fragment && !publicEntry()) {
       const incoming = new URLSearchParams(location.hash.slice(1));
       path = incoming.get('path');
       requireValue(
@@ -368,7 +371,7 @@ export async function discover(
       if (path?.startsWith('/pages/')) generatedId(path.slice(7));
     }
     if (!pin) await record(`pin:${mount.href}`, { space: value.spaceId, owner });
-    if (!fragment && !publicEntry()) {
+    if (locate && !fragment && !publicEntry()) {
       history.replaceState(
         history.state,
         '',
@@ -377,6 +380,7 @@ export async function discover(
     }
   });
   if (
+    locate &&
     !publicEntry() &&
     typeof location.pathname === 'string' &&
     location.pathname.startsWith('/r/')
