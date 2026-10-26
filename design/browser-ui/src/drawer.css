@@ -88,7 +88,7 @@
 }
 /* Shared Drawer/Panel header defaults use the website's compact type and padding.
    Explicit host control styles still win; footer and body actions keep their geometry. */
-:where(.tmt-ui-drawer-header-actions) .tmt-ui-action {
+:where(.tmt-ui-drawer-header-actions) .tmt-ui-action:where(:not(.tmt-ui-icon-action-control)) {
   min-height: 0;
   font-size: 11px;
   font-weight: 620;
@@ -96,7 +96,8 @@
   padding: 7px 10px;
 }
 /* Match the primary variant's specificity without making header context outrank host classes. */
-:where(.tmt-ui-drawer-header-actions) .tmt-ui-action[data-variant='primary'] {
+:where(.tmt-ui-drawer-header-actions)
+  .tmt-ui-action:where(:not(.tmt-ui-icon-action-control))[data-variant='primary'] {
   font-weight: 620;
 }
 .tmt-ui-drawer-heading {
