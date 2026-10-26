@@ -15,6 +15,44 @@ use tmt_core::{
 };
 
 #[test]
+fn incoming_selection_excludes_result_and_timeout_references_from_its_count_and_items() {
+    use tmt_core::request::digest::{DigestSelection, DigestSource};
+    let (mut f, target, _, sender) = start();
+    for id in ["incoming", "result", "timeout"] {
+        held(&mut f, &target, &sender, id);
+    }
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    // The same recipient/kind/retention must not make other source references Incoming.
+    for source in ["result", "timeout"] {
+        db.execute(
+            "UPDATE focus_items SET source=?1 WHERE request_id=?1",
+            [source],
+        )
+        .unwrap();
+    }
+    let inventory = |selection| {
+        super::super::digest::selected_inventory(
+            &db,
+            &target,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+            selection,
+            NOW_MS,
+        )
+        .unwrap()
+        .0
+    };
+    assert_eq!(inventory(DigestSelection::All), 3);
+    assert_eq!(inventory(DigestSelection::Incoming), 1);
+    assert_eq!(inventory(DigestSelection::UrgentIncoming), 0);
+    let items =
+        super::super::digest::selected_items(&db, &target, 128, DigestSelection::Incoming, NOW_MS)
+            .unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].request_id, "incoming");
+    assert_eq!(items[0].source, DigestSource::Incoming);
+}
+
+#[test]
 fn published_digest_base_is_journaled_and_global_off_masks_receiving() {
     use crate::orchestration::{DigestReceiving, DigestReceivingSettings};
     let (mut f, target, _, sender) = start();

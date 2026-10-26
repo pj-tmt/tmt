@@ -182,6 +182,8 @@ impl DigestSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigestSelection {
     All,
+    /// Source narrowing only; request eligibility remains with the request service.
+    Incoming,
     UrgentIncoming,
 }
 

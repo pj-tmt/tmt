@@ -219,6 +219,7 @@ pub(super) fn items(
 fn selection_clause(selection: DigestSelection) -> &'static str {
     match selection {
         DigestSelection::All => "1",
+        DigestSelection::Incoming => "source='incoming'",
         DigestSelection::UrgentIncoming => {
             "source='incoming' AND EXISTS(SELECT 1 FROM request_delivery_policies p WHERE p.request_id=focus_items.request_id AND p.urgent=1)"
         }

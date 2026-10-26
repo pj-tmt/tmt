@@ -225,11 +225,58 @@ The existing same-user person/passthrough authority remains separate.
 Holding still requires the existing finite Digest window: if Digest is removed
 and its tick stops, a stale settings publication creates no continuing hold.
 
-When a restriction ends, the existing Digest full-checklist lifecycle resumes.
-The one-line incoming-request summary and persistent UUID wake stagger are
-tracked in [the orchestration wake follow-up](https://github.com/pj-tmt/tmt/issues/5113);
-this slice adds neither a summary projection nor a wake scheduler. Jobs, catch-up
-once and the merged `tmt tick` remain slice 3.
+### Incoming summary implementation target (#5113)
+
+This section specifies the approved implementation target; the incomplete slice
+still uses the ordinary checklist delivery described above.
+
+When receiving releases currently held eligible Incoming, Core records one
+pending wake marker for the canonical identity UUID. It keeps no range history
+or second copy of held membership. Current policy and held items determine the
+released classes; Sleep changing to Focus releases urgent Incoming separately
+while ordinary Incoming remains held. Other simultaneous class releases coalesce.
+An overlapping effective restriction still prevents an inadmissible wake.
+
+The existing finite Digest tick calls additive API-1 `digest.wake.step` with
+strict `{budgetMs,limit}` input: 1..60,000 whole milliseconds and 1..256
+candidates. At most one attempt is admitted per step. Due identities are scanned
+in canonical UUID order; offline, busy or approval-blocked members remain pending
+without consuming a transport admission or blocking later ready recipients.
+A singleton durable clock separates admitted attempts by at least 1,000 ms,
+including across restart and wall-clock rollback. Budget exhaustion leaves work
+pending. Per-identity flushes and provider hooks retain their pinned recipient;
+they may defer but never deliver another identity's wake.
+
+Only the claim freezes the exact cutoff, eligible Incoming membership and counts
+in the existing checklist, tagged `incoming_summary`. N counts all eligible
+Incoming still held for that released class; K is its stored urgent subset.
+Canonical open-Inbox/first-final eligibility excludes expired, withdrawn,
+answered and otherwise non-answerable requests. Results/timeouts keep their
+ordinary Digest lifecycle. Later arrivals cannot join a claimed summary.
+If no eligible Incoming remains, no notification is sent.
+
+The existing Digest transport sends exactly
+`you have N messages, K urgent: tmt inbox`. This projection carries no bodies,
+member request IDs or receipts, reserves no captured input, and never enters
+request-ID prompt confirmation or reoffer. Notification does not pull,
+acknowledge, answer or complete its requests. Delivered or uncertain is terminal;
+the marker is cleared with settlement and sealed membership grants no replay.
+Only a proven-unsent preflight permits a later opportunity. Possible transport
+is uncertainty, not automatic retry permission.
+
+The step returns `schemaVersion:1`, a typed delivery outcome or
+`nothing_due`/`unavailable`, nullable `identityId`,
+`projection:"incoming_summary"`, frozen `incomingCount`/`urgentCount` when
+claimed, and nullable `nextAtMs`. It uses the existing claim/transport/settlement
+owner, also reached by `digest.checklist.flush`; there is no separate wake
+delivery path. Digest selects the step from its existing once-per-run capability
+read. Explicit absence retains an older Core's existing tick behavior; an
+advertised-operation error never falls back after a possible effect.
+
+Real wake admissions and outcomes use the existing transaction-local journal and
+frozen claim provenance. Reads, config saves, marker scans, blocked/no-op
+observations and rollback append no decisions. No new command, daemon or timer
+is added. Jobs, catch-up once and the merged `tmt tick` remain slice 3.
 
 ## Calendar
 
