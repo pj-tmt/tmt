@@ -66,6 +66,48 @@ const test = base.extend<{ coldObservation: void }>({
   ],
 });
 
+test('real Worker admits and refuses the shared editor metadata request and result vectors', async ({
+  page,
+}) => {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/editor-metadata-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  await page.goto('/');
+  const results = await page.evaluate(async (vectors) => {
+    const path = '/src/fold.ts';
+    const { Fold } = await import(path);
+    const results = [];
+    for (const c of [...vectors.requests, ...vectors.results]) {
+      const fold = new Fold();
+      let valid = false;
+      let record;
+      try {
+        const prepared = await fold.run({
+          type: 'prepare-own',
+          writer: '00000000-0000-4000-8000-000000000001',
+          records: [{ root: c.root, key: c.key, value: c.record }],
+        });
+        record = prepared.own['00000000-0000-4000-8000-000000000001'][c.root][c.key];
+        valid = true;
+      } catch {
+        valid = false;
+      } finally {
+        fold.close();
+      }
+      results.push({ name: c.name, valid, record });
+    }
+    return results;
+  }, vectors);
+  const cases = [...vectors.requests, ...vectors.results];
+  for (let i = 0; i < cases.length; i++) {
+    expect(results[i].valid, cases[i].name).toBe(cases[i].valid);
+    if (cases[i].valid) expect(results[i].record, cases[i].name).toEqual(cases[i].record);
+  }
+});
+
 test('attachment object adapter verifies actual browser crypto without replaying an uncertain original', async ({
   page,
 }) => {

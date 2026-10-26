@@ -403,6 +403,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
               'proposal-decision',
               'attachment-publication',
               'edit-request',
+              'edit-result',
             ].includes(value?.kind)
           )
             continue;

@@ -12,6 +12,48 @@ const STREAM: &str = "writer";
 const OTHER: &str = "other";
 const SIGNER: &str = "signer";
 
+#[test]
+fn terminal_metadata_results_survive_reopen_and_the_first_decision_wins() {
+    use serde_json::json;
+    let mut f = Fixture::new();
+    let writer = "30000000-0000-4000-8000-000000000001";
+    let operation = "60000000-0000-4000-8000-000000000001";
+    let result = json!({"version":1,"kind":"edit-result","writer":writer,"operationId":operation,
+        "requestSha256":tmt_colab_model::values::encode_binary(&[0;32]),
+        "result":{"operationId":operation,"state":"rejected","code":"COLAB_STALE_BASE","message":"The target changed."}});
+    f.store
+        .decide_metadata(PAGE, 1, writer, operation, EditState::Conflict, &result)
+        .unwrap();
+    let layout = Layout::existing(&f.root).unwrap().unwrap();
+    let reopened = Store::read(&layout).unwrap();
+    assert_eq!(
+        reopened.edit_result(PAGE, 1, writer, operation).unwrap(),
+        Some(result.clone())
+    );
+    reopened.close().unwrap();
+    let mut later = result.clone();
+    later["result"]["message"] = json!("Different refusal");
+    f.store
+        .decide_metadata(PAGE, 1, writer, operation, EditState::Refused, &later)
+        .unwrap();
+    assert_eq!(
+        f.store.edit_result(PAGE, 1, writer, operation).unwrap(),
+        Some(result)
+    );
+    assert!(
+        f.store
+            .edit_result(PAGE, 2, writer, operation)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        f.store
+            .edit_result(PAGE, 1, operation, operation)
+            .unwrap()
+            .is_none()
+    );
+}
+
 fn scope(stream: &'static str) -> StreamScope<'static> {
     StreamScope {
         page: PAGE,

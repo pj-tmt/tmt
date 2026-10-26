@@ -1,3 +1,4 @@
+import { metadataRequest } from '@tmt/colab-client';
 import { validateDiscussionRecord } from './thread-records.js';
 import { validateShell, type Shell } from './shell.js';
 import { canonical } from './closed.js';
@@ -178,7 +179,14 @@ export function validateOwn(value: unknown): asserts value is OwnState {
           !Array.isArray(record) &&
           (record as Record<string, unknown>).kind === 'edit-request'
         )
-          editRequest.editRequest(record, root, key);
+          editRequest.editorRequest(record, root, key);
+        if (
+          record &&
+          typeof record === 'object' &&
+          !Array.isArray(record) &&
+          (record as Record<string, unknown>).kind === 'edit-result'
+        )
+          metadataRequest.editResult(record, root, key);
         if (
           record &&
           typeof record === 'object' &&

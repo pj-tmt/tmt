@@ -128,7 +128,7 @@ impl Fixture {
     fn as_schema_12(&mut self, labels: &[(&str, &str)]) {
         let db = self.oracle();
         db.execute_batch(
-            "DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+            "ALTER TABLE edit_decisions DROP COLUMN result; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
              CREATE TABLE page_labels(page TEXT NOT NULL, label TEXT NOT NULL,
                 PRIMARY KEY(page,label), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
              PRAGMA user_version=12;",
@@ -543,7 +543,7 @@ fn schema_18_adds_the_pin_tables_to_a_store_from_schema_17_and_the_list_starts_u
     assert_eq!(f.project_pins(), (true, vec!["a".to_owned()]));
     f.oracle()
         .execute_batch(
-            "DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17;",
+            "ALTER TABLE edit_decisions DROP COLUMN result; DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17;",
         )
         .unwrap();
     f.reopen();
@@ -551,8 +551,9 @@ fn schema_18_adds_the_pin_tables_to_a_store_from_schema_17_and_the_list_starts_u
         .oracle()
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    // The number is pinned: a later migration renumbers this test on purpose.
-    assert_eq!(version, 18);
+    // Reopening applies migration 18 and the later result-column migration. Keep the
+    // current version pinned, updating it deliberately when another migration is added.
+    assert_eq!(version, 19);
     assert_eq!(f.project_pins(), (false, vec![]));
     assert_eq!(f.names(), ["a"]);
 }
