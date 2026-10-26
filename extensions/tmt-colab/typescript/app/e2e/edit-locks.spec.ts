@@ -81,6 +81,7 @@ test('whole-page edit locks float without moving blocks, changing scroll or addi
   await open(page);
   const before = await geometry(page);
   expect(before.frame.blocks).toHaveLength(70);
+  await page.screenshot({ path: info.outputPath('whole-before.png') });
   await run(page, 'setEditLocks', [{ ...record, target: { whole: true } }]);
   const chip = page.getByTestId('edit-lock');
   await expect(chip).toHaveText('night-5 is editing');
@@ -106,6 +107,7 @@ test('a source quote paints only its unambiguous DOM range and clears without la
   };
   const before = await geometry(page);
   expect(before.frame.blocks).toHaveLength(70);
+  await page.screenshot({ path: info.outputPath('range-before.png') });
   await run(page, 'setEditLocks', [{ ...record, target }]);
   const chip = page.getByTestId('edit-lock');
   await expect(chip).toHaveText('night-5 is editing');
@@ -275,6 +277,7 @@ test.describe('mobile dark', () => {
     };
     const before = await geometry(page);
     expect(before.frame.blocks).toHaveLength(70);
+    await page.screenshot({ path: info.outputPath('mobile-dark-before.png') });
     await run(page, 'setEditLocks', [
       { ...record, target: { whole: true } },
       {
