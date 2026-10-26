@@ -5,6 +5,8 @@ The [browser style](gui-style.md) owns visual and interaction rules. The private
 shared metrics, host metric inputs and the React/static entries. Use its README
 when implementing or reviewing browser presentation; this guide is a pointer, not
 another token schema or component inventory.
+Before drawing a mockup or proposing a UX change, load the
+[UI mockup procedure](../.agents/skills/tmt-ui-ux-design/SKILL.md).
 
 ## Roles, metrics and generated CSS
 
