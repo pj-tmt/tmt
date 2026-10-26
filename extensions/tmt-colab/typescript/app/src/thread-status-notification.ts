@@ -12,7 +12,7 @@ export interface StatusNotificationContext {
 }
 /** Re-admit the committed action and frozen context in the trusted parent.
  * Rectangles, renderer clicks and display labels cannot choose a recipient or
- * operation. A later valid status does not erase this action's single attempt. */
+ * operation. Superseded actions cannot start another notification. */
 export function statusNotificationForAsk(
   threads: readonly ThreadView[],
   context: StatusNotificationContext,
@@ -24,6 +24,9 @@ export function statusNotificationForAsk(
   const thread = matches[0];
   requireValue(
     !thread.deleted &&
+      thread.resolved &&
+      thread.status !== undefined &&
+      discussionRefKey(thread.status.ref) === discussionRefKey(context.status) &&
       thread.revision === captured.revision &&
       discussionRefKey(thread.ref) === discussionRefKey(captured.ref),
   );

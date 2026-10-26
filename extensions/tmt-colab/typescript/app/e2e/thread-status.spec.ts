@@ -139,7 +139,7 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await expect(thread.locator('.resolved-summary')).toBeVisible();
   await expect(thread.getByTestId('comment-entry').first()).toBeHidden();
   // The status line shows the same state in the same frame.
-  await expect(state).toHaveText('Resolved');
+  await expect(state).toHaveText('Resolving…');
   await expect(state).toHaveAttribute('data-state', 'resolved');
   await capture(page, 'click-frame');
   const echoed = await box(thread);
@@ -222,7 +222,7 @@ test('Reopen stays busy until confirmation and restores the resolved thread on f
   expect(await statusActions(page)).toEqual(['status:reopen']);
 });
 
-test('a page with 500 threads confirms Resolve while its notification is still outstanding', async ({
+test('a page with 500 threads can immediately Reopen while Resolve notifications are outstanding', async ({
   page,
 }) => {
   await showResolvedOn(page);
@@ -239,5 +239,11 @@ test('a page with 500 threads confirms Resolve while its notification is still o
   ).toBeEnabled();
   expect((await run(page, 'proof')).actions).toContain('notify:Agent 1');
   expect(await statusActions(page)).toEqual(['status:resolve']);
+  await headerActions(page).getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect(
+    headerActions(page).getByRole('button', { name: 'Resolve', exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByTestId('comment-thread').getByRole('alert')).toHaveCount(0);
+  expect(await statusActions(page)).toEqual(['status:resolve', 'status:reopen']);
   await run(page, 'finishStatusNotice');
 });

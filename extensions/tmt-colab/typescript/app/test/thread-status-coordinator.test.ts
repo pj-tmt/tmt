@@ -133,9 +133,6 @@ it('confirms publication before notifications finish, keeping one serial task an
   expect(events[0]).toBe('published');
   expect(events.filter((value) => value.startsWith('attempt:'))).toHaveLength(1);
   expect(coordinator.change(thread(), true)).toBe(one);
-  await expect(coordinator.change({ ...thread(), resolved: true }, false)).rejects.toThrow(
-    'still in progress',
-  );
   release();
   await finished;
   expect(events.filter((value) => value.startsWith('attempt:'))).toHaveLength(2);
@@ -193,4 +190,58 @@ it('a reading close freezes only its named current agent, never title, reason or
     recipients: [],
     warnings: [{ name: 'alpha', reason: 'ambiguous' }],
   });
+});
+
+it('immediate Reopen succeeds and supersedes the unfinished Resolve notifications', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let drained!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    drained = resolve;
+  });
+  const attempts: string[] = [];
+  const writes: boolean[] = [];
+  const coordinator = new ThreadStatusCoordinator({
+    asks: () => [],
+    destinations: async () => [agent('alpha', '1'), agent('beta', '2')],
+    binding: {
+      setStatus: async (_, previous, resolved, recipients) => {
+        writes.push(resolved);
+        return {
+          changed: true,
+          status: {
+            ...f.recipientCases[0].record,
+            thread: ref,
+            resolved,
+            previous,
+            recipients: [...(await recipients)!],
+            ref: { writer: f.thread.senderDevice, id: crypto.randomUUID() },
+            depth: writes.length,
+          },
+        };
+      },
+      notificationFailed: async () => {
+        drained();
+      },
+    },
+    notify: async (_, recipient) => {
+      attempts.push(recipient.agentName);
+      await held;
+      return { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' };
+    },
+  });
+  const resolved = await coordinator.change(thread(), true);
+  if (!resolved.changed) throw new Error('Expected Resolve');
+  const reopened = await coordinator.change(
+    { ...thread(), resolved: true, status: resolved.status },
+    false,
+  );
+  expect(reopened.changed).toBe(true);
+  expect(writes).toEqual([true, false]);
+  release();
+  await settled;
+  await Promise.resolve();
+  expect(attempts).toEqual(['alpha']);
 });

@@ -27,8 +27,9 @@ owns record fields, limits, revision semantics and trust boundaries.
 - `thread-status-coordinator.ts` freezes unique mentions and prior signed recipient UUIDs,
   overlaps recipient discovery with writer admission, then confirms the durable status before
   detached sequential notification attempts. The per-thread fence remains held until those
-  attempts settle; opposite status actions refuse while it is held. The same directory snapshot
-  supplies every attempt; `LiveAsk.notifyStatus` retains FrozenAsk, AskController and the own
+  attempts settle, coalescing repeated same-state clicks. An opposite action proceeds
+  immediately and supersedes the older task, which skips remaining recipients. The same directory
+  snapshot supplies every attempt; `LiveAsk.notifyStatus` retains FrozenAsk, AskController and the own
   ledger's current admission/grant checks. Loading and result re-checking never notify.
   `Live` supplies `ThreadStore` its verified thread projection only for the exact current
   own snapshot, connection and admission; otherwise the store re-reads admitted records.

@@ -139,28 +139,29 @@ export interface ThreadStatusCoordinatorOptions {
 export class ThreadStatusCoordinator {
   #changing = new Map<
     string,
-    { resolved: boolean; task: Promise<StatusChange & { warnings?: MentionWarning[] }> }
+    {
+      resolved: boolean;
+      generation: symbol;
+      task: Promise<StatusChange & { warnings?: MentionWarning[] }>;
+    }
   >();
   constructor(private options: ThreadStatusCoordinatorOptions) {}
   change(thread: ThreadView, resolved: boolean, options?: { onlyAgentName: string }) {
     const key = discussionRefKey(thread.ref);
     const pending = this.#changing.get(key);
-    if (pending)
-      return pending.resolved === resolved
-        ? pending.task
-        : Promise.reject(
-            new Error('Thread notifications are still in progress. Try again when they finish.'),
-          );
+    if (pending?.resolved === resolved) return pending.task;
+    const generation = Symbol();
     const captured = structuredClone(thread);
     const asks = structuredClone([...this.options.asks()]);
     const task = Promise.resolve().then(() =>
-      this.#change(key, captured, asks, resolved, options?.onlyAgentName),
+      this.#change(key, generation, captured, asks, resolved, options?.onlyAgentName),
     );
-    this.#changing.set(key, { resolved, task });
+    this.#changing.set(key, { resolved, generation, task });
     return task;
   }
   async #change(
     key: string,
+    generation: symbol,
     thread: ThreadView,
     asks: readonly PageAsk[],
     resolved: boolean,
@@ -188,20 +189,25 @@ export class ThreadStatusCoordinator {
       );
       if (!result.changed) return result;
       notifying = true;
-      void this.#notify(result.status, thread, await destinations).finally(() =>
-        this.#changing.delete(key),
-      );
+      void this.#notify(key, generation, result.status, thread, await destinations).finally(() => {
+        if (this.#changing.get(key)?.generation === generation) this.#changing.delete(key);
+      });
       return { ...result, warnings: (await frozen).warnings };
     } finally {
-      if (!notifying) this.#changing.delete(key);
+      if (!notifying && this.#changing.get(key)?.generation === generation)
+        this.#changing.delete(key);
     }
   }
   async #notify(
+    key: string,
+    generation: symbol,
     status: ThreadStatusView,
     thread: ThreadView,
     destinations: readonly AgentDestination[],
   ) {
     for (const recipient of status.recipients) {
+      // A newer explicit action supersedes this task, never the person's status write.
+      if (this.#changing.get(key)?.generation !== generation) return;
       try {
         const outcome = await this.options.notify(status, recipient, thread, destinations);
         if (!outcome.adopted)

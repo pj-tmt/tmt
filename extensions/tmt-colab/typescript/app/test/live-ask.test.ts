@@ -366,6 +366,26 @@ it('unavailable recipients and rejected status admission never enter the Remote 
   expect(f.remote.sends).toHaveLength(0);
   expect(f.own).toEqual({});
   f.ask.close();
+  let statusChecks = 0;
+  context.recipient.agent = id(6);
+  const superseded = await fixture(undefined, () => {
+    if (++statusChecks > 1) throw new Error('Resolve was superseded before Send');
+    return {
+      thread: id(2),
+      messageIds: [],
+      operationId: context.recipient.operationId,
+      quote: '',
+      comment: 'Thread resolved',
+    };
+  });
+  const currentDestinations = await superseded.ask.destinations();
+  expect(
+    await superseded.ask.notifyStatus(context, 'Page', pageLink(), currentDestinations),
+  ).toEqual({ adopted: false, reason: 'PREPARATION_FAILED' });
+  expect(statusChecks).toBe(2);
+  expect(superseded.remote.sends).toEqual([]);
+  expect(superseded.own).toEqual({});
+  superseded.ask.close();
 });
 it('status observes admitted presence without admitting an Ask preview or publishing', async () => {
   const f = await fixture();

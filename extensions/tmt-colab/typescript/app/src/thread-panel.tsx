@@ -718,7 +718,7 @@ export function ThreadWindow({
                   ? text.threadDeleted
                   : shownResolved
                     ? pendingResolved
-                      ? text.threadResolved
+                      ? text.threadResolving
                       : resolvedLabel(status)
                     : text.threadOpen}
             </span>
@@ -1023,7 +1023,7 @@ export function ThreadPanel({
   });
   const matches = (row: (typeof rows)[number]) =>
     shownView === 'open'
-      ? showResolved || !row.shownResolved
+      ? showResolved || !row.thread.resolved
       : shownView === 'needs'
         ? row.needsYou
         : !!row.thread.proposal;
@@ -1073,7 +1073,7 @@ export function ThreadPanel({
               {shownResolved ? <Check aria-hidden /> : <span aria-hidden="true">◆</span>}
               {shownResolved
                 ? pending[id] !== undefined
-                  ? text.threadResolved
+                  ? text.threadResolving
                   : resolvedLabel(status)
                 : text.needsYouWord}
             </span>
@@ -1200,15 +1200,17 @@ export function ThreadPanel({
                     ? `${text.proposalOpen} · ${thread.proposal.proposer.label}`
                     : thread.anchor?.exact;
                   const state = [
-                    ...(shownResolved
-                      ? [isPending ? text.threadResolved : resolvedLabel(status)]
-                      : thread.proposal && thread.decision && !thread.decision.deleted
-                        ? [
-                            thread.decision.decision === 'approved'
-                              ? text.proposalApproved
-                              : text.proposalDeclined,
-                          ]
-                        : []),
+                    ...(isPending
+                      ? [pending[id] ? text.threadResolving : text.threadReopening]
+                      : shownResolved
+                        ? [resolvedLabel(status)]
+                        : thread.proposal && thread.decision && !thread.decision.deleted
+                          ? [
+                              thread.decision.decision === 'approved'
+                                ? text.proposalApproved
+                                : text.proposalDeclined,
+                            ]
+                          : []),
                     ...(needsYou ? [text.needsYouWord] : []),
                     ...(shownResolved && status?.unseen ? [text.threadUnseen] : []),
                     ...(thread.anchor && !shownResolved && !resolved.includes(id)

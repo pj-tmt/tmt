@@ -1600,7 +1600,10 @@ pairs with distinct operation IDs and labels of at most 128 UTF-8 bytes. Only a
 person Resolve action can freeze recipients; Reopen and agent CLI actions have an
 empty recipient list. A notification failure belongs to the status action's
 writer and records a failure before adoption into the existing Ask ledger. It
-cannot change thread status or grant a dispatch capability.
+cannot change thread status or grant a dispatch capability. Status confirmation does not
+wait for notifications. A later explicit opposite action proceeds independently and stops
+remaining attempts from the superseded task; a superseded status cannot prepare another
+notification. An already adopted Ask keeps its ordinary ledger outcome.
 
 The generic own writer prepares at most 32 records in one update; thread creation
 publishes its thread and opening message together. Preparation cannot change the
@@ -3518,8 +3521,9 @@ each on its own line. Only that exact device-comment form associates the reading
 scrolling, agent replies and agent Resolve cannot mark it read. The effective person Resolve
 carries the same publisher-assertion limitation as review closes, not a new authentication claim.
 The canonical thread prefers an admitted reading comment, then the existing stable thread order.
-The existing review-close notification guarantee applies: one attempt per committed person
-Resolve, with frozen operation IDs and only the named agent as recipient. Other mentions in the
+The existing review-close notification guarantee applies: at most one attempt per committed
+person Resolve, with frozen operation IDs and only the named agent as recipient; a later
+opposite action may supersede an attempt that has not started. Other mentions in the
 heading, reason or passage do not add recipients. Unknown or ambiguous agents leave a visible
 notification warning rather than guessing a recipient. A retry reuses an already recorded
 comment; reload and reconnect never resend a notification. No separate request store is added.

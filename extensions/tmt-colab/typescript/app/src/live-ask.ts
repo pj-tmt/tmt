@@ -253,6 +253,7 @@ export class LiveAsk implements AskBinding {
           try {
             try {
               await this.#admit();
+              if (statusContext) await this.options.statusContext?.(statusContext);
               if (captured.retryOf !== undefined) {
                 requireValue(captured.context?.message.writer === this.options.deviceId);
                 if (captured.batch) await this.options.answerContext?.(captured.batch);
