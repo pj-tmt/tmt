@@ -105,10 +105,10 @@ impl Running {
         release: Option<Arc<tmt_colab::serve_release::ServeRelease>>,
         rekey_probe: Option<std::sync::mpsc::Sender<()>>,
     ) -> Self {
-        Self::start_all(tunnels, app, release, rekey_probe, None)
+        Self::start_all(tunnels, app, release, rekey_probe, None, Arc::default())
     }
     fn start_with_cloud(tunnels: Tunnels, cloud: tmt_colab::cloud_sync::Config) -> Self {
-        Self::start_all(tunnels, None, None, None, Some(cloud))
+        Self::start_all(tunnels, None, None, None, Some(cloud), Arc::default())
     }
     fn start_all(
         tunnels: Tunnels,
@@ -116,6 +116,7 @@ impl Running {
         release: Option<Arc<tmt_colab::serve_release::ServeRelease>>,
         rekey_probe: Option<std::sync::mpsc::Sender<()>>,
         cloud: Option<tmt_colab::cloud_sync::Config>,
+        save_gate: SaveGate,
     ) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
@@ -130,7 +131,6 @@ impl Running {
         let owner = key.owner_public();
         let store = Store::open(&layout).unwrap();
         store.create_page(PAGE).unwrap();
-        let save_gate: SaveGate = Arc::default();
         let gate = Arc::clone(&save_gate);
         let save_gate_skip = Arc::new(AtomicUsize::new(0));
         let skipped = Arc::clone(&save_gate_skip);
@@ -1243,6 +1243,45 @@ fn two_owner_tabs_append_broadcast_retry_and_catch_up_over_mounted_socket_twice(
 }
 
 #[test]
+fn the_first_object_channel_does_not_wait_for_local_history_maintenance() {
+    use tmt_extension_objects::{Budgets, Bus, Caps, Offer, Uuid4, negotiate};
+    let (probe, _passes) = std::sync::mpsc::channel();
+    let (entered, started) = std::sync::mpsc::channel();
+    let (release, blocked) = std::sync::mpsc::channel();
+    let gate = Arc::new(Mutex::new(Some((entered, blocked))));
+    let server = Running::start_all(Tunnels::PRODUCT, None, None, Some(probe), None, gate);
+    let started = started.recv_timeout(Duration::from_secs(10));
+    let channel = started.is_ok().then(|| {
+        negotiate(Instant::now() + Duration::from_secs(3), || {
+            Ok((
+                server.connect(),
+                Offer {
+                    host: "127.0.0.1:51234".into(),
+                    mount: "/r/fixture/x/colab/".into(),
+                    generation: Uuid4::parse("40000000-0000-4000-8000-000000000095").unwrap(),
+                },
+            ))
+        })
+        .map(|link| Bus::start(link, Budgets::contract(), Caps::contract(), None))
+    });
+    // Always release before asserting, so a failed handshake still joins the held worker.
+    // A successful send also proves the gate had not timed out before the handshake completed.
+    let released = release.send(());
+    assert!(
+        started.is_ok(),
+        "startup history scan did not enter its gate"
+    );
+    assert!(
+        released.is_ok(),
+        "history gate ended before the channel handshake"
+    );
+    let _channel = channel
+        .unwrap()
+        .expect("first channel blocked on maintenance")
+        .unwrap();
+}
+
+#[test]
 fn device_revoke_wakes_the_running_rekey_worker_but_rename_and_own_updates_do_not() {
     use tmt_colab::{
         decoder::{Decoder, OwnRecord},
@@ -1269,6 +1308,11 @@ fn device_revoke_wakes_the_running_rekey_worker_but_rename_and_own_updates_do_no
         Outcome::Committed { count: 1, .. }
     ));
 
+    // The shared read probe also observes local history maintenance, which starts without a
+    // channel. Account for that independent startup scan before testing rekey wakeups.
+    passes
+        .recv_timeout(Duration::from_secs(10))
+        .expect("initial local history scan without an object channel");
     // Keep a real object channel established throughout: its first generation starts one pass.
     let link = negotiate(Instant::now() + Duration::from_secs(3), || {
         Ok((

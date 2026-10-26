@@ -709,6 +709,19 @@ is added.
   trigger of one change plus the report, then `page::owner_fold::fold_others` (the owner fold,
   #3983): it combines other owner-member devices' streams as folds signed by the local writer and
   reports `folded` / `left` / `unfolded`; a stream a fold cannot cover stays and is named.
+- History rebuild stays in the existing compaction owners: `compact::checkpoint_updates`
+  selects the current-history/non-public content policy for both self checkpoints and owner
+  folds; `Decoder::rebuild_content` GC-encodes only a complete original writer document in the
+  isolated child, replaying it to verify projection and client clocks. Pending foreign structs
+  or delete sets retain merge-only bytes; own records keep their existing merge path. The whole
+  page's source/metadata/own equality guard still precedes publication. `rekeyer::history_pass`
+  reuses `Server::compact_page` and its lock/notifications, visiting one eligible page per minute
+  at existing content-tail thresholds even without an object channel. Existing paired heads
+  without a tail are not rewritten; histories shrink only at their next checkpoint after a new
+  edit. Signed old-epoch cuts, their pinned originals and committed tails remain retained, as do
+  latest paired checkpoints and ordinary own history. The Store's existing paired-prefix and
+  confirmed-publication pruning stays the only payload-pruning owner; no broad old-epoch delete
+  or epoch reset is added.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:

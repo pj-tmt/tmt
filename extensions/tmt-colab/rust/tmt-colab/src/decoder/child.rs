@@ -156,6 +156,8 @@ fn execute_with(
     if wire.version != 1
         || wire.updates.len() > UPDATES
         || (wire.records.is_some() && wire.namespace != Namespace::Own)
+        || (wire.rebuild
+            && (!wire.merge_only || wire.namespace != Namespace::Content || wire.records.is_some()))
     {
         return Err(DecodeFault::InvalidInput);
     }
@@ -164,6 +166,9 @@ fn execute_with(
     }
     checkpoint(Stage::Binary, CheckpointBoundary::Enter, 0);
     let baseline = binary(&wire.baseline, STATE_BYTES)?;
+    if wire.rebuild && !baseline.is_empty() {
+        return Err(DecodeFault::InvalidInput);
+    }
     let updates: Vec<_> = wire
         .updates
         .iter()
@@ -214,8 +219,18 @@ fn execute_with(
     }
     if wire.merge_only {
         checkpoint(Stage::Merge, CheckpointBoundary::Enter, 0);
-        let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
-            .map_err(|_| DecodeFault::Rejected)?;
+        let incomplete = {
+            let txn = doc.transact();
+            txn.store().pending_update().is_some() || txn.store().pending_ds().is_some()
+        };
+        let merged = if wire.rebuild && !incomplete {
+            rebuild_content(&doc)?
+        } else {
+            // A writer can depend on another writer's structs. GC must never discard those
+            // pending structs or delete sets; keep the existing merge-only representation.
+            yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
+                .map_err(|_| DecodeFault::Rejected)?
+        };
         if merged.len() > STATE_BYTES {
             return Err(DecodeFault::Rejected);
         }
@@ -637,6 +652,31 @@ fn write_reply_with(
 
 fn diagnostic(message: &str) {
     let _ = writeln!(tmt_cli_style::stream::stderr(), "{message}");
+}
+
+fn rebuild_content(doc: &Doc) -> Result<Vec<u8>, DecodeFault> {
+    let before = project(doc, Namespace::Content)?;
+    let txn = doc.transact();
+    let vector = txn.state_vector();
+    let encoded = txn.encode_state_as_update_v1(&StateVector::default());
+    drop(txn);
+    let candidate = Doc::new();
+    candidate.get_or_insert_text("html");
+    candidate.get_or_insert_map("meta");
+    candidate
+        .transact_mut()
+        .apply_update(Update::decode_v1(&encoded).map_err(|_| DecodeFault::Rejected)?)
+        .map_err(|_| DecodeFault::Rejected)?;
+    if project(&candidate, Namespace::Content)? != before {
+        return Err(DecodeFault::Rejected);
+    }
+    let txn = candidate.transact();
+    if txn.state_vector() != vector
+        || txn.encode_state_as_update_v1(&StateVector::default()) != encoded
+    {
+        return Err(DecodeFault::Rejected);
+    }
+    Ok(encoded)
 }
 
 fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {

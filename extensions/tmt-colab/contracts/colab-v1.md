@@ -1879,8 +1879,14 @@ this contract does not authorize external reporting by itself.
 
 Compaction is by the stream's own original device, from only that writer's
 verified update set: the state encoding of exactly those updates, never of a
-document that also holds another writer's. The native writer merges them with yrs
-`merge_updates_v1`. A browser device encodes the state of the document that holds
+document that also holds another writer's. For a writable, non-public page using
+`current` history, native content checkpoints and owner folds GC-encode only the
+original writer's self-contained content document in the isolated child. The child
+requires no pending structs or delete sets and verifies identical projection, client
+clocks and re-encoding after replay. A writer depending on missing foreign structs
+keeps its ordinary `merge_updates_v1` representation. Public and shared-history
+pages, and the own namespace, retain ordinary native merge semantics.
+A browser device encodes the state of the document that holds
 exactly its own admitted `own` updates (Yjs `encodeStateAsUpdate`), which also drops
 the deleted content a merge keeps. A browser checkpoint is published only when that
 encoding fits one update and decodes back to the same state vector, the same bytes
@@ -1899,6 +1905,17 @@ is retained without pruning and is not selected for bootstrap. Completing the
 pair atomically prunes both covered prefixes and superseded unpinned checkpoints.
 After a prune commits, the local Store best-effort returns up to 64 free SQLite pages
 to disk with incremental vacuum; reclaim failure never fails or rolls back the write.
+
+The serve's existing maintenance worker also visits one eligible page per minute,
+without requiring an object channel. It uses the existing automatic content-tail
+thresholds and the serving compaction path's lock, equality guard and publication
+fence. Archived/deleted pages and own-only tails do not trigger history rebuild.
+Existing paired checkpoints without a tail remain immutable: their histories can
+shrink at the next checkpoint after a new edit, not by replacing an existing head.
+Every pinned checkpoint, latest paired original, signed-cut committed tail and
+own record remains subject to its existing retention rule. In particular, a new
+current-epoch pair does not authorize removing an older epoch's signed-cut payloads;
+normal epoch transitions retain that cost. No new epoch reset is performed.
 
 The dormant native publication tracker adds a fence only for an explicitly tracked own
 stream. Its initial pending set is the current paired checkpoint plus its contiguous

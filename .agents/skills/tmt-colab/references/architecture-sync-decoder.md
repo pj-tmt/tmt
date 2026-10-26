@@ -24,7 +24,8 @@ and `limits.rs`; do not restate them.
   of the thirteen-field header refuses it) and a `device.revoke` carries the fold hashes it accepts
   (`DeviceRevoke::folds`; the native revoke lists `committed_folds`, at most 512). The writer is
   `page/owner_fold.rs`, run by `compact::request` after the device's own combine: it merges another
-  owner-member device's verified updates per namespace and publishes them with `Store::fold` (the
+  owner-member device's verified updates per namespace, using the same policy-gated content GC
+  as self compaction, and publishes them with `Store::fold` (the
   signer is the local writer, kept in `checkpoints.signer`) only after one source/metadata/own
   equality guard; `prune` keeps the update at the fold's sequence as its anchor. Native
   admission reads folds through `fold.rs` (`open_fold_object`, anchors from `fold_anchors`); catch-up
