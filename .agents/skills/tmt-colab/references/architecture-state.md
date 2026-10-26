@@ -119,7 +119,7 @@ membership and revocation cuts still apply. Fresh `author()` and the actual call
 ## Page markup check
 
 `rust/tmt-colab/src/page_check/` is the pure checker behind `page check` and the warnings of
-`page create` and `page write`: `tree.rs` parses with `html5ever` into an arena `TreeSink` (a
+`page create` and `page patch`: `tree.rs` parses with `html5ever` into an arena `TreeSink` (a
 `template` fragment context, scripting off, nesting capped at 512 because the tree builder scans
 its open elements on every start tag), and `question.rs`, `group.rs`, `review.rs`, `reading.rs` and `image.rs` hold the rule
 tables (`group.rs` also decides which groups are skipped and which IDs are held, review sections included). It does no I/O; `cli_page_check.rs` adapts it to the commands. The browser's `inspectQuestions`
@@ -583,7 +583,7 @@ is added.
   `publication_status` is a read-only original-key lookup with caller-supplied current authority;
   it never issues a chain or persists UNKNOWN. Shared capacity includes scoped outcomes in
   existing page budgets across epochs, without eviction. The contract owns wire details;
-  CLI `page write`, its serving route and browser Save call it; Save reaches it through
+  CLI `page patch`, its serving route and browser Save call it; Save reaches it through
   `Admission::commit_save`, not `LocalWrite` IPC (see
   [Page source and export](architecture-sync-decoder.md#page-source-and-export)).
 - Link seeds are borrowed for key derivation and never persisted or returned
@@ -680,8 +680,10 @@ is added.
   changing full-fidelity export. Read projection carries no write or transport authority.
 - `page patch` (`cli_patch.rs`, `page/patch.rs`) evaluates an anchored change (exact find,
   hash-fenced line range or unified diff) as a pure function of the source `page::read` folds
-  to, then goes through `commit_source` (`main.rs`), the one whole-source path `page write`
-  also uses, so limits, the markup check, the no-op and lost-reply replay are shared. The
+  to, then goes through `commit_source` (`main.rs`), the shared source-publication path,
+  so limits, the markup check, the no-op and lost-reply replay retain one owner.
+  Repeated find/replace pairs match the original source and commit together; overlapping
+  ranges refuse. Existing-page `page write` refuses before reading source input. The
   evaluated base is fenced by `PublishOptions::base_source_sha256`; a stale base or commit
   re-evaluates on the page as it is, at most 3 more times, unless `--expected-revision` fences.
   The browser Save's merge uses the same evaluator (`apply_hunks`, `conflicting_hunks`), so a
@@ -690,14 +692,13 @@ is added.
   diff, each region trimmed to the characters that differ; an edit past 400 changed lines or the
   step budget is one region over the differing span). The isolated decoder child emits one delta
   per region, last to first, so text between far-apart edits is not rewritten and the source is
-  byte-identical after apply. `EditScale::of` and `is_large_rewrite` (more than half of a source
-  of at least 2 KiB) measure the same regions. `Decoder::prepare_mutation` sets the scale on
+  byte-identical after apply. `EditScale::of` and `is_large_rewrite` (more than half of the source,
+  with no minimum page size) measure the same regions. `Decoder::prepare_mutation` sets the scale on
   `PreparedContent`, `FrozenPublication::scale` carries it to the receipt (not serialized), and
   `cli_edit_hint.rs` turns a warning, a non-minimal update or a large rewrite into the one `read`
-  command a write or patch receipt names; a normal edit names nothing. `cli_replace.rs` is the
-  `page write` gate: after preparation and before publication `commit_source` refuses a large
-  rewrite without `--replace` (`COLAB_REWRITE_REQUIRES_REPLACE`, naming the rerun); patch, layout
-  and create pass no gate.
+  command a patch receipt names; a normal edit names nothing. `print_receipt` uses the same
+  scale to add a `large-patch` warning in JSON and human output after a large patch applies;
+  this advice never refuses publication under `--strict`.
 - `PageUsage` (`page.rs`) is the page's usage: the tail count and bytes the write path refuses
   at, the checkpoints, and the whole state with its gzipped size from 256 KiB. `fold.rs` counts
   them once (`UsageCounts::add`, `MaterializationInput::usage`) for the refusal and for the

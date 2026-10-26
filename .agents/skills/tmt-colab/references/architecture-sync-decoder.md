@@ -302,7 +302,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   namespace per job), original-ID `Outcome` and `LocalWrite`/`LocalStatus` codecs, with exact
   packet/hash/signature vectors for both kinds in `publication-content-v1.json`. It accepts a
   caller-admitted public key, never authority state, and preserves original envelope bytes.
-  See the content-publication section of colab-v1 for its callers: CLI `page write` and
+  See the content-publication section of colab-v1 for its callers: CLI `page patch` and
   `threads resolve|reopen`; Browser Save does not use it.
 
 ## Browser containment

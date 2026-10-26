@@ -841,7 +841,7 @@ fn commit_source(
     });
     Ok(receipt)
 }
-/// The result of `page write` or `page patch`: JSON, or one detail block and the warnings.
+/// The result of `page patch`: JSON, or one detail block and the warnings.
 fn print_receipt(
     receipt: tmt_colab::page::Receipt,
     warnings: &[tmt_colab::page_check::Finding],

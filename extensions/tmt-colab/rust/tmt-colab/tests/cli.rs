@@ -3550,7 +3550,7 @@ fn a_patch_changes_only_the_addressed_text_and_refuses_when_its_anchor_moved() {
         let strict = refused(&["--find", "<p>ALPHA</p>", "--replace", &dirty, "--strict"]);
         assert_eq!(strict["error"]["code"], "COLAB_PAGE_CHECK");
         assert_eq!(read()["source"], source);
-        // A source over the page limit is refused at the file, as for page write.
+        // A source over the page limit is refused at the file before patch evaluation.
         let huge = pilot.root.join("huge.txt");
         fs::write(&huge, "x".repeat(2 * 1024 * 1024 + 1)).unwrap();
         let too_large = refused(&[
@@ -6782,7 +6782,7 @@ fn installed_service(pilot: &Pilot, core: PathBuf, json_output: bool) -> (Servin
 
 /// A receipt-bound replacement driver supplies the selected version's bounded preflight,
 /// then either execs the real current binary or fails after the cutoff. Real Colab owns the
-/// migrated store, page write and socket; the driver only makes two versions reproducible.
+/// migrated store, page patch and socket; the driver only makes two versions reproducible.
 fn select_replacement(pilot: &Pilot, lib: &std::path::Path, fail: bool) {
     use sha2::{Digest, Sha256};
     let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
@@ -9581,7 +9581,7 @@ fn the_starters_question_and_reading_examples_pass_the_check_and_publish_as_writ
     assert_eq!(report["findings"], json!([]));
     assert_eq!(report["questions"], json!({"admitted": 1, "ignored": 0}));
     assert_eq!(report["readings"], json!({"admitted": 1, "ignored": 0}));
-    // The skill's own flow: an empty page, then a whole-page write fenced by its revision.
+    // The skill's own flow: an empty page, then an anchored patch fenced by its revision.
     let created = pilot.call(&[
         "page",
         "create",

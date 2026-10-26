@@ -1,4 +1,4 @@
-//! `tmt colab page check`, and the warnings `page create` and `page write` print from the same
+//! `tmt colab page check`, and the warnings `page create` and `page patch` print from the same
 //! check. The rules live in `tmt_colab::page_check`; this is the command's adaptation to it.
 
 use std::{
@@ -34,7 +34,7 @@ const CHECK: CommandSpec = CommandSpec {
         note: "Report ignored question blocks and other markup problems with a line and a reason code",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Offline and fast: reads one file (or - for bounded UTF-8 stdin) and needs no running serve and no local state. Reports every block the browser ignores (question blocks, with a reason code and line), data: images that make the page heavy and colab-attachment: references that cannot show. Exits 1 when it finds anything. With --page, references are resolved against current document attachments and authored questions are compared with the page registry and creator. Registry mismatches always refuse publication; --strict applies to ordinary markup findings. page create and page write print ordinary markup findings as warnings; registry findings have blocking severity. Hints are advice that blocks nothing: they come in a separate hints array ({code, message}), never refuse under --strict and never change the exit code; page check and page create show them.",
+    details: "Offline and fast: reads one file (or - for bounded UTF-8 stdin) and needs no running serve and no local state. Reports every block the browser ignores (question blocks, with a reason code and line), data: images that make the page heavy and colab-attachment: references that cannot show. Exits 1 when it finds anything. With --page, references are resolved against current document attachments and authored questions are compared with the page registry and creator. Registry mismatches always refuse publication; --strict applies to ordinary markup findings. page create and page patch print ordinary markup findings as warnings; registry findings have blocking severity. Hints are advice that blocks nothing: they come in a separate hints array ({code, message}), never refuse under --strict and never change the exit code; page check and page create show them.",
 };
 
 /// Where `page check` and its siblings look for the attachments a reference names.
@@ -317,7 +317,7 @@ pub fn inspect(source: &str, attachments: Attachments<'_>) -> Result<Report> {
     Ok(report)
 }
 
-/// The check `page create` and `page write` run before publishing: under `--strict` any finding
+/// The check `page create` and `page patch` run before publishing: under `--strict` any finding
 /// refuses the command before anything is committed; otherwise the findings come back to be
 /// printed as warnings after the page is published.
 pub fn gate(source: &str, args: &ArgMatches, attachments: Attachments<'_>) -> Result<Vec<Finding>> {
