@@ -5,7 +5,10 @@
 
 use crate::core::Core;
 use serde_json::{Value, json};
-use std::{path::PathBuf, time::SystemTime};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant, SystemTime},
+};
 
 /// The two change signals as last read. A signal that could not be read is
 /// None and never counts as a change on its own.
@@ -23,6 +26,15 @@ pub struct Stamp {
 }
 
 impl Stamp {
+    /// Only successful durable observations admit reuse. Usage has its own
+    /// sampling owner; local config/provider stamps invalidate projections too.
+    pub(super) fn reusable(&self, now: &Stamp) -> bool {
+        self.has_cursor() && now.has_cursor() && !self.moved(now)
+    }
+
+    pub(super) fn has_cursor(&self) -> bool {
+        self.cursor.as_ref().and_then(Value::as_u64).is_some()
+    }
     /// A cutover changes the watched file even when its bytes/stamp match.
     pub(super) fn layout_moved(&self, now: &Stamp) -> bool {
         self.layout != now.layout
@@ -74,6 +86,7 @@ pub struct Changes {
     fields: Option<PathBuf>,
     /// False once core reports it has no change cursor; never asked again.
     cursor: bool,
+    latest: Option<(Instant, Option<Value>, Option<Value>)>,
 }
 
 impl Changes {
@@ -84,10 +97,14 @@ impl Changes {
             config,
             fields,
             cursor: true,
+            latest: None,
         }
     }
 
     pub(super) fn retarget(&mut self, config: Option<PathBuf>) {
+        if self.config != config {
+            self.latest = None;
+        }
         self.config = config;
     }
 
@@ -100,7 +117,26 @@ impl Changes {
     }
 
     pub fn stamp(&mut self, core: &Core) -> Stamp {
-        let (cursor, usage) = self.cursors(core);
+        self.stamp_at(core, Instant::now(), Duration::ZERO)
+    }
+
+    /// Poll and pre-load checks share one cursor observation per second; file
+    /// stamps are always read. Explicit generation changes use `stamp` instead.
+    pub(super) fn stamp_cached(&mut self, core: &Core) -> Stamp {
+        self.stamp_at(core, Instant::now(), Duration::from_secs(1))
+    }
+
+    fn stamp_at(&mut self, core: &Core, now: Instant, every: Duration) -> Stamp {
+        let (cursor, usage) = match &self.latest {
+            Some((seen, cursor, usage)) if now.saturating_duration_since(*seen) < every => {
+                (cursor.clone(), usage.clone())
+            }
+            _ => {
+                let (cursor, usage) = self.cursors(core);
+                self.latest = Some((now, cursor.clone(), usage.clone()));
+                (cursor, usage)
+            }
+        };
         Stamp {
             layout: self.config.clone(),
             cursor,
@@ -173,6 +209,42 @@ mod tests {
             .unwrap_or_default()
             .lines()
             .count()
+    }
+
+    #[test]
+    fn cached_cursor_checks_keep_local_stamps_fresh_and_never_hide_the_next_poll() {
+        let (mut changes, cursor, config, dir) = fake("cached");
+        let core = Core::at(dir.join("tmt"));
+        let start = Instant::now();
+        let every = Duration::from_secs(1);
+        let first = changes.stamp_at(&core, start, every);
+        std::fs::write(&cursor, "8").unwrap();
+        std::fs::write(&config, "[board]\n").unwrap();
+        let immediate = changes.stamp_at(&core, start + Duration::from_millis(500), every);
+        assert_eq!(first.cursor, immediate.cursor);
+        assert!(
+            first.moved(&immediate),
+            "local file changes are independent of Core polling"
+        );
+        assert_eq!(calls(&dir), 1, "pre-load check reuses this poll");
+        let next = changes.stamp_at(&core, start + every, every);
+        assert_eq!(
+            next.cursor,
+            Some(json!(8)),
+            "change during acquisition appears next poll"
+        );
+        assert_eq!(calls(&dir), 2);
+        assert!(!first.reusable(&next));
+        assert!(next.reusable(&next));
+        assert!(!Stamp::default().reusable(&Stamp::default()));
+        assert!(
+            next.reusable(&Stamp {
+                usage: Some(json!(999)),
+                ..next.clone()
+            }),
+            "usage has its own clock"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -9,10 +9,10 @@ use std::{
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-struct Fixture(PathBuf);
+pub(super) struct Fixture(pub(super) PathBuf);
 
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         // The hardlink scenario must share the executable's filesystem, even
         // when the system temporary directory is a separate Linux tmpfs.
         let current = std::env::current_exe().unwrap();
@@ -24,6 +24,232 @@ impl Fixture {
         fs::create_dir(&path).unwrap();
         Self(path)
     }
+}
+
+pub(super) fn session_fixture(fixture: &Fixture) -> Core {
+    let selected = fixture.0.join("tmt");
+    crate::test_support::write_ready_executable(
+        &selected,
+        &format!(
+            r#"#!/bin/sh
+cd '{}'
+printf '%s %s\n' "$$" "$*" >> launches
+if [ "$*" = api ]; then
+  cat > capability-input
+  if [ -f bad-capability ]; then printf broken; exit 1; fi
+  if [ -f legacy ]; then printf '{{}}'; else printf '{{"session":{{"framing":"ndjson"}}}}'; fi
+  exit 0
+fi
+while IFS= read -r request; do
+  printf '%s\n' "$request" >> requests
+  case "$request" in
+    *'"operation":"stale"'*) printf '%s\n' '{{"error":{{"code":"API_SESSION_STALE","message":"reopen"}}}}'; exit 0 ;;
+    *'"operation":"fail"'*) printf '%s\n' '{{"error":{{"code":"CONFLICT","message":"changed","current":{{"revision":7}}}},"requestId":"accepted"}}' ;;
+    *'"operation":"truncated"'*) printf partial; exit 7 ;;
+    *'"operation":"block"'*) printf ready > admitted; cat > /dev/null; exit 0 ;;
+    *'"operation":"gate"'*) printf ready > admitted; while [ ! -f release ]; do sleep 0.01; done; printf '%s\n' "$request" ;;
+    *) printf '%s\n' "$request" ;;
+  esac
+done
+printf done > eof
+"#,
+            fixture.0.display()
+        ),
+    );
+    Core::at(selected).with_api_session().unwrap()
+}
+
+fn lines(path: PathBuf) -> Vec<String> {
+    fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn board_session_shares_one_child_preserves_attribution_and_closes_at_last_owner() {
+    let fixture = Fixture::new();
+    let core = session_fixture(&fixture);
+    let clone = core.interactive();
+    assert_eq!(
+        core.api("read", json!({"text":"one\ntwo"})).unwrap(),
+        json!({"version":1,"operation":"read","input":{"text":"one\ntwo"}})
+    );
+    assert_eq!(
+        clone.api_write("write", json!({}), Some("actor")).unwrap()["identity"],
+        "actor"
+    );
+    assert_eq!(
+        clone.api_write("write", json!({}), None).unwrap()["originator"],
+        "anonymous"
+    );
+    let failure = core.api("fail", json!({})).unwrap_err();
+    assert_eq!(failure.code, "CONFLICT");
+    assert_eq!(failure.current.as_deref(), Some(&json!({"revision":7})));
+    assert_eq!(failure.request.as_deref(), Some("accepted"));
+    assert!(!failure.was_cancelled());
+    assert_eq!(clone.api("later", json!({})).unwrap()["operation"], "later");
+    let launches = lines(fixture.0.join("launches"));
+    assert_eq!(
+        launches.len(),
+        2,
+        "one capability probe and one persistent child"
+    );
+    assert!(launches[0].ends_with(" api"));
+    assert!(launches[1].ends_with(" api --session"));
+    drop(core);
+    assert!(
+        !fixture.0.join("eof").exists(),
+        "another worker still owns the session"
+    );
+    drop(clone);
+    assert_eq!(fs::read(fixture.0.join("eof")).unwrap(), b"done");
+    assert_eq!(lines(fixture.0.join("requests")).len(), 5);
+}
+
+#[test]
+fn stale_or_missing_response_is_never_replayed_and_only_later_work_reopens() {
+    let fixture = Fixture::new();
+    let core = session_fixture(&fixture);
+    assert_eq!(
+        core.api("stale", json!({})).unwrap_err().code,
+        "API_SESSION_STALE"
+    );
+    assert_eq!(lines(fixture.0.join("launches")).len(), 2);
+    assert_eq!(core.api("later", json!({})).unwrap()["operation"], "later");
+    assert_eq!(lines(fixture.0.join("launches")).len(), 3);
+    assert_eq!(
+        core.api("truncated", json!({})).unwrap_err().code,
+        "SQUAD_CORE_UNAVAILABLE"
+    );
+    assert_eq!(lines(fixture.0.join("launches")).len(), 3);
+    assert_eq!(core.api("final", json!({})).unwrap()["operation"], "final");
+    drop(core);
+    let requests: Vec<Value> = lines(fixture.0.join("requests"))
+        .iter()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        requests
+            .iter()
+            .map(|request| request["operation"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["stale", "later", "truncated", "final"]
+    );
+    assert_eq!(lines(fixture.0.join("launches")).len(), 4);
+}
+
+#[test]
+fn old_core_is_negotiated_once_and_keeps_the_existing_one_shot_door() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("legacy"), b"").unwrap();
+    let core = session_fixture(&fixture);
+    assert_eq!(core.api("read", json!({})).unwrap(), json!({}));
+    assert_eq!(
+        core.api_write("write", json!({}), Some("actor")).unwrap(),
+        json!({})
+    );
+    drop(core);
+    assert_eq!(
+        lines(fixture.0.join("launches")).len(),
+        3,
+        "one probe, then two ordinary API processes"
+    );
+    let request: Value =
+        serde_json::from_slice(&fs::read(fixture.0.join("capability-input")).unwrap()).unwrap();
+    assert_eq!(request["identity"], "actor");
+    assert!(!fixture.0.join("requests").exists());
+}
+
+#[test]
+fn failed_capability_admission_never_submits_the_effect() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("bad-capability"), b"").unwrap();
+    let core = session_fixture(&fixture);
+    assert!(core.api_write("write", json!({}), Some("actor")).is_err());
+    assert!(!fixture.0.join("requests").exists());
+    assert_eq!(lines(fixture.0.join("launches")).len(), 1);
+    fs::remove_file(fixture.0.join("bad-capability")).unwrap();
+    assert_eq!(core.api("later", json!({})).unwrap()["operation"], "later");
+    drop(core);
+    let requests = lines(fixture.0.join("requests"));
+    assert_eq!(requests.len(), 1);
+    assert!(!requests[0].contains("write"));
+}
+
+#[test]
+fn cancelling_one_admitted_read_does_not_cancel_another_worker_or_replay_it() {
+    let fixture = Fixture::new();
+    let core = session_fixture(&fixture);
+    let cancel = runner::Cancellation::default();
+    let reader = core.cancellable(cancel.clone());
+    let read = std::thread::spawn(move || reader.api("block", json!({})));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !fixture.0.join("admitted").exists() {
+        assert!(Instant::now() < deadline, "fixture request admission");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    cancel.cancel();
+    assert!(read.join().unwrap().unwrap_err().was_cancelled());
+    assert_eq!(core.api("later", json!({})).unwrap()["operation"], "later");
+    drop(core);
+    assert_eq!(lines(fixture.0.join("requests")).len(), 2);
+}
+
+#[test]
+fn retained_automatic_reads_never_admit_actions_or_superseded_generations() {
+    let fixture = Fixture::new();
+    let core = session_fixture(&fixture);
+    let held = Arc::new(RetainedReads::default());
+    held.reset(true);
+    let request = json!({"version":1,"operation":"references.resolve","input":{}});
+    let resource = json!({"identities":[]});
+    held.keep(&request, &resource);
+    let background = core.with_retained_reads(Arc::clone(&held));
+    assert_eq!(
+        background.api("references.resolve", json!({})).unwrap(),
+        resource
+    );
+    assert!(
+        !fixture.0.join("launches").exists(),
+        "unchanged covered projection uses no Core read"
+    );
+    let cancellation = runner::Cancellation::default();
+    cancellation.cancel();
+    assert!(
+        background
+            .cancellable(cancellation)
+            .api("references.resolve", json!({}))
+            .unwrap_err()
+            .was_cancelled()
+    );
+    assert!(
+        background
+            .api_within("references.resolve", json!({}), Duration::ZERO)
+            .is_err()
+    );
+    assert_eq!(
+        background
+            .interactive()
+            .api("references.resolve", json!({}))
+            .unwrap(),
+        request,
+        "selected reads are fresh"
+    );
+    assert_eq!(
+        background.api_write("write", json!({}), None).unwrap()["originator"],
+        "anonymous"
+    );
+    held.reset(false);
+    assert_eq!(
+        background.api("references.resolve", json!({})).unwrap(),
+        request,
+        "failed/unsupported cursor disables retention"
+    );
+    drop(background);
+    drop(core);
+    assert_eq!(lines(fixture.0.join("requests")).len(), 3);
 }
 
 impl Drop for Fixture {

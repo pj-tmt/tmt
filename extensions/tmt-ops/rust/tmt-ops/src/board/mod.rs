@@ -1569,6 +1569,7 @@ pub fn run(
     startup_tab: Option<crate::config::StartupTab>,
     interaction: tmt_cli_style::Interaction,
 ) -> Result<Option<i32>, SquadError> {
+    let core = core.with_api_session()?;
     let trace = timing::Trace::from_env();
     let startup = trace.as_ref().map(timing::Trace::startup);
     terminal::restore_before_panic_reports();
