@@ -236,7 +236,7 @@ export const text = {
   newMessages: 'New messages',
   selectionMode: 'Selection mode',
   selecting: 'Selecting',
-  selectionModeHint: 'Click an element or select text to comment · Esc to cancel',
+  selectionModeHint: 'Click an element or select text to comment · Esc or C to stop',
   annotationTitle: 'Annotate',
   annotateSelection: 'Annotate the selection',
   threadHeading: 'Thread',

@@ -1211,14 +1211,14 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   flex: 0 0 var(--colab-header-icon-size);
   width: var(--colab-header-icon-size);
   height: var(--colab-header-icon-size);
-  color: var(--tmt-ui-color-accent);
+  color: var(--c-accent);
 }
 .short-page-options li > a:hover,
 .short-page-options li > a:focus-visible {
-  background: var(--tmt-ui-surface-selection);
+  background: var(--c-accent-soft);
 }
 .short-page-title {
-  color: var(--tmt-ui-color-accent);
+  color: var(--c-accent);
 }
 .short-page-options li > a:hover .short-page-title,
 .short-page-options li > a:focus-visible .short-page-title {
