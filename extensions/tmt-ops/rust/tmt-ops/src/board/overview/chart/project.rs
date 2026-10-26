@@ -110,7 +110,16 @@ fn provider_rows(series: &Series, reading: Option<&Interval>) -> crate::board::s
                 )
             });
             Row {
-                name: driver.map_or_else(|| "unknown".into(), label),
+                name: driver.map_or_else(
+                    || "unknown".into(),
+                    |driver| {
+                        series
+                            .names
+                            .get(driver)
+                            .cloned()
+                            .unwrap_or_else(|| label(driver))
+                    },
+                ),
                 values: series
                     .buckets
                     .iter()
@@ -134,9 +143,15 @@ fn provider_rows(series: &Series, reading: Option<&Interval>) -> crate::board::s
             }
         })
         .collect();
+    // Only an account's name widens the column; every other row keeps its width.
+    let name_width = series
+        .names
+        .values()
+        .map(|name| name.chars().count().min(24) as u16)
+        .fold(8, u16::max);
     Data {
         rows,
-        name_width: 8,
+        name_width,
         share_caption: "% of all".into(),
         show_axis: true,
         axis: super::format::axis(series.selection.range_minutes),
@@ -296,6 +311,48 @@ mod tests {
                 .all(|row| row.total == "—" && row.share == "—")
         );
         assert_eq!(missing.rows.len(), 3);
+    }
+
+    #[test]
+    fn an_accounts_row_is_named_by_its_label_and_only_a_named_row_widens_the_name_column() {
+        let source = observed();
+        let mut shown = display(&source, Selection::default()).unwrap();
+        shown.drivers = ["claude".into()].into();
+        let plain = spark_rows(&shown);
+        assert_eq!(plain.name_width, 8, "no account: the column is as it was");
+        assert_eq!(plain.rows[0].name, "Claude");
+
+        shown.drivers = [
+            "claude".into(),
+            "claude.0123456789ab".into(),
+            "claude.ba9876543210".into(),
+        ]
+        .into();
+        shown.names = [
+            ("claude".into(), "Claude · unknown account".into()),
+            ("claude.0123456789ab".into(), "Claude · work".into()),
+            ("claude.ba9876543210".into(), "Claude · home".into()),
+        ]
+        .into();
+        let named = spark_rows(&shown);
+        assert_eq!(
+            named
+                .rows
+                .iter()
+                .map(|row| row.name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Claude · unknown account",
+                "Claude · work",
+                "Claude · home",
+                "unknown"
+            ],
+            "the tokens no driver owns keep their own row"
+        );
+        assert_eq!(named.name_width, 24, "capped, so the bars keep their room");
+        shown.names.clear();
+        shown.names.insert("claude".into(), "Claude · x".into());
+        assert_eq!(spark_rows(&shown).name_width, 10);
     }
 
     #[test]

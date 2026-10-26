@@ -218,3 +218,142 @@ fn present_names_every_provider_with_a_listed_session() {
     assert_eq!(present(&listed(rows)).len(), 2);
     assert!(present(&listed(vec![])).is_empty());
 }
+
+const WORK: &str = "0123456789ab";
+const HOME: &str = "ba9876543210";
+
+fn account_row(name: &str, key: &str, label: &str, used: f64, observed: u64) -> Value {
+    let mut rate_limits = limits(observed, vec![window(10_080, used, RESET)]);
+    rate_limits["account"] = json!({"key": key, "label": label});
+    let mut row = codex_row(name, rate_limits);
+    row["resume"]["driver"] = json!("claude");
+    row
+}
+
+fn keys(providers: impl IntoIterator<Item = Provider>) -> Vec<String> {
+    providers
+        .into_iter()
+        .map(|provider| provider.key())
+        .collect()
+}
+
+#[test]
+fn two_accounts_of_one_driver_are_two_providers_each_with_its_newest_reading_and_label() {
+    let listing = listed(vec![
+        account_row("a", WORK, "work", 20.0, OBSERVED),
+        account_row("b", HOME, "home", 60.0, OBSERVED + 1000),
+        account_row("c", WORK, "work-renamed", 30.0, OBSERVED + 2000),
+    ]);
+    let found = reported(&listing);
+    assert_eq!(
+        keys(found.keys().cloned()),
+        [format!("claude.{WORK}"), format!("claude.{HOME}")]
+    );
+    let (work, reading) = found
+        .iter()
+        .find(|(provider, _)| provider.account_key() == Some(WORK))
+        .unwrap();
+    assert_eq!(work.account_label(), Some("work-renamed"));
+    assert_eq!(reading.weekly.left, 70.0);
+    assert!(
+        found
+            .iter()
+            .any(|(provider, reading)| provider.account_key() == Some(HOME)
+                && reading.weekly.left == 40.0)
+    );
+}
+
+#[test]
+fn a_session_without_an_account_stays_the_plain_driver() {
+    let mut named = account_row("a", WORK, "work", 20.0, OBSERVED);
+    let mut plain = named.clone();
+    plain["resume"]["consumption"]["rateLimits"]
+        .as_object_mut()
+        .unwrap()
+        .remove("account");
+    plain["name"] = json!("plain");
+    plain["resume"]["consumption"]["rateLimits"]["observedAtMs"] = json!(OBSERVED + 5);
+    named["name"] = json!("named");
+    let found = reported(&listed(vec![named, plain]));
+    assert_eq!(
+        keys(found.keys().cloned()),
+        ["claude".to_owned(), format!("claude.{WORK}")]
+    );
+}
+
+#[test]
+fn a_malformed_account_makes_the_session_report_nothing() {
+    for bad in [
+        json!({"key": "0123456789AB", "label": "work"}),
+        json!({"key": WORK, "label": "has space"}),
+        json!({"key": WORK}),
+        json!("work"),
+    ] {
+        let mut row = account_row("a", WORK, "work", 20.0, OBSERVED);
+        row["resume"]["consumption"]["rateLimits"]["account"] = bad.clone();
+        assert!(reported(&listed(vec![row])).is_empty(), "{bad}");
+    }
+}
+
+#[test]
+fn one_named_account_is_the_whole_driver_and_two_keep_the_plain_driver_beside_them() {
+    let plain = claude_row("plain", "active", Some(OBSERVED));
+    let work = account_row("a", WORK, "work", 20.0, OBSERVED);
+    let home = account_row("b", HOME, "home", 60.0, OBSERVED);
+    assert_eq!(
+        keys(present(&listed(vec![plain.clone(), work.clone()]))),
+        [format!("claude.{WORK}")],
+        "one account folds the sessions that name none into itself"
+    );
+    assert_eq!(
+        keys(present(&listed(vec![plain.clone(), work, home]))),
+        [
+            "claude".to_owned(),
+            format!("claude.{WORK}"),
+            format!("claude.{HOME}")
+        ]
+    );
+    assert_eq!(keys(present(&listed(vec![plain]))), ["claude"]);
+}
+
+#[test]
+fn a_provider_key_round_trips_and_only_a_hex_account_key_names_an_account() {
+    for key in [
+        "claude",
+        &format!("claude.{WORK}"),
+        &format!("my-driver_2.{HOME}"),
+    ] {
+        assert_eq!(Provider::from_key(key).unwrap().key(), key);
+    }
+    for key in [
+        "",
+        "claude.",
+        "claude.0123456789AB",
+        "claude.0123456789abc",
+        &format!("claude.{WORK}.extra"),
+        &format!("two words.{WORK}"),
+    ] {
+        assert!(Provider::from_key(key).is_none(), "{key:?}");
+    }
+    let named = Provider::from_key(&format!("claude.{WORK}")).unwrap();
+    assert_eq!(named.id(), "claude");
+    assert_eq!(
+        named.board_name(),
+        "claude",
+        "one account reads as the driver"
+    );
+    assert_eq!(
+        named.clone().showing_account(true).board_name(),
+        format!("claude.{WORK}")
+    );
+    assert_eq!(
+        named.clone().labelled("work").showing_account(true).label(),
+        "Claude · work"
+    );
+    assert_eq!(
+        named,
+        Provider::from_key(&format!("claude.{WORK}"))
+            .unwrap()
+            .labelled("other")
+    );
+}

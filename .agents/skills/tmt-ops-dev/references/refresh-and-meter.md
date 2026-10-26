@@ -417,6 +417,14 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   30 minutes, starts a new cycle) and needs 1 h of samples. A reading older than 2
   h, or whose week has already reset, is shown only as `no reading for <age>`.
   Only windows of about 7 days and 5 hours are shown, so the labels are exact.
+  A provider is the driver ID, or the driver and `rateLimits.account.key` when Core names an
+  account (#5274): `samples.json` keys it `driver.key` and keeps the newest label beside the history
+  under `accounts`, a section written only once an account exists. Only a driver with two or more
+  accounts shows them (`Claude · work`, the plain driver beside them `Claude · unknown account`);
+  one account folds the plain history into itself and reads as the driver. A label change keeps the
+  key and the history, and two keys never merge. Tokens go to the seat's latest account only where
+  `Rate::several_accounts` says the driver has several; Digest spend stays per driver.
+  `tmt ops limits --json` adds `account: {key, label}` to an entry only for a named account.
   These held estimates continue to serve Digest. Agents uses one selected
   window and the fixed two-hour API-backed projection described in
   [board-home.md](board-home.md#usage-and-verification); its four-hour quota tier

@@ -17,12 +17,14 @@ fn list_capacity(app: &App, area: Rect) -> usize {
 fn display(app: &App, data: &Series, selection: Selection) -> super::super::model::Series {
     let mut view = project::display(data, selection).expect("validated interval projection");
     if app.shell.tab == OpsTab::Agents && quotas_visible(app) {
-        view.drivers.extend(
-            app.limits
-                .iter()
-                .flatten()
-                .map(|standing| standing.provider.id().to_owned()),
-        );
+        for standing in app.limits.iter().flatten() {
+            let name = standing.provider.board_name();
+            // A row an account (or the unnamed sessions beside several) owns is named by it.
+            if standing.provider.names_account() {
+                view.names.insert(name.clone(), standing.provider.label());
+            }
+            view.drivers.insert(name);
+        }
     }
     view
 }

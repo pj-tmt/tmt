@@ -335,3 +335,151 @@ fn the_burn_follows_the_samples_across_ticks() {
         Some(1.0)
     );
 }
+
+const WORK: &str = "0123456789ab";
+const HOME: &str = "ba9876543210";
+
+fn account_row(
+    driver: &str,
+    name: &str,
+    key: &str,
+    label: &str,
+    used: f64,
+    observed: u64,
+) -> Value {
+    json!({"name": name, "presence": "active", "resume": {"driver": driver,
+        "usage": {"observedAtMs": observed},
+        "consumption": {"rateLimits": {"observedAtMs": observed,
+            "account": {"key": key, "label": label},
+            "windows": [{"windowMinutes": 10080, "usedPercent": used,
+                         "resetsAtMs": NOW_MS + 100 * HOUR}]}}}})
+}
+
+fn names(snapshot: &Snapshot) -> Vec<(String, String)> {
+    snapshot
+        .iter()
+        .map(|standing| (standing.provider.label(), standing.provider.board_name()))
+        .collect()
+}
+
+#[test]
+fn one_named_account_reads_exactly_like_the_plain_driver() {
+    let mut sampler = Sampler::new(None);
+    let mut panes = Panes::showing(FOOTER);
+    let rows = vec![
+        account_row("claude", "a", WORK, "work", 20.0, NOW_MS),
+        claude("plain", NOW_MS - MINUTE),
+    ];
+    let snapshot = sampler.sample(&listed(rows), NOW_MS, Instant::now(), &mut panes.capture());
+    assert_eq!(
+        names(&snapshot),
+        [("Claude".to_owned(), "claude".to_owned())]
+    );
+    assert_eq!(snapshot[0].latest.unwrap().weekly.left, 80.0);
+    assert!(
+        panes.calls.is_empty(),
+        "the account's own limits need no footer"
+    );
+}
+
+#[test]
+fn several_accounts_are_named_and_the_sessions_without_one_are_the_unknown_account() {
+    let mut sampler = Sampler::new(None);
+    let mut panes = Panes::showing(FOOTER);
+    let rows = vec![
+        account_row("claude", "a", WORK, "work", 20.0, NOW_MS),
+        account_row("claude", "b", HOME, "home", 60.0, NOW_MS),
+        claude("plain", NOW_MS - MINUTE),
+    ];
+    let snapshot = sampler.sample(&listed(rows), NOW_MS, Instant::now(), &mut panes.capture());
+    assert_eq!(
+        names(&snapshot),
+        [
+            ("Claude · unknown account".to_owned(), "claude".to_owned()),
+            ("Claude · work".to_owned(), format!("claude.{WORK}")),
+            ("Claude · home".to_owned(), format!("claude.{HOME}")),
+        ]
+    );
+    assert_eq!(snapshot[0].latest, None);
+    assert_eq!(snapshot[1].latest.unwrap().weekly.left, 80.0);
+    assert_eq!(snapshot[2].latest.unwrap().weekly.left, 40.0);
+    assert!(panes.calls.is_empty());
+}
+
+#[test]
+fn a_changed_label_keeps_the_account_and_its_history() {
+    let mut sampler = Sampler::new(None);
+    let mut panes = Panes::showing(FOOTER);
+    let mut last = Vec::new();
+    for (hours, used, label) in [(0, 20.0, "work"), (1, 21.0, "work"), (3, 23.0, "renamed")] {
+        let at = NOW_MS + hours * HOUR;
+        let rows = vec![account_row("codex", "a", WORK, label, used, at)];
+        last = sampler.sample(&listed(rows), at, Instant::now(), &mut panes.capture());
+    }
+    assert_eq!(last.len(), 1);
+    assert_eq!(last[0].provider.account_label(), Some("renamed"));
+    assert_eq!(
+        last[0].burn,
+        Some(1.0),
+        "the same account, so the same history"
+    );
+}
+
+#[test]
+fn an_account_sampled_after_plain_readings_inherits_their_history() {
+    let mut sampler = Sampler::new(None);
+    let mut panes = Panes::showing(FOOTER);
+    let mut last = Vec::new();
+    for hours in [0, 1] {
+        let at = NOW_MS + hours * HOUR;
+        let used = 20.0 + hours as f64;
+        last = sampler.sample(
+            &listed(vec![codex(used, at)]),
+            at,
+            Instant::now(),
+            &mut panes.capture(),
+        );
+    }
+    assert_eq!(last[0].provider.account_key(), None);
+    let at = NOW_MS + 3 * HOUR;
+    let rows = vec![account_row("codex", "a", WORK, "work", 23.0, at)];
+    let last = sampler.sample(&listed(rows), at, Instant::now(), &mut panes.capture());
+    assert_eq!(last.len(), 1, "one account is the whole driver");
+    assert_eq!(last[0].provider.account_key(), Some(WORK));
+    assert_eq!(last[0].provider.label(), "Codex");
+    assert_eq!(
+        last[0].burn,
+        Some(1.0),
+        "the pace survives gaining the account"
+    );
+}
+
+#[test]
+fn accounts_survive_the_sessions_that_reported_them() {
+    let directory =
+        std::env::temp_dir().join(format!("ops-sampler-accounts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    let mut panes = Panes::showing(FOOTER);
+    let rows = vec![
+        account_row("codex", "a", WORK, "work", 20.0, NOW_MS),
+        account_row("codex", "b", HOME, "home", 60.0, NOW_MS),
+    ];
+    let mut sampler = Sampler::new(Some(directory.clone()));
+    sampler.sample(&listed(rows), NOW_MS, Instant::now(), &mut panes.capture());
+    // A new board with every session gone: the kept readings and their labels come back.
+    let mut later = Sampler::new(Some(directory.clone()));
+    let snapshot = later.sample(
+        &listed(vec![]),
+        NOW_MS + HOUR,
+        Instant::now(),
+        &mut panes.capture(),
+    );
+    assert_eq!(
+        names(&snapshot),
+        [
+            ("Codex · work".to_owned(), format!("codex.{WORK}")),
+            ("Codex · home".to_owned(), format!("codex.{HOME}")),
+        ]
+    );
+    let _ = std::fs::remove_dir_all(directory);
+}

@@ -21,6 +21,9 @@ const MAX_PROVIDERS: usize = 8;
 pub(in crate::board) struct Store {
     path: Option<PathBuf>,
     history: BTreeMap<Provider, Vec<Reading>>,
+    /// The newest label Core reported for each account (#5274). A provider's identity is its driver
+    /// and account key, so a label change replaces the label and keeps the history.
+    labels: BTreeMap<Provider, String>,
     changed: bool,
     saved_at_ms: u64,
 }
@@ -29,10 +32,11 @@ impl Store {
     /// Reads the cache; a missing, oversized or malformed file starts empty.
     pub(in crate::board) fn load(directory: Option<PathBuf>) -> Self {
         let path = directory.map(|directory| directory.join(FILE));
-        let history = path.as_deref().and_then(read).unwrap_or_default();
+        let (history, labels) = path.as_deref().and_then(read).unwrap_or_default();
         Self {
             path,
             history,
+            labels,
             changed: false,
             saved_at_ms: 0,
         }
@@ -42,12 +46,15 @@ impl Store {
         self.history.get(provider).map_or(&[], Vec::as_slice)
     }
 
-    /// Providers with at least one kept reading.
+    /// Providers with at least one kept reading, each with the newest label Core reported.
     pub(in crate::board) fn providers(&self) -> impl Iterator<Item = Provider> + '_ {
         self.history
             .iter()
             .filter(|(_, samples)| !samples.is_empty())
-            .map(|(provider, _)| provider.clone())
+            .map(|(provider, _)| match self.labels.get(provider) {
+                Some(label) => provider.clone().labelled(label),
+                None => provider.clone(),
+            })
     }
 
     /// Keeps `reading` unless it is invalid or not newer than the last one.
@@ -56,6 +63,12 @@ impl Store {
             || (self.history.len() >= MAX_PROVIDERS && !self.history.contains_key(provider))
         {
             return;
+        }
+        if let Some(label) = provider.account_label()
+            && self.labels.get(provider).map(String::as_str) != Some(label)
+        {
+            self.labels.insert(provider.clone(), label.to_owned());
+            self.changed = true;
         }
         let samples = self.history.entry(provider.clone()).or_default();
         if let Some(last) = samples.last()
@@ -81,14 +94,22 @@ impl Store {
         }
         let Some(path) = &self.path else { return };
         // A failed write keeps the samples in memory and retries later.
-        if cache::replace(path, document(&self.history).to_string().as_bytes()).is_ok() {
+        if cache::replace(
+            path,
+            document(&self.history, &self.labels).to_string().as_bytes(),
+        )
+        .is_ok()
+        {
             self.changed = false;
             self.saved_at_ms = now_ms;
         }
     }
 }
 
-fn document(history: &BTreeMap<Provider, Vec<Reading>>) -> Value {
+fn document(
+    history: &BTreeMap<Provider, Vec<Reading>>,
+    labels: &BTreeMap<Provider, String>,
+) -> Value {
     let providers = history
         .iter()
         .map(|(provider, samples)| {
@@ -104,13 +125,25 @@ fn document(history: &BTreeMap<Provider, Vec<Reading>>) -> Value {
                     ])
                 })
                 .collect::<Vec<_>>();
-            (provider.id().to_owned(), Value::from(rows))
+            (provider.key(), Value::from(rows))
         })
         .collect::<serde_json::Map<_, _>>();
-    json!({ "version": VERSION, "providers": providers })
+    let mut document = json!({ "version": VERSION, "providers": providers });
+    // Present only when an account was ever named, so an account-free cache is unchanged.
+    let names: serde_json::Map<_, _> = labels
+        .iter()
+        .filter(|(provider, _)| history.contains_key(*provider))
+        .map(|(provider, label)| (provider.key(), Value::from(label.as_str())))
+        .collect();
+    if !names.is_empty() {
+        document["accounts"] = Value::Object(names);
+    }
+    document
 }
 
-fn read(path: &std::path::Path) -> Option<BTreeMap<Provider, Vec<Reading>>> {
+type Kept = (BTreeMap<Provider, Vec<Reading>>, BTreeMap<Provider, String>);
+
+fn read(path: &std::path::Path) -> Option<Kept> {
     let file = fs::File::open(path).ok()?;
     if file.metadata().ok()?.len() > READ_LIMIT {
         return None;
@@ -124,7 +157,7 @@ fn read(path: &std::path::Path) -> Option<BTreeMap<Provider, Vec<Reading>>> {
         if history.len() >= MAX_PROVIDERS {
             break;
         }
-        let Some(provider) = Provider::from_driver(key) else {
+        let Some(provider) = Provider::from_key(key) else {
             continue;
         };
         let mut samples: Vec<Reading> = Vec::new();
@@ -140,7 +173,20 @@ fn read(path: &std::path::Path) -> Option<BTreeMap<Provider, Vec<Reading>>> {
         }
         history.insert(provider, samples);
     }
-    Some(history)
+    let mut labels = BTreeMap::new();
+    for (key, label) in value["accounts"].as_object().into_iter().flatten() {
+        // A label is display text from an untrusted file: the same shape Core writes, or none.
+        let (Some(provider), Some(label)) = (Provider::from_key(key), label.as_str()) else {
+            continue;
+        };
+        let named = super::observation::Account::read(&json!({
+            "key": provider.account_key().unwrap_or_default(), "label": label
+        }));
+        if named.is_some() && history.contains_key(&provider) {
+            labels.insert(provider, label.to_owned());
+        }
+    }
+    Some((history, labels))
 }
 
 fn sample(row: &Value) -> Option<Reading> {

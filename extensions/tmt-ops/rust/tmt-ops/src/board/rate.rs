@@ -149,6 +149,9 @@ struct Member {
     provider_splits: BTreeMap<u64, BTreeMap<u16, u128>>,
     drivers: Vec<String>,
     current_driver: Option<u16>,
+    /// The driver and provider account the member's latest limits name (#5274). Tokens and quota
+    /// go by this account only where the driver has more than one.
+    account: Option<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -234,13 +237,33 @@ impl Default for Rate {
 
 impl Member {
     fn observe_driver(&mut self, resume: &serde_json::Value) {
-        self.current_driver = resume["driver"]
+        let driver = resume["driver"]
             .as_str()
-            .filter(|driver| crate::board::limits::Provider::from_driver(driver).is_some())
-            .and_then(|driver| match self.driver(driver) {
-                Provider::Driver(id) => Some(id),
-                _ => None,
-            });
+            .filter(|driver| crate::board::limits::Provider::from_driver(driver).is_some());
+        self.current_driver = driver.and_then(|driver| match self.driver(driver) {
+            Provider::Driver(id) => Some(id),
+            _ => None,
+        });
+        self.account = driver
+            .zip(
+                crate::board::limits::observation::Account::read(
+                    &resume["consumption"]["rateLimits"]["account"],
+                )
+                .map(|account| account.key),
+            )
+            .map(|(driver, key)| (driver.to_owned(), key));
+    }
+    /// What a ring's driver is called on the board: the driver ID, or the driver and the member's
+    /// account key when the driver has several accounts and this member's tokens are its own
+    /// account's.
+    fn name_of(&self, id: u16, several: &std::collections::BTreeSet<String>) -> Option<String> {
+        let driver = self.drivers.get(usize::from(id))?;
+        Some(match &self.account {
+            Some((plain, key)) if plain == driver && several.contains(driver) => {
+                format!("{driver}.{key}")
+            }
+            _ => driver.clone(),
+        })
     }
     fn driver(&mut self, driver: &str) -> Provider {
         self.holding(driver, &[])
@@ -497,6 +520,24 @@ impl Member {
 }
 
 impl Rate {
+    /// The drivers with more than one provider account among these meters' members: only those
+    /// split their tokens and quota by account (#5275).
+    pub(in crate::board) fn several_accounts<'a>(
+        rates: impl IntoIterator<Item = &'a Rate>,
+    ) -> std::collections::BTreeSet<String> {
+        let mut seen: BTreeMap<&str, std::collections::BTreeSet<&str>> = BTreeMap::new();
+        let rates: Vec<&Rate> = rates.into_iter().collect();
+        for member in rates.iter().flat_map(|rate| rate.members.values()) {
+            if let Some((driver, key)) = &member.account {
+                seen.entry(driver).or_default().insert(key);
+            }
+        }
+        seen.into_iter()
+            .filter(|(_, keys)| keys.len() > 1)
+            .map(|(driver, _)| driver.to_owned())
+            .collect()
+    }
+
     /// The driver the member is currently on, when it is one a limit is shown for.
     pub(in crate::board) fn current_driver_of(&self, id: &str) -> Option<&str> {
         let member = self.members.get(id)?;

@@ -7,16 +7,31 @@ use std::path::PathBuf;
 /// The weekly window every kept reading belongs to (`QuotaWindow::Weekly`).
 const WEEKLY_MINUTES: u64 = 7 * 24 * 60;
 
-/// `{version:1, limitHistory:[{provider, windowMinutes, points:[[atMs, percentLeft, resetsAtMs]]}]}`,
-/// providers by ID and points oldest first. Percent is rounded to two decimals; the reset time rides
+/// `{version:1, limitHistory:[{provider, account?, windowMinutes, points:[[atMs, percentLeft, resetsAtMs]]}]}`,
+/// providers by ID (and account key) and points oldest first; `account` is `{key,label}`, present only
+/// for an account Core named. Percent is rounded to two decimals; the reset time rides
 /// with each point because the kept eight days can span two windows.
 pub(crate) fn document(directory: Option<PathBuf>) -> Value {
     let store = Store::load(directory);
-    let history: Vec<Value> = store
-        .providers()
+    let kept: Vec<super::Provider> = store.providers().collect();
+    // A driver with exactly one account is that account alone: the readings kept before accounts
+    // were named fold into it, as on the board.
+    let one_account = |driver: &str| {
+        kept.iter()
+            .filter(|other| other.id() == driver && other.account_key().is_some())
+            .count()
+            == 1
+    };
+    let history: Vec<Value> = kept
+        .iter()
+        .filter(|provider| provider.account_key().is_some() || !one_account(provider.id()))
         .map(|provider| {
-            let points: Vec<Value> = store
-                .history(&provider)
+            let readings = if provider.account_key().is_some() && one_account(provider.id()) {
+                super::folded(store.history(&provider.plain()), store.history(provider))
+            } else {
+                store.history(provider).to_vec()
+            };
+            let points: Vec<Value> = readings
                 .iter()
                 .map(|reading| {
                     json!([
@@ -26,7 +41,13 @@ pub(crate) fn document(directory: Option<PathBuf>) -> Value {
                     ])
                 })
                 .collect();
-            json!({"provider": provider.id(), "windowMinutes": WEEKLY_MINUTES, "points": points})
+            let mut entry =
+                json!({"provider": provider.id(), "windowMinutes": WEEKLY_MINUTES, "points": points});
+            // Named only for an account Core named, so a plain provider's entry is unchanged.
+            if let (Some(key), Some(label)) = (provider.account_key(), provider.account_label()) {
+                entry["account"] = json!({"key": key, "label": label});
+            }
+            entry
         })
         .collect();
     json!({"version": 1, "limitHistory": history})
@@ -72,6 +93,66 @@ mod tests {
                 {"provider": "codex", "windowMinutes": 10080,
                  "points": [[1_000_000, 80.13, 5_000_000], [2_000_000, 79.0, 5_000_000]]},
             ]})
+        );
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn an_account_is_named_only_where_core_named_one_and_a_single_account_absorbs_the_plain_driver()
+    {
+        let directory =
+            std::env::temp_dir().join(format!("ops-history-acc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        let mut store = Store::load(Some(directory.clone()));
+        let key = "0123456789ab";
+        let work = Provider::from_key(&format!("claude.{key}"))
+            .unwrap()
+            .labelled("work");
+        store.record(
+            &Provider::named("claude"),
+            reading(1_000_000, 90.0, 5_000_000),
+        );
+        store.record(&work, reading(2_000_000, 80.0, 5_000_000));
+        store.record(
+            &Provider::named("codex"),
+            reading(1_000_000, 70.0, 5_000_000),
+        );
+        store.save_if_due(10_000_000_000);
+        assert_eq!(
+            document(Some(directory.clone())),
+            json!({"version": 1, "limitHistory": [
+                {"provider": "claude", "windowMinutes": 10080,
+                 "points": [[1_000_000, 90.0, 5_000_000], [2_000_000, 80.0, 5_000_000]],
+                 "account": {"key": key, "label": "work"}},
+                {"provider": "codex", "windowMinutes": 10080, "points": [[1_000_000, 70.0, 5_000_000]]},
+            ]})
+        );
+        let home = Provider::from_key("claude.ba9876543210")
+            .unwrap()
+            .labelled("home");
+        store.record(&home, reading(3_000_000, 60.0, 5_000_000));
+        store.save_if_due(20_000_000_000);
+        let two = document(Some(directory.clone()));
+        let entries: Vec<_> = two["limitHistory"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| {
+                (
+                    entry["provider"].as_str().unwrap(),
+                    entry["account"]["label"].as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            entries,
+            [
+                ("claude", None),
+                ("claude", Some("work")),
+                ("claude", Some("home")),
+                ("codex", None)
+            ],
+            "two accounts keep the plain driver beside them, unmerged"
         );
         let _ = std::fs::remove_dir_all(directory);
     }

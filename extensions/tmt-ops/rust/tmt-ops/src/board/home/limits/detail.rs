@@ -119,8 +119,12 @@ fn lines(app: &App, now: u64) -> Vec<String> {
             ));
         }
         for kind in crate::board::limits::QuotaWindow::ALL {
-            let value =
-                crate::board::overview::quota::projection(app, standing.provider.id(), kind, now);
+            let value = crate::board::overview::quota::projection(
+                app,
+                &standing.provider.board_name(),
+                kind,
+                now,
+            );
             let Some(balance) = value.balance else {
                 lines.push(format!(
                     "{}: quota unavailable or stale; no balance or rate inferred",

@@ -723,3 +723,88 @@ fn retained_mixed_slices_read_their_own_split_not_the_recent_rings() {
     assert_eq!(series.buckets[5].providers.get("codex"), Some(&2));
     assert_eq!(series.buckets[5].tokens, Some(7));
 }
+
+const WORK: &str = "0123456789ab";
+const HOME: &str = "ba9876543210";
+
+/// Members `(id, account key)` whose latest limits name the account, all with the same history.
+fn series_of_accounts(members: &[(&str, Option<&str>)]) -> Series {
+    let mut roster = input(100);
+    roster.names.clear();
+    roster.resumes.clear();
+    let mut seeds: history::Seeds = BTreeMap::new();
+    for (id, key) in members {
+        let mut resume = input(100).resumes["a"].clone();
+        if let Some(key) = key {
+            resume["consumption"]["rateLimits"] =
+                serde_json::json!({"account": {"key": key, "label": "label"}});
+        }
+        roster.names.insert((*id).into(), (*id).into());
+        roster.resumes.insert((*id).into(), resume);
+        seeds.insert((*id).into(), Some(history_seed(false, false)));
+    }
+    let mut rate = Rate::default();
+    rate.seed(&roster, &seeds, HOUR);
+    project([&rate], Grid::new(300_000, HOUR, HOUR).unwrap())
+}
+
+#[test]
+fn a_driver_with_several_accounts_counts_each_accounts_tokens_apart() {
+    let one = provider_total(&series_of_accounts(&[("a", None)]), "claude");
+    assert!(one > 0);
+
+    let split = series_of_accounts(&[("a", Some(WORK)), ("b", Some(HOME)), ("c", None)]);
+    assert_eq!(provider_total(&split, &format!("claude.{WORK}")), one);
+    assert_eq!(provider_total(&split, &format!("claude.{HOME}")), one);
+    assert_eq!(
+        provider_total(&split, "claude"),
+        one,
+        "a seat naming no account stays on the driver"
+    );
+    assert!(split.drivers.contains(&format!("claude.{WORK}")));
+    assert!(split.drivers.contains("claude"));
+}
+
+#[test]
+fn one_account_or_none_leaves_the_driver_names_untouched() {
+    let one = provider_total(&series_of_accounts(&[("a", None)]), "claude");
+    for members in [
+        vec![("a", None), ("b", None)],
+        vec![("a", Some(WORK)), ("b", Some(WORK))],
+        vec![("a", Some(WORK)), ("b", None)],
+    ] {
+        let series = series_of_accounts(&members);
+        assert_eq!(provider_total(&series, "claude"), 2 * one, "{members:?}");
+        assert_eq!(series.drivers.len(), 1, "{members:?}");
+    }
+}
+
+#[test]
+fn only_a_driver_with_more_than_one_account_among_the_meters_is_several() {
+    let meter = |members: &[(&str, Option<&str>)]| {
+        let mut roster = input(100);
+        roster.names.clear();
+        roster.resumes.clear();
+        for (id, key) in members {
+            let mut resume = input(100).resumes["a"].clone();
+            if let Some(key) = key {
+                resume["consumption"]["rateLimits"] =
+                    serde_json::json!({"account": {"key": key, "label": "label"}});
+            }
+            roster.names.insert((*id).into(), (*id).into());
+            roster.resumes.insert((*id).into(), resume);
+        }
+        let mut rate = Rate::default();
+        rate.sample(&roster, 0);
+        rate
+    };
+    let work = meter(&[("a", Some(WORK))]);
+    let home = meter(&[("b", Some(HOME)), ("c", None)]);
+    assert!(Rate::several_accounts([&work]).is_empty());
+    assert!(Rate::several_accounts([&home]).is_empty());
+    assert_eq!(
+        Rate::several_accounts([&work, &home]),
+        BTreeSet::from(["claude".to_owned()]),
+        "accounts count across every meter in the view"
+    );
+}
