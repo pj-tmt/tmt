@@ -6807,3 +6807,256 @@ fn edit_locks_publish_in_own_stream_replace_and_release_without_changing_content
     assert!(f.read().edit_locks.is_empty());
     assert_eq!(f.read().source, source);
 }
+
+#[test]
+fn pre_lock_history_retains_threads_statuses_proposals_and_questions_across_own_compaction() {
+    use tmt_colab::{
+        discussion,
+        threads::{Proposal, Proposer},
+    };
+    fn folded_bytes(value: &impl serde::Serialize) -> Vec<u8> {
+        // Y.Map iteration order is not a wire invariant; compare canonical JSON bytes.
+        let mut value = serde_json::to_value(value).unwrap();
+        value.sort_all_objects();
+        serde_json::to_vec(&value).unwrap()
+    }
+    let mut f = Fixture::new();
+    // This signed member history uses the pre-lock literal thread/comment format.
+    seed_member_thread_with(
+        &mut f,
+        &[(
+            "60000000-0000-4000-8000-000000000001",
+            "1",
+            false,
+            "Historical comment",
+        )],
+    );
+    let question_id = "00000000-0000-0000-0000-000000000001";
+    let revision = f.read().revision;
+    let body = json!({"id":question_id,"title":"Historical question"});
+    let page::PublicationPreparation::Write(question) = page::prepare_structured_publication(
+        &f.store,
+        &f.key,
+        PAGE,
+        page::StructuredAction {
+            kind: tmt_colab::decoder::StructuredKind::Questions,
+            action: "question.add",
+            body: &body,
+            expected_revision: &revision,
+            display_agent: None,
+            operation_id: None,
+        },
+        &mut f.decoder(),
+        &|| Ok(NOW),
+    )
+    .unwrap() else {
+        panic!("question metadata must change");
+    };
+    f.commit(&question, NOW).unwrap();
+    let proposal = Proposal {
+        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
+        title: "Historical proposal".into(),
+        body: "Keep this proposal".into(),
+        proposer: Proposer {
+            machine_id: "40000000-0000-4000-8000-000000000001".into(),
+            agent_id: "50000000-0000-1000-8000-000000000001".into(),
+            label: "Historical author".into(),
+        },
+    };
+    let frozen =
+        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
+            .unwrap()
+            .unwrap();
+    f.commit(&frozen, NOW).unwrap();
+    let (status, _) = discussion::prepare_status(
+        &f.store,
+        &f.key,
+        PAGE,
+        discussion::StatusEdit {
+            thread: THREAD,
+            resolved: true,
+            agent_name: Some("Review agent"),
+        },
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    f.commit(&status, NOW).unwrap();
+    let local = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    let writer = &local
+        .conversations
+        .threads
+        .iter()
+        .find(|thread| thread.proposal.is_some())
+        .unwrap()
+        .writer;
+    let comment_id = "60000000-0000-4000-8000-000000000002";
+    let comment = tmt_colab::decoder::OwnRecord {
+        root: "messages".into(),
+        key: format!("{comment_id}:1"),
+        value: json!({"version":1,"kind":"comment","spaceId":f.key.space_id,"pageId":PAGE,"epoch":"1","senderDevice":writer,"revision":"1","deleted":false,"deviceName":"Historical agent","at":NOW.to_string(),"messageId":comment_id,"thread":{"writer":DEVICE,"id":THREAD},"body":"Historical question answer","questionId":question_id}),
+    };
+    let comment =
+        page::prepare_own_records(&f.store, &f.key, PAGE, &[comment], &mut f.decoder(), NOW)
+            .unwrap();
+    f.commit(&comment, NOW).unwrap();
+    let before = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    let before_threads = folded_bytes(&before.conversations.threads);
+    let before_page = f.read();
+    assert_eq!(before.conversations.threads.len(), 2);
+    assert!(
+        before
+            .conversations
+            .threads
+            .iter()
+            .any(|thread| thread.proposal.is_some())
+    );
+    assert!(
+        before
+            .conversations
+            .threads
+            .iter()
+            .any(|thread| thread.status.is_some())
+    );
+    assert!(
+        !before_page
+            .questions
+            .as_ref()
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(before_page.edit_locks.is_empty());
+    let writer = before
+        .conversations
+        .threads
+        .iter()
+        .find(|thread| thread.proposal.is_some())
+        .unwrap()
+        .writer
+        .clone();
+    let compacted = compact_now(&mut f, 1).unwrap();
+    assert_eq!(compacted.namespaces, 2);
+    let after = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert_eq!(folded_bytes(&after.conversations.threads), before_threads);
+    let after_page = f.read();
+    assert_eq!(
+        folded_bytes(&after_page.questions),
+        folded_bytes(&before_page.questions)
+    );
+    assert_eq!(
+        folded_bytes(&after_page.question_states),
+        folded_bytes(&before_page.question_states)
+    );
+    assert_eq!(after_page.source, before_page.source);
+    // Both generated checkpoint envelopes still authenticate under the pre-existing writer chain.
+    let checkpoints = held_checkpoints(&f, &writer, compacted.through);
+    assert_eq!(checkpoints.len(), 2);
+    let bytes: Vec<u8> = f
+        .sql()
+        .query_row("SELECT record FROM devices WHERE id=?", [&writer], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let device: Device = serde_json::from_slice(&bytes).unwrap();
+    let chain = certificate::Chain::from_json(&device.chain).unwrap();
+    let signing_key = chain.certificate().unwrap().signing_key;
+    for held in checkpoints {
+        let envelope = object::Envelope::from_json(&held.bytes).unwrap();
+        let header = object::Header::decode(envelope.header()).unwrap();
+        assert!(object::open(&envelope, &header.context, &[11; 32], signing_key).is_ok());
+        assert!(object::open(&envelope, &header.context, &[11; 32], &[0; 32]).is_err());
+    }
+}
+
+#[test]
+fn a_writer_refuses_a_ninth_live_lock_atomically_and_release_makes_room() {
+    use tmt_colab::{
+        edit_lock::{Holder, Target, Whole},
+        edit_locks::{self, Change},
+    };
+    let mut f = Fixture::new();
+    let changes = (1..=9)
+        .map(|n| Change::Acquire {
+            holder: Holder {
+                id: format!("50000000-0000-7000-8000-{n:012x}"),
+                name: format!("Holder {n}"),
+            },
+            target: Target::Whole(Whole { whole: true }),
+        })
+        .collect::<Vec<_>>();
+    let initial = edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert!(
+        edit_locks::prepare(
+            &f.store,
+            &f.key,
+            PAGE,
+            &initial.revision,
+            &changes,
+            &mut f.decoder(),
+            NOW
+        )
+        .is_err()
+    );
+    assert!(
+        edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder())
+            .unwrap()
+            .locks
+            .is_empty()
+    );
+    let (batch, _) = edit_locks::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        &initial.revision,
+        &changes[..8],
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    f.commit(&batch, NOW).unwrap();
+    let full = edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert_eq!(full.locks.len(), 8);
+    assert!(
+        edit_locks::prepare(
+            &f.store,
+            &f.key,
+            PAGE,
+            &full.revision,
+            &changes[8..],
+            &mut f.decoder(),
+            NOW
+        )
+        .is_err()
+    );
+    let mut replacement = vec![Change::Release {
+        holder_id: full.locks[0].holder.id.clone(),
+        lock_id: full.locks[0].lock_id.clone(),
+    }];
+    replacement.push(changes[8].clone());
+    let (batch, _) = edit_locks::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        &full.revision,
+        &replacement,
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    f.commit(&batch, NOW).unwrap();
+    let final_view = edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert_eq!(final_view.locks.len(), 9);
+    assert_eq!(
+        final_view
+            .locks
+            .iter()
+            .filter(|lock| !lock.released)
+            .count(),
+        8
+    );
+}

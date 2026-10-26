@@ -251,7 +251,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 presence
                     .get(&lock.holder.id)
                     .copied()
-                    .unwrap_or(tmt_colab::edit_lock::Presence::Unknown)
+                    .unwrap_or(tmt_colab::edit_lock::LockHolderState::Unknown)
                     .keeps_lock()
             });
         }

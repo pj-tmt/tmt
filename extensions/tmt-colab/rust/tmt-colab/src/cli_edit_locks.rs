@@ -12,7 +12,7 @@ use tmt_colab::threads::QuoteSelector;
 use tmt_colab::{
     Result, core,
     decoder::Decoder,
-    edit_lock::{Action, Holder, Presence, Target, Whole},
+    edit_lock::{Action, Holder, LockHolderState, Target, Whole},
     edit_locks::{self, Change},
     keyring::{Keyring, Layout},
     page::{self, Fault},
@@ -175,7 +175,7 @@ pub fn run(root: &Path, mode: &str, args: &ArgMatches) -> Result<()> {
         for lock in own {
             if presence
                 .get(&lock.holder.id)
-                .is_some_and(|p| matches!(p, Presence::Offline | Presence::Ended))
+                .is_some_and(|p| matches!(p, LockHolderState::Offline | LockHolderState::Ended))
             {
                 changes.push(Change::Release {
                     holder_id: lock.holder.id.clone(),
@@ -193,19 +193,18 @@ pub fn run(root: &Path, mode: &str, args: &ArgMatches) -> Result<()> {
             .iter()
             .filter(|lock| selector.is_none_or(|id| lock.lock_id.starts_with(id)))
             .collect();
-        if let Some(selector) = selector {
-            if selector.len() < 8
+        if let Some(selector) = selector
+            && (selector.len() < 8
                 || !selector.bytes().all(|b| {
                     b.is_ascii_hexdigit() && (!b.is_ascii_alphabetic() || b.is_ascii_lowercase())
                         || b == b'-'
                 })
-                || locks.len() != 1
-            {
-                return Err(fail(
-                    "COLAB_INPUT_INVALID",
-                    "Use a unique lock UUID prefix of at least eight characters.",
-                ));
-            }
+                || locks.len() != 1)
+        {
+            return Err(fail(
+                "COLAB_INPUT_INVALID",
+                "Use a unique lock UUID prefix of at least eight characters.",
+            ));
         }
         if !stale {
             locks.retain(|lock| {
@@ -234,7 +233,7 @@ pub fn run(root: &Path, mode: &str, args: &ArgMatches) -> Result<()> {
             if lock.released {
                 continue;
             }
-            if stale && presence.get(&lock.holder.id) == Some(&Presence::Active) {
+            if stale && presence.get(&lock.holder.id) == Some(&LockHolderState::Active) {
                 if selector.is_some() {
                     return Err(fail(
                         "COLAB_LOCK_HELD",

@@ -265,7 +265,7 @@ mod tests {
 /// foreign identity ended. Failed or malformed reads never clear a lock.
 pub fn lock_presence(
     ids: &[String],
-) -> crate::Result<std::collections::BTreeMap<String, crate::edit_lock::Presence>> {
+) -> crate::Result<std::collections::BTreeMap<String, crate::edit_lock::LockHolderState>> {
     if ids
         .iter()
         .any(|id| tmt_colab_model::values::core_id(id).is_err())
@@ -298,8 +298,8 @@ pub fn lock_presence(
 fn lock_presence_from_reply(
     bytes: &[u8],
     ids: &[String],
-) -> Option<std::collections::BTreeMap<String, crate::edit_lock::Presence>> {
-    use crate::edit_lock::Presence;
+) -> Option<std::collections::BTreeMap<String, crate::edit_lock::LockHolderState>> {
+    use crate::edit_lock::LockHolderState;
     let value: Value = serde_json::from_slice(bytes).ok()?;
     let rows = value["identities"].as_array()?;
     let mut found = std::collections::BTreeMap::new();
@@ -315,11 +315,11 @@ fn lock_presence_from_reply(
                     .and_then(Value::as_str)
                     == Some("ended") =>
             {
-                Presence::Ended
+                LockHolderState::Ended
             }
-            "active" => Presence::Active,
-            "offline" => Presence::Offline,
-            "unknown" => Presence::Unknown,
+            "active" => LockHolderState::Active,
+            "offline" => LockHolderState::Offline,
+            "unknown" => LockHolderState::Unknown,
             _ => return None,
         };
         if found.insert(id.to_owned(), presence).is_some() {
@@ -327,7 +327,7 @@ fn lock_presence_from_reply(
         }
     }
     for id in ids {
-        found.entry(id.clone()).or_insert(Presence::Unknown);
+        found.entry(id.clone()).or_insert(LockHolderState::Unknown);
     }
     Some(found)
 }
@@ -335,20 +335,20 @@ fn lock_presence_from_reply(
 #[cfg(test)]
 mod edit_lock_tests {
     use super::*;
-    use crate::edit_lock::Presence;
+    use crate::edit_lock::LockHolderState;
     const ID: &str = "50000000-0000-7000-8000-000000000001";
     #[test]
     fn public_presence_keeps_unobserved_identities_unknown_and_distinguishes_ended() {
         let ids = vec![ID.to_owned()];
         assert_eq!(
             lock_presence_from_reply(br#"{"identities":[]}"#, &ids).unwrap()[ID],
-            Presence::Unknown
+            LockHolderState::Unknown
         );
         for (presence, activity, expected) in [
-            ("active", "idle", Presence::Active),
-            ("active", "ended", Presence::Ended),
-            ("offline", "unknown", Presence::Offline),
-            ("unknown", "unknown", Presence::Unknown),
+            ("active", "idle", LockHolderState::Active),
+            ("active", "ended", LockHolderState::Ended),
+            ("offline", "unknown", LockHolderState::Offline),
+            ("unknown", "unknown", LockHolderState::Unknown),
         ] {
             let bytes=serde_json::to_vec(&json!({"identities":[{"id":ID,"presence":presence,"session":{"activity":{"state":activity}}}]})).unwrap();
             assert_eq!(

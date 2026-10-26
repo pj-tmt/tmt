@@ -49,7 +49,7 @@ export function editLock(value: unknown, root: string, key: string): EditLockRec
   requireValue(
     root === 'messages' &&
       value.version === 1 &&
-      value.kind === 'edit-lock' &&
+      (value as Record<string, unknown>).kind === 'edit-lock' &&
       typeof value.released === 'boolean',
   );
   spaceId(value.spaceId as string);
@@ -149,7 +149,7 @@ export function validateEditLockLimits(own: OwnState) {
           value &&
           typeof value === 'object' &&
           !Array.isArray(value) &&
-          value.kind === 'edit-lock'
+          (value as Record<string, unknown>).kind === 'edit-lock'
         ) {
           editLock(value, root, key);
           count++;

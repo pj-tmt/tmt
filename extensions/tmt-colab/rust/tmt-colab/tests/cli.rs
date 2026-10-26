@@ -11611,6 +11611,21 @@ fn page_edit_lock_cli_replaces_and_unlocks_and_stale_requires_observed_nonactive
     let (ok, denied) = run(&["page", "unlock", page, current, "--stale", "--json"]);
     assert!(!ok);
     assert_eq!(denied["error"]["code"], "COLAB_LOCK_HELD");
+    for (presence, activity) in [("offline", "idle"), ("active", "ended")] {
+        observe(presence, activity);
+        let (ok, read) = run(&["page", "read", page, "--json"]);
+        assert!(ok);
+        assert!(read.get("editLocks").is_none());
+    }
+    // A failed observation never turns into permission to clear a holder's lock.
+    observe("active", "idle");
+    fs::write(pilot.root.join("presence-status"), "9").unwrap();
+    let (ok, read) = run(&["page", "read", page, "--json"]);
+    assert!(ok);
+    assert_eq!(read["editLocks"][0]["lockId"], current);
+    let (ok, _) = run(&["page", "unlock", page, current, "--stale", "--json"]);
+    assert!(!ok);
+    fs::remove_file(pilot.root.join("presence-status")).unwrap();
     // Unknown keeps the read projection but permits the explicit stale recovery.
     observe("unknown", "unknown");
     let (ok, read) = run(&["page", "read", page, "--json"]);
@@ -11638,84 +11653,107 @@ fn page_edit_lock_cli_replaces_and_unlocks_and_stale_requires_observed_nonactive
 #[test]
 fn holder_patch_releases_only_its_overlapping_lock_after_saved_source_and_preserves_failed_patch_lock()
  {
-    let pilot = Pilot::new(None);
-    let source = "<h1>Project notes</h1>\n<p>Alpha passage</p>\n<p>Beta passage</p>";
-    fs::write(pilot.root.join("source.html"), source).unwrap();
-    let run = |args: &[&str]| {
-        let output = pilot.command().args(args).output().unwrap();
-        let value: Value = serde_json::from_slice(&output.stdout)
-            .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&output.stderr)));
-        (output.status.success(), value)
-    };
-    let (ok, created) = run(&[
-        "page",
-        "create",
-        "--title",
-        "Patch lock",
-        "--layout",
-        "column",
-        "--file",
-        pilot.root.join("source.html").to_str().unwrap(),
-        "--no-open",
-        "--json",
-    ]);
-    assert!(ok, "{created}");
-    let page = created["pageId"].as_str().unwrap();
-    let (ok, locked) = run(&["page", "lock", page, "--find", "Alpha passage", "--json"]);
-    assert!(ok, "{locked}");
-    let lock = locked["locks"][0]["lockId"].as_str().unwrap();
-    let (ok, outside) = run(&[
-        "page",
-        "patch",
-        page,
-        "--find",
-        "Beta passage",
-        "--replace",
-        "Gamma passage",
-        "--json",
-    ]);
-    assert!(ok, "{outside}");
-    assert!(outside.get("lockRelease").is_none());
-    let (ok, failed) = run(&[
-        "page",
-        "patch",
-        page,
-        "--find",
-        "missing",
-        "--replace",
-        "no",
-        "--json",
-    ]);
-    assert!(!ok);
-    assert_eq!(failed["error"]["code"], "COLAB_PATCH_CONFLICT");
-    let (ok, read) = run(&["page", "read", page, "--json"]);
-    assert!(ok);
-    assert_eq!(read["editLocks"][0]["lockId"], lock);
-    let (ok, patched) = run(&[
-        "page",
-        "patch",
-        page,
-        "--find",
-        "Alpha passage",
-        "--replace",
-        "Delta passage",
-        "--json",
-    ]);
-    assert!(ok, "{patched}");
-    assert_eq!(patched["lockRelease"]["released"], json!([lock]));
-    assert!(patched["lockRelease"].get("warning").is_none());
-    assert_ne!(
-        patched["operationId"],
-        patched["lockRelease"]["operationId"]
-    );
-    let (ok, read) = run(&["page", "read", page, "--json"]);
-    assert!(ok);
-    assert!(read.get("editLocks").is_none());
-    assert_eq!(
-        read["source"],
-        source.replace("Alpha", "Delta").replace("Beta", "Gamma")
-    );
-    assert_eq!(read["revision"], patched["revision"]);
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        let source = "<h1>Project notes</h1>\n<p>Alpha passage</p>\n<p>Beta passage</p>";
+        fs::write(pilot.root.join("source.html"), source).unwrap();
+        let run = |pilot: &Pilot, args: &[&str]| {
+            let output = pilot.command().args(args).output().unwrap();
+            let value: Value = serde_json::from_slice(&output.stdout)
+                .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&output.stderr)));
+            (output.status.success(), value)
+        };
+        let (ok, created) = run(
+            &pilot,
+            &[
+                "page",
+                "create",
+                "--title",
+                "Patch lock",
+                "--layout",
+                "column",
+                "--file",
+                pilot.root.join("source.html").to_str().unwrap(),
+                "--no-open",
+                "--json",
+            ],
+        );
+        assert!(ok, "{created}");
+        let page = created["pageId"].as_str().unwrap();
+        if serving {
+            pilot.start();
+        }
+        let (ok, locked) = run(
+            &pilot,
+            &["page", "lock", page, "--find", "Alpha passage", "--json"],
+        );
+        assert!(ok, "{locked}");
+        let lock = locked["locks"][0]["lockId"].as_str().unwrap();
+        let (ok, outside) = run(
+            &pilot,
+            &[
+                "page",
+                "patch",
+                page,
+                "--find",
+                "Beta passage",
+                "--replace",
+                "Gamma passage",
+                "--json",
+            ],
+        );
+        assert!(ok, "{outside}");
+        assert!(outside.get("lockRelease").is_none());
+        let (ok, failed) = run(
+            &pilot,
+            &[
+                "page",
+                "patch",
+                page,
+                "--find",
+                "missing",
+                "--replace",
+                "no",
+                "--json",
+            ],
+        );
+        assert!(!ok);
+        assert_eq!(failed["error"]["code"], "COLAB_PATCH_CONFLICT");
+        let (ok, read) = run(&pilot, &["page", "read", page, "--json"]);
+        assert!(ok);
+        assert_eq!(read["editLocks"][0]["lockId"], lock);
+        let (ok, patched) = run(
+            &pilot,
+            &[
+                "page",
+                "patch",
+                page,
+                "--find",
+                "Alpha passage",
+                "--replace",
+                "Delta passage",
+                "--json",
+            ],
+        );
+        assert!(ok, "{patched}");
+        assert_eq!(patched["lockRelease"]["released"], json!([lock]));
+        assert!(patched["lockRelease"].get("warning").is_none());
+        assert_ne!(
+            patched["operationId"],
+            patched["lockRelease"]["operationId"]
+        );
+        let (ok, read) = run(&pilot, &["page", "read", page, "--json"]);
+        assert!(ok);
+        assert!(read.get("editLocks").is_none());
+        assert_eq!(
+            read["source"],
+            source.replace("Alpha", "Delta").replace("Beta", "Gamma")
+        );
+        assert_eq!(read["revision"], patched["revision"]);
+        if serving {
+            pilot.stop();
+        }
+    }
 }
 
 #[test]

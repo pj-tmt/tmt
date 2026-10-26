@@ -107,14 +107,15 @@ pub fn fold(records: &[Action]) -> Vec<Action> {
     }
     winners.into_values().collect()
 }
+/// Colab lifecycle projection combining public presence and ended activity; no Core binding type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Presence {
+pub enum LockHolderState {
     Active,
     Offline,
     Ended,
     Unknown,
 }
-impl Presence {
+impl LockHolderState {
     pub fn keeps_lock(self) -> bool {
         matches!(self, Self::Active | Self::Unknown)
     }
@@ -230,6 +231,20 @@ mod tests {
         assert!(!advances(record, &moved, "messages", &key));
     }
     #[test]
+    fn retained_holder_cells_are_bounded_independently_of_revisions() {
+        let mut messages = serde_json::Map::new();
+        for n in 1..=limits::EDIT_LOCK_HOLDERS_PER_WRITER + 1 {
+            let mut record = fixture()["record"].clone();
+            let id = format!("50000000-0000-7000-8000-{n:012x}");
+            record["holder"]["id"] = serde_json::json!(id);
+            record["released"] = serde_json::json!(true);
+            messages.insert(format!("{id}:edit-lock"), record);
+        }
+        assert!(validate_limits(&serde_json::json!({"messages":messages})).is_err());
+        messages.remove("50000000-0000-7000-8000-000000000001:edit-lock");
+        assert!(validate_limits(&serde_json::json!({"messages":messages})).is_ok());
+    }
+    #[test]
     fn overlap_uses_precise_hunks_and_utf8_quote_boundaries() {
         let old = "左 Alpha 中 Beta 右";
         let target = Target::Quote(QuoteSelector {
@@ -263,9 +278,9 @@ mod tests {
             assert_eq!(folded.len(), 1);
             assert_eq!(folded[0].lock_id, next.lock_id);
         }
-        assert!(Presence::Unknown.keeps_lock());
-        assert!(Presence::Active.keeps_lock());
-        assert!(!Presence::Offline.keeps_lock());
-        assert!(!Presence::Ended.keeps_lock());
+        assert!(LockHolderState::Unknown.keeps_lock());
+        assert!(LockHolderState::Active.keeps_lock());
+        assert!(!LockHolderState::Offline.keeps_lock());
+        assert!(!LockHolderState::Ended.keeps_lock());
     }
 }
