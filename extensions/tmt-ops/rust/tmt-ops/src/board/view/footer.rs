@@ -68,6 +68,13 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
                 "pin"
             }
         }
+        Verb::Ui(crate::action::OpsUiAction::Terminal) => {
+            if app.terminal_showing() {
+                "chat view"
+            } else {
+                "terminal"
+            }
+        }
         Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "show hidden",
         Verb::Ui(crate::action::OpsUiAction::Search) if !app.search.is_empty() => "edit filter",
         Verb::Ui(action) => action.spec().label,
@@ -103,6 +110,9 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
     }
     if action.verb == Verb::Ui(crate::action::OpsUiAction::Pin) {
         return app.workspace_is_pinned().is_some();
+    }
+    if action.verb == Verb::Ui(crate::action::OpsUiAction::Terminal) {
+        return app.terminal_available();
     }
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     if action.verb == Verb::ViewReply {
@@ -402,6 +412,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         (Verb::Jump, "j", "host"),
         (Verb::Open, "o", "link"),
         (Verb::Ui(Ui::Pin), "p", "pin"),
+        (Verb::Ui(Ui::Terminal), "t", "terminal"),
     ] {
         if seen.contains(&verb) {
             continue;
@@ -416,7 +427,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             .map(|_| "j".to_owned());
         if let Some(key) = host_key.or_else(|| find(verb, preferred)) {
             let action = &bindings[&key];
-            let word = if matches!(verb, Verb::Jump | Verb::Ui(Ui::Pin)) {
+            let word = if matches!(verb, Verb::Jump | Verb::Ui(Ui::Pin | Ui::Terminal)) {
                 hint_word(app, action)
             } else {
                 word.to_owned()

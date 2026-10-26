@@ -15,6 +15,7 @@ pub enum OpsUiAction {
     SwitchTool,
     MemberNotes,
     MarkRead,
+    Terminal,
     Previous,
     Next,
     Fold,
@@ -107,6 +108,13 @@ const SPECS: &[OpsUiSpec] = &[
         "member-checklist",
         "checklist",
         "read and edit the selected agent's Checklist",
+        12
+    ),
+    spec!(
+        Terminal,
+        "terminal",
+        "terminal",
+        "switch the selected built-in-host agent between its chat and its live terminal",
         12
     ),
     spec!(
@@ -403,6 +411,7 @@ impl OpsUiAction {
                 | Self::SwitchTool
                 | Self::MemberNotes
                 | Self::MarkRead
+                | Self::Terminal
         )
     }
 }

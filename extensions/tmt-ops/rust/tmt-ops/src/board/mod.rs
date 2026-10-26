@@ -214,6 +214,17 @@ pub(in crate::board) enum BoardEvent {
         revision: u64,
         observation: screen_view::Observation,
     },
+    TerminalLocated {
+        cancellation: crate::runner::Cancellation,
+        identity: String,
+        revision: u64,
+        located: terminal_tab::discovery::Located,
+    },
+    /// What the open terminal stream reported; `epoch` says which stream sent it.
+    Terminal {
+        epoch: u64,
+        event: terminal_tab::stream::StreamEvent,
+    },
     Status {
         cancellation: crate::runner::Cancellation,
         target: crate::membership::status_update::Target,
@@ -276,6 +287,8 @@ impl BoardEvent {
             Self::Message { .. } => "Message",
             Self::PaneOutput { .. } => "PaneOutput",
             Self::PaneScreen { .. } => "PaneScreen",
+            Self::TerminalLocated { .. } => "TerminalLocated",
+            Self::Terminal { .. } => "Terminal",
             Self::Status { .. } => "Status",
             Self::Attention { .. } => "Attention",
             Self::Cron { .. } => "Cron",
@@ -747,6 +760,7 @@ fn session(
             usage_wants(want.clone());
             wanted = want;
         }
+        dirty |= app.terminal_sync();
         let history = app.history_demand();
         let demand = history.map(|request| {
             (
@@ -794,6 +808,9 @@ fn session(
             wait = wait.min(motion);
         }
         if let Some(motion) = app.screen_wait() {
+            wait = wait.min(motion);
+        }
+        if let Some(motion) = app.terminal_wait() {
             wait = wait.min(motion);
         }
         if let Some(motion) = app
@@ -981,6 +998,26 @@ fn session(
                             app.apply_pane_screen(key, round, observation);
                             dirty = true;
                         }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::TerminalLocated {
+                        cancellation,
+                        identity,
+                        revision: read_revision,
+                        located,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::TerminalStream(identity.clone()))
+                        {
+                            app.apply_terminal_located(&identity, located);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Terminal { epoch, event }) => {
+                        dirty |= app.apply_terminal(epoch, event);
                         Effect::None
                     }
                     Ok(BoardEvent::HomeLeads { cancellation, read }) => {
@@ -1639,6 +1676,15 @@ pub fn run(
     }));
     app.keyboard_enhanced = keyboard_enhanced;
     app.invoker_tmux = invoker_tmux;
+    app.terminal.set_connect(Box::new({
+        let events = events.clone();
+        move |epoch, address| {
+            let events = events.clone();
+            terminal_tab::stream::Stream::open(address, move |event| {
+                let _ = events.send(BoardEvent::Terminal { epoch, event });
+            })
+        }
+    }));
     if let Some(tab) = cold_tab {
         app.shell.select(tab, &mut app.workspace.selected);
     }

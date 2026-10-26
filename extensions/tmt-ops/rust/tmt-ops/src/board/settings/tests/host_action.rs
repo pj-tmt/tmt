@@ -13,9 +13,9 @@ fn open(f: &mut Fixture, board_pane: Option<&str>) {
 }
 
 #[test]
-fn bindings_inventory_shows_measure_default_and_preserves_authored_t() {
+fn bindings_inventory_shows_measure_and_terminal_defaults_and_preserves_authored_t() {
     for (bindings, expected_t) in [
-        ("", Value::Null),
+        ("", json!("terminal")),
         ("[bind]\nt='talk-measure'\n", json!("talk-measure")),
     ] {
         let mut f = fixture("measure-bindings", bindings);
