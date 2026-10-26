@@ -82,7 +82,7 @@ export interface ThreadBinding {
     thread: DiscussionRef,
     previous: DiscussionRef | null,
     resolved: boolean,
-    recipients?: readonly ThreadRecipient[],
+    recipients?: readonly ThreadRecipient[] | Promise<readonly ThreadRecipient[]>,
   ): Promise<StatusChange>;
   decideProposal?(thread: DiscussionRef, decision: 'approved' | 'declined'): Promise<void>;
   notificationFailed(
@@ -100,6 +100,8 @@ export interface ThreadStoreOptions extends DiscussionScope {
   deviceId(): string;
   deviceName(): string;
   own(): OwnState;
+  /** Only a projection of the exact current admitted own snapshot may be reused. */
+  views?(connection: Connection): readonly ThreadView[] | undefined;
   connection(): Promise<Connection>;
   /** See `AttachmentServiceOptions.settled`. */
   settled?(): Promise<Connection>;
@@ -137,11 +139,14 @@ export class ThreadStore implements ThreadBinding {
     return c;
   }
   #views(c: Connection) {
-    return readThreads(
-      this.options.own(),
-      this.options,
-      (writer) => c.objects.ownSigningKey(writer),
-      (writer) => c.objects.statusWriter(writer),
+    return (
+      this.options.views?.(c) ??
+      readThreads(
+        this.options.own(),
+        this.options,
+        (writer) => c.objects.ownSigningKey(writer),
+        (writer) => c.objects.statusWriter(writer),
+      )
     );
   }
   #thread(c: Connection, ref: DiscussionRef) {
@@ -409,21 +414,29 @@ export class ThreadStore implements ThreadBinding {
     thread: DiscussionRef,
     previous: DiscussionRef | null,
     resolved: boolean,
-    recipients: readonly ThreadRecipient[] = [],
+    recipients: readonly ThreadRecipient[] | Promise<readonly ThreadRecipient[]> = [],
   ): Promise<StatusChange> {
-    const captured = structuredClone({ thread, previous, recipients });
+    const captured = structuredClone({ thread, previous });
+    const frozen =
+      recipients instanceof Promise
+        ? recipients.then((values) => structuredClone([...values]))
+        : Promise.resolve(structuredClone([...recipients]));
     let result: StatusChange = { changed: false };
-    await this.#exclusive(async (c) => {
-      const view = this.#thread(c, captured.thread);
-      const current = view.status?.ref ?? null;
-      requireValue(
-        current === null
-          ? captured.previous === null
-          : captured.previous !== null &&
-              discussionRefKey(current) === discussionRefKey(captured.previous),
-      );
-      result = await this.#status(view, resolved, captured.recipients);
-    });
+    await Promise.all([
+      this.#exclusive(async (c) => {
+        const recipients = await frozen;
+        const view = this.#thread(c, captured.thread);
+        const current = view.status?.ref ?? null;
+        requireValue(
+          current === null
+            ? captured.previous === null
+            : captured.previous !== null &&
+                discussionRefKey(current) === discussionRefKey(captured.previous),
+        );
+        result = await this.#status(view, resolved, recipients);
+      }),
+      frozen,
+    ]);
     return result;
   }
   /** Record-only final decision; the trusted parent action owns subsequent Ask. */

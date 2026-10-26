@@ -131,67 +131,94 @@ export interface ThreadStatusCoordinatorOptions {
     status: ThreadStatusView,
     recipient: ThreadRecipient,
     captured: ThreadView,
+    destinations: readonly AgentDestination[],
   ): Promise<NotificationAdoption>;
 }
 /** Explicit parent action only. The status and recipient operation IDs are
  * durable before sequential notification attempts. No open/reload/retry path. */
 export class ThreadStatusCoordinator {
-  #changing = new Map<string, Promise<StatusChange & { warnings?: MentionWarning[] }>>();
+  #changing = new Map<
+    string,
+    {
+      resolved: boolean;
+      generation: symbol;
+      task: Promise<StatusChange & { warnings?: MentionWarning[] }>;
+    }
+  >();
   constructor(private options: ThreadStatusCoordinatorOptions) {}
   change(thread: ThreadView, resolved: boolean, options?: { onlyAgentName: string }) {
     const key = discussionRefKey(thread.ref);
     const pending = this.#changing.get(key);
-    if (pending) return pending;
+    if (pending?.resolved === resolved) return pending.task;
+    const generation = Symbol();
     const captured = structuredClone(thread);
     const asks = structuredClone([...this.options.asks()]);
-    const task = this.#change(captured, asks, resolved, options?.onlyAgentName).finally(() =>
-      this.#changing.delete(key),
+    const task = Promise.resolve().then(() =>
+      this.#change(key, generation, captured, asks, resolved, options?.onlyAgentName),
     );
-    this.#changing.set(key, task);
+    this.#changing.set(key, { resolved, generation, task });
     return task;
   }
   async #change(
+    key: string,
+    generation: symbol,
     thread: ThreadView,
     asks: readonly PageAsk[],
     resolved: boolean,
     onlyAgentName?: string,
   ) {
-    requireValue(isStatusThread(thread));
-    if (thread.resolved === resolved) return { changed: false } as const;
-    let destinations: readonly AgentDestination[] = [];
-    if (resolved) {
-      try {
-        destinations = await this.options.destinations();
-      } catch {
-        // Signed recipients stay identifiable when the directory is unavailable.
-        // Names without a binding remain unknown, never guessed.
-      }
+    let notifying = false;
+    try {
+      requireValue(isStatusThread(thread));
+      if (thread.resolved === resolved) return { changed: false } as const;
+      // Start directory I/O before the binding acquires its lock and admits the writer.
+      // Prior signed IDs still identify recipients if the directory is unavailable.
+      const destinations = resolved
+        ? this.options.destinations().catch(() => [])
+        : Promise.resolve([]);
+      const frozen = destinations.then((values) =>
+        resolved
+          ? freezeThreadRecipients(thread, asks, values, onlyAgentName)
+          : { recipients: [], warnings: [] },
+      );
+      const result = await this.options.binding.setStatus(
+        thread.ref,
+        thread.status?.ref ?? null,
+        resolved,
+        frozen.then((value) => value.recipients),
+      );
+      if (!result.changed) return result;
+      notifying = true;
+      void this.#notify(key, generation, result.status, thread, await destinations).finally(() => {
+        if (this.#changing.get(key)?.generation === generation) this.#changing.delete(key);
+      });
+      return { ...result, warnings: (await frozen).warnings };
+    } finally {
+      if (!notifying && this.#changing.get(key)?.generation === generation)
+        this.#changing.delete(key);
     }
-    const frozen = resolved
-      ? freezeThreadRecipients(thread, asks, destinations, onlyAgentName)
-      : { recipients: [], warnings: [] };
-    const result = await this.options.binding.setStatus(
-      thread.ref,
-      thread.status?.ref ?? null,
-      resolved,
-      frozen.recipients,
-    );
-    if (!result.changed) return result;
-    for (const recipient of result.status.recipients) {
+  }
+  async #notify(
+    key: string,
+    generation: symbol,
+    status: ThreadStatusView,
+    thread: ThreadView,
+    destinations: readonly AgentDestination[],
+  ) {
+    for (const recipient of status.recipients) {
+      // A newer explicit action supersedes this task, never the person's status write.
+      if (this.#changing.get(key)?.generation !== generation) return;
       try {
-        const outcome = await this.options.notify(result.status, recipient, thread);
+        const outcome = await this.options.notify(status, recipient, thread, destinations);
         if (!outcome.adopted)
           await this.options.binding.notificationFailed(
-            result.status,
+            status,
             recipient.operationId,
             outcome.reason,
           );
       } catch {
-        // A published operation without an admitted ledger/failure outcome is
-        // uncertain. Never treat an exception as permission to resend; other
-        // independently frozen recipients still get their own single attempt.
+        // Unknown adoption never permits a resend; independent recipients get one attempt each.
       }
     }
-    return { ...result, warnings: frozen.warnings };
   }
 }

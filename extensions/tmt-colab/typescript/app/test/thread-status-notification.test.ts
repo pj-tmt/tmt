@@ -180,3 +180,20 @@ it('uses the admitted Ask reason including null without inheriting a stale pre-l
     ]);
   }
 });
+
+it('a later effective status prevents preparation from a superseded Resolve', () => {
+  const x = fixture();
+  for (const resolved of [false, true]) {
+    const action = {
+      ...f.recipientCases[0].record,
+      actionId: crypto.randomUUID(),
+      previous: x.context.status,
+      resolved,
+      recipients: [],
+    };
+    x.own[action.senderDevice].messages[discussionKey(action)] = action;
+    expect(() =>
+      statusNotificationForAsk(x.read(), x.context, x.thread.status!.senderDevice),
+    ).toThrow();
+  }
+});

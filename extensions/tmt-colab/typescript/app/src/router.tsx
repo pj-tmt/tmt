@@ -2228,6 +2228,7 @@ function OpenPage({
               connectionPresentation={connectionPresentation}
               archived={archived}
               reopenProposal={proposalLayer.reopenProposal}
+              proposalStatusPending={proposalLayer.proposalStatusPending}
               creationRecipient={creatorTarget(view)}
               hideHeader
               numbers={numbers}

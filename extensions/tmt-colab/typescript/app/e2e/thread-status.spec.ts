@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const fixture = '/test/ask-page-browser.tsx';
 
-async function run(page: Page, method: string, argument?: string) {
+async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
     async ({ fixture, method, argument }) => (await import(fixture))[method](argument),
     { fixture, method, argument },
@@ -129,11 +129,17 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   const open_ = await box(thread);
   await run(page, 'holdStatusOnce');
   await headerActions(page).getByRole('button', { name: 'Resolve', exact: true }).click();
+  await expect(
+    headerActions(page).getByRole('button', { name: 'Resolving…', exact: true }),
+  ).toHaveAttribute('aria-busy', 'true');
+  await expect(
+    headerActions(page).getByRole('button', { name: 'Resolving…', exact: true }),
+  ).toBeDisabled();
   // The write is held: the resolved summary is already there, at its final size.
   await expect(thread.locator('.resolved-summary')).toBeVisible();
   await expect(thread.getByTestId('comment-entry').first()).toBeHidden();
   // The status line shows the same state in the same frame.
-  await expect(state).toHaveText('Resolved');
+  await expect(state).toHaveText('Resolving…');
   await expect(state).toHaveAttribute('data-state', 'resolved');
   await capture(page, 'click-frame');
   const echoed = await box(thread);
@@ -181,4 +187,63 @@ test('a Resolve that fails restores the open thread, reports at once and keeps f
   // The thread is open again at its old size or taller by the failure report, never shorter.
   expect((await box(thread)).height).toBeGreaterThanOrEqual(open_.height - 1);
   expect(await statusActions(page)).toEqual([]);
+});
+
+test('Reopen stays busy until confirmation and restores the resolved thread on failure', async ({
+  page,
+}) => {
+  await showResolvedOn(page);
+  const { row, state } = await open(page);
+  await run(page, 'agentResolves');
+  await row.click();
+  await run(page, 'holdStatusOnce');
+  await headerActions(page).getByRole('button', { name: 'Reopen', exact: true }).click();
+  const reopening = headerActions(page).getByRole('button', { name: 'Reopening…', exact: true });
+  await expect(reopening).toBeDisabled();
+  await expect(reopening).toHaveAttribute('aria-busy', 'true');
+  await capture(page, 'reopening');
+  await page.evaluate(
+    async (fixture) => (await import(fixture)).releaseStatus({ fail: true }),
+    fixture,
+  );
+  await expect(state).toHaveText('Resolved by Atlas');
+  await expect(page.getByTestId('comment-thread').getByRole('alert')).toBeVisible();
+  await expect(
+    headerActions(page).getByRole('button', { name: 'Reopen', exact: true }),
+  ).toBeEnabled();
+  expect(await statusActions(page)).toEqual([]);
+  await run(page, 'holdStatusOnce');
+  await headerActions(page).getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect(reopening).toBeDisabled();
+  await run(page, 'releaseStatus');
+  await expect(
+    headerActions(page).getByRole('button', { name: 'Resolve', exact: true }),
+  ).toBeEnabled();
+  expect(await statusActions(page)).toEqual(['status:reopen']);
+});
+
+test('a page with 500 threads can immediately Reopen while Resolve notifications are outstanding', async ({
+  page,
+}) => {
+  await showResolvedOn(page);
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true, holdStatusNotice: true });
+  await run(page, 'seedManyThreads');
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+  await expect(page.getByTestId('annotation-row')).toHaveCount(500);
+  await page.getByTestId('annotation-row').filter({ hasText: '@Agent 1 Opening note' }).click();
+  await headerActions(page).getByRole('button', { name: 'Resolve', exact: true }).click();
+  // The notification has started but cannot finish until the explicit fixture release below.
+  await expect(
+    headerActions(page).getByRole('button', { name: 'Reopen', exact: true }),
+  ).toBeEnabled();
+  expect((await run(page, 'proof')).actions).toContain('notify:Agent 1');
+  expect(await statusActions(page)).toEqual(['status:resolve']);
+  await headerActions(page).getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect(
+    headerActions(page).getByRole('button', { name: 'Resolve', exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByTestId('comment-thread').getByRole('alert')).toHaveCount(0);
+  expect(await statusActions(page)).toEqual(['status:resolve', 'status:reopen']);
+  await run(page, 'finishStatusNotice');
 });

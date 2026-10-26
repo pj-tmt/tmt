@@ -427,6 +427,8 @@ export const text = {
   threadDeleted: 'Deleted thread',
   threadResolve: 'Resolve',
   threadReopen: 'Reopen',
+  threadResolving: 'Resolving…',
+  threadReopening: 'Reopening…',
   threadResolvedBy: (name: string) => `Resolved by ${name}`,
   threadMessageCount: (count: number) => `${count} ${count === 1 ? 'message' : 'messages'}`,
   threadUnseen: 'New',

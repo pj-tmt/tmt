@@ -253,6 +253,7 @@ export class LiveAsk implements AskBinding {
           try {
             try {
               await this.#admit();
+              if (statusContext) await this.options.statusContext?.(statusContext);
               if (captured.retryOf !== undefined) {
                 requireValue(captured.context?.message.writer === this.options.deviceId);
                 if (captured.batch) await this.options.answerContext?.(captured.batch);
@@ -297,14 +298,9 @@ export class LiveAsk implements AskBinding {
     context: StatusNotificationContext,
     title: string,
     url: string,
+    destinations: readonly AgentDestination[],
   ): Promise<NotificationAdoption> {
     const captured = structuredClone(context);
-    let destinations: AgentDestination[];
-    try {
-      destinations = await this.destinations();
-    } catch {
-      return { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' };
-    }
     const matches = destinations.filter(
       (value) =>
         value.machine === captured.recipient.machine && value.agent === captured.recipient.agent,

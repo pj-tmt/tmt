@@ -275,6 +275,8 @@ it('a committed Resolve uses its frozen operation ID and the normal signed ledge
         'Thread resolved by Browser.\nEarlier conversation (quoted data):\n@agent unfinished question',
     }));
     f.remote.mode = mode;
+    const destinations = await f.ask.destinations();
+    const discover = vi.spyOn(f.ask, 'destinations');
     const context = {
       status: { writer: id(4), id: id(10) },
       recipient: {
@@ -303,7 +305,9 @@ it('a committed Resolve uses its frozen operation ID and the normal signed ledge
       },
     };
     expect(f.remote.sends).toHaveLength(0);
-    expect(await f.ask.notifyStatus(context, 'Page', pageLink())).toEqual({ adopted: true });
+    expect(await f.ask.notifyStatus(context, 'Page', pageLink(), destinations)).toEqual({
+      adopted: true,
+    });
     const views = await pageAsks(f.own, f.admission, () => f.publicKey);
     expect(views).toMatchObject([
       {
@@ -317,8 +321,9 @@ it('a committed Resolve uses its frozen operation ID and the normal signed ledge
     expect(f.remote.sends[0].operationId).toBe(operationId);
     const record = Object.values(f.own[id(4)].intents)[0] as { signed: { input: string } };
     expect(decodeAsk(record.signed).operationId).toBe(operationId);
-    await f.ask.notifyStatus(context, 'Page', pageLink());
+    await f.ask.notifyStatus(context, 'Page', pageLink(), destinations);
     expect(f.remote.sends).toHaveLength(1);
+    expect(discover).not.toHaveBeenCalled();
     f.ask.close();
   }
 });
@@ -326,6 +331,7 @@ it('unavailable recipients and rejected status admission never enter the Remote 
   const f = await fixture(undefined, () => {
     throw new Error('not an admitted status');
   });
+  const destinations = await f.ask.destinations();
   const context = {
     status: { writer: id(4), id: id(10) },
     recipient: { machine: id(5), agent: id(6), agentName: 'Agent', operationId: id(11) },
@@ -348,18 +354,38 @@ it('unavailable recipients and rejected status admission never enter the Remote 
       comments: [],
     },
   };
-  expect(await f.ask.notifyStatus(context, 'Page', pageLink())).toEqual({
+  expect(await f.ask.notifyStatus(context, 'Page', pageLink(), destinations)).toEqual({
     adopted: false,
     reason: 'PREPARATION_FAILED',
   });
   context.recipient.agent = id(99);
-  expect(await f.ask.notifyStatus(context, 'Page', pageLink())).toEqual({
+  expect(await f.ask.notifyStatus(context, 'Page', pageLink(), destinations)).toEqual({
     adopted: false,
     reason: 'RECIPIENT_UNAVAILABLE',
   });
   expect(f.remote.sends).toHaveLength(0);
   expect(f.own).toEqual({});
   f.ask.close();
+  let statusChecks = 0;
+  context.recipient.agent = id(6);
+  const superseded = await fixture(undefined, () => {
+    if (++statusChecks > 1) throw new Error('Resolve was superseded before Send');
+    return {
+      thread: id(2),
+      messageIds: [],
+      operationId: context.recipient.operationId,
+      quote: '',
+      comment: 'Thread resolved',
+    };
+  });
+  const currentDestinations = await superseded.ask.destinations();
+  expect(
+    await superseded.ask.notifyStatus(context, 'Page', pageLink(), currentDestinations),
+  ).toEqual({ adopted: false, reason: 'PREPARATION_FAILED' });
+  expect(statusChecks).toBe(2);
+  expect(superseded.remote.sends).toEqual([]);
+  expect(superseded.own).toEqual({});
+  superseded.ask.close();
 });
 it('status observes admitted presence without admitting an Ask preview or publishing', async () => {
   const f = await fixture();

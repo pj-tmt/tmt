@@ -7,7 +7,6 @@ import {
 import type { AgentDestination } from '../src/live-ask.js';
 import type { ThreadView } from '../src/thread-records.js';
 import type { PageAsk } from '../src/ask-panel.js';
-import type { ThreadStatusView } from '../src/thread-status.js';
 const f = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/discussion-v1.json', import.meta.url), 'utf8'),
 );
@@ -81,11 +80,15 @@ it('freezes every unique mention including non-repliers, deduplicates and retain
     ).recipients,
   ).toEqual([]);
 });
-it('publishes operation IDs before one sequential attempt per recipient, coalesces clicks and preserves partial outcomes', async () => {
+it('confirms publication before notifications finish, keeping one serial task and the click fence', async () => {
   const events: string[] = [];
   let release!: () => void;
+  let finish!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
+  });
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
   });
   const coordinator = new ThreadStatusCoordinator({
     asks: () => [],
@@ -95,15 +98,16 @@ it('publishes operation IDs before one sequential attempt per recipient, coalesc
         expect(previous).toBe(null);
         expect(resolved).toBe(true);
         events.push('published');
-        await held;
-        const record: ThreadStatusView = {
-          ...f.recipientCases[0].record,
-          thread: ref,
-          recipients: [...recipients!],
-          ref: { writer: f.thread.senderDevice, id: f.recipientCases[0].record.actionId },
-          depth: 1,
+        return {
+          changed: true,
+          status: {
+            ...f.recipientCases[0].record,
+            thread: ref,
+            recipients: [...(await recipients)!],
+            ref: { writer: f.thread.senderDevice, id: f.recipientCases[0].record.actionId },
+            depth: 1,
+          },
         };
-        return { changed: true, status: record };
       },
       notificationFailed: async (_, id, reason) => {
         expect(reason).toBe('RECIPIENT_UNAVAILABLE');
@@ -114,17 +118,23 @@ it('publishes operation IDs before one sequential attempt per recipient, coalesc
       expect(status.recipients).toContainEqual(recipient);
       expect(captured.comments[0].body).toContain('@beta');
       events.push(`attempt:${recipient.agent}`);
-      if (recipient.agent === agent('alpha', '1').agent)
+      if (recipient.agent === agent('alpha', '1').agent) {
+        await held;
         return { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' };
+      }
+      finish();
       throw new Error('uncertain ledger outcome');
     },
   });
-  const one = coordinator.change(thread(), true),
-    two = coordinator.change(thread(), true);
-  expect(one).toBe(two);
-  release();
+  const one = coordinator.change(thread(), true);
+  expect(coordinator.change(thread(), true)).toBe(one);
+  // A blocked notification must not block the confirmed status result.
   expect((await one).changed).toBe(true);
   expect(events[0]).toBe('published');
+  expect(events.filter((value) => value.startsWith('attempt:'))).toHaveLength(1);
+  expect(coordinator.change(thread(), true)).toBe(one);
+  release();
+  await finished;
   expect(events.filter((value) => value.startsWith('attempt:'))).toHaveLength(2);
   expect(events.filter((value) => value.startsWith('failed:'))).toHaveLength(1);
 });
@@ -180,4 +190,58 @@ it('a reading close freezes only its named current agent, never title, reason or
     recipients: [],
     warnings: [{ name: 'alpha', reason: 'ambiguous' }],
   });
+});
+
+it('immediate Reopen succeeds and supersedes the unfinished Resolve notifications', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let drained!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    drained = resolve;
+  });
+  const attempts: string[] = [];
+  const writes: boolean[] = [];
+  const coordinator = new ThreadStatusCoordinator({
+    asks: () => [],
+    destinations: async () => [agent('alpha', '1'), agent('beta', '2')],
+    binding: {
+      setStatus: async (_, previous, resolved, recipients) => {
+        writes.push(resolved);
+        return {
+          changed: true,
+          status: {
+            ...f.recipientCases[0].record,
+            thread: ref,
+            resolved,
+            previous,
+            recipients: [...(await recipients)!],
+            ref: { writer: f.thread.senderDevice, id: crypto.randomUUID() },
+            depth: writes.length,
+          },
+        };
+      },
+      notificationFailed: async () => {
+        drained();
+      },
+    },
+    notify: async (_, recipient) => {
+      attempts.push(recipient.agentName);
+      await held;
+      return { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' };
+    },
+  });
+  const resolved = await coordinator.change(thread(), true);
+  if (!resolved.changed) throw new Error('Expected Resolve');
+  const reopened = await coordinator.change(
+    { ...thread(), resolved: true, status: resolved.status },
+    false,
+  );
+  expect(reopened.changed).toBe(true);
+  expect(writes).toEqual([true, false]);
+  release();
+  await settled;
+  await Promise.resolve();
+  expect(attempts).toEqual(['alpha']);
 });
