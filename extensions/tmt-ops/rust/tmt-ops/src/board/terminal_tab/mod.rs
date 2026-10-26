@@ -12,6 +12,8 @@
 mod board;
 pub(in crate::board) mod discovery;
 pub(in crate::board) mod paint;
+#[cfg(test)]
+pub(in crate::board) mod scenes;
 pub(in crate::board) mod stream;
 pub(in crate::board) mod tab;
 #[cfg(test)]

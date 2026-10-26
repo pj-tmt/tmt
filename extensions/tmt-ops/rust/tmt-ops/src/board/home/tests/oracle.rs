@@ -1034,6 +1034,22 @@ fn captures() -> Value {
                 }
             }
         }
+        // The Terminal tab of a built-in-host member, with a published screen injected.
+        for (look_name, look) in looks() {
+            for scene in crate::board::terminal_tab::scenes::SCENES {
+                for width in [100, 60] {
+                    let app = crate::board::terminal_tab::scenes::capture_case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()
