@@ -302,9 +302,13 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   cursor and identical UUID set; each entry additionally validates the closed
   retained boundary and interval/range. There is no historical paging contract
   or session-long page cache. Range
-  changes and each new closed boundary preempt through the existing generation
-  while the Agents or Digest Usage surface is enabled. Leaving it cancels the
-  demand. The Agents tab's visible quota requests a separate fixed four-hour window
+  changes and each new closed boundary submit a coalesced `HistoryJob` using the
+  published workspace's inputs on the existing base worker. This demand does not
+  reload roster/config, wait for a new snapshot, or cancel the selected lane.
+  An already queued full reload takes priority and applies the newest demand to
+  freshly acquired inputs. Jobs carry the base generation; admission also checks the displayed owner,
+  current window and target observations. Leaving the Usage surface releases the
+  demand through the same history owner. The Agents tab's visible quota requests a separate fixed four-hour window
   at five-minute resolution (48 buckets), independent of chart Each/Range. The
   quota cache remains independent of token interval/range pairs;
   inactive demand releases its corresponding cache. Quota choice changes require no source
