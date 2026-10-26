@@ -297,6 +297,11 @@ pub fn run(root: &Path, mode: &str, args: &ArgMatches) -> Result<()> {
 }
 
 /// Capture before committing the source, so a later lock never becomes this patch's cleanup.
+/// Agent patches fence the checked own state as well as source; retries recheck both.
+pub struct PatchLocks {
+    pub revision: Option<String>,
+    pub release: Vec<String>,
+}
 pub fn patch_locks(
     store: &Store,
     key: &Keyring,
@@ -304,24 +309,58 @@ pub fn patch_locks(
     old: &str,
     new: &str,
     decoder: &mut Decoder,
-) -> Result<Vec<String>> {
+) -> Result<PatchLocks> {
     let view = edit_locks::read(store, key, page, decoder)?;
-    if !view.locks.iter().any(|lock| !lock.released) {
-        return Ok(vec![]);
-    }
-    let Some(holder) = core::caller_snapshot().and_then(|caller| caller.agent_id) else {
-        return Ok(vec![]);
+    let agent = std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty());
+    let mut captured = PatchLocks {
+        revision: agent.then_some(view.revision),
+        release: vec![],
     };
-    Ok(view
+    if !view.locks.iter().any(|lock| !lock.released) {
+        return Ok(captured);
+    }
+    let holder = core::caller_snapshot().and_then(|caller| caller.agent_id);
+    let overlaps = view
         .locks
         .iter()
-        .filter(|lock| {
-            !lock.released
-                && lock.holder.id == holder
-                && tmt_colab::edit_lock::overlaps(&lock.target, old, new)
-        })
+        .filter(|lock| !lock.released && tmt_colab::edit_lock::overlaps(&lock.target, old, new))
+        .collect::<Vec<_>>();
+    if agent {
+        let foreign = overlaps
+            .iter()
+            .copied()
+            .filter(|lock| holder.as_deref() != Some(lock.holder.id.as_str()))
+            .collect::<Vec<_>>();
+        let ids = foreign
+            .iter()
+            .map(|lock| lock.holder.id.clone())
+            .collect::<Vec<_>>();
+        let presence = core::lock_presence(&ids).ok();
+        for lock in foreign {
+            let keeps = presence.as_ref().is_none_or(|observed| {
+                tmt_colab::edit_lock::holder_state(lock, &view.writer, observed).keeps_lock()
+            });
+            if keeps {
+                let target = match &lock.target {
+                    Target::Whole(_) => "the whole page".to_owned(),
+                    Target::Quote(quote) => format!("the quote {:?}", quote.exact),
+                };
+                return Err(fail(
+                    "COLAB_REGION_LOCKED",
+                    &format!(
+                        "{} is editing {target}. Wait for it to save, patch a different part, or run tmt colab page unlock {page} {} --stale if the holder is gone; then retry the patch.",
+                        lock.holder.name, lock.lock_id
+                    ),
+                ));
+            }
+        }
+    }
+    captured.release = overlaps
+        .into_iter()
+        .filter(|lock| holder.as_deref() == Some(lock.holder.id.as_str()))
         .map(|lock| lock.lock_id.clone())
-        .collect())
+        .collect();
+    Ok(captured)
 }
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

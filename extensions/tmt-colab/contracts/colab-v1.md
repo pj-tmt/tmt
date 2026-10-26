@@ -6314,8 +6314,8 @@ to the page since that revision, anywhere, is `COLAB_STALE_BASE`, and nothing is
 
 `page lock PAGE (--find TEXT | --whole)` and `page unlock PAGE [LOCK] [--stale]`
 publish signed own records without changing source. A lock is advisory: people
-are never blocked. Browser overlays are implemented in #5294; agent overlap refusal
-remains separate work in #5295. `--find` must match exactly once and captures the shared quote
+are never blocked. Browser overlays and agent CLI overlap refusal are described below.
+`--find` must match exactly once and captures the shared quote
 selector (`exact`, `prefix`, `suffix`); `--whole` captures `{whole:true}`.
 
 The closed `edit-lock` v1 record is defined by the independent literal
@@ -6387,6 +6387,29 @@ validated rectangles. Range chips follow internal frame scrolling; teardown clea
 paint and listeners. The shared identity chip stays in the trusted parent. Reader and hosted-reader
 projections use the same owner-member provenance filter; readers with no public
 directory observation keep holder presence unknown.
+
+### Agent patch overlap refusal (#5295)
+
+Only `page patch` running under an agent (nonempty `TMT_AGENT`) refuses a change
+that overlaps another holder's effective lock. The shared precise source-hunk and
+quote overlap helper handles all patch forms; whole-page and missing/ambiguous
+quote anchors conservatively overlap any source change. Unrelated patches and
+source no-ops proceed. The caller UUID identifies its own locks; an unavailable
+caller observation cannot claim another holder's lock. People and browser Save
+are never blocked by a lock.
+
+Public presence uses the same lifecycle projection as reads: offline/ended and a
+successfully observed missing local-writer identity hide the lock; unknown,
+foreign-writer absence and failed observations keep it. A refusal writes nothing
+and returns `COLAB_REGION_LOCKED`, naming the holder and locked quote (or whole
+page), with directions to wait for its save, patch another part, or explicitly
+`unlock --stale` when the holder is gone before retrying.
+
+The CLI carries the checked lock snapshot's complete revision into content
+preparation, including when there are no locks. An intervening own publication
+therefore conflicts and uses the existing bounded patch retry to reread source
+and locks; `--expected-revision` preserves its no-retry behavior. The existing
+content publication owner and post-confirmation own-lock release remain unchanged.
 
 ### Page usage and requested compaction (#2846)
 
