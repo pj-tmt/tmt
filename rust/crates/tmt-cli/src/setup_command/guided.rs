@@ -641,6 +641,94 @@ pub(crate) mod tests {
             std::fs::remove_dir_all(&self.path).unwrap();
         }
     }
+    fn claude_world(root: &Directory) -> (ProviderEnvironment, SetupEnvironment) {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = root.path.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        std::fs::write(bin.join("claude"), "#!/bin/sh\nexit 99\n").unwrap();
+        std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let env = ProviderEnvironment::from_parts(
+            root.path.join("home"),
+            root.path.clone(),
+            vec![bin.clone()],
+            [],
+        );
+        let setup = SetupEnvironment {
+            launcher: bin.join("tmt"),
+            settings: Registry::builtin()
+                .with_hooks()
+                .map(|driver| (driver, env.locations(driver).hook_settings.unwrap()))
+                .collect(),
+        };
+        (env, setup)
+    }
+
+    #[test]
+    fn consented_usage_plans_the_mod_and_an_opt_out_or_a_foreign_directory_does_not() {
+        use tmt_adapters::setup::provider_mod::ModStep;
+        let root = Directory::new();
+        let (env, setup) = claude_world(&root);
+        let drivers = Registry::builtin();
+        let global = root.path.join("state");
+        let plan =
+            |usage| plan_for(&drivers, &setup, &env, &global, usage, Some("claude")).unwrap();
+
+        let consented = plan(UsageHook::Default);
+        assert_eq!(consented.mods.len(), 1);
+        assert_eq!(consented.mods[0].step, ModStep::Install);
+        assert!(!consented.is_current());
+
+        assert!(plan(UsageHook::Remove).mods.is_empty());
+
+        let target = consented.mods[0].target().to_path_buf();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("mine"), b"mine").unwrap();
+        let blocked = plan(UsageHook::Default);
+        assert_eq!(blocked.mods[0].step, ModStep::Blocked);
+        assert_eq!(blocked.mod_changes().count(), 0);
+    }
+
+    #[test]
+    fn applying_the_plan_installs_the_mod_after_the_hooks() {
+        let root = Directory::new();
+        let (env, setup) = claude_world(&root);
+        let drivers = Registry::builtin();
+        let global = root.path.join("state");
+        let planned = plan_for(
+            &drivers,
+            &setup,
+            &env,
+            &global,
+            UsageHook::Default,
+            Some("claude"),
+        )
+        .unwrap();
+        let target = planned.mods[0].target().to_path_buf();
+        let report = apply(
+            &planned,
+            &global,
+            &mut Vec::new(),
+            Terminal::PLAIN,
+            OutputMode { json: true },
+        )
+        .unwrap();
+        assert!(report.failures.is_empty(), "{:?}", report.failures.len());
+        assert!(target.join(".tmt-managed.json").is_file());
+        assert!(target.join("hooks/register.mjs").is_file());
+        // Nothing left to do on the next plan.
+        let again = plan_for(
+            &drivers,
+            &setup,
+            &env,
+            &global,
+            UsageHook::Default,
+            Some("claude"),
+        )
+        .unwrap();
+        assert!(again.mods.is_empty());
+    }
+
     #[test]
     fn a_changed_provider_file_preserves_it_and_does_not_block_an_independent_provider() {
         let root = Directory::new();

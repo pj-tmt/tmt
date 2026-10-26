@@ -501,7 +501,8 @@ delivery. They install and launch nothing.
   copy beside the settings file (`skills/tmt-allowance`), published through a staging directory
   with a `.tmt-managed.json` marker holding the shipped digest, so it is locked to the installed
   TMT. `--no-usage`, `--remove` and uninstall remove it. Upgrade refresh updates an installed
-  copy or removes one left behind a recorded opt-out and never creates one. A directory without
+  copy or removes one left behind a recorded opt-out. Neither it nor upgrade's offer of new
+  provider scopes creates one; only an explicit setup does. A directory without
   TMT's marker, or behind a link, is left alone and reported.
 - Guided `tmt setup` plans agents from filesystem-only detection and offers ops, digest,
   remote and colab selected by default, with visible Colab→Remote dependency toggles.
