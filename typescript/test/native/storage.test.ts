@@ -159,6 +159,7 @@ function expectNativeSchema(
     { version: 78, name: 'publish typed configured Digest receiving' },
     { version: 79, name: 'admit every full runtime in retained finals' },
     { version: 80, name: 'let a session-learning diagnostic name why a Digest Stop refused' },
+    { version: 81, name: 'record pending orchestration wakes and summary projection' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -221,6 +222,8 @@ function expectNativeSchema(
       'orchestration_focus',
       'orchestration_decisions',
       'digest_receiving_settings',
+      'orchestration_pending_wakes',
+      'orchestration_wake_clock',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -240,6 +243,8 @@ function expectNativeSchema(
     'orchestration_member_overrides',
     'orchestration_focus',
     'orchestration_decisions',
+    'orchestration_pending_wakes',
+    'orchestration_wake_clock',
   ]) {
     expect(table(migrated, name).rows).toEqual([]);
   }

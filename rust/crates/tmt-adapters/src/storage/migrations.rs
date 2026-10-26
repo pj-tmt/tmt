@@ -34,6 +34,8 @@ mod notification_tests;
 #[cfg(test)]
 mod orchestration_receiving_tests;
 #[cfg(test)]
+mod orchestration_wake_tests;
+#[cfg(test)]
 mod pane_incarnation_tests;
 #[cfg(test)]
 mod prop_pack_tests;
@@ -391,6 +393,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "let a session-learning diagnostic name why a Digest Stop refused",
         "schema/080.sql"
+    ),
+    migration!(
+        "record pending orchestration wakes and summary projection",
+        "schema/081.sql"
     ),
 ];
 
