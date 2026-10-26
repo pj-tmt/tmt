@@ -142,6 +142,9 @@ pub struct Bucket {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Series {
     pub drivers: std::collections::BTreeSet<String>,
+    /// What a row is called where it is not the driver's capitalized ID: an account of a driver
+    /// that has several, and its sessions that name none (#5275).
+    pub names: std::collections::BTreeMap<String, String>,
     pub totals: Option<(u128, std::collections::BTreeMap<String, u128>)>,
     pub selection: Selection,
     pub buckets: Vec<Bucket>,
@@ -194,6 +197,7 @@ impl Series {
         let totals = total.map(|tokens| (tokens, amounts));
         Ok(Self {
             drivers,
+            names: Default::default(),
             totals,
             selection,
             buckets,
