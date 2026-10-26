@@ -104,8 +104,8 @@ impl Stream {
         Self { commands, stop }
     }
 
-    /// Keystrokes or a paste, in order, in frames the protocol allows. Input sent while the
-    /// stream is not connected is dropped, never queued for later.
+    /// Keystrokes or a paste, in order, in frames the protocol allows. Input queued before
+    /// `Welcome` was applied is dropped, never sent late.
     pub fn input(&self, bytes: &[u8]) {
         for chunk in input_chunks(bytes) {
             let _ = self.commands.send(Command::Input(chunk.to_vec()));
@@ -227,6 +227,33 @@ enum Phase {
 /// The most a snapshot may hold: far more than any screen the protocol sizes allow.
 const SNAPSHOT_LIMIT: usize = 8 * 1024 * 1024;
 
+/// Takes what the board has told the thread so far. Input goes out only once connected, and
+/// not at all when `discard_input` is set; the window is kept either way.
+fn pump(
+    commands: &Receiver<Command>,
+    socket: &mut UnixStream,
+    window: &mut Option<Size>,
+    connected: bool,
+    discard_input: bool,
+) -> Result<(), String> {
+    loop {
+        match commands.try_recv() {
+            Ok(Command::Input(bytes)) if connected && !discard_input => {
+                send(socket, &ClientMessage::Input(bytes))?;
+            }
+            Ok(Command::Input(_)) => {}
+            Ok(Command::Resize(size)) => {
+                *window = Some(size);
+                if connected {
+                    send(socket, &ClientMessage::Resize(size))?;
+                }
+            }
+            Ok(Command::StopTyping) => *window = None,
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
+        }
+    }
+}
+
 fn session(
     address: &Address,
     timing: Timing,
@@ -263,30 +290,11 @@ fn session(
             return End::Stopped;
         }
         let connected = !matches!(phase, Phase::Handshake(_));
-        loop {
-            match commands.try_recv() {
-                Ok(Command::Input(bytes)) if connected => {
-                    if let Err(error) = send(&mut socket, &ClientMessage::Input(bytes)) {
-                        return End::Lost {
-                            reason: error,
-                            live: shown,
-                        };
-                    }
-                }
-                Ok(Command::Input(_)) => {}
-                Ok(Command::Resize(size)) => {
-                    *window = Some(size);
-                    if connected && let Err(error) = send(&mut socket, &ClientMessage::Resize(size))
-                    {
-                        return End::Lost {
-                            reason: error,
-                            live: shown,
-                        };
-                    }
-                }
-                Ok(Command::StopTyping) => *window = None,
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
+        if let Err(error) = pump(commands, &mut socket, window, connected, false) {
+            return End::Lost {
+                reason: error,
+                live: shown,
+            };
         }
         match socket.read(&mut buffer) {
             Ok(0) => {
@@ -314,8 +322,21 @@ fn session(
                             };
                         }
                     };
+                    let handshaking = matches!(phase, Phase::Handshake(_));
                     match apply(message, &mut phase, &mut socket, *window) {
-                        Step::Continue => {}
+                        Step::Continue => {
+                            if handshaking && !matches!(phase, Phase::Handshake(_)) {
+                                // `Welcome` was just applied: whatever was typed before it
+                                // predates the first screen, so it is dropped, not sent late.
+                                if let Err(error) = pump(commands, &mut socket, window, true, true)
+                                {
+                                    return End::Lost {
+                                        reason: error,
+                                        live: shown,
+                                    };
+                                }
+                            }
+                        }
                         Step::Changed { immediate } => {
                             shown |= matches!(phase, Phase::Live(_));
                             dirty = true;
