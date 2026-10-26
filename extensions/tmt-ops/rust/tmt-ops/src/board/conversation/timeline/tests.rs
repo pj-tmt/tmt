@@ -129,6 +129,78 @@ fn setup(document: Value, live: bool) -> App {
 }
 
 #[test]
+fn upward_timeline_scroll_requests_the_opaque_older_page() {
+    crate::status::with_now_ms(NOW, || {
+        let mut document = incident();
+        document["nextBefore"] = json!("opaque-older-page");
+        let app = setup(document, false);
+        draw(&app, 160);
+        assert!(app.pane_output_plan().is_none(), "no eager older read");
+
+        app.scroll_pane(
+            crate::config::Pane::Replies,
+            crate::board::scroll::Step::Top,
+        );
+
+        let read = app
+            .pane_output_plan()
+            .expect("Home requests the older timeline page");
+        assert_eq!(
+            read.before,
+            Some(crate::board::recent_responses::Cursor::Timeline(
+                "opaque-older-page".into()
+            ))
+        );
+    });
+}
+
+#[test]
+fn home_page_up_and_wheel_request_older_timeline_without_changing_the_recipient() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+
+    crate::status::with_now_ms(NOW, || {
+        for key in [Some(KeyCode::Home), Some(KeyCode::PageUp), None] {
+            let mut document = incident();
+            document["nextBefore"] = json!("opaque-older-page");
+            let mut app = setup(document, false);
+            app.focus = usize::from(key.is_some());
+            draw(&app, 160);
+            assert!(app.pane_output_plan().is_none(), "no eager older read");
+            let selected = app.workspace.selected.clone();
+            let focus = app.focused_pane();
+
+            let effect = if let Some(key) = key {
+                assert_eq!(focus, Some(crate::config::Pane::Replies));
+                app.key(KeyEvent::new(key, KeyModifiers::NONE))
+            } else {
+                assert_eq!(focus, Some(crate::config::Pane::Rows));
+                let pane = app.conversation.borrow().pane.unwrap();
+                app.mouse(
+                    MouseEvent {
+                        kind: MouseEventKind::ScrollUp,
+                        column: pane.x + 1,
+                        row: pane.y + 1,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    std::time::Instant::now(),
+                )
+            };
+            assert_eq!(effect, Effect::None);
+            assert_eq!(app.workspace.selected, selected);
+            assert_eq!(app.focused_pane(), focus);
+            assert_eq!(
+                app.pane_output_plan()
+                    .expect("input requests the older page")
+                    .before,
+                Some(crate::board::recent_responses::Cursor::Timeline(
+                    "opaque-older-page".into()
+                ))
+            );
+        }
+    });
+}
+
+#[test]
 fn incident_live_and_restored_paint_each_input_and_final_once_in_committed_order() {
     crate::status::with_now_ms(NOW, || {
         for live in [false, true] {

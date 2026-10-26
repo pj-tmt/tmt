@@ -539,7 +539,7 @@ impl App {
             && self.pane_output_enabled()
             && !screen_mode
             && matches!(&session.pane_output, super::recent_responses::Observation::Observed(page)
-                if page.next_before.is_some())
+                if page.cursor().is_some())
             && session.rendered.as_ref().is_some_and(|rendered| {
                 self.scrolls.offset(pane) <= rendered.pane_start.unwrap_or(0)
             })
