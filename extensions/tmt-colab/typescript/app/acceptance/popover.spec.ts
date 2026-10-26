@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, selectInRenderer } from './harness/ask.js';
+import { createPage, freePort, openPage, run, selectInRenderer } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { openPanel } from '../test/comments-region.js';
 
@@ -217,5 +217,80 @@ for (const [width, theme] of [
       await expect(chat).toBeHidden();
       await expect(page.locator('iframe')).toBeFocused();
       expect(agent.received()).toHaveLength(0);
+    });
+  });
+
+for (const ending of [
+  'Escape',
+  'blur',
+  'keyboard blur',
+  'release outside',
+  'source update',
+] as const)
+  test(`a served selection clears and recovers after ${ending}`, async () => {
+    await withWorld(async (world) => {
+      const door = await startDoor(world, await freePort());
+      const browser = await pairBrowser(world, 'selection-reader');
+      const created = createPage(
+        world,
+        'Selection lifecycle',
+        '<p id="quote" style="display:inline-block">A quote to annotate.</p>',
+      );
+      const page = await openPage(door, browser, created);
+      const target = page.frameLocator('iframe').locator('#quote');
+      const action = page.getByTestId('selection-ask');
+      await selectInRenderer(page, '#quote');
+      if (ending === 'Escape') {
+        await page.locator('iframe').focus();
+        await page.keyboard.press('Escape');
+      } else if (ending === 'source update') {
+        const renderId = await page.locator('iframe').getAttribute('data-render-id');
+        run(world, world.binaries.colab, [
+          'page',
+          'patch',
+          created.pageId,
+          '--find',
+          'display:inline-block',
+          '--replace',
+          'display:none',
+          '--json',
+        ]);
+        await expect(target).toBeHidden();
+        await expect(page.locator('iframe')).toHaveAttribute('data-render-id', renderId!);
+      } else {
+        if (ending === 'keyboard blur') {
+          await page.locator('iframe').focus();
+          await page.keyboard.down('Shift');
+          await page.keyboard.down('ArrowLeft');
+          await page.locator('body').evaluate((node) => {
+            node.tabIndex = -1;
+            node.focus();
+          });
+          await page.keyboard.up('ArrowLeft');
+          await page.keyboard.up('Shift');
+        } else {
+          const box = (await target.boundingBox())!;
+          await page.mouse.move(box.x + 1, box.y + box.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+          if (ending === 'release outside') await page.mouse.move(-10, -10, { steps: 4 });
+          else
+            await page.locator('body').evaluate((node) => {
+              node.tabIndex = -1;
+              node.focus();
+            });
+          await page.mouse.up();
+        }
+        await clearSelection(page);
+      }
+      await expect(action).toBeHidden();
+      if (ending !== 'source update') {
+        await selectInRenderer(page, '#quote');
+        await clearSelection(page);
+        await expect(action).toBeHidden();
+      }
+      expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+        0,
+      );
     });
   });
