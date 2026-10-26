@@ -31,6 +31,11 @@ impl Fixture {
             "prompt":{"status":"retained","message":"exact independent question\r\n"}});
         std::fs::write(dir.join("page.json"), page.to_string()).unwrap();
         std::fs::write(
+            dir.join("finals.json"),
+            json!({"items":[],"nextBefore":null}).to_string(),
+        )
+        .unwrap();
+        std::fs::write(
             dir.join("capabilities.json"),
             json!({"operations":["responses.timeline"]}).to_string(),
         )
@@ -50,7 +55,7 @@ impl Fixture {
         crate::test_support::write_ready_executable(
             &fake,
             &format!(
-                "#!/bin/sh\nif [ \"$1\" != api ]; then printf '%s\\n' '{{}}'; exit 0; fi\nrequest=$(cat)\nprintf '%s\\n' \"$request\" >> '{}/calls'\ncase \"$request\" in\n*capabilities*) cat '{}/capabilities.json';;\n*responses.timeline*) cat '{}/page.json';;\n*responses.recent*) printf '%s\\n' '{}';;\n*input-inline*) printf '%s\\n' '{}';;\n*reply-inline*) printf '%s\\n' '{}';;\n*pending-own*) printf '%s\\n' '{}';;\n*requests.show*) printf '%s\\n' '{}';;\n*requests.list*) printf '%s\\n' '{}';;\n*) printf '%s\\n' '{{}}';;\nesac\n",
+                "#!/bin/sh\nif [ \"$1\" != api ]; then printf '%s\\n' '{{}}'; exit 0; fi\nrequest=$(cat)\nprintf '%s\\n' \"$request\" >> '{}/calls'\ncase \"$request\" in\n*capabilities*) cat '{}/capabilities.json';;\n*responses.timeline*) cat '{}/page.json';;\n*responses.recent*) printf '%s\\n' '{}';;\n*input-inline*) printf '%s\\n' '{}';;\n*reply-inline*) printf '%s\\n' '{}';;\n*pending-own*) printf '%s\\n' '{}';;\n*requests.show*) printf '%s\\n' '{}';;\n*results*) cat '{}/finals.json';;\n*requests.list*) printf '%s\\n' '{}';;\n*) printf '%s\\n' '{{}}';;\nesac\n",
                 dir.display(),
                 dir.display(),
                 dir.display(),
@@ -59,6 +64,7 @@ impl Fixture {
                 reply,
                 pending_detail,
                 question,
+                dir.display(),
                 pending
             ),
         );
@@ -107,14 +113,16 @@ fn inline_timeline_bodies_are_acquired_before_legacy_history_and_only_questions_
             .iter()
             .filter(|call| call["operation"] == "requests.list")
             .count(),
-        1,
-        "only the independent pending-send metadata read remains"
+        2,
+        "one finals metadata list and one pending-send metadata list remain"
     );
-    assert_eq!(projection.bodies.len(), 1);
+    assert_eq!(projection.bodies.len(), 2);
     assert_eq!(
         projection.bodies[0].1.as_ref().unwrap(),
         "exact independent question\r\n"
     );
+    assert_eq!(projection.bodies[1].0.request, "reply-inline");
+    assert_eq!(projection.bodies[1].1.as_ref().unwrap(), "exact reply");
     let Some(recent_responses::Observation::Observed(page)) = projection.pane else {
         panic!("one coherent timeline publication")
     };
@@ -212,7 +220,7 @@ fn held_timeline_survives_a_failed_refresh_without_rehydration_and_compares_by_p
     plan.sent = false;
     plan.finals = false;
     for message in &mut plan.messages {
-        if message.key.kind == Kind::Question {
+        if matches!(message.key.kind, Kind::Question | Kind::Reply) {
             message.acquired = true;
         }
     }
@@ -388,9 +396,12 @@ fn an_inline_reply_publication_finishes_loading_without_a_legacy_show() {
         &mut SentTexts::default(),
         &Cancellation::default(),
     );
-    assert!(
-        projection.bodies.is_empty(),
-        "the inline reply is not fetched twice"
+    assert_eq!(projection.bodies.len(), 1);
+    assert_eq!(projection.bodies[0].0.request, "reply-inline");
+    assert_eq!(
+        projection.bodies[0].1.as_ref().unwrap(),
+        "exact reply",
+        "source hydration reuses the acquired inline body"
     );
     app.selected_request = crate::board::refresh::SelectedRequest::Ready(Some(
         crate::board::refresh::SelectedRead::Conversation(plan.clone()),
@@ -414,5 +425,168 @@ fn an_inline_reply_publication_finishes_loading_without_a_legacy_show() {
             .calls()
             .iter()
             .any(|call| call["operation"] == "requests.show")
+    );
+}
+
+#[test]
+fn timeline_read_keeps_off_home_reply_age_and_exact_source_without_a_show() {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    use ratatui::{Terminal, backend::TestBackend};
+    let fixture = Fixture::new();
+    let mut app = board();
+    let owner = app.view.as_ref().unwrap().me_id.clone().unwrap();
+    let at = crate::status::now_ms().saturating_sub(42_000);
+    let target = app.conversation_target().unwrap();
+    assert!(
+        app.detail(&Target::Row(target.clone()))
+            .unwrap()
+            .finals
+            .is_empty(),
+        "this reply is absent from both bounded home pages"
+    );
+    let page = json!({"identityId":MEMBER,"entries":[{
+        "entryId":"older-reply","kind":"reply","requestId":"reply-off-home",
+        "availability":"retained","text":"exact older reply body","truncated":false,
+        "originalBytes":22,"acknowledgements":[{"identityId":owner,
+        "requestId":"reply-off-home","revision":7}],"acknowledgementsTruncated":false
+    }],"responses":[],"coverage":{"olderDropped":false},"capture":{"enabled":true}});
+    let mut page = page;
+    page["entries"].as_array_mut().unwrap().push(json!({
+        "entryId":"unlisted-reply","kind":"reply","requestId":"reply-unlisted",
+        "availability":"retained","text":"unlisted inline reply","truncated":false,
+        "originalBytes":21,"acknowledgements":[],"acknowledgementsTruncated":false
+    }));
+    std::fs::write(fixture.dir.join("page.json"), page.to_string()).unwrap();
+    std::fs::write(
+        fixture.dir.join("finals.json"),
+        json!({"items":[{
+        "requestId":"reply-off-home","kind":"request","sender":{"identityId":owner},
+        "recipientId":MEMBER,"final":{"status":"retained","submittedAtMs":at,"response":"WRONG list body"}
+    }],"nextBefore":null})
+        .to_string(),
+    )
+    .unwrap();
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    app.perform(&crate::action::Action::parse("talk").unwrap());
+    app.paste("the completed own request");
+    let crate::board::app::Effect::Act(send) =
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+    else {
+        panic!("local send")
+    };
+    let ticket = app.outgoing_ticket(&send).unwrap();
+    app.finished_send(crate::board::conversation::outgoing::Completed {
+        ticket: Some(ticket),
+        outcome: Ok(crate::send::Accepted {
+            request: "reply-off-home".into(),
+            disposition: crate::send::Disposition::Sent,
+            passthrough: false,
+            message_state_label: None,
+            can_send_now: false,
+            working: false,
+            fallback: None,
+            warning: None,
+        }),
+        what: "Message".into(),
+        to: "worker".into(),
+    });
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    let mut admitted = Terminal::new(TestBackend::new(160, 50)).unwrap();
+    admitted
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let plan = app.conversation_read().unwrap();
+    let projection = plan.read(
+        &fixture.core,
+        &mut SentTexts::default(),
+        &Cancellation::default(),
+    );
+    app.apply_conversation(plan, projection);
+    let detail = app.detail(&Target::Row(target)).unwrap();
+    let reply = detail
+        .finals
+        .iter()
+        .find(|reply| {
+            reply
+                .key
+                .as_ref()
+                .is_some_and(|key| key.request == "reply-off-home")
+        })
+        .expect("the targeted finals metadata survives the timeline publication");
+    assert_eq!(reply.at_ms, Some(at));
+    assert!(
+        reply.acquired && reply.source,
+        "the timeline body retains its exact request source"
+    );
+    assert_eq!(reply.body, "exact older reply body");
+    let key = reply.key.as_ref().unwrap();
+    assert_eq!(key.sender, owner);
+    assert_eq!(key.lead, MEMBER);
+    assert_eq!(key.kind, Kind::Reply);
+    let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let screen = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(screen.contains("exact older reply body"), "{screen}");
+    assert!(!screen.contains("WRONG list body"), "{screen}");
+    assert!(
+        !screen.contains("✓ sent"),
+        "the settled reply replaces legacy send feedback: {screen}"
+    );
+    assert!(screen.contains("unlisted inline reply"), "{screen}");
+    let rows: Vec<String> = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(160)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+        .collect();
+    let body_row = rows
+        .iter()
+        .position(|row| row.contains("unlisted inline reply"))
+        .unwrap();
+    let header = rows[..body_row]
+        .iter()
+        .rev()
+        .find(|row| row.contains("in turn"))
+        .unwrap();
+    assert!(
+        !header.contains("ago"),
+        "an unlisted reply has no fabricated clock: {header}"
+    );
+    assert!(!detail.finals.iter().any(|reply| {
+        reply
+            .key
+            .as_ref()
+            .is_some_and(|key| key.request == "reply-unlisted")
+    }));
+
+    assert!(
+        screen.contains("in turn ·") && screen.contains("ago"),
+        "{screen}"
+    );
+    let calls = fixture.calls();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(
+                |call| call["operation"] == "requests.list" && call["input"]["view"] == "results"
+            )
+            .count(),
+        1,
+        "one bounded metadata read"
+    );
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call["operation"] == "requests.show"),
+        "the inline reply must not cause a legacy body read"
     );
 }

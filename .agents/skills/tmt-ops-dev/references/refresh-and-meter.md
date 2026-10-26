@@ -145,7 +145,10 @@
   conversation on this lane and publishes one projection. It acquires the public
   committed timeline first. Timeline inputs and replies own their inline bodies,
   including explicit unavailable observations; only independent incoming questions
-  need `requests.show`. One bounded own-send metadata list retains held/queued sends,
+  need `requests.show`. One bounded finals list supplies reply times and request source
+  keys, joined to timeline replies by request ID; reply bodies remain the inline
+  timeline bodies, never list previews. A reply absent from that list retains its
+  inline body with an unknown age and no inferred source key. One bounded own-send metadata list retains held/queued sends,
   their Core delivery state and preview before a committed input exists; it does not
   hydrate prompt bodies or treat a preview as full text. A held timeline shares the existing page by `Arc` and compares
   by pointer, so a failed refresh or a new question does not hydrate covered bodies again.

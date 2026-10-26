@@ -134,10 +134,14 @@ impl Plan {
                 _ => None,
             })
             .or_else(|| self.held_timeline.as_ref()?.timeline.as_ref());
+        // Reply clocks and request source keys are not part of timeline Reply
+        // entries. Keep the one bounded metadata list, never its body.
+        let finals = (self.finals && !cancellation.cancelled())
+            .then(|| self.key.read(core).map_err(|error| error.to_string()));
         if let Some(timeline) = timeline {
             // The committed stream owns its inputs and replies, including an
             // unavailable body. A legacy show must not replace that observation.
-            let bodies = self
+            let mut bodies: Vec<_> = self
                 .messages
                 .iter()
                 .filter(|message| {
@@ -149,6 +153,40 @@ impl Plan {
                     (message.key.clone(), body)
                 })
                 .collect();
+            // Retain existing reply metadata across older-page acquisitions too.
+            // Bodies always come from the committed entry, joined by request ID.
+            let mut replies: BTreeMap<_, _> = self
+                .messages
+                .iter()
+                .filter(|message| !message.acquired && message.key.kind == Kind::Reply)
+                .map(|message| (message.key.request.clone(), message.key.clone()))
+                .collect();
+            if let Some(Ok(finals)) = &finals {
+                for reply in finals {
+                    if let Some(request) = reply["requestId"].as_str() {
+                        replies.insert(
+                            request.to_owned(),
+                            MessageKey {
+                                sender: self.key.sender.clone(),
+                                lead: self.key.agent.clone(),
+                                squad: self.squad.clone(),
+                                request: request.to_owned(),
+                                kind: Kind::Reply,
+                            },
+                        );
+                    }
+                }
+            }
+            for entry in &timeline.entries {
+                if let recent_responses::timeline::Kind::Reply {
+                    request,
+                    body: Some(body),
+                } = &entry.kind
+                    && let Some(key) = replies.get(request)
+                {
+                    bodies.push((key.clone(), Ok(body.text.clone())));
+                }
+            }
             // Held/queued sends have no committed input yet. Restore their
             // Core state and bounded preview without hydrating prompt bodies.
             let sent = (self.sent && !cancellation.cancelled()).then(|| {
@@ -165,15 +203,12 @@ impl Plan {
                 .map_err(|error| error.to_string())
             });
             return Projection {
-                finals: self.finals.then(|| Ok(Vec::new())),
+                finals,
                 sent,
                 bodies,
                 pane,
             };
         }
-        let finals = self
-            .finals
-            .then(|| self.key.read(core).map_err(|error| error.to_string()));
         let mut documents = BTreeMap::new();
         let mut show = |request: &str| {
             documents
@@ -262,21 +297,28 @@ impl App {
             .into_iter()
             .filter_map(|reply| {
                 let key = reply.key.as_ref()?;
-                needs_request_body(key, timeline).then(|| Message {
+                Some(Message {
                     key: key.clone(),
                     at_ms: reply.at_ms,
                     acquired: reply.acquired,
                 })
             })
             .collect();
-        if !finals && !sent && pane.is_none() && messages.iter().all(|message| message.acquired) {
+        if !finals
+            && !sent
+            && pane.is_none()
+            && messages
+                .iter()
+                .all(|message| message.acquired || !needs_request_body(&message.key, timeline))
+        {
             return None;
         }
         Some(Plan {
             key,
             squad: self
-                .target_squad(&self.conversation_target()?)
-                .unwrap_or_default(),
+                .message_squad(&self.conversation_target()?)
+                .unwrap_or_default()
+                .to_owned(),
             finals,
             sent,
             messages,

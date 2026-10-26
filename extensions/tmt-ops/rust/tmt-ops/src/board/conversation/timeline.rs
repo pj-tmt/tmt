@@ -618,7 +618,7 @@ impl Session {
             })
             .collect::<HashSet<_>>();
         for entry in self.outgoing.iter().filter(|entry| entry.pending()) {
-            if local_pending_painted && entry.pending() {
+            if local_pending_painted {
                 continue;
             }
             if entry

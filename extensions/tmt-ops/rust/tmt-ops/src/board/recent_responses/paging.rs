@@ -260,6 +260,8 @@ fn timeline_join(
     }
     older.entries.extend(newer.entries);
     older.responses.extend(newer.responses);
+    // Coverage is identity-wide, not page-relative (extension-api: Ordered
+    // captured conversation / Recent agent responses). Keep the newer observation.
     older.coverage = newer.coverage;
     older.capture = newer.capture;
     Some(older)

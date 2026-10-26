@@ -274,6 +274,19 @@ fn age(at: Option<u64>, now: u64) -> String {
 }
 
 impl App {
+    /// Source keys use the detail's presentation squad, not its dispatch room.
+    pub(super) fn message_squad<'a>(&'a self, target: &'a RowTarget) -> Option<&'a str> {
+        match target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member { .. }) => Some(
+                self.target_row(target)?["squad"]
+                    .as_str()
+                    .unwrap_or("Common pool"),
+            ),
+            RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => Some(squad),
+            RowTarget::Workspace(_) => None,
+        }
+    }
+
     pub(super) fn row_detail(&self, target: &RowTarget, visible: &[&str]) -> Option<Detail> {
         let row = match target {
             RowTarget::Workspace(_) => self.target_row(target)?,
@@ -334,15 +347,13 @@ impl App {
                 detail.add(&label, Some(&text), Role::Muted);
             }
         }
-        let (squad, id) = match target {
-            RowTarget::Workspace(super::workspace::OpsTarget::Member { identity_id, .. }) => (
-                row["squad"].as_str().unwrap_or("Common pool"),
-                identity_id.as_str(),
-            ),
-            RowTarget::Workspace(_) => return None,
-            RowTarget::Member { squad, id, .. } | RowTarget::Lead { squad, id, .. } => {
-                (squad.as_str(), id.as_str())
+        let squad = self.message_squad(target)?;
+        let id = match target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member { identity_id, .. }) => {
+                identity_id.as_str()
             }
+            RowTarget::Workspace(_) => return None,
+            RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => id.as_str(),
         };
         let sender = self.view.as_ref().and_then(|view| view.me_id.clone());
         // The flat list discusses the acquired request the member is waiting on,
