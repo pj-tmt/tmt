@@ -219,24 +219,44 @@ impl Controller {
                         .as_ref()
                         .and_then(|id| applied.current.items.iter().find(|v| &v.item.id == id))
                         .is_some_and(|v| !self.matches(v));
-                    self.notice = Some(format!(
-                        "✓ Checklist {action} acknowledged{}{}.{}",
-                        if applied.changed {
-                            ""
-                        } else {
-                            "; nothing changed"
-                        },
-                        if hidden {
-                            "; item now hidden by filters"
-                        } else {
-                            ""
-                        },
-                        if self.unknown.is_empty() {
-                            ""
-                        } else {
-                            " Original update outcome remains unknown."
-                        }
-                    ));
+                    self.notice = if self.submit.as_ref().is_some_and(|request| {
+                        matches!(
+                            &request.action,
+                            Action::Item {
+                                mutation: Mutation::Complete,
+                                ..
+                            }
+                        )
+                    }) {
+                        Some(format!(
+                            "✓ Completed {}{}",
+                            self.target_label.as_deref().unwrap_or("item"),
+                            if self.unknown.is_empty() {
+                                ""
+                            } else {
+                                ". Original update outcome remains unknown."
+                            }
+                        ))
+                    } else {
+                        Some(format!(
+                            "✓ Checklist {action} acknowledged{}{}.{}",
+                            if applied.changed {
+                                ""
+                            } else {
+                                "; nothing changed"
+                            },
+                            if hidden {
+                                "; item now hidden by filters"
+                            } else {
+                                ""
+                            },
+                            if self.unknown.is_empty() {
+                                ""
+                            } else {
+                                " Original update outcome remains unknown."
+                            }
+                        ))
+                    };
                     if let Some(preview) = &mut self.preview {
                         preview.current = applied.current;
                     }
@@ -563,13 +583,9 @@ impl Controller {
             },
             Screen::Filters => {
                 match id {
-                    "open" => self.completion = Some(Completion::Open),
-                    "complete" => self.completion = Some(Completion::Complete),
-                    "all" => self.completion = None,
                     "squad" => self.assignment = Assignment::All,
                     "unassigned" => self.assignment = Assignment::Unassigned,
                     "member" => return self.screen(Screen::Members(None), None),
-                    "archive" => self.archived = !self.archived,
                     _ => {}
                 }
                 self.screen(Screen::List, None)
@@ -600,10 +616,8 @@ impl Controller {
                         Effect::Act(BoardRequest::Open { link, opener })
                     }),
                 "complete" => self.mutation(Mutation::Complete),
-                "reopen" => self.mutation(Mutation::Reopen),
                 "unassign" => self.mutation(Mutation::Unassign),
                 "archive" => self.mutation(Mutation::Archive),
-                "restore" => self.mutation(Mutation::Restore),
                 "delete" => {
                     let current = self.current().unwrap();
                     let revision = self.item(&item).unwrap().item.revision;
@@ -664,18 +678,37 @@ impl Controller {
                 }),
             },
             Screen::OrderActions(item) => {
+                let visible = self
+                    .current()
+                    .map(|current| {
+                        current
+                            .items
+                            .iter()
+                            .filter(|view| super::super::conversation_checklist::open_item(view))
+                            .map(|view| view.item.id.clone())
+                            .collect::<std::collections::BTreeSet<_>>()
+                    })
+                    .unwrap_or_default();
                 if let Some(Request {
                     action: Action::Reorder { order, .. },
                     ..
                 }) = &mut self.submit
-                    && let Some(index) = order.iter().position(|i| i == &item)
                 {
-                    let next = if id == "up" {
-                        index.saturating_sub(1)
-                    } else {
-                        (index + 1).min(order.len().saturating_sub(1))
-                    };
-                    order.swap(index, next);
+                    let positions: Vec<_> = order
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, id)| visible.contains(id).then_some(index))
+                        .collect();
+                    if let Some(at) = positions.iter().position(|&index| order[index] == item) {
+                        let next = if id == "up" {
+                            at.checked_sub(1)
+                        } else {
+                            at.checked_add(1).filter(|&next| next < positions.len())
+                        };
+                        if let Some(next) = next {
+                            order.swap(positions[at], positions[next]);
+                        }
+                    }
                 }
                 self.screen(Screen::Reorder, Some(item.as_str()))
             }

@@ -47,6 +47,42 @@ fn a_room_shortcut_never_opens_another_rooms_retained_draft() {
     assert_eq!(app.workspace.selected, before);
 }
 #[test]
+fn squad_lists_search_and_reorder_never_offer_completed_or_archived_rows() {
+    let f = Fixture::new();
+    seed(&f, ITEM, InventoryExpectation::Absent);
+    seed(&f, OTHER, InventoryExpectation::Revision(1));
+    mutate(&f, OTHER, 1, Mutation::Complete);
+    let mut c = controller(&f);
+    assert!(c.rows().iter().any(|row| row.id == ITEM));
+    assert!(!c.rows().iter().any(|row| row.id == OTHER));
+    c.screen = Screen::Filters;
+    assert!(
+        c.choice_rows()
+            .iter()
+            .all(|row| !matches!(row.id.as_str(), "all" | "complete" | "archive"))
+    );
+    c.screen = Screen::Actions;
+    pick(&mut c, "reorder");
+    assert!(!c.choice_rows().iter().any(|row| row.id == OTHER));
+    let Some(Request {
+        action: Action::Reorder { order, .. },
+        ..
+    }) = &c.submit
+    else {
+        panic!("full inventory request")
+    };
+    assert_eq!(
+        order,
+        &[id(ITEM), id(OTHER)],
+        "hidden identities remain in the submitted inventory"
+    );
+    assert!(
+        c.item(&id(OTHER)).is_some(),
+        "reference source stays available"
+    );
+}
+
+#[test]
 fn admitted_room_reads_and_writes_update_the_held_header_count() {
     use crate::board::{conversation_checklist, workspace::OpsTarget};
     use crate::checklist::model::Request;
@@ -92,6 +128,23 @@ fn admitted_room_reads_and_writes_update_the_held_header_count() {
     assert_eq!(f.literal()["items"][0]["completion"], "complete");
     assert_eq!(app.notes.total_label(), "0 todo");
     assert_eq!(app.notes.room_label(ROOM), "Checklist · 0 todo");
+    assert!(
+        app.checklist
+            .as_ref()
+            .unwrap()
+            .notice
+            .as_deref()
+            .unwrap()
+            .starts_with("✓ Completed Linked open item")
+    );
+    assert!(
+        !app.checklist
+            .as_ref()
+            .unwrap()
+            .rows()
+            .iter()
+            .any(|row| row.id == ITEM)
+    );
 }
 
 #[test]
@@ -342,16 +395,32 @@ fn full_typed_board_actions_persist_without_dispatch_or_metadata_changes() {
     let effect = pick(&mut c, "confirm");
     finish(&mut c, &mut lane, &f, effect);
     let item = c.current().unwrap().items[0].item.id.clone();
+    let checklist = c.current().unwrap().checklist_id.clone().unwrap();
+    let update_from_service = |revision, mutation| {
+        f.manager()
+            .apply(&Request {
+                room_id: id(ROOM),
+                checklist_id: checklist.clone(),
+                action: Action::Item {
+                    item_id: item.clone(),
+                    revision,
+                    mutation,
+                },
+            })
+            .unwrap();
+    };
     assert_eq!(f.literal()["items"][0]["title"], "Authored from board");
     assert!(f.literal()["items"][0]["assignee"].is_null());
-    for (action, expected) in [("complete", "complete"), ("reopen", "open")] {
-        c.screen = Screen::Details(item.clone());
-        pick(&mut c, action);
-        render(&c, 100, 30);
-        let effect = pick(&mut c, "confirm");
-        finish(&mut c, &mut lane, &f, effect);
-        assert_eq!(f.literal()["items"][0]["completion"], expected);
-    }
+    c.screen = Screen::Details(item.clone());
+    pick(&mut c, "complete");
+    render(&c, 100, 30);
+    let effect = pick(&mut c, "confirm");
+    finish(&mut c, &mut lane, &f, effect);
+    assert_eq!(f.literal()["items"][0]["completion"], "complete");
+    assert!(!c.rows().iter().any(|row| row.id == item.as_str()));
+    // Reopening remains a service/CLI action, not a display toggle.
+    update_from_service(2, Mutation::Reopen);
+    c.preview = Some(f.manager().preview().unwrap());
     c.screen = Screen::Details(item.clone());
     pick(&mut c, "assign");
     assert_eq!(c.screen, Screen::Members(Some(item.clone())));
@@ -369,13 +438,12 @@ fn full_typed_board_actions_persist_without_dispatch_or_metadata_changes() {
     }
     assert!(f.literal()["items"][0]["archived"].as_bool().unwrap());
     assert!(c.notice.as_deref().unwrap().contains("hidden by filters"));
-    c.archived = true;
     c.screen = Screen::Details(item.clone());
     assert!(!c.rows().iter().any(|r| r.id == "edit"));
-    pick(&mut c, "restore");
-    render(&c, 100, 30);
-    let effect = pick(&mut c, "confirm");
-    finish(&mut c, &mut lane, &f, effect);
+    assert!(!c.rows().iter().any(|r| r.id == "restore"));
+    let revision = c.item(&item).unwrap().item.revision;
+    update_from_service(revision, Mutation::Restore);
+    c.preview = Some(f.manager().preview().unwrap());
     c.screen = Screen::Details(item.clone());
     pick(&mut c, "edit");
     c.draft.as_mut().unwrap().title = "Edited".into();
@@ -480,37 +548,41 @@ fn original_unknown_survives_reads_and_later_acknowledgements_with_late_fence() 
     assert!(c.notice.as_deref().unwrap().contains("remains unknown"));
 }
 #[test]
-fn filters_assignment_and_full_archived_reorder_keep_independent_identity() {
+fn assignment_and_visible_reorder_preserve_hidden_inventory_positions() {
     let f = Fixture::new();
+    const THIRD: &str = "99999999-9999-4999-8999-999999999999";
     seed(&f, ITEM, InventoryExpectation::Absent);
     seed(&f, OTHER, InventoryExpectation::Revision(1));
+    seed(&f, THIRD, InventoryExpectation::Revision(2));
     mutate(&f, OTHER, 1, Mutation::Archive);
     let mut c = controller(&f);
     let mut lane = load::Lane::seeded(1, id(ROOM), f.manager());
     c.screen = Screen::Filters;
     pick(&mut c, "unassigned");
     assert_eq!(c.assignment, Assignment::Unassigned);
-    assert_eq!(c.rows().iter().filter(|r| !r.disabled).count(), 1);
+    assert_eq!(c.rows().iter().filter(|r| !r.disabled).count(), 2);
     c.screen = Screen::Actions;
     pick(&mut c, "reorder");
-    let Some(Request {
-        action: Action::Reorder { order, .. },
-        ..
-    }) = &c.submit
-    else {
-        panic!()
-    };
-    assert_eq!(order, &vec![id(ITEM), id(OTHER)]);
-    pick(&mut c, OTHER);
+    assert!(!c.choice_rows().iter().any(|r| r.id == OTHER));
+    pick(&mut c, THIRD);
     pick(&mut c, "up");
     pick(&mut c, "apply");
     render(&c, 160, 30);
     let effect = pick(&mut c, "confirm");
     finish(&mut c, &mut lane, &f, effect);
-    assert_eq!(f.literal()["items"][0]["id"], OTHER);
+    let literal = f.literal();
+    assert_eq!(
+        literal["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [THIRD, OTHER, ITEM]
+    );
     assert_eq!(c.assignment, Assignment::Unassigned);
-    assert!(!c.archived);
 }
+
 #[test]
 fn viewport_cues_and_stale_hits_are_bounded_in_all_looks() {
     let f = Fixture::new();

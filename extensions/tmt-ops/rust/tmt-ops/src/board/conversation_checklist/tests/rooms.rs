@@ -146,7 +146,6 @@ fn ten_linked_room_items_and_an_empty_conversation_count_once_in_the_header() {
         Counts {
             links: 10,
             todo: 10,
-            done: 0
         }
     );
     state.finished(
@@ -173,17 +172,7 @@ fn ten_linked_room_items_and_an_empty_conversation_count_once_in_the_header() {
     assert_eq!(state.room_label(ROOM), "Checklist · 10 todo");
     assert!(state.preview(&room).is_none(), "room counts retain no body");
     let selected = state.offer(Some(&conversation), now).unwrap();
-    state.finished(
-        reading(
-            &selected,
-            Ok(Counts {
-                links: 1,
-                todo: 2,
-                done: 0,
-            }),
-        ),
-        now,
-    );
+    state.finished(reading(&selected, Ok(Counts { links: 1, todo: 2 })), now);
     assert_eq!(
         state.total_label(),
         "12 todo",
@@ -289,7 +278,6 @@ fn room_counts_use_the_admitted_room_service_and_do_not_create_a_conversation_li
         Outcome::Counts(Ok(Counts {
             links: 10,
             todo: 10,
-            done: 0
         }))
     ));
     let conversation = Service::for_conversation(

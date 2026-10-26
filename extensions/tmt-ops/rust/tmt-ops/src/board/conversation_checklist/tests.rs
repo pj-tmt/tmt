@@ -90,17 +90,13 @@ pub(super) fn preview(items: Vec<ItemView>) -> Preview {
 
 /// A list holding exactly these counts.
 fn items_of(counts: Counts) -> Vec<ItemView> {
-    assert!(counts.links <= counts.todo + counts.done);
-    (0..counts.todo + counts.done)
+    assert!(counts.links <= counts.todo);
+    (0..counts.todo)
         .map(|index| {
             view(
                 u8::try_from(index + 1).unwrap(),
                 (index < counts.links).then_some("https://example.com/a"),
-                if index < counts.todo {
-                    Completion::Open
-                } else {
-                    Completion::Complete
-                },
+                Completion::Open,
                 false,
             )
         })
@@ -127,7 +123,33 @@ pub(super) fn key() -> Key {
 }
 
 #[test]
-fn references_are_attributes_of_open_and_completed_items_and_archived_counts_nowhere() {
+fn open_counts_and_chip_exclude_completed_references_and_all_done_is_empty() {
+    let items = vec![
+        view(1, Some("https://example.org/open"), Completion::Open, false),
+        view(2, None, Completion::Open, false),
+        view(
+            3,
+            Some("https://example.org/done"),
+            Completion::Complete,
+            false,
+        ),
+        view(4, None, Completion::Complete, false),
+        view(5, None, Completion::Open, true),
+    ];
+    let counts = Counts::of(&items);
+    assert_eq!(chip(Some(&Summary::Counts(counts))), "Checklist · 2 todo");
+    assert_eq!(
+        counts.links, 1,
+        "only open links contribute to the inventory"
+    );
+    assert_eq!(
+        chip(Some(&Summary::Counts(Counts::of(&items[2..4])))),
+        "Checklist · empty"
+    );
+}
+
+#[test]
+fn only_open_nonarchived_items_contribute_todos_and_references() {
     let items = [
         view(1, Some("https://example.com/a"), Completion::Open, false),
         view(
@@ -142,32 +164,24 @@ fn references_are_attributes_of_open_and_completed_items_and_archived_counts_now
         view(6, Some("https://example.com/c"), Completion::Open, true),
         view(7, None, Completion::Open, true),
     ];
-    assert_eq!(
-        Counts::of(&items),
-        Counts {
-            links: 2,
-            todo: 3,
-            done: 2
-        }
-    );
+    assert_eq!(Counts::of(&items), Counts { links: 1, todo: 3 });
     assert!(Counts::of(&items[5..]).is_empty(), "only archived items");
     assert!(Counts::of(&[]).is_empty());
 }
 
 #[test]
 fn the_chip_reads_pending_empty_counts_and_unavailable() {
-    let counts = |links, todo, done| Some(Summary::Counts(Counts { links, todo, done }));
+    let counts = |todo| {
+        Some(Summary::Counts(Counts {
+            todo,
+            ..Counts::default()
+        }))
+    };
     assert_eq!(chip(None), "Checklist");
     assert_eq!(chip(Some(&Summary::Pending)), "Checklist");
-    assert_eq!(chip(counts(0, 0, 0).as_ref()), "Checklist · empty");
-    assert_eq!(
-        chip(counts(3, 2, 1).as_ref()),
-        "Checklist · 3 links · 2 todo · 1 done"
-    );
-    assert_eq!(
-        chip(counts(1, 1, 0).as_ref()),
-        "Checklist · 1 link · 1 todo · 0 done"
-    );
+    assert_eq!(chip(counts(0).as_ref()), "Checklist · empty");
+    assert_eq!(chip(counts(2).as_ref()), "Checklist · 2 todo");
+    assert_eq!(chip(counts(1).as_ref()), "Checklist · 1 todo");
     assert_eq!(
         chip(Some(&Summary::Unavailable("no".into()))),
         "Checklist · unavailable"
@@ -190,11 +204,7 @@ fn a_conversation_is_read_once_then_each_fresh_interval_and_never_twice_at_once(
             .is_none(),
         "one read in flight at a time"
     );
-    let counts = Counts {
-        links: 1,
-        todo: 1,
-        done: 0,
-    };
+    let counts = Counts { links: 1, todo: 1 };
     let t1 = t0 + Duration::from_secs(1);
     state.finished(reading(&task, Ok(counts)), t1);
     assert_eq!(state.summary(&key()), Some(&Summary::Counts(counts)));
@@ -409,11 +419,7 @@ fn a_failed_first_read_is_reported_and_retried_later_and_a_failed_refresh_keeps_
         .offer(Some(&key()), t0 + RETRY)
         .expect("then it asks again");
 
-    let counts = Counts {
-        links: 0,
-        todo: 1,
-        done: 0,
-    };
+    let counts = Counts { links: 0, todo: 1 };
     let t1 = t0 + RETRY;
     state.finished(reading(&task, Ok(counts)), t1);
     let task = state.offer(Some(&key()), t1 + FRESH).unwrap();
@@ -477,11 +483,7 @@ pub(in crate::board) fn capture_case(
     let now = Instant::now();
     let task = app.notes.offer(Some(&key), now).unwrap();
     let result = match scene {
-        "notes-counts" => Ok(Counts {
-            links: 3,
-            todo: 5,
-            done: 1,
-        }),
+        "notes-counts" => Ok(Counts { links: 3, todo: 5 }),
         "notes-empty" => Ok(Counts::default()),
         _ => Err("No admitted caller or recorded active user.".into()),
     };
@@ -510,7 +512,6 @@ fn the_chip_fits_the_columns_it_is_given() {
         Some(Summary::Counts(Counts {
             links: 12,
             todo: 345,
-            done: 6789,
         })),
         Some(Summary::Unavailable("no".into())),
     ];
@@ -609,15 +610,7 @@ mod header {
     fn todo_counts_reach_the_global_header_and_member_state_together() {
         let mut app = board();
         let key = select_member(&mut app);
-        answer(
-            &mut app,
-            &key,
-            Ok(Counts {
-                links: 3,
-                todo: 5,
-                done: 1,
-            }),
-        );
+        answer(&mut app, &key, Ok(Counts { links: 3, todo: 5 }));
         let text = screen(&app);
         let header = text.lines().next().unwrap();
         assert!(header.contains("○ 5 todo"), "{header}");
@@ -677,7 +670,7 @@ mod header {
                 outcome: Outcome::Write(Ok(crate::checklist::Applied {
                     current: preview(items_of(Counts {
                         todo: 1,
-                        done: 1,
+
                         ..Counts::default()
                     }))
                     .current,
@@ -701,10 +694,7 @@ mod header {
         );
         let text = screen(&app);
         assert!(text.lines().next().unwrap().contains("○ 1 todo"), "{text}");
-        assert!(
-            text.contains("Checklist · 0 links · 1 todo · 1 done"),
-            "{text}"
-        );
+        assert!(text.contains("Checklist · 1 todo"), "{text}");
         assert!(
             text.lines().any(|line| line.contains("worker")
                 && line.contains("working")
@@ -727,20 +717,9 @@ mod header {
             "the link line is replaced"
         );
 
-        answer(
-            &mut app,
-            &key,
-            Ok(Counts {
-                links: 3,
-                todo: 5,
-                done: 1,
-            }),
-        );
+        answer(&mut app, &key, Ok(Counts { links: 3, todo: 5 }));
         let text = screen(&app);
-        assert!(
-            text.contains("Checklist · 3 links · 5 todo · 1 done"),
-            "{text}"
-        );
+        assert!(text.contains("Checklist · 5 todo"), "{text}");
     }
 
     #[test]

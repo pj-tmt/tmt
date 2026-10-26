@@ -171,15 +171,11 @@ impl Controller {
                 "title": format!("{label} · {}", members.len()), "meta": "", "role": "dim",
             }));
             rows.extend(members.into_iter().map(|row| {
-                let role = match row.kind {
-                    Kind::Done => "muted",
-                    _ => "text",
-                };
                 json!({
                     "id": row.id.as_str(), "disabled": false,
                     "cursor": if selected.as_deref() == Some(row.id.as_str()) { "›" } else { "" },
                     "mark": row.kind.mark(), "title": safe(&row.title),
-                    "meta": safe(&row.meta(host_cells)), "role": role,
+                    "meta": safe(&row.meta(host_cells)), "role": "text",
                 })
             }));
         }
