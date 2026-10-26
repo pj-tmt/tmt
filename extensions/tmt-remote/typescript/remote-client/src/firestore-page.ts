@@ -62,16 +62,9 @@ function checks(): HTMLElement {
     },
     {
       id: 'changes',
-      title: 'What will change',
+      title: 'What will change and account permissions',
       detail:
-        'No deployment plan has been checked here. Preview the exact changes in this machine’s terminal.',
-      command: serviceCommands.preview,
-    },
-    {
-      id: 'permissions',
-      title: 'Account permissions',
-      detail:
-        'Permissions have not been checked here. Use the Firebase account that manages the project in this machine’s terminal to check them.',
+        'No deployment plan or account permissions have been checked here. Use the Firebase account that manages the project to preview both in this machine’s terminal.',
       command: serviceCommands.preview,
     },
   ];
@@ -159,11 +152,12 @@ export function renderFirestore(
   target: HTMLElement,
   access: 'checking' | 'confirmed' | 'unconfirmed',
   view?: FirestoreSettingsView,
+  options: { commands?: boolean; announcement?: HTMLElement; prefix?: string } = {},
 ): void {
-  const projection = JSON.stringify([access, view]);
+  const projection = JSON.stringify([access, view, options.commands]);
   if (painted.get(target) === projection) return;
   painted.set(target, projection);
-  const announcement = document.getElementById('firestore-announcement')!;
+  const announcement = options.announcement ?? document.getElementById('firestore-announcement')!;
   const summary =
     access === 'checking'
       ? ''
@@ -189,7 +183,8 @@ export function renderFirestore(
           : 'Service status could not be confirmed.',
       ),
     );
-    if (access !== 'checking') target.append(checks(), guidance(), futureServices(true));
+    if (access !== 'checking' && options.commands !== false)
+      target.append(checks(), guidance(), futureServices(true));
     target.dataset.tone = access === 'checking' ? 'waiting' : 'blocked';
     return;
   }
@@ -211,7 +206,7 @@ export function renderFirestore(
   for (const layer of view.firestoreLayers) {
     const group = node('section');
     group.className = 'firestore-layer';
-    group.dataset.layer = layer.layer;
+    group.dataset[options.prefix ? `${options.prefix}Layer` : 'layer'] = layer.layer;
     const title = firestoreTitles[layer.layer];
     // Every-state interpretation: unsupported layers cannot work regardless of other evidence.
     if (layer.prerequisites.some((p) => p.item === 'support' && p.reason === 'not-implemented')) {
@@ -225,7 +220,7 @@ export function renderFirestore(
       const list = node('ul');
       for (const item of layer.prerequisites) {
         const row = node('li');
-        row.dataset.item = item.item;
+        row.dataset[options.prefix ? `${options.prefix}Item` : 'item'] = item.item;
         const displayState =
           item.item === 'indexes' && item.state !== 'enabled'
             ? item.reason === 'building'
@@ -234,7 +229,7 @@ export function renderFirestore(
             : item.state;
         row.append(node('span', `${firestoreItems[item.item]}: `), mark(displayState));
         if (item.reason) row.append(node('p', firestoreReasons[item.item]![item.reason]![0]));
-        if (item.next) {
+        if (item.next && options.commands !== false) {
           const nextLine = firestoreReasons[item.item]![item.reason!]![2];
           const hint = node('p', nextLine ?? 'Run this in this machine’s terminal:');
           row.append(hint, commandCopy(item.next));
@@ -252,13 +247,12 @@ export function renderFirestore(
     }
     target.append(group);
   }
+  if (options.commands !== false) target.append(checks(), guidance());
   target.append(
-    checks(),
-    guidance(),
     futureServices(!view.firestoreLayers.some((layer) => layer.layer === 'attachments')),
   );
   const details = node('details');
-  details.id = 'firestore-budget';
+  details.id = `${options.prefix ? `${options.prefix}-` : ''}firestore-budget`;
   details.className = browserUiClasses.disclosure;
   details.append(node('summary', 'Firestore free-plan limits'));
   const published = view.firestoreBudget;

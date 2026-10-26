@@ -3559,7 +3559,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   await expect(page.locator('#remote-designation')).toHaveText('This browser manages this Remote.');
   await expect(page.locator('[data-layer="sharing"]')).toContainText('Enabled');
   const serviceChecks = page.locator('[data-service-check]');
-  await expect(serviceChecks).toHaveCount(3);
+  await expect(serviceChecks).toHaveCount(2);
   for (const check of await serviceChecks.all()) {
     await expect(check).toContainText('Not checked');
     await expect(check.getByRole('button')).toHaveCount(1);
@@ -4627,6 +4627,165 @@ async function remoteAction(page: Page, name: string, action: 'Rename' | 'Forget
   await page.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
   await page.getByRole('menuitem', { name: action, exact: true }).click();
 }
+
+test('Create guide keeps prerequisites and completion unchecked and copies only catalog commands', async () => {
+  await withRegistryWorld(async ({ page, pairAt, identity, sdk }) => {
+    const posts: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST') posts.push(request.url());
+    });
+    await page.goto(`${origin}/remote/create`);
+    const guide = page.locator('#remote-create');
+    await expect(guide).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Create a Remote');
+    await expect(page.locator('#remote-context')).toBeHidden();
+    await expect(guide.getByRole('radio', { name: /Cloudflare/ })).toBeDisabled();
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(guide.locator('[data-create-step="3"]')).toBeVisible();
+    await expect(
+      guide.getByRole('button', { name: '2 Prepare · upcoming', exact: true }),
+    ).toBeDisabled();
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(guide.locator('[data-create-step="4"]')).toContainText('No cloud account');
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(guide.locator('[data-create-step="5"]')).toContainText('No cloud deployment');
+    expect(posts).toEqual([]);
+
+    await page.reload();
+    await guide.getByRole('radio', { name: /Firebase · Free Spark plan/ }).check();
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    const prepare = guide.locator('[data-create-step="2"]');
+    await expect(prepare).toBeVisible();
+    await guide.getByRole('button', { name: /^2 Prepare/ }).focus();
+    await page.keyboard.press('Enter');
+    await expect(prepare.getByRole('heading')).toBeFocused();
+    await expect(prepare.getByRole('img', { name: 'Not checked', exact: true })).toHaveCount(4);
+    await expect(prepare.locator('code').first()).toHaveText('node --version');
+    await page.evaluate(() =>
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            (window as unknown as { guideCopied: string }).guideCopied = text;
+          },
+        },
+      }),
+    );
+    await prepare.getByRole('button', { name: 'Copy node --version', exact: true }).click();
+    expect(
+      await page.evaluate(() => (window as unknown as { guideCopied: string }).guideCopied),
+    ).toBe('node --version');
+    await expect(prepare.getByRole('status').first()).toHaveText('Copied.');
+    await page.evaluate(() =>
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async () => {
+            throw new Error('fixture clipboard refusal');
+          },
+        },
+      }),
+    );
+    await prepare.getByRole('button', { name: 'Copy node --version', exact: true }).click();
+    await expect(prepare.getByRole('status').first()).toContainText(
+      'Copy failed. Select the command',
+    );
+    await expect(prepare.getByRole('img', { name: 'Not checked', exact: true })).toHaveCount(4);
+    const directory =
+      process.env.TMT_REMOTE_CREATE_CAPTURE_DIR ??
+      (process.env.CI ? test.info().outputPath('create-guide-captures') : undefined);
+    async function capture(state: string) {
+      for (const width of [390, 1440])
+        for (const theme of ['light', 'dark'] as const) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.emulateMedia({ colorScheme: theme });
+          await settled(page);
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          ).toBe(true);
+          const sizes = await page.evaluate(() => ({
+            title: parseFloat(getComputedStyle(document.querySelector('h1')!).fontSize),
+            step: parseFloat(
+              getComputedStyle(
+                document.querySelector('#remote-create .create-step-panel:not([hidden]) h2')!,
+              ).fontSize,
+            ),
+          }));
+          expect(sizes.title).toBeGreaterThan(sizes.step);
+          if (directory) {
+            await mkdir(directory, { recursive: true });
+            await page.screenshot({
+              path: join(directory, `create-${state}-${width}-${theme}.png`),
+              fullPage: true,
+            });
+          }
+        }
+    }
+    await capture('prepare');
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    const project = guide.getByRole('textbox', { name: /Firebase project ID/ });
+    const region = guide.getByRole('textbox', { name: /Database region/ });
+    await project.fill('demo;false');
+    await region.fill('asia-east1');
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(guide.getByRole('alert')).toContainText('Enter a Firebase project ID');
+    await project.fill('demo-guide');
+    await project.evaluate((input) => {
+      (window as unknown as { guideProject: Element }).guideProject = input;
+    });
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    const review = guide.locator('[data-create-step="4"]');
+    await expect(review.locator('code')).toHaveText([
+      "tmt remote deploy firestore --project='demo-guide' --region='asia-east1' --defaults --json",
+      "tmt remote deploy firestore --project='demo-guide' --region='asia-east1' --defaults",
+    ]);
+    await expect(review.getByRole('button', { name: 'Deploy', exact: true })).toHaveCount(0);
+    await expect(review).toContainText('answer y/N there');
+    await guide.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(project).toHaveValue('demo-guide');
+    expect(
+      await project.evaluate(
+        (input) => (window as unknown as { guideProject: Element }).guideProject === input,
+      ),
+    ).toBe(true);
+    await expect(region).toHaveValue('asia-east1');
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await capture('review');
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(guide.locator('[data-create-step="5"]')).toContainText(
+      'Deployment completion · Not checked',
+    );
+    await expect(guide.locator('[data-create-step="5"]')).toContainText(
+      'Service status could not be confirmed',
+    );
+    await expect(
+      guide.getByRole('button', { name: 'Recheck saved facts', exact: true }),
+    ).toBeDisabled();
+    await capture('result');
+    expect(posts).toEqual([]);
+
+    await pairAt(env, 'G4 guide browser');
+    const original = await identity();
+    await sdk('add', ['guide-name', `${origin}/`]);
+    await page.goto(`${origin}/remote/`);
+    await page.getByRole('link', { name: 'Create a Remote', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/remote/create`);
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await guide.getByRole('button', { name: 'Name in this browser', exact: true }).click();
+    const dialog = page.locator('dialog.tmt-ui-dialog');
+    await dialog.getByRole('textbox', { name: 'Remote name', exact: true }).fill('guide-renamed');
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(guide).toContainText('Name in this browser: guide-renamed');
+    expect(await identity()).toEqual(original);
+    expect(
+      (await sdk<{ entries: { name: string }[] }>('list')).entries.map((entry) => entry.name),
+    ).toContain('guide-renamed');
+    await page.goto(`${origin}/remote/create`);
+    await expect(guide.getByRole('radio', { name: /This machine/ })).toBeChecked();
+    await expect(guide.locator('[data-create-step="1"]')).toBeVisible();
+  });
+});
 
 // B1 is Remote's registry consumer, not Colab routing or a foreign health probe.
 test('landing registry keeps two origins independent and confirms public-only handoffs', async () => {

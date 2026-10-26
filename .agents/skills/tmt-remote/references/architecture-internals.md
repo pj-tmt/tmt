@@ -152,6 +152,14 @@ so the root neither implements Colab admission nor adds a keyboard listener. Exi
 Session observations invalidate search; the existing management hold reason fences navigation.
 These UI lifetimes add no native endpoint, stored authority or provider observation.
 
+`create-page` is the global setup guide, outside the current-door tab frame. Its inputs are
+memory-only; naming delegates to the registry CAS owner. `settings-page` passes the existing
+validated optional layers/budget observation and refresh, without a second management client.
+`service-commands` projects the product-owned JSON catalog for Service and Create; the native
+grammar proof admits its TMT argv and checks external references without executing them.
+The guide never promotes recorded readiness, copied commands or completed navigation into
+prerequisite/deployment completion evidence, and exposes no browser execution or authorization.
+
 ## Member storage
 
 `members` keeps the per-Remote person mapping and owner/user policy in the existing

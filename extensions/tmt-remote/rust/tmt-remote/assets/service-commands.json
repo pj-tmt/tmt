@@ -1,4 +1,9 @@
 {
   "status": "tmt remote status --layers",
-  "preview": "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json"
+  "preview": "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+  "deploy": "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
+  "nodeVersion": "node --version",
+  "firebaseVersion": "firebase --version",
+  "firebaseInstall": "npm install -g firebase-tools@15.29.0",
+  "firebaseLogin": "firebase login"
 }

@@ -848,6 +848,7 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
         ("/", 200),
         ("/remote/pair", 200),
         ("/remote/", 200),
+        ("/remote/create", 200),
         ("/settings", 200),
         ("/settings/", 200),
         ("/remote/overview", 200),
@@ -1050,6 +1051,7 @@ fn remote_tabs_have_exact_public_admission_and_obsolete_views_have_no_redirects(
     let h = Harness::new(FAST);
     for path in [
         "/remote/",
+        "/remote/create",
         "/remote/overview",
         "/remote/members",
         "/remote/invites",

@@ -91,8 +91,20 @@ and the viewer role from the existing confirmed readable management observation:
 settings browser is Admin; a readable non-designated pairing is Member (M1 browser grants are
 users). Unreadable or unconfirmed access is Role unknown. This display grants no authority.
 Foreign entries show `◌ Not checked` and are never probed. Current access reuses the page's
-existing observation and grants no additional authority. Create a Remote and Join a Remote
-link to the existing machine/connect guidance until their dedicated flows ship.
+existing observation and grants no additional authority. Create a Remote opens the global
+`/remote/create` guide; Join a Remote retains the existing connection guidance.
+
+The Create guide keeps type/step/project/region inputs in the retained Remote model. It uses the
+same optional saved layers/budget observation and refresh, without another client or admission.
+This machine needs no cloud account; Firebase steps name the terminal or provider console;
+Cloudflare stays disabled as coming soon. Missing prerequisites, plan/permission checks and
+deployment completion remain Not checked. Browser-local naming uses the existing registry dialog
+and CAS, never a deploy flag. One product command catalog supplies every copy-only reference;
+the selected project/region are validated before substitution. Preview is JSON without authorization;
+the separate terminal deployment reference leaves plan review and y/N with the person. Copy never
+executes either. Service shares one preview for both changes and permissions. A saved enabled layer
+or copied command never certifies a completed deployment. Unknown/partial outcomes keep the original
+terminal record and its recovery instructions. Guide listeners and late reads follow route disposal.
 
 Create is the primary page-head action; Join contains invitation guidance and remembering an
 address. Row titles open their Remote; the shared overflow menu owns Rename and destructive

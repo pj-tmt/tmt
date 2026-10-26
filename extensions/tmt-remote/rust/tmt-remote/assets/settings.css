@@ -169,3 +169,26 @@
 .remote-head-actions a[data-variant='primary'] { text-decoration: none; }
 
 .remote-tab-content > .tmt-page { margin-top: 0; }
+
+/* The create guide composes shared chips, choices, fields and commands at one content width. */
+.create-guide { min-width: 0; }
+.create-steps { display: flex; flex-wrap: wrap; list-style: none; padding: 0; gap: var(--tmt-ui-space-s); margin: var(--tmt-ui-space-l) 0; }
+.create-step { cursor: pointer; font: inherit; align-items: center; justify-content: center; padding-inline: var(--tmt-ui-space-s); }
+.create-step[data-step-state='current'] { color: var(--tmt-ui-color-on-accent); background: var(--tmt-ui-color-accent); }
+.create-step[data-step-state='upcoming'] { color: var(--tmt-ui-color-secondary); }
+.create-step:disabled { color: var(--tmt-ui-color-disabled-text); cursor: default; }
+.create-step-panel { min-width: 0; }
+.create-step-heading { font: var(--tmt-ui-header-title-weight) 14px/1.4 var(--tmt-ui-font-body); margin-bottom: var(--tmt-ui-space-m); }
+.create-step-panel h3 { font: var(--tmt-ui-header-title-weight) 14px/1.4 var(--tmt-ui-font-body); }
+.create-step-panel .tmt-ui-field { display: grid; margin-bottom: var(--tmt-ui-space-m); }
+.create-checks { list-style: none; margin: 0; padding: 0; }
+.create-checks > li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: var(--tmt-ui-space-s); padding: var(--tmt-ui-space-m) 0; border-top: 1px solid var(--tmt-ui-surface-rule); }
+.create-checks p { color: var(--tmt-ui-color-secondary); margin: var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-s); }
+.create-check-mark { color: var(--tmt-ui-color-secondary); }
+.create-guide .tmt-ui-command { width: 100%; box-sizing: border-box; margin-block: var(--tmt-ui-space-s); }
+.create-guide .tmt-ui-command-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.create-actions { display: flex; flex-wrap: wrap; gap: var(--tmt-ui-space-s); justify-content: flex-start; margin-top: var(--tmt-ui-space-m); }
+.create-saved-facts { margin-block: var(--tmt-ui-space-m); }
+@media (max-width: 650px) {
+  .create-actions > button { flex: 1; justify-content: center; }
+}
