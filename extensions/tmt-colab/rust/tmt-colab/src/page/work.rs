@@ -5,7 +5,7 @@
 //! the revision the serve reads, so the action's own preconditions fence it: a task that is gone or
 //! a state that cannot follow is refused, never overwritten.
 use super::{
-    PublicationPreparation, StructuredAction,
+    StructuredAction,
     save::{Prepared, SourceOpener},
 };
 use crate::{
@@ -105,38 +105,11 @@ pub(super) fn prepare_expecting(
         &mut source.decoder,
         clock,
     )?;
-    Ok(match prepared {
-        PublicationPreparation::Noop {
-            epoch,
-            membership_head,
-            base_revision,
-            memory_limit,
-        } => {
-            // A no-op records nothing, so an operation ID that already has a recorded outcome was
-            // used by another action: it must not answer "unchanged" for this one.
-            if super::publication_status_by_operation(
-                &source.store,
-                &source.keyring,
-                &edit.page,
-                &edit.operation_id,
-            )?
-            .is_some()
-            {
-                return Err(crate::store::owner::OwnerFault::Conflict.into());
-            }
-            (
-                Prepared::Unchanged(Box::new(super::Receipt::unchanged(
-                    &source.keyring,
-                    &edit.page,
-                    "",
-                    epoch,
-                    membership_head,
-                    base_revision,
-                    memory_limit,
-                ))),
-                None,
-            )
-        }
-        PublicationPreparation::Write(frozen) => (Prepared::Write(frozen), made),
-    })
+    let prepared = super::save::structured(&source, &edit.page, &edit.operation_id, prepared)?;
+    let made = if matches!(prepared, Prepared::Unchanged(_)) {
+        None
+    } else {
+        made
+    };
+    Ok((prepared, made))
 }

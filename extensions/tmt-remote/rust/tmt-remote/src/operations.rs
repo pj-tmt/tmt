@@ -262,6 +262,7 @@ pub struct Operations {
     /// Unconfirmed cleanup forbids another write until restart acquires the child-held lease.
     retry_safe: AtomicBool,
     management: Option<Arc<crate::devices::Devices>>,
+    member_observations: Arc<dyn crate::members::observations::MemberObservationSource>,
     firestore: Arc<dyn crate::readiness::FirestoreEvidenceSource>,
 }
 impl Operations {
@@ -274,6 +275,7 @@ impl Operations {
             input_limit,
             retry_safe: AtomicBool::new(true),
             management: None,
+            member_observations: Arc::new(crate::members::observations::NoMemberObservations),
             firestore: Arc::new(crate::readiness::NotConfigured),
         }
     }
@@ -288,6 +290,13 @@ impl Operations {
     }
     pub fn with_management(mut self, devices: Arc<crate::devices::Devices>) -> Self {
         self.management = Some(devices);
+        self
+    }
+    pub fn with_member_observations(
+        mut self,
+        source: Arc<dyn crate::members::observations::MemberObservationSource>,
+    ) -> Self {
+        self.member_observations = source;
         self
     }
     /// Shares the same recorded-evidence owner as the optional control status view.
@@ -380,6 +389,7 @@ impl Operations {
                 permit,
                 self.management.as_deref().ok_or_else(invalid)?,
                 self.firestore.as_ref(),
+                self.member_observations.as_ref(),
             );
         }
         if operation == "capabilities" {
@@ -408,6 +418,12 @@ impl Operations {
                     "remote.devices.revoke",
                     "remote.devices.talk",
                     "remote.management.operation",
+                    "remote.members.list",
+                    "remote.members.machines",
+                    "remote.members.rename",
+                    "remote.members.sending",
+                    "remote.members.revoke",
+                    "remote.name.set",
                 ]);
             }
             return permit.response(&json!({"version":1,"profile":"local-v1","binding":"loopback-http",

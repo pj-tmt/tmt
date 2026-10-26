@@ -123,7 +123,8 @@ worker has not read yet, newest first; the worker caches texts (and gone prompts
 a later read of the same agent fetches the next unseen ones and a settled selection costs one list.
 A prompt not read yet or no longer retained keeps its listed preview, marked truncated with
 `tmt x show <request>`. They are
-`Detail.sent` and render as time-sorted "you" blocks among the finals; a live session entry
+`Detail.sent`; the legacy renderer places them among acquired exchanges by their
+public clocks, while a committed timeline owns its own order; a live session entry
 with the same request ID replaces its restored copy, so sends survive an Ops restart and are not
 capped by the session's own list. The same read carries Core's
 [message state](../../../../contracts/request-response-v1.md#message-state) and passthrough
@@ -134,23 +135,35 @@ accepted request once through `requests.show`. Missing state keeps the legacy
 local label. The same `messageState.canSendNow` of the newest own message drives the Send now
 chip on the conversation's footer row, with `Ctrl-S` (an authored binding wins outside the
 editor): one `tmt send-now` per press as the person, the chip disabled until Core answers, and
-the notice is Core's sentence or the re-read state label, never local wording. Answered captures show bounded safe Markdown as `turn output` (with
-Core's truncation flag), and `no_answer` names the missing output. One turn can answer several sends
-(typed into the pane while it worked): Core binds the final to the first, so
-`conversation/answer_order.rs` groups every later direct send with no capture of its own that
-was sent before the answered turn settled (a pending or bound first send groups optimistically
-and regroups when a later send gets its own turn) into one message block: one header, bodies
-stacked without a separator (one blank line when either body has several paragraphs), one status line (the newest line that is not `✓ delivered`) and
-the answer after the last body. Annotate, ask-lead and failed sends never group; live entries
-and restored sends use the same placement and keep each body's own source lines for copy and
-quote. A bound turn has
-no local ten-minute expiry. Captures never become ordinary replies or exact response attachments;
-no pane observation decides capture or settlement. A pane observation and an answered capture in that exact
-sender/recipient conversation name one final only when Core gives both the same opaque
-`responseId`. The captured body stays under its request and the pane copy is omitted;
-joined requests also paint that answer once. Different IDs stay separate even with identical
-text. An absent link never matches by text, provider or time; unlinked answers stay visible.
-This is presentation deduplication, not new request, reply or acknowledgment authority. A failed refresh preserves acquired sends until the next normal refresh.
+the notice is Core's sentence or the re-read state label, never local wording.
+
+When Core publishes `responses.timeline`, the selected worker acquires its committed
+conversation stream and canonical response bodies together. `conversation::committed`
+groups only consecutive inputs with the same explicit `inputBatchId`; finals end an
+input group. Core's ascending entry order is preserved, including clock rollback and
+interleaved batches. A final appears once by opaque `responseId`; an explicit reply
+appears once by `requestId`, independently of any provider final. No body, time or
+request-only provider-final matching is allowed. A pruned canonical final may use the
+request's retained first-answer copy only through the same `responseId`.
+
+`conversation::timeline` is the single renderer for this stream and the legacy
+observations. Inputs and agent replies use the existing reply-block primitives;
+captured answers have an `in turn` header without a second `turn output` or `pane
+output` heading. Sender and source attribution come from the frozen acknowledgment
+keys where complete: the viewer's key keeps normal styling, only other senders mute
+the reply. Empty keys, or a truncated set without the viewer, use the immediately
+preceding same-batch input group; unknown page-start attribution remains normal.
+Unknown input senders stay unknown, uncertain delivery is labelled, and only explicit
+Core failure entries paint a failure caption. Local outgoing entries own optimistic
+input/send state, never a second reply body. Each body keeps source/copy/quote
+provenance; captions and headers grant none.
+
+Without the capability, existing request and recent-response observations use the
+same renderer, keeping their acquired ordering and explicit source identities.
+Unlinked answers remain visible; different response IDs stay separate even when
+text is identical. No settlement-window grouping or inferred batch is retained.
+Missing or truncated output keeps its coverage caption. A failed refresh retains
+acquired content; no pane observation decides capture, settlement or reply authority.
 Request bodies load off the UI thread on the selected-read lane, newest first, one selected read at a time.
 Until Core has answered for a conversation's exchanges (the agent's own finals read, or the shared
 originator page where there is none) it shows nothing for the first 400 ms, then `Loading
@@ -201,28 +214,28 @@ retain their role without parsing member names or changing layout.
 `Scrolls` remains the sole viewport owner. Rendering and reading acknowledge
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.
-In Agents member focus, the same selected worker reads [recent pane output](../../../../contracts/extension-api.md#recent-agent-responses)
-after capability discovery, by exact identity UUID. A session starts with one public
-page; deliberate upward scrolling at its oldest loaded answer requests the next
-`before=nextBefore` page on the same selected lane, one read in flight. Core owns
-retention; the client neither expires nor count-prunes answers. Captures keep their
-returned order, including identical text and clock rollback. The transcript merges
-exchange and capture heads by literal times, exchanges first on ties, without
-absorbing a final into a capture.
+In Agents member focus, the selected worker discovers the public conversation
+capability by exact member UUID: prefer [ordered captured conversation](../../../../contracts/extension-api.md#ordered-captured-conversation),
+otherwise use [recent agent responses](../../../../contracts/extension-api.md#recent-agent-responses).
+One page starts the session; deliberate upward scrolling requests the older page
+on the same selected lane, one read in flight. Timeline cursors stay opaque and
+older entries prepend in committed order. The legacy numeric cursor and returned
+capture order keep their existing meanings. Core owns retention; Ops never expires
+or count-prunes acquired history or sorts a timeline by time or opaque IDs.
 
 `recent_responses` admits page metadata and reconciles cursor chains. An ordinary
-latest read splices at one exact held-newest answer record (including provider and
-truncation metadata). Ambiguous/missing alignment (including an unalignable retention cut)
+latest read splices at the held stable entry IDs (timeline) or one exact held-newest
+answer record including provider/truncation metadata (legacy). Ambiguous/missing alignment (including an unalignable retention cut)
 or an explicit refresh key/action rebuilds only the held window serially and cancellably:
-stop at the first page boundary that covers the held item count or reaches the oldest
-held capture's `endedMs`, keeping `nextBefore` for deliberate older paging. Ordinary
+stop at the first page boundary covering the held item count (with the existing
+oldest-time fence only for the legacy response protocol), keeping `nextBefore` for deliberate older paging. Ordinary
 snapshot, theme and member refresh effects keep the anchored read. Old content stays
 held until the coherent result arrives. Coverage changes update the held history caption
 without re-walking an otherwise aligned chain. Failed reads retain loaded answers and the cursor;
 a failed older page waits for another deliberate scroll or refresh, without a retry
 loop. Actor/member/revision/cursor fences reject obsolete completions.
 
-Neutral `agent · pane output · time` headers use the exchange age wording. A
+Agent reply headers use the existing exchange age wording when a source clock is published. A
 truncated answer has `answer truncated · full text in the agent's pane` as its
 last muted line inside the answer gutter. History captions are inset one cell
 and carry a registered state mark. Only the final page can show `older answers not kept` at the top of history;
@@ -239,9 +252,14 @@ presentation and does not acquire or paint these captures.
 
 Core acknowledgment is the only unread projection. After a successful draw, the
 conversation owner admits exact body rows inside the clipped viewport: final or
-captured answer, actor/member/request, public submission or settle timestamp and
-held attention revision. Both conversation painters reuse that provenance helper.
-Headings, separators, live screens and provider pane output grant no acknowledgment.
+captured answer, actor/member and source identity. Timeline final/reply bodies carry
+the producing transaction's frozen `acknowledgements` revisions directly; they never
+substitute a newer revision or infer keys from nearby text. Inputs and failures have
+no keys. Only the viewer's listed keys are admitted, at most 50; explicit Mark read
+handles a truncated remainder. Legacy bodies retain their public timestamp and held
+attention-revision checks. Both placements use the same provenance helper.
+Headings, separators and live screens grant no acknowledgment; legacy provider
+observations without published frozen keys grant none either.
 Loading, hidden, modal-covered, unfocused or failed draws admit nothing; moving the
 list selection or jumping with `j` does not mark unseen answers read.
 
@@ -262,11 +280,9 @@ Paint and hover do no I/O. Shutdown joins the lane before draining admitted writ
 reporting unresolved failures. Legacy-cutoff consumption belongs to
 [the Config owner](config-and-effects.md), never a second unread authority.
 
-Agents focus titles its currently actor-only history `Exchanges with you`; an
-all-party title waits for #3217's read contract. It creates no other-pair rows or
-qualification sentence. The existing conversation session supplies grouped
-exchanges and pane-output observations. Its filled three-row input follows the
-last observed group with one blank row above; only overflow pins it to the bottom.
+Agents focus titles its history `Conversation` on both Core paths. The session
+supplies one ordered transcript; its filled three-row input follows the last
+observed block with one blank row above, and only overflow pins it to the bottom.
 The same InputField/editor owns the flat list, member focus and squad focus, with no
 frame or title rule. Factory Enter replies to an observed exact question or
 messages the selected member/current squad lead from either pane; active Enter
@@ -342,14 +358,21 @@ each room list and each admitted room/member conversation once, independent of s
 collapse or viewport. Unknown and partial totals retain their existing presentation.
 [Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
 
-The conversation entry is `≡ Checklist · …`; its modal is `Checklist · <member>`
+The conversation entry is `C  Checklist · …` (the key as a keycap, none when unbound); its modal is `Checklist · <member>`
 (with the item count), and a source form is `Add to checklist · <member>`. Captions
 resolve held preview/roster data by the frozen room/member UUID, falling back to
 `member <short UUID>` when no name is held. Rendering never reads Core or borrows
 another selected member's name. Both form variants label the first field Title.
-The canonical authored action is `member-checklist`, still bound to `N` for members
-and the Reader. This breaking rename before launch has no `member-notes` alias;
+The canonical authored action is `member-checklist`, bound to `C` for members
+and the Reader (`N` stays create-squad on a squad row); the chip leads with that key as a
+keycap, taken from the effective bindings. This breaking rename before launch has no `member-notes` alias;
 an authored former action gets the ordinary unknown-action notice.
+
+Enter on a link row follows the global `board.checklist_enter` (`open` by default, or `tick`; a todo
+row always ticks). It is a `View` field built beside `ask_lead`, edited on the `,` page and by
+`tmt ops sq config set`; a bad authored value is noticed and reads as `open`. Space always ticks and
+`o` always opens the link, so both actions stay reachable under either value; the footer names
+`Enter tick · o open` only under `tick`.
 
 `n Add to checklist` in the conversation Link popover or Selection menu opens the existing
 checklist draft. Links preselect Link and keep the full URL, with its last path segment

@@ -59,7 +59,7 @@ pub(super) fn facts(
         .unwrap_or_default();
     Ok(DeliveryFacts {
         recipient_is_user: recipient
-            .map(|id| RequestRows(db).identity_is_user(id))
+            .map(|id| RequestRows(db, None).identity_is_user(id))
             .transpose()?
             .unwrap_or(false),
         recipient_start_refusal: context.0,
@@ -67,7 +67,7 @@ pub(super) fn facts(
         recipient_session_recovery: context.2,
         status: attempt.status,
         inbox: matches!(attempt.route, RequestRoute::Inbox { .. }),
-        wake: RequestRows(db)
+        wake: RequestRows(db, None)
             .wake_state(&attempt.request_id)?
             .unwrap_or(WakeState::NotAttempted),
         prepared_at_ms: attempt.prepared_at_ms,

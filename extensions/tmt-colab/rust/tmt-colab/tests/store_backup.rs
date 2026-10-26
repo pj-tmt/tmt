@@ -35,7 +35,7 @@ impl Drop for Fixture {
 }
 
 /// A store left at the schema before the current one, as an older Colab saved it: the current
-/// step only adds `page_pins`, so dropping it and the version is that store.
+/// step adds the metadata-result column, so dropping it and the version is that store.
 fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     let store = layout.directory.join("space.db");
     Store::open(layout).unwrap().close().unwrap();
@@ -43,7 +43,7 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE page_pins; PRAGMA user_version={previous}"
+            "ALTER TABLE edit_decisions DROP COLUMN result; PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -64,6 +64,105 @@ fn version(store: &Path) -> u32 {
         .unwrap()
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap()
+}
+
+#[test]
+fn physical_conversion_shrinks_a_current_legacy_store_without_a_copy() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    Store::open(&layout).unwrap().close().unwrap();
+    let store = layout.directory.join("space.db");
+    let connection = Connection::open(&store).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        2
+    );
+    connection
+        .execute_batch(
+            "PRAGMA auto_vacuum=NONE; VACUUM;
+        CREATE TABLE marker(value BLOB); INSERT INTO marker VALUES(zeroblob(1048576));
+        DELETE FROM marker; INSERT INTO marker VALUES(X'0102');",
+        )
+        .unwrap();
+    drop(connection);
+    let before = fs::read(&store).unwrap();
+    Store::open(&layout).unwrap().close().unwrap();
+    assert!(names(&layout).is_empty());
+    eprintln!(
+        "space.db after legacy conversion: {} -> {} bytes",
+        before.len(),
+        fs::metadata(&store).unwrap().len()
+    );
+    assert!(fs::metadata(&store).unwrap().len() < before.len() as u64);
+    let connection = Connection::open(&store).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT value FROM marker", [], |r| r.get::<_, Vec<u8>>(0))
+            .unwrap(),
+        [1, 2]
+    );
+    assert_eq!(version(&store), SCHEMA_VERSION);
+    let unchanged = fs::read(&store).unwrap();
+    drop(connection);
+    Store::open(&layout).unwrap().close().unwrap();
+    assert_eq!(fs::read(&store).unwrap(), unchanged);
+    assert!(names(&layout).is_empty());
+}
+
+#[test]
+fn busy_physical_conversion_keeps_the_store_usable_and_retries_on_next_open() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    Store::open(&layout).unwrap().close().unwrap();
+    let path = layout.directory.join("space.db");
+    let reader = Connection::open(&path).unwrap();
+    reader
+        .execute_batch(
+            "PRAGMA auto_vacuum=NONE; VACUUM;
+        CREATE TABLE marker(value); INSERT INTO marker VALUES('saved');
+        BEGIN; SELECT * FROM marker;",
+        )
+        .unwrap();
+    // The migration's no-op transaction can finish, but VACUUM cannot commit with this reader.
+    Store::open(&layout).unwrap().close().unwrap();
+    assert!(names(&layout).is_empty());
+    assert_eq!(
+        reader
+            .pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        reader
+            .query_row("SELECT value FROM marker", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "saved"
+    );
+    reader.execute_batch("COMMIT").unwrap();
+    drop(reader);
+    Store::open(&layout).unwrap().close().unwrap();
+    assert!(names(&layout).is_empty());
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(
+        oracle
+            .pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        oracle
+            .query_row("SELECT value FROM marker", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "saved"
+    );
 }
 
 #[test]
@@ -135,7 +234,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE page_pins; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "ALTER TABLE edit_decisions DROP COLUMN result; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();
@@ -173,6 +272,74 @@ fn only_the_two_newest_copies_stay_and_other_names_are_left_alone() {
     expected.sort();
     assert_eq!(names(&layout), expected);
     assert_eq!(fs::read(backup_path(&store, 7)).unwrap(), b"v7");
+}
+
+#[test]
+fn a_migration_that_fails_partway_keeps_its_copy_and_every_older_one() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let (store, _) = previous_schema(&layout);
+    // Keep exercising the two-statement migration 18, even while the newest step is a
+    // single ALTER. Its second statement fails after its first one has executed.
+    let previous = 17;
+    Connection::open(&store)
+        .unwrap()
+        .execute_batch(
+            "DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17",
+        )
+        .unwrap();
+    for old in [3, 7] {
+        fs::write(backup_path(&store, old), format!("v{old}")).unwrap();
+    }
+    // The step creates `project_pins`, then `project_pin_choice`: this one is already there, so
+    // the step stops after its first statement.
+    Connection::open(&store)
+        .unwrap()
+        .execute_batch("CREATE TABLE project_pin_choice(chosen INTEGER)")
+        .unwrap();
+    let before = fs::read(&store).unwrap();
+    assert!(Store::open(&layout).is_err());
+    // Nothing of the step stays, the copy of the schema it was leaving is whole, and no older
+    // copy was pruned for a migration that did not happen.
+    let connection = Connection::open(&store).unwrap();
+    let pins: u32 = connection
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name='project_pins'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(pins, 0);
+    assert_eq!(version(&store), previous);
+    assert_eq!(fs::read(backup_path(&store, previous)).unwrap(), before);
+    let mut expected = vec![
+        "space.db.pre-v3.bak".to_string(),
+        format!("space.db.pre-v{previous}.bak"),
+        "space.db.pre-v7.bak".to_string(),
+    ];
+    expected.sort();
+    assert_eq!(names(&layout), expected);
+}
+
+#[test]
+fn the_copy_just_taken_stays_even_when_copies_at_newer_schemas_exist() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let (store, previous) = previous_schema(&layout);
+    // Copies from a newer Colab outrank the one this open takes by schema number.
+    for newer in [SCHEMA_VERSION + 10, SCHEMA_VERSION + 11] {
+        fs::write(backup_path(&store, newer), format!("v{newer}")).unwrap();
+    }
+    let before = fs::read(&store).unwrap();
+    Store::open(&layout).unwrap().close().unwrap();
+    assert_eq!(fs::read(backup_path(&store, previous)).unwrap(), before);
+    assert_eq!(
+        names(&layout),
+        [
+            format!("space.db.pre-v{previous}.bak"),
+            format!("space.db.pre-v{}.bak", SCHEMA_VERSION + 11),
+        ]
+    );
 }
 
 #[test]

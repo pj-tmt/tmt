@@ -1,0 +1,638 @@
+{
+  "requests": [
+    {
+      "name": "anonymous creator target",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": true,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001",
+      "requestSha256": "phrUtP-7PZ0qHHall_0wr05w1E9s4xH2CAEbU5Z6tE4"
+    },
+    {
+      "name": "registered question",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "question.handle",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": true,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001",
+      "requestSha256": "svDbUK7ux7f3O2qiBUn4roUEPMOo_E6FZpzY0LDnwkY"
+    },
+    {
+      "name": "reopen",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "question.reopen",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "handled"
+        }
+      },
+      "valid": true,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001",
+      "requestSha256": "b258OYqFtN8N1eY78q5jyms89aqPta6VMmf6FALVkic"
+    },
+    {
+      "name": "canonical creator ID",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "30000000-0000-4000-8000-000000000001"
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": true,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001",
+      "requestSha256": "qtsqmRgjqYmxpd-if5zJxboqWRJ_HFwDjlohuuHg42A"
+    },
+    {
+      "name": "unknown action",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "question.add",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "source injection",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        },
+        "source": "<p>bad</p>"
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "agent binding injection",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer",
+          "agent": {
+            "id": "30000000-0000-4000-8000-000000000001"
+          }
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "missing target",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "empty selector",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": ""
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "oversize selector",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "control selector",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "a\nb"
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "null target",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": null
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "wrong target ID",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "question.handle",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055"
+        },
+        "target": {
+          "id": "60000000-0000-4000-8000-000000000001",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "task injection",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "question.handle",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "task": "T-1"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "target too large",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "wrong root",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "messages",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "wrong key",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": null,
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "10000000-0000-4000-8000-000000000055"
+    },
+    {
+      "name": "fractional target",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": {
+            "attribution": {
+              "timeMs": 0.5
+            }
+          },
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "negative target",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": {
+            "attribution": {
+              "timeMs": -1
+            }
+          },
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "unsafe integer target",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": {
+            "attribution": {
+              "timeMs": 9007199254740992
+            }
+          },
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "non-ASCII target field",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": {
+            "é": 1
+          },
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "numeric target keys cannot reorder the browser digest",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": {
+            "10": 1,
+            "2": 2
+          },
+          "creationRecipient": null
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "inert target arrays retain order",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "action": "creator.set",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "creator": {
+            "observed": [
+              null,
+              {
+                "name": "old"
+              },
+              1
+            ]
+          },
+          "creationRecipient": null
+        }
+      },
+      "valid": true,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000001",
+      "requestSha256": "IVddQVqNkYDLdpy7ewC0JfJri-3pD2h3zK21t1MxKw4"
+    }
+  ],
+  "results": [
+    {
+      "name": "committed",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "60000000-0000-4000-8000-000000000001",
+          "state": "committed",
+          "revision": "v1:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "valid": true,
+      "root": "messages",
+      "key": "30000000-0000-4000-8000-000000000001:60000000-0000-4000-8000-000000000001:edit-result"
+    },
+    {
+      "name": "unchanged",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "60000000-0000-4000-8000-000000000001",
+          "state": "unchanged",
+          "revision": "v1:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "valid": true,
+      "root": "messages",
+      "key": "30000000-0000-4000-8000-000000000001:60000000-0000-4000-8000-000000000001:edit-result"
+    },
+    {
+      "name": "refused",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "60000000-0000-4000-8000-000000000001",
+          "state": "rejected",
+          "code": "COLAB_STALE_BASE",
+          "message": "The question changed. Refresh and try again."
+        }
+      },
+      "valid": true,
+      "root": "messages",
+      "key": "30000000-0000-4000-8000-000000000001:60000000-0000-4000-8000-000000000001:edit-result"
+    },
+    {
+      "name": "pending forbidden",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "60000000-0000-4000-8000-000000000001",
+          "state": "pending"
+        }
+      },
+      "valid": false,
+      "root": "messages",
+      "key": "30000000-0000-4000-8000-000000000001:60000000-0000-4000-8000-000000000001:edit-result"
+    },
+    {
+      "name": "wrong writer key",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "60000000-0000-4000-8000-000000000001",
+          "state": "committed",
+          "revision": "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "valid": false,
+      "root": "messages",
+      "key": "60000000-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "wrong root",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "60000000-0000-4000-8000-000000000001",
+          "state": "committed",
+          "revision": "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "30000000-0000-4000-8000-000000000001:60000000-0000-4000-8000-000000000001:edit-result"
+    },
+    {
+      "name": "wrong operation",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "10000000-0000-4000-8000-000000000055",
+          "state": "committed",
+          "revision": "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "valid": false,
+      "root": "messages",
+      "key": "30000000-0000-4000-8000-000000000001:60000000-0000-4000-8000-000000000001:edit-result"
+    },
+    {
+      "name": "forged extra fields",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "60000000-0000-4000-8000-000000000001",
+          "state": "committed",
+          "revision": "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        "owner": true
+      },
+      "valid": false,
+      "root": "messages",
+      "key": "30000000-0000-4000-8000-000000000001:60000000-0000-4000-8000-000000000001:edit-result"
+    },
+    {
+      "name": "invalid revision",
+      "record": {
+        "version": 1,
+        "kind": "edit-result",
+        "writer": "30000000-0000-4000-8000-000000000001",
+        "operationId": "60000000-0000-4000-8000-000000000001",
+        "requestSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": {
+          "operationId": "60000000-0000-4000-8000-000000000001",
+          "state": "committed",
+          "revision": "anything"
+        }
+      },
+      "valid": false,
+      "root": "messages",
+      "key": "30000000-0000-4000-8000-000000000001:60000000-0000-4000-8000-000000000001:edit-result"
+    }
+  ]
+}

@@ -601,12 +601,24 @@ fn operation(
                         .binding
                         .as_ref()
                         .and_then(|b| b.session.unbound(&preferences));
-                    let unbound = if learning.is_some() {
+                    let unbound = if learning.as_ref().is_some_and(|l| l.unbound) {
                         Some(true)
                     } else {
                         unbound
                     };
-                    let resume = crate::output::resume_document(&preferences, &registry);
+                    let sampled =
+                        storage
+                            .sampled_rate_account(&row.identity.id)
+                            .map_err(|error| {
+                                Failure::new(
+                                    "IDENTITY_ERROR",
+                                    "Could not read remembered sessions.",
+                                    1,
+                                )
+                                .caused_by(error)
+                            })?;
+                    let resume =
+                        crate::output::resume_document(&preferences, &registry, sampled.as_ref());
                     let runtime = row
                         .binding
                         .as_ref()

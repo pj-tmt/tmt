@@ -15,3 +15,17 @@ export function invalidUpdates(): Uint8Array[] {
     return bytes;
   });
 }
+
+/** A plain metadata seed for real Worker preservation/refusal scenarios. */
+export function metadataUpdate(metadata: Record<string, unknown>): Uint8Array {
+  const doc = new Y.Doc();
+  try {
+    doc.getText('html').insert(0, '<p>Registered page</p>');
+    const meta = doc.getMap('meta');
+    meta.set('title', 'Registered page');
+    for (const [key, value] of Object.entries(metadata)) meta.set(key, value);
+    return Y.encodeStateAsUpdate(doc);
+  } finally {
+    doc.destroy();
+  }
+}

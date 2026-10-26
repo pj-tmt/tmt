@@ -74,6 +74,16 @@ impl Fixture {
             .unwrap()
             .identity
             .id;
+        storage
+            .sync_digest_receiving(
+                0,
+                tmt_adapters::orchestration::DigestReceivingSettings {
+                    enabled: true,
+                    default_receiving: tmt_adapters::orchestration::DigestReceiving::Direct {},
+                    members: vec![],
+                },
+            )
+            .unwrap();
         storage.close().unwrap();
         let db = Connection::open(self.db()).unwrap();
         db.execute(
@@ -126,7 +136,7 @@ fn help_and_capabilities_create_no_database_then_empty_read_explains_base() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stdout));
     let text = String::from_utf8(o.stdout).unwrap();
     assert!(text.contains("Base only"));
-    assert!(text.contains("slice 2"));
+    assert!(text.contains("tmt orch plan add"));
     let empty = f.json(&["orch", "--json"], None);
     assert_eq!(empty["configurationRevision"], 0);
     assert!(empty["plans"].as_array().unwrap().is_empty());
@@ -165,7 +175,7 @@ fn real_seeded_cli_and_api_share_effective_sources_and_reads_preserve_cursor() {
     assert!(m["jobs"].is_null());
     let why = f.json(&["orch", "why", &id, "--json"], None);
     assert!(why["items"].as_array().unwrap().is_empty());
-    assert_eq!(why["coverage"]["liveProducers"], false);
+    assert_eq!(why["coverage"]["liveProducers"], true);
     assert_eq!(cursor(&f.db()), before);
 }
 #[test]
@@ -300,5 +310,95 @@ fn plan_filters_keep_competing_effects_and_uuid_selection_never_falls_back_to_na
     assert_eq!(
         serde_json::from_slice::<Value>(&missing.stdout).unwrap()["error"]["code"],
         "ORCH_PLAN_NOT_FOUND"
+    );
+}
+
+#[test]
+fn plan_writes_preview_before_consent_and_api_applies_the_same_frozen_intent() {
+    let mut f = Fixture::new();
+    f.seed();
+    let candidate = json!({"id":"33333333-3333-4333-8333-333333333333","name":"Personal","revision":1,"priority":3,"enabled":true,"targets":[{"kind":"all"}],"schedule":{"kind":"always"},"fields":{"state":"focus"}});
+    let file = f.root.join("candidate.json");
+    fs::write(&file, candidate.to_string()).unwrap();
+    let before = cursor(&f.db());
+    let preview = f.json(
+        &[
+            "orch",
+            "plan",
+            "add",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ],
+        None,
+    );
+    assert_eq!(preview["requiresConsent"], true);
+    assert_eq!(cursor(&f.db()), before);
+    assert_eq!(
+        Connection::open(f.db())
+            .unwrap()
+            .query_row("SELECT count(*) FROM orchestration_plans", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    let api=f.json(&["api"],Some(json!({"version":1,"operation":"orchestration.write","input":{"phase":"preview","mutation":preview["mutation"]}})));
+    assert_eq!(api["changes"], preview["changes"]);
+    assert_eq!(api["after"]["members"], preview["after"]["members"]);
+    let result=f.json(&["api"],Some(json!({"version":1,"operation":"orchestration.write","input":{"phase":"apply","mutation":preview["mutation"],"expectedConfigurationRevision":preview["configurationRevision"],"previewAtMs":preview["previewAtMs"],"previewDigest":preview["previewDigest"],"consent":true}})));
+    assert_eq!(result["changed"], true);
+    assert!(cursor(&f.db()) > before);
+    assert_eq!(
+        Connection::open(f.db())
+            .unwrap()
+            .query_row("SELECT count(*) FROM orchestration_plans", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+}
+
+#[test]
+fn focus_cli_sets_exact_duration_and_clear_stays_preview_only_without_yes() {
+    let mut f = Fixture::new();
+    let id = f.seed();
+    let preview = f.json(&["orch", "focus", "nIgHt-1", "2h", "--json"], None);
+    assert_eq!(preview["requiresConsent"], true);
+    assert_eq!(
+        Connection::open(f.db())
+            .unwrap()
+            .query_row("SELECT count(*) FROM orchestration_focus", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    let result = f.json(&["orch", "focus", &id, "2h", "--yes", "--json"], None);
+    assert_eq!(result["changed"], true);
+    let duration = Connection::open(f.db())
+        .unwrap()
+        .query_row(
+            "SELECT end_ms-start_ms FROM orchestration_focus WHERE identity_id=?",
+            [&id],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(duration, 7_200_000);
+    f.json(&["orch", "focus", &id, "off", "--json"], None);
+    assert_eq!(
+        Connection::open(f.db())
+            .unwrap()
+            .query_row("SELECT count(*) FROM orchestration_focus", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    f.json(&["orch", "focus", &id, "off", "--yes", "--json"], None);
+    assert_eq!(
+        Connection::open(f.db())
+            .unwrap()
+            .query_row("SELECT count(*) FROM orchestration_focus", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
     );
 }

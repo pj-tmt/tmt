@@ -86,6 +86,59 @@ fn keyring_is_stable_private_and_no_follow_with_owned_service_lock() {
     assert!(!fixture.0.join("outside").exists());
 }
 #[test]
+fn paired_prune_returns_freed_payload_pages_to_disk_and_keeps_receipts() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page("page").unwrap();
+    let bytes = vec![42; 192 * 1024];
+    for seq in 1..=4 {
+        store
+            .append(&Envelope {
+                bytes: &bytes,
+                ..envelope(seq, Namespace::Content)
+            })
+            .unwrap();
+    }
+    let path = layout.directory.join("space.db");
+    let before = fs::metadata(&path).unwrap().len();
+    let checkpoint = Envelope {
+        hash: [9; 32],
+        previous: [4; 32],
+        bytes: b"retained-checkpoint",
+        ..envelope(4, Namespace::Content)
+    };
+    store.checkpoint(&checkpoint).unwrap();
+    let after = fs::metadata(&path).unwrap().len();
+    eprintln!("space.db after committed prune: {before} -> {after} bytes");
+    assert!(
+        after < before,
+        "prune did not shrink space.db: {before} -> {after}"
+    );
+    store.close().unwrap();
+    let mut reopened = Store::open(&layout).unwrap();
+    for seq in 1..=4 {
+        assert_eq!(reopened.payload(scope(), seq).unwrap(), None);
+        assert_eq!(
+            reopened
+                .append(&Envelope {
+                    bytes: &bytes,
+                    ..envelope(seq, Namespace::Content)
+                })
+                .unwrap(),
+            Accepted::Replay
+        );
+    }
+    let retained = reopened
+        .namespace_next(scope(), Namespace::Content, Default::default())
+        .unwrap()
+        .unwrap();
+    assert!(retained.checkpoint);
+    assert_eq!(retained.bytes, checkpoint.bytes);
+    reopened.close().unwrap();
+}
+
+#[test]
 fn checkpoint_waits_for_pair_then_prunes_both_prefixes_preserving_tail_and_fork_receipts() {
     let fixture = Fixture::new();
     let layout = fixture.layout();
@@ -1065,7 +1118,7 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
     db.execute_batch("ALTER TABLE owner_operations RENAME TO current_owner_operations;
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
-        DROP TABLE current_owner_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects;
+        DROP TABLE current_owner_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects;
         ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();

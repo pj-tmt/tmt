@@ -27,7 +27,11 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
       return { id, label: row.label, href: href(id), current: showing === id };
     };
     const remotes: ShellMenuItem[] = [
-      { ...item('status'), label: `Status · ${view?.text ?? 'Checking'}` },
+      {
+        ...item('overview'),
+        label: `This Remote · ${view?.text ?? 'Checking'}`,
+        current: showing !== 'remotes',
+      },
     ];
     if (view?.action) {
       run.set('recover', () => actions.recover(view.action));
@@ -43,12 +47,12 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
       {
         title: 'Remote',
         groups: [
-          { items: [item('settings')] },
+          { items: [item('remotes')] },
           // Managing the machine this page runs on, under its own heading (c5ccd17a: management
           // sits under that remote); each row is a route of its own.
           {
             label: 'This machine',
-            items: [...remotes, item('devices'), item('connect'), item('machine')],
+            items: remotes,
           },
         ],
       },
@@ -83,7 +87,7 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
   document.addEventListener('focusin', entered, { signal: shell.signal });
   return (next: RemoteRegistryView) => {
     projection = next;
-    if (next.current.connection.word === 'Connected' && next.address) shell.describe(next.address);
+    if (next.current.connection.word === 'connected' && next.address) shell.describe(next.address);
     paint();
   };
 }

@@ -29,6 +29,8 @@ pub(super) struct Row {
     pub reference: Option<String>,
     /// The host of a link; empty for a todo.
     pub host: String,
+    /// Whether the item is complete, which a link row's kind does not say.
+    pub completed: bool,
     /// `who · age` or `who · done age`; empty when nothing is known.
     pub byline: String,
 }
@@ -87,6 +89,7 @@ pub(super) fn rows(preview: &Preview, now_ms: u64) -> Vec<Row> {
                 title: item.content.title.clone(),
                 reference: item.content.reference.clone(),
                 host,
+                completed: item.completion == Completion::Complete,
                 byline,
             }
         })

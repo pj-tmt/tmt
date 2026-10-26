@@ -83,14 +83,13 @@ messages, and pull request metadata. Non-language symbols and technically
 required fixture data are allowed when necessary; explain any such exception
 in English.
 
-One exception: the prose of a translated handbook page, and the translated UI
-strings in its `strings.json`, may be written in the language of the directory
-`site/src/i18n/<lang>/` that holds them (`ja`, `zh-hant` or `zh-hans`).
-A language is allowed once the `languageExceptions` key of
-[`.github/repository-layout.json`](.github/repository-layout.json) lists its
-directory, which lands with that language's first translation. English remains the
-source and the language of everything else, including those files' front matter,
-keys, code, comments, tests, commits and pull request metadata.
+Exceptions: translated handbook prose and UI strings may use the language of
+`site/src/i18n/<lang>/`. Approved blog article prose and metadata title/summary
+may use the language of `site/src/posts/<slug>/<lang>/` (`ja`, `zh-hant`, `zh-hans`).
+Each directory requires its matching `languageExceptions` entry in
+[the layout map](.github/repository-layout.json), added with its first tracked
+translation. Blog translations require independent approval; English stays at
+the slug root. Keys, code, comments, tests and all other content remain English.
 
 ## Durable documentation
 

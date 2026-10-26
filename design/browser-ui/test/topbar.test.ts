@@ -22,12 +22,29 @@ it.each([-1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     expect(() => bar.setTopBar()).toThrow('install common controls');
   },
 );
+it('reports installed controls without adopting a bar, and clears readiness', () => {
+  const bar = owner();
+  expect(bar.topBarReady()).toBe(false);
+  bar.setCommonControls(common(0));
+  expect(bar.topBarReady()).toBe(true);
+  expect(() => bar.setCommonControls(common(-1))).toThrow('non-negative integer');
+  expect(bar.topBarReady()).toBe(true);
+  bar.setCommonControls(undefined);
+  expect(bar.topBarReady()).toBe(false);
+  expect(() => bar.setTopBar()).toThrow('install common controls');
+  bar.setCommonControls(common(6));
+  expect(bar.topBarReady()).toBe(true);
+  bar.dispose();
+  expect(bar.topBarReady()).toBe(false);
+});
+
 it('permanently releases root bindings on disposal', () => {
   const bar = owner();
   bar.setCommonControls(common(0));
   bar.dispose();
   bar.dispose();
   bar.setCommonControls(common(6));
+  expect(bar.topBarReady()).toBe(false);
   expect(() => bar.setTopBar()).toThrow('disposed');
 });
 

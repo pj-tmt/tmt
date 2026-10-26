@@ -7,7 +7,7 @@ import { text } from './strings.js';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
-import type { CreationRecipient } from './fold-protocol.js';
+import type { CreatorTarget } from './creator-default.js';
 import { CommentExchange, MessageEchoTurn, useMessageEcho } from './thread-panel.js';
 import { MessageEchoContext } from './message-echo.js';
 import { SendIdentityLine } from './send-identity-line.js';
@@ -40,7 +40,7 @@ export function ChatPanel({
   binding?: AskBinding;
   discussion?: ThreadBinding;
   title: string;
-  creationRecipient?: CreationRecipient;
+  creationRecipient?: CreatorTarget;
   blocked: boolean;
   recoveryRequired?: boolean;
   connectionPresentation?: ComposerConnectionPresentation;

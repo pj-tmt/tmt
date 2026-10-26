@@ -108,7 +108,9 @@ export type RemoteRefusalCode =
   | 'REMOTE_SETTINGS_UNAVAILABLE'
   | 'REMOTE_MANAGEMENT_CAPACITY'
   | 'REMOTE_DEVICE_LIST_CHANGED'
-  | 'REMOTE_DEVICE_REMOVAL_LIMIT';
+  | 'REMOTE_DEVICE_REMOVAL_LIMIT'
+  | 'REMOTE_MEMBER_OWNER_REQUIRED'
+  | 'REMOTE_MEMBER_CONFLICT';
 /** Unknown outcome only; the caller retains its operation ID for read-only recovery. */
 export class ClientError extends Error {
   constructor(
@@ -158,6 +160,8 @@ const MANAGEMENT_PRE_EFFECT = new Set<string>([
   'REMOTE_MANAGEMENT_CAPACITY',
   'REMOTE_DEVICE_LIST_CHANGED',
   'REMOTE_DEVICE_REMOVAL_LIMIT',
+  'REMOTE_MEMBER_OWNER_REQUIRED',
+  'REMOTE_MEMBER_CONFLICT',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -423,6 +427,8 @@ export function remoteError(
         'REMOTE_MANAGEMENT_CAPACITY',
         'REMOTE_DEVICE_LIST_CHANGED',
         'REMOTE_DEVICE_REMOVAL_LIMIT',
+        'REMOTE_MEMBER_OWNER_REQUIRED',
+        'REMOTE_MEMBER_CONFLICT',
       ].includes(error.code),
   );
   return new RefusalError(

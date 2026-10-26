@@ -59,6 +59,44 @@ pub enum Prepared {
     Unchanged(Box<super::Receipt>),
     Write(FrozenPublication),
 }
+/// Share the operation/no-op fence across structured owner commands. A no-op must not
+/// claim an operation ID already recorded for a different publication.
+pub(super) fn structured(
+    source: &Source,
+    page: &str,
+    operation: &str,
+    prepared: super::PublicationPreparation,
+) -> crate::Result<Prepared> {
+    Ok(match prepared {
+        super::PublicationPreparation::Noop {
+            epoch,
+            membership_head,
+            base_revision,
+            memory_limit,
+        } => {
+            if super::publication_status_by_operation(
+                &source.store,
+                &source.keyring,
+                page,
+                operation,
+            )?
+            .is_some()
+            {
+                return Err(OwnerFault::Conflict.into());
+            }
+            Prepared::Unchanged(Box::new(super::Receipt::unchanged(
+                &source.keyring,
+                page,
+                "",
+                epoch,
+                membership_head,
+                base_revision,
+                memory_limit,
+            )))
+        }
+        super::PublicationPreparation::Write(frozen) => Prepared::Write(frozen),
+    })
+}
 /// Prepare outside every lock. The commit that follows rechecks every fence, so a page that
 /// moved meanwhile turns this save into a stale-base refusal, never a silent overwrite.
 ///
@@ -181,6 +219,8 @@ pub fn prepare_merging(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub findings: Option<Vec<crate::question_registry::WriteFinding>>,
     pub operation_id: String,
     pub state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -209,6 +249,7 @@ pub struct SaveResult {
 impl SaveResult {
     fn state(operation_id: &str, state: &'static str) -> Self {
         Self {
+            findings: None,
             operation_id: operation_id.into(),
             state,
             revision: None,
@@ -280,6 +321,9 @@ impl SaveResult {
         Self {
             code: Some(code),
             message: Some(message),
+            findings: error
+                .downcast_ref::<crate::question_registry::Refused>()
+                .map(|refused| refused.details()),
             conflicts: error
                 .downcast_ref::<HunkConflict>()
                 .map(|conflict| conflict.hunks.clone()),
@@ -303,6 +347,21 @@ impl SaveResult {
 }
 /// A stable code and a message a person can read, for any failure of a save.
 fn refusal(error: &(dyn std::error::Error + 'static)) -> (&'static str, String) {
+    if let Some(refused) = error.downcast_ref::<crate::edit_request::metadata::IdentityRefused>() {
+        return (refused.0, refused.to_string());
+    }
+    if let Some(refused) = error.downcast_ref::<crate::question_registry::Refused>() {
+        let line = refused.findings.first().map_or(1, |finding| finding.line);
+        return (
+            refused.code(),
+            format!(
+                "{} at line {line}. {}",
+                refused.code(),
+                crate::question_registry::reason(refused.code())
+                    .unwrap_or("Invalid question registration.")
+            ),
+        );
+    }
     if let Some(large) = error.downcast_ref::<SourceTooLarge>() {
         return (large.code(), error.to_string());
     }

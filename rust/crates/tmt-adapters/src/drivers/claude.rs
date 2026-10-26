@@ -531,6 +531,18 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         crate::runtime::driver_state::state_consumption(state).map(|state| state.value)
     }
 
+    fn sampled_consumption(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+        environment: &crate::skill_installation::ProviderEnvironment,
+    ) -> Option<crate::runtime::consumption::Consumption> {
+        let mut consumption = self.state_consumption(state)?;
+        if let Some(limits) = consumption.rate_limits.as_mut() {
+            limits.account = allowance::rate_account(environment);
+        }
+        Some(consumption)
+    }
+
     fn decode_prompt(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
         crate::runtime::hook_protocol::decode_prompt(bytes)
     }
@@ -594,6 +606,22 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
     ) -> Option<tmt_core::binding::session::DriverState> {
         self.turn_observation(turn, environment, previous, now_ms, deadline)
             .state
+    }
+
+    fn provider_mod(&self) -> Option<&'static crate::setup::provider_mod::ProviderMod> {
+        Some(&allowance::MOD)
+    }
+
+    /// Keep the rate-limit windows the first-party Claude mod pushed, for the account of the
+    /// environment's Claude root; the reader keeps the newest observation per account.
+    fn accept_allowance(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        data_root: &std::path::Path,
+        input: &[u8],
+        now_ms: u64,
+    ) -> std::io::Result<bool> {
+        allowance::push(environment, data_root, input, now_ms)
     }
 
     fn turn_observation(
@@ -728,6 +756,13 @@ impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
         previous: Option<&tmt_core::binding::session::DriverState>,
         now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
+        if self.transition == SessionTransition::Compacted {
+            return crate::runtime::driver_state::after_compaction(
+                self.model.as_deref(),
+                previous,
+                now_ms,
+            );
+        }
         // Only a continued conversation keeps usage, and only as reported.
         let usage = matches!(
             self.transition,

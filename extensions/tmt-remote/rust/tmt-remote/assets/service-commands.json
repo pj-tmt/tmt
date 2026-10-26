@@ -1,0 +1,4 @@
+{
+  "status": "tmt remote status --layers",
+  "preview": "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json"
+}

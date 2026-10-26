@@ -24,6 +24,10 @@ use std::{
 use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
 
 pub(crate) const CLEANUP_TIMEOUT: Duration = Duration::from_secs(1);
+// subprocess's resumable communicator cannot wait on our notification socket.
+// Only cancellable calls use bounded blocking slices; no reader/signal thread
+// can outlive the child owner, and every slice retains the original deadline.
+const INTERRUPT_SLICE: Duration = Duration::from_millis(50);
 
 pub struct CommandRequest<'a> {
     pub program: &'a OsStr,
@@ -128,6 +132,13 @@ pub trait CommandRunner {
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError>;
 
+    /// One program that never forks, such as `ps`. The Unix runner keeps it in
+    /// the caller's process group, so a supervisor that kills that group also
+    /// ends it (#3834); its own failure cleanup signals only its pid.
+    fn execute_leaf(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        self.execute(request)
+    }
+
     /// Observe bounded stderr chunks without changing stdout, deadlines or child ownership.
     /// Scripted runners may return their captured observation at completion; the Unix runner
     /// invokes the observer as pipe bytes arrive. Observers grant no execution authority.
@@ -143,6 +154,19 @@ pub trait CommandRunner {
         }
         observer(&output.stderr);
         Ok(output)
+    }
+
+    /// Forward invocation SIGINT to the owned group and keep collecting its
+    /// checkpoint report. A repeat shortens the wait to cleanup, never replay.
+    /// Scripted runners may settle synchronously through their existing port.
+    fn execute_cancellable(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+        _interrupt: &crate::interrupt::Interrupt,
+    ) -> Result<CommandOutput, CommandError> {
+        self.execute_observed(request, stderr_limit, observer)
     }
 
     /// Child-only overrides. Runners without this capability refuse before any spawn.
@@ -168,6 +192,15 @@ pub trait CommandRunner {
 /// A borrowed runner, so a short-lived caller (one external host driver per
 /// binding session) runs through its handle's runner.
 impl<R: CommandRunner + ?Sized> CommandRunner for &R {
+    fn execute_cancellable(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+        interrupt: &crate::interrupt::Interrupt,
+    ) -> Result<CommandOutput, CommandError> {
+        (**self).execute_cancellable(request, stderr_limit, observer, interrupt)
+    }
     fn execute_observed(
         &self,
         request: CommandRequest<'_>,
@@ -194,6 +227,10 @@ impl<R: CommandRunner + ?Sized> CommandRunner for &R {
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         (**self).execute(request)
+    }
+
+    fn execute_leaf(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        (**self).execute_leaf(request)
     }
 
     fn execute_with_environment(
@@ -262,6 +299,19 @@ impl CommandRunner for SupervisedProbeRunner {
 }
 
 impl CommandRunner for UnixCommandRunner {
+    fn execute_cancellable(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+        interrupt: &crate::interrupt::Interrupt,
+    ) -> Result<CommandOutput, CommandError> {
+        if interrupt.is_interrupted() {
+            return Err(CommandError::new(CommandFailure::Timeout));
+        }
+        self.start(request)?
+            .wait_with_interrupt(stderr_limit, observer, Some(interrupt))
+    }
     fn execute_observed(
         &self,
         request: CommandRequest<'_>,
@@ -288,6 +338,10 @@ impl CommandRunner for UnixCommandRunner {
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         self.start(request)?.wait()
+    }
+
+    fn execute_leaf(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        start_command(request, false)?.wait()
     }
 
     fn execute_with_environment(
@@ -358,9 +412,18 @@ impl RunningCommand {
     }
 
     fn wait_observed(
+        self,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+    ) -> Result<CommandOutput, CommandError> {
+        self.wait_with_interrupt(stderr_limit, observer, None)
+    }
+
+    fn wait_with_interrupt(
         mut self,
         stderr_limit: usize,
         observer: &mut dyn FnMut(&[u8]),
+        interrupt: Option<&crate::interrupt::Interrupt>,
     ) -> Result<CommandOutput, CommandError> {
         match communicate(
             &mut self.job,
@@ -368,6 +431,7 @@ impl RunningCommand {
             self.max_output_bytes,
             stderr_limit,
             observer,
+            interrupt,
         ) {
             Ok(output) => {
                 self.finished = true;
@@ -394,40 +458,66 @@ fn communicate(
     max_output_bytes: usize,
     stderr_limit: usize,
     observer: &mut dyn FnMut(&[u8]),
+    interrupt: Option<&crate::interrupt::Interrupt>,
 ) -> Result<CommandOutput, CommandError> {
     let mut stdout = CappedOutput::new(max_output_bytes);
     let mut stderr = CappedOutput::new(stderr_limit);
+    let mut forwarded = false;
     {
         // Keep the Job. Exec::communicate detaches; consuming convenience
         // timeout methods can instead block inside Process::drop on failure.
         let mut communication = job
             .communicate()
-            .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?
-            .limit_time(remaining(deadline)?);
-        if let Err(cause) = communication.read_to(
-            &mut stdout,
-            &mut ObservedOutput {
-                output: &mut stderr,
-                observer,
-            },
-        ) {
-            let kind = if stdout.exceeded || stderr.exceeded {
-                CommandFailure::OutputLimit
-            } else if cause.kind() == io::ErrorKind::TimedOut {
-                CommandFailure::Timeout
+            .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+        loop {
+            forward_interrupt(job, interrupt, &mut forwarded)?;
+            let budget = remaining(deadline)?;
+            communication = communication.limit_time(if interrupt.is_some() {
+                budget.min(INTERRUPT_SLICE)
             } else {
-                CommandFailure::Io
-            };
-            return Err(CommandError::io(kind, cause));
+                budget
+            });
+            match communication.read_to(
+                &mut stdout,
+                &mut ObservedOutput {
+                    output: &mut stderr,
+                    observer,
+                },
+            ) {
+                Ok(()) => break,
+                Err(cause) => {
+                    let kind = if stdout.exceeded || stderr.exceeded {
+                        CommandFailure::OutputLimit
+                    } else if cause.kind() == io::ErrorKind::TimedOut {
+                        if interrupt.is_some() {
+                            continue;
+                        }
+                        CommandFailure::Timeout
+                    } else {
+                        CommandFailure::Io
+                    };
+                    return Err(CommandError::io(kind, cause));
+                }
+            }
         }
     }
     // EOF is not process completion: a child can close both pipes then hang.
     // Conversely, do not reap the leader while a descendant holds its pipes:
     // retaining the leader lets failure cleanup safely signal its group.
-    let status = job
-        .wait_timeout(remaining(deadline)?)
-        .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?
-        .ok_or_else(|| CommandError::new(CommandFailure::Timeout))?;
+    let status = loop {
+        forward_interrupt(job, interrupt, &mut forwarded)?;
+        let budget = remaining(deadline)?;
+        let status = job
+            .wait_timeout(if interrupt.is_some() {
+                budget.min(INTERRUPT_SLICE)
+            } else {
+                budget
+            })
+            .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+        if let Some(status) = status {
+            break status;
+        }
+    };
     if !status.success() {
         let mut error = CommandError::new(CommandFailure::Exit {
             code: status.code(),
@@ -443,6 +533,35 @@ fn communicate(
         stdout: stdout.bytes,
         stderr: stderr.bytes,
     })
+}
+
+fn forward_interrupt(
+    job: &Job,
+    interrupt: Option<&crate::interrupt::Interrupt>,
+    forwarded: &mut bool,
+) -> Result<(), CommandError> {
+    let Some(interrupt) = interrupt else {
+        return Ok(());
+    };
+    let notifications = interrupt
+        .take_notifications()
+        .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+    if notifications == 0 {
+        return Ok(());
+    }
+    if !*forwarded {
+        // The unreaped leader still reserves its group ID. Signal only this
+        // command's private group, leaving publication/rollback to its owner.
+        job.send_signal_group(Signal::SIGINT as i32)
+            .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+        *forwarded = true;
+        if notifications == 1 {
+            return Ok(());
+        }
+    }
+    // A repeat expires this wait early. The same RunningCommand performs its
+    // ordinary group cleanup; no partial bytes become a confirmed report.
+    Err(CommandError::new(CommandFailure::Timeout))
 }
 
 struct CappedOutput {
@@ -844,6 +963,94 @@ mod cleanup_policy_tests {
             );
             std::fs::write(directory.join("result"), "timeout-clean").unwrap();
             drop(stream);
+        });
+    }
+
+    const LEAF_FIXTURE: &str =
+        "process::cleanup_policy_tests::leaf_probe_caller_waits_on_its_probe";
+    const LEAF_DIRECTORY: &str = "TMT_LEAF_PROBE_DIRECTORY";
+
+    /// Like a Core CLI that an extension starts in a new group and then kills
+    /// by group (#3834): the probe must not outlive that kill.
+    #[test]
+    fn a_leaf_probe_dies_with_its_callers_group() {
+        use crate::test_support::{TestChild, TestDirectory};
+        use nix::sys::signal::kill;
+        use std::os::unix::process::CommandExt;
+
+        let directory = TestDirectory::new();
+        let mut directory_env = OsString::from(format!("{LEAF_DIRECTORY}="));
+        directory_env.push(&directory.path);
+        let caller = std::process::Command::new("/usr/bin/env")
+            .arg(directory_env)
+            .arg(std::env::current_exe().unwrap())
+            .args([LEAF_FIXTURE, "--exact", "--ignored", "--nocapture"])
+            .args(["--test-threads=1"])
+            .stdin(std::process::Stdio::null())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let mut caller = TestChild::new(caller);
+        let caller_group = Pid::from_raw(i32::try_from(caller.child.id()).unwrap());
+        let ready = directory.path.join("probe.pid");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let probe = loop {
+            // A partial write parses as nothing; poll again.
+            if let Some(pid) = std::fs::read_to_string(&ready)
+                .ok()
+                .and_then(|pid| pid.strip_suffix('\n')?.parse().ok())
+            {
+                break Pid::from_raw(pid);
+            }
+            assert!(
+                caller.child.try_wait().unwrap().is_none(),
+                "caller exited before its probe was ready"
+            );
+            assert!(Instant::now() < deadline, "probe readiness deadline");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        // Only the group this test created, as tmt-invoke's cleanup does.
+        killpg(caller_group, Signal::SIGKILL).unwrap();
+        caller.wait_for_exit(Duration::from_secs(5));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let survived = loop {
+            if kill(probe, None) == Err(Errno::ESRCH) {
+                break false;
+            }
+            if Instant::now() >= deadline {
+                break true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if survived && nix::unistd::getpgid(Some(probe)) == Ok(probe) {
+            // The leaked probe leads its own group: end the probe this test
+            // started, so a failed run leaves nothing behind.
+            let _ = killpg(probe, Signal::SIGKILL);
+        }
+        assert!(!survived, "leaf probe {probe} outlived its caller's group");
+    }
+
+    #[test]
+    #[ignore = "re-exec helper owned by the leaf probe test"]
+    fn leaf_probe_caller_waits_on_its_probe() {
+        let Some(directory) = std::env::var_os(LEAF_DIRECTORY) else {
+            return;
+        };
+        let directory = std::path::PathBuf::from(directory);
+        let args = [
+            "-c".into(),
+            // `printf` is a shell builtin and `exec` keeps the pid: the probe
+            // never forks.
+            "printf '%s\\n' \"$$\" > \"$1\" && exec /bin/sleep 30".into(),
+            "leaf-probe".into(),
+            directory.join("probe.pid").into_os_string(),
+        ];
+        let _ = UnixCommandRunner.execute_leaf(CommandRequest {
+            program: OsStr::new("/bin/sh"),
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(20),
+            max_output_bytes: 128,
         });
     }
 

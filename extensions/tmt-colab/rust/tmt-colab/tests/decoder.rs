@@ -99,6 +99,10 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
         "attribution":{"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1000}
     }});
     let view = || BaselineInput {
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: None,
         work: None,
         layout: None,
         original_author: Some("Agent 1"),
@@ -147,6 +151,10 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
 fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base() {
     use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
     let view = || BaselineInput {
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: None,
         work: None,
         layout: None,
         original_author: None,
@@ -222,8 +230,287 @@ fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base()
     );
 }
 const WRITER: &str = "10000000-0000-4000-8000-000000000001";
+#[test]
+fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
+    let source = b"<p>page</p>";
+    let attribution = serde_json::json!({"writerId":WRITER,"timeMs":1000});
+    let creator = serde_json::json!({"agent":{"id":"50000000-0000-1000-8000-000000000001","name":"agent"},"attribution":attribution});
+    let questions = tmt_colab::question_registry::apply(
+        &serde_json::json!([]),
+        "question.add",
+        &serde_json::json!({"id":"00000000-0000-0000-0000-000000000001","agent":creator["agent"],"title":"Choose"}),
+        &attribution,
+    )
+    .unwrap();
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_page(
+            BaselineInput {
+                creator: Some(&creator),
+                questions: Some(&questions),
+                ..work_view(source, None)
+            },
+            None,
+        )
+        .unwrap();
+    gone(baseline.child_pid);
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: &baseline.update,
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    gone(before.child_pid);
+    assert_eq!(before.projection["meta"]["creator"], creator);
+    assert_eq!(before.projection["meta"]["questions"], questions);
+    assert!(decoder.decode(batch(), Role::Commenter, None).is_err());
+    let prepared = decoder
+        .prepare_structured_batch(
+            batch(),
+            &before.projection,
+            &StructuredEdit {
+                kind: StructuredKind::Questions,
+                action: "question.handle".into(),
+                body: serde_json::json!({"id":questions[0]["id"]}),
+                attribution: attribution.clone(),
+            },
+            None,
+        )
+        .unwrap();
+    gone(prepared.child_pid);
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected registry update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let rewritten = decoder
+        .prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            &prepared.projection,
+            ContentEdit {
+                source: "<p>changed</p>",
+                publisher_agent: None,
+                layout: None,
+                attachments: None,
+            },
+            None,
+        )
+        .unwrap();
+    gone(rewritten.child_pid);
+    assert_eq!(rewritten.projection["meta"]["creator"], creator);
+    assert_eq!(
+        rewritten.projection["meta"]["questions"][0]["state"],
+        "handled"
+    );
+    let fresh = decoder
+        .produce_baseline(
+            BaselineInput {
+                creator: rewritten.projection["meta"].get("creator"),
+                questions: rewritten.projection["meta"].get("questions"),
+                ..work_view(b"<p>changed</p>", None)
+            },
+            None,
+        )
+        .unwrap();
+    gone(fresh.child_pid);
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &fresh.update,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    gone(after.child_pid);
+    assert_eq!(after.projection, rewritten.projection);
+}
+#[test]
+fn template_marks_survive_baselines_and_edits_and_the_mark_is_set_and_cleared_by_actions() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
+    let from = serde_json::json!({"name":"report"});
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_page(
+            BaselineInput {
+                from_template: Some(&from),
+                ..work_view(b"<p>page</p>", None)
+            },
+            None,
+        )
+        .unwrap();
+    gone(baseline.child_pid);
+    let decode = |decoder: &mut Decoder, updates: &[&[u8]]| {
+        let decoded = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline.update,
+                    updates,
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        gone(decoded.child_pid);
+        decoded.projection
+    };
+    let before = decode(&mut decoder, &[]);
+    assert_eq!(before["meta"]["fromTemplate"], from);
+    assert!(before["meta"].get("template").is_none());
+    let act =
+        |decoder: &mut Decoder, base: &serde_json::Value, updates: &[&[u8]], action: &str, body| {
+            let prepared = decoder.prepare_structured_batch(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline.update,
+                    updates,
+                },
+                base,
+                &StructuredEdit {
+                    kind: StructuredKind::Template,
+                    action: action.into(),
+                    body,
+                    attribution: serde_json::json!({}),
+                },
+                None,
+            );
+            prepared.inspect(|prepared| gone(prepared.child_pid))
+        };
+    // Marking the page publishes one update and leaves the source and the origin alone.
+    let mark = serde_json::json!({"name":"weekly-review","description":"Shipped, open"});
+    let marked = act(&mut decoder, &before, &[], "template.set", mark.clone()).unwrap();
+    assert_eq!(marked.projection["meta"]["template"], mark);
+    assert_eq!(marked.projection["meta"]["fromTemplate"], from);
+    assert_eq!(marked.projection["html"], "<p>page</p>");
+    let ContentBatch::Updates(updates) = marked.batch else {
+        panic!("expected a template update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    assert_eq!(decode(&mut decoder, &refs), marked.projection);
+    // Setting the same mark again changes nothing.
+    let again = act(
+        &mut decoder,
+        &marked.projection,
+        &refs,
+        "template.set",
+        mark.clone(),
+    )
+    .unwrap();
+    assert!(matches!(again.batch, ContentBatch::Noop));
+    // A source edit keeps both marks, and so does a new baseline made from the projection.
+    let edited = decoder
+        .prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            &marked.projection,
+            ContentEdit {
+                source: "<p>changed</p>",
+                publisher_agent: None,
+                layout: None,
+                attachments: None,
+            },
+            None,
+        )
+        .unwrap();
+    gone(edited.child_pid);
+    assert_eq!(edited.projection["meta"]["template"], mark);
+    assert_eq!(edited.projection["meta"]["fromTemplate"], from);
+    let fresh = decoder
+        .produce_baseline(
+            BaselineInput {
+                template: edited.projection["meta"].get("template"),
+                from_template: edited.projection["meta"].get("fromTemplate"),
+                ..work_view(b"<p>changed</p>", None)
+            },
+            None,
+        )
+        .unwrap();
+    gone(fresh.child_pid);
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &fresh.update,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    gone(after.child_pid);
+    assert_eq!(after.projection, edited.projection);
+    // Clearing removes the key from the document, not just from the projection.
+    let cleared = act(
+        &mut decoder,
+        &marked.projection,
+        &refs,
+        "template.clear",
+        serde_json::json!({}),
+    )
+    .unwrap();
+    assert!(cleared.projection["meta"].get("template").is_none());
+    assert_eq!(cleared.projection["meta"]["fromTemplate"], from);
+    let ContentBatch::Updates(more) = cleared.batch else {
+        panic!("expected a clearing update")
+    };
+    let all = updates
+        .iter()
+        .chain(&more)
+        .map(Vec::as_slice)
+        .collect::<Vec<_>>();
+    assert_eq!(decode(&mut decoder, &all), cleared.projection);
+    // A built-in name, an unknown action and a stray member are refused before any update.
+    for (action, body) in [
+        (
+            "template.set",
+            serde_json::json!({"name":"report","description":""}),
+        ),
+        (
+            "template.set",
+            serde_json::json!({"name":"Weekly","description":""}),
+        ),
+        (
+            "template.set",
+            serde_json::json!({"name":"weekly","description":"d","extra":1}),
+        ),
+        ("template.clear", serde_json::json!({"name":"weekly"})),
+        ("template.rename", serde_json::json!({})),
+    ] {
+        assert!(
+            act(&mut decoder, &before, &[], action, body).is_err(),
+            "{action}"
+        );
+    }
+    // A baseline never carries an invalid mark.
+    for invalid in [
+        BaselineInput {
+            template: Some(&serde_json::json!({"name":"starter","description":""})),
+            ..work_view(b"", None)
+        },
+        BaselineInput {
+            from_template: Some(&serde_json::json!({"name":"report","revision":"007"})),
+            ..work_view(b"", None)
+        },
+    ] {
+        assert!(decoder.produce_page(invalid, None).is_err());
+    }
+}
 fn work_view<'a>(source: &'a [u8], work: Option<&'a serde_json::Value>) -> BaselineInput<'a> {
     BaselineInput {
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: None,
         work,
         layout: None,
         original_author: None,
@@ -1125,6 +1412,10 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
 fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: None,
         work: None,
         layout: None,
         original_author: None,
@@ -1198,6 +1489,10 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         let produced = decoder
             .produce_baseline(
                 BaselineInput {
+                    creator: None,
+                    questions: None,
+                    template: None,
+                    from_template: None,
                     work: None,
                     layout: layout.as_ref(),
                     original_author: vector["originalAuthor"].as_str(),
@@ -1270,6 +1565,10 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         .unwrap();
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: None,
         work: None,
         layout: None,
         original_author: None,
@@ -1481,6 +1780,10 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                creator: None,
+                questions: None,
+                template: None,
+                from_template: None,
                 work: None,
                 layout: None,
                 original_author: Some("original-author"),
@@ -1714,6 +2017,10 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    creator: None,
+                    questions: None,
+                    template: None,
+                    from_template: None,
                     work: None,
                     layout: None,
                     attachments: None,
@@ -2193,6 +2500,10 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    creator: None,
+                    questions: None,
+                    template: None,
+                    from_template: None,
                     work: None,
                     layout: None,
                     attachments: None,
@@ -2269,5 +2580,184 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
             assert_eq!(unchanged.projection, folded.projection);
             gone(unchanged.child_pid);
         }
+    }
+}
+
+/// Lines of ASCII, CJK and emoji, so a character's UTF-8 byte offset is not its UTF-16 offset.
+fn mixed_page(lines: usize) -> String {
+    (0..lines)
+        .map(|n| format!("<p>第{n}行 🐈 row {n} 漢字 ✓</p>\n"))
+        .collect()
+}
+/// The ordered updates that turn a page of source `old` into `new`, prepared by the isolated
+/// decoder against the baseline of `old`, with the baseline they apply to.
+fn prepared_edit(decoder: &mut Decoder, old: &str, new: &str) -> (Vec<u8>, Vec<Vec<u8>>) {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit};
+    let baseline = decoder
+        .produce_baseline(
+            BaselineInput {
+                work: None,
+                template: None,
+                from_template: None,
+                layout: None,
+                original_author: None,
+                attachments: None,
+                source: old.as_bytes(),
+                title: "Page",
+                publisher_agent: None,
+                creation_recipient: None,
+                creator: None,
+                questions: None,
+                source_digest: tmt_colab_model::crypto::digest(old.as_bytes()),
+            },
+            None,
+        )
+        .unwrap();
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert_eq!(before.projection["html"], old);
+    let prepared = decoder
+        .prepare_content_batch(
+            batch(),
+            &before.projection,
+            ContentEdit {
+                layout: None,
+                source: new,
+                publisher_agent: None,
+                attachments: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(prepared.projection["html"], new);
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected updates")
+    };
+    (baseline.update, updates)
+}
+#[test]
+fn far_apart_edits_publish_one_delta_per_changed_region_and_the_text_is_exact() {
+    use yrs::{OffsetKind, Options};
+    let old = mixed_page(400);
+    assert!(old.len() > 15_000, "{}", old.len());
+    let cases: [(&str, String); 4] = [
+        (
+            "two replacements far apart",
+            old.replacen("row 5 ", "ROW FIVE 🐕 ", 1)
+                .replacen("row 395 ", "ROW 395 🐕🐕 ", 1),
+        ),
+        (
+            "an insertion at the start, a deletion near the end and a change between",
+            format!("<h1>标题 🚀</h1>\n{}", old)
+                .replacen("第200行", "第二百行", 1)
+                .replacen("<p>第390行 🐈 row 390 漢字 ✓</p>\n", "", 1),
+        ),
+        (
+            "a pure insertion and a pure deletion",
+            old.replacen("<p>第100行", "<p>🆕</p>\n<p>第100行", 1)
+                .replacen("<p>第300行 🐈 row 300 漢字 ✓</p>\n", "", 1),
+        ),
+        (
+            "one word inside a line",
+            old.replacen("漢字 ✓</p>\n<p>第201行", "漢字 ✗ 🐈</p>\n<p>第201行", 1),
+        ),
+    ];
+    let mut decoder = owner();
+    for (name, new) in cases {
+        assert_ne!(new, old, "{name}");
+        let (baseline, updates) = prepared_edit(&mut decoder, &old, &new);
+        let bytes: usize = updates.iter().map(Vec::len).sum();
+        // The text between the regions is not rewritten: the update carries the changed regions
+        // (a few hundred bytes), not the ~16 KB the page holds between them.
+        assert!(
+            bytes < 1_200,
+            "{name}: {bytes} bytes in {} updates",
+            updates.len()
+        );
+        // The source is byte-identical after the isolated decoder applies them...
+        let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let replayed = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline,
+                    updates: &refs,
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        assert_eq!(replayed.projection["html"], new, "{name}");
+        // ...and in a document that counts characters the way the browser's Yjs does, in UTF-16
+        // code units, where an emoji is two and a CJK character one.
+        let browser = Doc::with_options(Options {
+            offset_kind: OffsetKind::Utf16,
+            ..Options::default()
+        });
+        let text = browser.get_or_insert_text("html");
+        for bytes in std::iter::once(&baseline).chain(&updates) {
+            browser
+                .transact_mut()
+                .apply_update(Update::decode_v1(bytes).unwrap())
+                .unwrap();
+        }
+        assert_eq!(text.get_string(&browser.transact()), new, "{name}");
+    }
+}
+
+#[test]
+fn question_metadata_belongs_only_to_ordinary_pages() {
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/question-metadata-v1.json"
+    ))
+    .unwrap();
+    for case in vectors["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|case| case["valid"] == true)
+    {
+        let doc = Doc::new();
+        doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let mut tx = doc.transact_mut();
+        meta.insert(&mut tx, "title", "Dashboard");
+        meta.insert(&mut tx, "pageType", "shell");
+        meta.insert(
+            &mut tx,
+            "shell",
+            yrs::Any::from_json(&tmt_colab::shell::empty().to_string()).unwrap(),
+        );
+        let field = if case["kind"] == "creator" {
+            "creator"
+        } else {
+            "questions"
+        };
+        meta.insert(
+            &mut tx,
+            field,
+            yrs::Any::from_json(&case["value"].to_string()).unwrap(),
+        );
+        let bytes = tx.encode_state_as_update_v1(&StateVector::default());
+        drop(tx);
+        assert!(
+            owner()
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Content,
+                        baseline: &bytes,
+                        updates: &[]
+                    },
+                    Role::Editor,
+                    None
+                )
+                .is_err(),
+            "{}",
+            case["name"]
+        );
     }
 }

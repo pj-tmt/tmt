@@ -1,28 +1,20 @@
 //! What every page's work says, read once for the whole space: the owner list's stage, progress and
 //! assignees, and the tasks each agent holds for the work-in-progress limit (`wip.rs`). Reading a
-//! page's work folds the page, so the answers are kept in one small derived file keyed by the page's
-//! own progress (`Store::page_progress`: the epoch and the content counts, not the membership head,
-//! so creating or sharing another page does not refold every page): a page whose key is unchanged is
-//! not folded again. The file holds nothing the pages do not; deleting it, or any entry going
-//! stale, only costs a fold on a scan; the metadata list omits it instead. It is never signed or
-//! synced. A revocation alone can leave an entry stale until the page's next write: the list and the limit are display and a working agreement,
-//! never authority.
+//! page's work folds the page, so the answers are kept in one small derived file (`page_index.rs`
+//! owns how: keyed by the page's own progress, refolded only when it moves, never authority).
 use crate::{
     Result,
     decoder::Decoder,
     keyring::{Keyring, Layout},
     page,
+    page_index::{self, Kept},
     store::Store,
     wip::Held,
     work::Line,
 };
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, io::Write};
+use std::collections::BTreeMap;
 
-const FILE: &str = "work-index.json";
-const LOCK: &str = "work-index.lock";
-/// A larger file is not ours; it reads as empty.
-const LIMIT: u64 = 1024 * 1024;
 /// 2: a kept task line carries its title.
 const VERSION: u64 = 2;
 
@@ -41,21 +33,6 @@ pub struct PageWork {
     pub lines: Vec<Line>,
 }
 
-fn entry_json(work: &Option<PageWork>, fingerprint: &str) -> Value {
-    let mut entry = json!({"fingerprint": fingerprint});
-    if let Some(work) = work {
-        entry["derived"] = work.derived.clone();
-        entry["held"] = work
-            .held
-            .iter()
-            .map(|held| json!({"agent":held.agent,"task":held.task}))
-            .collect();
-        if !work.lines.is_empty() {
-            entry["lines"] = work.lines.iter().map(line_json).collect();
-        }
-    }
-    entry
-}
 fn line_json(line: &Line) -> Value {
     let mut value = json!({"id":line.id,"title":line.title,"state":line.state});
     if line.signoff {
@@ -82,86 +59,60 @@ fn line_from(value: &Value) -> Option<Line> {
         },
     })
 }
-fn entry_from(page: &str, entry: &Value) -> Option<(String, Option<PageWork>)> {
-    let fingerprint = entry["fingerprint"].as_str()?.to_owned();
-    if entry.get("derived").is_none() {
-        return Some((fingerprint, None));
+impl Kept for Option<PageWork> {
+    const FILE: &'static str = "work-index.json";
+    const LOCK: &'static str = "work-index.lock";
+    const VERSION: u64 = VERSION;
+    fn to_json(&self) -> Value {
+        let mut entry = json!({});
+        if let Some(work) = self {
+            entry["derived"] = work.derived.clone();
+            entry["held"] = work
+                .held
+                .iter()
+                .map(|held| json!({"agent":held.agent,"task":held.task}))
+                .collect();
+            if !work.lines.is_empty() {
+                entry["lines"] = work.lines.iter().map(line_json).collect();
+            }
+        }
+        entry
     }
-    let held = entry["held"]
-        .as_array()?
-        .iter()
-        .map(|held| {
-            Some(Held {
-                agent: held["agent"].as_str()?.to_owned(),
-                page: page.to_owned(),
-                task: held["task"].as_str()?.to_owned(),
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    let lines = match entry.get("lines") {
-        None => Vec::new(),
-        Some(lines) => lines
+    fn from_json(page: &str, entry: &Value) -> Option<Self> {
+        if entry.get("derived").is_none() {
+            return Some(None);
+        }
+        let held = entry["held"]
             .as_array()?
             .iter()
-            .map(line_from)
-            .collect::<Option<Vec<_>>>()?,
-    };
-    Some((
-        fingerprint,
-        Some(PageWork {
+            .map(|held| {
+                Some(Held {
+                    agent: held["agent"].as_str()?.to_owned(),
+                    page: page.to_owned(),
+                    task: held["task"].as_str()?.to_owned(),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let lines = match entry.get("lines") {
+            None => Vec::new(),
+            Some(lines) => lines
+                .as_array()?
+                .iter()
+                .map(line_from)
+                .collect::<Option<Vec<_>>>()?,
+        };
+        Some(Some(PageWork {
             derived: entry["derived"].clone(),
             held,
             lines,
-        }),
-    ))
-}
-
-fn load(layout: &Layout) -> BTreeMap<String, (String, Option<PageWork>)> {
-    let Ok(bytes) = layout.read(FILE, LIMIT) else {
-        return BTreeMap::new();
-    };
-    let Ok(file) = serde_json::from_slice::<Value>(&bytes) else {
-        return BTreeMap::new();
-    };
-    if file["version"] != VERSION {
-        return BTreeMap::new();
+        }))
     }
-    file["pages"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter_map(|(page, entry)| Some((page.clone(), entry_from(page, entry)?)))
-        .collect()
-}
-fn save(layout: &Layout, pages: &BTreeMap<String, (String, Option<PageWork>)>) -> Result<()> {
-    let table: serde_json::Map<String, Value> = pages
-        .iter()
-        .map(|(page, (fingerprint, work))| (page.clone(), entry_json(work, fingerprint)))
-        .collect();
-    let bytes = json!({"version": VERSION, "pages": table}).to_string();
-    if bytes.len() as u64 > LIMIT {
-        return Ok(());
-    }
-    let mut file = layout.file(FILE)?;
-    file.set_len(0)?;
-    std::io::Seek::rewind(&mut file)?;
-    file.write_all(bytes.as_bytes())?;
-    Ok(())
 }
 
 /// Current cached work only. Missing, stale or unreadable entries are omitted without a fold,
 /// lock or write; callers needing freshly derived work use [`scan`].
 pub fn cached(layout: &Layout, store: &Store, key: &Keyring, pages: &[String]) -> Result<Found> {
-    let fingerprints =
-        store.owner_read(&key.space_id, &key.owner_public(), |tx| tx.page_progress())?;
-    let known = load(layout);
-    Ok(pages
-        .iter()
-        .filter_map(|id| {
-            let (was, work) = known.get(id)?;
-            (fingerprints.get(id) == Some(was)).then(|| (id.clone(), work.clone()))
-        })
-        .collect())
+    page_index::cached(layout, store, key, pages)
 }
 
 /// The work of each given page: `None` for a page with no work, a shell or a page that cannot be
@@ -174,35 +125,10 @@ pub fn scan(
     decoder: &mut Decoder,
     pages: &[String],
 ) -> Result<Found> {
-    let fingerprints =
-        store.owner_read(&key.space_id, &key.owner_public(), |tx| tx.page_progress())?;
-    let _lock = crate::settings::locked(layout, LOCK)?;
-    let known = load(layout);
-    let mut kept = BTreeMap::new();
-    let mut found = BTreeMap::new();
-    let mut changed = known.len() != pages.len();
-    for id in pages {
-        let Some(fingerprint) = fingerprints.get(id) else {
-            continue;
-        };
-        let work = match known.get(id) {
-            Some((was, work)) if was == fingerprint => work.clone(),
-            _ => {
-                changed = true;
-                match fold(store, key, id, decoder) {
-                    Some(work) => work,
-                    // Unreadable now: say nothing and ask again next time.
-                    None => continue,
-                }
-            }
-        };
-        kept.insert(id.clone(), (fingerprint.clone(), work.clone()));
-        found.insert(id.clone(), work);
-    }
-    if changed {
-        save(layout, &kept)?;
-    }
-    Ok(found)
+    // Unreadable now: say nothing and ask again next time.
+    page_index::scan(layout, store, key, pages, |id| {
+        fold(store, key, id, decoder)
+    })
 }
 
 /// `Some(None)`: the page has no work (or is a shell). `None`: it could not be read.
@@ -271,7 +197,7 @@ mod tests {
             store.create_page(page).unwrap();
         }
         assert!(cached(&layout, &store, &key, &pages).unwrap().is_empty());
-        assert!(!layout.directory.join(FILE).exists());
+        assert!(!layout.directory.join(<Option<PageWork>>::FILE).exists());
         let fingerprints = store
             .owner_read(&key.space_id, &key.owner_public(), |tx| tx.page_progress())
             .unwrap();
@@ -280,7 +206,7 @@ mod tests {
             held: vec![],
             lines: vec![],
         });
-        save(
+        page_index::save(
             &layout,
             &BTreeMap::from([
                 (
@@ -292,15 +218,18 @@ mod tests {
         )
         .unwrap();
         store.advance_epoch(&pages[1], 1).unwrap();
-        let before = std::fs::read(layout.directory.join(FILE)).unwrap();
+        let before = std::fs::read(layout.directory.join(<Option<PageWork>>::FILE)).unwrap();
         // These pages deliberately have no decryptable content. The current projection remains
         // usable; a stale/missing one is omitted rather than causing any materialization.
         assert_eq!(
             cached(&layout, &store, &key, &pages).unwrap(),
             BTreeMap::from([(pages[0].clone(), work)])
         );
-        assert_eq!(std::fs::read(layout.directory.join(FILE)).unwrap(), before);
-        assert!(!layout.directory.join(LOCK).exists());
+        assert_eq!(
+            std::fs::read(layout.directory.join(<Option<PageWork>>::FILE)).unwrap(),
+            before
+        );
+        assert!(!layout.directory.join(<Option<PageWork>>::LOCK).exists());
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -323,17 +252,17 @@ mod tests {
                 child: Some("20000000-0000-4000-8000-000000000001".into()),
             }],
         });
-        let json = entry_json(&work, "f1");
-        assert_eq!(entry_from("p", &json), Some(("f1".into(), work)));
+        let json = page_index::entry_json(&work, "f1");
+        assert_eq!(json["fingerprint"], "f1");
+        assert_eq!(<Option<PageWork>>::from_json("p", &json), Some(work));
         assert_eq!(
-            entry_from("p", &entry_json(&None, "f2")),
-            Some(("f2".into(), None))
+            <Option<PageWork>>::from_json("p", &page_index::entry_json(&None, "f2")),
+            Some(None)
         );
         assert_eq!(
-            entry_from("p", &json!({"fingerprint":"f","derived":{}})),
+            <Option<PageWork>>::from_json("p", &json!({"fingerprint":"f","derived":{}})),
             None
         );
-        assert_eq!(entry_from("p", &json!({"derived":{},"held":[]})), None);
     }
     #[test]
     fn held_elsewhere_leaves_out_the_page_being_changed() {

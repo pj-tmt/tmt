@@ -22,8 +22,8 @@ tmt colab page create --title "Board" --layout canvas --reason "Draws its own ca
 ```
 
 A template starts the page for you: `tmt colab page create --title "Weekly plan" --template report
---json` sets the layout and the source, and `tmt colab template ls` lists them (`report`, `review`
-and `compare` are `column`; `board` is `full`). Each template starts from the page-style base look, and each block carries a comment that says
+--json` sets the layout and the source, and `tmt colab template ls` lists them (`report`, `review`,
+`compare` and `gallery` are `column`; `board` is `full`; `gallery` is the design-system components to copy from). Each template starts from the page-style base look, and each block carries a comment that says
 which rule it follows and where it is taught: keep the structure, replace the placeholder text. The comments
 are not rendered; delete them if you like. `--template` replaces `--layout` and `--file`.
 

@@ -77,3 +77,19 @@ export function strictJson(raw: Uint8Array, max: number, integerNumbers = false)
   requireValue(offset === source.length);
   return out;
 }
+
+/** Compact sorted ASCII field/UUID keys; only closed ASCII names occur, so lexical sorting is shared
+ * with the native side. */
+export function canonical(value: unknown): string {
+  const sorted = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(sorted);
+    if (value !== null && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([key, value]) => [key, sorted(value)]),
+      );
+    return value;
+  };
+  return JSON.stringify(sorted(value));
+}

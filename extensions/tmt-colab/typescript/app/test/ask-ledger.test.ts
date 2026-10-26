@@ -5,7 +5,12 @@ import { binary } from '@tmt/colab-client';
 import { AskController, type AskControllerOptions } from '../src/ask-attempt.js';
 import { AskRecordStore } from '../src/ask-record-store.js';
 import { OwnRecordConflict } from '../src/own-publication.js';
-import { ASK_OBSERVATION_MS, readAskViews, type AskLedgerView } from '../src/ask-records.js';
+import {
+  ASK_OBSERVATION_MS,
+  readAskViews,
+  VerifiedAsks,
+  type AskLedgerView,
+} from '../src/ask-records.js';
 import { FrozenAsk } from '../src/ask-intent.js';
 import {
   createRemoteClient,
@@ -315,6 +320,36 @@ it('all-stream views verify possession and same-stream agent/request attribution
   expect(
     await readAskViews(changed, { space: selection().space, page: id(1) }, signer),
   ).toHaveLength(0);
+  expect(remote.sends).toHaveLength(1);
+});
+it('a verified-ask cache reads the same views and still refuses a changed record or key', async () => {
+  const { controller, remote, own } = await setup();
+  await controller.destinations();
+  const view = await controller.send(controller.prepare(destination()));
+  await controller.recover(view.intent.operationId);
+  const scope = { space: selection().space, page: id(1) };
+  const signer = (writer: string) => (writer === id(4) ? hex(vector.publicKey) : undefined);
+  const plain = await readAskViews(own, scope, signer);
+  const verified = new VerifiedAsks();
+  expect(await readAskViews(own, scope, signer, verified)).toEqual(plain);
+  expect(await readAskViews(own, scope, signer, verified)).toEqual(plain);
+  const changed = structuredClone(own);
+  const ask = changed[id(4)].intents[view.intent.operationId] as unknown as {
+    signed: { finalBytes: string; signature: string };
+  };
+  ask.signed.finalBytes = btoa('changed');
+  expect(await readAskViews(changed, scope, signer, verified)).toHaveLength(0);
+  const resigned = structuredClone(own);
+  const other = resigned[id(4)].intents[view.intent.operationId] as unknown as {
+    signed: { signature: string };
+  };
+  other.signed.signature = btoa('x'.repeat(64));
+  expect(await readAskViews(own, scope, signer, verified)).toEqual(plain);
+  expect(await readAskViews(resigned, scope, signer, verified)).toHaveLength(0);
+  const otherKey = hex(vector.publicKey);
+  otherKey[0] ^= 1;
+  expect(await readAskViews(own, scope, signer, verified)).toEqual(plain);
+  expect(await readAskViews(own, scope, () => otherKey, verified)).toHaveLength(0);
   expect(remote.sends).toHaveLength(1);
 });
 it('SDK adapter keeps the shared session and observes the original ID and ignores unknown delivery values', async () => {

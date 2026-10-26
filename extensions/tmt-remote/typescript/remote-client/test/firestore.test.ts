@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
-import { parseFirestoreLayers, firestoreSpecs, firestoreReasons } from '../src/firestore.js';
+import {
+  parseFirestoreLayers,
+  firestoreSpecs,
+  firestoreReasons,
+  serviceCommands,
+} from '../src/firestore.js';
 import { parsePublishedLimits } from '../src/budget.js';
 import { renderFirestore } from '../src/firestore-page.js';
 import type { FirestoreSettingsView } from '../src/management.js';
@@ -149,14 +154,28 @@ class FirestoreDomNode {
   id = '';
   className = '';
   scope = '';
+  href = '';
+  target = '';
+  rel = '';
   constructor(
     readonly tagName: string,
     text = '',
   ) {
     this.textContent = text;
   }
-  append(...nodes: FirestoreDomNode[]) {
-    this.children.push(...nodes);
+  private handlers = new Map<string, () => Promise<void> | void>();
+  addEventListener(event: string, handler: () => Promise<void> | void) {
+    this.handlers.set(event, handler);
+  }
+  async click() {
+    await this.handlers.get('click')?.();
+  }
+  append(...nodes: (FirestoreDomNode | string)[]) {
+    this.children.push(
+      ...nodes.map((node) =>
+        typeof node === 'string' ? new FirestoreDomNode('#text', node) : node,
+      ),
+    );
   }
   replaceChildren() {
     this.children = [];
@@ -186,6 +205,7 @@ function render(
       return announcement;
     },
     createElement: (tag: string) => new FirestoreDomNode(tag),
+    createElementNS: (_namespace: string, tag: string) => new FirestoreDomNode(tag),
     createTextNode: (text: string) => new FirestoreDomNode('#text', text),
   });
   const target = new FirestoreDomNode('div');
@@ -219,13 +239,16 @@ test('every visible sharing prerequisite has exact state, fixed sentence and onl
         2,
       );
       // Unsupported layers contain no rows/commands even when another prerequisite is off.
-      for (const layer of target.find('section').filter((s) => s.dataset.layer !== 'sharing')) {
+      for (const layer of target
+        .find('section')
+        .filter((s) => s.dataset.layer && s.dataset.layer !== 'sharing')) {
         assert.equal(layer.find('li').length, 0);
         assert.equal(layer.find('code').length, 0);
       }
     }
     const target = render(enabledFixture());
-    for (const row of target.find('li')) assert.ok(row.text().includes('Enabled'));
+    for (const row of target.find('li').filter((row) => row.dataset.item))
+      assert.ok(row.text().includes('Enabled'));
   } finally {
     vi.unstubAllGlobals();
   }
@@ -395,10 +418,148 @@ test('unchanged Firestore projection preserves Details and only changed settled 
     renderFirestore(target as unknown as HTMLElement, 'confirmed', view);
     assert.equal(announcement.writes, writes, 'same settled state is quiet after checking');
     renderFirestore(target as unknown as HTMLElement, 'unconfirmed');
-    assert.equal(announcement.textContent, 'Firestore setup could not be confirmed.');
+    assert.equal(announcement.textContent, 'Service status could not be confirmed.');
     assert.equal(announcement.writes, writes + 1);
     renderFirestore(target as unknown as HTMLElement, 'unconfirmed');
     assert.equal(announcement.writes, writes + 1);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('service guidance keeps missing version, plan and permission observations explicitly unchecked', async () => {
+  try {
+    const layers = enabledFixture();
+    const before = JSON.stringify(layers);
+    vi.stubGlobal('fetch', () => {
+      throw new Error('read-only guidance must not make requests');
+    });
+    const target = render(layers);
+    const checks = target.find('section').filter((section) => section.dataset.serviceCheck);
+    assert.deepEqual(
+      checks.map((section) => section.dataset.serviceCheck),
+      ['version', 'changes', 'permissions'],
+    );
+    assert.deepEqual(
+      checks.map((section) => section.find('code')[0]!.text()),
+      [
+        'tmt remote status --layers',
+        "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+        "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+      ],
+    );
+    for (const check of checks) {
+      assert.ok(check.text().includes('Not checked'));
+      assert.equal(check.text().includes('Enabled'), false);
+      assert.ok(check.text().includes('this machine’s terminal'));
+    }
+    assert.equal(serviceCommands.preview.includes('--authorize'), false);
+    assert.ok(target.text().includes('not a live check'));
+    assert.ok(target.text().includes('Cloudflare — Coming soon.'));
+    const storage = target
+      .find('section')
+      .find((section) => section.dataset.layer === 'attachments')!;
+    assert.ok(storage.text().includes('Not available in this release'));
+    assert.ok(storage.text().includes('separate consent'));
+    assert.equal(storage.find('button').length, 0);
+    assert.equal(target.text().split('File storage (paid add-on)').length - 1, 1);
+    const copied: string[] = [];
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        writeText: async (value: string) => {
+          copied.push(value);
+        },
+      },
+    });
+    for (const check of checks) {
+      assert.equal(check.find('button').length, 1);
+      await check.find('button')[0]!.click();
+      assert.ok(check.text().includes('Copied.'));
+    }
+    assert.deepEqual(
+      copied,
+      checks.map((check) => check.find('code')[0]!.text()),
+    );
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        writeText: async () => {
+          throw new Error('denied');
+        },
+      },
+    });
+    await checks[0]!.find('button')[0]!.click();
+    assert.ok(checks[0]!.text().includes('Copy failed. Select the command and copy it manually.'));
+    assert.equal(JSON.stringify(layers), before);
+    const unconfigured = render([]);
+    assert.ok(unconfigured.text().includes('Firestore is not configured.'));
+    assert.ok(
+      unconfigured.text().includes('File storage (paid add-on) — Not available in this release.'),
+    );
+    assert.equal(
+      unconfigured.find('section').filter((section) => section.dataset.serviceCheck).length,
+      3,
+    );
+    renderFirestore(target as unknown as HTMLElement, 'unconfirmed');
+    assert.equal(
+      target.find('section').filter((section) => section.dataset.serviceCheck).length,
+      3,
+    );
+    assert.equal(target.find('section').filter((section) => section.dataset.layer).length, 0);
+    assert.ok(target.text().includes('Service status could not be confirmed.'));
+    renderFirestore(target as unknown as HTMLElement, 'checking');
+    assert.equal(target.find('button').length, 0);
+    assert.equal(target.text(), 'Checking service status…');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('service refresh discards old facts on refusal and keeps a repeated settled view quiet', () => {
+  try {
+    const announcement = new FirestoreDomNode('p');
+    const target = render(enabledFixture(), publishedFixture(), announcement);
+    assert.equal(target.find('tbody')[0]!.children.length, 10);
+    const settled = announcement.writes;
+    renderFirestore(target as unknown as HTMLElement, 'checking');
+    assert.equal(announcement.writes, settled);
+    assert.equal(target.find('tbody').length, 0);
+    assert.equal(target.find('section').filter((section) => section.dataset.layer).length, 0);
+    renderFirestore(target as unknown as HTMLElement, 'unconfirmed');
+    assert.equal(target.find('tbody').length, 0);
+    assert.equal(target.find('section').filter((section) => section.dataset.layer).length, 0);
+    assert.equal(target.text().includes('✓ Enabled'), false);
+    assert.ok(target.text().includes('Service status could not be confirmed.'));
+    assert.deepEqual(
+      target.find('a').map((anchor) => [anchor.href, anchor.target, anchor.rel]),
+      [
+        ['https://console.firebase.google.com/', '_blank', 'noopener noreferrer'],
+        ['https://firebase.google.com/docs/projects/iam/roles', '_blank', 'noopener noreferrer'],
+        [
+          'https://firebase.google.com/docs/projects/billing/firebase-pricing-plans',
+          '_blank',
+          'noopener noreferrer',
+        ],
+      ],
+    );
+    const firstCheck = target.find('section').find((section) => section.dataset.serviceCheck)!;
+    const writes = announcement.writes;
+    renderFirestore(target as unknown as HTMLElement, 'unconfirmed');
+    assert.equal(announcement.writes, writes);
+    assert.equal(
+      target.find('section').find((section) => section.dataset.serviceCheck),
+      firstCheck,
+    );
+    const unknown = enabledFixture();
+    unknown[0]!.state = 'unknown';
+    Object.assign(unknown[0]!.prerequisites[0]!, { state: 'unknown', reason: 'not-checked' });
+    renderFirestore(target as unknown as HTMLElement, 'confirmed', {
+      firestoreLayers: parseFirestoreLayers(unknown),
+      firestoreBudget: parsePublishedLimits(publishedFixture()),
+    } as FirestoreSettingsView);
+    const sharing = target.find('section').find((section) => section.dataset.layer === 'sharing')!;
+    assert.ok(sharing.find('h3')[0]!.text().includes('Not checked'));
+    assert.equal(sharing.find('h3')[0]!.text().includes('Enabled'), false);
+    assert.equal(target.find('tbody')[0]!.children.length, 10);
   } finally {
     vi.unstubAllGlobals();
   }

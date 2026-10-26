@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 9ba671867c13e45d145e8eac9ed316ef74e283db
+sourceRevision: f26bbb6aeae4289cf558edf386abc524258d836a
 title: Ops：lead、成员和一个看板
 ---
 
@@ -435,7 +435,7 @@ enabled = true
 stale_after = "30m"
 `}</Code>
 
-启用 Ops 的 extension 钩子（`tmt extension hooks enable ops`），并通过 `tmt setup` 安装提供方钩子后，Ops 可以在 lead 的下一轮中添加一行简短的信息提示，也包括会话启动时。它会指出长时间未更新的笔记，或期间出现过相关活动但内容仍未更新的成员行。运行 `tmt ops sq ls` 或打开看板即可开始观察；尚未观察到内容时，不会提示。[Ops 技能](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) 列出了限制。
+启用 Ops 的 extension 钩子（`tmt extension hooks enable ops`），并通过 `tmt setup` 安装提供方钩子后，Ops 可以在 lead 的下一轮中添加一行简短的信息提示，也包括会话启动时。它会指出长时间未更新的笔记，或期间出现过相关活动但内容仍未更新的成员行。运行 `tmt ops sq ls` 或打开看板即可开始观察；尚未观察到内容时，不会提示。[Ops 技能](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) 列出了限制。
 
 开启这些设置不会安装任何提供方钩子。看板中的提醒设置仍为 <Tag kind="planned" />。
 
@@ -491,7 +491,7 @@ $ tmt ops sq rm auth-fix              # 离开 squad；agent 继续运行
 
 <Mdx.h3 id="reference-tabs-refresh-and-bindings">参考：标签页、刷新和绑定</Mdx.h3>
 
-完整配置约定见 Ops 技能，可用 `tmt ops skill show` 输出，也可在[仓库中](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md)阅读。下面是最常用的设置。
+完整配置约定见 Ops 技能，可用 `tmt ops skill show` 输出，也可在[仓库中](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md)阅读。下面是最常用的设置。
 
 **标签页。** 除 `order` 和 `hide` 外，`pin` 和 `colors` 也会影响标签行：
 

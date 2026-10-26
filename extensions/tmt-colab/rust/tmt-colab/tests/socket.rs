@@ -71,6 +71,8 @@ static NEXT: AtomicUsize = AtomicUsize::new(0);
 type SaveGate = Arc<Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>>;
 struct Running {
     save_gate: SaveGate,
+    /// Skip this many SourceOpener calls before the next gate; zero keeps existing scenarios.
+    save_gate_skip: Arc<AtomicUsize>,
     /// Parks a save after its snapshot is taken, so the page can move under the snapshot.
     snapshot_gate: SaveGate,
     replacement: Arc<AtomicBool>,
@@ -130,6 +132,8 @@ impl Running {
         store.create_page(PAGE).unwrap();
         let save_gate: SaveGate = Arc::default();
         let gate = Arc::clone(&save_gate);
+        let save_gate_skip = Arc::new(AtomicUsize::new(0));
+        let skipped = Arc::clone(&save_gate_skip);
         let snapshot_gate: SaveGate = Arc::default();
         let after_snapshot = Arc::clone(&snapshot_gate);
         let save_root = root.clone();
@@ -148,7 +152,16 @@ impl Running {
             {
                 probe.send(()).unwrap();
             }
-            if let Some((entered, release)) = gate.lock().unwrap().take() {
+            let pause = {
+                let mut gate = gate.lock().unwrap();
+                if gate.is_some() && skipped.load(Ordering::SeqCst) > 0 {
+                    skipped.fetch_sub(1, Ordering::SeqCst);
+                    None
+                } else {
+                    gate.take()
+                }
+            };
+            if let Some((entered, release)) = pause {
                 entered.send(()).unwrap();
                 release.recv_timeout(Duration::from_secs(30)).unwrap();
             }
@@ -213,6 +226,7 @@ impl Running {
         });
         Self {
             save_gate,
+            save_gate_skip,
             snapshot_gate,
             replacement,
             clock_fault,
@@ -1861,11 +1875,12 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
     };
     let page = |projects: Value| {
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130","pageIds":[{"pageId":PAGE,"deleted":false}],
-        "projects":projects,
+        "projects":projects,"projectPins":{"names":[],"automatic":true},
         "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"projects":projects}]})
     };
     // The reply names the space's projects and every entry the projects it is in (display-only,
-    // from the owner store, sorted), empty by default.
+    // from the owner store, sorted), empty by default. The sidebar pins are the automatic default
+    // (no page has been updated, so none qualifies) until the owner writes a list.
     assert_eq!(listed(&server), page(json!([])));
     // This fixture creates the page without its epoch secret, which page creation always commits
     // and deletion removes; an open page is one that still has it.
@@ -6167,12 +6182,22 @@ impl RequestStream {
         source: &str,
         hunks: Option<Value>,
     ) -> Value {
-        use tmt_colab::decoder::{Decoder, Namespace, OwnRecord, UpdateBatch};
         let mut record = json!({"version":1,"kind":"edit-request","operationId":operation,
             "baseSha256":sha(base.as_bytes()),"sourceSha256":sha(source.as_bytes()),"source":source});
         if let Some(hunks) = hunks {
             record["hunks"] = hunks;
         }
+        self.record(server, session, "intents", operation, record)
+    }
+    fn record(
+        &mut self,
+        server: &Running,
+        session: &Value,
+        root: &str,
+        operation: &str,
+        record: Value,
+    ) -> Value {
+        use tmt_colab::decoder::{Decoder, Namespace, OwnRecord, UpdateBatch};
         let mut decoder = Decoder::with_config(support::decoder_config(
             env!("CARGO_BIN_EXE_tmt-colab").into(),
         ))
@@ -6186,7 +6211,7 @@ impl RequestStream {
                     updates: &prior,
                 },
                 &[OwnRecord {
-                    root: "intents".into(),
+                    root: root.into(),
                     key: operation.into(),
                     value: record,
                 }],
@@ -6613,7 +6638,7 @@ fn a_page_with_a_full_epoch_of_decisions_saves_no_further_request() {
     let tx = oracle.transaction().unwrap();
     for n in 0..tmt_colab::store::EDIT_DECISIONS as u64 {
         tx.execute(
-            "INSERT INTO edit_decisions VALUES (?,?,?,?,?)",
+            "INSERT INTO edit_decisions(page,epoch,writer,operation,state) VALUES (?,?,?,?,?)",
             rusqlite::params![PAGE, "1", REQUEST_DEVICE, request_op(1000 + n), "applied"],
         )
         .unwrap();
@@ -6684,6 +6709,7 @@ fn describe_fixture(root: DescribeRoot) -> tmt_colab::Result<Running> {
     let worker = Some(std::thread::spawn(move || mount.run(&flag).unwrap()));
     Ok(Running {
         save_gate: Arc::default(),
+        save_gate_skip: Arc::default(),
         snapshot_gate: Arc::default(),
         replacement: Arc::default(),
         clock_fault: Arc::new(AtomicI32::new(-1)),
@@ -6802,3 +6828,6 @@ fn describe_keeps_navigation_without_unknown_counts_and_during_busy_catalog() {
     let body: Value = serde_json::from_str(refused.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(body["error"]["code"], "COLAB_UNAVAILABLE");
 }
+
+#[path = "socket/metadata.rs"]
+mod metadata;

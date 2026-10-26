@@ -23,6 +23,21 @@ Do not change provider or TMT configuration to bypass a refusal. Give page
 links only to the requested recipient. Read-only sharing links contain a bearer
 seed; never create or disclose them to bypass pairing.
 
+## Start and ask
+
+Start a page with `tmt colab page create --title T` (the space's default template) or
+`--template NAME`: [templates](references/templates.md) (`tmt colab skill templates`).
+Ask with registered `tmt-question`, never prose; follow [questions](references/questions.md).
+
+```html
+<div>
+  <tmt-question data-id="UUID" data-kind="single" data-agent="Your name">
+    <p data-question>Which option?</p>
+    <span data-choice>First</span><span data-choice>Second</span>
+  </tmt-question>
+</div>
+```
+
 ## Set up a page
 
 Check `--help` for both extensions; install only with user consent:
@@ -52,8 +67,8 @@ there themselves. Wait for their confirmation; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
 Find pages: `tmt colab ls --json` (cached titles; folds misses). Create from UTF-8 with
-`--layout column` (most pages), `full` or `canvas --reason TEXT`, or `--template NAME`
-(`template ls`); `page layout PAGE KIND` changes it:
+`--layout column` (most pages), `full` or `canvas --reason TEXT`, or a template (above);
+`page layout PAGE KIND` changes it:
 
 ```sh
 tmt colab page create --title "Weekly plan" --layout column --file page.html --json
@@ -64,7 +79,7 @@ Use `--file -` for stdin; omit `--file` for an empty page. Returns
 browser, creation opens the page without a TTY or with `--json`;
 `--no-open` suppresses it. Share `shortLink`, not `link`; if null,
 inspect serving status, never invent a URL.
-`paired: false` and `next` mean user-only pairing, never an agent command.
+`paired: false` and `next` mean user-only pairing, never an agent command. Run `read` entries first.
 `tmt colab show PAGE --json` shows the page and its link.
 
 When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.
@@ -81,7 +96,7 @@ tmt colab page check page.html --json
 Offline: lists ignored markup, heavy `data:` images and unusable `colab-attachment:` references,
 with `code` and `line`. Exit 1 means fix the page first.
 `page create` and `page write` run the same check and report `warnings`; `--strict`
-refuses to publish while any remain.
+refuses to publish while any remain. `hints` are advice that blocks nothing.
 
 ## Edit a page
 
@@ -103,8 +118,8 @@ To replace most of the page, edit the `source` of `page read PAGE --json` and wr
 tmt colab page write PAGE --file page.html --expected-revision REVISION --json
 ```
 
-`revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`;
-zero for no-op); title and discussion stay. On `COLAB_STALE_BASE`, reread, merge and use
+`revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`);
+title and discussion stay. On `COLAB_STALE_BASE`, reread, merge and use
 the new token; never blindly retry. After a timeout or uncertainty, read back and
 compare before writing; for uncertain creates inspect `ls`, never duplicate pages.
 
@@ -131,10 +146,10 @@ Verify stored bytes and rendering after writing.
 
 ## Ask and flag
 
-A page that asks the reader to decide uses `tmt-question`; a must-read passage uses `tmt-read`.
-Put each beside its passage, in a `div`, `li` or `td`, with a fresh UUID per `data-id`. Copy the
-examples from the comment after the starter's `</style>` ([page-style](references/page-style.md)). A question inside `<tmt-questions>` must not carry `data-group`
-(`question-group-conflict`). Detail: [questions](references/questions.md) (`tmt colab skill questions`),
+A must-read passage uses `tmt-read`. Put a question or passage beside its text, in a `div`, `li`
+or `td`, with a fresh UUID per `data-id`; more examples are in the comment after the starter's
+`</style>` ([page-style](references/page-style.md)). A question inside `<tmt-questions>` must not
+carry `data-group` (`question-group-conflict`). Detail: [questions](references/questions.md) (`tmt colab skill questions`),
 [components](references/components.md#questions), [reading](references/reading.md)
 (`tmt colab skill reading`), [reviews](references/reviews.md) (`tmt colab skill reviews`).
 Tasks: [work](references/work.md) (`tmt colab skill work`).
@@ -211,10 +226,5 @@ keeps it. Reload never sends.
 
 ## Projects
 
-Projects organize the owner's page list (a page can be in several); display-only, unsigned.
-Commands: `tmt colab project add|remove PAGE NAME...`, `project create NAME`, `project ls`,
-`project rename NAME NEW`, `project delete NAME` (rename merges onto an existing project;
-rename and delete reach archived pages and never delete one). A name is 1 to 32 characters (no control characters, no edge or
-doubled spaces); a page is in at most 8. `add` and `remove` replace the page's set (last
-writer wins); `changed:false` means no change. `ls` and `show --json` list each page's
-`projects`; `ls --project NAME` filters. `pin|unpin PAGE`: Home order (20 max).
+Projects organize the owner's page list: [projects](references/projects.md)
+(`tmt colab skill projects`).

@@ -437,38 +437,15 @@ pub(crate) fn write_work(
     let closed = store.close();
     let prepared = prepared?;
     closed?;
-    let receipt = match prepared {
-        page::PublicationPreparation::Noop {
-            epoch,
-            membership_head,
-            base_revision,
-            memory_limit,
-        } => page::Receipt::unchanged(
-            &key,
-            &page_id,
-            "",
-            epoch,
-            membership_head,
-            base_revision,
-            memory_limit,
-        ),
-        page::PublicationPreparation::Write(frozen) => {
-            let published = crate::publish_write_owned(
-                &layout,
-                &key,
-                &page_id,
-                &frozen,
-                &mut decoder,
-                now()?,
-                lock.as_ref(),
-            )?;
-            let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
-            if let Some(revision) = published.revision {
-                receipt.revision = revision;
-            }
-            receipt
-        }
-    };
+    let receipt = crate::publish_structured_owned(
+        &layout,
+        &key,
+        &page_id,
+        prepared,
+        &mut decoder,
+        now,
+        lock.as_ref(),
+    )?;
     Ok(Written {
         receipt,
         base: read,

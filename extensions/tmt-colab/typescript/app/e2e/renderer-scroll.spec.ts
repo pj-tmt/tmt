@@ -1,16 +1,22 @@
 import { headerHeight } from './tokens.js';
 import { expect, test, type Page } from '@playwright/test';
 
-/** What the reader's note takes above the page frame, margins included; 0 in the owner app. */
+/** What trusted content takes between the header and the page frame, margins included: the reader's
+ * note, or the owner page's title row under the shared bar. */
 const noteSize = (page: Page) =>
   page
-    .locator('.reader-note')
-    .evaluateAll((notes) =>
-      notes.length
-        ? notes[0]!.getBoundingClientRect().height +
-          Number.parseFloat(getComputedStyle(notes[0]!).marginTop) +
-          Number.parseFloat(getComputedStyle(notes[0]!).marginBottom)
-        : 0,
+    .locator('.reader-note, .colab-title-row')
+    .evaluateAll((nodes) =>
+      nodes
+        .filter((node) => node.getClientRects().length)
+        .reduce(
+          (sum, node) =>
+            sum +
+            node.getBoundingClientRect().height +
+            Number.parseFloat(getComputedStyle(node).marginTop) +
+            Number.parseFloat(getComputedStyle(node).marginBottom),
+          0,
+        ),
     );
 
 async function mount(page: Page, source: string, reader: boolean, readerOnly = false) {
@@ -48,9 +54,10 @@ async function mount(page: Page, source: string, reader: boolean, readerOnly = f
     },
     { source, reader },
   );
-  await expect(page.locator('.tmt-ui-header:visible .status')).toContainText(
-    reader ? 'Live' : 'Live',
-  );
+  // The owner page's status sits in the shared bar; the reader's own header carries it.
+  await expect(
+    page.locator(reader ? '.tmt-ui-header:visible .status' : '.tmt-ui-topbar:visible .status'),
+  ).toContainText('Live');
   await page.evaluate(() => (window as unknown as { firstHeight: Promise<void> }).firstHeight);
 }
 const html = `<style>body{margin:0}main{padding:24px}.space{height:2200px}.tail{height:1000px}</style>
@@ -133,10 +140,9 @@ for (const reader of [false, true]) {
         .evaluate((node) => node.ownerDocument.defaultView!.scrollY),
     ).toBeGreaterThan(0);
     await page.setViewportSize({ width: 390, height: 700 });
-    await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS(
-      'height',
-      `${headerHeight(390)}px`,
-    );
+    await expect(
+      page.locator(reader ? '.tmt-ui-header:visible' : '.tmt-ui-topbar:visible'),
+    ).toHaveCSS('height', `${headerHeight(390)}px`);
     // The frame fills the viewport below the header (and, in the reader, its note). In the TMT shell the header is the shell's bar
     // (plus the module menu) and the frame fills the shell's main area; the reader has no shell,
     // so its fixed header's token height sits above the frame.

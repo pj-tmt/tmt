@@ -1,7 +1,10 @@
-//! Guided `tmt setup`: every detected agent is set up with no selection step.
+//! Guided setup: detected agents plus a consented selection of official extensions.
 //! Detection reads only the filesystem. Skills go to agents that are present
 //! or configured; session hooks only to agents whose executable is here. It
 //! plans only what is missing, asks once, then applies skills before hooks.
+
+pub(crate) mod extensions;
+pub(crate) mod upgrade;
 
 use super::{USAGE_NOTE, failure};
 use crate::{invocation::OutputMode, output::Failure};
@@ -10,7 +13,11 @@ use std::{io::Write, path::PathBuf};
 use tmt_adapters::{
     config::ConfigPaths,
     drivers::{Detection, DriverDefinition, Registry},
-    setup::{self, SetupEnvironment, SetupPlan, UsageHook, record},
+    setup::{
+        self, SetupEnvironment, SetupPlan, UsageHook,
+        provider_mod::{self, PendingMod},
+        record,
+    },
     skill_installation::{self, ProviderEnvironment, SkillState, SkillTarget},
 };
 use tmt_cli_style::{
@@ -23,9 +30,6 @@ use tmt_cli_style::{
     value,
 };
 
-/// The extension the closing hint offers when it is not installed.
-const SUGGESTED_EXTENSION: &str = "ops";
-
 struct Plan {
     detections: Vec<(&'static DriverDefinition, Detection)>,
     /// Core skill targets, one row per target; the driver installs it.
@@ -33,6 +37,8 @@ struct Plan {
     owned: Vec<SkillTarget>,
     /// Every hook-capable present driver's plan, current or not.
     hooks: Vec<SetupPlan>,
+    /// The managed mod each consenting driver keeps, when it is not as wanted yet (#5187).
+    mods: Vec<PendingMod>,
 }
 
 impl Plan {
@@ -44,10 +50,15 @@ impl Plan {
         self.hooks.iter().filter(|plan| plan.change.changed())
     }
 
+    fn mod_changes(&self) -> impl Iterator<Item = &PendingMod> {
+        self.mods.iter().filter(|pending| pending.changes())
+    }
+
     fn is_current(&self) -> bool {
         self.core_changes().next().is_none()
             && self.owned.is_empty()
             && self.hook_changes().next().is_none()
+            && self.mod_changes().next().is_none()
     }
 }
 
@@ -62,8 +73,23 @@ fn plan(
     global: &std::path::Path,
     usage: UsageHook,
 ) -> Result<Plan, Failure> {
+    plan_for(drivers, environment, env, global, usage, None)
+}
+
+fn plan_for(
+    drivers: &Registry,
+    environment: &SetupEnvironment,
+    env: &ProviderEnvironment,
+    global: &std::path::Path,
+    usage: UsageHook,
+    provider: Option<&str>,
+) -> Result<Plan, Failure> {
     let recorded = record::read(global).map_err(failure)?;
-    let detections = drivers.detect(env);
+    let detections = drivers
+        .detect(env)
+        .into_iter()
+        .filter(|(driver, _)| provider.is_none_or(|name| name == driver.name()))
+        .collect::<Vec<_>>();
     let mut core: Vec<(&'static DriverDefinition, SkillTarget)> = Vec::new();
     let mut roots: Vec<PathBuf> = Vec::new();
     for (driver, detection) in &detections {
@@ -105,11 +131,20 @@ fn plan(
             .map_err(failure)?,
         );
     }
+    let mods = hooks
+        .iter()
+        .map(|plan| provider_mod::pending(plan.provider, &plan.change.path, plan.usage))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(failure)?
+        .into_iter()
+        .flatten()
+        .collect();
     Ok(Plan {
         detections,
         core,
         owned,
         hooks,
+        mods,
     })
 }
 
@@ -183,7 +218,20 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
             ),
         ]);
     }
-    let change_count = plan.core_changes().count() + plan.owned.len() + plan.hook_changes().count();
+    for pending in plan.mod_changes() {
+        changes.row([
+            Cell::styled("mod", Token::Dim),
+            Cell::from(home(pending.target())),
+            Cell::styled(
+                format!("{}; {}", pending.provider(), pending.purpose()),
+                Token::Dim,
+            ),
+        ]);
+    }
+    let change_count = plan.core_changes().count()
+        + plan.owned.len()
+        + plan.hook_changes().count()
+        + plan.mod_changes().count();
     let mut sections = vec![Section {
         title: "agents",
         count: Some(found),
@@ -209,6 +257,9 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
     }
     if plan.hook_changes().any(|hooks| hooks.usage) {
         writeln!(output, "{USAGE_NOTE}")?;
+    }
+    for pending in plan.mods.iter().filter(|pending| !pending.changes()) {
+        writeln!(output, "{}", super::mod_note(pending))?;
     }
     Ok(())
 }
@@ -238,6 +289,9 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
     );
     changes.extend(plan.hook_changes().map(
         |hooks| json!({"kind": "hooks", "driver": hooks.provider, "path": hooks.change.path}),
+    ));
+    changes.extend(plan.mod_changes().map(
+        |pending| json!({"kind": "mod", "driver": pending.provider(), "path": pending.target()}),
     ));
     let mut document = json!({
         "detectedProviders": plan.detections.iter().filter(|(_, detection)| gets_skills(detection)).map(|(driver, _)| driver.name()).collect::<Vec<_>>(),
@@ -274,26 +328,32 @@ pub(super) fn run(
     mode: OutputMode,
     output: &mut Stream<impl Write>,
     terminal: Terminal,
-) -> Result<(), Failure> {
+) -> Result<u8, Failure> {
     let env = ProviderEnvironment::capture().map_err(failure)?;
     let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
     // An unreadable record is preserved and stops setup before any change.
     record::read(&global).map_err(failure)?;
     let plan = plan(drivers, environment, &env, &global, usage)?;
+    let mut extensions = extensions::Plan::read();
     if !mode.json {
         present(output, terminal, &plan).map_err(failure)?;
+        if !extensions.select(output, yes, mode).map_err(failure)? {
+            writeln!(output, "No changes made.").map_err(failure)?;
+            return Ok(0);
+        }
     }
-    if plan.is_current() {
+    if plan.is_current() && extensions.is_current() {
         // Only TMT's own record changes, so this needs no consent.
         adopt(&plan, &global)?;
         if mode.json {
-            writeln!(output, "{}", document(&plan, false, &[])).map_err(failure)?;
+            let mut document = document(&plan, false, &[]);
+            document["extensions"] = json!(extensions.current_document());
+            writeln!(output, "{document}").map_err(failure)?;
         } else {
             message::success(output, terminal, "Everything is set up").map_err(failure)?;
             backup_warnings(&plan, output, terminal)?;
-            closing_hint(output, terminal)?;
         }
-        return Ok(());
+        return Ok(0);
     }
     if !crate::consent::ask(
         output,
@@ -302,27 +362,78 @@ pub(super) fn run(
         crate::consent::Consent {
             code: "SETUP_CONSENT_REQUIRED",
             refusal: "Review setup interactively, or pass --yes to apply the plan; nothing was changed.",
-            question: "Apply these changes",
+            question: "Apply all of this",
             declined: "No changes made.",
         },
         failure,
     )? {
-        return Ok(());
+        return Ok(0);
     }
-    let skipped = apply(&plan, &global, output, terminal, mode)?;
-    if mode.json {
-        writeln!(output, "{}", document(&plan, true, &skipped)).map_err(failure)?;
+    let agents = apply(&plan, &global, output, terminal, mode);
+    let extension_rows = extensions.apply(output, terminal, mode)?;
+    let incomplete = agents
+        .as_ref()
+        .map_or(true, |report| !report.failures.is_empty())
+        || extensions::failed(&extension_rows);
+    let status = if extensions::interrupted(&extension_rows) {
+        130
     } else {
+        u8::from(incomplete)
+    };
+    if mode.json {
+        let mut document = document(
+            &plan,
+            true,
+            agents
+                .as_ref()
+                .map_or(&[], |report| report.skipped.as_slice()),
+        );
+        document["extensions"] = json!(extension_rows);
+        let errors: Vec<_> = match &agents {
+            Ok(report) => report
+                .failures
+                .iter()
+                .map(|error| error.document()["error"].clone())
+                .collect(),
+            Err(error) => vec![error.document()["error"].clone()],
+        };
+        if !errors.is_empty() {
+            document["agentErrors"] = json!(errors);
+        }
+        if incomplete {
+            document["error"] = json!({"code":"SETUP_INCOMPLETE", "message":"Some setup items need attention. Completed items were kept. Rerun: tmt setup --yes"});
+        }
+        writeln!(output, "{document}").map_err(failure)?;
+    } else {
+        let errors = match agents {
+            Ok(report) => report.failures,
+            Err(error) => vec![error],
+        };
+        for error in errors {
+            message::warning(output, terminal, &error.message, None).map_err(failure)?;
+        }
+        let ready = extension_rows
+            .iter()
+            .filter(|row| matches!(row["status"].as_str(), Some("current" | "installed")))
+            .count();
         message::hint(
             output,
             terminal,
-            "reload your agents so they read the new skills",
+            &format!("{ready} extension(s) ready; reload your agents so they read the new skills"),
         )
         .map_err(failure)?;
+        if incomplete {
+            message::warning(
+                output,
+                terminal,
+                "Completed items were kept. Rerun: tmt setup --yes",
+                None,
+            )
+            .map_err(failure)?;
+        }
         backup_warnings(&plan, output, terminal)?;
-        closing_hint(output, terminal)?;
     }
-    Ok(())
+    Ok(status)
 }
 
 fn backup_warnings(
@@ -338,14 +449,30 @@ fn backup_warnings(
     Ok(())
 }
 
-/// Skills, then hooks; each step reports as it completes.
+struct AgentReport {
+    skipped: Vec<PathBuf>,
+    failures: Vec<Failure>,
+}
+
+/// Skills, then hooks; keep independent successes when an item fails.
 fn apply(
     plan: &Plan,
     global: &std::path::Path,
     output: &mut impl Write,
     terminal: Terminal,
     mode: OutputMode,
-) -> Result<Vec<PathBuf>, Failure> {
+) -> Result<AgentReport, Failure> {
+    apply_with_policy(plan, global, output, terminal, mode, false)
+}
+
+fn apply_with_policy(
+    plan: &Plan,
+    global: &std::path::Path,
+    output: &mut impl Write,
+    terminal: Terminal,
+    mode: OutputMode,
+    new_scope: bool,
+) -> Result<AgentReport, Failure> {
     let mut done = |text: String| -> Result<(), Failure> {
         if mode.json {
             Ok(())
@@ -359,28 +486,83 @@ fn apply(
         .map(|(_, skill)| skill.clone())
         .collect();
     let mut skipped = Vec::new();
+    let mut failures = Vec::new();
     if !planned.is_empty() {
-        let published = skill_installation::publish_core(global, &planned).map_err(failure)?;
-        done(format!("Installed {} skill(s)", published.linked.len()))?;
-        skipped = published.skipped;
+        match if new_scope {
+            skill_installation::publish_missing_core(global, &planned)
+        } else {
+            skill_installation::publish_core(global, &planned)
+        } {
+            Ok(published) => {
+                done(format!("Installed {} skill(s)", published.linked.len()))?;
+                skipped = published.skipped;
+            }
+            Err(error) => failures.push(
+                Failure::new(
+                    "SETUP_ERROR",
+                    format!("Core agent skills could not be set up: {error}"),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        }
     }
     if !plan.owned.is_empty() {
-        let linked = skill_installation::publish_owned(global, &plan.owned).map_err(failure)?;
-        done(format!("Linked {} extension skill(s)", linked.len()))?;
+        match skill_installation::publish_owned(global, &plan.owned) {
+            Ok(linked) => done(format!("Linked {} extension skill(s)", linked.len()))?,
+            Err(error) => failures.push(
+                Failure::new(
+                    "SETUP_ERROR",
+                    format!("Recorded extension skill links could not be set up: {error}"),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        }
     }
     for hooks in plan.hook_changes() {
-        setup::apply(hooks).map_err(failure)?;
-        record::remember(
-            global,
-            record::RecordedHooks {
-                driver: hooks.provider.to_owned(),
-                settings: hooks.change.path.clone(),
-                launcher: hooks.launcher.clone(),
-                usage: Some(hooks.usage),
-            },
-        )
-        .map_err(failure)?;
-        done(format!("Configured {} hooks", hooks.provider))?;
+        let result = setup::apply(hooks).and_then(|_| {
+            record::remember(
+                global,
+                record::RecordedHooks {
+                    driver: hooks.provider.to_owned(),
+                    settings: hooks.change.path.clone(),
+                    launcher: hooks.launcher.clone(),
+                    usage: Some(hooks.usage),
+                },
+            )
+        });
+        match result {
+            Ok(()) => done(format!("Configured {} hooks", hooks.provider))?,
+            Err(error) => failures.push(
+                Failure::new(
+                    "SETUP_ERROR",
+                    format!("{} hooks could not be set up: {error}", hooks.provider),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        }
+    }
+    for pending in plan.mod_changes() {
+        match pending.apply() {
+            Ok(outcome) => done(format!(
+                "{} the {} mod",
+                super::capitalized(outcome.label()),
+                pending.provider()
+            ))?,
+            Err(error) => failures.push(
+                Failure::new(
+                    "SETUP_ERROR",
+                    format!(
+                        "The {} mod could not be set up: {error}",
+                        pending.provider()
+                    ),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        }
     }
     if !mode.json {
         for path in &skipped {
@@ -393,8 +575,10 @@ fn apply(
             .map_err(failure)?;
         }
     }
-    adopt(plan, global)?;
-    Ok(skipped)
+    if let Err(error) = adopt(plan, global) {
+        failures.push(error);
+    }
+    Ok(AgentReport { skipped, failures })
 }
 
 /// Records hooks that are already exactly what setup writes (installed
@@ -415,30 +599,189 @@ fn adopt(plan: &Plan, global: &std::path::Path) -> Result<(), Failure> {
     Ok(())
 }
 
-fn closing_hint(output: &mut impl Write, terminal: Terminal) -> Result<(), Failure> {
-    let installed = crate::extension_command::discover()
-        .map(|found| found.has(SUGGESTED_EXTENSION))
-        .unwrap_or(true);
-    if installed {
-        return Ok(());
-    }
-    message::hint(
-        output,
-        terminal,
-        &format!("tmt extension install {SUGGESTED_EXTENSION} adds the Squad board"),
-    )
-    .map_err(failure)
-}
-
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
-    &[crate::cli_style_tests::HintSpec::core(
-        "tmt extension install {SUGGESTED_EXTENSION} adds the Squad board",
-        &[" adds the Squad board"],
-        &[
-            ("{name}", "ops"),
-            ("{}", "ops"),
-            ("{SUGGESTED_EXTENSION}", "ops"),
-        ],
-    )];
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Completed items were kept. Rerun: tmt setup --yes",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Some setup items need attention. Completed items were kept. Rerun: tmt setup --yes",
+        &[""],
+        &[],
+    ),
+];
+#[cfg(test)]
+pub(crate) use extensions::PRINTED_HINTS as EXTENSION_HINTS;
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    pub(crate) struct Directory {
+        pub(crate) path: PathBuf,
+    }
+    impl Directory {
+        pub(crate) fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "tmt-setup-independent-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self { path }
+        }
+    }
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.path).unwrap();
+        }
+    }
+    fn claude_world(root: &Directory) -> (ProviderEnvironment, SetupEnvironment) {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = root.path.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        std::fs::write(bin.join("claude"), "#!/bin/sh\nexit 99\n").unwrap();
+        std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let env = ProviderEnvironment::from_parts(
+            root.path.join("home"),
+            root.path.clone(),
+            vec![bin.clone()],
+            [],
+        );
+        let setup = SetupEnvironment {
+            launcher: bin.join("tmt"),
+            settings: Registry::builtin()
+                .with_hooks()
+                .map(|driver| (driver, env.locations(driver).hook_settings.unwrap()))
+                .collect(),
+        };
+        (env, setup)
+    }
+
+    #[test]
+    fn consented_usage_plans_the_mod_and_an_opt_out_or_a_foreign_directory_does_not() {
+        use tmt_adapters::setup::provider_mod::ModStep;
+        let root = Directory::new();
+        let (env, setup) = claude_world(&root);
+        let drivers = Registry::builtin();
+        let global = root.path.join("state");
+        let plan =
+            |usage| plan_for(&drivers, &setup, &env, &global, usage, Some("claude")).unwrap();
+
+        let consented = plan(UsageHook::Default);
+        assert_eq!(consented.mods.len(), 1);
+        assert_eq!(consented.mods[0].step, ModStep::Install);
+        assert!(!consented.is_current());
+
+        assert!(plan(UsageHook::Remove).mods.is_empty());
+
+        let target = consented.mods[0].target().to_path_buf();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("mine"), b"mine").unwrap();
+        let blocked = plan(UsageHook::Default);
+        assert_eq!(blocked.mods[0].step, ModStep::Blocked);
+        assert_eq!(blocked.mod_changes().count(), 0);
+    }
+
+    #[test]
+    fn applying_the_plan_installs_the_mod_after_the_hooks() {
+        let root = Directory::new();
+        let (env, setup) = claude_world(&root);
+        let drivers = Registry::builtin();
+        let global = root.path.join("state");
+        let planned = plan_for(
+            &drivers,
+            &setup,
+            &env,
+            &global,
+            UsageHook::Default,
+            Some("claude"),
+        )
+        .unwrap();
+        let target = planned.mods[0].target().to_path_buf();
+        let report = apply(
+            &planned,
+            &global,
+            &mut Vec::new(),
+            Terminal::PLAIN,
+            OutputMode { json: true },
+        )
+        .unwrap();
+        assert!(report.failures.is_empty(), "{:?}", report.failures.len());
+        assert!(target.join(".tmt-managed.json").is_file());
+        assert!(target.join("hooks/register.mjs").is_file());
+        // Nothing left to do on the next plan.
+        let again = plan_for(
+            &drivers,
+            &setup,
+            &env,
+            &global,
+            UsageHook::Default,
+            Some("claude"),
+        )
+        .unwrap();
+        assert!(again.mods.is_empty());
+    }
+
+    #[test]
+    fn a_changed_provider_file_preserves_it_and_does_not_block_an_independent_provider() {
+        let root = Directory::new();
+        let drivers = Registry::builtin();
+        let paths = [
+            root.path.join("claude/settings.json"),
+            root.path.join("codex/hooks.json"),
+        ];
+        let hooks = ["claude", "codex"]
+            .into_iter()
+            .zip(&paths)
+            .map(|(name, path)| {
+                setup::plan_with_choice(
+                    drivers.find(name).unwrap(),
+                    path.clone(),
+                    None,
+                    root.path.join("bin/tmt"),
+                    false,
+                    UsageHook::Remove,
+                    false,
+                )
+                .unwrap()
+            })
+            .collect();
+        let plan = Plan {
+            detections: Vec::new(),
+            core: Vec::new(),
+            owned: Vec::new(),
+            hooks,
+            mods: Vec::new(),
+        };
+        std::fs::create_dir_all(paths[0].parent().unwrap()).unwrap();
+        std::fs::write(&paths[0], b"user changed this after planning").unwrap();
+        let report = apply(
+            &plan,
+            &root.path.join("global"),
+            &mut Vec::new(),
+            Terminal::PLAIN,
+            OutputMode { json: true },
+        )
+        .unwrap();
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(
+            std::fs::read(&paths[0]).unwrap(),
+            b"user changed this after planning"
+        );
+        assert!(
+            std::fs::read_to_string(&paths[1])
+                .unwrap()
+                .contains("__hook codex")
+        );
+        let recorded = record::read(&root.path.join("global")).unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].driver, "codex");
+    }
+}

@@ -44,7 +44,9 @@ mod native_upgrade_command;
 mod notes_command;
 mod output;
 use tmt_adapters::pane_badge;
+mod allowance_command;
 mod consumption_sample_command;
+mod database_compaction_command;
 mod database_rename_command;
 mod digest_hook_command;
 mod orch_command;
@@ -63,6 +65,7 @@ mod setup_command;
 mod skill_refresh_command;
 mod skill_reminder;
 mod stop_command;
+mod storage_command;
 mod talk_command;
 mod target;
 mod uninstall_command;
@@ -131,6 +134,18 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     // The updater's frozen skill-refresh protocol owns its own path admission
     // and output. Driver registration would discover configuration first and
     // print a directory-move diagnostic before that protocol can silence it.
+    if let Invocation::NativeUpgradeExtensions {
+        plan,
+        progress,
+        complete: true,
+    } = &parsed.invocation
+    {
+        return extension_install_command::upgrade_all::complete::execute(
+            *plan,
+            *progress,
+            parsed.mode,
+        );
+    }
     if matches!(parsed.invocation, Invocation::NativeRefreshIntegrations) {
         return setup_command::refresh::execute(parsed.mode);
     }
@@ -354,6 +369,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return setup_command::execute(provider, status, remove, usage, yes, parsed.mode);
         }
         Invocation::ConsumptionSample => return consumption_sample_command::execute(),
+        Invocation::AllowancePush { provider } => return allowance_command::execute(&provider),
         Invocation::DigestHook {
             provider,
             launch,
@@ -426,8 +442,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             target,
             lines,
             capture_only,
+            expect_name,
         } => {
-            return check_command::execute(target, lines, capture_only, parsed.mode);
+            return check_command::execute(target, lines, capture_only, expect_name, parsed.mode);
         }
         Invocation::Stop { name, close } => {
             return stop_command::execute(name, close, parsed.mode);
@@ -481,7 +498,18 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 parsed.mode,
             );
         }
-        Invocation::NativeUpgradeExtensions { plan, progress } => {
+        Invocation::NativeUpgradeExtensions {
+            plan,
+            progress,
+            complete,
+        } => {
+            if complete {
+                return extension_install_command::upgrade_all::complete::execute(
+                    plan,
+                    progress,
+                    parsed.mode,
+                );
+            }
             return extension_install_command::upgrade_all::execute(plan, progress, parsed.mode);
         }
         Invocation::NativeRefreshSkills { managed } => {
@@ -489,6 +517,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::NativeRenameDatabase => {
             return database_rename_command::execute(parsed.mode);
+        }
+        Invocation::NativeCompactDatabase => {
+            return database_compaction_command::execute(parsed.mode);
+        }
+        Invocation::Storage => {
+            return storage_command::execute(parsed.mode);
         }
         Invocation::NativeRefreshIntegrations => {
             return setup_command::refresh::execute(parsed.mode);

@@ -20,6 +20,8 @@ import type { ExpiryInfo } from './expiry.js';
 /** Project limits; `limits.rs` and the contract's Projects section hold the same numbers. */
 export const PROJECT_POINTS = 32;
 export const PROJECTS_PER_PAGE = 8;
+/** Most projects the owner pins to the side menu (`SPACE_PROJECT_PINS` in `limits.rs`). */
+export const PROJECT_PINS = 20;
 /** Most names one space lists: creation stops at 256, and a space migrated from labels may hold up to its 1,000 assignments. */
 const PROJECTS_PER_SPACE = 1000;
 
@@ -109,12 +111,19 @@ export interface PageId {
   pageId: string;
   deleted: boolean;
 }
+/** The side menu's projects in order: the owner's list, or until it writes one the owner's automatic default. */
+export interface ProjectPins {
+  readonly names: readonly string[];
+  readonly automatic: boolean;
+}
 export interface Bootstrap {
   space: string;
   owner: Uint8Array;
   revision: string;
   /** Every project of the space, including those with no page; sorted by the owner store. */
   projects: readonly string[];
+  /** The owner's pinned projects, in order (display-only, untrusted text). */
+  projectPins: ProjectPins;
   pages: PageInfo[];
   pageIds: PageId[];
 }
@@ -209,11 +218,14 @@ export function mountUrl(): URL {
   return url;
 }
 /** Owner-only paired mount discovery is the sole TOFU exception. Later discovery
- * must match the durable origin/mount pin and fragment, with no silent re-pin. */
+ * must match the durable origin/mount pin and fragment, with no silent re-pin. It also keeps the
+ * document's location canonical for Colab's own routes; a caller whose document belongs to another
+ * module (`locate: false`, the global search) neither reads nor writes the location. */
 export async function discover(
   mount: URL,
   verify?: (space: string, owner: Uint8Array) => Promise<unknown>,
   signal?: AbortSignal,
+  { locate = true }: { locate?: boolean } = {},
 ): Promise<Bootstrap> {
   const value = await jsonResponse(
     await fetch(new URL('api/pages', mount), {
@@ -223,7 +235,15 @@ export async function discover(
     }),
     DISCOVERY_BYTES,
   );
-  exactKeys(value, ['spaceId', 'ownerKey', 'revision', 'projects', 'pages', 'pageIds']);
+  exactKeys(value, [
+    'spaceId',
+    'ownerKey',
+    'revision',
+    'projects',
+    'projectPins',
+    'pages',
+    'pageIds',
+  ]);
   requireValue(typeof value.spaceId === 'string' && typeof value.revision === 'string');
   spaceId(value.spaceId);
   decimal(value.revision);
@@ -236,6 +256,14 @@ export async function discover(
       projectNames(value.projects),
   );
   const known = new Set<unknown>(value.projects);
+  exactKeys(value.projectPins, ['names', 'automatic']);
+  requireValue(
+    typeof value.projectPins.automatic === 'boolean' &&
+      Array.isArray(value.projectPins.names) &&
+      value.projectPins.names.length <= PROJECT_PINS &&
+      projectNames(value.projectPins.names) &&
+      value.projectPins.names.every((name: unknown) => known.has(name)),
+  );
   const visibleIds = new Set<string>();
   for (const page of value.pages) {
     exactKeys(page, [
@@ -314,7 +342,7 @@ export async function discover(
   await verify?.(value.spaceId, owner);
   await navigator.locks.request(`colab-pin:${mount.href}`, async () => {
     const pin = await record<{ space: string; owner: Uint8Array }>(`pin:${mount.href}`),
-      fragment = new URLSearchParams(location.hash.slice(1)).get('space');
+      fragment = locate ? new URLSearchParams(location.hash.slice(1)).get('space') : null;
     requireValue(
       (!fragment || fragment === value.spaceId) &&
         (!pin || (pin.space === value.spaceId && equal(pin.owner, owner))),
@@ -322,13 +350,13 @@ export async function discover(
     // The location keeps only the canonical fragment of its display target: a plain #id becomes
     // #anchor=<id>, and a fragment that names none is dropped, so nothing downstream (a copied
     // link, an Ask's page link) carries it.
-    if (publicEntry()) {
+    if (locate && publicEntry()) {
       const canonical = entryHash(entryOpenTarget());
       if (location.hash !== canonical)
         history.replaceState(history.state, '', location.pathname + location.search + canonical);
     }
     let path: string | null = null;
-    if (!fragment && !publicEntry()) {
+    if (locate && !fragment && !publicEntry()) {
       const incoming = new URLSearchParams(location.hash.slice(1));
       path = incoming.get('path');
       requireValue(
@@ -343,7 +371,7 @@ export async function discover(
       if (path?.startsWith('/pages/')) generatedId(path.slice(7));
     }
     if (!pin) await record(`pin:${mount.href}`, { space: value.spaceId, owner });
-    if (!fragment && !publicEntry()) {
+    if (locate && !fragment && !publicEntry()) {
       history.replaceState(
         history.state,
         '',
@@ -352,6 +380,7 @@ export async function discover(
     }
   });
   if (
+    locate &&
     !publicEntry() &&
     typeof location.pathname === 'string' &&
     location.pathname.startsWith('/r/')
@@ -376,6 +405,7 @@ export async function discover(
     owner,
     revision: value.revision,
     projects: value.projects as unknown as readonly string[],
+    projectPins: value.projectPins as unknown as ProjectPins,
     pages: value.pages as unknown as PageInfo[],
     pageIds: value.pageIds as unknown as PageId[],
   };

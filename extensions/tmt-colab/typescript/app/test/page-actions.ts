@@ -1,8 +1,25 @@
 import type { Locator, Page } from '@playwright/test';
 import { commentsRegion } from './comments-region.js';
 
-/** Resolve page actions through their header menu; readers keep their direct Files control.
- * Chat is in Discussion; page tools, including Agent status, are in More. */
+/** The dock's Comments action: its name carries the open-thread count and, while a thread has news,
+ * the word that says so (`Comments (2) · New`). */
+export const COMMENTS_NAME = /^Comments(?: \(\d+\))?(?: · .*)?$/;
+export const CHAT_NAME = /^Chat(?: · Unread)?$/;
+export function commentsAction(host: Page | Locator) {
+  return host.locator('.page-floating-actions').getByRole('button', { name: COMMENTS_NAME });
+}
+export function chatAction(host: Page | Locator) {
+  return host.locator('.page-floating-actions').getByRole('button', { name: CHAT_NAME });
+}
+
+/** Turn Show resolved on for this page, before it loads: specs of the resolve and reopen mechanics
+ * keep the resolved thread in view, which the Comments panel does only with the toggle on. */
+export async function showResolvedOn(page: Page) {
+  await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
+}
+
+/** Resolve page actions: Comments and Chat are the dock's, page tools (including Agent status) are in
+ * the top bar's More menu, and readers keep their direct Files control. */
 export async function pageAction(host: Page | Locator, name: string): Promise<Locator> {
   const directName =
     name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name === 'Agents' ? 'Agent status' : name;
@@ -20,7 +37,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     }
     // The first covered-header press dismisses only; the action needs a second press.
     const button = await page
-      .locator('.tmt-ui-header:visible button:visible')
+      .locator('.tmt-ui-topbar:visible button:visible')
       .first()
       .boundingBox();
     if (!button) throw new Error('Open drawer has no visible header return target');
@@ -29,14 +46,27 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   };
   const anythingOpen = async () => (await drawer.isVisible()) || (await comments.isVisible());
   if (await anythingOpen()) await dismissDrawer();
+  if (name.startsWith('Theme:')) {
+    // Theme is the shared top bar's menu, not a page action.
+    await page
+      .locator('.tmt-ui-topbar-common:visible')
+      .getByRole('button', { name: /^Theme:/ })
+      .click();
+    return page.getByRole('menuitemradio', { name: name.slice('Theme: '.length), exact: true });
+  }
   if (name === 'Files') {
     const direct = host.getByRole('button', { name: directName, exact: true });
     await header.or(direct).first().waitFor();
     if (await direct.isVisible()) return direct;
   }
+  if (name === 'Chat' || name === 'Comments') {
+    const action = name === 'Chat' ? chatAction(host) : commentsAction(host);
+    await action.waitFor();
+    return action;
+  }
   // A mounted opening header can precede the page header after reload.
   await header.waitFor();
-  const menu = name === 'Chat' || name === 'Comments' ? /^Discussion(?: [(·]|$)/ : 'More';
+  const menu = 'More';
   // A shared modal menu aria-hides the background, including its own trigger.
   // The header is still physically visible; inspect its disclosure state without
   // forcing activation or treating the hidden background as an actionable target.
@@ -65,15 +95,8 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
       await trigger.click();
     }
   }
-  return page.getByRole(name.startsWith('Theme:') ? 'menuitemradio' : 'menuitem', {
-    name:
-      name === 'Comments'
-        ? /^Comments(?: \d+)?(?: ·.*)?$/
-        : name === 'Chat'
-          ? /^Chat(?: · Unread)?$/
-          : name === 'Share…'
-            ? /^Share…/
-            : directName,
-    exact: name !== 'Comments' && name !== 'Chat' && name !== 'Share…',
+  return page.getByRole('menuitem', {
+    name: name === 'Share…' ? /^Share…/ : directName,
+    exact: name !== 'Share…',
   });
 }

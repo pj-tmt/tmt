@@ -27,6 +27,10 @@ pub const HIDDEN: &[(&str, &str)] = &[
         "prints the completion script a shell sources",
     ),
     (
+        "tmt __allowance",
+        "bounded intake the first-party Claude allowance mod calls",
+    ),
+    (
         "tmt __consumption-sample",
         "bounded sampler that hook-driven runs spawn",
     ),
@@ -53,6 +57,10 @@ pub const HIDDEN: &[(&str, &str)] = &[
     (
         "tmt __native-rename-database",
         "Core database rename run by tmt upgrade",
+    ),
+    (
+        "tmt __native-compact-database",
+        "one-time Core database compaction run by tmt upgrade",
     ),
     (
         "tmt __native-upgrade-extensions",

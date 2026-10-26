@@ -276,6 +276,18 @@ pub(crate) use hints::HintSpec;
 fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
     vec![
         (
+            "native_upgrade_command/complete.rs",
+            crate::native_upgrade_command::COMPLETE_HINTS,
+        ),
+        (
+            "extension_install_command/upgrade_all/complete.rs",
+            crate::extension_install_command::upgrade_all::complete::PRINTED_HINTS,
+        ),
+        (
+            "setup_command/guided/upgrade.rs",
+            crate::setup_command::guided::upgrade::PRINTED_HINTS,
+        ),
+        (
             "workspace_restore_command.rs",
             crate::workspace_restore_command::PRINTED_HINTS,
         ),
@@ -345,6 +357,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             crate::native_upgrade_command::PRINTED_HINTS,
         ),
         (
+            "native_upgrade_command/compaction.rs",
+            crate::native_upgrade_command::COMPACTION_HINTS,
+        ),
+        (
             "native_upgrade_command/database.rs",
             crate::native_upgrade_command::DATABASE_HINTS,
         ),
@@ -356,6 +372,7 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             "native_upgrade_command/rename.rs",
             crate::native_upgrade_command::RENAME_HINTS,
         ),
+        ("orch_command.rs", crate::orch_command::PRINTED_HINTS),
         ("parser.rs", crate::parser::PRINTED_HINTS),
         (
             "reply_notice_command.rs",
@@ -379,6 +396,14 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
         ),
         ("setup_command.rs", crate::setup_command::PRINTED_HINTS),
         (
+            "setup_command/guided/extensions.rs",
+            crate::setup_command::GUIDED_EXTENSION_HINTS,
+        ),
+        (
+            "extension_install_command/setup.rs",
+            crate::extension_install_command::setup::PRINTED_HINTS,
+        ),
+        (
             "setup_command/refresh.rs",
             crate::setup_command::refresh::PRINTED_HINTS,
         ),
@@ -395,6 +420,7 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             crate::skill_refresh_command::PRINTED_HINTS,
         ),
         ("skill_reminder.rs", crate::skill_reminder::PRINTED_HINTS),
+        ("storage_command.rs", crate::storage_command::PRINTED_HINTS),
         ("talk_command.rs", crate::talk_command::PRINTED_HINTS),
         ("target.rs", crate::target::PRINTED_HINTS),
         (

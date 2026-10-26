@@ -30,6 +30,12 @@ const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
 mod activation;
 #[path = "cli/cloud_message.rs"]
 mod cloud_message;
+#[path = "cli/member_commands.rs"]
+mod member_commands;
+#[path = "cli/member_failures.rs"]
+mod member_failures;
+#[path = "cli/member_reads.rs"]
+mod member_reads;
 /// Bound on a `serve` child reporting readiness. Startup runs freshly written
 /// fake-core executables, whose first exec waits behind the same assessment
 /// queue as the fixture probe.
@@ -703,6 +709,8 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     let client_id = ended["clientId"].as_str().unwrap();
     assert_eq!(running["devices"][0]["clientId"], client_id);
     assert_eq!(running["devices"][0]["kind"], "cli");
+    member_reads::assert_shared_member_reads(&pilot, client_id);
+    member_reads::assert_public_member_reads(&pilot, client_id, true);
     assert_eq!(
         running["devices"][0]["scopes"]
             .as_array()
@@ -780,6 +788,7 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     assert_eq!(after_restart["devices"][0], name["device"]);
     assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
     wait_stopped(pilot.child.as_mut().unwrap());
+    member_reads::assert_public_member_reads(&pilot, client_id, false);
     let (renamed, offline) = devices(&pilot, &["rename", client_id, "Home laptop", "--json"]);
     assert!(renamed);
     assert_eq!(offline["device"]["name"], "Home laptop");

@@ -42,8 +42,14 @@ impl Fixture {
             .unwrap();
     }
     fn adopt(&mut self, id: &str, op: &str, digest: &[u8]) -> Result<Option<Value>> {
-        self.store
-            .management_adopt(&self.grant, id, op, digest, now_ms().unwrap())
+        self.store.management_adopt(
+            &self.grant,
+            id,
+            op,
+            digest,
+            now_ms().unwrap(),
+            Access::Legacy,
+        )
     }
     fn count(&self, table: &str) -> i64 {
         self.store
@@ -158,7 +164,14 @@ fn pending_intent_never_reapplies_and_immutable_deadline_is_not_renewed() {
     let now = now_ms().unwrap();
     assert!(
         f.store
-            .management_adopt(&f.grant, &id, "remote.settings.set", &[1; 32], now)
+            .management_adopt(
+                &f.grant,
+                &id,
+                "remote.settings.set",
+                &[1; 32],
+                now,
+                Access::Legacy
+            )
             .unwrap()
             .is_none()
     );
@@ -200,7 +213,8 @@ fn pending_intent_never_reapplies_and_immutable_deadline_is_not_renewed() {
                 &id,
                 "remote.settings.set",
                 &[1; 32],
-                now + journal::RECOVERY
+                now + journal::RECOVERY,
+                Access::Legacy
             )
             .unwrap_err()
             .code,
@@ -349,6 +363,7 @@ fn settings_write_survives_receipt_failure_without_false_commit_or_readback_repl
 #[test]
 fn sql_page_is_caller_bound_bounded_and_readback_has_no_private_grant_fields() {
     let mut f = Fixture::new();
+    f.designate();
     for key in 8..15 {
         let mut g = f.grant.clone();
         g.client_id = uuid_v4().unwrap();
@@ -557,7 +572,14 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
             "remote.settings.set"
         };
         store
-            .management_adopt(&grant, &id, operation, &[9; 32], now_ms().unwrap())
+            .management_adopt(
+                &grant,
+                &id,
+                operation,
+                &[9; 32],
+                now_ms().unwrap(),
+                Access::Legacy,
+            )
             .unwrap();
         let original = store
             .connection
@@ -635,7 +657,7 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
         // Hand ownership to the child; a fresh lease must be acquired after death.
         f.store.connection = Connection::open_in_memory().unwrap();
         f.serving.take();
-        let child = Command::new(std::env::current_exe().unwrap())
+        let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", TEST, "--nocapture"])
             .env("TMT_MANAGEMENT_CRASH_PHASE", phase)
             .env("TMT_MANAGEMENT_CRASH_ROOT", &f.root)
@@ -645,6 +667,9 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
+        // Child::wait closes Child.stdin before waiting. Retain it separately so
+        // EOF cannot unwind the paused effect before verified SIGKILL and reap.
+        let _held_input = child.stdin.take().unwrap();
         let mut interrupted = Interrupted {
             child,
             reader: None,
@@ -682,7 +707,18 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
         assert_eq!(row.0, id);
         assert_eq!(json!(row.1), event["adopted"]);
         assert_eq!(json!(row.2), event["deadline"]);
-        let outcome: Value = serde_json::from_str(&row.3).unwrap();
+        let stored: Value = serde_json::from_str(&row.3).unwrap();
+        let current_member: String = f
+            .store
+            .connection
+            .query_row(
+                "SELECT member_id FROM member_machines WHERE client_id=?1",
+                [&f.grant.client_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored["actorMemberId"], current_member);
+        let outcome = stored["outcome"].clone();
         let committed = phase.starts_with("committed");
         assert_eq!(
             outcome["state"],
@@ -730,21 +766,42 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
         if target.disabled {
             assert!(
                 f.store
-                    .management_adopt(&target, &id, operation, &[9; 32], now_ms().unwrap())
+                    .management_adopt(
+                        &target,
+                        &id,
+                        operation,
+                        &[9; 32],
+                        now_ms().unwrap(),
+                        Access::Legacy
+                    )
                     .is_err()
             );
             assert!(f.store.authorized(&target, now_ms().unwrap()).is_err());
         } else {
             assert_eq!(
                 f.store
-                    .management_adopt(&target, &id, operation, &[9; 32], now_ms().unwrap())
+                    .management_adopt(
+                        &target,
+                        &id,
+                        operation,
+                        &[9; 32],
+                        now_ms().unwrap(),
+                        Access::Legacy
+                    )
                     .unwrap()
                     .unwrap(),
                 outcome
             );
             assert_eq!(
                 f.store
-                    .management_adopt(&target, &id, operation, &[8; 32], now_ms().unwrap())
+                    .management_adopt(
+                        &target,
+                        &id,
+                        operation,
+                        &[8; 32],
+                        now_ms().unwrap(),
+                        Access::Legacy
+                    )
                     .unwrap_err()
                     .code,
                 "REMOTE_INTENT_CONFLICT"
@@ -915,21 +972,42 @@ fn revoked_devices_leave_paginated_management_without_erasing_tombstones() {
     let mut f = Fixture::new();
     let removed = f.grant.client_id.clone();
     f.store.revoke(&removed).unwrap();
+    assert!(
+        f.store
+            .management_page(
+                &removed,
+                PageInput {
+                    cursor: None,
+                    limit: 1
+                }
+            )
+            .is_err()
+    );
+    let mut viewer = f.grant.clone();
+    viewer.client_id = uuid_v4().unwrap();
+    viewer.public_key = [88; 32];
+    viewer.disabled = false;
+    f.store.insert_grant(&viewer).unwrap();
+    f.store
+        .designate(&viewer.client_id, &viewer.origin, now_ms().unwrap())
+        .unwrap();
     let (rows, next) = f
         .store
         .management_page(
-            &removed,
+            &viewer.client_id,
             PageInput {
                 cursor: None,
-                limit: 1,
+                limit: 50,
             },
         )
         .unwrap();
-    assert!(rows.is_empty());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].client_id, viewer.client_id);
     assert!(next.is_none());
-    assert!(f.store.grants().unwrap()[0].disabled);
+    let tombstone = f.store.grant(&removed).unwrap().unwrap();
+    assert!(tombstone.disabled);
     assert_eq!(
-        crate::devices::event_json(&f.store.grants().unwrap()[0])["type"],
+        crate::devices::event_json(&tombstone)["type"],
         "device.revoked"
     );
 }
@@ -1166,3 +1244,75 @@ fn browser_talk_change_fences_and_returns_every_associated_machine_for_live_clea
         .unwrap();
     assert_eq!(live, 0);
 }
+
+#[test]
+fn member_writer_failure_cannot_commit_partial_authority_under_a_refused_outcome() {
+    let mut f = Fixture::new();
+    f.designate();
+    let mut target = f.grant.clone();
+    target.client_id = uuid_v4().unwrap();
+    target.public_key = [35; 32];
+    target.scopes.retain(|s| s != "talk");
+    f.store.insert_grant(&target).unwrap();
+    let member = f
+        .store
+        .member_for_client(&target.client_id)
+        .unwrap()
+        .unwrap();
+    f.store
+        .connection
+        .execute(
+            "UPDATE members SET revision=9007199254740991 WHERE member_id=?1",
+            [&member.member_id],
+        )
+        .unwrap();
+    let intent = crate::members::policy::Intent::Sending {
+        target: crate::members::policy::Target {
+            remote_id: member.remote_id,
+            member_id: member.member_id,
+            member_revision: 9_007_199_254_740_991,
+        },
+        enabled: true,
+    };
+    let id = uuid_v4().unwrap();
+    f.store
+        .management_adopt(
+            &f.grant,
+            &id,
+            "remote.members.sending",
+            &[42; 32],
+            now_ms().unwrap(),
+            Access::Member(&intent),
+        )
+        .unwrap();
+    let outcome = f.store.management_effect(
+        &f.grant,
+        &id,
+        "remote.members.sending",
+        &[42; 32],
+        Mutation::Member(intent),
+    );
+    assert!(
+        !f.store
+            .grant(&target.client_id)
+            .unwrap()
+            .unwrap()
+            .permits_scope("talk"),
+        "a writer failure after the first scope change must roll back all authority"
+    );
+    if outcome.is_err() {
+        assert_eq!(
+            receipt(
+                &f.store.connection,
+                &f.grant.client_id,
+                &id,
+                now_ms().unwrap()
+            )
+            .unwrap()["state"],
+            "unknown"
+        );
+    }
+}
+
+#[path = "member_tests.rs"]
+mod member_management;

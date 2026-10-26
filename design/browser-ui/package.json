@@ -16,6 +16,7 @@
     "./ui": "./src/ui/index.ts",
     "./ui.css": "./generated/ui.css",
     "./theme": "./src/theme.ts",
+    "./search": "./src/search.ts",
     "./gallery/frames": "./gallery/frames.tsx",
     "./test-fixtures/*": "./test/fixtures/*"
   },

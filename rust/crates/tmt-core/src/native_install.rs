@@ -5,6 +5,13 @@ pub use product::{FormerProduct, PostUpgradeCheck, Product};
 mod pr;
 pub use pr::{PrCandidateIdentity, PrNumber, SchemaAdmission, SchemaError, admit_schema};
 
+/// The repository every native install and upgrade fetches from and names to the user.
+pub const OFFICIAL_REPOSITORY: &str = "tmt-ninja/tmt";
+
+/// The name before the organization rename. Release records and receipts written under it stay
+/// valid until a stable release after the rename lets the acceptance be dropped (#5137).
+pub const PREVIOUS_REPOSITORY: &str = "pj-tmt/tmt";
+
 pub fn native_target(os: &str, architecture: &str) -> Option<&'static str> {
     match (os, architecture) {
         ("macos", "aarch64") => Some("aarch64-apple-darwin"),

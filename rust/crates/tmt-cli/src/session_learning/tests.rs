@@ -7,7 +7,7 @@ use tmt_adapters::{
     process::{CommandRequest, CommandRunner, UnixCommandRunner},
     runtime::RuntimeRegistry,
 };
-use tmt_core::binding::session::launch::SessionLearningEvent;
+use tmt_core::binding::session::launch::{SessionLearningEvent, SessionLearningStop};
 use tmt_core::{
     binding::BindingRepository,
     driver::ActionResult,
@@ -153,6 +153,7 @@ pub(crate) fn launch(host: HostKind, provider: &str) -> Launch {
         },
         driver: driver.clone(),
         paths: paths.clone(),
+        role: Cell::new(Role::Binding),
     };
     Launch {
         directory,
@@ -490,4 +491,228 @@ fn a_diagnostic_without_a_detail_leaves_it_out_of_the_document() {
     let staged = launch.diagnostic().unwrap();
     assert_eq!(staged.detail, None);
     assert!(document(&staged).get("detail").is_none());
+}
+
+fn stored(launch: &Launch) -> String {
+    launch.diagnostic().unwrap().cause()
+}
+
+#[test]
+fn a_run_that_cannot_bind_keeps_what_the_session_start_stored() {
+    // A SessionStart that stopped at host discovery, as the parent's failure leaves it.
+    let launch = launch(HostKind::pty(), "claude");
+    let Launch {
+        learning, deadline, ..
+    } = &launch;
+    learning
+        .stage_detail(
+            SessionLearningStep::HostDiscovery,
+            SessionLearningDetail::HostUnsupported,
+            *deadline,
+        )
+        .unwrap();
+    learning
+        .fail(SessionLearningReason::WorkerError, *deadline)
+        .unwrap();
+    let expected = "host_discovery: worker_error, host_unsupported";
+    assert_eq!(stored(&launch), expected);
+
+    // Every later turn, prompt or activity run goes through the same stages, and leaves it.
+    let stopped = SessionLearningDetail::stopped(
+        SessionLearningEvent::UserPromptSubmit,
+        SessionLearningStop::UnboundSession,
+    )
+    .unwrap();
+    for role in [Role::Unknown, Role::Observer] {
+        learning.set_role(role);
+        for step in [
+            SessionLearningStep::Input,
+            SessionLearningStep::DriverAdmission,
+            SessionLearningStep::Decode,
+            SessionLearningStep::ProviderVerification,
+        ] {
+            learning.stage(step, *deadline).unwrap();
+            assert_eq!(stored(&launch), expected, "{step:?} by {}", role_name(role));
+        }
+        learning
+            .stage_detail(
+                SessionLearningStep::Storage,
+                SessionLearningDetail::Refused(SessionLearningEvent::Stop),
+                *deadline,
+            )
+            .unwrap();
+        learning.note(stopped, *deadline).unwrap();
+        learning
+            .fail(SessionLearningReason::BudgetTimeout, *deadline)
+            .unwrap();
+        assert_eq!(stored(&launch), expected, "{}", role_name(role));
+    }
+
+    // A SessionStart that runs again is the launch's own progress and starts over.
+    learning.set_role(Role::Binding);
+    learning
+        .stage(SessionLearningStep::Input, *deadline)
+        .unwrap();
+    assert_eq!(stored(&launch), "input: not_admitted");
+}
+
+fn role_name(role: Role) -> &'static str {
+    match role {
+        Role::Unknown => "a run whose payload is not read yet",
+        Role::Binding => "a binding run",
+        Role::Observer => "an observer run",
+    }
+}
+
+#[test]
+fn a_run_that_cannot_bind_names_its_own_reason_only_when_nothing_more_specific_is_stored() {
+    let launch = launch(HostKind::pty(), "claude");
+    let Launch {
+        learning, deadline, ..
+    } = &launch;
+    // The binding run stopped at a step without saying why.
+    learning
+        .stage(SessionLearningStep::ProviderVerification, *deadline)
+        .unwrap();
+    learning.set_role(Role::Observer);
+    let first =
+        SessionLearningDetail::stopped(SessionLearningEvent::Stop, SessionLearningStop::NotCurrent)
+            .unwrap();
+    learning.note(first, *deadline).unwrap();
+    assert_eq!(
+        stored(&launch),
+        "provider_verification: not_admitted, stopped:turn:Stop:not_current",
+        "the step stays the binding run's; only the missing detail is filled"
+    );
+    // The next run does not replace it.
+    let second = SessionLearningDetail::stopped(
+        SessionLearningEvent::UserPromptSubmit,
+        SessionLearningStop::UnboundSession,
+    )
+    .unwrap();
+    learning.note(second, *deadline).unwrap();
+    assert_eq!(
+        stored(&launch),
+        "provider_verification: not_admitted, stopped:turn:Stop:not_current"
+    );
+}
+
+#[test]
+fn a_run_that_cannot_bind_leaves_a_launch_nothing_has_bound_at_its_first_step() {
+    // The launch row starts at the input step: a run that cannot bind does not move it, and
+    // says why it stopped on that step.
+    let launch = launch(HostKind::pty(), "claude");
+    let Launch {
+        learning, deadline, ..
+    } = &launch;
+    learning.set_role(Role::Observer);
+    assert_eq!(stored(&launch), "input: not_admitted");
+    learning
+        .stage(SessionLearningStep::Decode, *deadline)
+        .unwrap();
+    assert_eq!(stored(&launch), "input: not_admitted");
+    learning
+        .note(
+            SessionLearningDetail::stopped(
+                SessionLearningEvent::Notification,
+                SessionLearningStop::ActivityMissing,
+            )
+            .unwrap(),
+            *deadline,
+        )
+        .unwrap();
+    assert_eq!(
+        stored(&launch),
+        "input: not_admitted, stopped:activity_session:Notification:activity_missing"
+    );
+}
+
+fn admit(launch: &mut Launch) {
+    let (binding, owner) = (launch.binding.id.clone(), launch.owner.clone());
+    assert!(
+        launch
+            .storage
+            .with_binding_transaction(|records| {
+                let observed = records.launch_observation(&binding, &owner)?.unwrap();
+                let mut admitted = observed.clone();
+                admitted.status = LaunchStatus::Admitted;
+                admitted.diagnostic = None;
+                records.set_launch_observation(&observed, &admitted)
+            })
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_digest_stop_names_its_refusal_on_an_admitted_launch_until_one_delivers() {
+    let mut launch = launch(HostKind::pty(), "claude");
+    admit(&mut launch);
+    let Launch {
+        learning, deadline, ..
+    } = &launch;
+    assert!(
+        launch.diagnostic().is_none(),
+        "an admitted launch shows nothing"
+    );
+    // Nothing stored: a delivered Stop changes nothing.
+    learning.digest_delivered(*deadline).unwrap();
+    assert!(launch.diagnostic().is_none());
+
+    learning
+        .digest_stop(SessionLearningDigestStop::LaunchOwner, *deadline)
+        .unwrap();
+    let stopped = launch.diagnostic().unwrap();
+    assert_eq!(
+        (
+            stopped.step,
+            stopped.reason,
+            stopped.detail,
+            stopped.unbound
+        ),
+        (
+            "provider_verification",
+            "worker_error",
+            Some("digest_stop:launch:owner"),
+            false
+        )
+    );
+    assert_eq!(stopped.next_step, DIGEST_STOP_NEXT_STEP);
+    assert_eq!(
+        stopped.warning(Some("Alpha")),
+        "The last Digest Stop for 'Alpha' ended without the Digest (provider_verification: worker_error, digest_stop:launch:owner)."
+    );
+    // Another hook run on the admitted launch neither replaces nor clears it.
+    learning
+        .stage(SessionLearningStep::Input, *deadline)
+        .unwrap();
+    learning.succeeded(*deadline).unwrap();
+    assert_eq!(
+        launch.diagnostic().unwrap().detail,
+        Some("digest_stop:launch:owner")
+    );
+    // A later refusal replaces it; a delivered Digest Stop clears it.
+    learning
+        .digest_stop(SessionLearningDigestStop::WorkerTimeout, *deadline)
+        .unwrap();
+    assert_eq!(
+        launch.diagnostic().unwrap().cause(),
+        "context: budget_timeout, digest_stop:worker_timeout"
+    );
+    learning.digest_delivered(*deadline).unwrap();
+    assert!(launch.diagnostic().is_none());
+}
+
+#[test]
+fn a_digest_stop_never_writes_to_a_launch_that_is_not_admitted() {
+    let launch = launch(HostKind::pty(), "codex");
+    let before = stored(&launch);
+    assert!(
+        launch
+            .learning
+            .digest_stop(SessionLearningDigestStop::WorkerError, launch.deadline)
+            .is_err()
+    );
+    assert!(launch.learning.digest_delivered(launch.deadline).is_err());
+    assert_eq!(stored(&launch), before);
+    assert!(launch.diagnostic().unwrap().unbound);
 }

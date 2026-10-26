@@ -196,7 +196,27 @@ impl Devices {
             worker: Some(worker),
         })
     }
-    fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, RemoteError> {
+    pub(crate) fn member_activity(
+        &self,
+        grants: &[Grant],
+        now: u64,
+    ) -> Result<Option<crate::session::DeviceActivities>, RemoteError> {
+        self.sessions
+            .as_ref()
+            .map(|sessions| sessions.management_activity(grants, now))
+            .transpose()
+    }
+    /// New terminal authority calls wait within their existing admission bound.
+    /// Legacy device paths retain their original behavior.
+    pub(crate) fn terminal_store(
+        &self,
+        deadline: std::time::Instant,
+    ) -> Result<std::sync::MutexGuard<'_, Store>, RemoteError> {
+        crate::control::idle_lock(&self.store, deadline)?.ok_or_else(|| RemoteError::new(
+            "REMOTE_MEMBER_BUSY", "Member authority is busy; no change started. Read tmt remote members and confirm again."
+        ))
+    }
+    pub(crate) fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, RemoteError> {
         self.store.lock().map_err(|_| {
             RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
         })

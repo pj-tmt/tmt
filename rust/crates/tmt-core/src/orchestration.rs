@@ -9,9 +9,12 @@ pub const ORCH_MAX_TRANSITIONS: usize = 4096;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrchError {
     Invalid,
+    Conflict,
     Limit,
     TimeZone,
     NotFound,
+    MemberNotFound,
+    ReceivingUnavailable,
     Ambiguous,
 }
 
@@ -99,12 +102,36 @@ pub struct OrchFocus {
     pub start_ms: u64,
     pub end_ms: u64,
 }
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// The configured Digest mode is the bottom receiving input, not a second
+/// precedence pass after plans. Its revision identifies that published input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrchBaseReceiving {
+    pub revision: u64,
+    pub receiving: OrchReceiving,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrchSnapshot {
     pub revision: u64,
     pub identities: Vec<OrchIdentity>,
     pub plans: Vec<OrchPlan>,
     pub focus: Vec<OrchFocus>,
+    pub base_receiving: BTreeMap<String, OrchBaseReceiving>,
+    /// Digest's explicit master switch is above all scheduled receiving.
+    pub digest_enabled: bool,
+    pub digest_revision: u64,
+}
+impl Default for OrchSnapshot {
+    fn default() -> Self {
+        Self {
+            revision: 0,
+            identities: Vec::new(),
+            plans: Vec::new(),
+            focus: Vec::new(),
+            base_receiving: BTreeMap::new(),
+            digest_enabled: true,
+            digest_revision: 0,
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OrchSlot {
@@ -412,6 +439,19 @@ pub fn effective(
         active_plans: Vec::new(),
         next_change_at_ms: None,
     };
+    if let Some(configured) = snapshot.base_receiving.get(identity_id) {
+        result.receiving = OrchValue {
+            value: configured.receiving.clone(),
+            source: OrchSource {
+                kind: OrchSourceKind::Base,
+                plan_id: None,
+                identity_id: Some(identity_id.into()),
+                revision: configured.revision,
+                slot: None,
+                defaulted: false,
+            },
+        };
+    }
     let mut plans: Vec<_> = snapshot
         .plans
         .iter()
@@ -509,6 +549,19 @@ pub fn effective(
             );
         }
     }
+    if !snapshot.digest_enabled {
+        result.receiving = OrchValue {
+            value: OrchReceiving::Direct,
+            source: OrchSource {
+                kind: OrchSourceKind::Base,
+                plan_id: None,
+                identity_id: None,
+                revision: snapshot.digest_revision,
+                slot: None,
+                defaulted: false,
+            },
+        };
+    }
     result.next_change_at_ms = changes.into_iter().next();
     Ok(result)
 }
@@ -554,5 +607,7 @@ pub fn orch_timeline(
         .collect())
 }
 
+pub mod mutation;
+pub mod receiving;
 #[cfg(test)]
 mod tests;

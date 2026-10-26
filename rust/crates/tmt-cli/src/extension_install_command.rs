@@ -6,6 +6,7 @@ mod install;
 mod list_upgrade;
 mod post_upgrade;
 mod repair;
+pub(crate) mod setup;
 mod skills;
 pub(crate) mod upgrade_all;
 
@@ -48,13 +49,8 @@ use tmt_cli_style::{
 
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
-// Historical products stay recognizable for receipt recovery and removal.
-pub(crate) const INSTALLABLE_EXTENSIONS: &[Product] = &[
-    Product::Ops,
-    Product::Remote,
-    Product::Colab,
-    Product::Digest,
-];
+// Setup and explicit installation share the official product selection.
+pub(crate) const INSTALLABLE_EXTENSIONS: &[Product] = &setup::PRODUCTS;
 
 pub(crate) fn require_installable(product: Product) -> Result<(), Failure> {
     if INSTALLABLE_EXTENSIONS.contains(&product) {
@@ -320,11 +316,58 @@ pub(crate) fn install_offered(
     product: Product,
     progress: native_install::ProgressObserver<'_>,
 ) -> Result<(Value, Human), Failure> {
+    install_offered_at(product, None, None, progress)
+}
+
+pub(crate) fn install_offered_at(
+    product: Product,
+    selected_prefix: Option<&Path>,
+    selected_version: Option<&str>,
+    progress: native_install::ProgressObserver<'_>,
+) -> Result<(Value, Human), Failure> {
+    if let (Some(prefix), Some(selected)) = (selected_prefix, selected_version) {
+        let target = tmt_core::native_install::native_target(env::consts::OS, env::consts::ARCH)
+            .ok_or_else(|| {
+                Failure::new(
+                    "EXTENSION_UNSUPPORTED",
+                    "This platform has no native release.",
+                    1,
+                )
+            })?;
+        let report = native_install::install_missing_release_observed(
+            product,
+            native_install::ReleaseInstallRequest {
+                prefix,
+                target,
+                channel: tmt_core::native_install::Channel::Alpha,
+                exact: Some(selected),
+            },
+            None,
+            interruptible("Extension installation interrupted before activation.")?,
+            progress,
+        )
+        .map_err(|error| failure("EXTENSION_INSTALL_FAILED", error))?;
+        let mut document = json!({"extension":product.as_str(),"installed":true,"changed":report.changed,"version":report.version,"executable":report.executable});
+        let mut human = Human::done(format!(
+            "Installed {} {} at {}.",
+            product.as_str(),
+            report.version,
+            report.executable.display()
+        ));
+        settle_skills(
+            product,
+            &report.active_executable,
+            &[],
+            &mut document,
+            &mut human,
+        )?;
+        return Ok((document, human));
+    }
     let request = ExtensionInstallRequest::Install {
         name: product.as_str().into(),
-        prefix: None,
+        prefix: selected_prefix.map(|path| path.to_string_lossy().into_owned()),
         channel: None,
-        to: None,
+        to: selected_version.map(str::to_owned),
         archive: None,
         manifest: None,
         yes: true,
@@ -713,6 +756,7 @@ mod tests {
         assert_eq!(names, ["ops", "remote", "colab", "digest"]);
         let remote = &rows[1];
         assert_eq!(remote["status"], "unmanaged");
+        assert_eq!(remote["missing"], false);
         assert_eq!(remote["installed"], false);
         assert_eq!(remote["path"], binary.to_string_lossy().as_ref());
         let hint = remote["hint"].as_str().unwrap();
@@ -745,6 +789,7 @@ mod tests {
             .expect("an unreadable entry never fails the whole listing");
         let remote = &document["extensions"][1];
         assert_eq!(remote["status"], "invalid");
+        assert_eq!(remote["missing"], false);
         assert_eq!(remote["path"], binary.to_string_lossy().as_ref());
         let hint = remote["hint"].as_str().unwrap();
         assert!(hint.contains("tmt extension rm remote --yes --prefix"));

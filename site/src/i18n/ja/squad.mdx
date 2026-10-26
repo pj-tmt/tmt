@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 9ba671867c13e45d145e8eac9ed316ef74e283db
+sourceRevision: f26bbb6aeae4289cf558edf386abc524258d836a
 title: チームを1つの board で見る
 ---
 
@@ -443,7 +443,7 @@ enabled = true
 stale_after = "30m"
 `}</Code>
 
-Ops の拡張 hook を有効にし（`tmt extension hooks enable ops`）、`tmt setup` で provider hook を入れると、セッション開始時を含む lead の次のターンに、短い情報提供用の1行を追加できます。古い notes や、その後に関連する活動があった古いメンバー行を示します。`tmt ops sq ls` または board を開いて観測を始めてください。観測前は何も通知しません。制約は [Ops skill](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) にあります。
+Ops の拡張 hook を有効にし（`tmt extension hooks enable ops`）、`tmt setup` で provider hook を入れると、セッション開始時を含む lead の次のターンに、短い情報提供用の1行を追加できます。古い notes や、その後に関連する活動があった古いメンバー行を示します。`tmt ops sq ls` または board を開いて観測を始めてください。観測前は何も通知しません。制約は [Ops skill](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) にあります。
 
 これらのキーを有効にしても provider hook はインストールされません。board 内でのリマインダー設定は <Tag kind="planned" /> です。
 
@@ -500,7 +500,7 @@ $ tmt ops sq rm auth-fix              # squad から外す。agent は動き続�
 
 <Mdx.h3 id="reference-tabs-refresh-and-bindings">リファレンス：タブ、更新、キー割り当て</Mdx.h3>
 
-完全な設定の契約は Ops skill にあります。`tmt ops skill show` で表示でき、[リポジトリ](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md)でも読めます。ここではよく使う設定を紹介します。
+完全な設定の契約は Ops skill にあります。`tmt ops skill show` で表示でき、[リポジトリ](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md)でも読めます。ここではよく使う設定を紹介します。
 
 **タブ。** `order` と `hide` のほかに、`pin` と `colors` でタブ行を調整できます。
 

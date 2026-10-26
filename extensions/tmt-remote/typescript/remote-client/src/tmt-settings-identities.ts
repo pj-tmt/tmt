@@ -48,6 +48,8 @@ export function identitiesView(settings: TmtSettings): HTMLElement[] {
       : settings.sample
         ? 'These sample records are not this machine. Use tmt ls in your terminal to read identities.'
         : 'Manage identities in your terminal. Use tmt ls to inspect the current machine records.',
+    // Records that were read, or labelled samples, are not a warning; only the missing read is.
+    unavailable ? 'waiting' : 'neutral',
   );
   notice.className += ' tmt-settings-identity-notice';
   const specificReason =

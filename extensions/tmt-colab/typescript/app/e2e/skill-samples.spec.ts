@@ -42,7 +42,7 @@ const baseStyle = pageStyle
   .split('<!-- BEGIN generated page style -->')[1]
   .split('```html\n')[1]
   .split('```')[0]
-  .replace('    max-width: 1280px;\n    margin: 0 auto;\n    padding: var(--gap);\n', '')
+  .replace('    max-width: 1280px;\n    margin: 0 auto;\n    padding: 16px;\n', '')
   .trimEnd();
 const templateDirectory = new URL('../../../rust/tmt-colab/templates/', import.meta.url);
 const templates: Sample[] = readdirSync(templateDirectory)
@@ -70,12 +70,14 @@ test('the references carry their samples', () => {
   expect(references.length).toBeGreaterThanOrEqual(11);
 });
 
-test('the templates are the four documented starting pages', () => {
+test('the templates are the six documented starting pages', () => {
   expect(templates.map((t) => [t.capture, t.layout])).toEqual([
     ['board', 'full'],
     ['compare', 'column'],
+    ['gallery', 'column'],
     ['report', 'column'],
     ['review', 'column'],
+    ['starter', 'column'],
   ]);
   for (const { source } of templates) expect(source).not.toContain('{{');
 });

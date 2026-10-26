@@ -66,3 +66,54 @@ test('management observations display Admin, Member or unknown without widening 
     assert.equal(managementRole(access, false), undefined);
   }
 });
+
+test('Remote routes separate the global list and current-door tabs without obsolete aliases', async () => {
+  const { REMOTE_ITEMS, REMOTE_PATHS, remoteItem, remoteTabAccess } =
+    await import('../src/remote-routes.js');
+  assert.deepEqual(
+    REMOTE_ITEMS.map((item) => item.path),
+    [
+      '/remote/',
+      '/remote/overview',
+      '/remote/members',
+      '/remote/invites',
+      '/remote/my-devices',
+      '/remote/settings',
+      '/remote/service',
+    ],
+  );
+  assert.equal(remoteItem('/remote')?.id, 'remotes');
+  for (const old of ['/remote/machine', '/remote/devices', '/remote/connect', '/remote/unknown'])
+    assert.equal(remoteItem(old), undefined);
+  assert.equal(new Set(REMOTE_PATHS).size, REMOTE_PATHS.length);
+  assert.equal(REMOTE_PATHS.at(-1), '/remote/');
+  for (const item of REMOTE_ITEMS) {
+    assert.equal(remoteTabAccess(item, 'owner').locked, false);
+    if (item.adminOnly) {
+      assert.equal(remoteTabAccess(item, 'user').locked, true);
+      assert.match(remoteTabAccess(item, 'user').reason, /Ask the person who manages/);
+      assert.ok(remoteTabAccess(item, 'user').request);
+      assert.equal(remoteTabAccess(item, undefined).request, '');
+      assert.match(remoteTabAccess(item, undefined).reason, /not confirmed/);
+    } else assert.equal(remoteTabAccess(item, 'user').locked, false);
+  }
+});
+
+test('one pairing guidance owner preserves uncertainty and verified-refusal boundaries', async () => {
+  const { pairingGuidance } = await import('../src/remote-state.js');
+  assert.equal(pairingGuidance('missing', false, false).pair, true);
+  assert.equal(pairingGuidance('different', false, false).pair, true);
+  assert.deepEqual(pairingGuidance('refused', true, false), {
+    pair: true,
+    members: true,
+    status: false,
+  });
+  for (const state of ['unreadable', 'checking', 'connected', 'refused'])
+    assert.equal(pairingGuidance(state, false, false).pair, false);
+  assert.deepEqual(pairingGuidance('unconfirmed', false, false), {
+    pair: false,
+    members: false,
+    status: true,
+  });
+  assert.equal(pairingGuidance('connected', false, true).pair, true);
+});

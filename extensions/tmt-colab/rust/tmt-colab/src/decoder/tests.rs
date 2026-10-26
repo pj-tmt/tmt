@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn review_existing_questions_allow_unrelated_edits_but_not_new_or_retargeted_blocks() {
+    let id = "00000000-0000-0000-0000-000000000001";
+    let block = format!(
+        "<tmt-question data-id=\"{id}\" data-agent=\"legacy\" data-kind=\"short\"><p data-question>Choose</p></tmt-question>"
+    );
+    let source = format!("<p>Old text</p>{block}");
+    let base = serde_json::json!({"html":source,"meta":{"title":"Legacy"}});
+    let edit = |source: &str| {
+        edited_projection(
+            &base,
+            ContentEdit {
+                source,
+                layout: None,
+                publisher_agent: None,
+                attachments: None,
+            },
+        )
+    };
+    let changed = source.replace("Old text", "Updated text");
+    assert_eq!(edit(&changed).unwrap()["html"], changed);
+    for changed in [
+        format!("{source}{block}"),
+        source.replace(id, "00000000-0000-0000-0000-000000000002"),
+        source.replace("data-agent=\"legacy\"", "data-agent=\"another\""),
+    ] {
+        assert!(edit(&changed).is_err(), "{changed}");
+    }
+    assert!(edit("<p>Question removed</p>").is_ok());
+    assert!(base["meta"].get("questions").is_none());
+}
+
+#[test]
 fn shared_attachment_grammar_admits_document_and_message_projections() {
     let corpus: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../contracts/vectors/attachment-v1.json"

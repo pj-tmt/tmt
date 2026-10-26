@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { expect, test } from 'vite-plus/test';
-import { isRenderRectangle, MAX_RENDER_SOURCE_BYTES, rendererUrl } from '../src/renderer.js';
+import {
+  isRenderRectangle,
+  MAX_RENDER_SOURCE_BYTES,
+  rendererUrl,
+  sourceFrameKey,
+} from '../src/renderer.js';
 
 const html = readFileSync(new URL('../public/renderer.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
@@ -200,4 +205,30 @@ test('the key count allows exactly the optional layout and runtime, nothing else
   expect(frame.writes).toEqual([]);
   bound(frame, { runtime: undefined });
   expect(frame.writes).toEqual([]);
+});
+
+test('the source part of the frame key: script-free pages share a key, any script keeps its own', () => {
+  // A script-free page keeps its key across edits, so an edit updates the open frame (#5022).
+  expect(sourceFrameKey('<p>one</p>')).toBe(sourceFrameKey('<p>two</p><style>p{}</style>'));
+  // The design-system match is fixed when the frame binds.
+  expect(sourceFrameKey('<p>one</p>')).not.toBe(
+    sourceFrameKey('<tmt-icon name="check"></tmt-icon>'),
+  );
+  expect(sourceFrameKey('<p class="tmt-ui-card">a</p>')).toBe(
+    sourceFrameKey('<p class="tmt-ui-card">b</p>'),
+  );
+  // A page that may hold a script, an inline handler or the runtime marker is keyed by its whole
+  // source, so any edit of it mounts a fresh frame.
+  for (const scripted of [
+    '<script>1</script><p>a</p>',
+    '<SCRIPT>1</SCRIPT><p>a</p>',
+    '<svg><script>1</script></svg>',
+    '<button onclick="go()">a</button>',
+    '<img src="x"\nonerror = "go()">',
+    '<p title="x"onmouseover="go()">a</p>',
+    '<meta name="tmt-colab-runtime" content="react"><p>a</p>',
+  ]) {
+    expect(sourceFrameKey(scripted)).not.toBe(sourceFrameKey('<p>a</p>'));
+    expect(sourceFrameKey(scripted)).not.toBe(sourceFrameKey(`${scripted} `));
+  }
 });

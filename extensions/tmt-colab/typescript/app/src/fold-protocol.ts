@@ -1,7 +1,20 @@
+import { metadataRequest } from '@tmt/colab-client';
 import { validateDiscussionRecord } from './thread-records.js';
 import { validateShell, type Shell } from './shell.js';
 import { canonical } from './closed.js';
 import { validateWork, type Work } from './work.js';
+import {
+  validateTemplateMark,
+  validateTemplateSource,
+  type TemplateMark,
+  type TemplateSource,
+} from './template-marks.js';
+import {
+  validatePageCreator,
+  validateQuestionRegistry,
+  type PageCreator,
+  type RegisteredQuestion,
+} from './question-registry.js';
 import {
   attachment,
   coreId,
@@ -63,6 +76,10 @@ export function validateCreationRecipient(value: unknown): asserts value is Crea
   coreId(value.agentId);
 }
 export interface Projection {
+  creator?: PageCreator;
+  questions?: RegisteredQuestion[];
+  template?: TemplateMark;
+  fromTemplate?: TemplateSource;
   /** Structured content retains an empty wire text container; never render it as HTML. */
   pageType?: 'shell';
   shell?: Shell;
@@ -162,7 +179,14 @@ export function validateOwn(value: unknown): asserts value is OwnState {
           !Array.isArray(record) &&
           (record as Record<string, unknown>).kind === 'edit-request'
         )
-          editRequest.editRequest(record, root, key);
+          editRequest.editorRequest(record, root, key);
+        if (
+          record &&
+          typeof record === 'object' &&
+          !Array.isArray(record) &&
+          (record as Record<string, unknown>).kind === 'edit-result'
+        )
+          metadataRequest.editResult(record, root, key);
         if (
           record &&
           typeof record === 'object' &&
@@ -207,6 +231,13 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
+  if (['creator', 'questions', 'template', 'fromTemplate'].some((key) => Object.hasOwn(value, key)))
+    requireValue(!Object.hasOwn(value, 'pageType') && !Object.hasOwn(value, 'shell'));
+  if (Object.hasOwn(value, 'template')) validateTemplateMark((value as Projection).template);
+  if (Object.hasOwn(value, 'fromTemplate'))
+    validateTemplateSource((value as Projection).fromTemplate);
+  if (Object.hasOwn(value, 'creator')) validatePageCreator((value as Projection).creator);
+  if (Object.hasOwn(value, 'questions')) validateQuestionRegistry((value as Projection).questions);
   const { source, title, publisherAgent, originalAuthor, creationRecipient, layout, layoutReason } =
     value as Projection;
   if (Object.hasOwn(value, 'pageType') || Object.hasOwn(value, 'shell')) {
@@ -288,6 +319,14 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     a.title === b.title &&
     a.publisherAgent === b.publisherAgent &&
     a.originalAuthor === b.originalAuthor &&
+    Object.hasOwn(a, 'creator') === Object.hasOwn(b, 'creator') &&
+    canonical(a.creator) === canonical(b.creator) &&
+    Object.hasOwn(a, 'questions') === Object.hasOwn(b, 'questions') &&
+    canonical(a.questions) === canonical(b.questions) &&
+    Object.hasOwn(a, 'template') === Object.hasOwn(b, 'template') &&
+    canonical(a.template) === canonical(b.template) &&
+    Object.hasOwn(a, 'fromTemplate') === Object.hasOwn(b, 'fromTemplate') &&
+    canonical(a.fromTemplate) === canonical(b.fromTemplate) &&
     a.layout === b.layout &&
     a.layoutReason === b.layoutReason &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&

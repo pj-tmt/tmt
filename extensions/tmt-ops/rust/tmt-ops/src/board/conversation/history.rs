@@ -73,31 +73,4 @@ impl Session {
             self.stale = true;
         }
     }
-
-    /// The local outgoing transcript may already contain this request's final.
-    /// Its request/status block stays; only the duplicate final body is replaced.
-    pub(super) fn block_final(&self, rows: &[usize], mapped: &Mapped) -> Option<usize> {
-        let key = if self.outgoing.is_empty() {
-            self.reply.as_ref().and_then(|reply| reply.key.as_ref())
-        } else {
-            self.response_spans
-                .iter()
-                .find(|(_, _, range)| {
-                    rows.iter()
-                        .any(|index| range.contains(&mapped.sources[*index]))
-                })
-                .map(|(_, key, _)| key)
-        };
-        self.finals.iter().position(|reply| {
-            key.is_some_and(|key| reply.key.as_ref().is_some_and(|held| held.same_source(key)))
-        })
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum Block {
-    Existing(usize),
-    Final(usize),
-    /// A restored send, by position in `Session::restored_sends`.
-    Sent(usize),
 }

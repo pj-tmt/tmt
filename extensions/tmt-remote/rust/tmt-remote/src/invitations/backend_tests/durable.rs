@@ -180,6 +180,11 @@ fn rollback<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
         (0, 0, 0, 0),
         "receipt failure left partial authority"
     );
+    assert_eq!(
+        coordinator.status(now_ms().unwrap()).unwrap().state,
+        State::Refused,
+        "verified transaction rollback was reported as an uncertain commit"
+    );
     assert!(!coordinator.retains_secret().unwrap());
     assert_eq!(backend.writes(Part::Receipt), 0);
     drop(coordinator);

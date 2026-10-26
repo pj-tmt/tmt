@@ -522,8 +522,14 @@ With tree focus, ↑/↓ move, Right expands and Left collapses. From either pan
 factory Enter replies to an observed question or messages the selected member or
 squad's observed current lead; `j` uses that recipient's guarded host action.
 A missing lead or Common pool grants no substitute recipient. The focus shows
-member identity/stat tiles or squad Board/Usage/Timers, then `Exchanges with you`
-(the currently observed actor-only history). Its filled input follows the last
+member identity/stat tiles or squad Board/Usage/Timers, then `Conversation`.
+Captured inputs, finals and submitted replies follow Core's committed order;
+linked finals render once by responseId and submitted replies once by requestId.
+Entries without a link remain separate. A known entry time appears as an age at
+the right edge; consecutive grouped inputs share their first known age. Frozen
+acknowledgment keys apply only to answer body rows that were painted, never to
+input or failure rows. On an older Core, the observed exchange remains available.
+Its filled input follows the last
 group with one blank row, and pins to the bottom only on overflow. Key hints stay
 in the effective footer, and the link line shows only its resolved target.
 These defaults are the same on every host (tmux, Herdr or unknown); a
@@ -541,10 +547,10 @@ list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AG
 on TOK the mark takes the blank cell before the word. A click changes only the saved
 order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
-creates a squad on a squad row or the Common pool and opens the member's Checklist on a
+creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
 member row, `m` manages a squad or assigns a member, and `x` leaves only the
 selected squad membership. On member rows the footer offers `m move`, `R resume`
-and `N checklist`, using effective bindings and dropping whole hints at narrow widths.
+and `C checklist`, using effective bindings and dropping whole hints at narrow widths.
 Right-click a visible Agents row to select it and open Actions, or open Settings
 (default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
 entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
@@ -552,11 +558,14 @@ recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
 
-A squad member's header shows its Checklist chip, `≡ Checklist · 3 links · 2 todo · 1 done`
-(`≡ Checklist · empty` for an empty list). `N` or a click on the chip opens the list: links
+A squad member's header shows its Checklist chip, `Checklist · 3 links · 2 todo · 1 done`
+(`Checklist · empty` for an empty list), led by its key as a keycap like the tab labels
+(` C  Checklist · …`; no keycap when the key is unbound). `C` or a click on the chip opens the list: links
 first, then items without links, each row with who added it and how long ago (`you`, the member's
 name, or nothing for an item stored before the board recorded it). `↑↓`/`jk` choose,
-Enter opens a link or ticks a todo, `a` adds (a web address becomes a link; `Tab` moves
+Enter opens a link or ticks a todo (global `board.checklist_enter`, `open` by default: `tick` makes
+Enter tick a link row too; edit **checklist enter** in Ops Config or run
+`tmt ops sq config set board.checklist_enter tick`), Space always ticks and `o` always opens the link, `a` adds (a web address becomes a link; `Tab` moves
 between Title and Link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
@@ -567,7 +576,7 @@ missing names `an agent`. Reordering says `reordered the checklist`. Older unkno
 activity and failed reads are explicit; the board never infers a change from the current list.
 These lines describe activity and grant no reply, request-source or unread authority.
 The list is titled `Checklist · <member>` and the source form `Add to checklist · <member>`.
-Authored bindings use `member-checklist` (default `N` in member/Reader scopes).
+Authored bindings use `member-checklist` (default `C` in member/Reader scopes; `N` stays create-squad).
 This is a breaking rename before launch: replace the former `member-notes` action;
 it has no alias and receives the ordinary unknown-action notice. The private identity
 `tmt notes` command is separate.
@@ -1695,6 +1704,11 @@ reset; otherwise a known projection says `on pace`. Only ◆ is colored. Missing
 stale or reset windows remain unknown, and small widths omit whole fields rather
 than clipping numbers. Quota Details retain full source, reset and projection
 values. A footer-only balance does not claim an API-backed two-hour rate.
+A driver with two or more provider accounts gets one Usage row per account, such as `Claude · work`,
+with that account's tokens and quota; seats that report no account read `Claude · unknown account`,
+a row that exists only while such a session is live. A Digest allowance row of an account shows no spend.
+One account, or none, reads as the plain driver, exactly as before. The label is display text and the
+account key is never shown.
 
 Digest keeps its existing account meters: fill follows remaining percent and
 warnings remain independent of fill. Its held weekly pace compares recent use

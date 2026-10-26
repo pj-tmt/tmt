@@ -26,27 +26,50 @@ import { REMOTE_PATHS } from './remote-routes.js';
 import { homePage, hostRemote, remoteShell } from './remote-shell.js';
 import { tmtSettingsPage } from './tmt-settings-page.js';
 import { applyStoredTheme } from '@tmt/browser-ui/theme';
+import { navigationSnapshot, RootSearch, type SearchModule } from './root-search.js';
+
+/** Root-private cancellation; modules still consume the existing shared slot contract. */
+interface RootSlot extends ShellSlot {
+  readonly routeSignal: AbortSignal;
+}
 
 /**
- * Put a page's markup into the slot: its header into the shell bar, its content into the main
- * area, its title and page name onto the document. The page files stay the one source of each
+ * Put a page's markup into the slot: actions into the common bar, heading and content into the
+ * main area, its title and page name onto the document. The page files stay the one source of each
  * page's markup; the door no longer serves them as documents.
  */
 async function adopt(slot: ShellSlot, html: string): Promise<() => void> {
   const page = new DOMParser().parseFromString(html, 'text/html');
   // A page's own stylesheet loads before its markup shows, and goes with the route.
   const release = await pageStyles(page);
+  if (!slot.topBarReady()) {
+    release();
+    return () => {};
+  }
   const bar = page.querySelector('.tmt-ui-shell-bar');
   const main = page.querySelector('.tmt-ui-shell-main');
-  slot.bar.replaceChildren(
-    ...(bar ? [...bar.childNodes].map((node) => document.adoptNode(node)) : []),
-  );
   slot.main.replaceChildren(
     ...(main ? [...main.childNodes].map((node) => document.adoptNode(node)) : []),
   );
+  adoptBar(slot, bar);
   document.documentElement.dataset.tmtPage = page.documentElement.dataset.tmtPage ?? '';
   slot.setTitle(page.title.replace(/ · TMT$/, ''));
   return release;
+}
+
+/** The common bar draws controls; the original title is content, in the shared title-row type. */
+function adoptBar(slot: ShellSlot, source: Element | null): void {
+  const { actions } = slot.setTopBar();
+  const header = source?.querySelector('header');
+  if (!header) return;
+  const row = document.createElement('div');
+  row.className = 'root-title-row';
+  for (const node of Array.from(header.children)) {
+    if (node.matches('.header-actions,.tmt-ui-header-actions'))
+      actions.append(document.adoptNode(node));
+    else row.append(document.adoptNode(node));
+  }
+  if (row.childNodes.length) slot.main.prepend(row);
 }
 
 /**
@@ -82,7 +105,7 @@ async function pageStyles(page: Document): Promise<() => void> {
 
 /**
  * Remote's connection check and settings forms as one document of views: both pages' markup in the
- * slot (each page's `main` marked `data-page`), the connection page's header in the bar. The
+ * slot (each page's `main` marked `data-page`), the connection page's title in content. The
  * page's own code decides which view shows (`remote-app.ts`). The settings stylesheet loads with
  * the first settings view, not with the route: the connection check stays a page that asks the
  * door for nothing. `settingsStyles` resolves once it has loaded.
@@ -97,15 +120,16 @@ async function adoptRemote(
   const landingPage = parser.parseFromString(status, 'text/html');
   const settingsPage = parser.parseFromString(forms, 'text/html');
   const releaseLanding = await pageStyles(landingPage);
+  if (!slot.topBarReady()) {
+    releaseLanding();
+    return () => {};
+  }
   let settingsSheets: Promise<() => void> | undefined;
   settingsStyles.load = async () => {
     settingsSheets ??= pageStyles(settingsPage);
     await settingsSheets;
   };
   const bar = landingPage.querySelector('.tmt-ui-shell-bar');
-  slot.bar.replaceChildren(
-    ...(bar ? [...bar.childNodes].map((node) => document.adoptNode(node)) : []),
-  );
   slot.main.replaceChildren(
     ...(
       [
@@ -120,6 +144,7 @@ async function adoptRemote(
       }),
     ),
   );
+  adoptBar(slot, bar);
   document.documentElement.dataset.tmtPage = 'landing';
   return () => {
     releaseLanding();
@@ -135,14 +160,25 @@ function remotePage(
   return {
     async mount(slot) {
       const unstyle = await (typeof html === 'string' ? adopt(slot, html) : html(slot));
+      const routeSignal = (slot as Partial<RootSlot>).routeSignal;
+      if (routeSignal?.aborted || !slot.topBarReady()) {
+        unstyle();
+        return;
+      }
       const lifetime = new AbortController();
-      hostRemote(slot, lifetime.signal);
+      hostRemote(slot, lifetime.signal, observedSession, (reason) => (heldBy = reason));
+      let ended = false;
       const end = () => {
+        if (ended) return;
+        ended = true;
+        routeSignal?.removeEventListener('abort', end);
         // The page's own code ends on its route's signal; nothing else in the document hears it.
         lifetime.abort();
         unstyle();
         hostRemote(undefined);
+        heldBy = undefined;
       };
+      routeSignal?.addEventListener('abort', end, { once: true });
       let release: void | (() => void);
       try {
         release = await run(slot);
@@ -226,13 +262,13 @@ export const routes: readonly ShellRoute[] = [
             slot.bar,
             () => sheets.load!(),
             async () => ({
-              landing: async (lifetime, registry) => {
+              landing: async (lifetime, registry, connected) => {
                 const { landingPage } = await import('./browser.js');
-                await landingPage(lifetime, registry);
+                await landingPage(lifetime, registry, connected);
               },
-              settings: async (shell, registry) => {
+              settings: async (shell, registry, initial) => {
                 const { settingsPage } = await import(/* @vite-ignore */ settingsEntry);
-                await settingsPage(shell, registry);
+                return settingsPage(shell, registry, initial);
               },
             }),
           ),
@@ -326,6 +362,21 @@ async function reopened(): Promise<boolean> {
 const settingsEntry = '/sdk/settings-v1.js';
 
 let started: ShellHost | undefined;
+let search: RootSearch | undefined;
+let session: object | undefined;
+let answer: ShellAnswer | undefined;
+let observed = false;
+let publishSearch: (() => void) | undefined;
+let heldBy: (() => string) | undefined;
+
+/** A verified replacement retires the old search transport/providers; it grants no access. */
+function observedSession(next: object): void {
+  if (session === next) return;
+  session = next;
+  search?.replace();
+  publishSearch?.();
+}
+
 /** Start the app once in the served shell document. */
 export function shellApp(): ShellHost | undefined {
   const root = document.querySelector<HTMLElement>('.tmt-ui-shell');
@@ -340,7 +391,85 @@ export function shellApp(): ShellHost | undefined {
     mountShell(root, { rail: appRail(rememberedShellAnswer(), routes, place, remote) });
     return undefined;
   }
-  started = startShellHost(root, routes, {
+  const status = document.createElement('p');
+  status.className = 'root-search-status';
+  status.setAttribute('role', 'status');
+  status.hidden = true;
+  root.append(status);
+  search = new RootSearch({
+    load: (entry) => import(/* @vite-ignore */ entry) as Promise<SearchModule>,
+    container: () => document.body.appendChild(document.createElement('div')),
+    failed: (message) => {
+      status.textContent = message;
+      status.hidden = false;
+    },
+    navigate: (href) => {
+      const destination = new URL(href, location.href);
+      const reason = heldBy?.();
+      if (reason && started?.route(destination.pathname) !== started?.route(location.pathname)) {
+        status.textContent = reason;
+        status.hidden = false;
+        return;
+      }
+      started?.navigate(href);
+    },
+  });
+  let currentRoute: AbortController | undefined;
+  const ownedRoutes = routes.map((route): ShellRoute => ({
+    ...route,
+    async load(remembered, settled) {
+      currentRoute?.abort();
+      const lifetime = new AbortController();
+      currentRoute = lifetime;
+      search!.replace();
+      status.hidden = true;
+      // The first read is the live description, never a remembered answer used for the rail.
+      void settled().then((read) => {
+        if (!observed) {
+          observed = true;
+          answer = read;
+        }
+        publishSearch?.();
+      });
+      const module = await route.load(remembered, settled);
+      return {
+        async mount(slot) {
+          if (lifetime.signal.aborted) return;
+          let active = true;
+          let adopted = false;
+          const publish = () => {
+            if (!active || !adopted || !slot.topBarReady()) return;
+            const place = { origin: location.origin, href: location.href };
+            const rail = appRail(answer, routes, place);
+            search!.update(
+              colabLoad(answer)?.entry,
+              navigationSnapshot(answer, [...rail.main, ...rail.bottom], location.href, (path) =>
+                appHref(routes, path),
+              ),
+            );
+          };
+          publishSearch = publish;
+          const hosted: RootSlot = {
+            ...slot,
+            routeSignal: lifetime.signal,
+            setTopBar() {
+              const bar = slot.setTopBar();
+              adopted = true;
+              publish();
+              return bar;
+            },
+          };
+          const release = await module.mount(hosted);
+          return () => {
+            active = false;
+            if (publishSearch === publish) publishSearch = undefined;
+            release?.();
+          };
+        },
+      };
+    },
+  }));
+  const host = startShellHost(root, ownedRoutes, {
     failed: (main) =>
       main.replaceChildren(
         Object.assign(document.createElement('p'), {
@@ -349,5 +478,49 @@ export function shellApp(): ShellHost | undefined {
         }),
       ),
   });
+  host.setCommonControls({
+    openSearch: (opener) => {
+      status.hidden = true;
+      void search?.open(opener);
+    },
+    remote: { kind: 'unconfirmed', href: '/remote/' },
+  });
+  const dispose = () => {
+    currentRoute?.abort();
+    search?.dispose();
+    host.dispose();
+    status.remove();
+    window.removeEventListener('pagehide', hide);
+    window.removeEventListener('pageshow', restore);
+    window.removeEventListener('popstate', changed);
+    window.removeEventListener('hashchange', changed);
+  };
+  const changed = () => {
+    search?.replace();
+    publishSearch?.();
+  };
+  const restore = (event: PageTransitionEvent) => {
+    if (event.persisted) location.reload();
+  };
+  const hide = () => {
+    dispose();
+    // A BFCache document has ended sessions and listeners: reopen through its normal entry.
+    window.addEventListener('pageshow', restore, { once: true });
+  };
+  started = {
+    ...host,
+    async redescribe() {
+      search?.replace();
+      const read = await host.redescribe();
+      answer = read;
+      observed = true;
+      publishSearch?.();
+      return read;
+    },
+    dispose,
+  };
+  window.addEventListener('pagehide', hide, { once: true });
+  window.addEventListener('popstate', changed);
+  window.addEventListener('hashchange', changed);
   return started;
 }

@@ -43,8 +43,8 @@ a:not(.tmt-ui-action, .tmt-ui-rail *, .tmt-ui-module-menu *, .tmt-ui-list-title 
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
     .needs-filter-button
   )[aria-pressed='true'] {
-  border-color: var(--c-accent);
-  background: var(--c-accent-soft);
+  border-color: var(--tmt-ui-color-accent);
+  background: var(--tmt-ui-surface-selection);
 }
 /* One focus frame (#3998): one inset outline; a control with its own border recolours that border
    instead, in its own rule. */
@@ -66,14 +66,15 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: calc(2 * var(--tmt-ui-focus-width)) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-2 * var(--tmt-ui-focus-width));
 }
-.local,
-.eyebrow,
-.boundary {
+.local {
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
 main {
-  min-height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
+  min-height: calc(
+    100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) -
+      var(--colab-title-row-size, 0px) - 57px
+  );
 }
 footer {
   padding: 16px 32px;
@@ -92,11 +93,6 @@ footer {
 .home {
   max-width: 1080px;
   margin: auto;
-}
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin: 0 0 8px;
 }
 .home h1 {
   font-size: 32px;
@@ -243,16 +239,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   height: 18px;
   flex: none;
 }
-.page-header-count {
-  font: 11px var(--f-mono);
-}
-/* One digit wide, so a count of 0–9 arriving later moves nothing. */
-.page-header-count[data-pending] {
-  min-width: 1ch;
-}
-.page-header-unseen {
-  color: var(--c-waiting);
-}
 .status {
   color: var(--c-muted);
   font-size: 12px;
@@ -294,9 +280,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   .page-header-actions .tmt-ui-icon-action-icon {
     gap: 3px;
   }
-  .page-header-count {
-    font-size: 10px;
-  }
   .page-header-meta {
     gap: 4px;
   }
@@ -309,12 +292,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-width: 0;
   min-height: 0;
 }
-.boundary {
-  border-bottom: 1px solid var(--c-rule);
-  padding: 10px 16px;
-}
 .frame-host {
-  min-height: calc(100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px));
+  min-height: calc(
+    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-title-row-size, 0px)
+  );
   /* Browser page canvas stays white; theme tokens belong to the surrounding chrome. */
   background: #fff;
 }
@@ -342,7 +323,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .page-opening {
   display: grid;
   place-items: center;
-  min-height: calc(100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px));
+  min-height: calc(
+    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-title-row-size, 0px)
+  );
 }
 .page-opening-mark {
   display: block;
@@ -966,6 +949,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .conversation-arrivals:not(:empty) {
   background: var(--c-sheet);
   border: 1px solid var(--c-rule);
+  border-radius: var(--tmt-ui-radius);
 }
 .conversation-messages {
   flex: 1 1 auto;
@@ -1006,6 +990,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   bottom: 0;
   z-index: 1;
   background: var(--c-paper);
+}
+/* A card or a sheet is the sheet's surface; a column has none of its own and shows the page's. */
+.tmt-ui-panel:not([data-mode='column']) .comments-panel .conversation-composer {
+  background: var(--tmt-ui-surface-sheet);
 }
 .comments-panel .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   position: static;
@@ -1275,12 +1263,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-height: 22px;
 }
 .comment-thread .conversation-title {
-  min-height: 22px;
-  font: 500 var(--tmt-ui-host-field-label-size) / var(--tmt-ui-host-field-label-line-height)
-    var(--f-mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tmt-ui-color-secondary);
+  min-height: 0;
+  color: var(--tmt-ui-color-text);
+  font: 600 0.9375rem / 1.4 var(--tmt-ui-font-body);
 }
 
 .comment-thread .conversation-turn {
@@ -1631,7 +1616,7 @@ button.discussion-quote:focus-visible {
   gap: 4px;
   min-height: 0;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: var(--tmt-ui-radius);
   font-size: 12px;
   line-height: 1.4;
   white-space: nowrap;
@@ -1653,6 +1638,10 @@ button.discussion-quote:focus-visible {
   margin: 0;
   padding: var(--conversation-gap) 0;
   border-bottom: 1px solid var(--c-rule);
+}
+/* The last turn ends the thread: the composer's spacing, not a rule, sets it apart. */
+.comment-thread[data-layout='discussion'] .conversation-turn:last-child {
+  border-bottom: 0;
 }
 .comment-thread[data-layout='discussion'] .conversation-time-separator {
   display: none;
@@ -1689,8 +1678,9 @@ button.discussion-quote:focus-visible {
   background: var(--tmt-ui-color-secondary);
   color: var(--tmt-ui-surface-sheet);
 }
+/* The composer sits on its panel's own surface, with no rule above it. */
 .comment-thread[data-layout='discussion'] .conversation-composer {
-  background: var(--tmt-ui-surface-sheet);
+  border-top: 0;
 }
 /* The position (n / N) ends the panel heading, next to Close, as on the website. */
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
@@ -1706,41 +1696,57 @@ button.discussion-quote:focus-visible {
 .tmt-ui-panel[data-discussion] .tmt-ui-drawer-heading h2 {
   font-size: 15px;
   font-weight: 700;
+  /* The title gives way before anything overlaps: on a font wider than the one this row was measured
+     with (the card and the phone sheet fill it to the pixel), it is shortened, never a control. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tmt-ui-panel[data-discussion] .tmt-ui-drawer-caption {
   flex: none;
 }
-/* The 286px column cannot hold the title, the position, two arrows, `Resolve` and Close on one row (they
-   need about 288px of the 262px inside the header, and nothing is truncated): row 1 is the title and
-   Close, row 2 the position with the arrows as one group on the left and `Resolve` on the right. */
-.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header {
+/* The 286px column and the 328px card cannot hold the title, the position, two arrows, Show resolved,
+   `Resolve` and Close on one row (they need about 314px of the 262px and 280px inside their headers):
+   row 1 is the title and Close, row 2 the position with the arrows and Show resolved as one group on
+   the left and `Resolve` on the right. The phone sheet is wide enough for one row. */
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion] .tmt-ui-drawer-header {
   flex-wrap: wrap;
   row-gap: 4px;
 }
-.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-heading,
-.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header-actions {
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion] .tmt-ui-drawer-heading,
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
+  .tmt-ui-drawer-header-actions {
   display: contents;
 }
-.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-heading h2 {
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
+  .tmt-ui-drawer-heading
+  h2 {
   flex: 1;
   min-width: 0;
 }
-.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header > .tmt-ui-icon-action {
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
+  .tmt-ui-drawer-header
+  > .tmt-ui-icon-action {
   order: 1;
 }
-.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header::after {
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
+  .tmt-ui-drawer-header::after {
   content: '';
   order: 1;
   flex: 0 0 100%;
   height: 0;
 }
-.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-caption {
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion] .tmt-ui-drawer-caption {
   order: 2;
 }
-.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header-actions > * {
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
+  .tmt-ui-drawer-header-actions
+  > * {
   order: 3;
 }
-.tmt-ui-panel[data-mode='column'][data-discussion] .discussion-resolve {
+.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion] .discussion-resolve {
   order: 4;
   margin-inline-start: auto;
 }
@@ -1754,13 +1760,6 @@ button.discussion-quote:focus-visible {
    accent rule, and the field on the field surface with the radius. */
 .annotation-popover .comment-thread .conversation-window-bar {
   padding: 14px var(--conversation-inset);
-}
-.annotation-popover .comment-thread .conversation-title {
-  min-height: 0;
-  color: var(--tmt-ui-color-text);
-  font: 600 0.9375rem / 1.4 var(--tmt-ui-font-body);
-  letter-spacing: normal;
-  text-transform: none;
 }
 .annotation-popover .annotation-quote {
   display: -webkit-box;
@@ -2020,20 +2019,95 @@ button.discussion-quote:focus-visible {
   gap: 8px;
 }
 .selection-mode .tmt-ui-icon-action-control {
-  width: 40px;
-  height: 40px;
-  min-height: 40px;
-  border: 1px solid var(--c-text);
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
 }
+/* One capsule holds both actions (#4919): one border, radius and shadow around the group, the actions
+   borderless and divided by a hairline. The shadow is the design system's one overlay shadow. The group
+   does not clip: an action's tooltip stands above it, so each end action carries its own rounded end. */
 .page-floating-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-rule);
+  border-radius: 22px;
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+.page-floating-actions > * + * {
+  border-left: 1px solid var(--c-rule);
+}
+.page-floating-actions .tmt-ui-icon-action-control {
+  height: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.page-floating-actions > :first-child .tmt-ui-icon-action-control {
+  border-start-start-radius: 21px;
+  border-end-start-radius: 21px;
+}
+.page-floating-actions > :last-child .tmt-ui-icon-action-control {
+  border-start-end-radius: 21px;
+  border-end-end-radius: 21px;
 }
 .page-floating-actions .tmt-ui-icon-action-control[aria-haspopup='dialog'] {
   width: auto;
-  min-width: 40px;
-  padding: 0 10px;
+  min-width: 44px;
+  padding: 0 12px;
+}
+/* The dock's Comments action holds the open-thread count, and the needs-you colour and bullet while a
+   thread has news; the count's slot is held while the threads are verified, so nothing moves when it arrives. */
+.page-floating-actions .tmt-ui-icon-action-control:has(.dock-count) {
+  width: auto;
+  min-width: 44px;
+  padding: 0 12px;
+}
+.dock-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font: 12px var(--f-mono);
+}
+.dock-count[data-pending] {
+  min-width: 1ch;
+}
+.dock-count[data-unseen] {
+  color: var(--c-waiting);
+}
+/* While Chat is open, or Comments over the page as a card or a sheet, the dock has become the panel: it
+   keeps its place, unseen, for the panel to open out of and close back into (dock-motion.ts), and for
+   focus to return to. */
+.selection-mode[data-panel-open] {
+  opacity: 0;
+  pointer-events: none;
+}
+.selection-mode {
+  transition: opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+}
+/* Chat does not slide in from the edge: its motion is the clip in dock-motion.ts, so the drawer is
+   always in its place and only the leaf's leaving transition keeps it rendered. */
+/* The leaf lays the open drawer out as a column (`[open]`); a leaving drawer is still rendered but no longer
+   `[open]`, so it would fall back to a row. Chat keeps its column while it closes into the dock. */
+.tmt-ui-drawer[data-panel='chat'],
+.tmt-ui-drawer[data-panel='chat'][open] {
+  flex-direction: column;
+  translate: 0 0;
+  transition:
+    overlay var(--tmt-ui-motion-base) allow-discrete,
+    display var(--tmt-ui-motion-base) allow-discrete;
+}
+@starting-style {
+  .tmt-ui-drawer[data-panel='chat'][open] {
+    translate: 0 0;
+  }
+}
+/* The Comments panel as a card or a sheet is hidden, not unmounted, when it closes: its leaving
+   `display` transition keeps it rendered for the motion's length, so the clip runs back into the dock. A
+   column leaves the page grid at once and has no leaving motion. */
+.tmt-ui-panel[data-panel='comments']:not([data-mode='column']) {
+  transition: display var(--tmt-ui-motion-base) allow-discrete;
 }
 .chat-unread {
   color: var(--c-waiting);
@@ -2041,10 +2115,9 @@ button.discussion-quote:focus-visible {
 }
 .selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
   width: auto;
-  padding: 0 12px;
-  background: var(--c-text);
-  color: var(--c-sheet);
-  border-color: var(--c-text);
+  padding: 0 14px;
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-accent);
 }
 .selection-mode .tmt-ui-icon-action-icon {
   width: auto;
@@ -2059,6 +2132,7 @@ button.discussion-quote:focus-visible {
   margin: 0;
   max-width: min(440px, calc(100vw - 32px));
   padding: 4px 8px;
+  border-radius: var(--tmt-ui-radius);
   color: var(--c-muted);
   background: var(--c-sheet);
   font-size: 12px;
@@ -2077,7 +2151,7 @@ button.discussion-quote:focus-visible {
 .selection-mode kbd {
   font: inherit;
   border: 1px solid currentColor;
-  border-radius: 3px;
+  border-radius: var(--tmt-ui-radius-s);
   padding: 0 3px;
 }
 @media (max-height: 500px) {

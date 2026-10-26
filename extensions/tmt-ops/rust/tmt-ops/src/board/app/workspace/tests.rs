@@ -3389,7 +3389,7 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                 lines.iter().any(|line| line.contains(if selected_squad {
                                     "── Board "
                                 } else {
-                                    "Exchanges with you"
+                                    "Conversation"
                                 })),
                                 "{width}x{height}: {lines:?}"
                             );

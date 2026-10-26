@@ -290,7 +290,8 @@ itself before the free-plan limits. TMT does not check the project's remaining q
 refuse requests." The CLI follows the shared style's final-period omission; the page retains the period.
 This adds no wire member or quota probe.
 
-Device pages omit revoked rows and add nullable durable `lastUsedAtMs`; null means not recorded,
+Device pages show the administrator's full inventory or the caller's own member machines,
+omit revoked rows and add nullable durable `lastUsedAtMs`; null means not recorded,
 not never used. `clientId` on the management helper is the admitted caller, also used for the
 local designation command. `previewRemoveOthers()` returns the full bounded inventory count
 and fingerprint; a second deliberate action submits `removeOthers({operationId,fingerprint})`.
@@ -312,7 +313,7 @@ self-toggle, explicitly reopen and read only the original receipt.
 After self-rename, keep the live Session and read the original receipt; rename changes no authority.
 After a lost self-revoke acknowledgment, make one fresh read-only admission
 attempt with the same paired identity/current trusted door descriptor. If admission is refused,
-show lost current access **and unknown operation outcome**, with `tmt remote devices` for local
+show lost current access **and unknown operation outcome**, with `tmt remote members` for local
 confirmation. Do not claim revoke committed or offer a mutation retry. Transport failure or an
 unverified/stale descriptor is unconfirmed access and unknown outcome. All reads require a live
 grant; no historical-key reader or general recovery endpoint exists. Losing designation alone
@@ -330,7 +331,33 @@ adoption before effects; an existing original-ID read still works at capacity. S
 local CLI management path, preserve any earlier unknown outcome, and do not retry, reset
 the database or invent a replacement ID to bypass the limit. Compaction is deferred.
 
-The Remote-owned `/remote/settings` page uses the shared browser presentation with three sections and
+### Members and machine policy
+
+`members(session)` shares the verified Session lane and immutable management journal.
+Use `list({cursor:null,limit:50})` for the current Remote roster and
+`machines({memberId,cursor:null,limit:50})` for one person's bounded machine page.
+Follow `nextCursor` only for an explicit next-page read. The
+[protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol) owns
+exact fields, cursor bounds and neutral observation states. Role, sending, delivery
+and recipient restrictions are separate; activity and provider cleanup can be unknown.
+A normal Member sees only their own person/machines. Full inventory and administration
+require the exact current designated owner browser; an owner-looking label is insufficient.
+
+`rename({operationId,remoteId,memberId,memberRevision,name})` renames a person:
+Admin may rename any member; a Member may rename only themself. `sending({...target,enabled})`
+and `revoke(target)` are Admin only, where `target` contains the four identity/revision fields.
+`renameRemote({operationId,remoteId,name})` is also Admin only. These change neither another
+name's scope nor browser-local catalog labels. The helper freezes inputs and verifies
+Remote/member/result correlation. Mutations return committed/refused/unknown outcomes;
+`operation(originalId)` reads either member/name outcomes or exact older device outcomes,
+without resending, reapplying a policy or renewing a deadline. The current member must still
+own that original; historical unbound receipts may become unavailable after an association
+or re-pair. Preserve the unknown outcome and inspect current state separately.
+
+The native private-control adapter exposes the same roster/machine reads. Terminal
+member mutations belong to a later adapter; this SDK adds no CLI command or UI flow.
+
+The Remote-owned current-door tab frame uses shared browser presentation and
 server-admitted values/sources/warnings/capabilities. Its separately built `settings-v1.js`
 imports the served SDK; no second channel or public page export is introduced. Checked shared CSS
 owns presentation, while Remote owns layout, native selects and control state. The untouched
@@ -352,7 +379,7 @@ or restored to its admitted value. Only the current bounded page's forms are ret
 
 The human `tmt remote serve` link opens `/`; the JSON `address` remains the signed protocol base.
 The [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes) owns Home and TMT settings.
-`landingPage()` bootstraps `/remote/`, using the same saved non-extractable key and machine pins.
+`landingPage()` supplies the current door’s Overview connection check, using the same saved non-extractable key and machine pins. `/remote/` is the global My Remotes list; the public route contract owns exact tab paths. The app composes the existing bounded management observation alongside it for role/designation, with no new authority or foreign probes.
 On load it validates local storage, then checks once through a verified Session and signed
 `capabilities` read; a saved pairing alone never proves current access. Manual Check again reuses
 that Session while current. An expired Session is silently reopened once within the manual check;

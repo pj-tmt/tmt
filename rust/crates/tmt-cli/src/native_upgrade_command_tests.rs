@@ -128,12 +128,20 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
                 repeat: "tmt upgrade".into(),
                 ran_from_moved_prefix: false,
                 versions: BTreeMap::new(),
-                extensions: crate::extension_install_command::upgrade_all::Plan {
-                    products: Vec::new(),
-                    pending: Vec::new()
+                extensions: crate::extension_install_command::upgrade_all::complete::Plan {
+                    installed: crate::extension_install_command::upgrade_all::Plan {
+                        products: Vec::new(),
+                        pending: Vec::new()
+                    },
+                    missing: Vec::new(),
+                    providers: Vec::new(),
                 },
             },
-            None,
+            FinishContext {
+                database: DatabaseSteps::default(),
+                interrupt: None,
+                runner: &UnixCommandRunner
+            },
             mode
         )
         .unwrap(),
@@ -245,17 +253,17 @@ fn release_links_name_actual_products_and_pr_candidates_without_inventing_releas
     );
     assert_eq!(
         rows[0]["releaseUrl"],
-        "https://github.com/pj-tmt/tmt/releases/tag/v5.0.0"
+        "https://github.com/tmt-ninja/tmt/releases/tag/v5.0.0"
     );
     assert_eq!(
         rows[1]["releaseUrl"],
-        "https://github.com/pj-tmt/tmt/releases/tag/tmt-ops-v1.2.3"
+        "https://github.com/tmt-ninja/tmt/releases/tag/tmt-ops-v1.2.3"
     );
     report.state.channel = Channel::parse("pr4770").unwrap();
     let rows = product_rows(Some(&report), None, vec![]);
     assert_eq!(
         rows[0]["releaseUrl"],
-        "https://github.com/pj-tmt/tmt/pull/4770"
+        "https://github.com/tmt-ninja/tmt/pull/4770"
     );
     assert!(product_rows(None, None, vec![])[0]["releaseUrl"].is_null());
 }

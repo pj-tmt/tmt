@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from 'react';
+import type { QuestionState, RegisteredAgent, RegisteredQuestion } from '../question-registry.js';
 import { QuestionLine } from './question-line.js';
 import { AgentChip, AgentList, agentSentence } from './agent-chip.js';
 import type { AnchorPosition } from '../renderer.js';
@@ -50,6 +51,8 @@ const emptyDraft = (): Draft => ({ choices: [], other: false, value: '', changin
 interface RecipientState {
   recipients: AgentDestination[];
   initialized: boolean;
+  defaults?: string;
+  manual?: boolean;
 }
 interface BlockState {
   recipients: RecipientState;
@@ -64,6 +67,9 @@ const emptyBlock = (): BlockState => ({
 /** One admitted group owns all drafts, visible recipients, publication outcomes and its footer. */
 export function QuestionGroupCard({
   group,
+  registry,
+  states,
+  creator,
   members,
   selected,
   onSelect,
@@ -85,6 +91,9 @@ export function QuestionGroupCard({
   onRecorded,
 }: {
   group: QuestionGroup;
+  registry?: readonly RegisteredQuestion[];
+  states?: readonly QuestionState[];
+  creator?: RegisteredAgent;
   members: readonly Question[];
   selected: string;
   onSelect(id: string): void;
@@ -163,19 +172,54 @@ export function QuestionGroupCard({
   const agents = directory.state === 'ready' ? directory.agents : undefined;
   // Commit the defaults in the same render as the resolved directory: an effect
   // would briefly expose an enabled comment-only Send before its chips appear.
-  if (!recipientState.initialized && agents) {
+  const defaultKey = JSON.stringify(
+    scopeMembers.map((question) => {
+      const entry = registry?.find((entry) => entry.id === question.id);
+      return [question.id, registry === undefined ? question.agent : (entry?.agent ?? creator)?.id];
+    }),
+  );
+  const hasDraft = scopeMembers.some((question) => {
+    const draft = drafts[question.id];
+    return (
+      !!draft &&
+      (!!draft.value ||
+        draft.choices.length > 0 ||
+        draft.other ||
+        !!draft.pending ||
+        !!draft.changing)
+    );
+  });
+  // Only untouched empty draft defaults may refresh. Sent recipients belong to immutable
+  // comments/Ask records, not this convenience state for a future Send.
+  const defaultsReady = registry === undefined || states !== undefined;
+  if (
+    agents &&
+    defaultsReady &&
+    (!recipientState.initialized ||
+      (!recipientState.manual &&
+        recipientState.defaults !== defaultKey &&
+        !hasDraft &&
+        !busy.current))
+  ) {
     const defaults: AgentDestination[] = [];
     for (const question of scopeMembers) {
-      const matches = agents.filter((agent) => agent.agentName === question.agent);
+      const entry = registry?.find((entry) => entry.id === question.id);
+      const target = entry?.agent ?? creator;
+      const matches = agents.filter((agent) =>
+        registry === undefined
+          ? agent.agentName === question.agent
+          : target !== undefined && agent.agent === target.id,
+      );
       if (matches.length !== 1) continue;
       const agent = matches[0];
       if (!defaults.some((other) => recipientId(other) === recipientId(agent)))
         defaults.push(agent);
       if (defaults.length === MESSAGE_RECIPIENT_LIMIT) break;
     }
-    setRecipientState({ recipients: defaults, initialized: true });
+    setRecipientState({ recipients: defaults, initialized: true, defaults: defaultKey });
   }
-  const resolvingDefaults = !!ask && !recipientState.initialized && directory.state === 'loading';
+  const resolvingDefaults =
+    !!ask && (!defaultsReady || (!recipientState.initialized && directory.state === 'loading'));
   // A recorded answer is released once its verified comment is in the discussion. The comment can
   // arrive before `pending` is set (the Ask is still being prepared when the record lands), so
   // the check follows the drafts as well as the discussion.
@@ -276,7 +320,9 @@ export function QuestionGroupCard({
     const next = [...rows.slice(index + 1), ...rows.slice(0, index)].find((row) => !row.answer);
     lines.current.get(next?.question.id ?? selected)?.focus({ preventScroll: true });
   }, [focusChange, activeAnswered, selected, expanded, members, rows, onCollapse]);
-  const complete = rows.filter((row) => row.answer).length;
+  const pendingRegistrations = states?.filter(
+    (entry) => entry.state === 'open' && members.some((question) => question.id === entry.id),
+  ).length;
   const sendingCount = sending.length || pending.length;
   const sendLabel =
     scopeMembers.length === 1
@@ -379,7 +425,9 @@ export function QuestionGroupCard({
               comment.deviceAuthor === true &&
               comment.ref.writer === record.writer &&
               record.messageIds!.includes(comment.messageId) &&
-              answerOf(question, comment.body) !== undefined,
+              (comment.questionId === question.id ||
+                (comment.questionId === undefined &&
+                  answerOf(question, comment.body) !== undefined)),
           )
           .map((comment) => ({
             question: question.id,
@@ -551,6 +599,7 @@ export function QuestionGroupCard({
                   setRecipientState((previous) => ({
                     recipients: [...previous.recipients, matches[0]],
                     initialized: true,
+                    manual: true,
                   }));
                   setQuery('');
                 }}
@@ -559,6 +608,7 @@ export function QuestionGroupCard({
                   setRecipientState((previous) => ({
                     recipients: previous.recipients.filter((agent) => recipientId(agent) !== id),
                     initialized: true,
+                    manual: true,
                   }));
                 }}
               />
@@ -664,7 +714,12 @@ export function QuestionGroupCard({
                         ...new Set(blockRows.map((row) => row.question.agent).filter(Boolean)),
                       ]}
                     />{' '}
-                    · {members.length - complete} of {members.length} waiting
+                    ·{' '}
+                    {registry === undefined
+                      ? text.metadata.status.unregistered
+                      : pendingRegistrations === undefined
+                        ? text.metadata.verifying
+                        : `${pendingRegistrations} of ${members.length} waiting`}
                   </p>
                 )}
                 {blockRows.map((row, index) => {
@@ -678,9 +733,17 @@ export function QuestionGroupCard({
                           else lines.current.delete(row.question.id);
                         }}
                         question={row.question}
+                        status={
+                          !registry?.some((entry) => entry.id === row.question.id)
+                            ? 'unregistered'
+                            : (states?.find((entry) => entry.id === row.question.id)?.state ??
+                              'unknown')
+                        }
                         answer={
                           row.echo ??
-                          (row.answer ? (answerOf(row.question, row.answer.body) ?? '') : undefined)
+                          (row.answer
+                            ? (answerOf(row.question, row.answer.body) ?? row.answer.body)
+                            : undefined)
                         }
                         pending={row.echo !== undefined}
                         eyebrow={blockRows.length === 1}

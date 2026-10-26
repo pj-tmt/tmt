@@ -219,13 +219,13 @@ fn only_plain_driver_ids_and_a_few_providers_are_kept() {
     ] {
         providers.insert(key.into(), good.clone());
     }
-    for n in 0..MAX_PROVIDERS + 2 {
+    for n in 0..MAX_DRIVERS + 2 {
         providers.insert(format!("driver-{n}"), good.clone());
     }
     let document = json!({"version": VERSION, "providers": providers});
     fs::write(fixture.0.join(FILE), document.to_string()).unwrap();
     let store = fixture.store();
-    assert_eq!(store.providers().count(), MAX_PROVIDERS);
+    assert_eq!(store.providers().count(), MAX_DRIVERS);
     assert!(store.providers().all(|p| p.id().starts_with("driver-")));
     let mut store = store;
     store.record(&Provider::named("extra"), reading(T0, 50.0));
@@ -241,4 +241,126 @@ fn the_saved_file_names_providers_by_their_driver_id() {
     let saved: Value =
         serde_json::from_str(&fs::read_to_string(fixture.0.join(FILE)).unwrap()).unwrap();
     assert_eq!(saved["providers"]["codex"][0][0], T0);
+}
+
+const WORK: &str = "0123456789ab";
+
+fn account(label: &str) -> Provider {
+    Provider::from_key(&format!("claude.{WORK}"))
+        .unwrap()
+        .labelled(label)
+}
+
+#[test]
+fn an_accounts_label_is_saved_beside_its_history_and_a_plain_cache_has_no_account_section() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    store.record(&Provider::named("codex"), reading(T0, 50.0));
+    store.save_if_due(T0 + HOUR);
+    let plain: Value = serde_json::from_slice(&fs::read(fixture.0.join(FILE)).unwrap()).unwrap();
+    assert!(
+        plain.get("accounts").is_none(),
+        "an account-free cache keeps its old shape"
+    );
+
+    store.record(&account("work"), reading(T0 + MINUTE, 40.0));
+    store.save_if_due(T0 + 2 * HOUR);
+    let saved: Value = serde_json::from_slice(&fs::read(fixture.0.join(FILE)).unwrap()).unwrap();
+    assert_eq!(
+        saved["providers"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["claude.0123456789ab", "codex"]
+    );
+    assert_eq!(
+        saved["accounts"],
+        serde_json::json!({"claude.0123456789ab": "work"})
+    );
+
+    let loaded = fixture.store();
+    let labels: Vec<_> = loaded
+        .providers()
+        .map(|provider| (provider.key(), provider.account_label().map(str::to_owned)))
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            ("claude.0123456789ab".to_owned(), Some("work".to_owned())),
+            ("codex".to_owned(), None)
+        ]
+    );
+}
+
+#[test]
+fn a_new_label_replaces_the_old_one_and_keeps_the_readings() {
+    let mut store = Store::load(None);
+    store.record(&account("work"), reading(T0, 50.0));
+    store.record(&account("renamed"), reading(T0 + HOUR, 49.0));
+    let kept: Vec<_> = store.providers().collect();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].account_label(), Some("renamed"));
+    assert_eq!(times(&store, &account("anything")), [T0, T0 + HOUR]);
+}
+
+#[test]
+fn a_saved_label_that_is_not_display_safe_is_not_trusted() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(&fixture.0).unwrap();
+    let row = serde_json::json!([T0, 50.0, T0 + 5 * DAY, null, null]);
+    let document = serde_json::json!({
+        "version": VERSION,
+        "providers": {"claude.0123456789ab": [row]},
+        "accounts": {"claude.0123456789ab": "two words\nand a newline"},
+    });
+    fs::write(fixture.0.join(FILE), document.to_string()).unwrap();
+    let store = fixture.store();
+    let kept: Vec<_> = store.providers().collect();
+    assert_eq!(kept.len(), 1, "the readings are kept");
+    assert_eq!(
+        kept[0].account_label(),
+        Some("unnamed"),
+        "the hostile label is not"
+    );
+}
+
+#[test]
+fn accounts_are_capped_per_driver_and_never_displace_another_drivers_history() {
+    let key = |n: usize| format!("claude.{n:012x}");
+    let mut store = Store::load(None);
+    store.record(&Provider::named("claude"), reading(T0, 50.0));
+    for n in 0..MAX_ACCOUNTS + 2 {
+        store.record(&Provider::from_key(&key(n)).unwrap(), reading(T0, 50.0));
+    }
+    store.record(&Provider::named("codex"), reading(T0, 70.0));
+    let claude = store.providers().filter(|p| p.id() == "claude").count();
+    assert_eq!(
+        claude, MAX_ACCOUNTS,
+        "the plain driver counts as one entry of the driver"
+    );
+    assert!(
+        !store.history(&Provider::named("codex")).is_empty(),
+        "accounts of one driver leave room for the others"
+    );
+    // The same limits apply when the file is read.
+    let fixture = Fixture::new();
+    fs::create_dir_all(&fixture.0).unwrap();
+    let rows = json!([[T0, 60.0, T0 + DAY, null, null]]);
+    let mut providers = serde_json::Map::new();
+    for n in 0..MAX_ACCOUNTS + 2 {
+        providers.insert(key(n), rows.clone());
+    }
+    providers.insert("codex".into(), rows);
+    fs::write(
+        fixture.0.join(FILE),
+        json!({"version": VERSION, "providers": providers}).to_string(),
+    )
+    .unwrap();
+    let loaded = fixture.store();
+    assert_eq!(
+        loaded.providers().filter(|p| p.id() == "claude").count(),
+        MAX_ACCOUNTS
+    );
+    assert!(!loaded.history(&Provider::named("codex")).is_empty());
 }

@@ -86,9 +86,11 @@ const APP_ROUTES = [
   '/settings/',
   '/remote',
   '/remote/',
-  '/remote/devices',
-  '/remote/connect',
-  '/remote/machine',
+  '/remote/overview',
+  '/remote/members',
+  '/remote/invites',
+  '/remote/my-devices',
+  '/remote/service',
   '/remote/settings',
   '/ops',
   '/ops/',
@@ -311,7 +313,12 @@ const beyondAssets = (requests: Request[]) =>
   requests
     .filter((request) => !request.isNavigationRequest())
     .map((request) => `${request.method()} ${new URL(request.url()).pathname}`)
-    .filter((entry) => !/^GET \/sdk\/(pages\.css|shell\.js|remote-v1\.js)$/.test(entry));
+    .filter(
+      (entry) =>
+        !/^GET \/sdk\/(pages\.css|settings\.css|shell\.js|remote-v1\.js|settings-v1\.js)$/.test(
+          entry,
+        ),
+    );
 
 test.describe('the app in a browser', () => {
   test('makes no session reads from an unpaired /remote', async () => {
@@ -320,7 +327,7 @@ test.describe('the app in a browser', () => {
       'Not paired',
     );
     await page.waitForTimeout(1500);
-    // The landing reads nothing from the door until its own check connects.
+    // The composed list loads only its static assets; no session or management reads.
     expect(beyondAssets(requests)).toEqual([]);
     await page.close();
   });
@@ -400,38 +407,52 @@ test.describe('the app in a browser', () => {
   const REMOTE_VIEWS = [
     {
       path: '/remote/',
-      id: 'status',
-      h1: 'Remote connection',
-      shown: '#heading',
-      hidden: '#connect-heading',
+      id: 'remotes',
+      h1: 'My Remotes',
+      shown: '#remotes',
+      hidden: '#remote-context',
     },
     {
-      path: '/remote/devices',
-      id: 'devices',
-      h1: 'Devices',
+      path: '/remote/overview',
+      id: 'overview',
+      h1: 'Overview',
+      shown: '#heading',
+      hidden: '#remotes',
+    },
+    {
+      path: '/remote/members',
+      id: 'members',
+      h1: 'Members',
       shown: '#devices-title',
       hidden: '#opening-title',
     },
     {
-      path: '/remote/connect',
-      id: 'connect',
-      h1: 'Connect a device',
-      shown: '#connect-heading',
+      path: '/remote/invites',
+      id: 'invites',
+      h1: 'Invites',
+      shown: '#remote-locked',
       hidden: '#heading',
     },
     {
-      path: '/remote/machine',
-      id: 'machine',
-      h1: 'This machine’s settings',
-      shown: '#opening-title',
-      hidden: '#devices-title',
+      path: '/remote/my-devices',
+      id: 'my-devices',
+      h1: 'My devices',
+      shown: '#devices-title',
+      hidden: '#opening-title',
     },
     {
       path: '/remote/settings',
       id: 'settings',
-      h1: 'My Remotes',
-      shown: '#remotes',
-      hidden: '#firestore-title',
+      h1: 'Settings',
+      shown: '#opening-title',
+      hidden: '#remotes',
+    },
+    {
+      path: '/remote/service',
+      id: 'service',
+      h1: 'Service & upgrade',
+      shown: '#remote-locked',
+      hidden: '#opening-title',
     },
   ] as const;
   const litRow = (page: Page) =>
@@ -441,12 +462,26 @@ test.describe('the app in a browser', () => {
   const expectView = async (page: Page, view: (typeof REMOTE_VIEWS)[number]) => {
     expect(new URL(page.url()).pathname, view.id).toBe(view.path);
     expect(new URL(page.url()).hash, view.id).toBe('');
-    await expect.poll(() => litRow(page), view.id).toEqual([view.id]);
-    await expect(page.locator('.tmt-ui-shell-bar h1'), view.id).toHaveText(view.h1);
+    await expect
+      .poll(() => litRow(page), view.id)
+      .toEqual([view.id === 'remotes' ? 'remotes' : 'overview']);
+    if (view.id !== 'remotes')
+      await expect(page.locator(`#remote-tab-${view.id}`)).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.root-title-row h1'), view.id).toHaveText(view.h1);
     await expect(page.locator(view.shown), view.id).toBeVisible();
     await expect(page.locator(view.hidden), view.id).toBeHidden();
     await expect(page, view.id).toHaveTitle(`${view.h1} · TMT`);
   };
+
+  async function selectView(page: Page, view: (typeof REMOTE_VIEWS)[number]): Promise<void> {
+    const menu = modulePages(page);
+    if (view.id === 'remotes') await menu.locator('a[data-id="remotes"]').click();
+    else {
+      if (new URL(page.url()).pathname === '/remote/')
+        await menu.locator('a[data-id="overview"]').click();
+      await page.locator(`#remote-tab-${view.id}`).click();
+    }
+  }
 
   test('each Remote row is its own route and selection follows the URL', async () => {
     for (const view of REMOTE_VIEWS) {
@@ -480,9 +515,8 @@ test.describe('the app in a browser', () => {
       watch.observe(bar, { childList: true });
       watch.observe(main, { childList: true });
     });
-    const menu = modulePages(page);
     for (const view of REMOTE_VIEWS.slice(1).concat(REMOTE_VIEWS[0])) {
-      await menu.locator(`a[data-id="${view.id}"]`).click();
+      await selectView(page, view);
       await expectView(page, view);
     }
     const kept = await page.evaluate(() => {
@@ -516,10 +550,9 @@ test.describe('the app in a browser', () => {
 
   test('Back and forward land on the same row, selected', async () => {
     const { page } = await openApp('/remote/');
-    const menu = modulePages(page);
     const order = [REMOTE_VIEWS[1]!, REMOTE_VIEWS[3]!, REMOTE_VIEWS[4]!, REMOTE_VIEWS[2]!];
     for (const view of order) {
-      await menu.locator(`a[data-id="${view.id}"]`).click();
+      await selectView(page, view);
       await expectView(page, view);
     }
     for (const view of [...order.slice(0, -1).reverse(), REMOTE_VIEWS[0]!]) {
@@ -558,19 +591,19 @@ test.describe('the app in a browser', () => {
   });
 
   test('the rail returns to My Remotes and a menu click on the shown row stays put', async () => {
-    const { page } = await openApp('/remote/machine');
+    const { page } = await openApp('/remote/settings');
     await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
     await page.locator('nav.tmt-ui-rail a[data-id="remote"]').click();
-    await expectView(page, REMOTE_VIEWS[4]!);
-    await modulePages(page).locator('a[data-id="settings"]').click();
-    await expectView(page, REMOTE_VIEWS[4]!);
+    await expectView(page, REMOTE_VIEWS[0]!);
+    await modulePages(page).locator('a[data-id="remotes"]').click();
+    await expectView(page, REMOTE_VIEWS[0]!);
     // The menu has no Remotes heading; This machine's group keeps its own.
     await expect(modulePages(page).locator('.tmt-ui-rail-sub-group')).not.toContainText([
       'Remotes',
     ]);
     await expect(modulePages(page)).toContainText('This machine');
-    await expect(modulePages(page).locator('a[data-id="settings"]')).toContainText('My Remotes');
+    await expect(modulePages(page).locator('a[data-id="remotes"]')).toContainText('My Remotes');
     await page.close();
   });
 
@@ -641,9 +674,8 @@ test.describe('the app in a browser', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const rail = page.locator('nav.tmt-ui-rail');
     const brand = rail.locator('> .tmt-ui-shell-brand');
-    const header = page.locator('.tmt-ui-shell-bar > .tmt-ui-header');
-    // The brand sits once, at the head of the rail; the host's header (the page title) starts the
-    // content column beside it.
+    const header = page.locator('.root-title-row');
+    // The brand sits once in the rail; the adopted page title starts the content column.
     await expect(brand).toContainText('tmt');
     await expect(header).toContainText('Agents');
     const [railBox, brandBox, headerBox] = await Promise.all(
@@ -670,6 +702,15 @@ test.describe('the app in a browser', () => {
     expect(settingsBox.y).toBeGreaterThan((await home.boundingBox())!.y);
     expect(railBox!.y + railBox!.height - settingsBox.y - settingsBox.height).toBeLessThan(24);
     await expect(rail.locator('.tmt-ui-rail-bottom')).toHaveCSS('border-top-style', 'solid');
+    await expect(rail.locator('.tmt-ui-rail-bottom')).toHaveCSS('position', 'static');
+    expect(
+      await rail.evaluate((node) =>
+        [node, ...node.querySelectorAll('*')]
+          .filter((entry) => ['auto', 'scroll'].includes(getComputedStyle(entry).overflowY))
+          .map((entry) => entry.className),
+      ),
+    ).toEqual(['tmt-ui-rail']);
+    await expect(brand).toHaveCSS('position', 'sticky');
     await expect(brand.locator('.tmt-ui-shell-brand-text')).toBeVisible();
     await expect(home.locator('.tmt-ui-rail-label')).toBeVisible();
     // Normal labelled entries have no tooltip; unavailable reasons keep their existing owner.
@@ -1476,8 +1517,18 @@ test.describe('Settings General website presentation', () => {
           expect(await page.evaluate(() => localStorage.getItem('tmt-ui-theme'))).toBeNull();
           await link.click();
           await expect(page).toHaveURL(/#modules$/);
-          await expect(general).not.toHaveClass(/tmt-ui-page/);
+          // Modules has its own page and takes the inset like every settings section.
+          await expect(general).toHaveClass(/tmt-ui-page/);
+          await expect(
+            general.getByRole('heading', { name: 'Modules, in one place.' }),
+          ).toBeVisible();
           await expect(general).not.toContainText('Make TMT feel like yours.');
+          await menu.getByRole('link', { name: 'Drivers & hooks', exact: true }).click();
+          await expect(general).toHaveClass(/tmt-ui-page/);
+          await expect(
+            general.getByRole('heading', { name: 'Drivers & hooks', exact: true, level: 2 }),
+          ).toBeVisible();
+          await expect(general.getByRole('button', { name: 'Copy tmt driver ls' })).toBeVisible();
           await menu.getByRole('link', { name: 'General', exact: true }).click();
           await expect(
             general.getByRole('heading', { name: 'Appearance', exact: true }),

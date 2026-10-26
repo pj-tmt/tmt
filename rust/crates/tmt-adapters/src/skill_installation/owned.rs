@@ -573,6 +573,49 @@ pub fn install_owned(
     install_owned_with_policy(env, global, owner, skills, Publication::Api { force })
 }
 
+/// Read-only setup planning for the exact skills of a verified release.
+/// Publication still rechecks ownership and targets under the existing lock.
+pub fn owned_skills_current(
+    env: &ProviderEnvironment,
+    global: &Path,
+    owner: &str,
+    skills: &[OwnedSkill],
+) -> io::Result<bool> {
+    if skills.is_empty() {
+        return Ok(true);
+    }
+    validate(owner, skills).map_err(refused)?;
+    let global = files::resolved(global)?;
+    let assets = SkillAssets::new(&global);
+    let owners = read_owners(&global)?;
+    let roots = optional_roots(env, &global)?;
+    for skill in skills {
+        let digest = skill_digest(&skill.name, &skill.files);
+        let Some(entry) = owners.skills.get(&skill.name) else {
+            return Ok(false);
+        };
+        if entry.owner != owner || entry.digest != digest {
+            return Ok(false);
+        }
+        let expected = source(&assets, owner, &digest, &skill.name);
+        let content = match read_tree(&expected) {
+            Ok(content) => content,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        if skill_digest(&skill.name, &content) != digest {
+            return Ok(false);
+        }
+        for root in roots.keys() {
+            let target = root.join(&skill.name);
+            if !entry.targets.contains(&target) || !files::current_link(&target, &expected) {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
 /// Publish only the verified skills of an official managed product release.
 /// Arbitrary API names cannot enter the unchecked replacement path.
 pub fn install_release_skills(

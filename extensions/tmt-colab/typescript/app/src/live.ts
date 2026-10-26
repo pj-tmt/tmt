@@ -1,3 +1,4 @@
+import { canonical } from './closed.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
 import { disclosureScope } from './attachment-service.js';
 import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
@@ -8,7 +9,8 @@ import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.j
 import { readThreads, type DiscussionRef } from './thread-records.js';
 import { ThreadStatusCoordinator } from './thread-status-coordinator.js';
 import { statusNotificationForAsk } from './thread-status-notification.js';
-import { projectThreadPresentation } from './thread-status-presentation.js';
+import { projectThreadPresentations } from './thread-status-presentation.js';
+import { VerifiedAsks } from './ask-records.js';
 import { ThreadStatusSeen } from './thread-status-view.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { attachment, digest, encodeBinary, requireValue, text as bytesOf } from '@tmt/colab-client';
@@ -23,11 +25,13 @@ import { Writer, type OwnCompaction } from './writer.js';
 import {
   SAVE_REOPEN_MS,
   SaveOutcomeUnknown,
+  SaveRefused,
   SaveTooLarge,
   settled,
   settledAgainst,
   type SaveResult,
   type WorkAction,
+  type MetadataAction,
   type WorkResult,
 } from './save.js';
 import { hunksOf } from './save-hunks.js';
@@ -82,6 +86,7 @@ export class Live implements PageBinding {
   #diagnosing: LiveOpen | null = null;
   #projection: PageView = { source: '', title: '' };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
+  #verifiedAsks = new VerifiedAsks();
   #error: Error | null = null;
   #recovering: Promise<boolean> | null = null;
   constructor(
@@ -216,7 +221,7 @@ export class Live implements PageBinding {
             )
               return;
             this.#projection = { ...this.#projection, agentActivity };
-            this.#listeners.forEach((value) => value.publish(structuredClone(this.#projection)));
+            this.#publish();
           },
           messageStateObserved: (operationId, observed) => {
             if (
@@ -232,7 +237,7 @@ export class Live implements PageBinding {
               ...this.#projection,
               messageStates: Object.keys(messageStates).length ? messageStates : undefined,
             };
-            this.#listeners.forEach((value) => value.publish(structuredClone(this.#projection)));
+            this.#publish();
           },
           observationUnavailable: (unavailable) => {
             if (
@@ -246,7 +251,7 @@ export class Live implements PageBinding {
               return;
             if (this.#projection.askUnavailable === unavailable) return;
             this.#projection = { ...this.#projection, askUnavailable: unavailable };
-            this.#listeners.forEach((value) => value.publish(structuredClone(this.#projection)));
+            this.#publish();
           },
           sessionEnded: (error) => {
             if (this.ask === facade && this.registration === registration)
@@ -255,6 +260,10 @@ export class Live implements PageBinding {
         })
       : undefined;
     this.ask = facade;
+  }
+  /** Each listener receives its own detached copy, so none can change what another sees. */
+  #publish() {
+    this.#listeners.forEach((listener) => listener.publish(structuredClone(this.#projection)));
   }
   #abort = () => this.close();
   #visibility = () => {
@@ -285,7 +294,7 @@ export class Live implements PageBinding {
       .catch(() => {
         if (!controller.signal.aborted && !this.#closed) {
           this.#projection = { ...this.#projection, askUnavailable: true };
-          this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
+          this.#publish();
         }
       })
       .finally(() => {
@@ -409,7 +418,7 @@ export class Live implements PageBinding {
       agentActivity: this.#projection.agentActivity,
       messageStates: this.#projection.messageStates,
     };
-    this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
+    this.#publish();
   }
   async #publishViews(): Promise<void> {
     try {
@@ -421,8 +430,11 @@ export class Live implements PageBinding {
         const connection = open.connection;
         if (!this.#owns(open) || !connection || connection.admission !== admission) continue;
         try {
-          const asks = await pageAsks(value.own ?? {}, admission, (writer) =>
-            connection.objects.ownSigningKey(writer),
+          const asks = await pageAsks(
+            value.own ?? {},
+            admission,
+            (writer) => connection.objects.ownSigningKey(writer),
+            this.#verifiedAsks,
           );
           if (!this.#owns(open) || this.#pendingView) continue;
           await this.sessionOwner?.rememberTitle?.(
@@ -447,20 +459,21 @@ export class Live implements PageBinding {
             ...value,
             asks,
             threads,
-            threadPresentations: threads.map((thread) =>
-              projectThreadPresentation(
-                thread,
-                asks,
-                this.#statusSeen(),
-                admission.ownerDevice(this.registration.deviceId),
-              ),
-            ),
+            // Seen state and owner authority are read only when a thread needs them.
+            threadPresentations: threads.length
+              ? projectThreadPresentations(
+                  threads,
+                  asks,
+                  this.#statusSeen(),
+                  admission.ownerDevice(this.registration.deviceId),
+                )
+              : [],
             askUnavailable: this.#projection.askUnavailable ?? false,
             agentActivity: this.#projection.agentActivity,
             messageStates: this.#projection.messageStates,
           };
           this.#discussionVerified = true;
-          this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
+          this.#publish();
           this.#observe();
         } catch (error) {
           if (this.#owns(open))
@@ -528,7 +541,7 @@ export class Live implements PageBinding {
       this.ask?.close();
       this.ask = undefined;
       this.#pendingView = null;
-      this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
+      this.#publish();
       this.#connection = null;
       open.connection?.close();
       // A tunnel resync retains the verified Session and Remote port. Only a
@@ -695,16 +708,14 @@ export class Live implements PageBinding {
     seen.opened(matches[0]);
     this.#projection = {
       ...this.#projection,
-      threadPresentations: threads.map((thread) =>
-        projectThreadPresentation(
-          thread,
-          this.#projection.asks ?? [],
-          seen,
-          this.#connection?.admission.ownerDevice(this.registration.deviceId) ?? false,
-        ),
+      threadPresentations: projectThreadPresentations(
+        threads,
+        this.#projection.asks ?? [],
+        seen,
+        this.#connection?.admission.ownerDevice(this.registration.deviceId) ?? false,
       ),
     };
-    this.#listeners.forEach((listener) => listener.publish(structuredClone(this.#projection)));
+    this.#publish();
   }
   reconnect(): Promise<boolean> {
     if (this.#recovering) return this.#recovering;
@@ -731,9 +742,7 @@ export class Live implements PageBinding {
           // exact pending envelopes; replacement itself submits nothing.
           this.#writer = new Writer(this.#writer.key, () => this.#current);
           this.#error = null;
-          this.#listeners.forEach((listener) =>
-            listener.publish(structuredClone(this.#projection)),
-          );
+          this.#publish();
           this.#observe();
           return this.#owns(open) && !this.#error;
         } catch (error) {
@@ -837,6 +846,44 @@ export class Live implements PageBinding {
       ...(result.taskId === undefined ? {} : { taskId: result.taskId }),
       ...(result.childPage === undefined ? {} : { childPage: result.childPage }),
     };
+  }
+  canMetadata(): boolean {
+    return this.canWork();
+  }
+  async metadataRevision(shown: Pick<PageView, 'creator' | 'questions'>): Promise<string> {
+    const connection = await this.#settled();
+    // Capture through the same serialized owner as Export: a newly admitted revision cannot
+    // silently turn an old visible choice into an edit of newer metadata.
+    return connection.run(async () => {
+      if (!this.canMetadata() || connection !== this.#connection)
+        throw new Error('Page metadata editing unavailable');
+      const metadata = (value: Pick<PageView, 'creator' | 'questions'>) =>
+        canonical({ creator: value.creator, questions: value.questions });
+      if (metadata(shown) !== metadata(this.#admitted))
+        throw new SaveRefused(
+          'COLAB_STALE_BASE',
+          'Page metadata changed. Read it again before writing.',
+        );
+      return connection.objects.revision();
+    });
+  }
+  async metadata(
+    action: MetadataAction,
+    body: Record<string, unknown>,
+    expectedRevision: string,
+  ): Promise<void> {
+    if (!this.canMetadata()) throw new Error('Page metadata editing unavailable');
+    const c = await this.#current;
+    const operationId = crypto.randomUUID();
+    let result: SaveResult;
+    try {
+      result = await c.metadata(operationId, action, body, expectedRevision);
+    } catch (error) {
+      if (!(error instanceof Error) || c.active) throw error;
+      result = await this.#settleLost(c, operationId);
+    }
+    settled(result);
+    await this.#showsRevision(result.revision);
   }
   /** The serve counts every device but its own as "other". This device's own changes are not
    * other devices': it can combine them itself, so the page-size surface counts them as its own. */

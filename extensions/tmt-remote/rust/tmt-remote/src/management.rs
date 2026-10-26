@@ -13,6 +13,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+mod member_journal;
+
 type Result<T> = std::result::Result<T, RemoteError>;
 const READ_ONLY: &str = "REMOTE_MANAGEMENT_READ_ONLY";
 
@@ -67,13 +69,56 @@ enum CommittedChange {
     Authority(Vec<String>),
     Removed(Vec<String>),
 }
+enum Access<'a> {
+    Legacy,
+    Member(&'a crate::members::policy::Intent),
+    RemoteName(&'a str),
+}
+impl Access<'_> {
+    fn authorize(&self, c: &Connection, grant: &Grant, now: u64) -> Result<()> {
+        match self {
+            Self::Legacy => require_writable(c, grant),
+            Self::Member(intent) => intent.authorize(c, grant, now),
+            Self::RemoteName(remote) => {
+                let scope = crate::members::service::scope(
+                    c,
+                    crate::members::service::Caller::Browser(grant),
+                    now,
+                )?;
+                if scope.remote != *remote || !scope.administrator() {
+                    return Err(crate::members::service::denied());
+                }
+                Ok(())
+            }
+        }
+    }
+}
 enum Mutation {
+    Member(crate::members::policy::Intent),
+    RemoteName { remote: String, name: String },
     Setting { key: &'static str, value: Value },
     Rename { client: String, name: String },
     Revoke { client: String },
     Talk { client: String, enabled: bool },
     RemoveOthers { fingerprint: String },
 }
+impl Mutation {
+    fn access(&self) -> Access<'_> {
+        match self {
+            Self::Member(intent) => Access::Member(intent),
+            Self::RemoteName { remote, .. } => Access::RemoteName(remote),
+            _ => Access::Legacy,
+        }
+    }
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RemoteNameInput {
+    operation_id: String,
+    remote_id: String,
+    name: String,
+}
+
 fn invalid() -> RemoteError {
     RemoteError::new("REMOTE_INPUT_INVALID", "Invalid Remote management input.")
 }
@@ -121,7 +166,7 @@ fn refused(id: &str, code: &str) -> Value {
     json!({"operationId":id,"state":"refused","reason":code})
 }
 fn writable(connection: &Connection, grant: &Grant) -> Result<bool> {
-    connection.query_row("SELECT EXISTS(SELECT 1 FROM settings_designation d JOIN machine m ON m.singleton=d.singleton JOIN grants g ON g.client_id=d.client_id WHERE d.machine_id=m.machine_id AND d.client_id=?1 AND d.public_key=?2 AND g.public_key=?2)", params![grant.client_id,grant.public_key.as_slice()], |row|row.get(0)).map_err(database)
+    connection.query_row("SELECT EXISTS(SELECT 1 FROM settings_designation d JOIN machine m ON m.singleton=d.singleton JOIN grants g ON g.client_id=d.client_id JOIN member_machines mm ON mm.remote_id=m.machine_id AND mm.client_id=g.client_id JOIN members person ON person.remote_id=mm.remote_id AND person.member_id=mm.member_id WHERE person.role='owner' AND person.revoked_at_ms IS NULL AND d.machine_id=m.machine_id AND d.client_id=?1 AND d.public_key=?2 AND g.public_key=?2)", params![grant.client_id,grant.public_key.as_slice()], |row|row.get(0)).map_err(database)
 }
 fn require_writable(connection: &Connection, grant: &Grant) -> Result<()> {
     if writable(connection, grant)? {
@@ -146,7 +191,11 @@ fn receipt(connection: &Connection, client: &str, id: &str, now: u64) -> Result<
         Some((owner, outcome, deadline))
             if owner == client && i64::try_from(now).is_ok_and(|now| now < deadline) =>
         {
-            serde_json::from_str(&outcome).map_err(database)
+            member_journal::public(
+                connection,
+                client,
+                serde_json::from_str(&outcome).map_err(database)?,
+            )
         }
         _ => Err(RemoteError::new(
             "REMOTE_MANAGEMENT_UNAVAILABLE",
@@ -157,7 +206,7 @@ fn receipt(connection: &Connection, client: &str, id: &str, now: u64) -> Result<
 fn settle(tx: &Transaction<'_>, id: &str, outcome: &Value) -> Result<()> {
     tx.execute(
         "UPDATE management_receipts SET outcome=?2 WHERE id=?1",
-        params![id, outcome.to_string()],
+        params![id, member_journal::settle(tx, id, outcome)?.to_string()],
     )
     .map_err(database)?;
     Ok(())
@@ -199,6 +248,60 @@ enum EffectStage {
     Committed,
 }
 
+fn setting_outcome(
+    root: &std::path::Path,
+    id: &str,
+    key: &str,
+    value: Value,
+    observe: &mut impl FnMut(EffectStage),
+    result: impl FnOnce(settings::RemoteSettings) -> Value,
+) -> Value {
+    let mut touched = false;
+    let saved = settings::set_observed(root, key, value, |stage| {
+        if stage == settings::WriteStage::BeforeTouch {
+            touched = true;
+        }
+        observe(match stage {
+            settings::WriteStage::BeforeTouch => EffectStage::BeforeTouch,
+            settings::WriteStage::Truncated => EffectStage::Truncated,
+            settings::WriteStage::Written => EffectStage::Written,
+            settings::WriteStage::Synced => EffectStage::Synced,
+        });
+        Ok(())
+    });
+    match saved {
+        Ok(loaded) => {
+            json!({"operationId":id,"state":"committed","result":result(loaded),"sessionEnded":false})
+        }
+        Err(_) if !touched => refused(id, "REMOTE_SETTINGS_UNAVAILABLE"),
+        Err(_) => unknown(id),
+    }
+}
+
+pub(crate) fn designation_in(c: &Connection) -> Result<Option<Grant>> {
+    let client: Option<String> = c.query_row("SELECT d.client_id FROM settings_designation d JOIN machine m ON m.singleton=d.singleton JOIN grants g ON g.client_id=d.client_id WHERE d.machine_id=m.machine_id AND d.public_key=g.public_key", [], |r| r.get(0)).optional().map_err(database)?;
+    client
+        .map(|id| grant_in(c, &id))
+        .transpose()
+        .map(Option::flatten)
+}
+pub(crate) fn designate_in(c: &Connection, client: &str, origin: &str, now: u64) -> Result<Grant> {
+    let grant = grant_in(c, client)?.ok_or_else(invalid)?;
+    if grant.kind != "browser" || grant.origin != origin || !grant.live_at(now) {
+        return Err(invalid());
+    }
+    c.execute("INSERT INTO settings_designation SELECT 1,machine_id,?1,?2 FROM machine WHERE singleton=1 ON CONFLICT(singleton) DO UPDATE SET machine_id=excluded.machine_id,client_id=excluded.client_id,public_key=excluded.public_key",params![client,grant.public_key.as_slice()]).map_err(database)?;
+    crate::members::sync_designation(c)?;
+    Ok(grant)
+}
+pub(crate) fn undesignate_in(c: &Connection) -> Result<usize> {
+    let removed = c
+        .execute("DELETE FROM settings_designation", [])
+        .map_err(database)?;
+    crate::members::sync_designation(c)?;
+    Ok(removed)
+}
+
 impl Store {
     /// Local owner authority only; this method is not a signed operation.
     pub fn designate(&mut self, client: &str, origin: &str, now: u64) -> Result<Grant> {
@@ -206,12 +309,7 @@ impl Store {
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(database)?;
-        let grant = grant_in(&tx, client)?.ok_or_else(invalid)?;
-        if grant.kind != "browser" || grant.origin != origin || !grant.live_at(now) {
-            return Err(invalid());
-        }
-        tx.execute("INSERT INTO settings_designation SELECT 1,machine_id,?1,?2 FROM machine WHERE singleton=1 ON CONFLICT(singleton) DO UPDATE SET machine_id=excluded.machine_id,client_id=excluded.client_id,public_key=excluded.public_key",params![client,grant.public_key.as_slice()]).map_err(database)?;
-        crate::members::sync_designation(&tx)?;
+        let grant = designate_in(&tx, client, origin, now)?;
         tx.commit().map_err(database)?;
         Ok(grant)
     }
@@ -220,9 +318,7 @@ impl Store {
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(database)?;
-        tx.execute("DELETE FROM settings_designation", [])
-            .map_err(database)?;
-        crate::members::sync_designation(&tx)?;
+        undesignate_in(&tx)?;
         tx.commit().map_err(database)
     }
     /// SQL keyset pagination happens before any grants are materialized. The cursor
@@ -235,6 +331,12 @@ impl Store {
         if !(1..=crate::limits::MANAGEMENT_PAGE).contains(&input.limit) {
             return Err(invalid());
         }
+        let grant = grant_in(&self.connection, caller)?.ok_or_else(invalid)?;
+        let access = crate::members::service::scope(
+            &self.connection,
+            crate::members::service::Caller::Browser(&grant),
+            now_ms()?,
+        )?;
         let after = match input.cursor {
             None => String::new(),
             Some(cursor) => {
@@ -253,13 +355,18 @@ impl Store {
         let mut query = self
             .connection
             .prepare(&format!(
-                "SELECT {} FROM grants WHERE disabled=0 AND client_id>?1 ORDER BY client_id LIMIT ?2",
+                "SELECT {} FROM grants WHERE disabled=0 AND client_id>?1 AND (?3 IS NULL OR EXISTS(SELECT 1 FROM member_machines mm WHERE mm.client_id=grants.client_id AND mm.remote_id=?4 AND mm.member_id=?3)) ORDER BY client_id LIMIT ?2",
                 crate::store::GRANT_COLUMNS
             ))
             .map_err(database)?;
         let mut rows = query
             .query_map(
-                params![after, (input.limit + 1) as i64],
+                params![
+                    after,
+                    (input.limit + 1) as i64,
+                    access.member,
+                    access.remote
+                ],
                 crate::store::grant_row,
             )
             .map_err(database)?
@@ -287,9 +394,10 @@ impl Store {
         operation: &str,
         digest: &[u8],
         now: u64,
+        access: Access<'_>,
     ) -> Result<Option<Value>> {
         let tx = self.authorized(grant, now)?;
-        require_writable(&tx, grant)?;
+        access.authorize(&tx, grant, now)?;
         if tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM operations WHERE id=?1)",
@@ -340,7 +448,7 @@ impl Store {
                 i64::try_from(grant.revision).map_err(database)?,
                 safe_time(now)?,
                 safe_time(now.checked_add(journal::RECOVERY).ok_or_else(invalid)?)?,
-                unknown(id).to_string()
+                member_journal::stored(&tx, grant, unknown(id))?.to_string()
             ],
         )
         .map_err(database)?;
@@ -370,32 +478,58 @@ impl Store {
     ) -> Result<(Value, Option<CommittedChange>)> {
         let root = self.data_root.clone();
         let (tx, now) = self.authorized_at(grant, now_ms)?;
-        require_writable(&tx, grant)?;
+        mutation.access().authorize(&tx, grant, now)?;
         receipt(&tx, &grant.client_id, id, now)?; // Immutable deadline also fences delayed effects.
         let (outcome, changed) = match mutation {
-            Mutation::Setting { key, value } => {
-                let mut touched = false;
-                let saved = settings::set_observed(&root, key, value, |stage| {
-                    if stage == settings::WriteStage::BeforeTouch {
-                        touched = true;
-                    }
-                    observe(match stage {
-                        settings::WriteStage::BeforeTouch => EffectStage::BeforeTouch,
-                        settings::WriteStage::Truncated => EffectStage::Truncated,
-                        settings::WriteStage::Written => EffectStage::Written,
-                        settings::WriteStage::Synced => EffectStage::Synced,
-                    });
-                    Ok(())
-                });
-                match saved {
-                    Ok(loaded) => (
-                        json!({"operationId":id,"state":"committed","result":{"settings":settings_json(&loaded)},"sessionEnded":false}),
-                        None,
-                    ),
-                    Err(_) if !touched => (refused(id, "REMOTE_SETTINGS_UNAVAILABLE"), None),
-                    Err(_) => (unknown(id), None),
+            Mutation::Member(intent) => match intent.prepare(&tx, grant, now) {
+                Ok(prepared) => {
+                    let change = prepared.apply(now)?;
+                    let ended = change.clients.contains(&grant.client_id);
+                    let clients = change.clients;
+                    (
+                        json!({"operationId":id,"state":"committed","result":{"member":crate::members::service::Person::from(change.member)},"sessionEnded":ended}),
+                        Some(if clients.is_empty() {
+                            CommittedChange::Name
+                        } else {
+                            CommittedChange::Authority(clients)
+                        }),
+                    )
                 }
+                Err(error)
+                    if matches!(
+                        error.code.as_str(),
+                        "REMOTE_MEMBER_CONFLICT"
+                            | "REMOTE_MEMBER_OWNER_REQUIRED"
+                            | "REMOTE_INPUT_INVALID"
+                    ) =>
+                {
+                    (refused(id, &error.code), None)
+                }
+                Err(error) => return Err(error),
+            },
+            Mutation::RemoteName { remote, name } => {
+                let outcome = setting_outcome(
+                    &root,
+                    id,
+                    "remoteName",
+                    json!(name),
+                    &mut observe,
+                    |loaded| json!({"remote":{"remoteId":remote,"displayName":loaded.remote_name()}}),
+                );
+                let changed = (outcome["state"] == "committed").then_some(CommittedChange::Name);
+                (outcome, changed)
             }
+            Mutation::Setting { key, value } => (
+                setting_outcome(
+                    &root,
+                    id,
+                    key,
+                    value,
+                    &mut observe,
+                    |loaded| json!({"settings":settings_json(&loaded)}),
+                ),
+                None,
+            ),
             Mutation::Rename { client, name } => {
                 let before = grant_in(&tx, &client)?;
                 match rename_in(&tx, &client, &name) {
@@ -498,6 +632,7 @@ pub(crate) fn append(
     permit: &MessagePermit,
     devices: &crate::devices::Devices,
     firestore: &dyn crate::readiness::FirestoreEvidenceSource,
+    member_observations: &dyn crate::members::observations::MemberObservationSource,
 ) -> Result<Vec<u8>> {
     if permit.message.payload.len() > crate::limits::MANAGEMENT_INPUT_BYTES {
         return Err(invalid());
@@ -508,6 +643,9 @@ pub(crate) fn append(
     let envelope = permit.message.envelope();
     let operation = envelope.operation;
     match operation {
+        "remote.members.list" | "remote.members.machines" => {
+            return crate::members::reads::signed(permit, member_observations);
+        }
         "remote.settings.show" => {
             let include_firestore = permit.message.input == json!({"firestore":true});
             if !include_firestore && permit.message.input != json!({}) {
@@ -557,7 +695,24 @@ pub(crate) fn append(
                     Ok(value)
                 })
                 .collect::<Result<Vec<_>>>()?;
-            permit.revalidate()?;
+            permit.with_store(|store| {
+                let current = crate::members::service::scope(
+                    &store.connection,
+                    crate::members::service::Caller::Browser(&permit.grant),
+                    now_ms()?,
+                )?;
+                if let Some(member) = current.member {
+                    for row in &rows {
+                        if store
+                            .member_for_client(&row.client_id)?
+                            .is_none_or(|m| m.remote_id != current.remote || m.member_id != member)
+                        {
+                            return Err(crate::members::service::denied());
+                        }
+                    }
+                }
+                Ok(())
+            })?;
             return permit.response(&json!({"devices":values,"nextCursor":next}));
         }
         "remote.devices.remove-others.preview" => {
@@ -590,6 +745,23 @@ pub(crate) fn append(
         _ => {}
     }
     let (id, mutation) = match operation {
+        "remote.members.rename" | "remote.members.sending" | "remote.members.revoke" => {
+            let (id, intent) = crate::members::policy::parse(operation, &permit.message.input)?;
+            (id, Mutation::Member(intent))
+        }
+        "remote.name.set" => {
+            let input: RemoteNameInput = decode(&permit.message.input)?;
+            if !canonical::is_core_id(&input.remote_id) || !canonical::device_name(&input.name) {
+                return Err(invalid());
+            }
+            (
+                input.operation_id,
+                Mutation::RemoteName {
+                    remote: input.remote_id,
+                    name: input.name,
+                },
+            )
+        }
         "remote.settings.set" => {
             let input: SettingInput = decode(&permit.message.input)?;
             let (key, value) = match input.setting.as_str() {
@@ -661,7 +833,14 @@ pub(crate) fn append(
     }
     let digest = journal::intent(&permit.message)?;
     let previous = permit.with_store(|store| {
-        store.management_adopt(&permit.grant, &id, operation, &digest, now_ms()?)
+        store.management_adopt(
+            &permit.grant,
+            &id,
+            operation,
+            &digest,
+            now_ms()?,
+            mutation.access(),
+        )
     })?;
     let outcome = if let Some(outcome) = previous {
         outcome

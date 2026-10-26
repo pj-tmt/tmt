@@ -1,5 +1,8 @@
 //! One consent decision over installed official extensions; activation keeps its existing owner.
-use super::{INSTALLABLE_EXTENSIONS, failure, installed};
+use super::{
+    failure,
+    setup::{self, Installation},
+};
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
 use std::{
@@ -7,6 +10,7 @@ use std::{
     path::Path,
 };
 
+pub(crate) mod complete;
 mod protocol;
 pub(crate) use protocol::{LIMIT, Plan, parse_results};
 use tmt_adapters::native_install::{self, Product};
@@ -23,13 +27,14 @@ fn plan_with(
 ) -> Plan {
     let mut outcomes = Vec::new();
     let mut pending = Vec::new();
-    for &product in INSTALLABLE_EXTENSIONS {
+    for entry in setup::inventory(prefix) {
+        let product = entry.product;
         let result: Result<Option<Value>, Failure> = (|| {
-            if !installed(product, prefix)? {
-                return Ok(None);
-            }
-            let current = native_install::inspect_product_prefix(product, prefix)
-                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+            let current = match &entry.installation {
+                Installation::Missing => return Ok(None),
+                Installation::Managed(current) => current,
+                _ => return entry.plan().map(|_| None),
+            };
             let version = current.state.version.to_string();
             if current.state.pinned_version.is_some() {
                 return Ok(Some(pinned(product, &version)));
@@ -93,38 +98,12 @@ pub(crate) fn execute(planning: bool, progress: bool, mode: OutputMode) -> io::R
                     1,
                 )
             })?;
-        let sender = std::cell::RefCell::new(crate::native_progress::child::Sender::default());
         let products = settle(
             Vec::new(),
             plan.pending,
             |_| Ok(true),
             |product, previous, selected| {
-                let observe = |event: native_install::ProgressEvent<'_>| {
-                    if progress {
-                        sender.borrow_mut().observe(product, event);
-                    }
-                };
-                let outcome = super::list_upgrade::upgrade_at_observed(
-                    product,
-                    current.prefix(),
-                    None,
-                    None,
-                    false,
-                    Some((previous, selected)),
-                    &observe,
-                );
-                if progress {
-                    let event = match &outcome {
-                        Ok(Some((document, _))) => {
-                            crate::native_progress::child::UpgradeProgress::Settled {
-                                warning: document["skills"]["status"] == "warning",
-                            }
-                        }
-                        _ => crate::native_progress::child::UpgradeProgress::Failed,
-                    };
-                    sender.borrow_mut().send(product, event);
-                }
-                outcome
+                apply_pending(product, current.prefix(), previous, selected, progress)
             },
         );
         let status = u8::from(products.iter().any(|product| product["status"] == "failed"));
@@ -137,6 +116,44 @@ pub(crate) fn execute(planning: bool, progress: bool, mode: OutputMode) -> io::R
         }
         Err(error) => error.publish(mode),
     }
+}
+
+pub(super) fn apply_pending(
+    product: Product,
+    prefix: &Path,
+    previous: &str,
+    selected: &str,
+    progress: bool,
+) -> Result<super::Outcome, Failure> {
+    let sender = std::cell::RefCell::new(crate::native_progress::child::Sender::default());
+    let observe = |event: native_install::ProgressEvent<'_>| {
+        if progress {
+            sender.borrow_mut().observe(product, event);
+        }
+    };
+    let outcome = super::list_upgrade::upgrade_at_observed(
+        product,
+        prefix,
+        None,
+        None,
+        false,
+        Some((previous, selected)),
+        &observe,
+    );
+    if progress {
+        sender.borrow_mut().send(
+            product,
+            match &outcome {
+                Ok(Some((document, _))) => {
+                    crate::native_progress::child::UpgradeProgress::Settled {
+                        warning: document["skills"]["status"] == "warning",
+                    }
+                }
+                _ => crate::native_progress::child::UpgradeProgress::Failed,
+            },
+        );
+    }
+    outcome
 }
 
 fn question(pending: &[(Product, String, String)]) -> String {

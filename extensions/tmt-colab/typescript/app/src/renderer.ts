@@ -121,19 +121,36 @@ export interface RenderSnapshot {
   readonly source: string;
 }
 
-export async function captureRender(source: string): Promise<RenderSnapshot> {
+/** SHA-256 of the exact source UTF-8 bytes, which bind and every in-place update carry. */
+async function digestSource(source: string): Promise<string> {
   const bytes = new TextEncoder().encode(source);
   if (bytes.byteLength > MAX_RENDER_SOURCE_BYTES) throw new Error('Page exceeds preview limit');
   const digest = await crypto.subtle.digest('SHA-256', bytes);
-  const sourceDigest = [...new Uint8Array(digest)]
-    .map((v) => v.toString(16).padStart(2, '0'))
-    .join('');
+  return [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
+export async function captureRender(source: string): Promise<RenderSnapshot> {
+  const sourceDigest = await digestSource(source);
   return Object.freeze({
     renderId: `${crypto.randomUUID()}:${sourceDigest}`,
     sourceDigest,
     source,
   });
 }
+
+/** How long the parent waits for the frame to apply a source in place before it remounts. */
+export const SOURCE_UPDATE_MS = 2000;
+/** The part of the frame key the source decides (#5022). A page whose text could hold a script, an
+ * inline handler or the runtime marker is keyed by its whole source, so every edit of it gets a
+ * fresh frame; any other page only by whether it uses the design system, which bind fixes. The text
+ * test over-approximates the frame's parsed check: a false match only costs a remount. */
+export function sourceFrameKey(source: string): string {
+  if (/<script|\bon[a-z]+\s*=|tmt-colab-runtime/i.test(source)) return `scripted:${source}`;
+  return /tmt-ui-|<tmt-icon|tmt-starter/i.test(source) ? 'design' : 'plain';
+}
+/** What an in-place update came to: the frame applied it, the page needs a fresh frame, or a newer
+ * update or the end of the render replaced it. */
+export type SourceUpdate = 'applied' | 'remount' | 'superseded';
 
 /** Short hosted routes share the root build-owned renderer; mounted routes stay mount-relative. */
 export function rendererUrl(baseUri: string): string {
@@ -209,6 +226,9 @@ export async function mountRenderer(
   images(input: DocumentImageInput): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
   anchorRectangle(id: string): SelectionRect | undefined;
+  /** Apply a new source to the open frame (#5022). On `remount` the caller mounts a fresh frame,
+   * exactly as for a source change before in-place updates. */
+  update(source: string): Promise<SourceUpdate>;
   /** Stop the old channel while its frame preserves layout until replacement. */
   release(): void;
   destroy(): void;
@@ -232,6 +252,8 @@ export async function mountRenderer(
   let imageRequestId = '';
   let pendingReveal: { requestId: string; settle(found: boolean | undefined): void } | undefined;
   const readyWaiters: (() => void)[] = [];
+  let pendingUpdate: { requestId: string; settle(result: SourceUpdate): void } | undefined;
+  let updates = 0;
   let pendingScroll: { top: number; until: number; scrollY: number } | undefined;
   let imageResolver: DocumentImages | undefined;
   const images = (input: DocumentImageInput) => {
@@ -369,6 +391,7 @@ export async function mountRenderer(
   const release = () => {
     if (stopped) return;
     pendingReveal?.settle(undefined);
+    pendingUpdate?.settle('superseded');
     pendingScroll = undefined;
     readyWaiters.splice(0).forEach((resume) => resume());
     imageResolver?.close();
@@ -549,9 +572,24 @@ export async function mountRenderer(
     images(imageInput);
     options.onState('ready');
   };
+  // A message the port cannot deliver may have been the answer to an update: mount afresh.
+  channel.port1.onmessageerror = () => pendingUpdate?.settle('remount');
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
     if (stopped || !ready) return;
     const value = event.data as Record<string, unknown> | null;
+    if (value?.type === 'colab.render.source-applied') {
+      // Untrusted like every frame claim: a forged success leaves at most stale content, which the
+      // next update or remount replaces.
+      const pending = pendingUpdate;
+      if (
+        pending &&
+        value.requestId === pending.requestId &&
+        ((Object.keys(value).length === 3 && value.ok === true) ||
+          (Object.keys(value).length === 4 && value.ok === false && value.reason === 'remount'))
+      )
+        pending.settle(value.ok === true ? 'applied' : 'remount');
+      return;
+    }
     if (value?.type === 'colab.render.images') {
       if (
         Object.keys(value).length !== 4 ||
@@ -1199,8 +1237,43 @@ export async function mountRenderer(
       enabled,
     });
   };
+  const update = async (source: string): Promise<SourceUpdate> => {
+    if (stopped) return 'superseded';
+    if (!ready) return 'remount';
+    const turn = ++updates;
+    let sourceDigest: string;
+    try {
+      sourceDigest = await digestSource(source);
+    } catch {
+      return 'remount';
+    }
+    if (stopped || turn !== updates) return 'superseded';
+    pendingUpdate?.settle('superseded');
+    const requestId = crypto.randomUUID();
+    return new Promise<SourceUpdate>((resolve) => {
+      const timer = setTimeout(() => settle('remount'), SOURCE_UPDATE_MS);
+      const settle = (result: SourceUpdate) => {
+        clearTimeout(timer);
+        if (pendingUpdate?.requestId === requestId) pendingUpdate = undefined;
+        if (result === 'applied') frame.dataset.sourceDigest = sourceDigest;
+        resolve(result);
+      };
+      pendingUpdate = { requestId, settle };
+      try {
+        channel.port1.postMessage({
+          type: 'colab.render.source',
+          requestId,
+          sourceDigest,
+          source,
+        });
+      } catch {
+        settle('remount');
+      }
+    });
+  };
   return {
     snapshot,
+    update,
     highlight,
     slots,
     questions,

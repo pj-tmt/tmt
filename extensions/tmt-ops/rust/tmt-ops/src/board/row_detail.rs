@@ -149,17 +149,18 @@ pub(super) enum Capture {
     NoAnswer,
 }
 impl Capture {
+    pub(super) fn delivery_fallback(&self) -> &'static str {
+        match self {
+            Self::Pending | Self::Bound => "⠹ working…",
+            Self::Answered { .. } | Self::NoAnswer => "✓ delivered",
+        }
+    }
+
     pub(super) fn response_id(&self) -> Option<&str> {
         match self {
             Self::Answered { response_id, .. } => response_id.as_deref(),
             _ => None,
         }
-    }
-
-    /// Only Core's opaque link can identify a repeated answer. Legacy captures
-    /// without a link always stay visible, even with identical text and times.
-    pub(super) fn first<'a>(&'a self, seen: &mut std::collections::BTreeSet<&'a str>) -> bool {
-        self.response_id().is_none_or(|id| seen.insert(id))
     }
 
     fn read(send: &Value) -> Option<Self> {
@@ -187,19 +188,6 @@ impl Capture {
             }),
             "no_answer" => Some(Self::NoAnswer),
             _ => None,
-        }
-    }
-    pub(super) fn markdown(&self) -> String {
-        match self {
-            Self::Pending | Self::Bound => "⠹ working…".into(),
-            Self::NoAnswer => "No turn output was captured for this message.".into(),
-            Self::Answered {
-                text, truncated, ..
-            } => format!(
-                "turn output{}\n\n{}",
-                if *truncated { " · truncated" } else { "" },
-                super::notes::sanitize(text).trim_end_matches('\n')
-            ),
         }
     }
 }
@@ -286,6 +274,19 @@ fn age(at: Option<u64>, now: u64) -> String {
 }
 
 impl App {
+    /// Source keys use the detail's presentation squad, not its dispatch room.
+    pub(super) fn message_squad<'a>(&'a self, target: &'a RowTarget) -> Option<&'a str> {
+        match target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member { .. }) => Some(
+                self.target_row(target)?["squad"]
+                    .as_str()
+                    .unwrap_or("Common pool"),
+            ),
+            RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => Some(squad),
+            RowTarget::Workspace(_) => None,
+        }
+    }
+
     pub(super) fn row_detail(&self, target: &RowTarget, visible: &[&str]) -> Option<Detail> {
         let row = match target {
             RowTarget::Workspace(_) => self.target_row(target)?,
@@ -346,15 +347,13 @@ impl App {
                 detail.add(&label, Some(&text), Role::Muted);
             }
         }
-        let (squad, id) = match target {
-            RowTarget::Workspace(super::workspace::OpsTarget::Member { identity_id, .. }) => (
-                row["squad"].as_str().unwrap_or("Common pool"),
-                identity_id.as_str(),
-            ),
-            RowTarget::Workspace(_) => return None,
-            RowTarget::Member { squad, id, .. } | RowTarget::Lead { squad, id, .. } => {
-                (squad.as_str(), id.as_str())
+        let squad = self.message_squad(target)?;
+        let id = match target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member { identity_id, .. }) => {
+                identity_id.as_str()
             }
+            RowTarget::Workspace(_) => return None,
+            RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => id.as_str(),
         };
         let sender = self.view.as_ref().and_then(|view| view.me_id.clone());
         // The flat list discusses the acquired request the member is waiting on,
@@ -669,6 +668,9 @@ impl App {
         let Some(owner) = detail.agent.as_ref() else {
             return false;
         };
+        let held =
+            self.held_conversation_timeline(&(Some(owner.sender.clone()), owner.agent.clone()));
+        let timeline = held.as_ref().and_then(|page| page.timeline.as_ref());
         !self
             .row_details
             .agent_finals
@@ -679,7 +681,12 @@ impl App {
                 && (self.row_details.sent_stale
                     || !self.row_details.agent_sent.iter()
                         .any(|(key, _)| key == &sent_key(owner))))
-            || detail.messages().iter().any(|message| !message.acquired)
+            || detail.messages().iter().any(|message| {
+                !message.acquired
+                    && message.key.as_ref().is_none_or(|key| {
+                        super::selected_conversation::needs_request_body(key, timeline)
+                    })
+            })
     }
 
     /// The conversation's agent, until its own finals have been read once.
@@ -1129,6 +1136,8 @@ pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
     };
     let areas = modal.areas(body, [body.width, body.height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+    app.peek_areas
+        .set_dialog(super::app::Overlay::ReplyReader, Some(areas.outer));
     reader.source_area.set(Some(areas.content));
     let mut scroll = reader.scroll.borrow_mut();
     if let Some(selection) = &reader.selection {

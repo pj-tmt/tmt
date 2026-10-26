@@ -23,7 +23,8 @@ and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
 
 `@tmt/browser-ui/shell-host` exports the app router and route slots, `@tmt/browser-ui/theme` the
-stored theme choice. Products import the leaf only through these entries, never by a path into
+stored theme choice and `@tmt/browser-ui/search` the [search-provider registry](#search-providers).
+Products import the leaf only through these entries, never by a path into
 `design/browser-ui`; the test-only `@tmt/browser-ui/test-fixtures/*` (files under
 `test/fixtures/`, imported with their extension) and `@tmt/browser-ui/gallery/frames` serve
 product tests and stay out of every production `src`. The TypeScript boundary test
@@ -107,7 +108,10 @@ borders remain 1px. This supersedes earlier shadow and opacity proposals only.
 Input autocomplete remains a host-owned listbox. No native select or new font loading enters this leaf.
 
 The shell keeps its full 232px rail on wide screens, ignoring older collapse preferences.
-There is no collapse toggle; Settings stays at the bottom. The phone menu and drawer are unchanged.
+There is no collapse toggle. The rail owns one scroll column; only its brand stays sticky,
+with a rule while content scrolls underneath. Settings follows navigation in normal flow:
+at the bottom when content fits, reachable by scrolling when it does not. The phone
+menu and drawer retain their behavior and the same single scroll owner.
 The shell and heading metrics follow the concept website: 232px rail, 45px module
 rows, 33px sub-items and a 45px brand mark. Body and display text use
 `Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or
@@ -157,12 +161,15 @@ and `./react` entries. The root installs `ShellControls.setCommonControls({ open
 `ShellHost` delegates that setter, and `BrowserShell` accepts `commonControls`. These bindings
 belong to the root, never a route module. A route calls `ShellSlot.setTopBar()` and receives
 only `readonly actions: HTMLElement`; React's `BrowserTopBar({ actions })` portals into that
-same renderer. Common controls follow module actions in the order Theme, Search, Remote.
+same renderer. Search is the first control in the left group, after the phone navigation
+button and before any host content. Its one hit, hover and focus box contains the icon and
+platform shortcut hint; the hint is hidden below 640px. Module actions stay in the right group,
+followed by Theme and Remote. This far-left placement is Ben’s approved deviation from the website.
 No title or avatar is drawn in this bar; the host's content supplies its real `h1`.
 
 `openSearch(opener)` connects the one existing product switcher and its focus return. The
-root supplies module/section navigation entries; the leaf reads no page or provider data and
-creates no second search surface. The platform shortcut admits a trusted, fresh Command/Ctrl+K
+root supplies module/section navigation entries through the [search registry](#search-providers);
+the leaf reads no page or provider data and creates no second search surface. The platform shortcut admits a trusted, fresh Command/Ctrl+K
 outside an editor; untrusted, composing, repeated or modified requests do nothing. Product
 switcher bridges and module-bar adoption are separate owning changes, not shipped by the leaf.
 
@@ -174,7 +181,13 @@ counts are rejected before replacing the projection. Updates preserve
 the native link and its focus. Theme reuses the existing browser preference and menu owner;
 System follows the device and blocked storage still applies the current choice.
 
-The root must install common bindings before adopting the new bar. Route departure clears
+The root must install common bindings before adopting the new bar. `ShellControls.topBarReady()`
+reads whether common controls are installed and the shell is live. `ShellSlot.topBarReady()`
+also returns false for a replaced route. React's `useTopBarReady()` reads the hosted slot or
+`BrowserShell` controls once per render, and returns false outside a shell. A module can keep
+its legacy header when the probe is false; `setTopBar()` still throws when controls are absent.
+There is no readiness subscription: the root installs controls before mounting a route and
+replaces the route when clearing them. Route departure clears
 the action slot and transient common UI; root disposal releases listeners and pending route
 loads cannot install a new header. Legacy header/tools slots remain for existing consumers
 until their owning adoption removes them. Gallery `?frame=topbar&renderer=react|native|hosted`
@@ -209,7 +222,8 @@ gradient ids.
 
 Notice tone, visible state label, mark and announcement are explicit. No state,
 health, permission or recovery inference occurs. Marks are decorative because
-visible state words carry their meaning.
+visible state words carry their meaning. Notice eyebrows use uppercase 10px/400 body type with
+1.8px tracking; state words retain the host's body type. Other eyebrow contexts are unchanged.
 Optional `variant="tinted"` puts waiting, working, review and blocked notices on their existing
 soft tone surfaces; muted stays on the sheet. Static hosts set the data-tinted presence attribute
 only for tinted notices and omit it for neutral. The default `neutral` keeps the existing markup
@@ -540,7 +554,9 @@ and BrowserDialog also blur the page behind by 3px.
 Optional `headerActions` renders host-owned controls immediately before Close in DOM
 and keyboard order, with shared spacing. Omitted, it adds no element or layout change;
 footer `actions` is separate. Header actions retain their own labels, busy/admission
-state and effects. The leaf does not infer saving or change dismissal/focus ownership.
+state and effects. In both Drawer and Panel, BrowserAction controls in this slot use 11px/620
+body type, 1.35 line height, 7px/10px padding and the canonical 8px radius by default.
+Explicit host control styles retain precedence. Footer/body actions and Close retain their geometry. The leaf does not infer saving or change dismissal/focus ownership.
 
 The host supplies `open`, title/caption, children and `onDismiss(reason, event)`.
 It owns busy admission, drafts, attempts and commands. An optional `notice` slot
@@ -552,7 +568,9 @@ modified or composing keys do not dismiss. Close, backdrop and Escape requests
 carry their original events. Focus returns to the connected visible opener, or
 the host's supplied fallback when the opener disappears.
 
-Menu uses a native top-layer surface with a transparent catching backdrop and
+Menu retains its host row type and padding, with a 4px token inset inside the 8px popup and
+6px row corners so first/last keyboard focus frames stay inside the surface. React and native
+hosts share that presentation. Menu uses a native top-layer surface with a transparent catching backdrop and
 one open menu per document. It closes before invoking the host command, returning
 focus before another dialog opens. Arrows, Home/End and typeahead move among
 enabled items; Tab closes. The host owns checked state, command keys, disabled
@@ -640,6 +658,30 @@ JSX and original SyntheticEvent callbacks. The shared icon-tooltip binding is
 internal; IconAction's public API, busy fence, activation and presentation are
 unchanged. The gallery's `?frame=menu-host` exercises actual React/native parity,
 updates, replacement and drawer nesting in both themes.
+
+## Search providers
+
+`@tmt/browser-ui/search` is the seam of the global search (#4841): `createSearchRegistry()` and
+the provider, snapshot, item and group types. It has no import, no UI, no query and no keyboard
+handling. A provider has a stable `key`, a `label` (the group heading), a synchronous
+`getSnapshot()` and `subscribe(listener)` returning its unsubscribe. A snapshot is `unavailable`
+(no admitted current view: not read yet, refused, not paired) or `ready` with items, where an empty
+list is a confirmed empty. An item has a `key` unique in its snapshot, a `label`, an optional
+`detail`, `words` and glyph `icon` name, and an `href`: a route of this origin (`/path` with an
+optional query or hash; other schemes, a `//` or `/\` prefix and whitespace are refused). There is
+no fetch, command or activation callback; the host's own navigation opens the `href`.
+
+The registry keeps providers in registration order and re-reads a snapshot only after its provider
+notifies; the other groups keep the objects they had. `register(provider)` admits the current snapshot first and returns the withdrawal; a key
+registered twice or an invalid snapshot throws and changes nothing. `groups()` returns the same
+array until something changes, and a group whose snapshot is invalid or unreadable is
+`unavailable`, never rows the provider did not admit. `find(groupKey, itemKey)` returns the item as
+the latest snapshot has it, so a selection of a withdrawn or replaced item finds nothing.
+`subscribe` notifies after any change; `dispose()` withdraws every provider and listener, and later
+calls are inert. A provider's snapshots must already be filtered by the surface's own access:
+the registry adds neither reads nor authorization. The dialog, its query and its ranking belong to
+the host that renders the groups; `searchSnapshotProblem` names why a snapshot is refused, for a
+provider's own tests.
 
 ## Chips
 
@@ -744,7 +786,9 @@ state, a React component.
   and a label that states the value.
 - **Glyph.** `createIcon(name)` (from `@tmt/browser-ui/glyph`, outside the static graph because it reads the
   shell's icon data) returns a `tmt-ui-glyph`: a line icon from the shell's icon set,
-  drawn in the colour of its text and hidden from assistive tech.
+  drawn at 1em in the colour of its text and hidden from assistive tech. `link` and `info` use the
+  pinned Lucide Link/Info nodes; they do not expand the module-describe icon allowlist.
+  `?frame=glyphs` shows both at 14px and 24px.
 - **Page head.** `tmt-ui-page-head` holds a `tmt-ui-page-title` (the display face, the page's
   first read) over a `tmt-ui-page-subtitle`. Static only.
 - **Stats strip.** `tmt-ui-stats` is one bordered strip of `tmt-ui-stat` cells: a mark or glyph, a

@@ -16,6 +16,8 @@ caller/target and CLI `target` selects recorded servers.
   A new name (create, add, `name`/`this`, rename) is at most 64 Unicode scalar values after
   that trim and NFKC, else `INVALID_NAME` naming the limit; an identity that already holds a
   longer name keeps it and stays listable and addressable (`validate_existing_name`).
+- `tmt-core::identity::canonical_identity_id` owns the lowercase RFC 4122 UUIDv4
+  predicate shared by UUID target admission and identity-owned note paths.
 - Metadata and self-reported status are descriptive, untrusted data with no permission,
   availability or prompt authority. Expired status stays inspectable but is not current.
 - `identity_metadata` owns validation and conditional expectation evaluation; storage
@@ -170,11 +172,16 @@ delivery. They install and launch nothing.
   and CLI config/profile overrides refuse rather than guess across homes.
 - `focus` needs present evidence but no running agent and switches only the invoker's own
   client (never a bare "current client"); it sends no input. Its target may be a name,
-  pane or canonical lowercase UUIDv4. Only Focus treats a UUID as an identity before
-  name/pane parsing: a missing, retired or inactive UUID refuses without falling back
-  to a UUID-shaped name. UUID and name lookup select the recorded recipient
+  pane or canonical lowercase UUIDv4. Focus and capture-only check treat a UUID as an
+  identity before name/pane parsing: a missing, retired or inactive UUID refuses without
+  falling back to a UUID-shaped name. UUID and name lookup select the recorded recipient
   host/server and reuse strict binding/incarnation verification. Tmux focus still
   requires the invoker's client on that server; external drivers own their views.
+- `identity_context` owns the shared expected-name/retirement guard for identity show
+  and capture-only check. Check's optional `--expect-name` requires a canonical UUIDv4
+  and `--capture-only`; it rechecks the pin after presence reconciliation and refuses
+  before host capture. Ordinary check keeps name/pane routing; capture-only never flushes
+  Digest. Capture limits, result shape and host wire operations stay unchanged.
 - Named delivery and diagnostics select the stored UUID and recorded server before
   the existing current-presence reconciliation. Preparation refreshes that same
   endpoint again; no ambient-host fallback, new approval or listing authority is added.
@@ -219,7 +226,9 @@ delivery. They install and launch nothing.
     a rejected event. Claude turn events carry none.
   - SessionStart is the explicit exception to the admitted-activity rule. A start of either
     provider sets it from its own valid reported model, and clears it otherwise. The kept
-    resume model is not evidence, and caller discovery clears it.
+    resume model is not evidence, and caller discovery clears it. A compaction start also keeps
+    the stored activity (a provider compacts inside a running turn, and the turn's end must
+    still find its start, #5268); every other start clears it.
 - One identity has one current binding/runtime and one exact resume record per driver.
   `SessionPreferences::retained` holds inactive records and their own channel choice;
   selecting a driver does not assert liveness. Storage schema 62 keeps inactive records in
@@ -341,7 +350,7 @@ delivery. They install and launch nothing.
   has no installed clear event, so it stays waiting until the next admitted event,
   never a timer. Codex waiting is not reported. The public
   [activity contract](../../../../contracts/extension-api.md) owns these support limits.
-  `binding::session::activity` owns the transitions; SessionStart resets activity, duplicates
+  `binding::session::activity` owns the transitions; SessionStart resets activity (a compaction keeps it), duplicates
   never renew timestamps (a Stop with `stop_hook_active` is `ContinuationEnded`, the one end
   admitted after idle, once per later instant), timestamps are accepted observation times, and `ended` needs a
   conclusive process observation.
@@ -371,10 +380,13 @@ delivery. They install and launch nothing.
   of input), not cost or throughput. A baseline starts at EOF with zero counters; cursor loss,
   shrink, replacement, limit exhaustion or invalid records start a new epoch at EOF with
   `gap=true, complete=false`; history is never recounted and a partial last line waits for its
-  newline. Claude counts each contiguous `message.id` group once keeping only hashed IDs, device,
-  inode and offset; Codex baselines at cumulative totals and an invalid newest `token_count` is
-  unavailable. Optional `cacheWriteTokens` stays a subset of unchanged input totals;
-  missing fields are unknown. `modelId`/`deltaByModel` read completed-request/turn model
+  newline. A compaction keeps the counter; any other start begins a new baseline. After a gap, a
+  caught-up read (Claude, agy or Codex: the source unchanged and its last line complete) is a
+  complete zero observation, so an idle agent is observed; an unchanged complete read writes
+  nothing. Claude counts each contiguous `message.id` group once keeping only hashed IDs,
+  device, inode and offset; Codex baselines at cumulative totals and an invalid newest
+  `token_count` is unavailable. Optional `cacheWriteTokens` stays a subset of unchanged input
+  totals; missing fields are unknown. `modelId`/`deltaByModel` read completed-request/turn model
   evidence (Claude `message.model`, Codex `turn_context.model`), separately from the
   starting-hook resume model. Deltas group at most four models per sequence, compacted
   only inside the existing opaque cursor; size/evidence loss omits attribution before
@@ -386,7 +398,15 @@ delivery. They install and launch nothing.
   cache, with same-file account equality and the original fetch time. It never
   refreshes the cache, reads credentials or changes provider configuration. The
   [allowance contract](../../../../contracts/extension-api.md#consumption-history)
-  owns age, reset expiry and unavailable-window semantics.
+  owns age, reset expiry and unavailable-window semantics, and the `account {key,label}`
+  that names the root's account (#5274). `RateAccount::derive` hashes the provider and the
+  account id and labels it with the root's name. The remembered state is capped at 1024 bytes
+  (real Claude seats use 955-1006), so it never holds the account and the pushed store stays
+  keyed by the raw id: `RuntimeLifecycle::sampled_consumption` (Claude: `allowance::rate_account`)
+  attaches it to the readings the hook and the sampler record into history, and
+  `Storage::sampled_rate_account` lets `ls`/`identity show` overlay the newest sample's account
+  on `resume.consumption.rateLimits` for the same driver, session and provider. History
+  continuity ignores the account: gaining or losing it is not a new reading.
   The same line's `credits` (balance text, never arithmetic) and the newest
   `thread_settings_applied` `service_tier` in the attribution tail are read the same way:
   each is dropped whole when invalid, absent tier means unknown (never `default`), and
@@ -486,11 +506,31 @@ delivery. They install and launch nothing.
   settings are preserved with a setup next step. A legacy lifecycle-only record gains an
   explicit usage opt-out before adding its answer hook. The setup-record lock fences consent
   through publication; refresh failures are advisory and never undo binary activation.
-- Guided `tmt setup` plans from filesystem-only detection, asks once (`SETUP_CONSENT_REQUIRED`
-  without a terminal or `--yes`) and applies skills before hooks; `publish_core` re-classifies
-  each target under the installer lock and keeps what is not TMT's.
+- Upgrade's interactive whole-plan consent can add detected provider scopes through guided
+  setup's planner/publisher. Recorded hook paths and managed skill targets define existing scopes;
+  shared skill roots are planned once. ConfigOnly providers get skills only. `--yes` never selects
+  these new scopes. Their public outcomes are separate `providerSetup` rows, not recorded-refresh
+  authority. Skill publication admits only still-absent planned targets under the installer lock;
+  provider input bytes, collection choices and scope are rechecked before publication. Unrelated
+  settings, unsafe files and user-owned targets are preserved with an exact supported setup command.
+- A driver's managed mod (`setup::provider_mod`, from `RuntimeLifecycle::provider_mod`; Claude's
+  allowance mod, #5187) follows consented usage. Setup and guided setup preview it and keep a
+  copy beside the settings file (`skills/tmt-allowance`), published through a staging directory
+  with a `.tmt-managed.json` marker holding the shipped digest, so it is locked to the installed
+  TMT. `--no-usage`, `--remove` and uninstall remove it. Upgrade refresh updates an installed
+  copy or removes one left behind a recorded opt-out. Neither it nor upgrade's offer of new
+  provider scopes creates one; only an explicit setup does. A directory without
+  TMT's marker, or behind a link, is left alone and reported.
+- Guided `tmt setup` plans agents from filesystem-only detection and offers ops, digest,
+  remote and colab selected by default, with visible Colab→Remote dependency toggles.
+  Selection is read-only; one approval covers the complete plan (`SETUP_CONSENT_REQUIRED`
+  without a terminal or `--yes`). Agent skills precede hooks; `publish_core` re-classifies
+  each target under the installer lock. The [extension owner](install-architecture.md#extensions-through-tmt-extension)
+  verifies healthy binaries without upgrading and retries missing bundled skills. Each
+  extension outcome is additive JSON; partial failure keeps completed work and exits nonzero.
+  An interrupted installer stops later items, retains completed outcomes and exits 130.
 - `tmt uninstall` plans read-only, asks once (`--yes` never implies `--purge`) and then removes
-  hooks (the exact inverse of setup), owners' skills and bundled links, extensions before the
+  hooks and a marked mod (the exact inverse of setup), owners' skills and bundled links, extensions before the
   CLI, the setup record and, with `--purge`, the data directory. An unreadable record stops it
   first; anything differing from what TMT wrote is kept and reported; a failed step stops and a
   rerun resumes. Product removal order derives from `Product::ALL`.
@@ -500,6 +540,10 @@ delivery. They install and launch nothing.
 Launch-baked hook names remain callable while their sessions can still run after
 an upgrade. Hidden `__focus-hook` aliases `__digest-hook` with identical arguments
 and exit behavior for pre-rename Claude and Codex launches.
+A Digest Stop never vetoes a stop. When a check refuses, it still prints no
+continuation and names that check as a `digest_stop:` detail on its admitted launch's
+[session-learning row](../../../../contracts/identity-status-v1.md); its worker reports
+its own refusal to the supervisor by name on stderr.
 
 `RuntimeLifecycle::prepare_launch_hooks` is an optional driver-owned launch boundary.
 Claude composes one inline `--settings` object before channel enrollment for fresh

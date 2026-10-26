@@ -307,70 +307,59 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     for removed in ["command-pair", "command-devices", "command-status"] {
         assert!(!landing.body.contains(&format!("id=\"{removed}\"")));
     }
-    for (state, commands) in [
-        ("missing", vec!["pair"]),
-        ("different", vec!["pair"]),
-        ("refused", vec!["devices", "pair"]),
-        ("unconfirmed", vec!["status"]),
-        ("unreadable", vec!["pair"]),
-    ] {
-        let steps = landing
-            .body
-            .split(&format!("id=\"steps-{state}\""))
-            .nth(1)
-            .unwrap()
-            .split("</ol>")
-            .next()
-            .unwrap();
+    // A single state-aware guidance owner replaces repeated per-state/Connect commands.
+    let guidance = landing
+        .body
+        .split("id=\"remote-guidance\"")
+        .nth(1)
+        .unwrap()
+        .split("</section>")
+        .next()
+        .unwrap();
+    assert_eq!(
+        guidance
+            .matches("class=\"entry-command tmt-ui-command\"")
+            .count(),
+        3
+    );
+    assert_eq!(guidance.matches("class=\"tmt-ui-command-copy\"").count(), 3);
+    for command in ["pair", "members", "status"] {
         assert_eq!(
-            steps
-                .matches("<code class=\"tmt-ui-command-text\">")
+            guidance
+                .matches(&format!(
+                    "<code class=\"tmt-ui-command-text\">tmt remote {command}</code>"
+                ))
                 .count(),
-            commands.len()
+            1
         );
         assert_eq!(
-            steps
-                .matches("class=\"entry-command tmt-ui-command\"")
+            guidance
+                .matches(&format!("id=\"copy-guide-{command}\""))
                 .count(),
-            commands.len()
+            1
         );
-        for closing in steps.split("</span").skip(1) {
-            assert!(
-                closing
-                    .trim_start()
-                    .strip_prefix('>')
-                    .is_some_and(|after| { !after.trim_start().starts_with('.') })
-            );
-        }
         assert_eq!(
-            steps.matches("class=\"tmt-ui-command-copy\"").count(),
-            commands.len()
+            guidance
+                .matches(&format!("aria-label=\"Copy tmt remote {command}\""))
+                .count(),
+            1
         );
-        for command in commands {
-            assert_eq!(
-                steps
-                    .matches(&format!(
-                        "<code class=\"tmt-ui-command-text\">tmt remote {command}</code>"
-                    ))
-                    .count(),
-                1
-            );
-            assert!(steps.contains(&format!("id=\"copy-{state}-{command}\"")));
-            assert_eq!(
-                steps
-                    .matches(&format!("aria-label=\"Copy tmt remote {command}\""))
-                    .count(),
-                1
-            );
-        }
+    }
+    for closing in guidance.split("</span").skip(1) {
+        assert!(
+            closing
+                .trim_start()
+                .strip_prefix('>')
+                .is_some_and(|after| !after.trim_start().starts_with('.'))
+        );
     }
     assert!(
-        landing.body.find("id=\"command-location\"").unwrap()
-            < landing.body.find("id=\"steps-missing\"").unwrap()
+        guidance.find("Run commands on the machine").unwrap()
+            < guidance.find("id=\"remote-guide-pair\"").unwrap()
     );
     assert!(
-        landing.body.find("id=\"steps-missing\"").unwrap()
-            < landing.body.find("id=\"pairing-note\"").unwrap()
+        guidance.find("Confirm in the terminal").unwrap()
+            < guidance.find("Pair links are private").unwrap()
     );
     let entry = get(&h, "/sdk/landing.js", "");
     assert_eq!(entry.status, 200);
@@ -674,7 +663,7 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     );
     assert!(
         page.body
-            .contains("Recorded setup, not a live Firebase check.")
+            .contains("Review this Remote’s service status. Make changes in this machine’s terminal or the provider console.")
     );
     assert!(page.body.contains("id=\"firestore-content\""));
     assert!(page.body.contains("id=\"access-announcement\""));
@@ -861,9 +850,11 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
         ("/remote/", 200),
         ("/settings", 200),
         ("/settings/", 200),
-        ("/remote/devices", 200),
-        ("/remote/connect", 200),
-        ("/remote/machine", 200),
+        ("/remote/overview", 200),
+        ("/remote/members", 200),
+        ("/remote/invites", 200),
+        ("/remote/my-devices", 200),
+        ("/remote/service", 200),
         ("/remote/settings", 200),
         ("/pair/", 404),
     ] {
@@ -1052,4 +1043,31 @@ fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move()
     assert!(pair.body.contains("history.replaceState"));
     assert!(include_str!("../assets/landing.html").contains("Remote connection"));
     assert!(include_str!("../assets/settings.html").contains("Browser opening"));
+}
+
+#[test]
+fn remote_tabs_have_exact_public_admission_and_obsolete_views_have_no_redirects() {
+    let h = Harness::new(FAST);
+    for path in [
+        "/remote/",
+        "/remote/overview",
+        "/remote/members",
+        "/remote/invites",
+        "/remote/my-devices",
+        "/remote/settings",
+        "/remote/service",
+    ] {
+        assert_eq!(get(&h, path, "").status, 200, "{path}");
+    }
+    for path in [
+        "/remote/machine",
+        "/remote/devices",
+        "/remote/connect",
+        "/remote/no-such-tab",
+        "/remote/overview/extra",
+    ] {
+        let reply = get(&h, path, "");
+        assert_eq!(reply.status, 404, "{path}");
+        assert!(reply.header("location").is_none(), "{path}");
+    }
 }

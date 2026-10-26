@@ -15,6 +15,8 @@ mod requests;
 mod responses;
 mod rooms;
 mod skills;
+mod terminal;
+mod timeline;
 mod user;
 
 use crate::{
@@ -34,6 +36,9 @@ pub const INPUT_LIMIT: usize = crate::dispatch::INPUT_LIMIT + 4096;
 pub const OUTPUT_LIMIT: usize = 12 * 1_048_576 + 65_536;
 const OPS: &[&str] = &[
     "orchestration.read",
+    "orchestration.write",
+    "digest.receiving.sync",
+    "digest.wake.step",
     "digest.policy.set",
     "digest.policy.clear",
     "digest.policy.show",
@@ -53,7 +58,9 @@ const OPS: &[&str] = &[
     "requests.sendNow",
     "requests.ack",
     "responses.recent",
+    "responses.timeline",
     "pane.screen",
+    "terminal.stream",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -79,7 +86,7 @@ const OPS: &[&str] = &[
 pub struct Fault {
     code: &'static str,
     message: std::borrow::Cow<'static, str>,
-    storage_open: Option<StorageError>,
+    storage_access: Option<(StorageError, &'static str)>,
     metadata_conflicts: Option<Box<tmt_core::identity_metadata::MetadataConflicts>>,
 }
 impl Fault {
@@ -87,7 +94,7 @@ impl Fault {
         Self {
             code,
             message: message.into(),
-            storage_open: None,
+            storage_access: None,
             metadata_conflicts: None,
         }
     }
@@ -96,7 +103,7 @@ impl Fault {
         Self {
             code,
             message: message.into(),
-            storage_open: None,
+            storage_access: None,
             metadata_conflicts: None,
         }
     }
@@ -106,15 +113,18 @@ impl Fault {
             "Operation could not be confirmed. For a write, inspect its operation receipt or current revision before retrying.",
         )
     }
-    pub(super) fn with_storage_open(mut self, error: StorageError) -> Self {
-        self.storage_open = Some(error);
+    pub(super) fn with_storage_open(self, error: StorageError) -> Self {
+        self.with_storage_access(error, "No API operation was performed.")
+    }
+    pub(super) fn with_storage_access(mut self, error: StorageError, effect: &'static str) -> Self {
+        self.storage_access = Some((error, effect));
         self
     }
 
     /// Public CLI presentation consumes the typed cause; other API consumers
     /// retain the existing resource-specific fault envelope.
-    pub fn take_storage_open(&mut self) -> Option<StorageError> {
-        self.storage_open.take()
+    pub fn take_storage_access(&mut self) -> Option<(StorageError, &'static str)> {
+        self.storage_access.take()
     }
 
     pub(super) fn with_metadata_conflicts(
@@ -178,14 +188,23 @@ pub enum DispatchIdentity {
 
 pub enum Request {
     Orchestration(Box<crate::orchestration::OrchReadQuery>),
+    OrchestrationWrite(Box<crate::orchestration::OrchWriteQuery>),
     Digest(Box<digest::Operation>),
     Capabilities,
+    ConversationTimeline {
+        identity_id: String,
+        limit: u64,
+        before: Option<u64>,
+    },
     RecentResponses {
         identity_id: String,
         limit: u64,
         before: Option<u64>,
     },
     PaneScreen {
+        identity_id: String,
+    },
+    TerminalStream {
         identity_id: String,
     },
     ConsumptionHistory {
@@ -324,6 +343,9 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "orchestration.read" => Request::Orchestration(Box::new(
             crate::orchestration::decode_orch_query(input).map_err(|_| invalid())?,
         )),
+        "orchestration.write" => Request::OrchestrationWrite(Box::new(
+            crate::orchestration::decode_orch_write(input).map_err(|_| invalid())?,
+        )),
         "capabilities"
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
@@ -361,7 +383,9 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
             items: requests::decode_ack(input)?,
         },
         "responses.recent" => responses::decode(input)?,
+        "responses.timeline" => timeline::decode(input)?,
         "pane.screen" => pane::decode(input)?,
+        "terminal.stream" => terminal::decode(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -469,12 +493,18 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         | Request::ExtensionUse { .. }
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
+        Request::ConversationTimeline {
+            identity_id,
+            limit,
+            before,
+        } => timeline::read(&mut storage, &identity_id, limit, before),
         Request::RecentResponses {
             identity_id,
             limit,
             before,
         } => responses::recent(&mut storage, &identity_id, limit, before),
         Request::PaneScreen { identity_id } => pane::screen(&mut storage, &identity_id),
+        Request::TerminalStream { identity_id } => terminal::stream(&mut storage, &identity_id),
         Request::ConsumptionHistory {
             identities,
             windows,
@@ -500,6 +530,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         ),
         Request::ChangeCursor => changes::cursor(&storage),
         Request::Orchestration(query) => orchestration::read(&storage, *query),
+        Request::OrchestrationWrite(query) => orchestration::write(&mut storage, *query),
         Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
         Request::References { identities, rooms } => {
             references::resolve(&mut storage, identities, rooms)

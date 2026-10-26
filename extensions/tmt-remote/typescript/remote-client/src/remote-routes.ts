@@ -1,64 +1,101 @@
-/**
- * Remote's sub-routes: the one table both the router (`shell-app.ts`) and the module menu read.
- * Each row is its own path under the one `remote` route, so a switch between them only swaps what
- * the mounted page shows; the menu's selected row is whichever row the path names.
- */
-export type RemoteView = 'status' | 'connect' | 'devices' | 'machine' | 'settings';
+/** Public Remote views. Router, tabs and module menu consume this one declaration. */
+import type { ViewerRole } from './remote-state.js';
 
+export type RemoteView =
+  | 'remotes'
+  | 'overview'
+  | 'members'
+  | 'invites'
+  | 'my-devices'
+  | 'settings'
+  | 'service';
 export interface RemoteItem {
   readonly id: RemoteView;
   readonly path: string;
-  /** The menu row. */
   readonly label: string;
-  /** The page heading (`h1`) and document title. */
   readonly title: string;
-  /** Which page's markup holds the view: the connection check, or the settings forms. */
   readonly page: 'landing' | 'settings';
+  readonly adminOnly?: boolean;
 }
-
 export const REMOTE_ITEMS: readonly RemoteItem[] = [
-  { id: 'status', path: '/remote/', label: 'Status', title: 'Remote connection', page: 'landing' },
+  { id: 'remotes', path: '/remote/', label: 'My Remotes', title: 'My Remotes', page: 'settings' },
   {
-    id: 'devices',
-    path: '/remote/devices',
-    label: 'Devices',
-    title: 'Devices',
-    page: 'settings',
-  },
-  {
-    id: 'connect',
-    path: '/remote/connect',
-    label: 'Connect a device',
-    title: 'Connect a device',
+    id: 'overview',
+    path: '/remote/overview',
+    label: 'Overview',
+    title: 'Overview',
     page: 'landing',
   },
+  { id: 'members', path: '/remote/members', label: 'Members', title: 'Members', page: 'settings' },
   {
-    id: 'machine',
-    path: '/remote/machine',
-    label: 'This machine’s settings',
-    title: 'This machine’s settings',
+    id: 'invites',
+    path: '/remote/invites',
+    label: 'Invites',
+    title: 'Invites',
+    page: 'landing',
+    adminOnly: true,
+  },
+  {
+    id: 'my-devices',
+    path: '/remote/my-devices',
+    label: 'My devices',
+    title: 'My devices',
     page: 'settings',
   },
   {
     id: 'settings',
     path: '/remote/settings',
-    label: 'My Remotes',
-    title: 'My Remotes',
+    label: 'Settings',
+    title: 'Settings',
     page: 'settings',
   },
+  {
+    id: 'service',
+    path: '/remote/service',
+    label: 'Service & upgrade',
+    title: 'Service & upgrade',
+    page: 'settings',
+    adminOnly: true,
+  },
 ];
-
-/**
- * The rail opens My Remotes. Existing connection and management paths remain addressable.
- */
 export const REMOTE_PATHS: readonly string[] = [
-  ...REMOTE_ITEMS.filter((item) => item.id !== 'settings').map((item) => item.path),
   '/remote',
-  '/remote/settings',
+  ...REMOTE_ITEMS.filter((item) => item.id !== 'remotes').map((item) => item.path),
+  // The shared shell uses the last registered path as this module's rail/default entry.
+  remotePath('remotes'),
 ];
-
-/** The row a path names; `/remote` and `/remote/` are Status, anything else under it is none. */
+export function remotePath(id: RemoteView): string {
+  return REMOTE_ITEMS.find((item) => item.id === id)!.path;
+}
+/** Removed pre-launch paths have no alias or redirect. */
 export function remoteItem(pathname: string): RemoteItem | undefined {
-  const path = pathname === '/remote' ? '/remote/' : pathname.replace(/(?<=.)\/$/, '');
-  return REMOTE_ITEMS.find((item) => item.path === path || item.path === `${path}/`);
+  return REMOTE_ITEMS.find(
+    (item) => item.path === pathname || (pathname === '/remote' && item.id === 'remotes'),
+  );
+}
+/** Display-only locking: signed management remains the authority for every effect. */
+export function remoteTabAccess(
+  item: RemoteItem,
+  role: ViewerRole | undefined,
+): { locked: boolean; reason: string; request: string } {
+  if (!item.adminOnly || role === 'owner') return { locked: false, reason: '', request: '' };
+  if (role !== 'user')
+    return {
+      locked: true,
+      reason: 'Access is not confirmed. Check again before making changes.',
+      request: '',
+    };
+  return item.id === 'invites'
+    ? {
+        locked: true,
+        reason:
+          'Only an admin can invite people to this Remote. Ask the person who manages this Remote.',
+        request: 'Please invite me to this Remote.',
+      }
+    : {
+        locked: true,
+        reason:
+          "Only an admin can manage this Remote's service and upgrade steps. Ask the person who manages this Remote.",
+        request: "Please review this Remote's service and upgrade options with me.",
+      };
 }

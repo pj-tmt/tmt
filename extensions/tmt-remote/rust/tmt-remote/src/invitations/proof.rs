@@ -81,12 +81,25 @@ pub fn verify_enrollment(
     }
     let bytes = enrollment(context, candidate)?;
     crypto::verify_mac(code, &bytes, mac).map_err(|_| invalid())?;
-    let possession = canonical::possession(&bytes, mac).map_err(|_| invalid())?;
-    crypto::verify_signature(&candidate.public_key, &possession, signature)
-        .map_err(|_| invalid())?;
+    let digest = possession_digest(context, candidate, mac, signature)?;
     Ok(VerifiedCandidate {
         context: context.clone(),
         candidate: candidate.clone(),
-        digest: Sha256::digest(&possession).into(),
+        digest,
     })
+}
+
+/// Native possession only: recovery must match the returned digest to a current
+/// original confirmation. It does not verify the code or supply owner consent.
+pub(crate) fn possession_digest(
+    context: &Context,
+    candidate: &Candidate,
+    mac: &[u8; 32],
+    signature: &[u8; 64],
+) -> Result<[u8; 32], RemoteError> {
+    let bytes = enrollment(context, candidate)?;
+    let possession = canonical::possession(&bytes, mac).map_err(|_| invalid())?;
+    crypto::verify_signature(&candidate.public_key, &possession, signature)
+        .map_err(|_| invalid())?;
+    Ok(Sha256::digest(possession).into())
 }

@@ -1,5 +1,110 @@
 use super::{details::DriverUsage, *};
 
+/// A usage-only writer must not discard a real Claude Stop payload (#5082).
+#[test]
+fn a_claude_stop_final_survives_a_concurrent_usage_observation() {
+    use crate::{runtime::lifecycle::RuntimeLifecycle, storage::ResponseCapture};
+    use tmt_core::binding::BindingRecords;
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let session = tmt_core::binding::session::ProviderSessionId::new("fixture-session").unwrap();
+    let process = tmt_core::endpoint::ProcessIncarnation::new(12, "provider-start").unwrap();
+    let initial = Storage::context_by_identity(&path, &id, 5000)
+        .unwrap()
+        .unwrap();
+    let mut state = initial.entry.binding.as_ref().unwrap().session.clone();
+    state.state = tmt_core::binding::session::RuntimeState::Running;
+    state.key = Some(tmt_core::binding::session::ObservedSessionKey {
+        incarnation: process.clone(),
+        provider_session: Some(session.clone()),
+    });
+    let mut rows = BindingRows(storage.connection().unwrap());
+    assert!(
+        rows.set_session_state(
+            "fixture-binding",
+            &initial.entry.binding.as_ref().unwrap().session,
+            &state
+        )
+        .unwrap()
+    );
+    let lifecycle = crate::drivers::claude::ClaudeLifecycle;
+    let prompt = br#"{"hook_event_name":"UserPromptSubmit","session_id":"fixture-session","prompt":"question"}"#;
+    let activity = lifecycle.decode_activity(prompt).unwrap();
+    let mut preferences = initial.preferences.clone();
+    preferences.remembered.as_mut().unwrap().state =
+        lifecycle.activity_state(&activity, &session, &process, None, 5000);
+    rows.set_session_preferences(&id, &preferences).unwrap();
+    let original = Storage::context_by_identity(&path, &id, 6000)
+        .unwrap()
+        .unwrap();
+    let mut sampled = original.preferences.clone();
+    sampled.remembered.as_mut().unwrap().state = crate::runtime::driver_state::after_observation(
+        Some(crate::runtime::driver_state::Usage::new(12, None, 6000).unwrap()),
+        None,
+        original
+            .preferences
+            .remembered
+            .as_ref()
+            .unwrap()
+            .state
+            .as_ref(),
+    );
+    BindingRows(storage.connection().unwrap())
+        .set_session_preferences(&id, &sampled)
+        .unwrap();
+    let payload = br#"{"hook_event_name":"Stop","session_id":"fixture-session","stop_hook_active":false,"last_assistant_message":"answer before the blocking checklist"}"#;
+    let turn = lifecycle.decode_turn(payload).unwrap();
+    let activity = lifecycle.decode_activity(payload).unwrap();
+    assert!(
+        storage
+            .capture_turn_end(crate::storage::TurnCapture {
+                expected: &original,
+                process: &process,
+                activity: &activity,
+                interrupted: false,
+                response: Some(ResponseCapture {
+                    text: turn.final_text.unwrap()
+                }),
+                now_ms: 7000,
+                deadline: Instant::now() + std::time::Duration::from_secs(2),
+            })
+            .unwrap()
+    );
+    let committed = BindingRows(storage.connection().unwrap())
+        .session_preferences(&id)
+        .unwrap();
+    let committed_state = committed
+        .remembered
+        .as_ref()
+        .unwrap()
+        .state
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        crate::runtime::driver_state::state_usage(committed_state)
+            .unwrap()
+            .tokens,
+        12,
+        "capture preserves the newer usage writer"
+    );
+    assert_eq!(
+        crate::runtime::driver_state::state_activity(committed_state)
+            .unwrap()
+            .phase,
+        tmt_core::binding::session::activity::ActivityPhase::Idle
+    );
+    let response = storage.recent_responses(&id, 10, None, 8000).unwrap();
+    assert_eq!(
+        response["items"].as_array().unwrap().len(),
+        1,
+        "an admitted final is independent of optional usage: {response:#}"
+    );
+    assert_eq!(
+        response["items"][0]["text"],
+        "answer before the blocking checklist"
+    );
+}
+
 // Literal expectations characterize the pre-optimization public projection.
 #[test]
 fn history_empty_and_missing_keep_complete_wire_shape() {
@@ -1554,4 +1659,104 @@ mod family {
         );
         storage.close().unwrap();
     }
+}
+
+/// The real Claude reader's states through a compaction and then idle ticks:
+/// the idle time after it is covered, measured zero, not unknown (#5122).
+#[test]
+fn an_idle_claude_after_a_compaction_has_complete_zero_buckets() {
+    use crate::{
+        drivers::claude,
+        runtime::{
+            driver_state,
+            lifecycle::{LifecycleObservation, RuntimeLifecycle},
+        },
+        skill_installation::ProviderEnvironment,
+    };
+    use std::io::Write;
+    let home = crate::test_support::TestDirectory::new();
+    let projects = home.path.join(".claude/projects/-workspace");
+    std::fs::create_dir_all(&projects).unwrap();
+    let transcript = projects.join("session.jsonl");
+    std::fs::write(
+        &transcript,
+        include_str!("../../runtime/fixtures/claude-usage-sequence.jsonl"),
+    )
+    .unwrap();
+    let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+    let stop = json!({"session_id":"fixture-session","hook_event_name":"Stop",
+        "transcript_path":transcript,"cwd":"/workspace"});
+    let turn = claude::ClaudeLifecycle
+        .decode_turn(stop.to_string().as_bytes())
+        .unwrap();
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let mut state = driver_state::after_start(Some("claude-opus-5-5"), None, None, 1).unwrap();
+    let sample = |state: &tmt_core::binding::session::DriverState, now: u64| {
+        let next = claude::ClaudeLifecycle
+            .turn_state(
+                &turn,
+                &environment,
+                Some(state),
+                now,
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap();
+        let consumption = driver_state::state_consumption(&next).unwrap().value;
+        let latest = ConsumptionLatest {
+            driver: "claude".into(),
+            session: "fixture-session".into(),
+            consumption,
+        };
+        record_sample(storage.connection().unwrap(), &id, Some(latest), now).unwrap();
+        next
+    };
+    state = sample(&state, 6000);
+    state = sample(&state, 11000);
+    let mut appended = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&transcript)
+        .unwrap();
+    for record in [
+        json!({"type":"system","subtype":"compact_boundary","sessionId":"fixture-session",
+            "compactMetadata":{"trigger":"auto","preTokens":180_000}}),
+        json!({"type":"user","isCompactSummary":true,"sessionId":"fixture-session",
+            "message":{"role":"user","content":"<summary>"}}),
+    ] {
+        writeln!(appended, "{record}").unwrap();
+    }
+    drop(appended);
+    state = claude::decode_hook(
+        json!({"session_id":"fixture-session","hook_event_name":"SessionStart",
+            "source":"compact","cwd":"/workspace"})
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap()
+    .driver_state(Some(&state), 12000)
+    .unwrap();
+    for now in [16000, 21000, 26000] {
+        state = sample(&state, now);
+    }
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 26000, false, None)
+        .unwrap();
+    let buckets = history["identities"][0]["windows"][0]["buckets"]
+        .as_array()
+        .unwrap();
+    assert_eq!(buckets.len(), 2);
+    for bucket in buckets {
+        assert_eq!(
+            (
+                &bucket["coveredMs"],
+                &bucket["complete"],
+                &bucket["gap"],
+                &bucket["inputTokens"]
+            ),
+            (&json!(5000), &json!(true), &json!(false), &json!(0)),
+            "{bucket}"
+        );
+    }
+    storage.close().unwrap();
 }

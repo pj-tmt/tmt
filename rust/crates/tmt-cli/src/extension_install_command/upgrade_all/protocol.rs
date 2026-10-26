@@ -68,13 +68,13 @@ fn decode(bytes: &[u8]) -> Option<Value> {
         .flatten()
 }
 
-fn product(name: &str) -> Option<Product> {
+pub(super) fn product(name: &str) -> Option<Product> {
     Product::ALL
         .into_iter()
         .find(|product| *product != Product::Cli && product.as_str() == name)
 }
 
-fn version(value: &Value) -> Option<&str> {
+pub(super) fn version(value: &Value) -> Option<&str> {
     let text = value.as_str()?;
     (!text.is_empty()
         && text.len() <= 128

@@ -49,6 +49,8 @@ const INPUT_HIGH_WATER: usize = 64 * 1024;
 const CLOSING_GRACE: Duration = Duration::from_secs(1);
 /// How long the program's last output and exit may take to reach clients.
 const FLUSH_GRACE: Duration = Duration::from_millis(500);
+/// Opportunistic crash cleanup must not grow with the member directory.
+const RECLAIM_ENTRIES: usize = 64;
 
 /// Where and how to run one member.
 pub struct Launch {
@@ -255,6 +257,36 @@ impl Supervisor {
                 error
             }
         })?;
+        // A crashed member cannot unlink its files. An acquired flock proves
+        // there is no live holder; IDs are never reused, as for Files::drop.
+        // Unknown neighbours and scan errors never prevent this member starting.
+        if let Ok(entries) = fs::read_dir(&directory) {
+            for entry in entries.take(RECLAIM_ENTRIES).flatten() {
+                let name = entry.file_name();
+                let Some(other) = name.to_str().and_then(|name| name.strip_suffix(".lock")) else {
+                    continue;
+                };
+                if other == id || validate(&directory, other).is_err() {
+                    continue;
+                }
+                let socket = socket_path(&directory, other);
+                // A starter opens its lock before taking the flock and only
+                // binds its socket afterwards. Leave lock-only neighbours alone.
+                if fs::symlink_metadata(&socket).is_err() {
+                    continue;
+                }
+                let Ok(_neighbour_lock) = file_lock::exclusive(&entry.path()) else {
+                    // WouldBlock is live; every other failure is unknown.
+                    continue;
+                };
+                if let Err(error) = fs::remove_file(socket)
+                    && error.kind() != io::ErrorKind::NotFound
+                {
+                    continue;
+                }
+                let _ = fs::remove_file(entry.path());
+            }
+        }
         let files = Files {
             socket: socket_path(&directory, &id),
             lock: lock_path(&directory, &id),
@@ -578,6 +610,7 @@ impl Supervisor {
                 self.clients[index].fate = Some(Fate::Leave);
             }
             ClientMessage::Control(control) => self.control(index, control),
+            ClientMessage::Snapshot => self.snapshot(index),
             ClientMessage::Input(data) => {
                 self.last_key = Some(Instant::now());
                 // Typing from another window brings the terminal to that window.
@@ -604,6 +637,34 @@ impl Supervisor {
                 }
             }
         }
+    }
+
+    /// Answers a snapshot request with the screen as it is at this moment: the formatted
+    /// screen (cursor and input modes included), bounded by the screen size and queued in
+    /// output-sized chunks behind the client's other frames, so live output that follows
+    /// arrives after it and nothing is lost or repeated. The supervisor handles requests and
+    /// reads program output in one thread, so the screen already holds every byte queued
+    /// before this request and none that is queued after it. Every request gets the current
+    /// screen; none is kept waiting. A client that asks while 256 KiB of earlier frames are
+    /// unread is too slow to follow a screen and is evicted like any other.
+    fn snapshot(&mut self, index: usize) {
+        if self.clients[index].congested() {
+            self.clients[index].fate = Some(Fate::Evict(Eviction::TooSlow));
+            return;
+        }
+        let screen = self.screen.screen();
+        let mut state = Vec::new();
+        if screen.alternate_screen() {
+            state.extend_from_slice(b"\x1b[?1049h");
+        }
+        state.extend_from_slice(&screen.state_formatted());
+        let size = self.size;
+        let client = &mut self.clients[index];
+        client.queue(&ServerMessage::SnapshotStart);
+        for chunk in state.chunks(MAX_OUTPUT) {
+            client.queue(&ServerMessage::SnapshotData(chunk.to_vec()));
+        }
+        client.queue(&ServerMessage::SnapshotEnd(size));
     }
 
     /// Controls share the supervisor's serialization with the stream. No control

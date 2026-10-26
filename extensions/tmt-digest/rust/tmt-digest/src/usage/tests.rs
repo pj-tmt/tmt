@@ -972,3 +972,105 @@ fn sessions_outside_every_seat_are_one_unavailable_row_and_the_totals_are_the_se
         assert_eq!(lines, sum(field), "{field}");
     }
 }
+
+/// The frozen vector with the limits of seat B and seat C naming these accounts.
+fn limits_of_accounts(b: Option<Value>, c: Option<Value>) -> Value {
+    let mut case = vector();
+    for (seat, account) in [(1, b), (2, c)] {
+        let buckets = case["series"]["identities"][seat]["windows"][0]["buckets"]
+            .as_array_mut()
+            .unwrap();
+        for bucket in buckets {
+            if let Some(limits) = bucket.get_mut("rateLimits") {
+                limits["provider"] = json!("claude");
+                if let Some(account) = &account {
+                    limits["account"] = account.clone();
+                }
+            }
+        }
+    }
+    model::document(&report(&case)).unwrap()["limits"].clone()
+}
+
+fn weekly(limits: &Value) -> Vec<&Value> {
+    limits
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|limit| limit["windowMinutes"] == 10_080)
+        .collect()
+}
+
+#[test]
+fn a_limit_names_its_account_and_two_accounts_are_never_folded_together() {
+    let (work, home) = (
+        json!({"key": "0123456789ab", "label": "claude-work"}),
+        json!({"key": "ba9876543210", "label": "claude"}),
+    );
+    // One account on two seats: still one limit, as before, now naming it.
+    let same = limits_of_accounts(Some(work.clone()), Some(work.clone()));
+    let [limit] = weekly(&same)[..] else {
+        panic!("{same:#}")
+    };
+    assert_eq!(limit["account"], work);
+    assert_eq!(limit["seats"].as_array().unwrap().len(), 2);
+    // Two accounts with an identical window: one limit each, with its own seat.
+    let split = limits_of_accounts(Some(work.clone()), Some(home.clone()));
+    let weeks = weekly(&split);
+    assert_eq!(weeks.len(), 2, "{split:#}");
+    let accounts: std::collections::BTreeSet<_> = weeks
+        .iter()
+        .map(|limit| limit["account"].to_string())
+        .collect();
+    assert_eq!(accounts.len(), 2);
+    assert!(
+        weeks
+            .iter()
+            .all(|limit| limit["seats"].as_array().unwrap().len() == 1)
+    );
+    // A reading with no account stays apart from one that has it, and names none.
+    let mixed = limits_of_accounts(Some(work.clone()), None);
+    let weeks = weekly(&mixed);
+    assert_eq!(weeks.len(), 2, "{mixed:#}");
+    assert_eq!(
+        weeks
+            .iter()
+            .filter(|limit| limit.get("account").is_none())
+            .count(),
+        1
+    );
+    // Without any account the report is exactly what it was.
+    let none = limits_of_accounts(None, None);
+    assert!(
+        none.as_array()
+            .unwrap()
+            .iter()
+            .all(|limit| limit.get("account").is_none())
+    );
+}
+
+#[test]
+fn a_malformed_account_drops_the_observation_instead_of_joining_another_account() {
+    let window = json!({"windowMinutes": 300, "usedPercent": 12.5, "resetsAtMs": AS_OF + 60_000});
+    let reading = |account: Value| {
+        limits_from(
+            json!({"provider": "claude", "observedAtMs": T, "windows": [window.clone()], "account": account}),
+        )
+    };
+    let good = reading(json!({"key": "0123456789ab", "label": "claude-work"}));
+    assert_eq!(
+        good[0]["account"],
+        json!({"key": "0123456789ab", "label": "claude-work"})
+    );
+    for bad in [
+        json!({"key": "0123456789AB", "label": "claude"}),
+        json!({"key": "0123456789", "label": "claude"}),
+        json!({"key": "0123456789ab", "label": ""}),
+        json!({"key": "0123456789ab", "label": "a@b.example"}),
+        json!({"key": "0123456789ab", "label": "x".repeat(33)}),
+        json!({"key": "0123456789ab"}),
+        json!("claude"),
+    ] {
+        assert_eq!(reading(bad.clone()), json!([]), "{bad}");
+    }
+}

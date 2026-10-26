@@ -17,7 +17,7 @@ use std::{
 use tmt_adapters::{
     process::{
         UnixCommandRunner,
-        runtime::{ProcessObservation, observe_runtime_process},
+        runtime::{ProcessObservation, observe_runtime_process, recorded_process_gone},
     },
     pty::{
         Connection,
@@ -400,6 +400,204 @@ fn run_without_tmux_starts_independent_members_and_check_reads_causal_output() {
 }
 
 #[test]
+fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_member() {
+    use tmt_adapters::host::{Host, PaneClose};
+    let mut world = World::new();
+    let script = format!(
+        r#"printf '%s' "$$" > '{root}/NAME.pid'; printf 'up\n'; while IFS= read -r line; do [ "$line" = quit ] && exit 0; done"#,
+        root = world.root.display()
+    );
+    for name in ["alpha", "beta"] {
+        let result = world.run(&[
+            "run",
+            "--no-channel",
+            "--save",
+            name,
+            "/bin/sh",
+            "-c",
+            &script.replace("NAME", name),
+        ]);
+        assert!(result.status.success(), "{name}: {result:?}");
+    }
+    let listed = world.json(&["ls", "--json"]);
+    let row = |name: &str| {
+        listed["identities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    let database = support::state_dir(&world.root).join("tmt.db");
+    let alpha = tmt_adapters::storage::Storage::context_by_identity(
+        &database,
+        row("alpha")["id"].as_str().unwrap(),
+        0,
+    )
+    .unwrap()
+    .unwrap()
+    .entry;
+    let server = alpha.binding.as_ref().unwrap().server.clone();
+    let host = Host::for_server(&server);
+
+    // Its program is still running: refused after the bound, and nothing was ended.
+    let refused = host.session().close_opened_pane(&alpha);
+    assert!(
+        matches!(refused, Err(tmt_adapters::host::ActionError::Evidence(_))),
+        "{refused:?}"
+    );
+    for name in ["alpha", "beta"] {
+        let checked = world.run(&["check", name]);
+        assert!(
+            String::from_utf8_lossy(&checked.stdout).contains("up"),
+            "{name} must still serve: {checked:?}"
+        );
+    }
+
+    let pane = row("alpha")["pane"].as_str().unwrap().to_owned();
+    let directory = support::state_dir(&world.root).join("pty");
+    let socket = PathBuf::from(&server.socket_path);
+    let supervisor_ended = || recorded_process_gone(server.server_pid);
+
+    // A missing connection is not process death: keep the live supervisor behind
+    // an unavailable socket and require the shutdown barrier to stay closed.
+    let parked = socket.with_extension("parked");
+    fs::rename(&socket, &parked).unwrap();
+    assert!(Connection::connect(&directory, &pane).is_err());
+    assert!(
+        !supervisor_ended(),
+        "a failed connection is not supervisor exit"
+    );
+    assert!(matches!(
+        host.session().close_opened_pane(&alpha),
+        Err(tmt_adapters::host::ActionError::Unverified)
+    ));
+    fs::rename(&parked, &socket).unwrap();
+
+    // Its program ends on its own; the supervisor follows, and the close finds it gone.
+    let mut terminal = Connection::connect(&directory, &pane).unwrap();
+    terminal.input(b"quit\r").unwrap();
+    drop(terminal);
+    world.remember();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !supervisor_ended() {
+        assert!(Instant::now() < deadline, "the supervisor did not end");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        !socket.try_exists().unwrap(),
+        "the supervisor left its socket"
+    );
+    assert!(
+        !socket.with_extension("lock").try_exists().unwrap(),
+        "the supervisor left its lock"
+    );
+    let closed = host.session().close_opened_pane(&alpha).unwrap();
+    assert_eq!(closed, PaneClose::AlreadyGone);
+
+    // The other member is untouched.
+    let checked = world.run(&["check", "beta"]);
+    assert!(
+        String::from_utf8_lossy(&checked.stdout).contains("up"),
+        "{checked:?}"
+    );
+    assert!(world.clean());
+}
+
+#[test]
+fn the_built_in_launch_template_starts_a_background_member_without_tmux() {
+    let mut world = World::new();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_tmt"), world.root.join("bin/tmt")).unwrap();
+    let templates = world.json(&["host", "templates", "--json"]);
+    let hosts = templates["hosts"].as_array().unwrap();
+    assert_eq!(hosts[0]["host"], "tmux", "{templates}");
+    let pty = &hosts[1];
+    assert_eq!(
+        (pty["host"].as_str(), pty["state"].as_str()),
+        (Some("pty"), Some("builtin"))
+    );
+    assert_eq!(
+        pty["launch"]["placeholders"],
+        serde_json::json!(["session", "command"])
+    );
+    let argv: Vec<String> = pty["launch"]["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|word| word.as_str().unwrap().to_owned())
+        .collect();
+    let run = |world: &World, session: &str, command: &str| {
+        let words: Vec<String> = argv
+            .iter()
+            .map(|word| match word.as_str() {
+                "{session}" => session.to_owned(),
+                "{command}" => command.to_owned(),
+                _ => word.clone(),
+            })
+            .collect();
+        // The caller's own environment: the world's, with the same PATH that has no tmux.
+        let environment = world.command(&[]);
+        let mut command = Command::new(&words[0]);
+        command.args(&words[1..]).env_clear();
+        if let Some(directory) = environment.get_current_dir() {
+            command.current_dir(directory);
+        }
+        for (key, value) in environment.get_envs() {
+            if let Some(value) = value {
+                command.env(key, value);
+            }
+        }
+        command.stdin(Stdio::null()).output().unwrap()
+    };
+
+    // The words start a background member that nothing waits on, and the session and command
+    // reach `tmt run` as data.
+    let started = run(&world, "templated", "printf up; read l");
+    assert!(started.status.success(), "{started:?}");
+    world.remember();
+    world.remember_programs();
+    let seen = world.run(&["check", "templated"]);
+    assert!(
+        String::from_utf8_lossy(&seen.stdout).contains("up"),
+        "{seen:?}"
+    );
+    let injected = world.root.join("injected");
+    let command = format!("touch {}", injected.display());
+    let hostile_name = format!("a b$({command})");
+    let hostile = run(&world, &hostile_name, "printf x; read l");
+    assert!(hostile.status.success(), "{hostile:?}");
+    world.remember();
+    world.remember_programs();
+    assert!(!injected.exists(), "the session name ran as script text");
+
+    // An empty session or command is refused before `tmt run`, with no member started.
+    for (session, command) in [("", "printf x"), ("other", "")] {
+        let refused = run(&world, session, command);
+        assert_eq!(refused.status.code(), Some(2), "{refused:?}");
+        assert!(
+            String::from_utf8_lossy(&refused.stderr)
+                .contains("a session and a command are required")
+        );
+    }
+    let listed = world.json(&["ls", "--json"]);
+    let names: Vec<&str> = listed["identities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["name"].as_str())
+        .collect();
+    // Only the two members started with a real name and command exist; the name with shell
+    // syntax is bound literally.
+    assert_eq!(names.len(), 2, "{listed}");
+    assert!(
+        names.contains(&"templated") && names.contains(&hostile_name.as_str()),
+        "{listed}"
+    );
+    assert!(world.clean());
+}
+
+#[test]
 fn an_explicit_unavailable_host_never_falls_back_or_launches_a_member() {
     let mut world = World::new();
     let result = world.run(&["run", "--host", "tmux", "alpha", "/bin/sh", "-c", "exit 0"]);
@@ -552,47 +750,13 @@ fn supervisor_loss_after_paste_is_uncertain_and_never_replayed() {
     assert!(world.clean());
 }
 
-#[test]
-#[ignore = "flaky on hosted runners; see #4767"]
-fn a_hook_recorded_session_resumes_in_a_new_pty_without_tmux() {
-    let mut world = World::new();
-    let example = std::path::Path::new(env!("CARGO_BIN_EXE_tmt"))
-        .parent()
-        .unwrap()
-        .join("examples/provider-script-fixture");
-    assert!(
-        example.is_file(),
-        "build the shared fixture first: cargo build --locked -p tmt-adapters --example provider-script-fixture"
-    );
-    let provider = world.root.join("bin/claude");
-    tmt_test_support::write_executable(&provider, &fs::read(&example).unwrap(), 0o755).unwrap();
-    let interpreter = world.root.join("fixture-interpreter");
-    let tmt = env!("CARGO_BIN_EXE_tmt");
-    let root = world.root.display();
-    let session = "11111111-1111-4111-8111-111111111111";
-    let script = format!(
-        r#"#!/bin/sh
-printf '%s' "$PPID" > '{root}/alpha.pid'
-printf '%s' "$$" > '{root}/alpha-peer.pid'
-printf '%s\n' "$@" >> '{root}/provider-argv'
-IFS= read -r release_hook
-printf '%s' '{{"hook_event_name":"SessionStart","session_id":"{session}","source":"startup","cwd":"{root}","model":"fixture-model"}}' | '{tmt}' __hook claude > '{root}/hook.out' 2> '{root}/hook.err'
-printf '%s' "$?" > '{root}/hook.status.tmp'
-/bin/mv '{root}/hook.status.tmp' '{root}/hook.status'
-printf 'provider-ready\n'
-IFS= read -r line
-"#
-    );
-    tmt_test_support::write_executable(&interpreter, script.as_bytes(), 0o755).unwrap();
-    world.interpreter = Some(interpreter);
-    let started = world.run(&[
-        "run",
-        "--no-channel",
-        "--save",
-        "alpha",
-        provider.to_str().unwrap(),
-    ]);
-    assert!(started.status.success(), "{started:?}");
+// Both resume scenarios release their single SessionStart only after exact Running
+// provider/owner evidence, then wait for the committed session rather than hook exit.
+fn record_provider_session(
+    world: &World,
+    previous_pane: Option<&str>,
+    session: &str,
+) -> (String, String, String) {
     let wait_hook = |world: &World, deadline: Instant, phase: &str| {
         while !world.root.join("hook.status").is_file() {
             assert!(
@@ -711,15 +875,17 @@ IFS= read -r line
         );
         std::thread::sleep(Duration::from_millis(10));
     };
-    let (identity, pane, before_session) = wait_launch(&world, None, deadline);
-    assert!(
-        before_session.is_none(),
-        "the held hook must cause session recording"
-    );
+    let (identity, pane, before_session) = wait_launch(world, previous_pane, deadline);
+    if previous_pane.is_none() {
+        assert!(
+            before_session.is_none(),
+            "the held hook must cause session recording"
+        );
+    }
     assert!(!world.root.join("hook.status").exists());
-    release_hook(&world, &pane);
-    wait_hook(&world, deadline, "initial");
-    let (recorded_identity, recorded_pane, recorded) = wait_session(&world, None, deadline);
+    release_hook(world, &pane);
+    wait_hook(world, deadline, "initial");
+    let (recorded_identity, recorded_pane, recorded) = wait_session(world, previous_pane, deadline);
     assert_eq!(recorded_identity, identity);
     assert_eq!(recorded_pane, pane);
     assert_eq!(
@@ -728,6 +894,52 @@ IFS= read -r line
         "hook diagnostics: {}",
         fs::read_to_string(world.root.join("hook.err")).unwrap()
     );
+    (identity, pane, recorded)
+}
+
+#[test]
+#[ignore = "flaky on hosted runners; see #4767"]
+fn a_hook_recorded_session_resumes_in_a_new_pty_without_tmux() {
+    let mut world = World::new();
+    let example = std::path::Path::new(env!("CARGO_BIN_EXE_tmt"))
+        .parent()
+        .unwrap()
+        .join("examples/provider-script-fixture");
+    assert!(
+        example.is_file(),
+        "build the shared fixture first: cargo build --locked -p tmt-adapters --example provider-script-fixture"
+    );
+    let provider = world.root.join("bin/claude");
+    tmt_test_support::write_executable(&provider, &fs::read(&example).unwrap(), 0o755).unwrap();
+    let interpreter = world.root.join("fixture-interpreter");
+    let tmt = env!("CARGO_BIN_EXE_tmt");
+    let root = world.root.display();
+    let session = "11111111-1111-4111-8111-111111111111";
+    let script = format!(
+        r#"#!/bin/sh
+printf '%s' "$PPID" > '{root}/alpha.pid'
+printf '%s' "$$" > '{root}/alpha-peer.pid'
+printf '%s\n' "$@" >> '{root}/provider-argv'
+IFS= read -r release_hook
+printf '%s' '{{"hook_event_name":"SessionStart","session_id":"{session}","source":"startup","cwd":"{root}","model":"fixture-model"}}' | '{tmt}' __hook claude > '{root}/hook.out' 2> '{root}/hook.err'
+printf '%s' "$?" > '{root}/hook.status.tmp'
+/bin/mv '{root}/hook.status.tmp' '{root}/hook.status'
+printf 'provider-ready\n'
+IFS= read -r line
+"#
+    );
+    tmt_test_support::write_executable(&interpreter, script.as_bytes(), 0o755).unwrap();
+    world.interpreter = Some(interpreter);
+    let started = world.run(&[
+        "run",
+        "--no-channel",
+        "--save",
+        "alpha",
+        provider.to_str().unwrap(),
+    ]);
+    assert!(started.status.success(), "{started:?}");
+    let (identity, pane, recorded) = record_provider_session(&world, None, session);
+    assert_eq!(recorded, session);
     world.remember_programs();
     let old_program = fs::read_to_string(world.root.join("alpha.pid"))
         .unwrap()
@@ -755,13 +967,8 @@ IFS= read -r line
         &[old_program],
         || assert!(resumed.status.success(), "{resumed:?}"),
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let (resumed_identity, resumed_pane, _) = wait_launch(&world, Some(&pane), deadline);
-    assert_eq!(resumed_identity, identity);
-    release_hook(&world, &resumed_pane);
-    wait_hook(&world, deadline, "resumed");
-    let (after_identity, after_pane, after_session) = wait_session(&world, Some(&pane), deadline);
-    assert_eq!(after_pane, resumed_pane);
+    let (after_identity, after_pane, after_session) =
+        record_provider_session(&world, Some(&pane), session);
     assert_eq!(after_identity, identity);
     assert_ne!(after_pane, pane);
     assert_eq!(after_session, session);
@@ -773,7 +980,6 @@ IFS= read -r line
             .any(|words| words == ["--resume", session]),
         "{argv}"
     );
-    drop(db);
     assert!(world.clean());
 }
 
@@ -807,3 +1013,7 @@ fn a_fast_exit_has_one_confirmed_startup_and_a_missing_program_is_not_success() 
 
 #[path = "pty_host/attach.rs"]
 mod attach;
+#[path = "pty_host/e2e.rs"]
+mod e2e;
+#[path = "pty_host/terminal_stream.rs"]
+mod terminal_stream;

@@ -169,7 +169,10 @@ fn shown(storage: &Storage, identity: Identity) -> Result<Report, Failure> {
         .session_preferences(&identity.id)
         .map_err(unavailable)?;
     let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
-    let resume = crate::output::resume_document(&preferences, &registry);
+    let sampled = storage
+        .sampled_rate_account(&identity.id)
+        .map_err(unavailable)?;
+    let resume = crate::output::resume_document(&preferences, &registry, sampled.as_ref());
     let learning = crate::session_learning::identity_view(storage, &identity, &preferences)
         .map_err(unavailable)?;
     Ok(Report::Shown(identity, resume, None, learning))
@@ -180,23 +183,7 @@ fn shown(storage: &Storage, identity: Identity) -> Result<Report, Failure> {
 /// is cached for the caller.
 fn pinned(storage: &mut Storage, id: &str, expected: &str) -> Result<Report, Failure> {
     let changed = |reason: String| Failure::new("IDENTITY_CHANGED", reason, 5);
-    let identity = storage
-        .find_identity_by_id(id)
-        .map_err(unavailable)?
-        .ok_or_else(|| crate::output::identity_missing(id))?;
-    if storage
-        .find_active_identity_by_id(id)
-        .map_err(unavailable)?
-        .is_none()
-    {
-        return Err(changed(format!("The identity {id} has been retired.")));
-    }
-    if identity.canonical_name != tmt_core::names::normalize_name(expected) {
-        return Err(changed(format!(
-            "The identity {id} is now named '{}', not '{expected}'.",
-            identity.name
-        )));
-    }
+    let identity = identity_context::pinned_identity(storage, id, expected)?;
     // Presence is read as `tmt ls <name>` reads it, so a host that cannot answer is "unknown",
     // never a reason to refuse an identity that still has its name.
     let host = Host::for_caller(&CallerEnvironment::current());
@@ -461,10 +448,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                     tmt_cli_style::message::warning(
                         &mut stdout,
                         terminal,
-                        &format!(
-                            "The provider session was not recorded ({}). Resume may be unavailable.",
-                            learning.cause()
-                        ),
+                        &learning.warning(None),
                         Some(&learning.next_step),
                     )?;
                 }
@@ -556,8 +540,7 @@ fn document(report: &Report) -> serde_json::Value {
                 document["resume"] = resume.clone();
             }
             if let Some(learning) = learning {
-                document["session"] =
-                    json!({"unbound":true,"learning":crate::session_learning::document(learning)});
+                document["session"] = json!({"unbound":learning.unbound,"learning":crate::session_learning::document(learning)});
             }
             document
         }

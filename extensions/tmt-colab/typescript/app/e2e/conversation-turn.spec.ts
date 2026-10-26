@@ -1,5 +1,5 @@
 import { openPanel } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, showResolvedOn } from '../test/page-actions.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { captureDirectory } from './captures.js';
@@ -125,13 +125,15 @@ async function bubble(turn: Locator, filled: boolean) {
 }
 async function flat(message: Locator) {
   const chat = await message.evaluate((node) => !!node.closest('.chat-panel'));
-  // The Discussion view is the sheet itself: its turns run full width with a rule between them.
+  // The Discussion view is the sheet itself: its turns run full width with a rule between them,
+  // and the last turn ends the thread without one.
   const discussion = await message.evaluate(
     (node) => !!node.closest('.comment-thread[data-layout="discussion"]'),
   );
+  const last = await message.evaluate((node) => node.matches(':last-child'));
   await expect(message).toHaveCSS('border-radius', '0px');
   await expect(message).toHaveCSS('box-shadow', 'none');
-  await expect(message).toHaveCSS('border-bottom-width', discussion ? '1px' : '0px');
+  await expect(message).toHaveCSS('border-bottom-width', discussion && !last ? '1px' : '0px');
   // One turn look: no fill and no rule for an agent either, in Chat and in a thread (#4111).
   await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(message).toHaveCSS('border-left-width', '0px');
@@ -164,11 +166,12 @@ async function shell(window: Locator) {
     'padding',
     flush ? '12px 0px 16px' : '12px 16px 16px',
   );
-  // Chat's composer is one bordered box instead of a field under a rule.
+  // Chat's composer is one bordered box instead of a field under a rule, and the Discussion view's
+  // has no rule above it either: spacing sets it apart.
   const chat = await window.evaluate((node) => node.classList.contains('chat-panel'));
   await expect(window.locator('.conversation-composer')).toHaveCSS(
     'border-top-width',
-    chat ? '0px' : '1px',
+    chat || flush ? '0px' : '1px',
   );
   if (chat)
     await expect(window.locator('.annotation-compose .rich-input-surface')).toHaveCSS(
@@ -243,6 +246,8 @@ for (const width of [1440, 390]) {
           if (state === 'replied') {
             await expect(agent).toHaveCount(1);
             await flat(agent);
+            // The rule between two turns of a thread belongs to the first.
+            if (surface === 'thread') await expect(user).toHaveCSS('border-bottom-width', '1px');
             await bubble(agent, surface === 'chat');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText('Atlas · 5m ago');
@@ -327,7 +332,8 @@ for (const width of [1440, 390]) {
         }
       }
       expect(computed['chat-user'].row['border-bottom']).toContain('0px');
-      expect(computed['thread-user'].row['border-bottom']).toContain('1px');
+      // A lone turn ends the thread, so it has no rule; the rule runs between two (checked below).
+      expect(computed['thread-user'].row['border-bottom']).toContain('0px');
       expect(computed['chat-agent'].row['border-left']).toContain('0px');
       expect(computed['thread-agent'].row['border-left']).toContain('0px');
       // The same agent reply has one meta line style in Chat and in a thread.
@@ -485,6 +491,7 @@ for (const surface of ['chat', 'thread'] as const)
 test('status copy preserves every ledger outcome and explicit trusted tracking actions', async ({
   page,
 }) => {
+  await showResolvedOn(page);
   await mount(page, 'thread', 'uncertain');
   const window = page.getByTestId('comment-thread');
   const check = window.getByRole('button', { name: text.askRecheck });
@@ -716,14 +723,15 @@ for (const width of [1440, 390])
         .repeat(50)
         .trim();
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
-      const frame = page.locator('#ask-page-fixture iframe');
-      const render = await frame.getAttribute('data-render-id');
+      // A script-free edit reaches the open frame in place (#5022).
       await run(
         page,
         'change',
         `<p id="selected" style="margin:0;font:14px/1.5 sans-serif">${longQuote}</p>`,
       );
-      await expect(frame).not.toHaveAttribute('data-render-id', render!);
+      await expect(
+        page.frameLocator('#ask-page-fixture iframe').locator('#selected'),
+      ).toContainText('This selected passage');
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       await page
         .frameLocator('#ask-page-fixture iframe')
@@ -784,14 +792,20 @@ for (const width of [1440, 390])
       await page.goto('/');
       await run(page, 'mount');
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
-      const frame = page.locator('#ask-page-fixture iframe');
-      const render = await frame.getAttribute('data-render-id');
       await run(
         page,
         'change',
         '<div style="height:600px"></div><p id="selected">Exact selected text</p>',
       );
-      await expect(frame).not.toHaveAttribute('data-render-id', render!);
+      // A script-free edit reaches the open frame in place (#5022).
+      await expect
+        .poll(() =>
+          page
+            .frameLocator('#ask-page-fixture iframe')
+            .locator('#selected')
+            .evaluate((node: HTMLElement) => node.offsetTop),
+        )
+        .toBeGreaterThan(500);
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       const selected = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
       await selected.evaluate((node) => {

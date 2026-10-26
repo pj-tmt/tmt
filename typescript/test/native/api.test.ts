@@ -96,6 +96,71 @@ describe('public local extension API', () => {
     });
   });
 
+  it('pages the committed conversation without sorting clocks or acknowledging bodies', async () => {
+    await withSandbox(async (sandbox) => {
+      const id = await identity(sandbox, 'Timeline');
+      expect((await api(sandbox, 'capabilities', {})).body.operations).toContain(
+        'responses.timeline'
+      );
+      const now = Date.now();
+      const db = new Database(sandbox.database);
+      try {
+        for (const [text, time] of [
+          ['first', now],
+          ['second', now - 1],
+        ] as const) {
+          const inserted = db
+            .prepare(
+              'INSERT INTO recent_responses(identity_id,text,ended_ms,provider,truncated,session_id,expires_ms,original_bytes) VALUES(?,?,?, ?,0,NULL,?,?)'
+            )
+            .run(id, text, time, 'claude', now + 86400000, text.length);
+          db.prepare(
+            "INSERT INTO capture_entries(identity_id,kind,response_sequence,created_ms) VALUES(?,'final',?,?)"
+          ).run(id, inserted.lastInsertRowid, time);
+        }
+      } finally {
+        db.close();
+      }
+      const before = everyTable(sandbox);
+      const newest = await api(sandbox, 'responses.timeline', { identityId: id, limit: 1 });
+      expect(newest.status).toBe(0);
+      expect(newest.body.responses.map((row: { text: string }) => row.text)).toEqual(['second']);
+      expect(newest.body.entries[0]).toMatchObject({
+        kind: 'final',
+        availability: 'retained',
+        acknowledgements: [],
+        acknowledgementsTruncated: false,
+      });
+      const older = await api(sandbox, 'responses.timeline', {
+        identityId: id,
+        limit: 1,
+        before: newest.body.nextBefore,
+      });
+      expect(older.body.responses.map((row: { text: string }) => row.text)).toEqual(['first']);
+      expect(older.body.nextBefore).toBeUndefined();
+      expect(everyTable(sandbox)).toEqual(before);
+      for (const input of [
+        { limit: 0 },
+        { limit: 51 },
+        { before: null },
+        { before: 'ce_01' },
+        { before: 1 },
+        { after: 'ce_1' },
+      ]) {
+        const refused = await api(sandbox, 'responses.timeline', { identityId: id, ...input });
+        expect(refused.status).toBe(1);
+        expect(refused.body.error.code).toBe('API_INPUT_INVALID');
+      }
+      expect((await runCli(sandbox, ['rm', 'Timeline', '--force', '--json'])).status).toBe(0);
+      expect((await api(sandbox, 'responses.timeline', { identityId: id })).body).toEqual({
+        identityId: id,
+        entries: [],
+        responses: [],
+        coverage: { olderDropped: false },
+      });
+    });
+  });
+
   it('reads recent pane output by UUID without renewing or acknowledging anything', async () => {
     await withSandbox(async (sandbox) => {
       const id = await identity(sandbox, 'Recent');
@@ -215,6 +280,31 @@ describe('public local extension API', () => {
         expect(await code(input)).toBe('API_INPUT_INVALID');
       }
       const named = await api(sandbox, 'pane.screen', { identityId: unbound }, 'No Pane');
+      expect(named.body.error.code).toBe('API_INPUT_INVALID');
+      expect(everyTable(sandbox)).toEqual(before);
+    });
+  });
+
+  it('names a missing identity or an unavailable stream for terminal.stream and changes nothing', async () => {
+    await withSandbox(async (sandbox) => {
+      const unbound = await identity(sandbox, 'No Member');
+      const retired = await identity(sandbox, 'Gone');
+      expect((await runCli(sandbox, ['rm', 'Gone', '--force', '--json'])).status).toBe(0);
+      const capabilities = await api(sandbox, 'capabilities', {});
+      expect(capabilities.body.operations).toContain('terminal.stream');
+      const before = everyTable(sandbox);
+      const code = async (input: unknown) => {
+        const result = await api(sandbox, 'terminal.stream', input);
+        expect(result.status).toBe(1);
+        return result.body.error.code;
+      };
+      expect(await code({ identityId: unbound })).toBe('TERMINAL_STREAM_UNAVAILABLE');
+      expect(await code({ identityId: retired })).toBe('NAME_NOT_FOUND');
+      expect(await code({ identityId: randomUUID() })).toBe('NAME_NOT_FOUND');
+      for (const input of [{}, { identityId: 'No Member' }, { identityId: unbound, lines: 5 }]) {
+        expect(await code(input)).toBe('API_INPUT_INVALID');
+      }
+      const named = await api(sandbox, 'terminal.stream', { identityId: unbound }, 'No Member');
       expect(named.body.error.code).toBe('API_INPUT_INVALID');
       expect(everyTable(sandbox)).toEqual(before);
     });

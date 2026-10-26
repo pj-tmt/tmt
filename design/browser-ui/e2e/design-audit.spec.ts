@@ -200,7 +200,7 @@ for (const width of [1586, 390])
       await expect(page.locator('.tmt-ui-card-title')).toHaveCSS('font-size', '19px');
       if (width === 1586) {
         await expect(page.locator('.tmt-ui-rail')).toHaveCSS('width', '232px');
-        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('padding', '22px 12px 17px');
+        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('padding', '0px 12px 17px');
         await expect(page.locator('.tmt-ui-rail-item').first()).toHaveCSS('height', '45px');
         await expect(page.locator('.tmt-ui-rail-sub-item').first()).toHaveCSS('height', '33px');
         const indent = await page.evaluate(() => {

@@ -151,12 +151,25 @@ function expectNativeSchema(
       name: 'count usage writes on their own cursor, so the sampler does not wake the board',
     },
     { version: 75, name: 'let a session-learning diagnostic name what its step stopped on' },
+    { version: 76, name: 'record ordered conversation input batches and finals' },
+    {
+      version: 77,
+      name: 'let a session-learning diagnostic name why a decoded hook admitted nothing',
+    },
+    { version: 78, name: 'publish typed configured Digest receiving' },
+    { version: 79, name: 'admit every full runtime in retained finals' },
+    { version: 80, name: 'let a session-learning diagnostic name why a Digest Stop refused' },
+    { version: 81, name: 'record pending orchestration wakes and summary projection' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
       'change_cursor',
+      'capture_batches',
+      'capture_entries',
+      'capture_acknowledgements',
+      'capture_floor',
       'usage_cursor',
       'consumption_sources',
       'consumption_buckets',
@@ -208,6 +221,9 @@ function expectNativeSchema(
       'orchestration_member_overrides',
       'orchestration_focus',
       'orchestration_decisions',
+      'digest_receiving_settings',
+      'orchestration_pending_wakes',
+      'orchestration_wake_clock',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -227,6 +243,8 @@ function expectNativeSchema(
     'orchestration_member_overrides',
     'orchestration_focus',
     'orchestration_decisions',
+    'orchestration_pending_wakes',
+    'orchestration_wake_clock',
   ]) {
     expect(table(migrated, name).rows).toEqual([]);
   }
@@ -357,6 +375,15 @@ function expectNativeSchema(
     });
   }
   const retained = table(migrated, 'identity_resume_records');
+  expect(table(migrated, 'digest_receiving_settings').rows).toEqual([]);
+  expect(table(migrated, 'digest_receiving_settings').columns.map((column) => column.name)).toEqual(
+    ['id', 'revision', 'settings']
+  );
+  expect(
+    table(migrated, 'focus_checklists').columns.find(
+      (column) => column.name === 'orchestration_context'
+    )
+  ).toMatchObject({ name: 'orchestration_context', type: 'TEXT', notnull: 0, dflt_value: null });
   expect(retained.foreignKeys).toEqual([
     {
       id: 0,

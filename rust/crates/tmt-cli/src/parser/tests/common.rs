@@ -101,6 +101,7 @@ fn command_aliases_preserve_typed_invocations() {
                 target: "peer".into(),
                 lines: Some(0),
                 capture_only: false,
+                expect_name: None,
             },
         ),
     ];

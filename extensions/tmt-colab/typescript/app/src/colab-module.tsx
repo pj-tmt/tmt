@@ -14,11 +14,18 @@ import { ColabModuleBoundary } from './colab-module-boundary.js';
 import '@tmt/browser-ui/static.css';
 import './style.css';
 import { ShellHostSlot } from './colab-shell.js';
-import { hostInShell } from './entry.js';
+import { hostInShell, mountOfModule } from './entry.js';
 import { previewTransport } from './local-pages.js';
 import { MountedApp } from './mounted-app.js';
 import { UnsupportedBrowserNotice } from './notice-card.js';
 import { createAppRouter, shellLocation } from './router.js';
+import {
+  mount as mountSearchEntry,
+  type SearchEntry,
+  type SearchEntryOptions,
+} from './search-entry.js';
+import { createSearchSession, type SearchSessionOptions } from './search-session.js';
+import { mountedTransport } from './mounted.js';
 
 /** The paired mount the composed shell names for Colab, or null for the local preview. */
 function pairedMount(slot: ShellSlot): URL | null {
@@ -40,6 +47,58 @@ function stylesheet(): () => void {
     Object.assign(document.createElement('link'), { rel: 'stylesheet', href }),
   );
   return () => link.remove();
+}
+
+/**
+ * The global search's Colab half (#4841), mounted by the shell off the Colab route: it links this
+ * module's stylesheet for as long as the search lives and adds no shortcut listener of its own.
+ */
+export function mountSearch(container: HTMLElement, options: SearchEntryOptions): SearchEntry {
+  const unstyle = stylesheet();
+  const entry = mountSearchEntry(container, options);
+  return {
+    open: entry.open,
+    dispose() {
+      entry.dispose();
+      unstyle();
+    },
+  };
+}
+
+/**
+ * The global search for a host that builds no page transport (#5267): the session owns Colab's
+ * mounted transport and its close, so the host never touches either. It starts when mounted;
+ * `open` before the pages are ready opens the dialog on the groups that are, and `dispose` ends
+ * the transport, a bootstrap still running included.
+ */
+export function mountSearchSession(
+  container: HTMLElement,
+  options: SearchSessionOptions,
+): SearchEntry {
+  const unstyle = stylesheet();
+  const session = createSearchSession(
+    {
+      // The document is another module's: name the mount this script was loaded from, so discovery
+      // never reads or rewrites the location.
+      admit: (signal) => {
+        const mount = mountOfModule(import.meta.url);
+        return mount
+          ? mountedTransport(signal, { mount })
+          : Promise.reject(new Error('Colab was not loaded from its mount'));
+      },
+      mountEntry: mountSearchEntry,
+      page: window,
+    },
+    container,
+    options,
+  );
+  return {
+    open: session.open,
+    dispose() {
+      session.dispose();
+      unstyle();
+    },
+  };
 }
 
 export async function mount(slot: ShellSlot): Promise<() => void> {

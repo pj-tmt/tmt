@@ -311,6 +311,15 @@ belong to the [host reference](../.agents/skills/tmt-core-runtime/references/hos
   last `lines` lines. A driver must not refuse `lines: 0` as `bad_request`.
 - **Missing pane:** each of these answers `not_found`.
 
+**Core capture selection.** `tmt check <target> --capture-only` (alias `read`)
+accepts a name, pane or canonical lowercase UUIDv4. A UUID selects its recorded
+binding without falling back to a UUID-shaped name. Optional `--expect-name <name>`
+requires a UUID and `--capture-only`; a retired or renamed identity refuses with
+`IDENTITY_CHANGED` (exit 5) before capture, and an unknown UUID with `NAME_NOT_FOUND`
+(exit 3). Expected names use Core's canonical name comparison. Capture-only never
+delivers a Digest checklist. Ordinary check retains name/pane routing; capture line
+counts, output and this driver's wire requests are unchanged.
+
 **Core directional focus.** `tmt focus <target> --into <left|right|up|down>` is a
 Core host action, not an external-driver wire operation. External drivers,
 including Herdr, default to `HOST_UNSUPPORTED`. On tmux, Core verifies the caller
@@ -356,9 +365,10 @@ policy, and a driver adds no delay of its own.
 - **When core asks:** only for `tmt stop --close`, after the member's agent was
   stopped (or had already ended), and only for the binding's own pane. Core
   first reads that one pane with `snapshot` and asks only while it is still the
-  verified shell and carries `openedByTmt: true`. A pane without the mark, a
-  pane the snapshot does not list, or an unknown answer is never closed. Core
-  sends at most one `close` per command and never retries it, whatever the answer.
+  verified shell and carries `openedByTmt: true`. A pane without the mark or an
+  unknown answer is never closed. A pane the snapshot proves absent needs no close:
+  `--close` reports it already gone. Core sends at most one `close` per command
+  and never retries it, whatever the answer.
 - **What the driver closes:** exactly that pane, and only while it still runs the
   shell `panePid`; otherwise it answers `not_found`. It closes no neighbouring
   pane. A window or tab that holds only that pane goes with it, but a session,
@@ -765,8 +775,8 @@ and prints one line saying so; a first-party driver the user removed with
 
 `tmt host templates [--json]` reads, per host, the template its `launch`
 capability describes. It is read-only: it needs no caller pane and creates no
-pane or session. It lists tmux first, then each approved host driver in the
-registry's order:
+pane or session. It lists tmux first, then the built-in `pty` host, then each
+approved host driver in the registry's order:
 
 ```json
 {"version": 1, "hosts": [
@@ -776,7 +786,7 @@ registry's order:
  {"host": "herdr", "state": "ok", "launch": null}]}
 ```
 
-- **`state`:** `builtin` for tmux; for a driver, its approval state (`ok`,
+- **`state`:** `builtin` for tmux and the `pty` host; for a driver, its approval state (`ok`,
   `changed`, `missing`). Only an `ok` driver offers its `launch`: a changed or
   missing executable's command line is not the one the user saw, so it reads
   `null`.
@@ -793,6 +803,15 @@ refused before tmux is reached (exit 2), because tmux reads an empty session
 target as any session. A session name holds no `.` or `:`, which tmux rewrites.
 A command that ends before the mark is set leaves no pane to mark, and the
 template exits non-zero.
+
+The `pty` template opens no pane: `{session}` is the name the member is bound as and
+`{command}` the command line, and `sh -c` hands both to `tmt run --host pty` as
+positional arguments, so nothing is interpolated into the script. `tmt run` starts the
+member's supervisor in the background and returns once the managed launcher is admitted,
+printing the host and the bound name; closing the terminal that ran the template leaves
+the member running. The template writes no mark, because the host itself answers whether
+tmt opened a built-in pane. An empty name or command is refused (exit 2) before
+`tmt run`, and the `tmt` it runs is the one found on `PATH`.
 
 ## Trust boundary
 

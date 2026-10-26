@@ -21,6 +21,11 @@ export interface ListboxOption<Value extends string> {
   selected?: boolean;
   /** Navigation results only; selection suggestions remain buttons. */
   href?: string;
+  /**
+   * The labelled group this option belongs to. Consecutive options of one group share a heading;
+   * a list where no option has one keeps its flat markup. The heading is never an option.
+   */
+  group?: { key: string; label: string };
 }
 
 function lastEnabledIndex<Value extends string>(options: readonly ListboxOption<Value>[]) {
@@ -28,6 +33,21 @@ function lastEnabledIndex<Value extends string>(options: readonly ListboxOption<
     if (!options[index].disabled) return index;
   }
   return -1;
+}
+
+/** Consecutive options of one group (or of none) as runs, with where each starts. */
+function groupRuns<Value extends string>(options: readonly ListboxOption<Value>[]) {
+  const runs: {
+    group?: { key: string; label: string };
+    start: number;
+    options: ListboxOption<Value>[];
+  }[] = [];
+  options.forEach((option, index) => {
+    const last = runs.at(-1);
+    if (last && last.group?.key === option.group?.key) last.options.push(option);
+    else runs.push({ group: option.group, start: index, options: [option] });
+  });
+  return runs;
 }
 
 /** A single-value, controlled picker. Focus stays on the trigger while the open list is navigated. */
@@ -121,10 +141,19 @@ export function Listbox<Value extends string>({
     };
   }, [open, presentation]);
 
+  const activeId = open && focusIndex >= 0 ? optionId(focusIndex) : undefined;
+  // The first option of a group brings its heading into view with it.
+  const startsGroup =
+    focusIndex >= 0 && options[focusIndex]?.group?.key !== options[focusIndex - 1]?.group?.key;
   useEffect(() => {
-    if (!open || focusIndex < 0) return;
-    list.current?.children[focusIndex]?.scrollIntoView({ block: 'nearest' });
-  }, [open, focusIndex]);
+    if (!activeId) return;
+    const active = list.current?.querySelector<HTMLElement>(`[id="${activeId}"]`);
+    if (startsGroup)
+      active?.parentElement
+        ?.querySelector('.tmt-listbox-group-label')
+        ?.scrollIntoView({ block: 'nearest' });
+    active?.scrollIntoView({ block: 'nearest' });
+  }, [activeId, startsGroup]);
 
   useEffect(() => {
     if (presentation === 'results') return;
@@ -282,6 +311,47 @@ export function Listbox<Value extends string>({
     }
   }
 
+  const row = (option: ListboxOption<Value>, index: number) => {
+    const Element = option.href ? 'a' : 'button';
+    return (
+      <Element
+        {...(option.href
+          ? { href: option.disabled ? undefined : option.href }
+          : { type: 'button' as const })}
+        role="option"
+        className="tmt-listbox-option"
+        key={option.value}
+        id={optionId(index)}
+        aria-selected={
+          presentation === 'results'
+            ? focusIndex === index
+            : (option.selected ?? option.value === value)
+        }
+        data-active={focusIndex === index}
+        disabled={option.href ? undefined : option.disabled}
+        aria-disabled={option.href ? option.disabled : undefined}
+        tabIndex={-1}
+        onPointerMove={() => setActiveValue(option.value)}
+        onPointerDown={(event) => {
+          if (!option.href || plainPageClick(event)) event.preventDefault();
+        }}
+        onClick={(event) => {
+          if (!event.isTrusted) {
+            if (option.href) event.preventDefault();
+            return;
+          }
+          if (option.href) {
+            if (!plainPageClick(event)) return;
+            event.preventDefault();
+          }
+          choose(option);
+        }}
+      >
+        {renderOption ? renderOption(option) : option.label}
+      </Element>
+    );
+  };
+
   const optionList = (
     <div
       ref={list}
@@ -298,46 +368,28 @@ export function Listbox<Value extends string>({
       aria-labelledby={labelId}
       hidden={!open}
     >
-      {options.map((option, index) => {
-        const Element = option.href ? 'a' : 'button';
-        return (
-          <Element
-            {...(option.href
-              ? { href: option.disabled ? undefined : option.href }
-              : { type: 'button' as const })}
-            role="option"
-            className="tmt-listbox-option"
-            key={option.value}
-            id={optionId(index)}
-            aria-selected={
-              presentation === 'results'
-                ? focusIndex === index
-                : (option.selected ?? option.value === value)
-            }
-            data-active={focusIndex === index}
-            disabled={option.href ? undefined : option.disabled}
-            aria-disabled={option.href ? option.disabled : undefined}
-            tabIndex={-1}
-            onPointerMove={() => setActiveValue(option.value)}
-            onPointerDown={(event) => {
-              if (!option.href || plainPageClick(event)) event.preventDefault();
-            }}
-            onClick={(event) => {
-              if (!event.isTrusted) {
-                if (option.href) event.preventDefault();
-                return;
-              }
-              if (option.href) {
-                if (!plainPageClick(event)) return;
-                event.preventDefault();
-              }
-              choose(option);
-            }}
-          >
-            {renderOption ? renderOption(option) : option.label}
-          </Element>
-        );
-      })}
+      {options.some((option) => option.group)
+        ? groupRuns(options).map((run) =>
+            run.group ? (
+              <div
+                role="group"
+                className="tmt-listbox-group"
+                aria-labelledby={`${id}-group-${encodeURIComponent(run.group.key)}`}
+                key={`group:${run.group.key}:${run.start}`}
+              >
+                <div
+                  className="tmt-listbox-group-label"
+                  id={`${id}-group-${encodeURIComponent(run.group.key)}`}
+                >
+                  {run.group.label}
+                </div>
+                {run.options.map((option, offset) => row(option, run.start + offset))}
+              </div>
+            ) : (
+              run.options.map((option, offset) => row(option, run.start + offset))
+            ),
+          )
+        : options.map(row)}
     </div>
   );
 

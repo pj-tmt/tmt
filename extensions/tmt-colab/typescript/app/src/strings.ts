@@ -28,6 +28,44 @@ const frameLimit =
   'A page’s scripts can open another address inside the page’s own frame, which can pass along what the page can read. Colab cannot fully prevent that.';
 
 export const text = {
+  metadata: {
+    questions: 'Questions',
+    questionsItem: 'Questions…',
+    creatorTitle: 'Page creator',
+    creatorItem: (name?: string) => (name ? `Creator: ${name}…` : 'Set creator…'),
+    setCreator: 'Set creator',
+    creator: 'Creator',
+    noCreator: 'No creator',
+    ownerOnly: 'Only the page owner can change this here',
+    unavailable: 'Page metadata unavailable',
+    verifying: 'Verifying question answers…',
+    noRegistry: 'This page has no question registry.',
+    empty: 'No registered questions.',
+    removed: 'Removed from page source',
+    onPage: 'On this page',
+    currentCreator: (name: string) => `Current creator: ${name}`,
+    assignedTo: (name: string) => `Assigned to ${name}`,
+    summary: (open: number, answered: number, handled: number) =>
+      `${open} open · ${answered} answered · ${handled} handled`,
+    cancel: 'Cancel',
+    close: 'Close',
+    creatorHint:
+      'New drafts use the creator. Existing question assignments and sent messages keep their recipients.',
+    directoryUnavailable: (code?: string) =>
+      `Agent directory unavailable${code ? ` (${code})` : ''}. The current creator is unchanged.`,
+    findAgent: 'Find an agent',
+    loading: 'Loading agents…',
+    retry: 'Retry',
+    status: {
+      open: 'Open',
+      answered: 'Answered',
+      handled: 'Handled',
+      unknown: 'Verifying…',
+      unregistered: 'Not registered',
+    },
+    handle: 'Mark handled',
+    reopen: 'Reopen',
+  },
   pageLink: {
     close: 'Close',
     external: 'Open this link in a new tab?',
@@ -57,6 +95,17 @@ export const text = {
     noMatch: 'No matching pages.',
     failed: "Couldn't load pages. Close and try again.",
     shortcut: (command: boolean) => `Search pages · ${command ? '⌘K' : 'Ctrl+K'}`,
+    // The global search: the same dialog with the groups of every module beside Colab's pages.
+    titleGlobal: 'Search TMT',
+    // Names only what the registered groups offer; none registered yet, so the field stays neutral.
+    placeholderGlobal: (names: readonly string[]) =>
+      names.length === 0
+        ? 'Search TMT…'
+        : `Search ${[names.slice(0, -1).join(', '), names[names.length - 1]].filter(Boolean).join(' or ')}…`,
+    pagesNoun: 'pages',
+    resultsGlobal: 'Results',
+    colab: 'Colab',
+    projectPages: (count: number) => `Project · ${count} ${count === 1 ? 'page' : 'pages'}`,
   },
   archiveReadOnly: 'Archived · Read only',
   archiveReadOnlyHint: 'Archived pages can be read, not changed.',
@@ -353,7 +402,10 @@ export const text = {
   commentsEmptyNoneHint: 'Select text to start a thread, or comment on the page.',
   commentsEmptyTitle: 'Nothing waiting here.',
   commentsEmptyCaughtUp: 'You are caught up in this view.',
-  commentsEmptyResolved: 'Resolved threads will appear here.',
+  /** The Comments panel's pressed toggle: resolved threads are hidden until it is on. */
+  showResolved: 'Show resolved',
+  commentsNoOpen: 'No open threads',
+  commentsNoOpenHidden: 'Resolved threads are hidden. Turn on Show resolved to see them.',
   commentCount: (count: number) => `${count} ${count === 1 ? 'comment' : 'comments'}`,
   commentDevice: 'Commenting device',
   commentEdited: 'edited',
@@ -571,6 +623,10 @@ export const text = {
     'runtime-unavailable':
       'No standalone copy: the page runtime could not be loaded. Export again to retry.',
     'runtime-unusable': 'No standalone copy: the page runtime cannot be written into an HTML file.',
+    'design-unavailable':
+      'No standalone copy: the page design system could not be loaded. Export again to retry.',
+    'design-unusable':
+      'No standalone copy: the page design system cannot be written into an HTML file.',
   },
   exportAttachments: 'Attachments',
   exportAttachmentRequested: 'Download requested',
@@ -845,6 +901,23 @@ export const text = {
     moreWorking: (count: number) => `+${count}`,
     manageProjects: 'Manage projects',
     projects: 'Projects',
+    /** The side menu's project group while the owner has not pinned any: the most recently used. */
+    recentProjects: 'Recent projects',
+    /** The side menu's entry that opens Manage projects, where every project is. */
+    allProjectsItem: 'All projects…',
+    scopeNotPinned: 'Not pinned: shown while you are in it.',
+    pinToSidebar: 'Pin to sidebar',
+    unpinFromSidebar: 'Unpin from sidebar',
+    pinProject: (name: string) => `Pin ${name} to sidebar`,
+    moveProjectUp: (name: string) => `Move ${name} up in the sidebar`,
+    moveProjectDown: (name: string) => `Move ${name} down in the sidebar`,
+    pinnedPlace: (place: number, count: number) => `Sidebar place ${place} of ${count}`,
+    sidebarAutomatic: 'Shown in the sidebar because you used it recently. Pin to keep it.',
+    sidebarProjectsHint: 'Pin the projects the sidebar lists.',
+    projectPinned: (name: string) => `${name} is in the sidebar.`,
+    projectUnpinned: (name: string) => `${name} is out of the sidebar.`,
+    projectPinsFull: (limit: number) =>
+      `The sidebar holds at most ${limit} projects. Unpin one first.`,
     scopeLabel: 'Project',
     allPages: 'All pages',
     noPagesInProject: (name: string) => `No pages in ${name} yet.`,

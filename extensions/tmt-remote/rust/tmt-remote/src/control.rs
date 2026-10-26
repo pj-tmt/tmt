@@ -574,6 +574,86 @@ fn session(
                     cloud.status()
                 }),
         ),
+        Some("members.list" | "members.machines") => Some((|| {
+            let mut input = request
+                .as_object()
+                .cloned()
+                .ok_or_else(crate::operations::invalid)?;
+            let op = input
+                .remove("op")
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .ok_or_else(crate::operations::invalid)?;
+            {
+                let empty = crate::members::observations::NoMemberObservations;
+                let source = door
+                    .views
+                    .cloud
+                    .as_deref()
+                    .map(|s| s as &dyn crate::members::observations::MemberObservationSource)
+                    .unwrap_or(&empty);
+                crate::members::reads::local(
+                    devices,
+                    source,
+                    &format!("remote.{op}"),
+                    &Value::Object(input),
+                )
+            }
+        })()),
+        Some("members.read") if request.as_object().is_some_and(|r| r.len() == 2) => Some((|| {
+            let input = serde_json::from_value::<crate::members::terminal::MemberTerminalRead>(
+                request["input"].clone(),
+            )
+            .map_err(|_| crate::operations::invalid())?;
+            let empty = crate::members::observations::NoMemberObservations;
+            let source = door
+                .views
+                .cloud
+                .as_deref()
+                .map(|s| s as &dyn crate::members::observations::MemberObservationSource)
+                .unwrap_or(&empty);
+            crate::members::terminal::read(devices, source, &input)
+        })(
+        )),
+        Some("members.mutate") if request.as_object().is_some_and(|r| r.len() == 2) => {
+            Some((|| {
+                let input = serde_json::from_value::<
+                    crate::members::terminal::MemberTerminalMutation,
+                >(request["input"].clone())
+                .map_err(|_| crate::operations::invalid())?;
+                let answer = crate::members::terminal::mutate(devices, &input)?;
+                if matches!(
+                    input,
+                    crate::members::terminal::MemberTerminalMutation::Revoke { .. }
+                ) && answer["changed"] == true
+                    && let Some(cloud) = &door.views.cloud
+                {
+                    cloud.request_reconcile();
+                }
+                Ok(answer)
+            })())
+        }
+        Some("members.machine.mutate") if request.as_object().is_some_and(|r| r.len() == 2) => {
+            Some((|| {
+                let input = serde_json::from_value::<
+                    crate::members::terminal_machines::MemberMachineMutation,
+                >(request["input"].clone())
+                .map_err(|_| crate::operations::invalid())?;
+                let answer = crate::members::terminal_machines::mutate(
+                    devices,
+                    &input,
+                    Some(&door.door.origin),
+                )?;
+                if matches!(
+                    input,
+                    crate::members::terminal_machines::MemberMachineMutation::Remove { .. }
+                ) && answer["changed"] == true
+                    && let Some(cloud) = &door.views.cloud
+                {
+                    cloud.request_reconcile();
+                }
+                Ok(answer)
+            })())
+        }
         Some("devices") => Some(devices.visible().map(|rows| json!({"devices":rows}))),
         Some("remove-others") if request.as_object().is_some_and(|row| row.len() == 2) => Some(
             request
@@ -1188,6 +1268,51 @@ fn request_connect_error<T>(error: io::Error) -> Result<Option<T>, RemoteError> 
     }
 }
 
+/// Bounded typed owner-only read; an unsupported live owner is never bypassed by opening state.
+pub fn members_read(
+    directory: &Path,
+    input: &crate::members::terminal::MemberTerminalRead,
+) -> Result<Option<Value>, RemoteError> {
+    request(directory, &json!({"op":"members.read","input":input})).map_err(|error| {
+        if error.code == UNSUPPORTED {
+            outdated_serve()
+        } else {
+            error
+        }
+    })
+}
+
+/// One revision-fenced terminal mutation; never resend after a missing/uncertain answer.
+pub fn members_mutate(
+    directory: &Path,
+    input: &crate::members::terminal::MemberTerminalMutation,
+) -> Result<Option<Value>, RemoteError> {
+    terminal_mutation_request(directory, &json!({"op":"members.mutate","input":input}))
+}
+/// Exact-machine mutations are independent of person-wide effects.
+pub fn members_machine_mutate(
+    directory: &Path,
+    input: &crate::members::terminal_machines::MemberMachineMutation,
+) -> Result<Option<Value>, RemoteError> {
+    terminal_mutation_request(
+        directory,
+        &json!({"op":"members.machine.mutate","input":input}),
+    )
+}
+fn terminal_mutation_request(
+    directory: &Path,
+    value: &Value,
+) -> Result<Option<Value>, RemoteError> {
+    request(directory,value).map_err(|error| {
+        if error.code == UNSUPPORTED {
+            outdated_serve()
+        } else if error.code == "REMOTE_IO" {
+            RemoteError::new("REMOTE_MEMBER_UNCONFIRMED", "Could not confirm the member change answer. Read tmt remote members before running it again.")
+        } else {
+            error
+        }
+    })
+}
 /// Optional local-owner cloud status; older doors may refuse this projection.
 pub fn cloud_status(directory: &Path) -> Result<Option<Value>, RemoteError> {
     request(directory, &json!({"op":"cloud.status"}))

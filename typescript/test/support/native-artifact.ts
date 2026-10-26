@@ -9,8 +9,12 @@ import { writeExecutable } from './executable-fixture.mjs';
 const { runtimeFiles, companionFiles } = (await import(
   new URL('../../scripts/native-artifact-policy.mjs', import.meta.url).href
 )) as unknown as {
-  runtimeFiles: (product?: 'cli' | 'ops' | 'remote' | 'colab' | 'driver-herdr') => string[];
-  companionFiles: (product?: 'cli' | 'ops' | 'remote' | 'colab' | 'driver-herdr') => string[];
+  runtimeFiles: (
+    product?: 'cli' | 'ops' | 'digest' | 'remote' | 'colab' | 'driver-herdr'
+  ) => string[];
+  companionFiles: (
+    product?: 'cli' | 'ops' | 'digest' | 'remote' | 'colab' | 'driver-herdr'
+  ) => string[];
 };
 
 export type ArtifactFixture = {
@@ -52,7 +56,7 @@ export async function createArtifact(
   sources: ArtifactSources,
   version: string,
   executableSuffix: Uint8Array = new Uint8Array(),
-  product: 'cli' | 'ops' | 'remote' | 'colab' | 'driver-herdr' = 'cli',
+  product: 'cli' | 'ops' | 'digest' | 'remote' | 'colab' | 'driver-herdr' = 'cli',
   /** An extension's agent-skills tree, by path under `skills/`. */
   skills: Record<string, string> = {},
   archiveName?: string,

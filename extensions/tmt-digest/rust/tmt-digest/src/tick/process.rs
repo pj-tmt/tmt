@@ -1,6 +1,6 @@
 //! Public Core calls and current settings; no terminal or Core storage access.
 
-use super::{HOLD_FLOOR_MS, TickObservation, TickPort};
+use super::{HOLD_FLOOR_MS, Receiving, TickObservation, TickPort};
 use crate::{
     core::{Core, Error},
     history::{Decision, Rule},
@@ -16,12 +16,17 @@ use std::{
 const MAX_MS: u64 = 9_007_199_254_740_991;
 /// An `auto` member's backlog is offered again after this long while it stays held.
 const REOFFER: Duration = Duration::from_secs(15);
+const LEGACY_RECEIVING_DIAGNOSTIC: &str =
+    "Update tmt to enable orchestration receiving. Existing Digest delivery continues.";
 
 pub struct TickProcess {
     core: Core,
     history: Option<crate::history::Store>,
     settings_path: PathBuf,
-    synchronized: BTreeMap<String, Mode>,
+    synchronized: BTreeMap<String, Receiving>,
+    receiving_revision: Option<u64>,
+    receiving_supported: Option<bool>,
+    wake_supported: bool,
     failed: BTreeSet<String>,
     /// The newest recorded `(rule, outcome, oldest held arrival)` per member, so
     /// the once-a-second loop records a change of decision and not each repeat.
@@ -40,6 +45,9 @@ impl TickProcess {
             history: None,
             settings_path,
             synchronized: BTreeMap::new(),
+            receiving_revision: None,
+            receiving_supported: None,
+            wake_supported: false,
             failed: BTreeSet::new(),
             decided: BTreeMap::new(),
             offered: BTreeMap::new(),
@@ -51,13 +59,112 @@ impl TickProcess {
     fn within_minute(&self) -> Result<bool, Error> {
         Ok(Instant::now() < self.boundary && super::now_ms()? < self.boundary_ms)
     }
+    fn publish_receiving(
+        &mut self,
+        settings: &DigestConfig,
+        identities: &[String],
+    ) -> Result<Option<BTreeMap<String, Receiving>>, Error> {
+        if !self.within_minute()? {
+            return Ok(None);
+        }
+        if self.receiving_supported.is_none() {
+            let capabilities = self.core.api("capabilities", json!({}))?;
+            let mut supported = false;
+            for operation in capabilities["operations"].as_array().ok_or_else(invalid)? {
+                let name = operation.as_str().ok_or_else(invalid)?;
+                supported |= name == "digest.receiving.sync";
+                self.wake_supported |= name == "digest.wake.step";
+            }
+            self.receiving_supported = Some(supported);
+        }
+        if self.receiving_supported == Some(false) {
+            // Remove at the stable cut: https://github.com/pj-tmt/tmt/issues/5124.
+            // Only explicit capability absence retains the existing tick rule.
+            return identities
+                .iter()
+                .map(|id| Ok((id.clone(), Receiving::from(settings.effective(id)?))))
+                .collect::<Result<BTreeMap<_, _>, Error>>()
+                .map(Some);
+        }
+        if !self.within_minute()? {
+            return Ok(None);
+        }
+        let configured = |mode: &Mode| match mode {
+            Mode::Off => json!({"mode":"direct"}),
+            Mode::Auto => json!({"mode":"auto"}),
+            Mode::Interval { milliseconds, .. } => {
+                json!({"mode":"batch","intervalMs":milliseconds})
+            }
+        };
+        let expected = match self.receiving_revision {
+            Some(revision) => revision,
+            None => number(
+                &self
+                    .core
+                    .api("orchestration.read", json!({"view":"overview"}))?,
+                "receivingRevision",
+            )?,
+        };
+        let members = settings
+            .receiving_overrides()?
+            .iter()
+            .map(|(id, mode)| json!({"identityId":id,"receiving":configured(mode)}))
+            .collect::<Vec<_>>();
+        if !self.within_minute()? {
+            return Ok(None);
+        }
+        let response = match self.core.api(
+            "digest.receiving.sync",
+            json!({
+                "expectedRevision":expected,"enabled":settings.enabled(),
+                "defaultReceiving":configured(&settings.default),"members":members,
+            }),
+        ) {
+            Ok(response) => response,
+            Err(error) => {
+                self.receiving_revision = None;
+                return Err(error);
+            }
+        };
+        let projection = &response["projection"];
+        self.receiving_revision = Some(number(&response, "revision")?);
+        let mut modes = BTreeMap::new();
+        for member in projection["members"].as_array().ok_or_else(invalid)? {
+            let id = member["identityId"]
+                .as_str()
+                .filter(|id| canonical_uuid(id))
+                .ok_or_else(invalid)?;
+            let receiving = &member["effective"]["receiving"];
+            if receiving["available"] != true {
+                return Err(invalid());
+            }
+            let mode = match receiving["value"]["mode"].as_str() {
+                Some("direct") => Receiving::Direct,
+                Some("auto") => Receiving::Auto,
+                Some("batch") => {
+                    let milliseconds = number(&receiving["value"], "intervalMs")?;
+                    if milliseconds == 0 {
+                        return Err(invalid());
+                    }
+                    Receiving::Batch { milliseconds }
+                }
+                Some("urgent") => Receiving::Urgent,
+                Some("hold") => Receiving::Hold,
+                _ => return Err(invalid()),
+            };
+            if modes.insert(id.to_owned(), mode).is_some() {
+                return Err(invalid());
+            }
+        }
+        Ok(Some(modes))
+    }
     fn synchronize(
         &mut self,
         id: &str,
         settings: &DigestConfig,
         policy: &Value,
+        mode: Receiving,
     ) -> Result<(), Error> {
-        let mode = settings.effective(id)?;
         let revision = number(policy, "revision")?;
         let active = policy["active"].as_bool().ok_or_else(invalid)?;
         let changed = self.synchronized.get(id) != Some(&mode);
@@ -80,15 +187,15 @@ impl TickProcess {
             }
         };
         let horizon = match &mode {
-            Mode::Interval { milliseconds, .. } => Some((*milliseconds).max(HOLD_FLOOR_MS)),
-            Mode::Auto => Some(HOLD_FLOOR_MS),
-            Mode::Off => None,
+            Receiving::Batch { milliseconds } => Some((*milliseconds).max(HOLD_FLOOR_MS)),
+            Receiving::Auto | Receiving::Urgent | Receiving::Hold => Some(HOLD_FLOOR_MS),
+            Receiving::Direct => None,
         };
         // The rule's own limit, recorded so Core can state a held message's latest send time.
         let max_hold = match &mode {
-            Mode::Interval { milliseconds, .. } => Some(*milliseconds),
-            Mode::Auto => Some(settings.auto_caps(id)?.max_wait_ms),
-            Mode::Off => None,
+            Receiving::Batch { milliseconds } => Some(*milliseconds),
+            Receiving::Auto => Some(settings.auto_caps(id)?.max_wait_ms),
+            Receiving::Direct | Receiving::Urgent | Receiving::Hold => None,
         };
         let adopts = revision > 0
             && recorded.is_some()
@@ -182,7 +289,7 @@ impl TickProcess {
             at_ms,
             identity_id: id.into(),
             interval_ms: match row.mode {
-                Mode::Interval { milliseconds, .. } => Some(milliseconds),
+                Receiving::Batch { milliseconds } => Some(milliseconds),
                 _ => None,
             },
             flush_count: row.flush_count,
@@ -288,6 +395,13 @@ impl TickProcess {
         self.flush(row, rule, rule == Rule::AutoCap)
     }
     pub fn finish(self) -> Result<(), Error> {
+        self.finish_to(&mut tmt_cli_style::stream::stderr())
+    }
+    fn finish_to(self, diagnostic: &mut impl std::io::Write) -> Result<(), Error> {
+        if self.receiving_supported == Some(false) {
+            // A diagnostic failure cannot stop ordinary message delivery.
+            let _ = writeln!(diagnostic, "{LEGACY_RECEIVING_DIAGNOSTIC}");
+        }
         if self.errors.is_empty() {
             Ok(())
         } else {
@@ -332,6 +446,9 @@ impl TickPort for TickProcess {
                 self.collect_history(id);
             }
         }
+        let Some(receiving) = self.publish_receiving(&settings, &ids)? else {
+            return Ok(vec![]);
+        };
         let mut observations = vec![];
         for batch in ids.chunks(256) {
             if !self.within_minute()? {
@@ -343,7 +460,12 @@ impl TickPort for TickProcess {
             let policies = ordered(&policies, "policies", batch)?;
             for (id, policy) in batch.iter().zip(policies) {
                 if !self.failed.contains(id)
-                    && let Err(error) = self.synchronize(id, &settings, policy)
+                    && let Err(error) = self.synchronize(
+                        id,
+                        &settings,
+                        policy,
+                        *receiving.get(id).ok_or_else(invalid)?,
+                    )
                 {
                     self.failed.insert(id.clone());
                     self.errors
@@ -360,17 +482,47 @@ impl TickPort for TickProcess {
                 if self.failed.contains(id) {
                     continue;
                 }
-                let row = observation(id, &settings, stats)?;
+                let row = observation(
+                    id,
+                    &settings,
+                    stats,
+                    *receiving.get(id).ok_or_else(invalid)?,
+                )?;
                 match row.mode {
-                    Mode::Auto => self.offer(&row)?,
-                    Mode::Off => {
+                    Receiving::Auto | Receiving::Urgent => self.offer(&row)?,
+                    Receiving::Direct => {
                         if let Some(rule) = row.rule(super::now_ms()?) {
                             self.flush(&row, rule, false)?;
                         }
                     }
-                    Mode::Interval { .. } => {}
+                    Receiving::Batch { .. } | Receiving::Hold => {}
                 }
                 observations.push(row);
+            }
+        }
+        if self.wake_supported && self.within_minute()? {
+            // The existing observation loop is finite; an advertised error ends this run,
+            // never a fallback or retry after a possibly effective claim.
+            let remaining = self
+                .boundary
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+                .min(1000) as u64;
+            if remaining > 0 {
+                let wake = self.core.api(
+                    "digest.wake.step",
+                    json!({"budgetMs":remaining,"limit":256}),
+                )?;
+                match wake["state"].as_str() {
+                    Some("delivered" | "nothing_due" | "unavailable") => {}
+                    Some("uncertain") => {
+                        return Err(Error::new(
+                            "DIGEST_DELIVERY_UNCERTAIN",
+                            "Core retained an uncertain summary; inspect it before any retry",
+                        ));
+                    }
+                    _ => return Err(invalid()),
+                }
             }
         }
         Ok(observations)
@@ -380,7 +532,11 @@ impl TickPort for TickProcess {
             return Ok(());
         }
         let settings = DigestConfig::load(&self.settings_path)?;
-        let mode = settings.effective(id)?;
+        let ids = [id.to_owned()];
+        let Some(receiving) = self.publish_receiving(&settings, &ids)? else {
+            return Ok(());
+        };
+        let mode = *receiving.get(id).ok_or_else(invalid)?;
         if !self.within_minute()? {
             return Ok(());
         }
@@ -388,18 +544,22 @@ impl TickPort for TickProcess {
         let policies = self
             .core
             .api("digest.policy.show", json!({"identities": [id]}))?;
-        let ids = [id.to_owned()];
-        self.synchronize(id, &settings, &ordered(&policies, "policies", &ids)?[0])?;
+        self.synchronize(
+            id,
+            &settings,
+            &ordered(&policies, "policies", &ids)?[0],
+            mode,
+        )?;
         if !self.within_minute()? {
             return Ok(());
         }
         let stats = self
             .core
             .api("digest.stats.show", json!({"identities": [id]}))?;
-        let row = observation(id, &settings, &ordered(&stats, "stats", &ids)?[0])?;
+        let row = observation(id, &settings, &ordered(&stats, "stats", &ids)?[0], mode)?;
         let now = super::now_ms()?;
         let rule = match mode {
-            Mode::Interval { .. } => {
+            Receiving::Batch { .. } => {
                 let Some(rule) = row.rule(now) else {
                     return Ok(());
                 };
@@ -415,14 +575,20 @@ impl TickPort for TickProcess {
                     .api("digest.checklist.dueNow", json!({"identityId": id}))?;
                 rule
             }
-            Mode::Auto => return self.offer(&row),
-            Mode::Off => Rule::Off,
+            Receiving::Auto | Receiving::Urgent => return self.offer(&row),
+            Receiving::Hold => return Ok(()),
+            Receiving::Direct => Rule::Off,
         };
         self.flush(&row, rule, false)?;
         Ok(())
     }
 }
-fn observation(id: &str, settings: &DigestConfig, stats: &Value) -> Result<TickObservation, Error> {
+fn observation(
+    id: &str,
+    settings: &DigestConfig,
+    stats: &Value,
+    mode: Receiving,
+) -> Result<TickObservation, Error> {
     let observed = number(stats, "observedAtMs")?;
     let age = if stats.get("oldestHeldAgeMs").ok_or_else(invalid)?.is_null() {
         None
@@ -431,7 +597,7 @@ fn observation(id: &str, settings: &DigestConfig, stats: &Value) -> Result<TickO
     };
     Ok(TickObservation {
         identity_id: id.into(),
-        mode: settings.effective(id)?,
+        mode,
         flush_count: settings.flush_count as u64,
         auto_caps: settings.auto_caps(id)?,
         held_count: number(stats, "heldCount")?,

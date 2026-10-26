@@ -686,3 +686,14 @@ fn configuration_read_failure_is_storage_error_in_the_worker_lane() {
     assert_eq!(error.code, Code::StorageError);
     assert!(error.current.is_none());
 }
+
+#[test]
+fn an_outside_press_closes_the_squad_checklist() {
+    let f = Fixture::new();
+    let mut app = crate::board::app::workspace::tests::board();
+    app.checklist = Some(controller(&f));
+    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+        &mut app,
+        crate::board::app::Overlay::Checklist,
+    );
+}

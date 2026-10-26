@@ -1,4 +1,5 @@
-//! Read-only CLI composition. Rules and JSON stay with their shared owners.
+//! CLI composition. Policy, preview admission and JSON stay with shared owners.
+mod write;
 use crate::{
     invocation::{OrchOperation, OutputMode},
     output::{Failure, after_cleanup},
@@ -16,11 +17,16 @@ fn policy_failure(e: OrchError) -> Failure {
     Failure::new(
         orchestration::orch_error_code(e),
         orchestration::orch_error_message(e),
-        if e == OrchError::NotFound { 3 } else { 1 },
+        match e {
+            OrchError::NotFound | OrchError::MemberNotFound => 3,
+            OrchError::Conflict => 5,
+            _ => 1,
+        },
     )
 }
 fn run(operation: OrchOperation) -> Result<Vec<u8>, Failure> {
     let (query, at) = match operation {
+        OrchOperation::Write { .. } => return Err(policy_failure(OrchError::Invalid)),
         OrchOperation::Overview {
             range_days,
             at,
@@ -79,18 +85,7 @@ fn run(operation: OrchOperation) -> Result<Vec<u8>, Failure> {
             )
         }
     };
-    let paths = ConfigPaths::discover().map_err(|e| {
-        Failure::new("CONFIG_ERROR", "Could not resolve configuration paths.", 1).caused_by(e)
-    })?;
-    let mut storage = Storage::open(&paths.database).map_err(|e| {
-        Failure::storage_access(
-            e,
-            &paths.global_dir,
-            "No orchestration operation was performed.",
-            "ORCH_STORAGE_UNAVAILABLE",
-            "Could not open orchestration storage.",
-        )
-    })?;
+    let (_paths, mut storage) = open_storage()?;
     let result = orchestration::orchestration_read_with_time(
         &storage,
         query,
@@ -99,6 +94,21 @@ fn run(operation: OrchOperation) -> Result<Vec<u8>, Failure> {
     )
     .map_err(|e| Failure::new(e.code(), e.message(), e.exit()).caused_by(e));
     after_cleanup(result, || storage.close())
+}
+fn open_storage() -> Result<(ConfigPaths, Storage), Failure> {
+    let paths = ConfigPaths::discover().map_err(|e| {
+        Failure::new("CONFIG_ERROR", "Could not resolve configuration paths.", 1).caused_by(e)
+    })?;
+    let storage = Storage::open(&paths.database).map_err(|e| {
+        Failure::storage_access(
+            e,
+            &paths.global_dir,
+            "No orchestration operation was performed.",
+            "ORCH_STORAGE_UNAVAILABLE",
+            "Could not open orchestration storage.",
+        )
+    })?;
+    Ok((paths, storage))
 }
 fn text(v: &Value) -> String {
     v.as_str()
@@ -205,11 +215,20 @@ fn write_overview(
     for member in v["members"].as_array().expect("shared members") {
         let e = &member["effective"];
         let receive = &e["receiving"]["value"];
-        let receiving = if receive["mode"] == "batch" {
-            format!(
-                "batch {}m",
-                receive["intervalMs"].as_u64().unwrap_or(0) / 60_000
-            )
+        let receiving = if e["receiving"]["available"] == false {
+            "unavailable".into()
+        } else if receive["mode"] == "batch" {
+            let ms = receive["intervalMs"]
+                .as_u64()
+                .expect("shared batch interval");
+            let interval = if ms.is_multiple_of(60_000) {
+                format!("{}m", ms / 60_000)
+            } else if ms.is_multiple_of(1000) {
+                format!("{}s", ms / 1000)
+            } else {
+                format!("{ms}ms")
+            };
+            format!("batch {interval}")
         } else {
             text(&receive["mode"])
         };
@@ -269,7 +288,7 @@ fn write_human(
             return tmt_cli_style::message::hint(
                 out,
                 terminal,
-                "Base only. Plan creation/editing and personal focus controls arrive in orchestration slice 2.",
+                "Base only. Create a plan with tmt orch plan add --help; personal focus: tmt orch focus --help.",
             );
         }
         let mut table = Table::new(&[Column::Name, Column::Fixed, Column::Fixed, Column::Fixed]);
@@ -303,6 +322,10 @@ fn write_human(
     table.write(out, terminal)
 }
 pub fn execute(operation: OrchOperation, mode: OutputMode) -> io::Result<u8> {
+    let operation = match operation {
+        OrchOperation::Write { operation, yes } => return write::execute(operation, yes, mode),
+        read => read,
+    };
     let bytes = match run(operation) {
         Ok(v) => v,
         Err(e) => return e.publish(mode),
@@ -318,3 +341,12 @@ pub fn execute(operation: OrchOperation, mode: OutputMode) -> io::Result<u8> {
     }
     Ok(0)
 }
+
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Base only. Create a plan with tmt orch plan add --help; personal focus: tmt orch focus --help.",
+        &["; personal focus: ", "."],
+        &[],
+    ),
+];

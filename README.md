@@ -6,7 +6,7 @@ name and get complete replies back. A standalone native CLI for macOS and Linux.
 tmt is an early alpha and changes quickly, so this README stays short on purpose.
 
 ```sh
-curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh
+curl -fsSL https://install.tmt.ninja | sh
 ```
 
 Then run `tmt --help` or `tmt learn`.

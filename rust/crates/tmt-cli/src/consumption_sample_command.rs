@@ -121,7 +121,9 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     ) {
         return Ok(());
     }
-    let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+    let environment = ProviderEnvironment::capture()
+        .map_err(|_| ())?
+        .with_data_root(&paths.global_dir);
     let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
     let locator = storage
         .consumption_locator(
@@ -183,7 +185,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     let next_counted = next.is_some();
     let consumption = next
         .as_ref()
-        .and_then(|state| lifecycle.state_consumption(state));
+        .and_then(|state| lifecycle.sampled_consumption(state, &environment));
     let mut preferences = stored.preferences.clone();
     if let Some(next) = next {
         preferences.remembered.as_mut().ok_or(())?.state = Some(next);

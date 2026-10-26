@@ -61,7 +61,7 @@ Rules that are easy to get wrong:
   owner. A finite subscribe does not acknowledge; only the explicit signed ack does.
 - **One opener.** `store::Store` opens only with the `state::Serving` proof of the
   serve lock. Pairing and device commands reach state through serve's control
-  socket; `tmt remote devices` without serve takes the lock itself.
+  socket; local `members` and legacy `devices` take the serve lock when stopped.
 - **Authority lives in the transaction.** An effect runs in `Store::effect`: it
   rereads the persisted grant (revision, liveness, scope, recipients, expiry)
   inside an IMMEDIATE transaction and performs the core call under that fence. A
@@ -138,15 +138,27 @@ The list and rail consume that one projection: this machine first, foreign refer
 role and connection only from explicit observations. `remote-registry-page` owns public-reference
 CAS/import/rename/forget/undo and guarded navigation; `remote-menu` links to the list and current
 machine views without a second catalog. These display observations never enter grant authority
-or persistence. My Remotes reuses `/remote/settings`; no public route or backend call is added.
+or persistence. My Remotes lives at `/remote/`; one current-door tab frame uses the canonical `remote-routes`
+declaration, mirrored by explicit native admission. Old views have no aliases. `remote-app` retains
+one set of form models and subscribes to the same registry projection for role/locked presentation;
+shared static tab semantics add no authority. Browser-local naming reuses registry CAS, device naming
+the existing signed owner. The document-level modal closes on route abort and fences late validation.
+The public contract owns exact paths and locked-tab behavior.
+
+`shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
+confined Colab import per entry and a disposable route/session registry; Navigation comes from
+the same live composition as the rail. Colab's search-session entry owns its transport and dialog,
+so the root neither implements Colab admission nor adds a keyboard listener. Existing Remote
+Session observations invalidate search; the existing management hold reason fences navigation.
+These UI lifetimes add no native endpoint, stored authority or provider observation.
 
 ## Member storage
 
 `members` keeps the per-Remote person mapping and owner/user policy in the existing
 Store, without another database or network owner. Migration preserves grant fields
 and creates one member per grant; only the exact existing key-bound browser
-designation establishes an owner role. The existing device facade consumes member
-names and sends through the common member policy writer. Grant-specific revocation
+designation establishes an owner role. Person and machine names remain separate;
+the device facade sends through the common member policy writer. Grant-specific revocation
 and cleanup retain their existing device meaning.
 
 `Store::confirm_member_grant` is the small trusted confirmation sink: only a caller
@@ -171,6 +183,39 @@ are checked there. A matching display/provider name never associates machines.
 Member policy reuses grant scope/revocation writers, persists old-session fences,
 and returns all changed clients for the existing post-commit session owner.
 The contract owns the schema, policy and outcome semantics.
+
+`members::service` owns bounded person and machine projections over that same
+Store. Administrator views require the local owner or the exact current designated
+owner browser; other admitted browsers see only their current member. Role labels
+on another associated machine grant no additional access. SQL limits precede
+materialization; view/caller/Remote-bound row-position cursors preserve legacy IDs
+without treating a cursor as authority. Machine names and person names are distinct.
+`members::policy` shares transaction-local M1 writers for person rename, sending
+and member revoke; self-service is limited to renaming the caller's own person.
+`PreparedMemberPolicy` validates before any writer runs in the held management
+transaction: only preparation can settle a refusal, while an application error
+aborts all authority changes and retains the original unknown outcome. Remote-wide
+name uses the existing settings writer and its first-touch uncertainty boundary.
+All new management outcomes bind their actor member inside the existing receipt
+JSON. Historical unbound bytes stay exact and are readable only by the legacy
+client/member identity; no journal migration or second ledger is introduced.
+
+`members::reads` adapts signed reads and the private control socket to one Store
+projection. Session activity is gathered outside the Store guard, then authority,
+association and revision are rechecked before disclosure. Without a Session owner,
+activity remains unknown. `members::terminal` and `terminal_machines` own typed local
+reads/effects; selectors resolve stable person IDs before unique names and machines by exact
+client ID. `members_cli` and its `machines` child compose the same private-control or offline
+serve-lease adapter. Each terminal effect rechecks captured member/grant revisions under one
+IMMEDIATE writer transaction and uses shared policy/grant/designation SQL, with no journal or
+migration. Same-state effects do not widen narrower machine scope. Session cleanup and existing
+route-worker wakes follow Store release; an uncertain answer never causes resend or fallback.
+The legacy `devices` handler remains independent during consumer migration.
+`members::observations` captures the existing invitation coordinator before acquiring
+live/Store locks, and aggregates existing desired-route/ACK rows under the same Store.
+The Cloud composition attaches a weak link once, avoiding a Cloud/Operations cycle.
+These reads do no provider I/O, retry or polling; the contract owns their neutral
+shapes and privacy limits.
 
 ## Shared extension state
 
@@ -323,7 +368,12 @@ replacement consent/fingerprint and the single-deployer boundary stay in the [de
 The Firestore settings projection takes its record snapshot outside live/Store locks and
 revalidates the current browser grant before disclosure. Only the explicit opt-in read adds
 layer/budget members; ordinary settings and status shapes remain unchanged. Browser display
-uses strict typed projections, not another provider or readiness engine. Optional failure
+uses strict typed projections, not another provider or readiness engine. Service & upgrade
+keeps absent version/plan/permission facts explicitly unchecked; its terminal references
+are copy-only and omit deployment authorization. The UI and native parser proof consume
+one product-owned `assets/service-commands.json` catalog, keeping isolated Rust inputs
+inside the existing asset closure. Add-on availability and dated budgets
+retain the existing observation owner. Optional failure
 clears old evidence independently of management access and original-effect outcome ownership.
 
 ## Native cloud crypto
@@ -386,6 +436,11 @@ smaller. The Sender distinguishes fresh-write refusals from original-request rec
 missing/invalid owner answers unconfirmed. Core preparation, receipts and replay ownership do not move.
 The [contract activation section](../../../../contracts/remote-channel-v1.md#public-native-agent-activation)
 owns the handoff and uncertainty boundary.
+Agent `check` reuses that UUID-pinned query after resolving the admitted UUID's name.
+Both queries and `check --capture-only --json` share one deadline; `--` keeps the frozen
+name literal. Expected-name refusal prevents capture and capture-only prevents Digest
+input. The later query-to-capture window remains until Core #5154 and Remote #5254;
+there is no before/after observation or retry that claims to close it.
 No enrolled peer means no provider poll. Legacy reciprocal discovery keeps one negative timestamp
 per project/peer in existing `cloud_transport` checkpoint storage. A missing machine row is read
 at most once per `limits::CLOUD_PEER_DISCOVERY_RETRY_MS` (24 hours), including after reopen; a later
@@ -434,7 +489,14 @@ comparison/confirmation, cancellation, revocation, disconnect and original-deadl
 recovery. The `port` exchanges bounded metadata; it cannot supply consent or create a grant.
 `store::StoreConfirmation` reuses the serving Store and the members owner check. It calls
 `members::confirm_member_grant_in` and saves the actual persisted grant receipt in the
-existing `management_receipts` journal in one IMMEDIATE transaction. No code or response
+existing `management_receipts` journal in one IMMEDIATE transaction.
+Its transaction-local extension admits backend effects without another opener or nested
+transaction; persisted policy is serialized afterward and backend receipt fields cannot
+replace it. Separate owner sending consent uses the existing member-policy writer after
+the initial off/direct sink in that transaction. A definite sink refusal requires proven
+rollback; uncertain commit/rollback remains original-only. The candidate proof owner uses
+the narrow native signing port and checks returned possession signatures; it never
+extracts `MachineKey` material. No code or response
 key is saved. Original receipt bytes remain immutable across later member-policy changes.
 Publication happens afterward,
 with durable attempt claims and unchanged-snapshot acknowledgments; uncertain writes are
@@ -445,13 +507,35 @@ confirmation acquires coordinator state before Store. Codes and response keys re
 memory-only and clear on termination.
 `submission::SubmissionAttempt` signs one candidate proof, observes an uncertain original
 without resending and authenticates the exact receipt; it cannot confirm or create authority.
-Two fake backend consumers prove this library independently of transport. Current Firestore
-entry points below remain on their version-1 profile until the adapter cutover (I3); no
-legacy code is reinterpreted as a different backend or extended beyond its original expiry.
+Two fake backend consumers prove this library independently of transport. New Firestore
+entry points use that same coordinator through `cloud_pairing::invitation::Firestore`.
+The Service verifies the registered owner native pin, descriptor revision and authenticated
+uid before constructing the exact v2 binding. Its current coordinator observation replaces
+the standalone invite flag. Setup reserves one slot, without retaining the invitation mutex
+through provider I/O; failed setup releases only its own reservation. Pending setup is busy
+and not idle, with no current-offer observation until coordinator creation settles.
+The terminal only presents the code, comparison and separate
+default-no sending choices. Version-1 join and original-receipt recovery retain their
+isolated decoder and original expiry; there is no new v1 offer producer.
 
-`cloud_pairing` separates byte proofs from local-owner confirmation. Its distinct transcript binds
-project, owner UUID/key, offer/challenge/generation/expiry, peer UUID/key, authenticated uid, name
-and candidate nonce. One-shot reroutes sign the target machine UUID/key, peer, new uid, generation
+The candidate claims its exact signed original in the existing private Connection before
+HTTP. `pending_submission` contains only the public context and signed body, never the
+code, gate or response key. Normal descriptor/uid saves retain a concurrent claim and do
+not replace confirmed trust or policy. A restored claim observes even when the provider
+has no row; it cannot send another candidate. The authenticated receipt handoff consumes
+the scoped response key and adopts the reverse M1 member, optional sending choice,
+route/hash and confirmed Connection in one Store transaction. Only that consuming writer
+clears the matching claim. The earlier sending answer applies only when that transaction
+creates the reverse grant; an active independent grant keeps its policy. A drop guard clears
+the temporary reroute capabilities on every exit. Replay of an already consumed original
+cannot restore revoked authority or reapply sending. The
+existing enrollment worker recovers v2 originals from the same management journal and
+publication claims, after native possession/snapshot and remaining-window checks.
+
+`cloud_pairing` separates byte proofs from local-owner confirmation. Version 2 binds the
+Firestore project reference and authenticated owner uid in the common invitation transcript;
+the isolated v1 profile binds project, owner UUID/key, offer/challenge/generation/expiry,
+peer UUID/key, authenticated uid, name and candidate nonce. One-shot reroutes sign the target machine UUID/key, peer, new uid, generation
 and timestamp; the provider createTime supplies the 60-second freshness reference. It reuses local pairing MAC, possession, fingerprint and receipt-proof primitives.
 A verified proof alone grants nothing. `pairing_cli` adapts the owner-only control socket to explicit
 terminal consent; `cloud_pairing::service` owns policy and reconciliation, and its `provider` extends
@@ -464,7 +548,7 @@ no raw code or response key. The sender reserves its counter durably before sign
 generation replaces a uid only under the current grant fence, without changing permissions. Revoke
 marks routes for cleanup inside the existing revoker transaction.
 Provider publication must apply each peer's desired route swap atomically; acknowledgments compare
-project/uid/peer/generation/revocation, so stale completion cannot hide newer changes. Offline work
+project/uid/peer/member/generation/capability hash/revocation, so stale completion cannot hide newer changes. Offline work
 stays pending. This state is not a second operation ledger.
 
 `native_sync::Projects` owns one cached Auth/runtime/budget per project, shared with extension sync.

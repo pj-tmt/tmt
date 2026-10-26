@@ -1,6 +1,6 @@
 import { headerHeight } from './tokens.js';
 import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, chatAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 import { text } from '../src/strings.js';
@@ -239,9 +239,6 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
   await close.focus();
   await close.press('Enter');
   await expect(page.locator('.tmt-ui-drawer[data-panel=chat][open]')).toHaveCount(0);
-  const more = page.locator('#ask-page-fixture').getByRole('button', { name: /^Discussion \(/ });
-  await more.focus();
-  await more.press('Enter');
   const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
   await toggle.focus();
   await toggle.press('Enter');
@@ -587,6 +584,16 @@ for (const width of [1440, 390])
       await expect(mode).toHaveAttribute('aria-pressed', 'true');
       expect(await mode.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
       await expect(mode.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeHidden();
+      expect(
+        await mode.evaluate((node) => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--tmt-ui-color-accent)';
+          node.append(probe);
+          const accent = getComputedStyle(probe).color;
+          probe.remove();
+          return getComputedStyle(node).color === accent;
+        }),
+      ).toBe(true);
       await page.screenshot({ path: capturePath(`1923-on-${width}-${theme}.png`) });
       const frame = page.frameLocator('#ask-page-fixture iframe');
       await frame.locator('#selected').hover();
@@ -595,6 +602,7 @@ for (const width of [1440, 390])
       await frame.locator('#selected').click();
       const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
       await expect(input).toBeFocused();
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
       await expect(page.locator('.annotation-popover .thread-state')).toHaveAttribute(
         'title',
         'Exact selected text',
@@ -602,7 +610,7 @@ for (const width of [1440, 390])
       await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
       await input.fill('Retain this selection draft');
       await input.press('c');
-      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
       const modeBox = (await mode.boundingBox())!;
       const windowBox = (await page.locator('.annotation-popover').boundingBox())!;
       const headerBox = (await page.locator('#ask-page-fixture .tmt-ui-header').boundingBox())!;
@@ -616,10 +624,12 @@ for (const width of [1440, 390])
       await page.screenshot({ path: capturePath(`1923-discussion-${width}-${theme}.png`) });
       const originalDraft = await input.textContent();
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+      await mode.click();
       await frame.locator('#selected').click();
       await expect(input).toHaveText(originalDraft!);
       expect((await run(page, 'proof')).sends).toEqual([]);
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+      await mode.click();
       if (width === 1440) {
         await (await pageAction(page, 'Source')).click();
         await expect(openPanel(page)).toHaveCount(1);
@@ -651,6 +661,35 @@ for (const width of [1440, 390])
       await expect(input).toHaveText(originalDraft!);
     });
   }
+
+for (const gesture of ['drag', 'completed selection C'] as const)
+  test(`selection mode exits after ${gesture} opens a comment`, async ({ page }) => {
+    await page.goto('/');
+    await run(page, 'mount');
+    const mode = page.locator('.selection-mode').getByRole('button', {
+      name: 'Selection mode',
+      exact: true,
+    });
+    const target = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+    await expect(target).toBeVisible();
+    if (gesture === 'drag') await mode.click();
+    const box = (await target.boundingBox())!;
+    await page.mouse.move(box.x + 1, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    if (gesture === 'completed selection C') await page.keyboard.press('c');
+    const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
+    await expect(input).toBeFocused();
+    await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
+    await input.press('Escape');
+    await expect(page.locator('.annotation-popover')).toHaveCount(0);
+    await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    await target.click();
+    await expect(page.locator('.annotation-popover')).toHaveCount(0);
+    expect((await run(page, 'proof')).sends).toEqual([]);
+  });
 
 test('selection uses admitted comment authority without Ask; a read-only page has no mode or C action', async ({
   page,
@@ -955,7 +994,7 @@ for (const width of [1440, 390]) {
     await input.press('Escape');
     await expect(chat).toBeHidden();
     await expect(openPanel(page)).toHaveCount(0);
-    await expect(page.locator('.page-header-actions button:focus')).toHaveCount(1);
+    await expect(chatAction(page)).toBeFocused();
     await (await pageAction(page, 'Chat')).click();
     await expect(input).toHaveText('Chat draft @');
     expect((await run(page, 'proof')).sends).toEqual([]);
@@ -1033,8 +1072,8 @@ for (const [width, theme] of [
     });
     await keys.detach();
     await expect(page.getByTestId('chat-panel')).toHaveCount(0);
-    const discussion = page.getByRole('button', { name: /^Discussion \(/ });
-    await discussion.click();
+    // An open menu keeps the shortcut from opening Chat.
+    await page.locator('.page-header-actions').getByRole('button', { name: 'More' }).click();
     await page.keyboard.press('Shift+@');
     await expect(page.getByRole('menu')).toBeVisible();
     await expect(page.getByTestId('chat-panel')).toHaveCount(0);

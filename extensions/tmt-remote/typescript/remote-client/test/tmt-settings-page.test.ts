@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import type { ShellAnswer, ShellMenu } from '@tmt/browser-ui/shell';
-import { moduleLinks, settingsRows, tmtSettingsPage } from '../src/tmt-settings-page.js';
+import { moduleLinks, tmtSettingsPage } from '../src/tmt-settings-page.js';
 import type { RemoteShell } from '../src/remote-shell.js';
 import { mockSettingsSource, type TmtSettings } from '../src/settings-source.js';
 
@@ -162,56 +162,170 @@ const sample: TmtSettings = {
   hooks: { rows: [{ provider: 'claude', usage: false }] },
 };
 
-it('lists live agents first, then by name, with provider and word', () => {
-  expect(settingsRows('identities', sample)).toEqual([
-    { mark: '●', title: 'alpha', detail: 'saved · claude', state: 'active' },
-    { mark: '●', title: 'beta', detail: 'temporary · codex', state: 'active' },
-    { mark: '○', title: 'zed', detail: 'saved', state: 'offline' },
-  ]);
+const colabAnswer: ShellAnswer = {
+  version: 1,
+  modules: [
+    {
+      extension: 'colab',
+      rail: { label: 'Colab', icon: 'colab', path: '/colab/', order: 1 },
+      menu: [],
+      settings: [{ id: 'settings', label: 'Colab settings', path: '/colab/settings' }],
+    },
+  ],
+};
+const records = () => section().all((node) => node.className === 'tmt-settings-record');
+const recordText = (record: Node) => record.all((node) => node.tag === 'strong')[0]!.textContent;
+
+it('maps each described module to its rail label and first settings page', () => {
+  expect(moduleLinks(colabAnswer).get('colab')).toEqual({
+    label: 'Colab',
+    href: '/colab/settings',
+  });
+  expect(moduleLinks(undefined).size).toBe(0);
 });
 
-it('links an installed module to the settings page the composed shell describes', () => {
-  const answer: ShellAnswer = {
-    version: 1,
-    modules: [
-      {
-        extension: 'colab',
-        rail: { label: 'Colab', icon: 'colab', path: '/colab/', order: 1 },
-        menu: [],
-        settings: [{ id: 'settings', label: 'Colab settings', path: '/colab/settings' }],
-      },
-    ],
+it('lists modules as records and links an installed one to the page the shell describes', async () => {
+  hash = '#modules';
+  tmtSettingsPage(shell(), { read: async () => sample });
+  await settle();
+  expect(title.textContent).toBe('Modules');
+  expect(records().map(recordText)).toEqual(['Colab', 'Office']);
+  const [colab, office] = records();
+  // Product copy for a module the product ships; another name has none.
+  expect(colab!.textContent).toContain('Shared pages and agent collaboration.');
+  expect(colab!.textContent).toContain('Installed');
+  expect(colab!.textContent).toContain('alpha · 0.1.0');
+  expect(office!.textContent).toContain('Not installed');
+  expect(office!.textContent).not.toContain('Installed');
+  // Until the shell describes the module there is no action, and never a guessed link.
+  expect(section().all((node) => node.tag === 'a')).toEqual([]);
+  described!(colabAnswer);
+  const links = section().all((node) => node.tag === 'a');
+  expect(links.map((link) => [link.textContent, link.href])).toEqual([
+    ['Settings', '/colab/settings'],
+  ]);
+  // An uninstalled module has no action even when the shell describes it.
+  expect(records()[1]!.all((node) => node.tag === 'a')).toEqual([]);
+});
+
+it('shows a version that names its channel once', async () => {
+  hash = '#modules';
+  const read: TmtSettings = {
+    ...sample,
+    modules: {
+      rows: [{ name: 'ops', installed: true, version: '0.1.0-alpha.158', channel: 'alpha' }],
+    },
   };
-  expect(settingsRows('modules', sample, moduleLinks(answer))).toEqual([
-    {
-      mark: '●',
-      title: 'Colab',
-      href: '/colab/settings',
-      detail: '0.1.0 · alpha',
-      state: 'installed',
-    },
-    { mark: '○', title: 'Office', detail: 'Not installed', state: '' },
-  ]);
-  // Without a description the rows still list, unlinked.
-  expect(settingsRows('modules', sample)[0]).not.toHaveProperty('href');
+  tmtSettingsPage(shell(), { read: async () => read });
+  await settle();
+  expect(records()[0]!.textContent).toContain('0.1.0-alpha.158');
+  expect(records()[0]!.textContent).not.toContain('alpha · ');
 });
 
-it('marks a driver that no longer runs as approved, and shows hooks beside drivers', () => {
-  expect(settingsRows('drivers', sample)).toEqual([
-    {
-      mark: '◆',
-      waiting: true,
-      title: 'herdr',
-      detail: 'Host driver 0.2.0',
-      state: 'binary changed',
+it('shows only the notice and the command when the browser has no module read', async () => {
+  hash = '#modules';
+  const none: TmtSettings = {
+    ...sample,
+    modules: { rows: [], unavailable: 'TMT settings is not in the browser yet.' },
+  };
+  tmtSettingsPage(shell(), { read: async () => none });
+  await settle();
+  expect(records()).toEqual([]);
+  expect(section().textContent).toContain('Module inventory is not available to this browser yet.');
+  const copy = section().all(
+    (node) => node.attributes.get('aria-label') === 'Copy tmt extension ls',
+  );
+  expect(copy).toHaveLength(1);
+  // No value is shown that the source did not read.
+  expect(section().textContent).not.toContain('0.1.0');
+});
+
+it('labels sample module records as sample data, and a real read as read only', async () => {
+  hash = '#modules';
+  tmtSettingsPage(shell(), { read: async () => ({ ...sample, sample: true }) });
+  await settle();
+  expect(section().textContent).toContain('Sample installed modules');
+  expect(section().textContent).toContain('These sample records are not this machine.');
+  expect(note().hidden).toBe(true);
+  tmtSettingsPage(shell(), { read: async () => sample });
+  await settle();
+  expect(section().textContent).toContain('Installed modules');
+  expect(section().textContent).toContain('Read-only module records');
+});
+
+const commandCopies = () =>
+  section()
+    .all((node) => node.attributes.get('aria-label')?.startsWith('Copy ') ?? false)
+    .map((node) => node.attributes.get('aria-label'));
+
+it('lists drivers and hooks as records, naming a driver that no longer runs as approved', async () => {
+  hash = '#drivers';
+  const read: TmtSettings = {
+    ...sample,
+    drivers: {
+      rows: [
+        { name: 'herdr', version: '0.2.0', state: 'binary changed' },
+        { name: 'custom', version: '1.0.0', state: 'ok' },
+      ],
     },
-    {
-      mark: '●',
-      title: 'claude',
-      detail: 'Agent hooks · usage collection off',
-      state: 'set up',
+    hooks: {
+      rows: [
+        { provider: 'claude', usage: false },
+        { provider: 'codex', usage: true },
+        { provider: 'other', usage: true },
+      ],
     },
-  ]);
+  };
+  tmtSettingsPage(shell(), { read: async () => read });
+  await settle();
+  expect(title.textContent).toBe('Drivers & hooks');
+  expect(records().map(recordText)).toEqual(['Herdr', 'Custom', 'Claude', 'Codex', 'Other']);
+  const [herdr, custom, claude, codex, other] = records();
+  // The reason replaces Approved, beside the version, and the product's line is for its own driver.
+  expect(herdr!.textContent).toContain('Host driver for agent windows.');
+  expect(herdr!.textContent).toContain('binary changed');
+  expect(herdr!.textContent).toContain('0.2.0');
+  expect(herdr!.textContent).not.toContain('Approved');
+  expect(custom!.textContent).toContain('Approved');
+  expect(custom!.textContent).not.toContain('Host driver for agent windows.');
+  expect(claude!.textContent).toContain('Usage collection records agent usage for Digest.');
+  expect(claude!.textContent).toContain('Collection off');
+  expect(claude!.textContent).toContain('Set up');
+  expect(codex!.textContent).toContain('Collection on');
+  expect(other!.textContent).not.toContain('Usage collection');
+  expect(commandCopies()).toEqual(['Copy tmt driver ls', 'Copy tmt setup --status']);
+});
+
+it('shows only the notice, the commands and the roles when the browser has no driver read', async () => {
+  hash = '#drivers';
+  const none: TmtSettings = {
+    ...sample,
+    drivers: { rows: [], unavailable: 'TMT settings is not in the browser yet.' },
+    hooks: { rows: [], unavailable: 'TMT settings is not in the browser yet.' },
+  };
+  tmtSettingsPage(shell(), { read: async () => none });
+  await settle();
+  expect(records()).toEqual([]);
+  expect(section().textContent).toContain(
+    'Driver and hook records are not available to this browser yet.',
+  );
+  expect(section().textContent).toContain('Different connections. Clear roles.');
+  expect(commandCopies()).toEqual(['Copy tmt driver ls', 'Copy tmt setup --status']);
+  // No value is shown that the source did not read.
+  expect(section().textContent).not.toContain('Approved');
+  expect(section().textContent).not.toContain('0.2.0');
+  expect(note().hidden).toBe(true);
+});
+
+it('labels sample driver records as sample data, and a real read as read only', async () => {
+  hash = '#drivers';
+  tmtSettingsPage(shell(), { read: async () => ({ ...sample, sample: true }) });
+  await settle();
+  expect(section().textContent).toContain('These sample records are not this machine.');
+  expect(note().hidden).toBe(true);
+  tmtSettingsPage(shell(), { read: async () => sample });
+  await settle();
+  expect(section().textContent).toContain('Read-only driver and hook records');
 });
 
 it('renders General with the theme choice, stores a pick and applies it to the root', async () => {
@@ -281,7 +395,7 @@ it('offers the four sections as the module menu and follows the hash', async () 
     ],
   });
   const link = section().all((node) => node.tag === 'a')[0]!;
-  expect([link.textContent, link.href]).toEqual(['Colab', '/colab/settings']);
+  expect([link.textContent, link.href]).toEqual(['Settings', '/colab/settings']);
 });
 
 it('says why a section is empty, and marks sample data', async () => {

@@ -1,7 +1,7 @@
 //! What the owner's serve decided about each edit request. A decision is final: a request is
 //! applied at most once, and one that was refused is never evaluated again.
 use super::{Fault, Store, StoreResult, bounded_id};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeSet;
 use tmt_colab_model::values;
 
@@ -72,9 +72,68 @@ impl Store {
             return Err(Fault::Capacity);
         }
         tx.execute(
-            "INSERT OR IGNORE INTO edit_decisions VALUES (?,?,?,?,?)",
+            "INSERT OR IGNORE INTO edit_decisions(page,epoch,writer,operation,state) VALUES (?,?,?,?,?)",
             params![page, epoch.to_string(), writer, operation, state.name()],
         )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn edit_result(
+        &self,
+        page: &str,
+        epoch: u64,
+        writer: &str,
+        operation: &str,
+    ) -> StoreResult<Option<serde_json::Value>> {
+        let result: Option<Option<String>> = self.connection.query_row(
+            "SELECT result FROM edit_decisions WHERE page=? AND epoch=? AND writer=? AND operation=?",
+            params![page, epoch.to_string(), writer, operation], |row| row.get(0),
+        ).optional()?;
+        result
+            .flatten()
+            .map(|s| serde_json::from_str(&s).map_err(|_| Fault::Invalid))
+            .transpose()
+    }
+
+    /// Persist the terminal result before its signed transport is attempted. First result wins;
+    /// recovery republishes that same receipt, never reevaluates the metadata request.
+    pub fn decide_metadata(
+        &mut self,
+        page: &str,
+        epoch: u64,
+        writer: &str,
+        operation: &str,
+        state: EditState,
+        result: &serde_json::Value,
+    ) -> StoreResult<()> {
+        bounded_id(page)?;
+        crate::edit_request::metadata::validate_result(
+            "messages",
+            &crate::edit_request::metadata::outcome_key(writer, operation),
+            result,
+        )
+        .map_err(|_| Fault::Invalid)?;
+        let text = serde_json::to_string(result).map_err(|_| Fault::Invalid)?;
+        let tx = self.connection.transaction()?;
+        tx.execute(
+            "DELETE FROM edit_decisions WHERE page=? AND epoch<>?",
+            params![page, epoch.to_string()],
+        )?;
+        let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM edit_decisions WHERE page=? AND epoch=? AND writer=? AND operation=?)",
+            params![page,epoch.to_string(),writer,operation], |r| r.get(0))?;
+        if !exists {
+            let count: i64 = tx.query_row(
+                "SELECT count(*) FROM edit_decisions WHERE page=? AND epoch=?",
+                params![page, epoch.to_string()],
+                |r| r.get(0),
+            )?;
+            if count >= EDIT_DECISIONS as i64 {
+                return Err(Fault::Capacity);
+            }
+            tx.execute("INSERT INTO edit_decisions(page,epoch,writer,operation,state,result) VALUES (?,?,?,?,?,?)",
+                params![page,epoch.to_string(),writer,operation,state.name(),text])?;
+        }
         tx.commit()?;
         Ok(())
     }

@@ -3,7 +3,7 @@ import { commentsRegion } from '../test/comments-region.js';
 import vectors from '../../../contracts/vectors/needs-you-v1.json' with { type: 'json' };
 
 for (const vector of vectors.cases) {
-  test(`native/browser pending parity: ${vector.name}`, async ({ page }) => {
+  test(`native/browser legacy pending parity: ${vector.name}`, async ({ page }) => {
     await page.goto('/');
     await page.evaluate(async (vector) => {
       const fixture = '/test/ask-page-browser.tsx';
@@ -12,7 +12,8 @@ for (const vector of vectors.cases) {
       app.pendingVector(vector);
     }, vector);
     const host = page.locator('#ask-page-fixture');
-    const count = vector.expected.length;
+    const expected = vector.expected;
+    const count = expected.length;
     if (count) {
       const trigger = host.getByRole('button', { name: `Needs you: ${count}`, exact: true });
       await expect(trigger).toBeVisible();
@@ -26,7 +27,7 @@ for (const vector of vectors.cases) {
             id: (node as HTMLElement).dataset.needsYouId,
           })),
         ),
-      ).toEqual(vector.expected);
+      ).toEqual(expected);
     } else {
       await expect(host.getByLabel('✓ Nothing waits', { exact: true })).toBeVisible();
       await expect(host.locator('.needs-you-header button')).toHaveCount(0);

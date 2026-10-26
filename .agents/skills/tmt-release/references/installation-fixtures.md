@@ -26,8 +26,8 @@ never publish this synthetic version. Shared-host Cargo limits still apply.
 
 **Fixture builds belong in the process job itself.** Process and archive fixtures
 need the CLI and Herdr together (`cargo build --locked -p tmt-cli -p
-tmt-driver-herdr --bins`); extension archive scenarios also need `tmt-ops`,
-`tmt-remote` and `tmt-colab`; full-scope guided setup also needs `tmt-digest`.
+tmt-driver-herdr --bins`); full and Ops scopes' extension archive scenarios also
+need `tmt-ops`, `tmt-remote`, `tmt-colab` and `tmt-digest`.
 Colab's verifier needs `cargo build --locked -p
 tmt-test-support --example colab-runtime-fixture`. Another job's build or a warm
 local target does not supply them.

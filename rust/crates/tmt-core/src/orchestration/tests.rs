@@ -38,6 +38,83 @@ fn world(plans: Vec<OrchPlan>) -> OrchSnapshot {
     }
 }
 #[test]
+fn digest_configuration_is_base_and_only_effective_applies_overrides() {
+    let mut snapshot = world(vec![]);
+    snapshot.base_receiving.insert(
+        "seat".into(),
+        OrchBaseReceiving {
+            revision: 7,
+            receiving: OrchReceiving::Batch(600_000),
+        },
+    );
+    let base = effective(&snapshot, "seat", at(MONDAY, 600), &UtcCalendar).unwrap();
+    assert_eq!(base.receiving.value, OrchReceiving::Batch(600_000));
+    assert_eq!(base.receiving.source.kind, OrchSourceKind::Base);
+    assert_eq!(base.receiving.source.revision, 7);
+    snapshot.plans.push(plan(
+        "awake",
+        1,
+        OrchFields {
+            state: Some(OrchState::Awake),
+            ..Default::default()
+        },
+    ));
+    let awake = effective(&snapshot, "seat", at(MONDAY, 600), &UtcCalendar).unwrap();
+    assert_eq!(awake.receiving.value, OrchReceiving::Direct);
+    assert_eq!(awake.receiving.source.plan_id.as_deref(), Some("awake"));
+    snapshot.focus.push(OrchFocus {
+        identity_id: "seat".into(),
+        revision: 3,
+        start_ms: at(MONDAY, 600),
+        end_ms: at(MONDAY, 660),
+    });
+    assert_eq!(
+        effective(&snapshot, "seat", at(MONDAY, 600), &UtcCalendar)
+            .unwrap()
+            .receiving
+            .value,
+        OrchReceiving::Urgent
+    );
+    snapshot.plans.clear();
+    assert_eq!(
+        effective(&snapshot, "seat", at(MONDAY, 660), &UtcCalendar)
+            .unwrap()
+            .receiving
+            .value,
+        OrchReceiving::Batch(600_000)
+    );
+}
+#[test]
+fn digest_master_off_overrides_focus_and_sleep_receiving_without_changing_routine_or_sending() {
+    let mut snapshot = world(vec![plan(
+        "sleep",
+        1,
+        OrchFields {
+            state: Some(OrchState::Sleep),
+            sending: Some(OrchSending::Paused),
+            ..Default::default()
+        },
+    )]);
+    snapshot.digest_enabled = false;
+    snapshot.digest_revision = 9;
+    for focus in [false, true] {
+        if focus {
+            snapshot.focus.push(OrchFocus {
+                identity_id: "seat".into(),
+                revision: 1,
+                start_ms: at(MONDAY, 600),
+                end_ms: at(MONDAY, 660),
+            });
+        }
+        let result = effective(&snapshot, "seat", at(MONDAY, 600), &UtcCalendar).unwrap();
+        assert_eq!(result.receiving.value, OrchReceiving::Direct);
+        assert_eq!(result.receiving.source.kind, OrchSourceKind::Base);
+        assert_eq!(result.receiving.source.revision, 9);
+        assert_eq!(result.routine.value, OrchRoutine::Hold);
+        assert_eq!(result.sending.value, OrchSending::Paused);
+    }
+}
+#[test]
 fn higher_awake_restores_receiving_and_routine_but_preserves_sending_and_limit() {
     let lower = plan(
         "quiet",

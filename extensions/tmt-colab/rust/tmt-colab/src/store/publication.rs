@@ -246,10 +246,14 @@ impl Store {
             p.confirmed_seq = seq;
             set_confirmed(&tx, scope, seq)?;
         }
-        if let Some(cut) = paired(&tx, scope)? {
+        let cut = paired(&tx, scope)?;
+        if let Some(cut) = cut {
             prune(&tx, scope, &sequence(cut))?;
         }
         tx.commit()?;
+        if cut.is_some() {
+            super::schema::reclaim(&self.connection);
+        }
         Ok(p)
     }
     /// Both namespace originals must be confirmed. Checksums here are compared
@@ -298,10 +302,14 @@ impl Store {
             p.confirmed_seq = seq;
             set_confirmed(&tx, scope, seq)?;
         }
-        if let Some(cut) = paired(&tx, scope)? {
+        let cut = paired(&tx, scope)?;
+        if let Some(cut) = cut {
             prune(&tx, scope, &sequence(cut))?;
         }
         tx.commit()?;
+        if cut.is_some() {
+            super::schema::reclaim(&self.connection);
+        }
         Ok(p)
     }
 }

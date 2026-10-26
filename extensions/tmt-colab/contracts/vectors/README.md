@@ -16,6 +16,14 @@ number is never reused), the state and reason rules, the text, count and byte bo
 exact edges, the whole-replacement `task.set`, summary attribution and the derived stage,
 progress, who and sign-off; the work-in-progress limit is an admission rule and appears in none.
 
+`template-marks-v1.json` contains the two template marks of a page's content metadata
+(`template` and `fromTemplate`, #5066) with their expected verdicts, shared by the native
+validator and the browser fold validator. The cases pin the name grammar and its 40-character
+edge, the six reserved built-in names, the 200-byte description in ASCII and multibyte text, the
+trimmed-line rule (white space and the byte order mark at either end), control characters, the
+exact member sets, and the page revision token (version prefix, 64 lowercase hex digits). Uniqueness of a name in a space
+is not a property of one value and appears in none.
+
 `attachment-reference.py` independently frames descriptors/manifests, freezes
 strict selectors/creation-publication records and seals asset envelopes with
 Python cryptography over public RFC8032 fixture keys. Namespace and page-revision
@@ -169,7 +177,10 @@ these fixtures do not establish native store pruning or mounted sync delivery.
 renderings and the manifest from the written colab-v1 rules (stdlib plus `cryptography` Ed25519 over
 public RFC 8032 seeds). It regenerates `export-v1.json`, which native and browser tests consume without
 Python: `python3 export-reference.py` checks it, `--write` regenerates after review. The file also pins
-a page with work: its `work.json` bytes and the manifest that lists them after `page.html`.
+a page with work: its `work.json` bytes and the manifest that lists them after `page.html`, and the
+standalone copies: a runtime page (`standalone`), a design-system page (`standaloneDesign`) and one that
+asks for both (`standaloneBoth`). `design-marker-v1.json` pins the plain text test that decides whether a
+page uses the design system, for the renderer frame, the browser export and the native export.
 
 `publication-reference.py` independently frames and signs the content-publication contract
 with Python stdlib and `cryptography` using public RFC 8032 test seeds.

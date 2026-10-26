@@ -32,6 +32,33 @@ const PAGE: &str = "10000000-0000-4000-8000-000000000001";
 const DEVICE: &str = "30000000-0000-4000-8000-000000000001";
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
 const NOW: u64 = 1_791_025_000_000;
+
+#[test]
+fn review_owner_publication_keeps_legacy_questions_and_refuses_new_blocks_atomically() {
+    let mut f = Fixture::new();
+    let mut device = f.owner_device("30000000-0000-4000-8000-000000000099", 99);
+    let question = "<tmt-question data-id=\"00000000-0000-0000-0000-000000000001\" data-agent=\"legacy\" data-kind=\"short\"><p data-question>Choose</p></tmt-question>";
+    // A verified pre-registry editor stream, not a newly admitted source write.
+    device.type_text(&mut f, question);
+    let before = f.read().source;
+    let changed = before.replace("old", "Updated");
+    f.write(&changed);
+    assert_eq!(f.read().source, changed);
+    for source in [
+        format!("{changed}{question}"),
+        changed.replace("data-agent=\"legacy\"", "data-agent=\"another\""),
+    ] {
+        let error = f
+            .prepare(&source, None)
+            .err()
+            .expect("new question requires registration");
+        let refused = error
+            .downcast_ref::<tmt_colab::question_registry::Refused>()
+            .expect("typed refusal");
+        assert_eq!(refused.code(), "COLAB_QUESTION_UNREGISTERED");
+        assert_eq!(f.read().source, changed);
+    }
+}
 /// An owner-member device with a document of its own, whose edits become its stream's updates.
 struct OwnerDevice {
     id: &'static str,
@@ -943,6 +970,7 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
     );
     let _lock = f.layout.serve_lock().unwrap();
     let before = f.bytes();
+    // `--replace`: the refusal under test is the missing serve, not the rewrite gate.
     let out = f
         .command()
         .args([
@@ -951,6 +979,7 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
             PAGE,
             "--file",
             input.to_str().unwrap(),
+            "--replace",
             "--json",
         ])
         .output()
@@ -5751,7 +5780,13 @@ fn the_owner_summary_comes_from_the_real_fold_and_follows_each_proposal_state() 
         summary::summarize,
         threads::{Proposal, Proposer},
     };
-    let mut f = Fixture::with_author(Some("Studio agent"));
+    let mut f = Fixture::with_metadata(
+        Some("Studio agent"),
+        Some(&tmt_colab::decoder::CreationRecipient {
+            machine_id: "40000000-0000-4000-8000-000000000001".into(),
+            agent_id: "50000000-0000-1000-8000-000000000001".into(),
+        }),
+    );
     let root = f.root.clone();
     let summarize_now = || {
         let mut source = tmt_colab::page::save::open_source(
@@ -5869,7 +5904,13 @@ fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_th
         registration::Registration,
         threads::{Proposal, Proposer},
     };
-    let mut f = Fixture::with_author(Some("Studio agent"));
+    let mut f = Fixture::with_metadata(
+        Some("Studio agent"),
+        Some(&tmt_colab::decoder::CreationRecipient {
+            machine_id: "40000000-0000-4000-8000-000000000001".into(),
+            agent_id: "50000000-0000-1000-8000-000000000001".into(),
+        }),
+    );
     let root = f.root.clone();
     let context = json!({"deviceId":DEVICE,"kind":"browser","origin":"http://127.0.0.1:1","name":"Laptop",
         "publicKey":values::encode_binary(SigningKey::from_bytes(&[9; 32]).verifying_key().as_bytes()),

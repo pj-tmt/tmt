@@ -13,7 +13,7 @@ import {
   readSchemaEvidence,
 } from './native-application-schema.mjs';
 
-export const RC_REPOSITORY = 'pj-tmt/tmt';
+export const RC_REPOSITORY = 'tmt-ninja/tmt';
 export const RC_TARGETS = CLI_SCHEMA_TARGETS;
 export const PR_RC_REQUIRED_PATHS = Object.freeze([
   '.github/components.json',

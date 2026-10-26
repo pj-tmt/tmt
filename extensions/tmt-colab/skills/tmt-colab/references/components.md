@@ -49,14 +49,17 @@ Section label and card; a card runs its table edge to edge inside its padding:
 ```
 
 Actions (`data-variant`: `primary`, `text`, `ghost`, `destructive`; none is the plain bordered button) and
-count chips (`data-tone="attention"` for what needs the reader). A page's own script gives them behaviour:
+count chips (`data-tone="attention"` for what needs the reader). Put them in a paragraph so they sit in a
+row, side by side (a bare button fills its block). A page's own script gives them behaviour:
 
 ```html
-<button class="tmt-ui-action" data-variant="primary"><span class="tmt-ui-action-label">Approve</span></button>
-<button class="tmt-ui-action"><span class="tmt-ui-action-label">Cancel</span></button>
-<button class="tmt-ui-action" data-variant="text"><span class="tmt-ui-action-label">Details</span></button>
-<button class="tmt-ui-count-chip"><span>Comments</span><span class="tmt-ui-count">3</span></button>
-<button class="tmt-ui-count-chip" data-tone="attention"><span>Needs you</span><span class="tmt-ui-count">2</span></button>
+<p>
+  <button class="tmt-ui-action" data-variant="primary"><span class="tmt-ui-action-label">Approve</span></button>
+  <button class="tmt-ui-action"><span class="tmt-ui-action-label">Cancel</span></button>
+  <button class="tmt-ui-action" data-variant="text"><span class="tmt-ui-action-label">Details</span></button>
+  <button class="tmt-ui-count-chip"><span>Comments</span><span class="tmt-ui-count">3</span></button>
+  <button class="tmt-ui-count-chip" data-tone="attention"><span>Needs you</span><span class="tmt-ui-count">2</span></button>
+</p>
 ```
 
 Callout (`data-tone`: `working`, `waiting`, `review`, `blocked`; add `data-tinted` for the soft fill):
@@ -123,34 +126,35 @@ stops the preview. Other URL schemes are refused.
 ## Summary
 
 ```html
-<section>
-  <h2>Summary</h2>
+<section class="tmt-ui-card">
+  <h2 class="tmt-ui-card-title">Summary</h2>
   <p>One short paragraph: the result and what the reader should do next.</p>
 </section>
 ```
 
 ## Section
 
-A boxed block for one topic. `data-gap="tight"` keeps a related block close:
+A card for one topic (`tmt-ui-card`; a plain `<section>` is unboxed). `data-gap="tight"` keeps a related block close:
 
 ```html
-<section>
-  <h2>Findings</h2>
+<section class="tmt-ui-card">
+  <h2 class="tmt-ui-card-title">Findings</h2>
   <p>One topic.</p>
 </section>
-<section data-gap="tight">
-  <h2>Related finding</h2>
+<section class="tmt-ui-card" data-gap="tight">
+  <h2 class="tmt-ui-card-title">Related finding</h2>
   <p>Eight pixels below the previous block.</p>
 </section>
 ```
 
 ## Table
 
-The table fills its block; never set a width.
+The table fills its block; never set a width. `tmt-ui-table` gives it the design system's header and rules; a bare
+`<table>` gets the starter's plain rules.
 
 ```html
-<section>
-  <table>
+<section class="tmt-ui-card">
+  <table class="tmt-ui-table">
     <thead>
       <tr>
         <th>Check</th>
@@ -203,7 +207,7 @@ yours:
     gap: 16px;
   }
 </style>
-<section class="compare">
+<section class="tmt-ui-card compare">
   <div>
     <h3>Now</h3>
     <p>Today's behaviour.</p>

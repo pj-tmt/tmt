@@ -316,7 +316,11 @@ fn tool_completions_probe_only_when_storage_reports_waiting_and_never_write_the_
                 &probe,
                 &session,
                 &activity,
-                Instant::now() + Duration::from_secs(2),
+                Run {
+                    deadline: Instant::now() + Duration::from_secs(2),
+                    learning: None,
+                    event: SessionLearningEvent::from_hook_name(Some(event)),
+                },
                 || Ok(paths.clone()),
             )
             .unwrap();

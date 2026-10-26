@@ -148,11 +148,27 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE page_pins(page TEXT PRIMARY KEY, seq INTEGER NOT NULL,
         FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 18: the owner's pinned projects (#5073), the sidebar's list in the owner's order.
+    // `project_pins` holds one row per pinned project, `seq` its place; `project_pin_choice` has its
+    // one row once the owner has written the list, so an empty chosen list differs from the
+    // automatic default of a space that never chose. Display-only like projects: never a log
+    // statement. Deleting a project removes its pin; renaming moves it.
+    r#"
+    CREATE TABLE project_pins(name TEXT PRIMARY KEY, seq INTEGER NOT NULL,
+        FOREIGN KEY(name) REFERENCES projects(name)) WITHOUT ROWID;
+    CREATE TABLE project_pin_choice(chosen INTEGER PRIMARY KEY CHECK(chosen=1));
+    "#,
+    // Schema 19: terminal metadata-request results survive a crash before their signed own
+    // receipt is appended. Existing source-request decisions and their semantics are unchanged.
+    r#"
+    ALTER TABLE edit_decisions ADD COLUMN result TEXT;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
-/// How many pre-update copies stay: the newest by the schema they were taken at, so two upgrades in
-/// a row still leave a way back past the first.
+/// How many pre-update copies stay: the one just taken and the newest other by the schema it was
+/// taken at, so two upgrades in a row still leave a way back past the first.
 const COPIES_KEPT: usize = 2;
+const RECLAIM_PAGES: u32 = 64;
 
 pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {
     let version: u32 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -197,21 +213,74 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     let copied = match &path {
         Some(store) if version > 0 && version < CURRENT_VERSION => {
             backup(store, version)?;
-            true
+            Some(version)
         }
-        _ => false,
+        _ => None,
     };
     for (index, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", (index + 1) as u32)?;
     }
-    tx.commit()?;
-    if let (true, Some(store)) = (copied, &path) {
-        // The migration is committed: failing to tidy an old copy must not fail the open.
-        for (_, old) in copies(store).into_iter().skip(COPIES_KEPT) {
+    if version == CURRENT_VERSION {
+        // No schema write occurred. Release the writer reservation without COMMIT's
+        // exclusive-lock upgrade: a reader may defer physical conversion, never this open.
+        tx.rollback()?;
+    } else {
+        tx.commit()?;
+    }
+    if let (Some(taken), Some(store)) = (copied, &path) {
+        // The migration is committed: failing to tidy an old copy must not fail the open. The copy
+        // just taken is the way back from this update, so it stays whatever schemas the others
+        // are at (a newer Colab's copies outrank it by number); the newest other one stays with it.
+        let others = copies(store)
+            .into_iter()
+            .filter(|(schema, _)| *schema != taken);
+        for (_, old) in others.skip(COPIES_KEPT - 1) {
             let _ = std::fs::remove_file(old);
         }
     }
+    Ok(())
+}
+
+/// VACUUM takes its own writer lock after migrations finish. Its mode is the durable marker:
+/// failed conversion leaves a usable store and retries on next open, without copying the file.
+pub(super) fn enable_incremental(connection: &Connection) {
+    let convert = || -> rusqlite::Result<()> {
+        if connection.pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))? == 2 {
+            return Ok(());
+        }
+        connection.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
+        connection.execute_batch("VACUUM")
+    };
+    if let Err(error) = convert() {
+        let mut output = tmt_cli_style::stream::stderr();
+        let terminal = output.terminal();
+        // A diagnostic failure cannot turn best-effort maintenance into a failed open.
+        let _ = tmt_cli_style::message::warning(
+            &mut output,
+            terminal,
+            &format!(
+                "Colab could not enable disk reclaim: {error}. It will retry on the next open."
+            ),
+            None,
+        );
+    }
+}
+
+/// Physical reclaim follows the committed prune, so an I/O error cannot roll its write back.
+pub(super) fn reclaim(connection: &Connection) {
+    // Match best-effort backup cleanup: repeated maintenance failures stay silent, and the
+    // next committed prune retries. The durable write's result never depends on reclaim.
+    let _ = reclaim_free_pages(connection);
+}
+
+fn reclaim_free_pages(connection: &Connection) -> rusqlite::Result<()> {
+    // Bound routine work to 256 KiB at SQLite's default page size, as Core does. SQLite yields
+    // one row per page: execute_batch would stop at the first row without finishing the reclaim.
+    let mut statement =
+        connection.prepare(&format!("PRAGMA incremental_vacuum({RECLAIM_PAGES})"))?;
+    let mut rows = statement.query([])?;
+    while rows.next()?.is_some() {}
     Ok(())
 }
 
@@ -275,4 +344,44 @@ fn backup(store: &Path, version: u32) -> StoreResult<()> {
         let _ = std::fs::remove_file(&partial);
         Fault::Backup(error)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_reclaim_keeps_the_committed_write() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA auto_vacuum=INCREMENTAL;
+            CREATE TABLE payloads(value BLOB);
+            INSERT INTO payloads VALUES(zeroblob(524288));
+            BEGIN IMMEDIATE; DELETE FROM payloads;
+            INSERT INTO payloads VALUES(X'0102'); COMMIT;
+            PRAGMA query_only=ON;",
+            )
+            .unwrap();
+        assert!(matches!(
+            reclaim_free_pages(&connection).unwrap_err(),
+            rusqlite::Error::SqliteFailure(error, _) if error.code == rusqlite::ErrorCode::ReadOnly
+        ));
+        reclaim(&connection);
+        let saved: Vec<u8> = connection
+            .query_row("SELECT value FROM payloads", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(saved, [1, 2]);
+        // A later successful attempt really reclaims pages; failure is not a silent no-op fixture.
+        connection.pragma_update(None, "query_only", false).unwrap();
+        let before: u32 = connection
+            .pragma_query_value(None, "freelist_count", |r| r.get(0))
+            .unwrap();
+        reclaim_free_pages(&connection).unwrap();
+        let after: u32 = connection
+            .pragma_query_value(None, "freelist_count", |r| r.get(0))
+            .unwrap();
+        assert!(before >= RECLAIM_PAGES);
+        assert_eq!(after, before - RECLAIM_PAGES);
+    }
 }

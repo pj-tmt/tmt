@@ -33,6 +33,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
     let (classes, icons) = &*NAMES;
     for &(id, ordinal) in elements {
         let finding = |code| Finding {
+            fix: None,
             element: tree.name(id).to_owned(),
             ordinal,
             id: tree.attr(id, "data-id").map(str::to_owned),

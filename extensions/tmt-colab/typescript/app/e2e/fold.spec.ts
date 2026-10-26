@@ -66,6 +66,48 @@ const test = base.extend<{ coldObservation: void }>({
   ],
 });
 
+test('real Worker admits and refuses the shared editor metadata request and result vectors', async ({
+  page,
+}) => {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/editor-metadata-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  await page.goto('/');
+  const results = await page.evaluate(async (vectors) => {
+    const path = '/src/fold.ts';
+    const { Fold } = await import(path);
+    const results = [];
+    for (const c of [...vectors.requests, ...vectors.results]) {
+      const fold = new Fold();
+      let valid = false;
+      let record;
+      try {
+        const prepared = await fold.run({
+          type: 'prepare-own',
+          writer: '00000000-0000-4000-8000-000000000001',
+          records: [{ root: c.root, key: c.key, value: c.record }],
+        });
+        record = prepared.own['00000000-0000-4000-8000-000000000001'][c.root][c.key];
+        valid = true;
+      } catch {
+        valid = false;
+      } finally {
+        fold.close();
+      }
+      results.push({ name: c.name, valid, record });
+    }
+    return results;
+  }, vectors);
+  const cases = [...vectors.requests, ...vectors.results];
+  for (let i = 0; i < cases.length; i++) {
+    expect(results[i].valid, cases[i].name).toBe(cases[i].valid);
+    if (cases[i].valid) expect(results[i].record, cases[i].name).toEqual(cases[i].record);
+  }
+});
+
 test('attachment object adapter verifies actual browser crypto without replaying an uncertain original', async ({
   page,
 }) => {
@@ -511,4 +553,79 @@ test('checkpoint steps retain pending dependencies until the final bounded tail 
     }
   }, v);
   expect(source).toBe(v.sourceAfterTail);
+});
+
+test('real Worker preserves attributed registry metadata through source edits and rejects claimed answered state', async ({
+  page,
+}) => {
+  const corpus = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/question-metadata-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const creator = corpus.cases.find(
+    (entry: { kind: string; valid: boolean }) => entry.kind === 'creator' && entry.valid,
+  ).value;
+  const questions = corpus.cases.find(
+    (entry: { kind: string; valid: boolean; value: unknown[] }) =>
+      entry.kind === 'questions' && entry.valid && entry.value.length > 0,
+  ).value;
+  await page.goto('/');
+  const result = await page.evaluate(
+    async ({ creator, questions }) => {
+      const foldPath = '/src/fold.ts',
+        fixturePath = '/test/update-fixtures.ts';
+      const { Fold } = await import(foldPath),
+        { metadataUpdate } = await import(fixturePath);
+      const fold = new Fold();
+      try {
+        const before = await fold.run({
+          type: 'apply',
+          updates: [metadataUpdate({ creator, questions })],
+        });
+        const edit = await fold.prepareContent('<p>Changed source</p>', {
+          source: before.source,
+          title: before.title,
+          own: before.own,
+          creator: before.creator,
+          questions: before.questions,
+        });
+        const after = await fold.run({ type: 'apply', updates: edit.updates });
+        const invalid = new Fold();
+        let rejected = false;
+        try {
+          rejected = await invalid
+            .run({
+              type: 'apply',
+              updates: [
+                metadataUpdate({
+                  creator,
+                  questions: questions.map((entry: Record<string, unknown>) => ({
+                    ...entry,
+                    state: 'answered',
+                  })),
+                }),
+              ],
+            })
+            .then(
+              () => false,
+              () => true,
+            );
+        } finally {
+          invalid.close();
+        }
+        return {
+          creator: after.creator,
+          questions: after.questions,
+          source: after.source,
+          rejected,
+        };
+      } finally {
+        fold.close();
+      }
+    },
+    { creator, questions },
+  );
+  expect(result).toEqual({ creator, questions, source: '<p>Changed source</p>', rejected: true });
 });

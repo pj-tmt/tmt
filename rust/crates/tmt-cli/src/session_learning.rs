@@ -1,5 +1,5 @@
 //! Invocation-local coordination of stored startup evidence; no delivery authority.
-use std::time::Instant;
+use std::{cell::Cell, time::Instant};
 use tmt_adapters::{
     config::ConfigPaths,
     process::{
@@ -20,7 +20,8 @@ use tmt_core::{
             HarnessId, RuntimeState, SessionTransition,
             launch::{
                 LaunchObservation, LaunchStatus, PendingStart, SessionLearningDetail,
-                SessionLearningDiagnostic, SessionLearningReason, SessionLearningStep,
+                SessionLearningDiagnostic, SessionLearningDigestStop, SessionLearningReason,
+                SessionLearningStep,
             },
         },
     },
@@ -37,10 +38,23 @@ enum Update {
     /// End the current step with this reason, unless it already has a final one.
     Fail(SessionLearningReason),
 }
+/// What a hook run can do to the launch it reports to. A run learns this from its payload,
+/// so it starts as `Unknown`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// The payload has not been read yet.
+    Unknown,
+    /// A lifecycle event: it can bind or end the session, so its progress is the launch's.
+    Binding,
+    /// A turn, prompt or activity event, or one nothing decodes: it cannot bind, and it keeps
+    /// what an earlier run stored for a launch that is not admitted yet.
+    Observer,
+}
 pub struct Learning {
     pub launch: HookLaunch,
     pub driver: HarnessId,
     paths: ConfigPaths,
+    role: Cell<Role>,
 }
 impl Learning {
     pub fn capture(provider: &str) -> Option<Self> {
@@ -54,7 +68,12 @@ impl Learning {
             launch,
             driver: HarnessId::new(provider).ok()?,
             paths: ConfigPaths::discover().ok()?,
+            role: Cell::new(Role::Unknown),
         })
+    }
+    /// Says what this run can do, once its payload is known.
+    pub fn set_role(&self, role: Role) {
+        self.role.set(role);
     }
     fn owner(&self, deadline: Instant) -> Result<ProcessIncarnation, ()> {
         let owner = self.launch.owner().ok_or(())?;
@@ -101,7 +120,23 @@ impl Learning {
                 if observed.status == LaunchStatus::Settled {
                     return Ok(observed.diagnostic.is_some());
                 }
+                // Only a Digest Stop sets or clears its own reason on an admitted launch.
+                if observed.status == LaunchStatus::Admitted && digest_stopped(&observed) {
+                    return Ok(true);
+                }
 
+                // A run that cannot bind never overwrites what an earlier run stored for a launch
+                // that is not admitted yet: the SessionStart refusal is the one worth reading.
+                // Such a run names its own reason only when nothing more specific is stored.
+                let keeps = self.role.get() != Role::Binding
+                    && observed.status != LaunchStatus::Admitted
+                    && observed.diagnostic.is_some();
+                if keeps {
+                    let named = observed.diagnostic.is_some_and(|d| d.detail.is_some());
+                    if !matches!(update, Update::Note(_)) || named {
+                        return Ok(true);
+                    }
+                }
                 let mut next = observed.clone();
                 let previous = observed
                     .diagnostic
@@ -157,11 +192,59 @@ impl Learning {
                 if observed.driver != self.driver {
                     return Ok(false);
                 }
-                if observed.status != LaunchStatus::Admitted || observed.diagnostic.is_none() {
+                if observed.status != LaunchStatus::Admitted
+                    || observed.diagnostic.is_none()
+                    || digest_stopped(&observed)
+                {
                     return Ok(true);
                 }
                 let mut next = observed.clone();
                 next.diagnostic = None;
+                records.set_launch_observation(&observed, &next)
+            })
+            .map_err(|_| ());
+        let closed = storage.close().map_err(|_| ());
+        match result {
+            Ok(true) => closed,
+            _ => Err(()),
+        }
+    }
+
+    /// Names why a Digest Stop on this admitted launch ended with no output. It probes no
+    /// process: the refused check may be the owner's own start identity, and a fixed token
+    /// on a pre-existing admitted row is the only write.
+    pub fn digest_stop(
+        &self,
+        stop: SessionLearningDigestStop,
+        deadline: Instant,
+    ) -> Result<(), ()> {
+        self.digest_outcome(Some(stop.diagnostic()), deadline)
+    }
+    /// A delivered Digest Stop clears the reason an earlier one stored.
+    pub fn digest_delivered(&self, deadline: Instant) -> Result<(), ()> {
+        self.digest_outcome(None, deadline)
+    }
+    fn digest_outcome(
+        &self,
+        diagnostic: Option<SessionLearningDiagnostic>,
+        deadline: Instant,
+    ) -> Result<(), ()> {
+        let owner = self.launch.owner().ok_or(())?;
+        let mut storage = Storage::open_hook(&self.paths.database, deadline).map_err(|_| ())?;
+        let result = storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
+                else {
+                    return Ok(false);
+                };
+                if observed.driver != self.driver || observed.status != LaunchStatus::Admitted {
+                    return Ok(false);
+                }
+                if diagnostic.is_none() && !digest_stopped(&observed) {
+                    return Ok(true);
+                }
+                let mut next = observed.clone();
+                next.diagnostic = diagnostic;
                 records.set_launch_observation(&observed, &next)
             })
             .map_err(|_| ());
@@ -337,6 +420,12 @@ impl Learning {
     }
 }
 
+fn digest_stopped(observed: &LaunchObservation) -> bool {
+    observed
+        .diagnostic
+        .is_some_and(|d| matches!(d.detail, Some(SessionLearningDetail::DigestStop(_))))
+}
+
 /// Called only inside the same writer transaction as session admission/settlement.
 pub fn settle(
     records: &mut dyn BindingRecords<Error = StorageError>,
@@ -394,7 +483,11 @@ pub struct LearningView {
     pub reason: &'static str,
     pub detail: Option<&'static str>,
     pub next_step: String,
+    /// Whether the launch is not admitted. A Digest Stop reason on an admitted launch is not.
+    pub unbound: bool,
 }
+
+const DIGEST_STOP_NEXT_STEP: &str = "Nothing to do now; the next turn end tries the Digest again.";
 pub fn view(
     storage: &Storage,
     binding: Option<&tmt_core::binding::Binding>,
@@ -417,18 +510,25 @@ fn from_observation(
     identity: &tmt_core::identity::Identity,
     preferences: &tmt_core::binding::session::SessionPreferences,
 ) -> Option<LearningView> {
-    if observed.status == LaunchStatus::Admitted {
+    // An admitted session suppresses an older failure, but not a Digest Stop's own reason.
+    let admitted = observed.status == LaunchStatus::Admitted;
+    if admitted && !digest_stopped(&observed) {
         return None;
     }
     observed.diagnostic.map(|diagnostic| LearningView {
         step: diagnostic.step.as_str(),
         reason: diagnostic.reason.as_str(),
         detail: diagnostic.detail.map(SessionLearningDetail::as_str),
-        next_step: tmt_core::binding::session::launch::session_learning_recovery(
-            identity,
-            &observed.driver,
-            preferences,
-        ),
+        next_step: if admitted {
+            DIGEST_STOP_NEXT_STEP.to_owned()
+        } else {
+            tmt_core::binding::session::launch::session_learning_recovery(
+                identity,
+                &observed.driver,
+                preferences,
+            )
+        },
+        unbound: !admitted,
     })
 }
 pub fn identity_view(
@@ -442,6 +542,23 @@ pub fn identity_view(
 }
 
 impl LearningView {
+    /// The one warning a listing or show gives, for one named identity or for its own.
+    pub fn warning(&self, name: Option<&str>) -> String {
+        let whose = name
+            .map(|name| format!(" for '{name}'"))
+            .unwrap_or_default();
+        if self.unbound {
+            format!(
+                "The provider session{whose} was not recorded ({}). Resume may be unavailable.",
+                self.cause()
+            )
+        } else {
+            format!(
+                "The last Digest Stop{whose} ended without the Digest ({}).",
+                self.cause()
+            )
+        }
+    }
     /// `step: reason`, with what the step stopped on when it is known.
     pub fn cause(&self) -> String {
         match self.detail {

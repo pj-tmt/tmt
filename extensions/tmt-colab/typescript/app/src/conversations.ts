@@ -14,6 +14,7 @@ import type {
 export const CONVERSATIONS_FORMAT = 'tmt-colab-conversations';
 
 export interface ConversationComment {
+  questionId?: string;
   writer: string;
   id: string;
   revision: string;
@@ -159,6 +160,7 @@ export async function projectConversations(input: ConversationsInput): Promise<C
       at: thread.at,
       comments: thread.comments
         .map((comment) => ({
+          ...(comment.questionId === undefined ? {} : { questionId: comment.questionId }),
           writer: comment.ref.writer,
           id: comment.ref.id,
           revision: comment.revision,

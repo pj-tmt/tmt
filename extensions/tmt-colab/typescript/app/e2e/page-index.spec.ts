@@ -124,7 +124,7 @@ for (const width of [1440, 390])
       await expect(rows.last().getByRole('link')).toBeInViewport();
       await expect(rows.last().getByRole('link')).toHaveText('Page 200');
       expect((await search.boundingBox())!.y).toBeLessThan(searchTop);
-      expect((await page.locator('.tmt-ui-header:visible').boundingBox())!.y).toBe(0);
+      expect((await page.locator('.tmt-ui-topbar:visible').boundingBox())!.y).toBe(0);
       const scroll = await page.evaluate(() => {
         const visible = Array.from(document.querySelectorAll<HTMLElement>('body *')).filter(
           (node) => node.getClientRects().length,
@@ -152,8 +152,9 @@ for (const width of [1440, 390])
         nested: ['home tmt-ui-page'],
         fixed:
           width < 480
-            ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools', 'page-list-controls']
-            : ['tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools', 'page-list-controls'],
+            ? // The phone's menu button sits in the shared bar now, not fixed on its own.
+              ['tmt-ui-shell-bar', 'page-list-controls']
+            : ['tmt-ui-rail', 'tmt-ui-shell-brand', 'tmt-ui-shell-bar', 'page-list-controls'],
       });
     });
   }

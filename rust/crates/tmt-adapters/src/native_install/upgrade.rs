@@ -455,7 +455,7 @@ fn upgrade_product_with_options(
                 prefix: &current.prefix,
                 channel,
                 pin,
-                expected: Some(current.id),
+                expected: Some(current.id).into(),
                 provenance: Some(downloaded.provenance),
                 verifier,
                 explicit_channel: downloaded.explicit_channel,

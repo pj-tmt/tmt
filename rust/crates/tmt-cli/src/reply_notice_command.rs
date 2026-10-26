@@ -27,9 +27,16 @@ use tmt_core::{
     },
 };
 
+fn is_log_id(id: &str) -> bool {
+    id.len() == 36 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+}
+/// A file name `start` generates: `<operation UUID>.log`.
+fn is_log_name(name: &str) -> bool {
+    name.strip_suffix(".log").is_some_and(is_log_id)
+}
 fn log_path(database: &Path, id: &str) -> io::Result<PathBuf> {
     // Both IDs are generated operation UUIDs, never caller-chosen paths.
-    if id.len() != 36 || !id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
+    if !is_log_id(id) {
         return Err(io::Error::other("Invalid reply worker log ID"));
     }
     Ok(database
@@ -55,7 +62,10 @@ fn start(database: &Path, batch: &Batch) -> io::Result<()> {
     }
     let log_id = new_operation_id();
     let path = log_path(database, &log_id)?;
-    fs::create_dir_all(path.parent().expect("log directory"))?;
+    let directory = path.parent().expect("log directory");
+    fs::create_dir_all(directory)?;
+    // Best effort: a failed prune never stops the worker from starting.
+    let _ = detached::prune_failed_logs(directory, is_log_name, detached::FAILED_LOG_RETENTION);
     let log = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -316,6 +326,20 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_generated_worker_log_names_qualify_for_pruning() {
+        assert!(super::is_log_name(
+            "64d94ad6-3665-4315-b6a6-7553b05c83b0.log"
+        ));
+        for name in [
+            "64d94ad6-3665-4315-b6a6-7553b05c83b0",
+            "64d94ad6-3665-4315-b6a6-7553b05c83b0.log.bak",
+            "../64d94ad6-3665-4315-b6a6-7553b05c83b.log",
+            "notes.log",
+        ] {
+            assert!(!super::is_log_name(name), "{name}");
+        }
+    }
     use super::*;
     use tmt_core::{
         driver::InputState,

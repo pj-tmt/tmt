@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   cleanup:
-    if: ${{ github.repository == 'pj-tmt/tmt' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -45,7 +45,7 @@ jobs:
           const { appendFileSync } = require('node:fs');
           // BEGIN_CLEANUP
           async function cleanupPRRC({ call, now, sleep, pr, keepRun, runId }) {
-            const root = 'repos/pj-tmt/tmt';
+            const root = 'repos/tmt-ninja/tmt';
             const need = (ok, message) => { if (!ok) throw new Error(message); };
             const integer = (value) => Number.isSafeInteger(value) && value > 0;
             need(pr === null || integer(pr), 'Invalid cleanup PR.');
@@ -64,7 +64,7 @@ jobs:
             need(Array.isArray(list.workflow_runs) && list.total_count === list.workflow_runs.length && list.total_count < 100, 'Recent RC run inventory incomplete.');
             const runs = [];
             for (const run of list.workflow_runs) {
-              need(integer(run.id) && run.workflow_id === workflow.id && run.path === workflow.path && run.head_branch === 'main' && run.event === 'workflow_dispatch' && run.repository?.full_name === 'pj-tmt/tmt', 'Run does not belong to the main RC producer.');
+              need(integer(run.id) && run.workflow_id === workflow.id && run.path === workflow.path && run.head_branch === 'main' && run.event === 'workflow_dispatch' && run.repository?.full_name === 'tmt-ninja/tmt', 'Run does not belong to the main RC producer.');
               const match = /^pr-rc #([1-9][0-9]*) ([a-f0-9]{12})$/.exec(run.display_title);
               need(match && integer(Number(match[1])) && Number.isSafeInteger(Date.parse(run.created_at)), 'RC run ownership name or time is invalid.');
               if (pr !== null && Number(match[1]) !== pr) continue;
@@ -94,7 +94,7 @@ jobs:
             };
             for (const number of [...new Set(runs.map((run) => run.pr))]) {
               const pull = (await request('GET', `pulls/${number}`)).data;
-              need(pull.number === number && pull.base?.repo?.full_name === 'pj-tmt/tmt' && pull.head?.repo?.full_name === 'pj-tmt/tmt', 'Cleanup PR ownership unavailable.');
+              need(pull.number === number && pull.base?.repo?.full_name === 'tmt-ninja/tmt' && pull.head?.repo?.full_name === 'tmt-ninja/tmt', 'Cleanup PR ownership unavailable.');
               const eligible = pull.state === 'open' && pull.labels?.filter((label) => label.name === 'rc-build').length === 1;
               const generations = [];
               for (const run of runs.filter((run) => run.pr === number)) generations.push({ run, artifacts: await artifactList(run) });

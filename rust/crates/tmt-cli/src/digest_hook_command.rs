@@ -6,7 +6,10 @@ use std::{
 };
 use tmt_adapters::{
     digest,
-    process::{CommandRequest, CommandRunner, SupervisedProbeRunner, UnixCommandRunner, handoff},
+    process::{
+        CommandFailure, CommandRequest, CommandRunner, SupervisedProbeRunner, UnixCommandRunner,
+        handoff,
+    },
     request_runtime::wall_time_ms,
     response_input::read_stdin_bounded,
     runtime::{
@@ -16,7 +19,7 @@ use tmt_adapters::{
     storage::Storage,
 };
 use tmt_core::{
-    binding::session::HarnessId,
+    binding::session::{HarnessId, launch::SessionLearningDigestStop as DigestStop},
     request::{
         RequestService,
         digest::{DigestOpportunity, DigestState},
@@ -36,6 +39,13 @@ pub fn execute(
     let deadline = Instant::now() + crate::invocation::hook_worker_duration(work_budget_ms);
     let mut empty_hook_output = "";
     let mut wrote_stdout = false;
+    let mut delivered = false;
+    // Why this Stop ends with no output, when a check refused. A Stop with no Digest due
+    // is not a refusal and names nothing.
+    let mut refusal: Option<DigestStop> = None;
+    let mut refuse = |stop: DigestStop| {
+        refusal.get_or_insert(stop);
+    };
     let result = (|| -> Result<(), ()> {
         let registry = RuntimeRegistry::first_party();
         let harness = HarnessId::new(provider).map_err(|_| ())?;
@@ -52,10 +62,16 @@ pub fn execute(
             return Ok(());
         };
         if worker {
+            crate::provider_hook_command::capture_before_digest(
+                provider,
+                input.as_bytes(),
+                deadline,
+            )
+            .map_err(&mut refuse)?;
             let supplied = scope
                 .map(serde_json::from_str::<HookLaunch>)
                 .transpose()
-                .map_err(|_| ())?;
+                .map_err(|_| refuse(DigestStop::LaunchArgument))?;
             let (launch, paths, stored) = crate::provider_hook_command::verified_digest_launch(
                 provider,
                 lifecycle,
@@ -63,7 +79,8 @@ pub fn execute(
                 &session,
                 deadline,
                 SupervisedProbeRunner,
-            )?;
+            )
+            .map_err(&mut refuse)?;
             let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
             let Some(through) = digest::fitting_through(
                 &mut storage,
@@ -110,11 +127,14 @@ pub fn execute(
                 .map_err(|_| ())?;
             return Ok(());
         }
-        let worker_deadline = deadline.checked_sub(PUBLICATION_RESERVE).ok_or(())?;
+        let worker_deadline = deadline
+            .checked_sub(PUBLICATION_RESERVE)
+            .ok_or_else(|| refuse(DigestStop::WorkerTimeout))?;
         let remaining = worker_deadline
             .saturating_duration_since(Instant::now())
             .as_millis();
         if remaining == 0 {
+            refuse(DigestStop::WorkerTimeout);
             return Err(());
         }
         let mut args = vec![
@@ -128,7 +148,7 @@ pub fn execute(
             Some(scope) => args.extend(["--launch".into(), scope.into()]),
             None => args.push("--discover-launch".into()),
         }
-        let executable = std::env::current_exe().map_err(|_| ())?;
+        let executable = std::env::current_exe().map_err(|_| refuse(DigestStop::WorkerSpawn))?;
         let output = UnixCommandRunner
             .execute(CommandRequest {
                 program: executable.as_os_str(),
@@ -137,8 +157,12 @@ pub fn execute(
                 deadline: worker_deadline,
                 max_output_bytes: digest::HANDOFF_OUTPUT_BYTES,
             })
-            .map_err(|_| ())?;
-        if !output.stderr.is_empty() {
+            .map_err(|error| {
+                let stderr = error.output.as_ref().map_or(&[][..], |o| &o.stderr[..]);
+                refuse(worker_refusal(Some(error.kind), stderr).unwrap_or(DigestStop::WorkerError))
+            })?;
+        if let Some(stop) = worker_refusal(None, &output.stderr) {
+            refuse(stop);
             return Err(());
         }
         if output.stdout.is_empty() {
@@ -146,7 +170,7 @@ pub fn execute(
                 let supplied = scope
                     .map(serde_json::from_str::<HookLaunch>)
                     .transpose()
-                    .map_err(|_| ())?;
+                    .map_err(|_| refuse(DigestStop::LaunchArgument))?;
                 let (_, paths, _) = crate::provider_hook_command::verified_digest_launch(
                     provider,
                     lifecycle,
@@ -154,35 +178,43 @@ pub fn execute(
                     &session,
                     deadline,
                     UnixCommandRunner,
-                )?;
-                if let Some(notice) =
-                    restart_notice(lifecycle, &paths, &harness, &session, None, deadline)
-                {
-                    wrote_stdout = true;
-                    let _ = handoff::write_before(
-                        &tmt_cli_style::stream::stdout(true).into_inner(),
-                        notice.as_bytes(),
-                        deadline,
-                    );
+                )
+                .map_err(&mut refuse)?;
+                match restart_notice(lifecycle, &paths, &harness, &session, None, deadline) {
+                    Ok(Some(notice)) => {
+                        wrote_stdout = true;
+                        let _ = handoff::write_before(
+                            &tmt_cli_style::stream::stdout(true).into_inner(),
+                            notice.as_bytes(),
+                            deadline,
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(stop) => refuse(stop),
                 }
             }
             return Ok(());
         }
-        let prepared: DigestHandoff = serde_json::from_slice(&output.stdout).map_err(|_| ())?;
+        let prepared: DigestHandoff = serde_json::from_slice(&output.stdout)
+            .map_err(|_| refuse(DigestStop::HandoffInvalid))?;
         let launch = &prepared.launch;
         if !launch.valid()
             || scope.is_some_and(|scope| {
                 serde_json::from_str::<HookLaunch>(scope).ok().as_ref() != Some(launch)
             })
         {
+            refuse(DigestStop::HandoffInvalid);
             return Err(());
         }
         if !tmt_core::dispatch::canonical_id(&prepared.checklist_id)
             || !tmt_core::dispatch::canonical_id(&prepared.attempt_token)
         {
+            refuse(DigestStop::HandoffInvalid);
             return Err(());
         }
-        let payload = lifecycle.encode_digest_turn(&prepared.digest).ok_or(())?;
+        let payload = lifecycle
+            .encode_digest_turn(&prepared.digest)
+            .ok_or_else(|| refuse(DigestStop::HandoffInvalid))?;
         let paths = tmt_adapters::config::ConfigPaths::discover().map_err(|_| ())?;
         let state = match crate::provider_hook_command::verified_digest_launch(
             provider,
@@ -192,7 +224,10 @@ pub fn execute(
             deadline,
             UnixCommandRunner,
         ) {
-            Err(()) => DigestState::Unsent,
+            Err(stop) => {
+                refuse(stop);
+                DigestState::Unsent
+            }
             Ok(_) => {
                 let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
                 let active = RequestService::new(&mut storage, wall_time_ms)
@@ -207,8 +242,10 @@ pub fn execute(
                         || batch.attempt_token != prepared.attempt_token
                         || batch.state != DigestState::Claimed
                 }) {
+                    refuse(DigestStop::ChecklistChanged);
                     return Ok(());
                 }
+                // A notice that cannot be shown never holds back the Digest itself.
                 let notice = legacy_name
                     .then(|| {
                         restart_notice(
@@ -219,15 +256,19 @@ pub fn execute(
                             Some(&payload),
                             deadline,
                         )
+                        .ok()
+                        .flatten()
                     })
                     .flatten();
                 let payload = notice.as_deref().unwrap_or(&payload);
                 wrote_stdout = true;
-                publication_state(handoff::write_before(
+                let state = publication_state(handoff::write_before(
                     &tmt_cli_style::stream::stdout(true).into_inner(),
                     payload.as_bytes(),
                     deadline,
-                ))
+                ));
+                delivered = state == DigestState::Delivered;
+                state
             }
         };
         let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
@@ -243,17 +284,75 @@ pub fn execute(
         Ok(())
     })();
     if result.is_err() && worker {
+        // Private worker output: the supervisor reads this one name, never a person.
+        if let Some(stop) = refusal {
+            let _ = tmt_cli_style::stream::stderr().write_all(stop.name().as_bytes());
+        }
         let _ = SupervisedProbeRunner::abort_worker_group();
     } else if !worker && !wrote_stdout && !empty_hook_output.is_empty() {
         let _ = tmt_cli_style::stream::stdout(true).write_all(empty_hook_output.as_bytes());
+    }
+    if !worker {
+        record_outcome(
+            provider,
+            scope,
+            (!wrote_stdout).then_some(refusal).flatten(),
+            delivered,
+            deadline,
+        );
     }
     // Unsupported, stale or unavailable Digest never vetoes an ordinary stop.
     Ok(u8::from(worker && result.is_err()))
 }
 
+/// The supervisor's reading of its worker: `failure` is `None` for a worker that finished.
+/// A worker that ran and failed names its own refusal on stderr; a finished worker writes
+/// none, so any stderr byte from it is a refusal of its own.
+fn worker_refusal(failure: Option<CommandFailure>, stderr: &[u8]) -> Option<DigestStop> {
+    Some(match failure {
+        None if stderr.is_empty() => return None,
+        None => DigestStop::WorkerStderr,
+        Some(CommandFailure::Spawn) => DigestStop::WorkerSpawn,
+        Some(CommandFailure::Timeout) => DigestStop::WorkerTimeout,
+        Some(CommandFailure::Exit { .. }) => std::str::from_utf8(stderr)
+            .ok()
+            .and_then(DigestStop::from_worker)
+            .unwrap_or(DigestStop::WorkerError),
+        Some(CommandFailure::OutputLimit | CommandFailure::Io) => DigestStop::WorkerError,
+    })
+}
+
+/// Stores why this Stop refused, or that it delivered, in the launch's session-learning
+/// row. The launch coordinates select that row only; a hook supplied with other coordinates
+/// stores nothing. Best effort within the hook's own deadline: a Stop never fails on it.
+fn record_outcome(
+    provider: &str,
+    scope: Option<&str>,
+    refusal: Option<DigestStop>,
+    delivered: bool,
+    deadline: Instant,
+) {
+    if refusal.is_none() && !delivered {
+        return;
+    }
+    let Some(learning) = crate::session_learning::Learning::capture(provider) else {
+        return;
+    };
+    if scope.is_some_and(|scope| {
+        serde_json::from_str::<HookLaunch>(scope).ok().as_ref() != Some(&learning.launch)
+    }) {
+        return;
+    }
+    let _ = match refusal {
+        Some(stop) => learning.digest_stop(stop, deadline),
+        None => learning.digest_delivered(deadline),
+    };
+}
+
 const RESTART_NOTICE: &str =
     "tmt: This session was started by an older tmt. Restart it to use the current hooks.";
 
+/// The session's one restart notice, `None` when an earlier Stop already showed it.
 fn restart_notice(
     lifecycle: &dyn tmt_adapters::runtime::lifecycle::RuntimeLifecycle,
     paths: &tmt_adapters::config::ConfigPaths,
@@ -261,15 +360,16 @@ fn restart_notice(
     session: &tmt_core::binding::session::ProviderSessionId,
     decision: Option<&str>,
     deadline: Instant,
-) -> Option<String> {
-    let output = lifecycle.encode_hook_notice(RESTART_NOTICE, decision)?;
-    tmt_adapters::runtime::hook_notices::claim(
-        &paths.hook_notice_directory(),
-        provider,
-        session,
-        deadline,
-    )
-    .then_some(output)
+) -> Result<Option<String>, DigestStop> {
+    use tmt_adapters::runtime::hook_notices::{NoticeClaim, claim};
+    let output = lifecycle
+        .encode_hook_notice(RESTART_NOTICE, decision)
+        .ok_or(DigestStop::NoticeUnavailable)?;
+    match claim(&paths.hook_notice_directory(), provider, session, deadline) {
+        NoticeClaim::Claimed => Ok(Some(output)),
+        NoticeClaim::Taken => Ok(None),
+        NoticeClaim::Unavailable => Err(DigestStop::NoticeUnavailable),
+    }
 }
 
 fn publication_state(result: Result<(), handoff::HandoffFailure>) -> DigestState {
@@ -296,6 +396,85 @@ mod tests {
         );
     }
     #[test]
+    fn the_supervisor_names_each_worker_refusal() {
+        let exit = Some(CommandFailure::Exit {
+            code: None,
+            signal: Some(9),
+        });
+        assert_eq!(
+            worker_refusal(None, b""),
+            None,
+            "a clean worker refuses nothing"
+        );
+        assert_eq!(worker_refusal(None, b"x"), Some(DigestStop::WorkerStderr));
+        assert_eq!(
+            worker_refusal(Some(CommandFailure::Spawn), b""),
+            Some(DigestStop::WorkerSpawn)
+        );
+        assert_eq!(
+            worker_refusal(Some(CommandFailure::Timeout), b""),
+            Some(DigestStop::WorkerTimeout)
+        );
+        assert_eq!(
+            worker_refusal(Some(CommandFailure::Io), b"launch:owner"),
+            Some(DigestStop::WorkerError)
+        );
+        // The worker's own name for its refusal, and nothing it cannot report.
+        assert_eq!(
+            worker_refusal(exit, b"launch:owner"),
+            Some(DigestStop::LaunchOwner)
+        );
+        assert_eq!(
+            worker_refusal(exit, b"capture_failed"),
+            Some(DigestStop::CaptureFailed)
+        );
+        for other in [
+            &b""[..],
+            b"worker_spawn",
+            b"launch:owner\n",
+            b"panicked",
+            b"\xff",
+        ] {
+            assert_eq!(
+                worker_refusal(exit, other),
+                Some(DigestStop::WorkerError),
+                "{other:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unusable_notice_directory_is_a_refusal_and_a_shown_notice_is_not() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!(
+            "tmt-hook-advisory-{}",
+            tmt_core::operation::new_operation_id()
+        ));
+        let paths = tmt_adapters::config::ConfigPaths::resolve(&root, &root, Some(&root), None);
+        let registry = RuntimeRegistry::first_party();
+        let harness = HarnessId::new("claude").unwrap();
+        let lifecycle = registry.lifecycle(&harness).unwrap();
+        let session = tmt_core::binding::session::ProviderSessionId::new("marked").unwrap();
+        let notice =
+            |deadline| restart_notice(lifecycle, &paths, &harness, &session, None, deadline);
+        let later = || Instant::now() + Duration::from_secs(1);
+        assert!(matches!(notice(later()), Ok(Some(_))));
+        // The marker is present: the notice was shown once, and that is not a refusal.
+        assert_eq!(notice(later()), Ok(None));
+        std::fs::set_permissions(
+            paths.hook_notice_directory(),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        let other = tmt_core::binding::session::ProviderSessionId::new("other").unwrap();
+        assert_eq!(
+            restart_notice(lifecycle, &paths, &harness, &other, None, later()),
+            Err(DigestStop::NoticeUnavailable)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn provider_notice_election_is_separate_from_handoff_and_lost_output_is_not_retried() {
         use std::fs;
         let root = std::env::temp_dir().join(format!(
@@ -318,6 +497,7 @@ mod tests {
                 Some(decision),
                 Instant::now() + Duration::from_secs(1),
             )
+            .unwrap()
             .unwrap();
             let value: serde_json::Value = serde_json::from_str(&output).unwrap();
             assert_eq!(value["decision"], "block");
@@ -332,7 +512,7 @@ mod tests {
                 )),
                 DigestState::Unsent
             );
-            assert!(
+            assert_eq!(
                 restart_notice(
                     lifecycle,
                     &paths,
@@ -340,8 +520,8 @@ mod tests {
                     &session,
                     None,
                     Instant::now() + Duration::from_secs(1)
-                )
-                .is_none()
+                ),
+                Ok(None)
             );
             let other =
                 tmt_core::binding::session::ProviderSessionId::new("quiet-session").unwrap();
@@ -353,6 +533,7 @@ mod tests {
                 None,
                 Instant::now() + Duration::from_secs(1),
             )
+            .unwrap()
             .unwrap();
             assert_eq!(
                 serde_json::from_str::<serde_json::Value>(&quiet).unwrap(),

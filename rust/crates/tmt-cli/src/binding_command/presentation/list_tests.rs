@@ -31,6 +31,7 @@ fn named_listing_exposes_stored_session_learning_without_changing_its_address() 
             reason: "budget_timeout",
             detail: None,
             next_step: "Exit the agent in its pane, then run: tmt resume -- worker".into(),
+            unbound: true,
         })),
     });
     assert_eq!(after["session"]["unbound"], true);
@@ -508,6 +509,7 @@ fn running_row_with_usage(
             remembered: row.remembered.clone(),
         },
         &tmt_adapters::runtime::RuntimeRegistry::first_party(),
+        None,
     );
     row
 }

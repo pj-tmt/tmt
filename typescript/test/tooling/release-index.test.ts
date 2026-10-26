@@ -481,7 +481,7 @@ describe('release-index Git API boundary', () => {
     const calls: { args: readonly string[]; input: any }[] = [];
     const sha = 'a'.repeat(40);
     const api = ghIndexApi({
-      repository: 'pj-tmt/tmt',
+      repository: 'tmt-ninja/tmt',
       spawn: (_command, args, options) => {
         const input = JSON.parse((options as { input?: string }).input ?? 'null');
         calls.push({ args, input });
@@ -524,7 +524,7 @@ describe('release-index Git API boundary', () => {
     [500, 'Server Error', null],
   ])('only exact non-fast-forward is retryable (%s %s)', (status, message, outcome) => {
     const api = ghIndexApi({
-      repository: 'pj-tmt/tmt',
+      repository: 'tmt-ninja/tmt',
       spawn: () => http(status as number, { message }),
     });
     if (outcome) expect(api.advance('a'.repeat(40))).toBe(outcome);
@@ -538,7 +538,7 @@ describe('release-index Git API boundary', () => {
       http(200, { object: { type: 'commit', sha: 'bad' } }),
     ]) {
       expect(() =>
-        ghIndexApi({ repository: 'pj-tmt/tmt', spawn: () => response }).readTip()
+        ghIndexApi({ repository: 'tmt-ninja/tmt', spawn: () => response }).readTip()
       ).toThrow();
     }
     for (const data of [
@@ -547,7 +547,7 @@ describe('release-index Git API boundary', () => {
       { type: 'symlink', encoding: 'base64', size: 1, content: 'eA==' },
     ]) {
       expect(() =>
-        ghIndexApi({ repository: 'pj-tmt/tmt', spawn: () => http(200, data) }).readFile(
+        ghIndexApi({ repository: 'tmt-ninja/tmt', spawn: () => http(200, data) }).readFile(
           'a'.repeat(40),
           'channels/cli/alpha.json',
           POINTER_LIMIT
@@ -557,7 +557,7 @@ describe('release-index Git API boundary', () => {
     const error = new Error('network');
     expect(() =>
       ghIndexApi({
-        repository: 'pj-tmt/tmt',
+        repository: 'tmt-ninja/tmt',
         spawn: () => ({ error, status: null, stdout: '', stderr: '' }),
       }).readTip()
     ).toThrow(error);

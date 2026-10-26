@@ -1029,10 +1029,10 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                                                                                                                      | Fold and authority                                                                   |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `layout`, `layoutReason`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                         | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                                                                                                                                                                                                         | Fold and authority                                                                   |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `template`, `fromTemplate`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                                            | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
 bytes without control characters. It is a publisher-asserted display-only label,
@@ -1044,7 +1044,7 @@ label; an unknown CLI writer removes the previous label. Browser Save carries no
 CLI label and so removes it the same way. Content folding and epoch baselines preserve it in the
 committed update bytes; no descriptor field or extra signature is added.
 
-`meta.originalAuthor`, when present, uses the same bounded label grammar. Initial page creation derives it from that request's already captured `publisherAgent`; there is no separate creator lookup or public creation selection. It is a publisher-asserted creation display snapshot, not authenticated proof of a person's identity. Supported native and browser source writes preserve it independently of the latest publisher; an unknown creation remains absent after later known writes. Legacy absence means Unknown author in trusted presentation, never a guessed or backfilled value. Fresh epoch baselines and content checkpoints preserve it. It never supplies authorization, an Ask recipient or an Ask default.
+`meta.originalAuthor`, when present, uses the same bounded label grammar. Initial page creation derives it from that request's already captured `publisherAgent`; the independently editable creator below does not replace this historical snapshot. It is a publisher-asserted creation display snapshot, not authenticated proof of a person's identity. Supported native and browser source writes preserve it independently of the latest publisher; an unknown creation remains absent after later known writes. Legacy absence means Unknown author in trusted presentation, never a guessed or backfilled value. Fresh epoch baselines and content checkpoints preserve it. It never supplies authorization, an Ask recipient or an Ask default.
 
 `meta.layout`, when present, is `column`, `full` or `canvas`: how Colab frames the
 page (`column`: a text column of at most 1280 px; `full`: blocks may run edge to edge;
@@ -1060,6 +1060,29 @@ another device or by the CLI reframes an open page without a new source. Source 
 in the committed update bytes; only `page create` and `page layout` set them, and a native
 or browser projection with an unknown kind, a reason on a non-canvas page, a canvas without
 a reason or a dashboard with a layout is rejected.
+
+`meta.template`, when present, is exactly `{name, description}` and marks the page as a template
+(#5066). `name` is 1 to 40 characters of `a-z`, `0-9` and `-`, and is none of the built-in names
+(`starter`, `report`, `review`, `compare`, `board`, `gallery`); `description` is one trimmed line of
+at most 200 UTF-8 bytes without control characters, and may be empty. The template's ID is the page's
+ID. A page without the key is an ordinary page, which is an absence, never a stored value, so no page
+needs a migration. The mark is selection metadata, never authority: it gives no one a right to edit
+or use the page beyond the page's own roles. One page's fold cannot know the others, so a name's
+uniqueness in the space is the owner's check when the mark is set; a fold accepts any valid mark.
+
+`meta.fromTemplate`, when present, is exactly `{name}` or `{name, revision}`: where the page was
+created from. `name` follows the same grammar (a built-in name is allowed here) and `revision` is the
+revision of the template's content that was copied (`v1:` and the lowercase hex SHA-256 of its source;
+a page's own revision token moves with every change anywhere in the space, so it cannot say whether a
+template changed, and the digest of the copied content can), present only for a user template (a
+built-in has none). `template show` prints the template's current one to compare. It records the
+source and nothing else: after creation the page is independent of the template, and a later
+change, removal or deletion of the template changes nothing here. A dashboard
+has neither key. Source writes, checkpoints, compaction and epoch baselines preserve both keys in the
+committed update bytes; only `page create` from a template (named, or the space default) sets `fromTemplate`, and only `template save` and
+`template remove` set or clear `template`. A native or browser projection with a member beyond those
+named, a name outside the grammar, a built-in name in `template`, a description past its bounds or a
+dashboard with either key is rejected.
 
 `meta.creationRecipient`, when present, is exactly `{machineId,agentId}`: a
 canonical non-nil Remote UUIDv4 and canonical non-nil core UUID. It is an asserted
@@ -1079,6 +1102,120 @@ authenticated current machine and one uniquely admitted agent UUID match this fr
 preference; this native/non-UI change does not integrate that UI default. Live grant
 and send admission remain separate. Old strict readers reject this added metadata
 rather than silently dropping it; mixed-version runtime acceptance is not claimed.
+
+### Question metadata (#5052)
+
+An ordinary page may carry `meta.creator` and `meta.questions`; a shell has neither.
+They are editor-owned content, preserved by source writes, checkpoints, fresh epoch baselines
+and frozen export manifests. They confer no identity, role, send or content authority.
+
+`creator` is exactly `{agent:{id,name},attribution,machineId?}`. `id` is a canonical non-nil
+Core UUID; `name` is the existing bounded publisher display label. The optional `machineId`
+is a canonical Remote UUIDv4 routing hint. `attribution` is the admitted editor's
+`{writerId,timeMs,displayAgent?}` value used by Work, not a selected agent's claim.
+`page create` captures its invoking identity once. An anonymous plain-shell create proceeds
+without a creator; no identity is guessed or backfilled. `--creator NAME|UUID` explicitly selects
+one through bounded public identity lookup and refuses an unresolved named selection.
+Anonymous compiled templates also create successfully and register their questions unassigned.
+Their answers stay on the page with no Ask until a creator or explicit question agent is selected. `page creator PAGE
+NAME|UUID` changes this preference against the current revision (or `--expected-revision`),
+without changing `originalAuthor`, existing questions or sent messages. New drafts use the
+new preference. An assigned registration keeps its agent across creator changes. An unassigned
+registration follows the current creator for new drafts, without backfilling its stored value;
+without a creator its answers stay on the page and send no Ask. A legacy page reads its complete
+`creationRecipient` pair as the creator
+without writing it back; `originalAuthor` alone never supplies a creator. Without either
+reference the creator remains absent.
+
+`questions` is an array of at most 50 entries, unique by the existing authored question UUID.
+Each entry is exactly `{id,state,attribution,agent?,title?,group?,task?}`. Optional `agent` uses
+the same stable ID/display-label pair; absence means unassigned and null is invalid. `title` is nonempty inert text of at most 200 Unicode code
+points; `group` is an authored group UUID. Stored `state` is `open` or `handled`; `task` is
+optional only for `handled` and must name a task on this page when the action sets it.
+`question add PAGE --id UUID [--agent NAME|UUID] [--title TITLE] [--group UUID]` registers or
+explicitly updates that entry. Omitted agent leaves a new entry unassigned and preserves an
+existing assignment. Repeating an unchanged registration publishes nothing;
+changed routing, group or title is attributed and never reopens it. `question handle PAGE
+ID [--task T-n]` and `question reopen PAGE ID` change the editor-owned lifecycle; reopening
+clears the task link. These closed actions use the ordinary conditional content publisher,
+never a new publication kind or commenter content write.
+
+A bounded public lookup may confirm that a referenced identity is missing; unavailable,
+malformed or incomplete lookup is only unverified. When selecting a new reference without
+lookup, a matching stored name/ID may be reused and an explicit canonical UUID may proceed
+with `identityVerified:false`. A new name cannot be guessed: `COLAB_IDENTITY_UNVERIFIED`
+prints the same command with an explicit UUID and a plain retry. An ambiguous stored name
+also requires the UUID. No Core store is read and no new Core API is introduced.
+
+Supported native write/patch/owner-Save preparation compares new question occurrences and
+changed ID/agent pairs with the verified registry before preparing a content batch. Unchanged
+ID/agent occurrences already present in the admitted base source remain admitted, including
+legacy pages without a registry; unrelated edits never require their registration. The allowance
+is counted per occurrence, so duplicating an old block still introduces a new block. Creation
+and explicit `page check --page` compare the full source without this edit allowance.
+A missing registration or an explicitly named mismatched or positively missing agent refuses
+with `COLAB_QUESTION_UNREGISTERED`, `COLAB_QUESTION_AGENT_MISMATCH` or
+`COLAB_QUESTION_AGENT_UNKNOWN`. Each finding names its source line and a quoted command repair;
+registry findings use `severity:"blocking"` and refuse publication independently of `--strict`.
+An empty
+`data-agent` is valid without a creator. An explicit value must equal the assigned registered
+ID/name, or the current creator for an unassigned registration. Existing markup findings still describe
+ignored shapes; the parser's depth and page limits do not become an unbounded second parse.
+`page check FILE` remains markup-only/offline; `--page PAGE` adds this registry comparison.
+Nonblocking `hints` remain separate from findings. Native and browser Needs-you count each registered
+open question, including registrations whose markup has been removed. Multiple questions in a group
+remain separate targets. Browser discussion that is still being verified supplies no answer projection;
+it is not an empty verified history. When no `meta.questions` registry is present, retain the legacy admitted-markup rule: an unanswered group counts once and a standalone unanswered question counts once. An explicit registry, including an empty one, replaces that markup count; it never adds both projections.
+
+The owner browser exposes Questions… and Creator… in More, after Pin to top and before Agent status.
+Creator display belongs in About beside original-author attribution, not in a header action.
+Creator and handled/reopen commands capture the verified revision when their editor opens; stale
+choices refuse without publication. They reuse the save operation/status lifetime, never resend an
+uncertain command, and do not take over Source drafts or Work admission. Link readers see metadata
+read-only in the shared reader’s Info; link editors see “Only the page owner can change this here”,
+without owner-store CLI guidance. Its states use the same admitted own-record and writer-provenance
+checks without additional reads or metadata write authority.
+The directory supplies stable creator IDs and observed labels; names do not grant authority. A creator
+change supplies new draft defaults without remounting composers or changing dirty/sent recipients.
+Question Send binds its ordinary answer comment to the registered ID before the separate Ask. A failed
+Ask cannot undo that answer; comment edits preserve the binding and last-answer deletion reopens an
+unhandled registration. No commenter writes an answered metadata state.
+
+`page create --file` refuses live question blocks before commit and prints the empty-create,
+per-question register and source-write sequence, using the file's IDs and admitted titles.
+There is no authored initial-registry input. Built-in `--template` creation instead fills
+question `data-agent` from the selected creator and registers the template's questions in the
+same create commit. Without a creator, it omits the compiled placeholder agent attributes and
+registers the questions with no agent. The owner checks the source's literal bytes and repeated UUID slots
+against the compiled template; arbitrary source cannot claim that exception. A user template
+(#5066) is the same exception for the page it names: the owner reads that page's folded state in
+the create transaction and admits the new source only as the template's source with the agents of
+its question, review and reading blocks set to the creator (removed when there is none; block IDs are
+kept, an ID being scoped to its page), and it registers the template's registry entries (ID, title,
+group) for the creator, or with no agent when there is none, open, with no task, handled state or
+history. The template must still carry its mark under the name given. A request that names a
+template page without a name or such a page is refused, and nothing is created.
+
+An ordinary comment may carry optional `questionId`, using the same UUID grammar. It is
+immutable across revisions, like its thread reference and Lamport sequence. This is an inert
+binding, not a new comment kind or authority. Effective question state consumes only current,
+nondeleted question-bound comments from verified owner-member devices in nondeleted,
+non-proposal threads. Stable comment order (sequence, writer, message ID) chooses the latest;
+clocks and Ask results never choose it. An open entry with such an answer projects `answered`,
+a whitespace-normalized summary of at most 200 code points in `answer`, display-only
+`answeredAt` and `answerRef:{writer,id,revision}`. Deleting the last answer returns it to open;
+handled remains terminal until an editor reopens it. Raw content cannot assert answered state,
+summary, time or answer reference. `question ls` returns this effective projection;
+`page read` keeps raw `questions` beside read-only `questionStates` when nonempty.
+Native Needs-you counts each registered open question, including entries whose markup was
+removed, while preserving other pending kinds. Browser controls/routing/count adoption is
+tracked separately by #5146; the strict browser metadata and own-record codecs already
+preserve these values without granting a commenter content authority.
+
+Owner Save refusals keep the existing short message and add optional bounded
+`findings:[{code,line,fix}]` only on a rejected result. Up to 50 first repairs fit inside the
+existing 64 KiB frame; each fix is at most 2048 UTF-8 bytes. The browser preserves the first
+repair in its refused-save error. Full CLI/page-check findings remain line-specific.
 
 Mixed-root updates or other root names/types reject before atomic application.
 Sharing, roles, script policy, retention and local grants MUST NOT be Yjs state.
@@ -1170,6 +1307,66 @@ the link sent first) and unconfirmed (an uncertain send, never sent again).
 the bounds for browser and native; a string `{"fill":text,"count":n}` there stands for `text`
 repeated `n` times.
 
+### Editor metadata requests (#5195, A #5256)
+
+The same immutable `intents[operationId]` and automatic owner consumer also admit
+`version:2`, `kind:"edit-request"`, `operationId`, `action`, `body` and `target`, with no
+other fields and at most 8192 UTF-8 JSON bytes. `action` is only `creator.set`,
+`question.handle` or `question.reopen`. Creator uses exactly `body:{selector}`: a nonempty
+name or canonical ID, at most 256 UTF-8 bytes, no control characters or surrounding whitespace.
+Its `target` is exactly `{creator,creationRecipient}`, using the complete observed values
+or explicit `null`. Question actions use exactly `body:{id}` (the registered UUIDv4) and
+`target` is the complete observed registry entry with that ID. The target is an inert,
+bounded before-image, not proposed metadata. Its field keys are nonnumeric ASCII names and its numbers are nonnegative browser-safe integers, as in the metadata projection. The owner compares it with its verified content
+projection; arbitrary or stale values cannot grant a write. The question precondition covers
+the registered entry, including its open/handled state; answers remain a derived own-stream
+projection and unrelated comments do not invalidate the entry.
+
+The envelope binds page, epoch and writer. A live editor grant is checked before preparation
+and again before publication; revoked/expired/non-editor links cannot publish metadata.
+Archived pages and shells keep their publication refusal. The owner checks the target in a
+fresh read and then passes that read's revision to the existing conditional metadata publisher.
+It never uses a full revision captured before the request append, because own appends change
+that revision. A concurrent change during preparation still refuses `COLAB_STALE_BASE`.
+The owner resolves `selector` through the existing bounded authenticated identity read;
+not found refuses `COLAB_IDENTITY_UNKNOWN`, and unavailable, ambiguous or malformed lookup
+refuses `COLAB_IDENTITY_UNVERIFIED`. No guessed/stored fallback binding or directory is supplied
+to the link. Only the resolved ID and observed label enter creator metadata; the publisher
+supplies attribution. Source, question registration, assignment, answers, Ask and tasks are
+unchanged. No approval queue or owner confirmation is involved.
+
+Metadata requests reuse the existing save result and operation journal. The internal operation
+is a UUIDv4-shaped SHA-256 derivation of the compact JSON array
+`["tmt-colab-editor-metadata-v1",page,epoch,writer,operationId]`, taking the first 16 bytes and
+setting version/variant bits. This keeps different links and epochs distinct. A recorded
+committed/rejected publication is recovered before its target is evaluated again. The first
+terminal metadata result is kept with the existing epoch-scoped decision (schema 19 adds its
+optional result column); a restart republishes that result, never the action. Source v1's
+local applied/conflict/refused decisions and source-observation behavior remain unchanged.
+
+**Result transport.** Existing source-request decisions are local-only and contain neither a
+revision nor a refusal reason, so they cannot answer this metadata operation for a hosted
+reader. The minimum additional transport is an immutable owner-authored `messages` record:
+`{version:1,kind:"edit-result",writer,operationId,requestSha256,result}`, keyed
+`writer:operationId:edit-result`. `writer` and `operationId` are the requesting UUIDv4s.
+`requestSha256` is SHA-256 of compact recursively ASCII-key-sorted JSON for the complete
+immutable request, unpadded base64url. `result` reuses the terminal save shape: exactly
+`{operationId,state,revision}` for `committed`/`unchanged` (a valid page revision), or exactly
+`{operationId,state:"rejected",code,message}` (COLAB code at most 80 bytes, message 1–2048 bytes).
+No pending/approval state or extra field is admitted. Syntax alone grants no trust: a consumer
+requires verified owner-member envelope provenance, the same page/epoch, matching request
+writer/operation and request digest. A link-authored lookalike is ignored even when valid.
+A result is durable before its own publication is attempted; losing that publication retries
+only the receipt. Exhausted capacity or transient publication failure is not a successful
+reply. An access-ended reader cannot be promised a delivered result.
+
+The current reader Info UI remains read-only until slice B adds direct Change creator…,
+Mark handled and Reopen actions with busy/result/refusal presentation. It must distinguish an
+uncertain send from a refusal, never automatically resend, and add no approval-wait state.
+Viewers/commenters keep the owner-only line without CLI guidance. Both door and hosted readers
+consume the same verified records. `vectors/editor-metadata-v1.json` pins request/result grammar;
+metadata UI and integrated door/hosted proofs belong to B, not this native slice.
+
 ### Own-stream discussion records (#1427)
 
 All discussion record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
@@ -1199,7 +1396,7 @@ order for browser and native.
 | Root/key                                       | Additional fields                                                                                                                                                                                                               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `threads[threadId+":"+revision]`               | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean`                                                                                                                                       |
-| `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`, optional `sequence`                                                                                                                                         |
+| `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`, optional `sequence` and immutable `questionId` ([question metadata](#question-metadata-5052))                                                               |
 | `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
 | `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
 
@@ -1328,8 +1525,9 @@ Open mark. Opening the resolved row discloses retained history without
 reopening the proposal or changing the pending count. This explicit opening
 acknowledges a locally unseen resolution; rendering or filtering does not.
 Comments mixes proposals with ordinary annotations in one list with the views
-Open, Needs you, Resolved and, only when the page has a proposal, Proposals (a rule closes the
-view strip and every row). Row titles stay at 14px (the compact body token); quoted passages
+Open, Needs you and, only when the page has a proposal, Proposals (a rule closes the
+view strip and every row). Open leaves resolved threads out until the panel's Show resolved toggle is on;
+there is no Resolved view. Row titles stay at 14px (the compact body token); quoted passages
 and metadata use the caption size. The
 open thread stays listed in every view. Needs you holds undecided proposals and
 threads with news the person has not seen. Changing the view never changes status, sends a request or changes the header
@@ -1693,6 +1891,8 @@ updates in that prefix has a committed checkpoint at exactly `n`, each binding
 the same update hash in its signed previous-hash field. An unpaired checkpoint
 is retained without pruning and is not selected for bootstrap. Completing the
 pair atomically prunes both covered prefixes and superseded unpinned checkpoints.
+After a prune commits, the local Store best-effort returns up to 64 free SQLite pages
+to disk with incremental vacuum; reclaim failure never fails or rolls back the write.
 
 The dormant native publication tracker adds a fence only for an explicitly tracked own
 stream. Its initial pending set is the current paired checkpoint plus its contiguous
@@ -2431,12 +2631,41 @@ binding changes clear display copies and suppress late replies. The Local object
 this path; Firebase MVP has no blob resource and displays the not-here placeholder. `data:` is
 reserved in author guidance for tiny icons, not a workaround for the 2 MiB HTML cap.
 
-On a content change, debounce about 300 ms and replace the frame with a fresh
-renderId/port, tearing down the old ones. A viewer may pause live updates. Bind
+On a content change, debounce about 300 ms. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
 vector is only sync metadata and MUST NOT identify the rendered bytes alone.
-Interactive JavaScript state is lost on each replacement. Paused preview and
-Send retain the captured source/quote/final bytes.
+Paused preview and Send retain the captured source/quote/final bytes.
+
+**In-place source updates (#5022).** The frame is replaced with a fresh
+renderId/port, tearing down the old ones, whenever its frame key changes: the
+page, its `layout`, its page type, or the source's own part of the key. A source
+whose text could hold a `<script>` element, an inline `on*` handler attribute or
+the runtime marker is keyed by its whole text, so every change to it replaces the
+frame and its interactive JavaScript state is lost, as before; any other source is
+keyed only by the design-system match that bind fixes. Every other change is sent
+over the render's MessagePort (never `window.postMessage`) as exactly
+`{type:"colab.render.source", requestId, sourceDigest, source}`: a UUID request,
+the SHA256 of the source bytes and the source, at most 2 MiB UTF-8 as at bind. A
+newer request supersedes an older one; the parent waits for the newest only. The
+renderer parses the source inertly in the bind shape (`<body>` holds it, so author
+`<style>` and `<link>` change with it; the renderer's own head never does), and
+recomputes its own key from that parse: any `script` element, `on*` attribute or
+runtime marker, a different root attribute or a different design-system match
+answers exactly `{type:"colab.render.source-applied", requestId, ok:false,
+reason:"remount"}`. Otherwise it changes its body in place to the new source,
+matching elements by `id` and then by kind and position. It keeps what it added
+itself (its nodes, `data-colab-*` attributes, the `hidden` it puts on question
+choices, drawn `tmt-icon` children) and what the reader changed (`open`, `value`,
+`checked`, `selected` and the matching live state stay until the source changes
+that attribute; kept elements keep their scroll). It then draws the page images
+again from the current image request, resolves anchors, questions and slots and
+reports height and scheme, and answers exactly
+`{type:"colab.render.source-applied", requestId, ok:true}`. The renderId stays
+the binding identity; the parent tracks the shown `sourceDigest` separately. A
+refusal, no answer within 2 seconds, or a port error replaces the frame, so an
+update is never worse than a replacement. The answer is an untrusted frame claim:
+a forged success can leave at most stale content until the next update. No
+capability, CSP allowance or source path is added.
 
 After the bootstrap document loads, the parent sends exactly one source-init
 message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest`,
@@ -2580,7 +2809,9 @@ paints only one of paper and ink paints the other. The same pages take the schem
 viewer's: the frame's paint measurement (the one behind the parent's card scheme, #4081) also writes
 `data-colab-scheme` (`light` or `dark`) on the root, and the design tokens and the frame's annotation
 roles follow it, so a page that paints its own light body under a dark viewer gets light components on it;
-a page that paints nothing is painted by the frame and measures as the viewer's scheme. Any other page
+a page that paints nothing is painted by the frame and measures as the viewer's scheme. Each
+measurement drops the root's own `data-colab-scheme` first, so it reads the page under the tokens of
+`data-theme`, and a page the frame paints follows a change of theme in either direction. Any other page
 keeps the white canvas in both themes (#2267, #4081).
 The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
 runtime lists (lowercase kebab-case), drawn as inline SVG at 16 px with stroke 1.75 and square caps,
@@ -2641,8 +2872,10 @@ the parent enables it only for the admitted comment surface. Its bound port proj
 exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). Mode is cosmetic:
 one hover outline, a completed text selection or a text-bearing click captured through
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
-show a temporary polite hint and create nothing. Source replacement reprojects mode;
-page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
+show a temporary polite hint and create nothing. Starting a comment exits selection mode,
+so cancelling or closing its composer leaves the mode off. Each mode projection clears the
+renderer's completed-selection gesture marker; the parent remains the sole mode owner.
+Source replacement reprojects mode; page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
 Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted; in the Comments panel, Escape from inside it: from a Discussion view's reply field it first returns to the comment list, and a send or status change in flight holds the panel; Escape on the page leaves the panel open), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
@@ -2786,7 +3019,8 @@ back. Suggesting a reading never marks it read or sends a notice; those remain
 the source reading's explicit person action and existing notification owner.
 
 `tmt colab dashboard create --title TITLE --json` creates an empty dashboard and never
-opens a browser. `dashboard read PAGE --json` returns
+opens a browser; its result adds `read: ["tmt colab skill dashboard"]`, the only command to read
+(a dashboard has no author markup, so the markup topics are not listed). `dashboard read PAGE --json` returns
 `{spaceId,pageId,title,pageType:"shell",shell,epoch,membershipHead,revision}`.
 There is one mutating subcommand per action: `item-add`, `item-remove`,
 `item-move`, `item-set`, `summary-set`, `summary-clear`, `reading-suggest`.
@@ -3061,7 +3295,7 @@ characters).
 
 ### Answer blocks
 
-An answer block is authored page HTML, not a new discussion record or CLI command:
+An answer block is authored page HTML. Register its ID first through [question metadata](#question-metadata-5052); answers remain ordinary discussion records:
 
 ```html
 <tmt-question
@@ -3138,7 +3372,7 @@ answer under the title (two lines at most). The glyph, eyebrow, title and chevro
 remain neutral. Two or more adjacent questions share one band with one muted
 `Questions from <agent> · N of M waiting` heading and no per-line eyebrow, their
 lines separated by the same rule; a question placed alone has the band above.
-Needs you counts the logical group once across every placement. Existing
+Native Needs you counts each registered open question; browser counting adoption follows #5146. Existing
 `data-form="chip"` markup remains admitted under its existing attribute checks,
 but uses the same compact lines instead of a tabbed panel.
 
@@ -3644,7 +3878,7 @@ remains a listbox. A nested menu consumes Escape before its drawer. Comments is 
 exception: a non-modal panel (a column beside the page, a card or a sheet by width) with no scrim,
 trap or inert page, sharing the single panel slot with the drawers.
 A trusted non-editing `@` key opens the existing Chat under the same admission as
-the header Discussion action: a mounted, unarchived page and no other menu or
+the dock's Chat action: a mounted, unarchived page and no other menu or
 dialog. An anchored annotation does not block it. Only a mounted editable composer
 receives focus and one literal `@` on opening; an already open Chat only receives
 focus. Modified keys other than Shift, repeat and IME confirmation are ignored.
@@ -3718,12 +3952,25 @@ authority.
 
 ### Page Chat (#1645)
 
-Discussion → Chat and the floating Chat icon beside the selection-mode control
-open the same retained Chat drawer without resizing or reflowing the page.
-The floating Chat control hides while selection mode or an annotation window is open;
-Close/Escape or a backdrop press returns focus to its opener. No press sends a message.
-At compact widths the modal drawer covers the floating action: Close/Escape dismisses;
-at wide widths a press at the exposed floating location dismisses through the backdrop.
+The Chat action in the page's dock opens the retained Chat drawer without resizing or reflowing the
+page. The dock is one capsule at the page's lower corner that holds, left to right, the Comments, Chat and
+selection-mode actions, divided by hairlines; the Comments and Chat actions hide while selection mode or
+an annotation window is open. The page header holds no Comments or Chat control: the dock is where
+both are. The Comments action shows the page's open-thread count beside its icon (its slot is held while
+the threads are verified, so no false 0) and, while any thread has news the viewer has not seen, the count
+takes the needs-you colour and a bullet, and the action's name says so (`Comments (2) · New`); it presses
+open the Comments panel and has no keyboard shortcut. The drawer opens out of the dock's rectangle and
+closes back into it: the same dialog, clipped to the dock at one end of the motion (180 ms, the leaf's
+`--tmt-ui-motion-base` and easings); under reduced motion there is no animation. The Comments panel opens
+out of the dock the same way, with one motion for both: in a column (from 1180 px) the dock stays in
+place and reachable with its Comments action pressed, and the panel opens with the motion and leaves
+the page grid at once when it closes; as a card or a sheet the panel covers the dock's corner, so the
+dock stays in its place, unseen and out of reach, and the clip runs back into it on close. A panel that is
+already open when the page mounts (a restored panel or route) is there at once, without the motion. While Chat is
+open the dock stays in its place, unseen and out of reach, and the drawer covers it. Close/Escape or a
+backdrop press returns focus to the Chat action; closing the Comments panel returns it to the Comments
+action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape
+dismisses; at wide widths a press on the backdrop, anywhere outside the drawer, dismisses.
 Messages scroll inside it; one shared plaintext message input remains at the bottom.
 Chat uses the same shared history owner and scroll policy as inline annotation
 conversations: it opens at the bottom and follows new record identities within
@@ -3814,27 +4061,29 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type            | Additional fields / behavior                                                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`         | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                       |
-| `catchup`       | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                |
-| `subscribe`     | `cursors`; observe only the admitted page/current epoch                                                                                                                                     |
-| `append`        | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                           |
-| `save`          | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                             |
-| `savestatus`    | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                              |
-| `saveresult`    | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `task.convert` made a page; the one reply to a `save` or `savestatus` |
-| `work`          | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                    |
-| `workresult`    | as `saveresult`, plus `taskId` for a committed `task.add` and `childPage` for a `task.convert`; the one reply to a `work`                                                                   |
-| `usage`         | no fields; owner device only; how full the page is                                                                                                                                          |
-| `usageresult`   | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                   |
-| `compact`       | no fields; owner device only; combine the root-local device's own stream                                                                                                                    |
-| `compactresult` | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                  |
-| `receipt`       | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                      |
-| `broadcast`     | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                             |
-| `checkpoint`    | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                |
-| `ack`           | `cursors`; scoped delivery positions only                                                                                                                                                   |
-| `awareness`     | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                    |
-| `error`         | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                              |
+| Type             | Additional fields / behavior                                                                                                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hello`          | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                                              |
+| `catchup`        | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                                       |
+| `subscribe`      | `cursors`; observe only the admitted page/current epoch                                                                                                                                                            |
+| `append`         | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                                                  |
+| `save`           | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                                                    |
+| `savestatus`     | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                                                     |
+| `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `task.convert` made a page; the one reply to a `save` or `savestatus`                        |
+| `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                           |
+| `workresult`     | as `saveresult`, plus `taskId` for a committed `task.add` and `childPage` for a `task.convert`; the one reply to a `work`                                                                                          |
+| `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), committed through the conditional content publisher |
+| `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                  |
+| `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                 |
+| `usageresult`    | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                                          |
+| `compact`        | no fields; owner device only; combine the root-local device's own stream                                                                                                                                           |
+| `compactresult`  | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                                         |
+| `receipt`        | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                                             |
+| `broadcast`      | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                                                    |
+| `checkpoint`     | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                                       |
+| `ack`            | `cursors`; scoped delivery positions only                                                                                                                                                                          |
+| `awareness`      | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                                           |
+| `error`          | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                                                     |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -4387,6 +4636,31 @@ and timers, when another route opens. Without an owner session the route says, i
 to pair the browser and loads no Colab code; a module that cannot load says Colab could not start.
 The renderer stays its own sandboxed frame under the mount, with its own policy. The reader
 (`/read/<id>`) and the hosted bundle stay outside the app.
+
+The same entry has a second export, `mountSearch(container, options)` (#4841): the global search's
+Colab half, which the app mounts on any route, not only `/colab/…`. It opens one dialog on request
+(`open(opener)`), reads the page list each time the dialog opens, lists the groups of the search
+registry the app passes beside Colab's pages and projects, navigates a page through the app's own
+page navigation and anything else through the app's `go(href)`, and holds no keyboard shortcut:
+the app's top bar owns the one Command/Ctrl+K. `dispose()` closes the dialog and removes it. It is
+loaded from the same entry and only from an owner's composed shell. `options` may carry a
+`placeholder`, which replaces the field's text (which otherwise names the ready groups).
+
+A host that has no page transport of its own mounts the same search with
+`mountSearchSession(container, options)` (#5267), where `options` is `mountSearch`'s without
+`transport`, `space` and `pageId`. The session owns Colab's mounted transport (its admission,
+bootstrap and lifetime) and closes it, so the host never builds or closes one; it keeps the import,
+the prefetch and its own generation and disposal. The paired mount is the one this module was
+loaded from (`<mount>assets/colab-module.js`), so the host passes none and the session works from a
+document that is not Colab's: its discovery neither reads nor rewrites the document's location, and a
+module that was not loaded from a same-origin Colab mount never reaches the pages (the dialog says so
+as it does for any failed read). The transport starts when the session is mounted.
+`open(opener)` opens the dialog at once, on the groups that are ready, and the pages join when the
+transport is; the dialog says so while they load and when they cannot (the same states the search
+has), and a failed start is tried again by the next `open`. `dispose()` aborts a bootstrap that is
+still running, closes the dialog and closes the transport, once however often it is called; the
+tab's `pagehide` closes the transport too, and a page restored from the back-forward cache opens a
+new one on its next `open`. It returns `{ open(opener), dispose() }` like `mountSearch`.
 
 Inside the app Colab's locations are paths: `/colab/` (home), `/colab/pages/<pageId>`,
 `/colab/settings` and `/colab/p/<shortId>` (the printed short link, resolved like `/p/<shortId>`
@@ -5071,7 +5345,7 @@ The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text (the empty string for `page.projects`, `project.manage` and `page.pin`, see [Projects](#projects-3747) and [Pins](#pins-4356))
 and payload is canonical base64url of the same typed JSON.
-The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient` and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
+The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient`, an optional `creator` selection `{agent,machineId?}` (the owner supplies attribution), optional `template` name (a compiled template's, or a user template's with `templatePage`, the page that carries that name) and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
 in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
 cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
@@ -5104,7 +5378,7 @@ remain unavailable. No schema, dependency or separate replay store is added.
 
 `tmt colab skill [<name>]` prints human-only guidance before core discovery or
 state access. Without a name it prints the embedded root `SKILL.md` exactly.
-Names are compile-time keys (`layout`, `components`, `links`, `page-style`, `questions`),
+Names are compile-time keys (`layout`, `components`, `links`, `page-style`, `projects`, `questions`),
 not paths; unknown names return `COLAB_INPUT_INVALID` and list the valid keys.
 Each root pointer names both `references/<name>.md` in the installed skill tree
 and the offline command. Authority, pairing, bearer-seed, user-only sharing,
@@ -5331,7 +5605,7 @@ map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
 CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`, `COLAB_CONFIRMATION_CHANGED`,
 `COLAB_PAGE_NOT_FOUND`, `COLAB_PAGE_AMBIGUOUS`, `COLAB_PAGE_DELETED`,
-`COLAB_PROJECT_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
+`COLAB_PROJECT_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`, `COLAB_REWRITE_REQUIRES_REPLACE`; existing state failures keep
 their codes. An older schema with a
 known migration path returns `COLAB_STORE_OUTDATED`: "The running Colab service is
 older than this CLI." Its next action is "Run tmt colab stop, then tmt colab serve --background."
@@ -5355,7 +5629,8 @@ with captured correlation and no offline fallback.
 a migration that will run, once, while it holds the writer lock: `space.db.pre-v<N>.bak` beside the
 store, N the schema it is leaving, owner-only (0600), written as a `.partial` file that is synced and
 renamed, then the directory is synced. A second upgrade from the same schema replaces that copy; after a
-committed migration only the two copies at the newest schemas stay. A store with no schema yet and one
+committed migration only two copies stay: the one just taken, whatever schemas the others are at, and the
+newest other by schema. A migration that fails, in whole or in part, leaves the store as it was and removes no copy. A store with no schema yet and one
 already current make none, and `Store::read` and `Store::write_existing` never migrate, so never copy.
 If the copy cannot be written the migration does not run and the store is untouched:
 `COLAB_STORE_BACKUP_FAILED`, "Colab could not save a backup of this space before updating it.
@@ -5365,6 +5640,13 @@ when a store is newer than this build, the `COLAB_STORE_NEWER` refusal names the
 this build supports, "This space was saved by a newer Colab. Run tmt upgrade to open it. To stay on
 this version instead, stop Colab and replace space.db with the backup from before that update
 (<path>); changes made since then are lost.", and is unchanged when there is none. No command restores a copy.
+
+After schema migrations commit, `Store::open` separately converts a store to SQLite
+`auto_vacuum=INCREMENTAL` with `VACUUM` outside any transaction. This physical conversion
+is transactional and creates no backup; copies and their pruning remain tied to schema
+migrations only. Conversion is best effort: failure leaves the store usable and retries on
+the next open. The stored vacuum mode marks completion, with no schema-version change.
+Reads never convert or reclaim the file; per-prune reclaim failures stay silent.
 
 ### Projects (#3747)
 
@@ -5418,7 +5700,8 @@ gate beyond the paired owner device or local CLI that every management write alr
   (archived pages included) to `to`; if `to` already exists the two merge and a page in both
   keeps one entry, and no page is deleted. `delete` removes the project and its assignments
   only, never a page. An unknown project for `rename` or `delete`, an invalid name or
-  `to == name` is `INVALID`.
+  `to == name` is `INVALID`. With `action` `"pins"` it replaces the owner's pinned-project list
+  and its payload is exactly `{action:"pins", names}` (see [Pinned projects](#pinned-projects-5073)).
 
 The CLI keeps the commands below to those two operations. `project create <name>` is
 idempotent and reports `changed:false` for an existing name. `project add <page> <name>…` and
@@ -5428,6 +5711,43 @@ are one request each. A name that is not a project is `COLAB_PROJECT_NOT_FOUND` 
 `delete` and `ls --project`; a name outside the grammar is `COLAB_INPUT_INVALID`; a full page or
 space is `COLAB_CAPACITY`. `project ls` lists each name with its page count, including projects
 with none, and `ls --project <name>` lists only the pages in it.
+
+#### Pinned projects (#5073)
+
+The owner chooses which projects the Colab side menu lists. The choice is an ordered list of
+existing project names, at most 20 (`SPACE_PROJECT_PINS`), kept in the owner store with the other
+project metadata (`project_pins`, one row per name with its place, and `project_pin_choice`, one row
+once the owner has written the list; schema 18). Like projects it is display-only: **not signed**,
+never an owner-log statement, never in a page's content or any stream. It belongs to the owner, not
+to a device: every owner browser and the CLI read the same list from the owner-served reply, and a
+browser without management shows it with no way to change it.
+
+Until the owner writes the list the effective list is automatic: the five
+(`AUTOMATIC_PROJECT_PINS`) projects whose newest non-archived page was updated most recently
+(`lastUpdateAtMs`), newest first, ties by code point; a project with no such page never qualifies.
+The first write makes the list the owner's for good, an empty list included, and nothing returns it
+to the automatic default. The owner-served `GET /api/pages` reply and the CLI catalog carry the
+effective list as `projectPins: {names, automatic}`, `automatic` true only for the default; the
+owner computes it so every reader agrees. A client treats it as untrusted display state.
+
+`project.manage` with `{action:"pins", names}` replaces the whole list: `names` is ordered, holds no
+repeat and names only existing projects (else `INVALID`), may be empty, and parses at most 256
+entries; more than 20 is `CAPACITY`. It applies in one store transaction with no partial effect and
+the last writer wins, like `page.projects`. A client that changes one pin sends the whole list it
+shows, so the first change turns the automatic list it shows into the owner's and then applies the
+change. Deleting a project removes it from the list in the same transaction; renaming moves it,
+and a rename onto a pinned name keeps the earlier of the two places; `create`, `page.projects` and
+page writes never pin.
+
+The CLI adds `project pin <name> [--position N]` and `project unpin <name>`. Each reads the
+effective list, writes the whole list and reports `changed:false` without writing when the list is
+already so; `pin` puts the project at place N (1 to one past the others; default last, and a pinned
+project moves), `unpin` on a project that is not pinned changes nothing. `--json` prints
+`{spaceId, name, pinned, position, changed}` (`position` is 1-based, `null` after `unpin`). `project
+ls --json` adds `pinned` (the 1-based place or `null`) to each project and `pinsAutomatic` at the
+top level; the human output marks pinned projects and says when the list is automatic. A name that
+is not a project is `COLAB_PROJECT_NOT_FOUND`, a place out of range `COLAB_INPUT_INVALID` and a
+21st pin `COLAB_CAPACITY`.
 
 ### Pins (#4356)
 
@@ -5472,14 +5792,13 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   50 answer blocks and 50 reviews), with a target ID counted once. The order for deduplication
   and the page-header menu is proposals, readings, answers, reviews. A proposal waits while
   not deleted, not resolved and without a live decision. A reading is unread until its canonical
-  exact fixed-form device comment and a person's Resolve exist. An unanswered group counts once
-  while any admitted member lacks its canonical device answer; a standalone question counts once.
+  exact fixed-form device comment and a person's Resolve exist. Each registered open question counts
+  once, including source-removed registrations; group wrappers do not collapse those targets.
+  Answered is projected from verified question-bound ordinary own comments, independently of Ask.
   A review waits unless person-closed or its latest device change request is still waiting for an
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
 - `waiting` is exactly `needsYou > 0`, not a separate proposal-only definition.
-- `author` is the page's creation label, `meta.originalAuthor` (the bounded display label
-  derived from `publisherAgent` at creation; never identity proof), and is omitted when the
-  page has none. Never the last editor.
+- `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), falling back to `originalAuthor` for legacy display only. That label alone is never a creator, routing reference, identity proof or the last editor.
 - `work` is the page's tasks as the list shows them (see [Work](#work-4050)), omitted for a page
   with no `meta.work`, so a fresh summary without it is in discussion. It is
   `{stage, done, total, signoff, working, more?}`: the derived stage (`discussion` with no task,
@@ -5603,8 +5922,11 @@ it). Without a choice the command refuses before it initializes state or reads `
 the three choices and `tmt colab skill layout`; a reason that is empty, longer than 1024 bytes,
 or holds a control character, and a `--reason` on another kind, are refused the same way. Freeform
 is not a choice. On success the result adds `layout` (and `layoutReason` for a canvas) and
-`read: ["layout","components"]`, the skill topics to read before writing markup; the human
-result prints the layout and both `tmt colab skill` pointers. The title is nonempty and bounded to 256 KiB UTF-8. Omitted
+`read`, the runnable `tmt colab skill NAME` commands to read before writing markup: `layout`,
+`components` and `page-style`, then `runtime` for a `canvas` page or a source that opts in to the
+runtime (`tmt-colab-runtime` marker). `next` stays the
+user-only pairing step. The human result prints the layout and one `read first` row of those
+commands. The title is nonempty and bounded to 256 KiB UTF-8. Omitted
 `--file` means empty source; a file or stdin uses the page-write reader (2 MiB
 UTF-8, five-second stdin EOF deadline). A source over 192 KiB is published as ordered
 content updates of at most 192 KiB of text each (stream positions 1..n), so every reader admits them as
@@ -5633,21 +5955,71 @@ moved since that revision. The JSON result is the write receipt plus `layout` an
 canvas, `layoutReason`. A page that has no layout (freeform) can be given one this way; there
 is no command that returns a page to freeform.
 
-`tmt colab page create --title <title> --template <name> [--json]` starts from a template instead
-of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and `--file`,
-because the template brings its own layout and source. The catalog is closed and compiled into the
-binary: `report`, `review` and `compare` (layout `column`) and `board` (layout `full`). Each source
-is under 8 KiB and passes the page check with no finding. It starts from the page-style starter
-(`tmt colab skill page-style`) without that starter's `body` rule, which frames `canvas` and
-`freeform` pages, and adds no width, margin or gap CSS of its own: those stay the frame's
-(`data-width` and `data-gap` are the only declarations it uses). A one-line
-HTML comment before each block names the rule and the `tmt colab skill` topic and section that
-teaches it; the comments are not rendered. Each `{{uuid:NAME}}` placeholder becomes one fresh
-canonical UUID per name on that page, so no two pages share a block ID. The create result adds
-`template` (the human result a `template` row) to the layout fields and `read`. A template page is
-an ordinary page: nothing stored marks it. `tmt colab template ls [--json]` lists the catalog as
-`templates: [{name, layout, summary}]`; it reads no local state and needs no running serve. A
-create without `--layout` or `--template` is refused as above, and the refusal names both.
+`tmt colab page create --title <title> [--template <name|id>] [--json]` starts from a template
+instead of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and
+`--file`, because the template brings its own layout and source. A create that names none of
+`--template`, `--layout`, `--reason` and `--file` starts from the space default template (below);
+one with `--layout` or `--file` and no template keeps its meaning and its refusals.
+
+A template is a compiled one or a page of the space marked with `meta.template` (#5066).
+The compiled catalog is closed and compiled into the binary: `starter`, `report`, `review`,
+`compare` and `gallery` (layout `column`) and `board` (layout `full`); these names are reserved
+and cannot be a user template's. Each source is under 8 KiB and passes the page check with no
+finding. A card, table and callout is the design system's markup (`tmt-ui-card`, `tmt-ui-table`,
+`tmt-ui-notice`; `gallery` is a copyable catalog of the documented subset). It starts from the
+page-style starter (`tmt colab skill page-style`, the `tmt-starter` layer) without that starter's
+`body` rule, which frames `canvas` and `freeform` pages, and adds no width, margin or gap CSS of
+its own: those stay the frame's (`data-width` and `data-gap` are the only declarations it uses). A
+one-line HTML comment before each block names the rule and the `tmt colab skill` topic and section
+that teaches it; the comments are not rendered. Each `{{uuid:NAME}}` placeholder becomes one fresh
+canonical UUID per name on that page, so no two pages share a block ID. A selector (`--template`,
+`template show`, `template default`, `template remove`) is a compiled name, a user template's name,
+or the ID of a template page or a unique prefix of at least 8 characters. Two pages carrying one
+name (a sync race) are refused with both IDs, never chosen between. The create result adds
+`template` (the name as resolved; the human result a `template` row, marked `(space default)` when
+the default chose it), `templateDefault` for that case, and `readFirst` (the commands to run first,
+`tmt colab template show NAME` before the skill topics) to the layout fields and `read`.
+
+A page created from a user template starts with a copy of the template page's current source and
+layout, its question blocks naming the creator and registered for the creator (see the question
+registry above), and `meta.fromTemplate {name, revision}`; it is independent of the template from
+then on. The CLI refuses a template page that names no layout.
+
+The space default is one setting per space (`defaultTemplate` in `settings.json`, kept on the
+machine that creates pages; no per-project default): a user template's page ID, a compiled name, or
+absent for `starter`. A create resolves `--template`, then the default, then `starter`. A default
+whose template is gone (its mark removed, its page deleted) is not a failure: the create starts from
+`starter` and prints `warning:` naming the setting. `template remove` and the CLI `delete` of a
+default template page return the setting to `starter` themselves and report it (`delete` adds
+`templateDefaultReset: true`).
+
+`tmt colab template` commands, each with `--json`:
+
+- `ls` lists `BUILT-IN` and `THIS SPACE` and marks the default; JSON `{default, templates:[{name,
+layout, summary, source: "builtIn"|"space", default, usedBy, id?, author?}]}` (`defaultGone` names a
+  setting that no longer resolves). It reads no state a space does not have: without a space it lists
+  the compiled templates.
+- `show NAME|ID` prints the id, layout, where it comes from, how many pages were created from it and
+  its numbered rules: the HTML comments of its source, in order; JSON adds `rules`, `revision` (the
+  digest above) and `lastUpdateAtMs`.
+- `save PAGE --name NAME [--description TEXT]` writes `meta.template` through a structured
+  `template.set`. The name is 1 to 40 of `a-z0-9-`, not reserved and not another page's template; the
+  description is one trimmed line of at most 200 bytes (the existing one when saving again, else the
+  page title). The page must name a layout, must not be a dashboard and must be register-clean as a write
+  requires. A page already carrying the name is saved again as a rename or a new description.
+- `default [NAME|ID | --reset]` shows, sets or resets the default.
+- `remove NAME|ID` clears the mark through `template.clear`; the page and every page created
+  from it stay as they are. A compiled template cannot be removed.
+
+Every refusal is a `COLAB_TEMPLATE_*` code with a message and a fix printed as `error:` and
+`hint:` (JSON `error.hint`): `UNKNOWN`, `AMBIGUOUS`, `NAME_RESERVED`, `NAME_INVALID`, `NAME_TAKEN`,
+`DESCRIPTION_INVALID`, `BUILT_IN`, `UNSUPPORTED` (a dashboard), `NEEDS_LAYOUT` and `UNREADABLE`
+(question blocks that cannot be copied). The marks of all pages are read through
+`template-index.json` beside the settings: the epoch and content counts of each page, the same
+derived, rebuildable, never signed or synced file `work-index.json` is, so a lookup folds only the
+pages that changed; the page's own fold is what decides. `page read` adds `template` and
+`fromTemplate` when the page has them. A create without `--layout`, `--file` or `--template` uses the
+default instead of being refused.
 
 `show` reports the page's layout from its verified metadata: JSON `layout`
 (`column`, `full`, `canvas`, or `freeform` for a page without the key; `null` when the page's
@@ -5690,7 +6062,7 @@ revision and lowercase hex hash. Reads never initialize or migrate state.
 Archived reads retain the fold's current inactive-page restriction; deleted
 operands fail through the shared CLI resolver described above.
 
-`tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
+`tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--replace] [--json]`
 retains the title and prepares the replacement as an ordered batch of text deltas in the
 isolated child against admitted Yjs structs (`page::prepare_publication`). It does not
 recreate the shared document, execute HTML, advance membership or restore
@@ -5707,6 +6079,18 @@ a page of that size repeatedly, while a fully different 2 MiB replacement of a f
 nothing: it exits 0 with `changed:false` and the captured revision. Stdin has a
 five-second EOF deadline. Invalid UTF-8, capacity, stale-base and inactive-page writes
 reject without mutating page content. The browser Save below is the same preparation and commit with a different front door.
+
+**Rewrite gate (#5025).** After preparation and before anything is published, `page write` refuses a
+write that replaces more than half of the existing source's bytes when that source is at least
+2 KiB, unless the caller passes `--replace`: exit 1 with `COLAB_REWRITE_REQUIRES_REPLACE`, a message
+that gives the percentage and byte counts, points to `page patch` and `tmt colab skill editing`, and
+names the exact rerun command (`tmt colab page write <page> --file <path> [--expected-revision
+<token>] --replace`), and nothing written. The replaced bytes are those of the existing source between the
+first and last difference from the new one, region by region (the same measure as the editing hint
+below), so an append or an edit in a few places replaces little. A page under 2 KiB, a write that
+replaces exactly half or less, and a write with `--replace` are not refused; `--replace` on any other
+write changes nothing. Only `page write` is gated: `page patch`, `page layout`, `page create`
+(including templates), the browser Save and an export restore never go through it.
 
 The opaque `revision` is `v1:` plus lowercase hex SHA-256 of framed domain
 `tmt-colab-page-revision-v1`, space, page, decimal membership revision, head hash,
@@ -5747,7 +6131,12 @@ the text diff, which every write does today; it stays so a future whole-replace 
 `false`. `changed:false` reports `update:{count:0,bytes:0}` with no `minimal`, since no batch
 exists. The numbers come from the frozen job, so a reply lost to doubt and answered from the
 retained outcome reports the original batch. The human output adds one `update` line
-(`1 update, 214 bytes`, or `none`). `revision` is the
+(`1 update, 214 bytes`, or `none`). A normal edit says nothing more. When a write or patch published
+something and went off-guidance, the JSON result adds `read: ["tmt colab skill editing"]` and the
+human result one `hint:` line on stderr naming that command: the markup check left a warning,
+`update.minimal` is `false`, or the write replaced more than half of an existing source of at
+least 2 KiB (the replaced bytes are the existing source between the first and last difference
+from the new one; an append replaces none). `revision` is the
 page revision read, after the write and its best-effort combine, by the writer while no
 other writer can run (the serve under its sync lock, or this process under the serve
 lifecycle lock): the token a next `--expected-revision` carries. The retained outcome's
@@ -6087,26 +6476,40 @@ foreign content and entity decoding land where the browser puts them. A source n
 than 512 elements stops the parse with one `page-too-deep` finding, because a browser stops
 nesting there and nothing past it can be judged.
 
-A finding is `{code, severity, element, ordinal, id, line, message}`. `element` is the
+A finding is `{code, severity, element, ordinal, id, line, message, fix?}`. Registry comparisons add a runnable `fix` command. `element` is the
 lowercase tag name and `ordinal` the element's 1-based index among elements with that tag in
 document order, counting ignored and nested ones. `id` is the authored `data-id` or `null`.
 `line` is the 1-based line of the end of the element's start tag. `severity` is `ignored`
-(the browser drops the block today) or `warning` (the block is admitted, or the problem is not
-about a block). `message` is wording that may change; `code` is the stable part. A finding on a
+(the browser drops the block today), `warning` (the block is admitted, or the problem is not
+about a block), or `blocking` (a registry comparison refuses publication even without `--strict`). `message` is wording that may change; `code` is the stable part. A finding on a
 skipped group adds `questionsSkipped`, the number of `tmt-question` elements inside it. Findings
 are ordered by line, element, ordinal and code.
 
 Success is `{format:"tmt-colab-page-check",version:1,ok,bytes,questions:{admitted,ignored},
-reviews:{admitted,ignored},readings:{admitted,ignored},findings}`. With no finding it exits 0. With any finding the command exits 1 with
+reviews:{admitted,ignored},readings:{admitted,ignored},findings,hints}`. With no finding it exits 0. With any finding the command exits 1 with
 `COLAB_PAGE_CHECK`, and `--json` prints the same report with `ok:false` and the usual
 `{error:{code,message}}` attached; human output lists each finding with its line first.
 
 `page create` and `page write` run the same check on the source before any state changes. The
-findings are warnings: on stderr in human mode and a `warnings` array (the finding objects,
+ordinary markup findings are warnings: on stderr in human mode and a `warnings` array (the finding objects,
 `[]` when clean) in the JSON result, also for a write that changes nothing. A page being
 created has no attachments, so every well-formed reference in its first source is
 `attachment-ref-unresolved`. `--strict` turns any finding into a `COLAB_PAGE_CHECK` refusal
-before anything is committed; the JSON error carries the report.
+before anything is committed; the JSON error carries the report. Question registration refusals are mandatory independently of this flag; see [question metadata](#question-metadata-5052).
+
+A hint is advice about how the page was started, not a defect in it: `{code, message}` (no line,
+no severity; `message` may change, `code` is stable). `page check` reports them as `hints` (`[]`
+when none) and prints each as a `hint:` line on stderr; `page create` reports the same array as
+`hints` in its JSON result and prints the lines after its warnings. A hint never changes the exit
+code, never counts as a finding and `--strict` ignores it. The only code is `own-style-only`: the
+page styles itself (a `<style>` element or a `style` attribute) and carries neither the page-style
+starter (`tmt-starter`, or both `--ink:` and `--paper:` of its earlier form) nor a design-system
+marker (`tmt-ui-`, `<tmt-icon`). Its message points at `tmt colab template ls`, the starter
+(`tmt colab skill page-style`) and `tmt-question` (`tmt colab skill questions`); it names the
+commands, not the templates they list, which `template ls` may grow. A bare page and a template page
+get none. There is no check that a page asks a decision in prose instead of a `tmt-question`:
+decision wording matched 28 of 67 local pages without a question and 25 of the 30 that already
+had one, so no phrase separates the two.
 
 Reason codes (a block fails every rule listed; title rules wait for exactly one heading and
 the choice-shape rules for a valid kind, so one defect is not reported twice):
@@ -6199,8 +6602,8 @@ image sizes need payloads of tens of KiB, and reference resolution needs a page'
 Export v1 emits `page.html`, `conversations.json`, `conversations.md`, one
 `attachments/<attachmentId>` file for each attachment it could read, and `manifest.json` (see
 [Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)).
-A page that opts in to the bundled runtime also gets `page.standalone.html` (see
-[Standalone copy of a page that uses the runtime](#standalone-copy-of-a-page-that-uses-the-runtime-1693)). Native captures one
+A page that opts in to the bundled runtime or uses the design system also gets `page.standalone.html` (see
+[Standalone copy of a page that uses the runtime or the design system](#standalone-copy-of-a-page-that-uses-the-runtime-or-the-design-system-1693-5057)). Native captures one
 owner-authenticated read snapshot through its isolated decoder; the mounted
 browser captures one admitted committed projection through its connection executor.
 HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
@@ -6228,6 +6631,8 @@ The manifest is UTF-8 JSON with these fields:
 | `title`             | Exact admitted title                                                                                                                                                                                                                                             |
 | `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                                                                                                                                                    |
 | `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                                                                                                              |
+| `creator`           | Optional editor-owned creator value from the captured view                                                                                                                                                                                                       |
+| `questions`         | Optional editor-owned raw registry from the captured view; answered state remains derived from conversations                                                                                                                                                     |
 | `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                                                                                                                |
 | `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                                                                                                                 |
 | `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                                                                                                                    |
@@ -6296,45 +6701,63 @@ bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export is not supported; deleted pages remain denied.
 
-### Standalone copy of a page that uses the runtime (#1693)
+### Standalone copy of a page that uses the runtime or the design system (#1693, #5057)
 
-`page.html` is the exact admitted source and never changes. For an ordinary page whose source opts
-in to the bundled runtime (the page runtime's marker rule: the first `<meta name="tmt-colab-runtime">`
-in document order, found by parsing, with a `react` or `tailwind` token), the export also writes
-`page.standalone.html`, listed right after `page.html` (after `work.json` when the page has work) and
-before `conversations.json`. It is the document the renderer frame builds for the page, with the
-runtime written into its head, so the page works when the file is opened from disk with no Colab and
-no network. Its bytes are this template around the exact source, in UTF-8, with the text between
-braces written verbatim and nothing else added:
+`page.html` is the exact admitted source and never changes. For an ordinary page that needs a
+standalone copy, the export also writes `page.standalone.html`, listed right after `page.html` (after
+`work.json` when the page has work) and before `conversations.json`. It is the document the renderer
+frame builds for the page, with what the page needs written into its head, so the page looks and works
+when the file is opened from disk with no Colab and no network. A page needs a copy when either holds:
+
+- It opts in to the bundled runtime: the first `<meta name="tmt-colab-runtime">` in document order,
+  found by parsing, has a `react` or `tailwind` token. The copy carries the runtime.
+- It uses the design system: its source contains `tmt-ui-`, `<tmt-icon` or `tmt-starter`, ignoring
+  ASCII case, as plain text with no parsing (the test the renderer frame makes to paint the page,
+  [Renderer and live anchors](#renderer-and-live-anchors)). The copy carries the design system and writes `data-colab-design` on
+  the root.
+
+A page can need both; it then carries both. The bytes are this template around the exact source, in
+UTF-8, with the text between braces written verbatim, the parts in square brackets written only for
+what the page needs, and nothing else added:
 
 ```text
-<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8"><style type="text/tailwindcss">{style}</style><script>{themeSwitch}</script><script>{script}</script></head><body>{source}</body></html>
+<!doctype html><html[ data-colab-design]><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8">[<style>{designStyle}</style>][<style type="text/tailwindcss">{style}</style>]<script>{themeSwitch}</script>[<script>{designScript}</script>][<script>{script}</script>]</head><body>{source}</body></html>
 ```
+
+A page that needs only the runtime gets exactly the bytes it got before the design system existed.
 
 - `{policy}` is the renderer frame's response policy without its `sandbox allow-scripts` directive:
   a `<meta>` cannot carry `sandbox`, so the copy has the same no-network policy (nothing loads or
   leaves) but is not sandboxed; opened from disk it runs with the origin the browser gives a local
   file, like any HTML file.
 - `{themeSwitch}` is one fixed script that sets `data-theme` on the root from the system colour
-  scheme and follows its changes, because the runtime theme reads `data-theme` only.
+  scheme and follows its changes, because the runtime theme and the design tokens read `data-theme`.
 - `{script}` and `{style}` are the bytes of `assets/colab-runtime.js` and `assets/colab-runtime.css`
-  of the same build. A runtime text that contains `<!--`, or `</script` / `</style` in any ASCII case,
-  is not written (the build already refuses them).
+  of the same build. `{designScript}` and `{designStyle}` are the bytes of `assets/colab-page-ui.js` and
+  `assets/colab-page-ui.css` of the same build: the design system's CSS and the script that defines
+  `<tmt-icon>` and measures the scheme the page paints (`data-colab-scheme`), written by the runtime
+  build from the same sources the renderer frame inlines, so the file draws what the frame draws. A text
+  that contains `<!--`, or `</script` / `</style` in any ASCII case, is not written (the build already
+  refuses them).
 
 The manifest row of the copy is `{name, sizeBytes, sha256, derivedFrom:"page.html"}`; `derivedFrom`
-appears on no other row. A page that does not opt in, and every dashboard, exports byte for byte as
+appears on no other row. A page that needs no copy, and every dashboard, exports byte for byte as
 before: no file, no new field.
 
-When a page opts in but no copy can be made, the export still succeeds without the file and says
+When a page needs a copy but none can be made, the export still succeeds without the file and says
 why. The reasons are `runtime-unavailable` (the build carries no runtime, or the browser could not
-load it), `runtime-unusable` (a runtime text could escape its element) and, for native export only,
-`page-too-deep` (the page nests past the parse depth, so its marker cannot be judged). The CLI JSON
-result has `standalone: {included, reason?}` (absent for a page that does not opt in) and the human
-output prints a line naming the reason; the browser's Export panel does the same. Native export
-reads the marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides
-pass the same cases (`vectors/runtime-marker-v1.json`). Native and browser export write identical
-bytes: `vectors/export-v1.json` has a `standalone` section with a tiny stand-in runtime that pins the
-copy, its policy, theme switch, hash and the manifest.
+load it), `runtime-unusable` (a runtime text could escape its element), `design-unavailable` and
+`design-unusable` (the same for the design system's files) and, for native export only, `page-too-deep`
+(the page nests past the parse depth, so its runtime marker cannot be judged). The first part the page
+needs that is missing names the reason, runtime before design. The CLI JSON result has
+`standalone: {included, reason?}` (absent for a page that needs no copy) and the human output prints a
+line naming the reason; the browser's Export panel does the same. Native export reads the runtime
+marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides pass the same
+cases (`vectors/runtime-marker-v1.json`); the design test is the same text test in the frame, the
+browser export and the native export, pinned by `vectors/design-marker-v1.json`. Native and browser
+export write identical bytes: `vectors/export-v1.json` has `standalone` (the runtime), `standaloneDesign`
+and `standaloneBoth` sections with tiny stand-in files that pin each copy, its policy, theme switch, hash
+and the manifest.
 
 ### Attachments in an export (#1867)
 
@@ -6592,6 +7015,9 @@ newline):
         issuedAt, expiresAt, message, state, reason, requestId,
         reply:null|{requestId, agentId, body}}]}
 ```
+
+A question-bound comment carries optional `questionId` before `writer`; absent bindings leave
+the existing bytes unchanged. The binding is immutable across revisions, including a tombstone.
 
 A live comment with files carries `attachments:[{id, name, mediaType, sizeBytes}]` (full attachment
 ID, the descriptor's label and media type, plaintext size as a JSON integer) in its descriptor order, and

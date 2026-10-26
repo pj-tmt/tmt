@@ -29,10 +29,11 @@ use tmt_core::{
 };
 
 const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
-use crate::session_learning::Learning;
+use crate::session_learning::{Learning, Role};
+use tmt_core::binding::session::launch::SessionLearningDigestStop as DigestStop;
 use tmt_core::binding::session::launch::{
     SessionLearningDetail, SessionLearningEvent, SessionLearningReason as Reason,
-    SessionLearningStep as Step,
+    SessionLearningStep as Step, SessionLearningStop as Stop,
 };
 
 const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without context.";
@@ -86,6 +87,15 @@ pub fn execute(
         )
         .map_err(|_| ())?;
         turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
+        if let Some(learning) = &learning {
+            // Only a lifecycle event can bind the launch; every other run keeps what an earlier
+            // run stored for it (see `Learning::set_role`).
+            let role = hook_role(lifecycle, input.as_bytes());
+            learning.set_role(role);
+            if role == Role::Binding {
+                let _ = learning.stage(Step::Input, deadline);
+            }
+        }
         if worker {
             return observe(provider, &input, deadline, activity_only, learning.as_ref());
         }
@@ -170,38 +180,99 @@ pub fn execute(
     Ok(u8::from(worker && failed))
 }
 
+/// What a hook payload can do to its launch. Only a lifecycle event can bind it, by its name even
+/// when no decoder accepts the payload (that refusal is the launch's own, #5016); a turn, prompt
+/// or activity event cannot, and neither can a payload of no known event.
+fn hook_role(lifecycle: &dyn RuntimeLifecycle, input: &[u8]) -> Role {
+    let name = serde_json::from_slice::<serde_json::Value>(input)
+        .ok()
+        .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned));
+    let event = SessionLearningEvent::from_hook_name(name.as_deref());
+    let observer = event.decoder().is_some_and(|decoder| {
+        decoder != tmt_core::binding::session::launch::SessionLearningDecoder::Lifecycle
+    }) || name
+        .as_deref()
+        .is_some_and(|event| lifecycle.activity_events().contains(&event))
+        || lifecycle.decode_turn(input).is_some()
+        || lifecycle.decode_prompt(input).is_some()
+        || lifecycle.decode_activity_session(input).is_some();
+    let lifecycle_event = event.decoder()
+        == Some(tmt_core::binding::session::launch::SessionLearningDecoder::Lifecycle)
+        || lifecycle.decode(input).is_some();
+    if !observer && lifecycle_event {
+        Role::Binding
+    } else {
+        Role::Observer
+    }
+}
+
 /// A turn end refreshes only the remembered session's driver state (#519).
 /// It needs the same verified, active binding as a lifecycle event, and the
 /// binding's current conversation must be the remembered one it names: a late
 /// turn end from an earlier conversation writes nothing. The write is a
 /// compare-and-set on the preferences read with the binding.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TurnMode {
+    Full,
+    ActivityOnly,
+    BeforeDigest,
+}
+
+/// Only a capture failure after current binding/session authority was proved
+/// may defer Digest. Inapplicable observations grant nothing to either hook.
+enum TurnFailure {
+    NotApplicable,
+    CaptureFailed,
+}
+
 fn observe_turn(
     provider: &str,
     harness: &HarnessId,
     lifecycle: &dyn RuntimeLifecycle,
     turn: &TurnEnd,
-    activity_only: bool,
+    mode: TurnMode,
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
     run: Run<'_>,
-) -> Result<Observation, ()> {
+) -> Result<Observation, TurnFailure> {
     let deadline = run.deadline;
+    let activity_only = mode == TurnMode::ActivityOnly;
     // An interrupted turn ends activity only: no usage, consumption source or
     // final answer is read or captured for it.
     let activity_only = activity_only || turn.interrupted;
-    let host = lifecycle.host_evidence().map_err(|_| ())?;
-    if matches!(host, HostEvidence::Unsupported) {
-        return unsupported_host(run);
+    // An installed answer observer owns Stop. A launch-only activity observer
+    // must not race it to Idle or append a duplicate continued final. Digest
+    // captures ordinary Stop before blocking; its decoder excludes continuations.
+    if mode == TurnMode::ActivityOnly
+        && tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::stop_hook_installed)
+    {
+        run.stopped(Stop::ObserverOwnsStop);
+        return Ok(Observation::default());
     }
-    let Caller::Bound(bound) = verified_lifecycle_caller(
-        provider,
-        lifecycle,
-        host,
-        &turn.session,
-        None,
+    let capture_on = !activity_only;
+    let host = lifecycle
+        .host_evidence()
+        .map_err(|_| TurnFailure::NotApplicable)?;
+    if matches!(host, HostEvidence::Unsupported) {
+        return unsupported_host(run).map_err(|_| TurnFailure::NotApplicable);
+    }
+    let Caller::Bound(bound) = verified_caller(
+        CallerRequest {
+            provider,
+            lifecycle,
+            host,
+            session: &turn.session,
+            verified_binding: None,
+            start: None,
+            learning: run.learning,
+        },
         deadline,
         SupervisedProbeRunner,
-    )?
+    )
+    .map_err(|_| TurnFailure::NotApplicable)?
     else {
+        run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
     };
     let BoundCaller {
@@ -211,17 +282,22 @@ fn observe_turn(
         process,
         ..
     } = *bound;
-    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    let binding = stored
+        .entry
+        .binding
+        .as_ref()
+        .ok_or(TurnFailure::NotApplicable)?;
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, &turn.session, host, deadline)
     else {
+        run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     };
     if !matches!(
         evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot)),
         BindingEvidence::Active(_)
     ) {
-        return Err(());
+        return Err(TurnFailure::NotApplicable);
     }
     let current = binding.session.key.as_ref().is_some_and(|key| {
         key.incarnation == process && key.provider_session.as_ref() == Some(&turn.session)
@@ -229,92 +305,178 @@ fn observe_turn(
     let Some(remembered) = stored.preferences.remembered.as_ref().filter(|remembered| {
         current && &remembered.harness == harness && remembered.provider_session == turn.session
     }) else {
+        run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     };
-    let environment = ProviderEnvironment::capture().map_err(|_| ())?;
-    let now_ms = tmt_adapters::request_runtime::wall_time_ms();
-    // Usage data is read only with consent; the agent's answers need only the turn-end hook (#4914).
     let usage_on = !activity_only
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)
             .is_some_and(tmt_adapters::setup::usage_consented);
-    let observation = usage_on.then(|| {
-        lifecycle.turn_observation(
-            turn,
-            &environment,
-            remembered.state.as_ref(),
-            now_ms,
+    // Only older payloads missing the final need the consented driver reader
+    // before capture; optional usage never precedes capture of supplied text.
+    let mut failure = tmt_adapters::storage::CaptureFailure::Worker;
+    let pending = (|| -> Result<bool, ()> {
+        let Some(activity) = activity else {
+            return Ok(false);
+        };
+        let fallback = if turn.final_text.is_none() && usage_on {
+            let environment = ProviderEnvironment::capture()
+                .map_err(|_| ())?
+                .with_data_root(&paths.global_dir);
+            lifecycle
+                .turn_observation(
+                    turn,
+                    &environment,
+                    remembered.state.as_ref(),
+                    tmt_adapters::request_runtime::wall_time_ms(),
+                    deadline,
+                )
+                .final_text
+        } else {
+            None
+        };
+        let response = kept_answer(capture_on, Some(fallback), turn.final_text.as_ref())
+            .map(|text| tmt_adapters::storage::ResponseCapture { text });
+        failure = tmt_adapters::storage::CaptureFailure::Storage;
+        let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+        let committed = storage.capture_turn_end(tmt_adapters::storage::TurnCapture {
+            expected: &stored,
+            process: &process,
+            activity,
+            response,
+            interrupted: turn.interrupted,
+            now_ms: tmt_adapters::request_runtime::wall_time_ms(),
             deadline,
-        )
-    });
-    let usage = observation.as_ref().and_then(|value| value.state.clone());
-    let consumption = usage
-        .as_ref()
-        .and_then(|state| lifecycle.state_consumption(state));
-    let locator = turn
-        .transcript
-        .as_ref()
-        .filter(|_| usage_on)
-        .and_then(|path| {
-            lifecycle.consumption_locator(
-                serde_json::json!({"transcript_path":path})
-                    .to_string()
-                    .as_bytes(),
-                &environment,
-            )
         });
-    let reading = ConsumptionReading {
-        locator,
-        consumption,
-        now_ms,
+        let closed = storage.close();
+        committed
+            .and_then(|value| closed.map(|()| value))
+            .map_err(|_| ())
+    })();
+    let captured = match pending {
+        Ok(captured) => captured,
+        Err(()) => {
+            if Instant::now() >= deadline {
+                failure = tmt_adapters::storage::CaptureFailure::Budget;
+            }
+            if let Ok(mut storage) = Storage::open_hook(&paths.database, deadline) {
+                let _ = storage.record_capture_failure(
+                    &stored,
+                    failure,
+                    tmt_adapters::request_runtime::wall_time_ms(),
+                    deadline,
+                );
+                let _ = storage.close();
+            }
+            return Err(TurnFailure::CaptureFailed);
+        }
     };
-    let previous = usage.as_ref().or(remembered.state.as_ref());
-    let transition = activity
-        .filter(|_| binding.session.state == tmt_core::binding::session::RuntimeState::Running)
-        .and_then(|event| {
-            lifecycle.activity_state(event, &turn.session, &process, previous, now_ms)
-        });
-    // An admitted turn end prefers the usage observation's final answer, then the Stop
-    // payload's `last_assistant_message`. With usage off no observation is made and
-    // nothing beyond the payload is read.
-    let response = kept_answer(
-        transition.is_some() && !activity_only,
-        observation.map(|value| value.final_text),
-        turn.final_text.as_ref(),
-    )
-    .map(|text| tmt_adapters::storage::ResponseCapture { text });
-    // An admitted turn end settles the passthrough that turn was bound to, with its final
-    // message when one was read and without an answer otherwise (an interrupted turn too).
-    let boundary = transition
-        .is_some()
-        .then(|| tmt_adapters::storage::TurnBoundary::Ended {
-            turn: activity
-                .and_then(|activity| activity.event.turn.as_ref())
-                .map(ProviderSessionId::as_str),
-            continuation: activity.is_some_and(|activity| {
-                activity.event.kind
-                    == tmt_core::binding::session::activity::EventKind::ContinuationEnded
-            }),
-        });
-    let next = transition.or(usage);
-    if Instant::now() >= deadline {
-        return Err(());
+    // A Stop without a new activity transition still refreshes consented usage.
+    // A fresh snapshot preserves any committed Idle state. Sampling is optional:
+    // no failure here can roll back or discard the final already retained.
+    if usage_on && mode == TurnMode::Full {
+        let _ = (|| -> Result<(), ()> {
+            let refreshed = Storage::context_by_identity(
+                &paths.database,
+                &binding.identity_id,
+                tmt_adapters::request_runtime::wall_time_ms(),
+            )
+            .map_err(|_| ())?
+            .ok_or(())?;
+            if refreshed.entry.binding.as_ref() != Some(binding) {
+                return Err(());
+            }
+            let previous = refreshed.preferences.remembered.as_ref().ok_or(())?;
+            if previous.harness != remembered.harness
+                || previous.provider_session != remembered.provider_session
+            {
+                return Err(());
+            }
+            let environment = ProviderEnvironment::capture()
+                .map_err(|_| ())?
+                .with_data_root(&paths.global_dir);
+            let now_ms = tmt_adapters::request_runtime::wall_time_ms();
+            let observation = lifecycle.turn_observation(
+                turn,
+                &environment,
+                previous.state.as_ref(),
+                now_ms,
+                deadline,
+            );
+            let consumption = observation
+                .state
+                .as_ref()
+                .and_then(|state| lifecycle.sampled_consumption(state, &environment));
+            let locator = turn.transcript.as_ref().and_then(|path| {
+                lifecycle.consumption_locator(
+                    serde_json::json!({"transcript_path":path})
+                        .to_string()
+                        .as_bytes(),
+                    &environment,
+                )
+            });
+            commit_observation(
+                &paths,
+                &refreshed,
+                observation.state,
+                Some(ConsumptionReading {
+                    locator,
+                    consumption,
+                    now_ms,
+                }),
+                None,
+                None,
+                deadline,
+            )?;
+            Ok(())
+        })();
     }
-    if commit_observation(
-        &paths,
-        &stored,
-        next,
-        usage_on.then_some(reading),
-        response,
-        boundary,
-        deadline,
-    )? {
-        return Ok(Observation {
-            context: String::new(),
-            workspace: Some(binding.server.clone()),
-        });
+    Ok(Observation {
+        context: String::new(),
+        workspace: captured.then(|| binding.server.clone()),
+    })
+}
+
+/// Blocking feedback is downstream of the observer's single capture entry.
+/// Digest never installs an answer hook or grants transcript consent.
+pub(crate) fn capture_before_digest(
+    provider: &str,
+    input: &[u8],
+    deadline: Instant,
+) -> Result<(), DigestStop> {
+    if !tmt_adapters::drivers::Registry::builtin()
+        .find(provider)
+        .is_some_and(tmt_adapters::setup::stop_hook_installed)
+    {
+        return Ok(());
     }
-    Ok(Observation::default())
+    let registry = RuntimeRegistry::first_party();
+    let Ok(harness) = HarnessId::new(provider) else {
+        return Ok(());
+    };
+    let Some(lifecycle) = registry.lifecycle(&harness) else {
+        return Ok(());
+    };
+    let Some(turn) = lifecycle.decode_turn(input) else {
+        return Ok(());
+    };
+    let activity = lifecycle.decode_activity(input);
+    match observe_turn(
+        provider,
+        &harness,
+        lifecycle,
+        &turn,
+        TurnMode::BeforeDigest,
+        activity.as_ref(),
+        Run {
+            deadline,
+            learning: None,
+            event: SessionLearningEvent::Stop,
+        },
+    ) {
+        Ok(_) | Err(TurnFailure::NotApplicable) => Ok(()),
+        Err(TurnFailure::CaptureFailed) => Err(DigestStop::CaptureFailed),
+    }
 }
 
 /// Prefer the observed final when usage is on; otherwise keep the Stop payload's own
@@ -605,7 +767,8 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
 }
 
 /// Discover or verify this exact foreground launch in one native admission pass.
-/// Supplied argv and discovered coordinates are locators, never authority.
+/// Supplied argv and discovered coordinates are locators, never authority. A refusal names
+/// the check that failed, so a Digest Stop that ends with no output can say why.
 pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
     provider: &str,
     lifecycle: &dyn RuntimeLifecycle,
@@ -619,29 +782,40 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
         ConfigPaths,
         IdentityContextSnapshot,
     ),
-    (),
+    DigestStop,
 > {
     if launch.is_some_and(|v| !v.valid()) {
-        return Err(());
+        return Err(DigestStop::LaunchArgument);
     }
-    let host = lifecycle.host_evidence().map_err(|_| ())?;
-    let Caller::Bound(bound) = verified_lifecycle_caller(
-        provider,
-        lifecycle,
-        host,
-        session,
-        None,
+    let host = lifecycle
+        .host_evidence()
+        .map_err(|_| DigestStop::LaunchHost)?;
+    let bound = caller_check(
+        verified_lifecycle_caller(
+            provider,
+            lifecycle,
+            host,
+            session,
+            None,
+            deadline,
+            runner.clone(),
+        ),
         deadline,
-        runner.clone(),
-    )?
-    else {
-        return Err(());
-    };
-    let binding = bound.stored.entry.binding.as_ref().ok_or(())?;
+    )?;
+    let binding = bound
+        .stored
+        .entry
+        .binding
+        .as_ref()
+        .ok_or(DigestStop::LaunchBinding)?;
     let launch = match launch {
         Some(launch) => launch.clone(),
         None => {
-            let owner = binding.session.launch_owner.as_ref().ok_or(())?;
+            let owner = binding
+                .session
+                .launch_owner
+                .as_ref()
+                .ok_or(DigestStop::LaunchBinding)?;
             tmt_adapters::runtime::hook_protocol::HookLaunch {
                 identity_id: binding.identity_id.clone(),
                 binding_id: binding.id.clone(),
@@ -650,41 +824,92 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
             }
         }
     };
-    if !launch.valid() {
-        return Err(());
-    }
-    let owner = launch.owner().ok_or(())?;
+    let owner = launch
+        .valid()
+        .then(|| launch.owner())
+        .flatten()
+        .ok_or(DigestStop::LaunchArgument)?;
     let process = lifecycle
         .digest_process(&binding.session, &bound.process, session, host, deadline)
-        .ok_or(())?;
-    let expected = binding.id == launch.binding_id
-        && binding.identity_id == launch.identity_id
-        && binding.session.state == tmt_core::binding::session::RuntimeState::Running
-        && binding.session.launch_owner.as_ref() == Some(&owner)
-        && binding.session.key.as_ref().is_some_and(|key| {
-            key.incarnation == process && key.provider_session.as_ref() == Some(session)
-        })
-        && bound
-            .stored
-            .preferences
-            .remembered
-            .as_ref()
-            .is_some_and(|remembered| {
-                remembered.harness.as_str() == provider && &remembered.provider_session == session
-            })
-        && matches!(
-            evaluate_binding(&bound.stored.entry, &EndpointProbe::Live(bound.snapshot)),
-            BindingEvidence::Active(_)
-        );
-    if !expected {
-        return Err(());
+        .ok_or(DigestStop::LaunchProcess)?;
+    if binding.id != launch.binding_id
+        || binding.identity_id != launch.identity_id
+        || binding.session.state != tmt_core::binding::session::RuntimeState::Running
+        || binding.session.launch_owner.as_ref() != Some(&owner)
+    {
+        return Err(DigestStop::LaunchBinding);
     }
-    let alive = matches!(observe_runtime_process(&runner, owner.pid(), deadline).map_err(|_| ())?,
-        tmt_adapters::process::runtime::ProcessObservation::Live(current) if current == owner);
-    if !alive || Instant::now() >= deadline {
-        return Err(());
+    if !binding.session.key.as_ref().is_some_and(|key| {
+        key.incarnation == process && key.provider_session.as_ref() == Some(session)
+    }) {
+        return Err(DigestStop::LaunchSession);
+    }
+    if !bound
+        .stored
+        .preferences
+        .remembered
+        .as_ref()
+        .is_some_and(|remembered| {
+            remembered.harness.as_str() == provider && &remembered.provider_session == session
+        })
+    {
+        return Err(DigestStop::LaunchRemembered);
+    }
+    if !matches!(
+        evaluate_binding(&bound.stored.entry, &EndpointProbe::Live(bound.snapshot)),
+        BindingEvidence::Active(_)
+    ) {
+        return Err(DigestStop::LaunchEndpoint);
+    }
+    owner_check(
+        observe_runtime_process(&runner, owner.pid(), deadline).map_err(|_| ()),
+        &owner,
+        deadline,
+    )?;
+    if Instant::now() >= deadline {
+        return Err(DigestStop::LaunchDeadline);
     }
     Ok((launch, bound.paths, bound.stored))
+}
+
+/// A probe that failed is not a refused caller: it names the deadline once that passed.
+fn probe_failure(probe: DigestStop, deadline: Instant) -> DigestStop {
+    if Instant::now() >= deadline {
+        DigestStop::LaunchDeadline
+    } else {
+        probe
+    }
+}
+
+fn caller_check(
+    caller: Result<Caller, ()>,
+    deadline: Instant,
+) -> Result<Box<BoundCaller>, DigestStop> {
+    match caller {
+        Ok(Caller::Bound(bound)) => Ok(bound),
+        Ok(_) => Err(DigestStop::LaunchCaller),
+        Err(()) => Err(probe_failure(DigestStop::LaunchCallerProbe, deadline)),
+    }
+}
+
+/// Only a live owner with a different start is `launch:owner`, the start identity check
+/// itself; a probe with no answer and an owner that is not live are named apart.
+fn owner_check(
+    observed: Result<tmt_adapters::process::runtime::ProcessObservation, ()>,
+    owner: &ProcessIncarnation,
+    deadline: Instant,
+) -> Result<(), DigestStop> {
+    use tmt_adapters::process::runtime::ProcessObservation as Observed;
+    match observed {
+        Ok(Observed::Live(current)) if current == *owner => Ok(()),
+        Ok(Observed::Live(_)) => Err(DigestStop::LaunchOwner),
+        Ok(Observed::Gone | Observed::Stopped(_) | Observed::UnreapedZombie(_)) => {
+            Err(DigestStop::LaunchOwnerNotLive)
+        }
+        Ok(Observed::Unknown) | Err(()) => {
+            Err(probe_failure(DigestStop::LaunchOwnerProbe, deadline))
+        }
+    }
 }
 
 fn observe(
@@ -709,7 +934,13 @@ fn observe(
     let activity_only_event = event_name
         .as_deref()
         .is_some_and(|event| lifecycle.activity_events().contains(&event));
+    let run = Run {
+        deadline,
+        learning,
+        event: SessionLearningEvent::from_hook_name(event_name.as_deref()),
+    };
     if activity_only_event && activity.is_none() {
+        run.stopped(Stop::ActivityMissing);
         return Ok(Observation::default());
     }
     if let Some(turn) = lifecycle.decode_turn(input.as_bytes()) {
@@ -718,10 +949,15 @@ fn observe(
             &harness,
             lifecycle,
             &turn,
-            activity_only,
+            if activity_only {
+                TurnMode::ActivityOnly
+            } else {
+                TurnMode::Full
+            },
             activity.as_ref(),
-            Run { deadline, learning },
-        );
+            run,
+        )
+        .map_err(|_| ());
     }
     if let Some(session) = lifecycle.decode_prompt(input.as_bytes()) {
         return observe_main_event(
@@ -731,18 +967,17 @@ fn observe(
             &session,
             activity.as_ref(),
             Some(input.as_bytes()),
-            Run { deadline, learning },
+            run,
         );
     }
     if let Some(session) = lifecycle.decode_activity_session(input.as_bytes()) {
-        return observe_activity_event(
-            &harness,
-            lifecycle,
-            &session,
-            activity.as_ref().ok_or(())?,
-            deadline,
-            || ConfigPaths::discover().map_err(|_| ()),
-        );
+        let Some(activity) = activity.as_ref() else {
+            run.stopped(Stop::ActivityMissing);
+            return Err(());
+        };
+        return observe_activity_event(&harness, lifecycle, &session, activity, run, || {
+            ConfigPaths::discover().map_err(|_| ())
+        });
     }
     let Some(event) = lifecycle.decode(input.as_bytes()) else {
         // Nothing accepted the payload: say which event it was, never what it held.
@@ -768,6 +1003,19 @@ fn observe(
 struct Run<'a> {
     deadline: Instant,
     learning: Option<&'a Learning>,
+    /// The hook event being run, by name only; `Unknown` where none applies.
+    event: SessionLearningEvent,
+}
+impl Run<'_> {
+    /// Names why this decoded event, which cannot bind, admitted nothing (#5125). Diagnostics
+    /// only: what the hook admits is unchanged.
+    fn stopped(&self, stop: Stop) {
+        if let Some(learning) = self.learning
+            && let Some(detail) = SessionLearningDetail::stopped(self.event, stop)
+        {
+            let _ = learning.note(detail, self.deadline);
+        }
+    }
 }
 
 /// The driver found no provider process among the hook's ancestors, so the hook
@@ -794,7 +1042,11 @@ fn observe_lifecycle_event(
 ) -> Result<Observation, ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return unsupported_host(Run { deadline, learning });
+        return unsupported_host(Run {
+            deadline,
+            learning,
+            event: SessionLearningEvent::Unknown,
+        });
     }
     let BoundCaller {
         host,
@@ -1289,7 +1541,7 @@ fn observe_activity_event(
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
     activity: &tmt_adapters::runtime::hook_protocol::ActivityObservation,
-    deadline: Instant,
+    run: Run<'_>,
     paths: impl FnOnce() -> Result<ConfigPaths, ()>,
 ) -> Result<Observation, ()> {
     use tmt_core::binding::session::activity::{ActivityPhase, EventKind};
@@ -1315,6 +1567,7 @@ fn observe_activity_event(
                 activity.session == *session && activity.phase == ActivityPhase::Waiting
             });
         if !waiting {
+            run.stopped(Stop::NotWaiting);
             return Ok(Observation::default());
         }
     }
@@ -1325,10 +1578,7 @@ fn observe_activity_event(
         session,
         Some(activity),
         None,
-        Run {
-            deadline,
-            learning: None,
-        },
+        run,
     )
 }
 
@@ -1348,16 +1598,21 @@ fn observe_main_event(
     if matches!(host, HostEvidence::Unsupported) {
         return unsupported_host(run);
     }
-    let Caller::Bound(bound) = verified_lifecycle_caller(
-        provider,
-        lifecycle,
-        host,
-        session,
-        None,
+    let Caller::Bound(bound) = verified_caller(
+        CallerRequest {
+            provider,
+            lifecycle,
+            host,
+            session,
+            verified_binding: None,
+            start: None,
+            learning: run.learning,
+        },
         deadline,
         SupervisedProbeRunner,
     )?
     else {
+        run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
     };
     let BoundCaller {
@@ -1371,6 +1626,7 @@ fn observe_main_event(
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, session, host, deadline)
     else {
+        run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     };
     if binding.session.state != tmt_core::binding::session::RuntimeState::Running
@@ -1410,6 +1666,7 @@ fn observe_main_event(
                 None,
             );
         }
+        run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     }
     let context = if payload.is_some() {
@@ -1459,6 +1716,7 @@ fn observe_main_event(
             .is_some_and(tmt_adapters::setup::usage_consented)
     {
         ProviderEnvironment::capture().ok().and_then(|environment| {
+            let environment = environment.with_data_root(&paths.global_dir);
             let locator = lifecycle.consumption_locator(payload?, &environment);
             let turn =
                 lifecycle.sampling_turn(session, locator.as_deref(), &environment, deadline)?;
@@ -1466,7 +1724,7 @@ fn observe_main_event(
             let state = lifecycle.turn_state(&turn, &environment, previous, now, deadline);
             let consumption = state
                 .as_ref()
-                .and_then(|state| lifecycle.state_consumption(state));
+                .and_then(|state| lifecycle.sampled_consumption(state, &environment));
             Some((
                 state,
                 ConsumptionReading {
@@ -1600,6 +1858,56 @@ mod decode_tests;
 
 #[cfg(test)]
 mod interrupt_tests;
+
+#[cfg(test)]
+mod digest_launch_tests {
+    use super::*;
+    use tmt_adapters::process::runtime::ProcessObservation as Observed;
+
+    #[test]
+    fn each_owner_and_caller_outcome_has_its_own_name() {
+        let owner = ProcessIncarnation::new(7, "ps-v1:Sat Oct 24 11:40:50 2026").unwrap();
+        let other = ProcessIncarnation::new(7, "ps-v1:Sat Oct 24 11:40:51 2026").unwrap();
+        let later = Instant::now() + Duration::from_secs(5);
+        let passed = Instant::now();
+        let check = |observed, deadline| owner_check(observed, &owner, deadline);
+        assert_eq!(check(Ok(Observed::Live(owner.clone())), later), Ok(()));
+        assert_eq!(
+            check(Ok(Observed::Live(other.clone())), later),
+            Err(DigestStop::LaunchOwner),
+            "only a live owner with a different start is the start identity check"
+        );
+        for gone in [
+            Observed::Gone,
+            Observed::Stopped(owner.clone()),
+            Observed::UnreapedZombie(owner.clone()),
+        ] {
+            assert_eq!(check(Ok(gone), later), Err(DigestStop::LaunchOwnerNotLive));
+        }
+        assert_eq!(check(Err(()), later), Err(DigestStop::LaunchOwnerProbe));
+        assert_eq!(
+            check(Ok(Observed::Unknown), later),
+            Err(DigestStop::LaunchOwnerProbe)
+        );
+        assert_eq!(check(Err(()), passed), Err(DigestStop::LaunchDeadline));
+        assert_eq!(
+            caller_check(Ok(Caller::Unobserved), later).err(),
+            Some(DigestStop::LaunchCaller)
+        );
+        assert_eq!(
+            caller_check(Ok(Caller::Unbound { marked: false }), later).err(),
+            Some(DigestStop::LaunchCaller)
+        );
+        assert_eq!(
+            caller_check(Err(()), later).err(),
+            Some(DigestStop::LaunchCallerProbe)
+        );
+        assert_eq!(
+            caller_check(Err(()), passed).err(),
+            Some(DigestStop::LaunchDeadline)
+        );
+    }
+}
 
 #[cfg(test)]
 mod budget_tests {

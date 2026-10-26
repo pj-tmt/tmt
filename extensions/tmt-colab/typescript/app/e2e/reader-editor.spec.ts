@@ -4,12 +4,16 @@ import { text } from '../src/strings.js';
 import { capturePath } from './captures.js';
 
 const fixture = '/test/reader-editor-browser.tsx';
-async function mount(page: Page, role: 'viewer' | 'editor') {
+async function mount(page: Page, role: 'viewer' | 'editor', metadata = false) {
   await page.goto('/');
-  await page.evaluate(async ({ fixture, role }) => (await import(fixture)).mount(role), {
-    fixture,
-    role,
-  });
+  await page.evaluate(
+    async ({ fixture, role, metadata }) => (await import(fixture)).mount(role, metadata),
+    {
+      fixture,
+      role,
+      metadata,
+    },
+  );
   await expect(
     page
       .locator('#reader-editor-fixture')
@@ -163,8 +167,10 @@ for (const width of [390, 1024, 1280, 1440])
       const save = page.getByRole('button', { name: text.save, exact: true });
       await expect(save).toBeDisabled();
       await save.hover({ force: true });
-      // Actions use the standard action text size; the metadata and code keep their compact density.
-      await expect(save).toHaveCSS('font-size', '14px');
+      // Header Save uses the shared compact metrics; disabled paint and draft admission stay owned.
+      await expect(save).toHaveCSS('font-size', '11px');
+      await expect(save).toHaveCSS('font-weight', '620');
+      expect((await save.boundingBox())!.height).toBeCloseTo(30.84375, 2);
       await expect(page.getByTestId('source-draft-status')).toHaveCSS('font-size', '11px');
       // The editor steps down a point on a phone, as the website's does.
       await expect(page.locator('#source-edit')).toHaveCSS(
@@ -315,11 +321,50 @@ for (const theme of ['light', 'dark'] as const)
       .getByRole('button', { name: text.save, exact: true });
     const area = source.locator('#source-edit');
     await expect(save).toBeDisabled();
-    await expect(save).toHaveCSS('font-size', '14px');
+    await expect(save).toHaveCSS('font-size', '11px');
+    await expect(save).toHaveCSS('font-weight', '620');
+    expect((await save.boundingBox())!.height).toBeCloseTo(30.84375, 2);
     await expect(source.getByTestId('source-draft-status')).toHaveCSS('font-size', '11px');
     await expect(area).toHaveCSS('font-size', '11px');
     await area.fill('<main>Edited source</main>');
     await expect(save).toBeEnabled();
-    await expect(save).toHaveCSS('font-size', '14px');
+    await expect(save).toHaveCSS('font-size', '11px');
+    await expect(save).toHaveCSS('font-weight', '620');
+    expect((await save.boundingBox())!.height).toBeCloseTo(30.84375, 2);
     await page.screenshot({ path: capturePath(`source-toolbar-owner-1024-${theme}.png`) });
   });
+
+for (const role of ['viewer', 'editor'] as const)
+  for (const width of [1440, 390]) {
+    test(`reader Info shows the real creator and question state without owner actions: ${role} ${width}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 568 });
+      await mount(page, role, true);
+      const panel = await info(page);
+      await expect(
+        panel.locator('.page-attribution').getByText('Selected creator', { exact: true }),
+      ).toBeVisible();
+      await expect(
+        panel.locator('.page-attribution').getByText('Original writer', { exact: true }),
+      ).toBeVisible();
+      await expect(panel.locator('.metadata-question-state')).toHaveText(['Open', 'Handled']);
+      const panelBox = (await panel.boundingBox())!;
+      const titleBox = (await panel
+        .locator('.metadata-question-title strong')
+        .first()
+        .boundingBox())!;
+      const stateBox = (await panel.locator('.metadata-question-state').first().boundingBox())!;
+      expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width);
+      expect(stateBox.x + stateBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width);
+      await expect(
+        panel.getByRole('button', { name: /Mark handled|Reopen|Set creator/ }),
+      ).toHaveCount(0);
+      await expect(panel.locator('code')).toHaveCount(0);
+      await expect(
+        panel.getByText('Only the page owner can change this here', { exact: true }),
+      ).toHaveCount(role === 'editor' ? 1 : 0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      expect(await saves(page)).toEqual([]);
+    });
+  }

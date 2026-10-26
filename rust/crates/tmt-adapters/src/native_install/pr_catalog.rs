@@ -1,6 +1,6 @@
 //! Revision-2 PR catalog records. Remote records never grant producer trust.
 
-use super::{OFFICIAL_REPOSITORY, Product, artifact, invalid};
+use super::{Product, artifact, current_or_previous_repository, invalid};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, io};
 use tmt_core::{content_digest::is_sha256, limits::MAX_JS_SAFE_INTEGER, native_install::PrNumber};
@@ -270,7 +270,7 @@ impl Catalog {
         self.eligibility.validate()?;
         if self.schema_version != 2
             || self.kind != "tmt-pr-rc-catalog"
-            || self.repository != OFFICIAL_REPOSITORY
+            || !current_or_previous_repository(&self.repository)
             || self.pr != pr.get()
             || self.head_sha != head
             || !git_sha(head)

@@ -826,7 +826,7 @@ export const MAIN_FULL_JOBS = [
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const commitSha = (value) => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 const trustedMain = ({ repository, eventName, ref, sha }) =>
-  repository === 'pj-tmt/tmt' &&
+  repository === 'tmt-ninja/tmt' &&
   eventName === 'push' &&
   ref === 'refs/heads/main' &&
   commitSha(sha);
@@ -931,7 +931,7 @@ export function notifyMainFullFailure(context, request) {
     if (comments.length < 100) break;
     if (page === 5) throw new Error('Main notification guard capacity exceeded (500 comments).');
   }
-  const url = `https://github.com/pj-tmt/tmt/actions/runs/${run}`;
+  const url = `https://github.com/${context.repository}/actions/runs/${run}`;
   const lines = failed.slice(0, 50).map((job) => {
     const name = job.name
       .replace(/[\r\n\u0000-\u001f]/g, ' ')
@@ -1061,7 +1061,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
         if (!env.GH_TOKEN)
           throw new Error('Main verification API needs the workflow token environment.');
         if (++requests > 12) throw new Error('Main verification API request budget exceeded.');
-        const args = ['api', `repos/pj-tmt/tmt/${route}`, '--method', method];
+        const args = ['api', `repos/${env.GITHUB_REPOSITORY}/${route}`, '--method', method];
         if (body !== undefined) args.push('-f', `body=${body}`);
         const output = runPackedCommand('gh', args, { cwd, env, timeoutMs: 10_000 });
         if (Buffer.byteLength(output) > 2 * 1024 * 1024) {

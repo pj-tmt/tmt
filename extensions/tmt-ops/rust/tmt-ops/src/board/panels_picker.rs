@@ -345,6 +345,10 @@ fn component_rows(rows: &[(String, String, String)], saving: bool) -> Vec<ListRo
         })
         .collect()
 }
+/// Where the picker's sheet was last painted.
+pub(super) fn modal_outer(picker: &Picker) -> Option<Rect> {
+    picker.surface.borrow().outer()
+}
 pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, area: Rect) {
     let rows: Vec<_> = picker
         .draft

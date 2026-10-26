@@ -2,7 +2,11 @@
 mod core_fixture;
 #[path = "support/process.rs"]
 mod fixture_process;
+#[path = "cli/question_metadata.rs"]
+mod question_metadata;
 mod support;
+#[path = "cli/user_templates.rs"]
+mod user_templates;
 use fixture_process::{FixtureCommand, OwnedChild};
 use nix::{
     errno::Errno,
@@ -65,6 +69,9 @@ impl Pilot {
             reader: None,
         };
         core_fixture::link(&pilot.root, "core", core_fixture::Program::Core);
+        // Creation now requires a stable creator. Individual unavailable/unknown controls remove
+        // or replace this fixture observation explicitly; no host identity is consulted.
+        fs::write(pilot.root.join("publisher"), json!({"identity":{"name":"Fixture agent","id":"50000000-0000-1000-8000-000000000001"}}).to_string()).unwrap();
         assert!(!pilot.root.join("calls").exists());
         pilot
     }
@@ -242,7 +249,7 @@ exec {core} "$@"
     }
     fn call(&self, args: &[&str]) -> Value {
         let output = self.command().args(args).output().unwrap();
-        assert!(output.status.success(), "{:?}", output);
+        assert!(output.status.success(), "{args:?}: {output:?}");
         assert!(output.stderr.is_empty());
         assert!(!output.stdout.contains(&0x1b));
         serde_json::from_slice(&output.stdout).unwrap()
@@ -1413,7 +1420,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -1589,7 +1596,10 @@ fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
                 )
                 .unwrap();
                 assert!(summary["attribution"]["timeMs"].as_u64().unwrap() > 0);
-                assert!(summary["attribution"].get("displayAgent").is_none());
+                assert_eq!(
+                    summary["attribution"]["displayAgent"],
+                    json!({"id":"50000000-0000-1000-8000-000000000001","name":"Fixture agent"})
+                );
             }
             if name == "item-move" {
                 assert_eq!(before["shell"]["order"], json!([second, first]));
@@ -2771,6 +2781,290 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
         }
     }
 }
+/// The one command a write or patch receipt names when the edit went off-guidance (#5029).
+const EDITING_READ: &str = "tmt colab skill editing";
+#[test]
+fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
+    let pilot = Pilot::new(None);
+    let rows: String = (0..120)
+        .map(|n| format!("<p>Row {n} of the plan</p>\n"))
+        .collect();
+    assert!(rows.len() > 2048, "{}", rows.len());
+    let file = pilot.root.join("page.html");
+    let path = file.to_str().unwrap();
+    fs::write(&file, &rows).unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap().to_owned();
+    let quiet = |receipt: &Value| {
+        assert!(receipt.get("read").is_none(), "{receipt}");
+        assert_eq!(receipt["warnings"], json!([]), "{receipt}");
+    };
+
+    // A small patch is the normal edit: the receipt names nothing.
+    quiet(&pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find",
+        "Row 7 of",
+        "--replace",
+        "Row seven of",
+        "--json",
+    ]));
+    let normal = pilot
+        .command()
+        .args([
+            "page",
+            "patch",
+            &id,
+            "--find",
+            "Row 10 of",
+            "--replace",
+            "Row ten of",
+        ])
+        .output()
+        .unwrap();
+    assert!(normal.status.success(), "{normal:?}");
+    assert!(normal.stderr.is_empty(), "{normal:?}");
+    // So is a whole-source write that moves one line.
+    let source = pilot.call(&["page", "read", &id, "--json"])["source"]
+        .as_str()
+        .unwrap()
+        .replace("Row 8 of", "Row eight of");
+    fs::write(&file, &source).unwrap();
+    quiet(&pilot.call(&["page", "write", &id, "--file", path, "--json"]));
+
+    // A lint warning in the result names the reference, on a patch...
+    let warned = pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find",
+        "Row 9 of",
+        "--replace",
+        "<span class=\"tmt-ui-nonexistent\">Row nine</span> of",
+        "--json",
+    ]);
+    assert!(
+        !warned["warnings"].as_array().unwrap().is_empty(),
+        "{warned}"
+    );
+    assert_eq!(warned["read"], json!([EDITING_READ]), "{warned}");
+    // Appending more than the page holds touches none of what was there.
+    let current = pilot.call(&["page", "read", &id, "--json"])["source"]
+        .as_str()
+        .unwrap()
+        .replace(
+            "<span class=\"tmt-ui-nonexistent\">Row nine</span> of",
+            "Row nine of",
+        );
+    fs::write(&file, format!("{current}{}", rows.repeat(2))).unwrap();
+    quiet(&pilot.call(&["page", "write", &id, "--file", path, "--json"]));
+    // ...and a rewrite of most of a page of 2 KiB or more does too, with nothing to lint.
+    fs::write(&file, varied_source(7, 4096)).unwrap();
+    let rewritten = pilot.call(&["page", "write", &id, "--file", path, "--replace", "--json"]);
+    assert_eq!(rewritten["warnings"], json!([]), "{rewritten}");
+    assert_eq!(rewritten["read"], json!([EDITING_READ]), "{rewritten}");
+    // A page under 2 KiB is rewritten whole without comment.
+    let small = pilot.call(&[
+        "page", "create", "--title", "Small", "--layout", "column", "--json",
+    ]);
+    let small = small["pageId"].as_str().unwrap().to_owned();
+    fs::write(&file, varied_source(1, 1000)).unwrap();
+    quiet(&pilot.call(&["page", "write", &small, "--file", path, "--json"]));
+    fs::write(&file, varied_source(2, 1000)).unwrap();
+    quiet(&pilot.call(&["page", "write", &small, "--file", path, "--json"]));
+
+    // The human result says so on stderr, once; a normal edit prints nothing there.
+    fs::write(&file, varied_source(9, 4096)).unwrap();
+    let human = pilot
+        .command()
+        .args(["page", "write", &id, "--file", path, "--replace"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(human.stderr).unwrap();
+    assert!(human.status.success(), "{stderr}");
+    assert_eq!(stderr.matches(EDITING_READ).count(), 1, "{stderr}");
+    assert!(
+        !String::from_utf8(human.stdout)
+            .unwrap()
+            .contains(EDITING_READ)
+    );
+}
+#[test]
+fn a_write_that_replaces_most_of_a_large_page_needs_replace() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("page.html");
+    let path = file.to_str().unwrap();
+    // One line of 4 KiB: the bytes a write replaces are the ones that differ.
+    let old = "a".repeat(4096);
+    fs::write(&file, &old).unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap().to_owned();
+    let write = |source: &str, flags: &[&str]| {
+        fs::write(&file, source).unwrap();
+        let mut command = vec!["page", "write", id.as_str(), "--file", path];
+        command.extend(flags);
+        command.push("--json");
+        command.into_iter().map(str::to_owned).collect::<Vec<_>>()
+    };
+    let call = |command: &[String]| {
+        let refs: Vec<&str> = command.iter().map(String::as_str).collect();
+        pilot.call(&refs)
+    };
+    // Exactly half is not more than half: accepted without the flag.
+    let half = format!("{}{}", "b".repeat(2048), "a".repeat(2048));
+    let written = call(&write(&half, &[]));
+    assert_eq!(written["changed"], true, "{written}");
+    assert!(written.get("read").is_none(), "{written}");
+    // One byte more is refused, names the exact rerun command and the way to change part of a
+    // page, and writes nothing.
+    let rewrite = "c".repeat(4096);
+    let refused = failure(
+        &pilot,
+        &write(&rewrite, &[])
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        "COLAB_REWRITE_REQUIRES_REPLACE",
+    );
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains(&format!(
+            "tmt colab page write {id} --file {path} --replace"
+        )),
+        "{message}"
+    );
+    assert!(message.contains("tmt colab page patch"), "{message}");
+    assert!(message.contains("Nothing was written"), "{message}");
+    let current = pilot.call(&["page", "read", &id, "--json"]);
+    assert_eq!(current["source"], half, "{current}");
+    // A fence the caller gave is part of the rerun command.
+    let revision = current["revision"].as_str().unwrap().to_owned();
+    let fenced = failure(
+        &pilot,
+        &[
+            "page",
+            "write",
+            &id,
+            "--file",
+            path,
+            "--expected-revision",
+            &revision,
+            "--json",
+        ],
+        "COLAB_REWRITE_REQUIRES_REPLACE",
+    );
+    assert!(
+        fenced["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains(&format!(
+                "tmt colab page write {id} --file {path} --expected-revision {revision} --replace"
+            )),
+        "{fenced}"
+    );
+    // The human refusal says the same on stderr.
+    let human = pilot
+        .command()
+        .args(["page", "write", &id, "--file", path])
+        .output()
+        .unwrap();
+    assert_eq!(human.status.code(), Some(1));
+    let stderr = String::from_utf8(human.stderr).unwrap();
+    assert!(stderr.contains("--replace"), "{stderr}");
+    // With the flag the rewrite is published.
+    let replaced = call(&write(&rewrite, &["--replace"]));
+    assert_eq!(replaced["changed"], true, "{replaced}");
+    assert_eq!(
+        pilot.call(&["page", "read", &id, "--json"])["source"],
+        rewrite
+    );
+    // The flag on a write that needs none changes nothing about it.
+    let small = format!("{}{}", "d".repeat(10), &rewrite[10..]);
+    assert_eq!(call(&write(&small, &["--replace"]))["changed"], true);
+
+    // A page under 2 KiB is rewritten whole without the flag.
+    let short = pilot.call(&[
+        "page", "create", "--title", "Short", "--layout", "column", "--json",
+    ]);
+    let short = short["pageId"].as_str().unwrap().to_owned();
+    for source in [varied_source(1, 2047), varied_source(2, 2047)] {
+        fs::write(&file, &source).unwrap();
+        let written = pilot.call(&["page", "write", &short, "--file", path, "--json"]);
+        assert_eq!(written["changed"], true, "{written}");
+    }
+    // A patch is already anchored to the text it changes: it keeps working on a large rewrite.
+    let (old_file, new_file) = (pilot.root.join("old.txt"), pilot.root.join("new.txt"));
+    fs::write(&old_file, &small).unwrap();
+    let all_new = "e".repeat(4096);
+    fs::write(&new_file, &all_new).unwrap();
+    let patched = pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find-file",
+        old_file.to_str().unwrap(),
+        "--replace-file",
+        new_file.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(patched["changed"], true, "{patched}");
+    // So do the commands that never replace existing source: layout and a new page.
+    let layout = pilot.call(&["page", "layout", &id, "full", "--json"]);
+    assert_eq!(layout["changed"], true, "{layout}");
+    fs::write(&file, &old).unwrap();
+    pilot.call(&[
+        "page", "create", "--title", "Big", "--layout", "column", "--file", path, "--json",
+    ]);
+}
+#[test]
+fn a_write_of_two_far_apart_edits_costs_the_edits_and_not_the_text_between_them() {
+    let pilot = Pilot::new(None);
+    let page: String = (0..400)
+        .map(|n| format!("<p>第{n}行 🐈 row {n} 漢字 ✓</p>\n"))
+        .collect();
+    let file = pilot.root.join("page.html");
+    let path = file.to_str().unwrap();
+    fs::write(&file, &page).unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap().to_owned();
+    let edited =
+        page.replacen("row 5 ", "ROW FIVE 🐕 ", 1)
+            .replacen("row 395 ", "ROW 395 🐕🐕 ", 1);
+    fs::write(&file, &edited).unwrap();
+    let written = pilot.call(&["page", "write", &id, "--file", path, "--json"]);
+    assert_eq!(written["changed"], true, "{written}");
+    assert_eq!(written["update"]["count"], 1, "{written}");
+    // The two changed regions, not the ~16 KB between them.
+    let bytes = written["update"]["bytes"].as_u64().unwrap();
+    assert!(bytes < 1_500, "{written}");
+    assert_eq!(
+        pilot.call(&["page", "read", &id, "--json"])["source"],
+        edited
+    );
+    // A patch of two distant hunks costs the same way and leaves the page byte-exact.
+    let patched = pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find",
+        "ROW FIVE 🐕 ",
+        "--replace",
+        "row 5 ",
+        "--json",
+    ]);
+    assert!(
+        patched["update"]["bytes"].as_u64().unwrap() < 1_500,
+        "{patched}"
+    );
+}
 /// Printable text that shares no run longer than a few bytes with any other seed's output, so a
 /// replacement is a full rewrite of the page rather than a small diff.
 fn varied_source(seed: u64, bytes: usize) -> String {
@@ -2947,7 +3241,7 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         // A full rewrite reports what it really carried, so the number is a measurement.
         let rewritten = varied_source(2, SIZE / 3);
         fs::write(&file, &rewritten).unwrap();
-        let large = json(&[]);
+        let large = json(&["--replace"]);
         assert!(
             large["update"]["bytes"].as_u64().unwrap() >= (SIZE / 3) as u64,
             "{large}"
@@ -2960,7 +3254,7 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         assert_eq!(none["update"], json!({"count": 0, "bytes": 0}));
         // Human output adds one line, and it is the same measurement.
         fs::write(&file, &edited).unwrap();
-        let human = write(&[]);
+        let human = write(&["--replace"]);
         assert!(human.status.success(), "{human:?}");
         let shown = String::from_utf8(human.stdout).unwrap();
         assert!(shown.contains("PAGE WRITTEN"), "{shown}");
@@ -3247,7 +3541,7 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
             ContentEdit {
                 layout: None,
                 source: &second,
-                publisher_agent: None,
+                publisher_agent: Some("Fixture agent"),
                 attachments: None,
             },
             None,
@@ -3313,6 +3607,7 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
         file.to_str().unwrap(),
         "--expected-revision",
         before["revision"].as_str().unwrap(),
+        "--replace",
         "--json",
     ]);
     assert_eq!(written["changed"], true);
@@ -3331,6 +3626,7 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
         file.to_str().unwrap(),
         "--expected-revision",
         after["revision"].as_str().unwrap(),
+        "--replace",
         "--json",
     ]);
     assert_eq!(
@@ -3380,6 +3676,7 @@ fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_servin
                     id,
                     "--file",
                     file.to_str().unwrap(),
+                    "--replace",
                     "--json",
                 ])
                 .output()
@@ -4692,6 +4989,20 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
     assert!(!freeform.status.success());
     assert!(!pilot.root.join("selected/colab").exists());
 }
+/// The `read` entries of an HTML page's creation result: the commands every new page starts from,
+/// then the page type's own.
+fn read_first(own: &[&str]) -> Value {
+    json!(
+        [
+            "tmt colab skill layout",
+            "tmt colab skill components",
+            "tmt colab skill page-style"
+        ]
+        .iter()
+        .chain(own)
+        .collect::<Vec<_>>()
+    )
+}
 #[test]
 fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     let pilot = Pilot::new(None);
@@ -4713,7 +5024,13 @@ fn create_and_show_report_layout_while_ls_only_lists_metadata() {
         command.push("--json");
         let created = pilot.call(&command);
         assert_eq!(created["layout"], *kind, "{created}");
-        assert_eq!(created["read"], json!(["layout", "components"]));
+        // A canvas draws its own frame with the page's script, so it also reads the runtime.
+        let expected = if *kind == "canvas" {
+            read_first(&["tmt colab skill runtime"])
+        } else {
+            read_first(&[])
+        };
+        assert_eq!(created["read"], expected, "{created}");
         match why {
             Some(why) => assert_eq!(created["layoutReason"], *why),
             None => assert!(created.get("layoutReason").is_none(), "{created}"),
@@ -4767,9 +5084,61 @@ fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     // One row, so the two topics do not read like a duplicated label.
     assert_eq!(text.matches("read first").count(), 1, "{text}");
     assert!(
-        text.contains("tmt colab skill layout · tmt colab skill components"),
+        text.contains(
+            "tmt colab skill layout · tmt colab skill components · tmt colab skill page-style"
+        ),
         "{text}"
     );
+}
+#[test]
+fn create_adds_the_runtime_to_the_read_first_set_only_for_a_page_that_opts_in() {
+    let pilot = Pilot::new(None);
+    let interactive = pilot.root.join("interactive.html");
+    fs::write(
+        &interactive,
+        "<meta name=\"tmt-colab-runtime\" content=\"react tailwind\">\n<div id=\"app\"></div>\n",
+    )
+    .unwrap();
+    let plain = pilot.root.join("plain.html");
+    fs::write(&plain, "<p>Static</p>\n").unwrap();
+    for (file, expected) in [
+        (&interactive, read_first(&["tmt colab skill runtime"])),
+        (&plain, read_first(&[])),
+    ] {
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Opt-in",
+            "--layout",
+            "column",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        assert_eq!(created["read"], expected, "{created}");
+    }
+    // A dashboard has no author markup, so it is sent to its own reference only.
+    let dashboard = pilot.call(&["dashboard", "create", "--title", "Board", "--json"]);
+    assert_eq!(
+        dashboard["read"],
+        json!(["tmt colab skill dashboard"]),
+        "{dashboard}"
+    );
+    let human = pilot
+        .command()
+        .args(["dashboard", "create", "--title", "Board again"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert_eq!(text.matches("read first").count(), 1, "{text}");
+    assert!(text.contains("tmt colab skill dashboard"), "{text}");
+    for markup in ["layout", "components", "page-style"] {
+        assert!(
+            !text.contains(&format!("tmt colab skill {markup}")),
+            "{text}"
+        );
+    }
 }
 #[test]
 fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
@@ -4790,10 +5159,12 @@ fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
     assert_eq!(
         templates,
         [
+            ("starter", "column"),
             ("report", "column"),
             ("review", "column"),
             ("compare", "column"),
-            ("board", "full")
+            ("board", "full"),
+            ("gallery", "column")
         ]
     );
     let human = pilot.command().args(["template", "ls"]).output().unwrap();
@@ -4802,8 +5173,13 @@ fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
         "{human:?}"
     );
     let text = String::from_utf8(human.stdout).unwrap();
-    assert!(text.contains("TEMPLATES"), "{text}");
-    for name in ["report", "review", "compare", "board"] {
+    assert!(text.contains("BUILT-IN 6"), "{text}");
+    assert!(text.contains("THIS SPACE 0"), "{text}");
+    assert!(
+        text.contains("starter") && text.contains("default"),
+        "{text}"
+    );
+    for name in ["report", "review", "compare", "board", "gallery"] {
         assert!(text.contains(name), "{text}");
     }
     // Reading the catalog creates no local state.
@@ -4817,6 +5193,7 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
         ("report", "column"),
         ("review", "column"),
         ("board", "full"),
+        ("gallery", "column"),
     ] {
         let created = pilot.call(&[
             "page",
@@ -4830,7 +5207,16 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
         ]);
         assert_eq!(created["template"], name, "{created}");
         assert_eq!(created["layout"], kind, "{created}");
-        assert_eq!(created["read"], json!(["layout", "components"]));
+        // A page from a template starts by reading the template's rules.
+        let mut read = vec![format!("tmt colab template show {name}")];
+        read.extend(
+            read_first(&[])
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|command| command.as_str().unwrap().to_owned()),
+        );
+        assert_eq!(created["read"], json!(read), "{created}");
         assert_eq!(created["warnings"], json!([]), "{created}");
         let id = created["pageId"].as_str().unwrap();
         let shown = pilot.call(&["show", id, "--json"]);
@@ -4909,7 +5295,7 @@ fn a_template_excludes_the_layout_and_source_options_and_unknown_names() {
     assert_eq!(unknown.status.code(), Some(1), "{unknown:?}");
     let message = String::from_utf8_lossy(&unknown.stderr);
     assert!(
-        message.contains("report") && message.contains("board"),
+        message.contains("No template named memo") && message.contains("tmt colab template ls"),
         "{message}"
     );
     // A refused create leaves nothing behind.
@@ -5118,16 +5504,19 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         assert_eq!(value["next"], json!([]));
     }
     let created = json(CREATION_DOOR);
-    assert!(
-        pilot
-            .call(&[
-                "page",
-                "read",
-                created["pageId"].as_str().unwrap(),
-                "--json"
-            ])
-            .get("creationRecipient")
-            .is_none()
+    let read = pilot.call(&[
+        "page",
+        "read",
+        created["pageId"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(
+        read["creationRecipient"]["agentId"],
+        "50000000-0000-1000-8000-000000000001"
+    );
+    assert_eq!(
+        read["creationRecipient"]["machineId"],
+        "40000000-0000-4000-8000-000000000001"
     );
     let path = created["path"].as_str().unwrap();
     assert!(path.starts_with("/colab/p/"));
@@ -6426,7 +6815,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6522,7 +6911,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6967,7 +7356,8 @@ fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
     let publisher = pilot.root.join("publisher");
     fs::write(
         &publisher,
-        json!({"identity":{"name":"publishing-agent"}}).to_string(),
+        json!({"identity":{"name":"publishing-agent","id":"50000000-0000-1000-8000-000000000001"}})
+            .to_string(),
     )
     .unwrap();
     let created = pilot.call(&[
@@ -7139,7 +7529,16 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                     ]);
                     let mut command = pilot.command_with_creation_door(CREATION_DOOR);
                     command.env_remove("CI").env("DISPLAY", ":fixture");
-                    command.args(["page", "create", "--title", "Created", "--layout", "column"]);
+                    command.args([
+                        "page",
+                        "create",
+                        "--title",
+                        "Created",
+                        "--layout",
+                        "column",
+                        "--creator",
+                        "50000000-0000-1000-8000-000000000001",
+                    ]);
                     if json_output {
                         command.arg("--json");
                     }
@@ -8990,6 +9389,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         mode
     );
     fs::remove_file(pilot.root.join("core")).unwrap();
+    fs::remove_file(pilot.root.join("publisher")).unwrap();
     let invoke = |args: &[&str]| {
         Command::new(&relocated)
             .env_clear()
@@ -9062,6 +9462,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         (
             "runtime",
             include_bytes!("../../../skills/tmt-colab/references/runtime.md").as_slice(),
+        ),
+        (
+            "templates",
+            include_bytes!("../../../skills/tmt-colab/references/templates.md").as_slice(),
         ),
     ] {
         let reference = invoke(&["skill", name]);
@@ -9166,6 +9570,26 @@ fn the_starters_question_and_reading_examples_pass_the_check_and_publish_as_writ
         "--json",
     ]);
     let id = created["pageId"].as_str().unwrap();
+    fs::write(
+        pilot.root.join("selected-identity"),
+        json!({"identity":{"id":"50000000-0000-1000-8000-000000000001","name":"Your agent name"}})
+            .to_string(),
+    )
+    .unwrap();
+    pilot.call(&[
+        "question",
+        "add",
+        id,
+        "--id",
+        "10000000-0000-4000-8000-000000000001",
+        "--agent",
+        "Your agent name",
+        "--title",
+        "Which option?",
+        "--group",
+        "20000000-0000-4000-8000-000000000001",
+        "--json",
+    ]);
     let empty = pilot.call(&["page", "read", id, "--json"]);
     let written = pilot.call(&[
         "page",
@@ -9919,6 +10343,126 @@ fn page_check_is_offline_and_names_every_ignored_block_with_its_line() {
     assert!(!pilot.root.join("selected").exists());
 }
 #[test]
+fn page_check_hints_at_a_self_styled_page_without_failing_it_and_stays_quiet_otherwise() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("styled.html");
+    let path = file.to_str().unwrap();
+    // Its own CSS and nothing of the starter or the design system: a hint, and the check still passes.
+    fs::write(&file, "<style>p{color:red}</style><p>Hi</p>").unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", path, "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["findings"], json!([]));
+    let hints = report["hints"].as_array().unwrap();
+    assert_eq!(hints.len(), 1, "{report}");
+    assert_eq!(hints[0]["code"], "own-style-only");
+    // The message names the commands, not the templates they list, and carries no line or severity.
+    let message = hints[0]["message"].as_str().unwrap();
+    assert!(message.contains("tmt colab template ls"), "{message}");
+    assert!(message.contains("tmt colab skill questions"), "{message}");
+    assert_eq!(hints[0].as_object().unwrap().len(), 2, "{hints:?}");
+    // Human mode says it as a hint line and still exits 0.
+    let human = pilot
+        .command()
+        .args(["page", "check", path])
+        .output()
+        .unwrap();
+    assert_eq!(human.status.code(), Some(0), "{human:?}");
+    assert!(
+        String::from_utf8_lossy(&human.stderr).contains("hint:"),
+        "{human:?}"
+    );
+    // A bare page, a design-system page, the starter's layer and the earlier starter get no hint.
+    for source in [
+        "<p>Plain</p>",
+        "<style>p{color:red}</style><section class=\"tmt-ui-card\">Hi</section>",
+        "<style>@layer tmt-starter{p{margin:0}}</style><p>Hi</p>",
+        "<style>:root{--ink:#000;--paper:#fff}</style><p>Hi</p>",
+    ] {
+        fs::write(&file, source).unwrap();
+        let clean = pilot.call(&["page", "check", path, "--json"]);
+        assert_eq!(clean["hints"], json!([]), "{source}");
+    }
+    // A finding and a hint are separate channels: the finding fails the check, the hint rides along.
+    fs::write(
+        &file,
+        format!("<style>p{{color:red}}</style>{}", dirty_page()),
+    )
+    .unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", path, "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["hints"][0]["code"], "own-style-only");
+    assert!(
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|finding| finding["code"] != "own-style-only")
+    );
+}
+#[test]
+fn page_create_shows_the_hint_beside_the_warnings_and_strict_never_refuses_on_it() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("styled.html");
+    fs::write(&file, "<style>p{color:red}</style><p>Hi</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Styled",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--strict",
+        "--json",
+    ]);
+    assert_eq!(created["warnings"], json!([]));
+    assert_eq!(created["hints"][0]["code"], "own-style-only", "{created}");
+    // A page from a template carries the starter: no hint.
+    let templated = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Report",
+        "--template",
+        "report",
+        "--strict",
+        "--json",
+    ]);
+    assert_eq!(templated["hints"], json!([]));
+    // Human mode prints the hint on stderr after the created block.
+    let human = pilot
+        .command()
+        .args([
+            "page",
+            "create",
+            "--title",
+            "Again",
+            "--layout",
+            "column",
+            "--file",
+            file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(human.status.success(), "{human:?}");
+    assert!(
+        String::from_utf8_lossy(&human.stderr).contains("hint:"),
+        "{human:?}"
+    );
+}
+#[test]
 fn page_check_names_a_skipped_group_with_the_questions_it_took_and_warns_on_a_bad_label() {
     let pilot = Pilot::new(None);
     let file = pilot.root.join("groups.html");
@@ -10083,7 +10627,15 @@ fn page_check_refuses_input_it_cannot_read_and_pages_it_cannot_find() {
 fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
     let pilot = Pilot::new(None);
     let dirty = pilot.root.join("dirty.html");
-    fs::write(&dirty, dirty_page()).unwrap();
+    let source = format!(
+        "<p>Intro</p>\n<tmt-review data-id=\"{CHECK_ID}\"><p data-title>One?</p></tmt-review>\n<tmt-review data-id=\"{CHECK_ID}\"><p>Two?</p></tmt-review>\n"
+    );
+    let expected = vec![
+        ("review-id-duplicate".to_owned(), 2),
+        ("review-heading-missing".to_owned(), 3),
+        ("review-id-duplicate".to_owned(), 3),
+    ];
+    fs::write(&dirty, &source).unwrap();
     let dirty = dirty.to_str().unwrap();
     // --strict stops a first create before it initializes any state.
     let strict = failure_args(
@@ -10094,7 +10646,7 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
         ],
     );
     assert_eq!(strict["error"]["code"], "COLAB_PAGE_CHECK");
-    assert_eq!(finding_codes(&strict["findings"]), expected_dirty());
+    assert_eq!(finding_codes(&strict["findings"]), expected);
     assert!(
         !pilot.root.join("selected/colab").exists(),
         "strict create left state"
@@ -10104,11 +10656,11 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
     let created = pilot.call(&[
         "page", "create", "--title", "Warned", "--layout", "column", "--file", dirty, "--json",
     ]);
-    assert_eq!(finding_codes(&created["warnings"]), expected_dirty());
+    assert_eq!(finding_codes(&created["warnings"]), expected);
     let id = created["pageId"].as_str().unwrap();
     assert_eq!(
         pilot.call(&["page", "read", id, "--json"])["source"],
-        dirty_page()
+        source
     );
     let clean_file = pilot.root.join("clean.html");
     fs::write(&clean_file, "<p>Plain</p>").unwrap();
@@ -10134,7 +10686,7 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
     assert!(human.status.success(), "{human:?}");
     let warned = String::from_utf8(human.stderr).unwrap();
     assert!(
-        warned.contains("line 3") && warned.contains("question-kind-invalid"),
+        warned.contains("line 3") && warned.contains("review-heading-missing"),
         "{warned}"
     );
 
@@ -10152,10 +10704,10 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
     assert_eq!(written["warnings"], json!([]));
     let again = pilot.call(&["page", "write", id, "--file", dirty, "--json"]);
     assert_eq!(again["changed"], true);
-    assert_eq!(finding_codes(&again["warnings"]), expected_dirty());
+    assert_eq!(finding_codes(&again["warnings"]), expected);
     let unchanged = pilot.call(&["page", "write", id, "--file", dirty, "--json"]);
     assert_eq!(unchanged["changed"], false);
-    assert_eq!(finding_codes(&unchanged["warnings"]), expected_dirty());
+    assert_eq!(finding_codes(&unchanged["warnings"]), expected);
 
     // --strict refuses before the write prepares anything: the page stays as it was.
     let stable = pilot.call(&["page", "read", id, "--json"]);
@@ -10296,7 +10848,7 @@ fn page_projects_add_remove_and_list_without_touching_the_owner_log_offline_and_
         let list = pilot.call(&["project", "list", "--json"]);
         assert_eq!(
             list["projects"],
-            json!([{"name":"q4 plan","pages":1},{"name":"urgent","pages":0}])
+            json!([{"name":"q4 plan","pages":1,"pinned":1},{"name":"urgent","pages":0,"pinned":null}])
         );
         // Names obey the grammar; a page is in at most eight; refusals change nothing.
         failure(
@@ -10416,7 +10968,7 @@ fn projects_can_be_created_empty_and_filter_the_page_list() {
         );
         assert_eq!(
             pilot.call(&["project", "ls", "--json"])["projects"],
-            json!([{"name":"launch","pages":0}])
+            json!([{"name":"launch","pages":0,"pinned":null}])
         );
         assert_eq!(
             pilot.call(&["ls", "--project", "launch", "--json"])["pages"],
@@ -10504,7 +11056,7 @@ fn renaming_or_deleting_a_project_changes_every_page_that_is_in_it_in_one_step()
         assert_eq!(deleted["pages"], 2);
         assert_eq!(
             pilot.call(&["project", "list", "--json"])["projects"],
-            json!([{"name":"c","pages":1}])
+            json!([{"name":"c","pages":1,"pinned":null}])
         );
         failure(
             &pilot,
@@ -10517,7 +11069,7 @@ fn renaming_or_deleting_a_project_changes_every_page_that_is_in_it_in_one_step()
         assert_eq!(project_rows(&pilot, &two), 0);
         assert_eq!(
             pilot.call(&["project", "list", "--json"])["projects"],
-            json!([{"name":"c","pages":0}])
+            json!([{"name":"c","pages":0,"pinned":null}])
         );
         if serving {
             pilot.stop();
@@ -10794,4 +11346,193 @@ fn a_large_cached_list_reads_metadata_without_opening_page_content() {
     // Observation only: operation-count tests enforce the performance invariant without a
     // flaky wall-clock threshold. The owned command's deadline bounds hangs, not performance.
     eprintln!("200-page cached ls: {} us", elapsed.as_micros());
+}
+
+#[test]
+fn project_pin_and_unpin_write_the_owners_list_and_ls_reports_each_place() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        titled_page(&pilot, "One");
+        let places = |pilot: &Pilot| -> Vec<(String, Value)> {
+            pilot.call(&["project", "ls", "--json"])["projects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|project| {
+                    (
+                        project["name"].as_str().unwrap().to_owned(),
+                        project["pinned"].clone(),
+                    )
+                })
+                .collect()
+        };
+        for name in ["x", "y", "z"] {
+            pilot.call(&["project", "create", name, "--json"]);
+        }
+        // Projects with no page never qualify for the automatic list: nothing is shown yet.
+        let list = pilot.call(&["project", "ls", "--json"]);
+        assert_eq!(list["pinsAutomatic"], true);
+        assert!(places(&pilot).iter().all(|(_, place)| place.is_null()));
+        // The first pin makes the list the owner's.
+        let first = pilot.call(&["project", "pin", "x", "--json"]);
+        assert_eq!(
+            first,
+            json!({"spaceId":first["spaceId"],"name":"x","pinned":true,"position":1,"changed":true})
+        );
+        assert_eq!(
+            pilot.call(&["project", "ls", "--json"])["pinsAutomatic"],
+            false
+        );
+        assert_eq!(
+            pilot.call(&["project", "pin", "y", "--json"])["position"],
+            2
+        );
+        assert_eq!(
+            pilot.call(&["project", "pin", "z", "--position", "1", "--json"])["position"],
+            1
+        );
+        // Pinning a pinned project moves it; the same place again changes nothing.
+        assert_eq!(
+            pilot.call(&["project", "pin", "x", "--position", "3", "--json"])["changed"],
+            true
+        );
+        assert_eq!(
+            pilot.call(&["project", "pin", "x", "--position", "3", "--json"])["changed"],
+            false
+        );
+        assert_eq!(
+            places(&pilot),
+            [("x", json!(3)), ("y", json!(2)), ("z", json!(1))]
+                .map(|(name, place)| (name.to_owned(), place))
+        );
+        let unpinned = pilot.call(&["project", "unpin", "y", "--json"]);
+        assert_eq!(unpinned["pinned"], false);
+        assert_eq!(unpinned["position"], Value::Null);
+        assert_eq!(unpinned["changed"], true);
+        assert_eq!(
+            pilot.call(&["project", "unpin", "y", "--json"])["changed"],
+            false
+        );
+        assert_eq!(
+            places(&pilot),
+            [("x", json!(2)), ("y", Value::Null), ("z", json!(1))]
+                .map(|(name, place)| (name.to_owned(), place))
+        );
+        // Refusals change nothing: an unknown project, a place past the end, a name outside the grammar.
+        failure(
+            &pilot,
+            &["project", "pin", "nope", "--json"],
+            "COLAB_PROJECT_NOT_FOUND",
+        );
+        failure(
+            &pilot,
+            &["project", "unpin", "nope", "--json"],
+            "COLAB_PROJECT_NOT_FOUND",
+        );
+        failure(
+            &pilot,
+            &["project", "pin", "y", "--position", "4", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        failure(
+            &pilot,
+            &["project", "pin", "y", "--position", "0", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        assert_eq!(places(&pilot)[1].1, Value::Null);
+        // A pin follows a rename, and a delete takes it out; the list stays the owner's.
+        pilot.call(&["project", "rename", "z", "w", "--json"]);
+        assert_eq!(
+            places(&pilot)
+                .iter()
+                .find(|(name, _)| name == "w")
+                .unwrap()
+                .1,
+            json!(1)
+        );
+        pilot.call(&["project", "delete", "w", "--json"]);
+        pilot.call(&["project", "delete", "x", "--json"]);
+        let after = pilot.call(&["project", "ls", "--json"]);
+        assert_eq!(after["pinsAutomatic"], false);
+        assert_eq!(
+            after["projects"],
+            json!([{"name":"y","pages":0,"pinned":null}])
+        );
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+
+#[test]
+fn the_first_pin_keeps_the_automatic_list_that_was_showing_and_a_21st_pin_is_refused() {
+    let pilot = Pilot::new(None);
+    let one = titled_page(&pilot, "One");
+    pilot.call(&["project", "add", &one, "used", "--json"]);
+    pilot.call(&["project", "create", "idle", "--json"]);
+    // The automatic list holds the project with an active page and not the empty one.
+    let list = pilot.call(&["project", "ls", "--json"]);
+    assert_eq!(list["pinsAutomatic"], true);
+    assert_eq!(
+        list["projects"],
+        json!([{"name":"idle","pages":0,"pinned":null},{"name":"used","pages":1,"pinned":1}])
+    );
+    // Pinning the empty one adds to what was showing, instead of replacing it; and it is the owner's now.
+    assert_eq!(
+        pilot.call(&["project", "pin", "idle", "--json"])["position"],
+        2
+    );
+    let list = pilot.call(&["project", "ls", "--json"]);
+    assert_eq!(list["pinsAutomatic"], false);
+    assert_eq!(
+        list["projects"],
+        json!([{"name":"idle","pages":0,"pinned":2},{"name":"used","pages":1,"pinned":1}])
+    );
+    // The human output names the place, and says when the list is automatic.
+    let human = pilot.command().args(["project", "ls"]).output().unwrap();
+    assert!(
+        String::from_utf8_lossy(&human.stdout).contains("pinned 1"),
+        "{human:?}"
+    );
+    // Unpinning a shown automatic project writes the rest.
+    let fresh = Pilot::new(None);
+    let two = titled_page(&fresh, "Two");
+    fresh.call(&["project", "add", &two, "only", "--json"]);
+    assert_eq!(
+        fresh.call(&["project", "unpin", "only", "--json"])["changed"],
+        true
+    );
+    let list = fresh.call(&["project", "ls", "--json"]);
+    assert_eq!(list["pinsAutomatic"], false);
+    assert_eq!(
+        list["projects"],
+        json!([{"name":"only","pages":1,"pinned":null}])
+    );
+    // At most twenty: the 21st pin is refused and no older pin is dropped.
+    let full = Pilot::new(None);
+    titled_page(&full, "Three");
+    for n in 0..21 {
+        full.call(&["project", "create", &format!("p{n:02}"), "--json"]);
+    }
+    for n in 0..20 {
+        full.call(&["project", "pin", &format!("p{n:02}"), "--json"]);
+    }
+    failure(
+        &full,
+        &["project", "pin", "p20", "--json"],
+        "COLAB_CAPACITY",
+    );
+    let kept = full.call(&["project", "ls", "--json"]);
+    assert_eq!(
+        kept["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|project| !project["pinned"].is_null())
+            .count(),
+        20
+    );
 }

@@ -23,6 +23,7 @@ fn refusals<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
                 actor: &owner,
                 grant: &grant,
                 receipt_key: &key,
+                sending: false,
                 io: &io
             })
             .is_err(),
@@ -37,6 +38,7 @@ fn refusals<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
                 actor: &OwnerActor::automated(),
                 grant: &grant,
                 receipt_key: &key,
+                sending: false,
                 io: &io
             })
             .is_err(),
@@ -52,6 +54,7 @@ fn refusals<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
                 actor: &owner,
                 grant: &requested,
                 receipt_key: &key,
+                sending: false,
                 io: &io
             })
             .is_err()
@@ -66,6 +69,7 @@ fn refusals<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
                 actor: &owner,
                 grant: &grant,
                 receipt_key: &key,
+                sending: false,
                 io: &io
             })
             .is_err()
@@ -84,6 +88,7 @@ fn refusals<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
                 actor: &owner,
                 grant: &grant,
                 receipt_key: &key,
+                sending: false,
                 io: &io
             })
             .is_err(),

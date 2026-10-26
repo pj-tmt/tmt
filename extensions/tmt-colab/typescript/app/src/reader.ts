@@ -12,6 +12,7 @@ import {
 } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
+import { readThreads } from './thread-records.js';
 import { jsonResponse, type Registration } from './registration.js';
 import type { ReaderLink } from './reader-link.js';
 import { deriveReaderKeys } from './reader-keys.js';
@@ -168,7 +169,16 @@ export class ReaderSession {
         SHARING,
         (view) => {
           this.#page.show(view.source);
-          if (!this.#closed) this.publish(view);
+          if (!this.#closed)
+            this.publish({
+              ...view,
+              threads: readThreads(
+                view.own ?? {},
+                { spaceId: admission.space, pageId: admission.page, epoch: admission.epoch },
+                (writer) => connection.objects.ownSigningKey(writer),
+                (writer) => connection.objects.statusWriter(writer),
+              ),
+            });
         },
         resolve,
         ['colab-sync-v1', `colab-reader-v1.${encodeBinary(token)}`],

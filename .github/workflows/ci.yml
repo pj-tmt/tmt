@@ -118,6 +118,9 @@ jobs:
           fetch-depth: 0
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
+      - name: Check PR commit author and committer emails
+        if: github.event_name == 'pull_request'
+        run: node typescript/scripts/pr-commit-email-check.mjs
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmt install --frozen-lockfile
@@ -133,7 +136,7 @@ jobs:
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/workspace-nextest.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/markdown-links.test.ts test/tooling/pr-agent-check.test.ts test/tooling/docker-workspace.test.ts
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/workspace-nextest.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/markdown-links.test.ts test/tooling/pr-agent-check.test.ts test/tooling/pr-commit-email-check.test.ts test/tooling/docker-workspace.test.ts
       - name: Verify isolated browser presentation leaf
         working-directory: typescript
         run: |
@@ -484,8 +487,8 @@ jobs:
         run: |
           cargo build --locked -p tmt-ops --bins --examples
           extension_started=$SECONDS
-          cargo build --locked -p tmt-remote -p tmt-colab --bins
-          echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo build --locked -p tmt-remote -p tmt-colab -p tmt-digest --bins
+          echo "Built Remote/Colab/Digest process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           cargo build --locked -p tmt-adapters --example runtime-caller-fixture
           cargo build --locked -p tmt-test-support --example recording-cli-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
@@ -1068,7 +1071,7 @@ jobs:
       - packed-native-install
       - packed-native-install-macos
       - native-install-gate
-    if: ${{ always() && github.repository == 'pj-tmt/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.main_full_admitted == 'true' }}
+    if: ${{ always() && github.repository == 'tmt-ninja/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.main_full_admitted == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1086,7 +1089,7 @@ jobs:
   notify-main-failure:
     name: Report main verification failure
     needs: [changes, complete-main]
-    if: ${{ always() && github.repository == 'pj-tmt/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result == 'failure' || needs.complete-main.result == 'failure') }}
+    if: ${{ always() && github.repository == 'tmt-ninja/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result == 'failure' || needs.complete-main.result == 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

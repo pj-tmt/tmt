@@ -53,7 +53,7 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
 
 fn opened(items: Vec<ItemView>) -> (App, Key) {
     let (mut app, key) = read_with(items);
-    press(&mut app, KeyCode::Char('N'));
+    press(&mut app, KeyCode::Char('C'));
     assert!(app.notes_overlay.is_some(), "N opens the list");
     (app, key)
 }
@@ -124,16 +124,23 @@ fn paint(app: &App) -> String {
 }
 
 #[test]
-fn n_is_checklist_on_a_member_and_still_creates_a_squad_on_a_squad_row() {
+fn c_is_checklist_on_a_member_and_n_still_creates_a_squad_on_a_squad_row() {
     let (mut app, _) = read_with(vec![todo(1)]);
-    assert_eq!(app.bindings()["N"].text, "member-checklist");
+    assert_eq!(app.bindings()["C"].text, "member-checklist");
     assert!(
-        paint(&app).contains("N checklist"),
-        "the footer names the verb"
+        !app.bindings().contains_key("N"),
+        "N no longer opens the list"
+    );
+    let screen = paint(&app);
+    assert!(screen.contains("C checklist"), "the footer names the verb");
+    assert!(
+        screen.contains(" C  Checklist"),
+        "the chip shows its key as a keycap, as the tab labels do: {screen}"
     );
     app.select(0);
     assert_eq!(app.bindings()["N"].text, "create-squad");
-    assert!(!paint(&app).contains("N checklist"));
+    assert!(!app.bindings().contains_key("C"));
+    assert!(!paint(&app).contains("C checklist"));
 }
 
 #[test]
@@ -143,7 +150,7 @@ fn checklist_captions_keep_the_held_member_when_the_selection_changes() {
         if form {
             app.add_to_notes(note_seed(&app, NoteKind::Todo));
         } else {
-            press(&mut app, KeyCode::Char('N'));
+            press(&mut app, KeyCode::Char('C'));
             press(&mut app, KeyCode::Char('a'));
         }
         app.select(0);
@@ -166,7 +173,7 @@ fn checklist_captions_keep_the_held_member_when_the_selection_changes() {
 fn an_unread_caption_uses_the_frozen_roster_then_an_explicit_uuid_fallback() {
     let (mut app, key) = read_with(vec![]);
     app.notes = State::reading();
-    press(&mut app, KeyCode::Char('N'));
+    press(&mut app, KeyCode::Char('C'));
     app.select(0);
     let screen = paint(&app);
     assert!(screen.contains("Checklist · worker"), "{screen}");
@@ -378,7 +385,7 @@ fn esc_keeps_a_typed_draft_and_the_list_reopens_on_it_while_an_empty_one_is_drop
         "the draft outlives the overlay"
     );
 
-    press(&mut app, KeyCode::Char('N'));
+    press(&mut app, KeyCode::Char('C'));
     assert!(paint(&app).contains("half a thought"));
     press(&mut app, KeyCode::Char('!'));
     assert_eq!(app.notes.draft(&key).unwrap().text(0), "half a thought!");
@@ -1020,4 +1027,178 @@ fn an_oversize_prefill_is_refused_without_truncating_a_selection_into_a_differen
     app.add_to_notes(seed);
     assert!(app.notes.draft(&key).is_none());
     assert!(app.notes_overlay.is_none());
+}
+
+fn click_at(app: &mut App, column: u16, row: u16) -> Effect {
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        },
+        Instant::now(),
+    )
+}
+
+/// A cell on the board that the painted sheet does not cover.
+fn outside(app: &App) -> (u16, u16) {
+    let outer = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
+    assert!(outer.x > 0, "the sheet leaves a margin to click in");
+    (0, 0)
+}
+
+#[test]
+fn an_outside_press_closes_the_list_and_does_not_land_on_the_board() {
+    let (mut app, _) = opened(vec![link(1), todo(2)]);
+    paint(&app);
+    let (x, y) = outside(&app);
+    let selected = app.selected;
+    assert_eq!(click_at(&mut app, x, y), Effect::None);
+    assert!(app.notes_overlay.is_none());
+    assert_eq!(app.selected, selected, "the press is taken by the close");
+}
+
+#[test]
+fn a_press_inside_the_sheet_keeps_the_list_open() {
+    let (mut app, _) = opened(vec![link(1), todo(2)]);
+    paint(&app);
+    let outer = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
+    click_at(&mut app, outer.x + 2, outer.y + 1);
+    assert!(app.notes_overlay.is_some());
+}
+
+#[test]
+fn an_outside_press_drops_an_unsent_form_with_the_list() {
+    let (mut app, key) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('a'));
+    type_text(&mut app, "half typed");
+    assert!(app.notes.draft(&key).is_some());
+    paint(&app);
+    let (x, y) = outside(&app);
+    click_at(&mut app, x, y);
+    assert!(app.notes_overlay.is_none());
+    assert!(app.notes.draft(&key).is_none(), "the draft is discarded");
+}
+
+#[test]
+fn an_outside_press_while_asked_to_delete_leaves_the_item_in_place() {
+    let (mut app, key) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('d'));
+    paint(&app);
+    let (x, y) = outside(&app);
+    let effect = click_at(&mut app, x, y);
+    assert_eq!(effect, Effect::None, "no delete write was sent");
+    assert!(app.notes_overlay.is_none());
+    assert!(app.notes.preview(&key).is_some());
+}
+
+#[test]
+fn a_sheet_that_was_not_painted_never_dismisses() {
+    let (mut app, _) = opened(vec![todo(1)]);
+    paint(&app);
+    app.peek_areas.clear();
+    click_at(&mut app, 0, 0);
+    assert!(app.notes_overlay.is_some());
+}
+
+#[test]
+fn an_outside_press_on_a_dialog_above_the_list_keeps_the_lists_unsent_form() {
+    let (mut app, key) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('a'));
+    type_text(&mut app, "half typed");
+    app.checklist = Some(crate::board::checklist::Controller::new(1, None));
+    assert_eq!(app.overlay(), Some(crate::board::app::Overlay::Checklist));
+    paint(&app);
+    click_at(&mut app, 0, 0);
+    assert!(
+        app.checklist.is_none() || !app.checklist_shown(),
+        "the upper dialog closed"
+    );
+    assert!(
+        app.notes_overlay.is_some(),
+        "the list is still open under it"
+    );
+    assert!(app.notes.draft(&key).is_some(), "its unsent form survives");
+}
+
+fn enter_means(app: &mut App, enter: crate::config::ChecklistEnter) {
+    app.view.as_mut().unwrap().checklist_enter = enter;
+}
+
+fn opened_link(effect: &Effect) -> bool {
+    matches!(effect, Effect::Act(Request::Open { link, .. }) if link == "https://example.com/a")
+}
+
+#[test]
+fn enter_on_a_link_row_follows_the_setting_and_space_and_o_always_do_the_other() {
+    use crate::config::ChecklistEnter::{Open, Tick};
+    let ticks = |effect: Effect| {
+        let (_, write) = write_of(effect);
+        assert!(matches!(write, Write::Toggle { complete: true, .. }));
+    };
+    for enter in [Open, Tick] {
+        // Each key starts from a fresh list: a write in flight blocks the next one.
+        let press_on_link = |code| {
+            let (mut app, _) = opened(vec![link(1)]);
+            enter_means(&mut app, enter);
+            press(&mut app, code)
+        };
+        match enter {
+            Open => assert!(opened_link(&press_on_link(KeyCode::Enter)), "{enter:?}"),
+            Tick => ticks(press_on_link(KeyCode::Enter)),
+        }
+        ticks(press_on_link(KeyCode::Char(' ')));
+        assert!(opened_link(&press_on_link(KeyCode::Char('o'))), "{enter:?}");
+    }
+}
+
+#[test]
+fn enter_on_a_todo_row_ticks_whatever_the_setting_says_and_o_says_there_is_no_link() {
+    use crate::config::ChecklistEnter::{Open, Tick};
+    for enter in [Open, Tick] {
+        let (mut app, _) = opened(vec![todo(1)]);
+        enter_means(&mut app, enter);
+        let (_, write) = write_of(press(&mut app, KeyCode::Enter));
+        assert!(
+            matches!(write, Write::Toggle { complete: true, .. }),
+            "{enter:?}"
+        );
+        assert_eq!(press(&mut app, KeyCode::Char('o')), Effect::None);
+        assert!(paint(&app).contains("This item has no link."), "{enter:?}");
+    }
+}
+
+#[test]
+fn ticking_a_completed_link_row_reopens_it() {
+    let (mut app, _) = opened(vec![view(
+        1,
+        Some("https://example.com/a"),
+        Completion::Complete,
+        false,
+    )]);
+    let (_, write) = write_of(press(&mut app, KeyCode::Char(' ')));
+    assert!(matches!(
+        write,
+        Write::Toggle {
+            complete: false,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn the_footer_names_what_enter_does_under_each_setting_and_keeps_esc_close_in_view() {
+    use crate::config::ChecklistEnter::{Open, Tick};
+    let (mut app, _) = opened(vec![link(1)]);
+    enter_means(&mut app, Open);
+    assert!(paint(&app).contains("Enter open/tick · a add"));
+    assert!(paint(&app).contains("Esc close"));
+    enter_means(&mut app, Tick);
+    let screen = paint(&app);
+    assert!(screen.contains("Enter tick · o open"));
+    assert!(
+        screen.contains("Esc close"),
+        "the longer footer is not cut: {screen}"
+    );
 }

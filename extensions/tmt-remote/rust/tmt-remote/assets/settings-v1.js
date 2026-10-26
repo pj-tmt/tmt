@@ -1,4 +1,67 @@
 import { ClientError, RefusalError, ReopenSessionError, budget, management, reopenSession } from "/sdk/remote-v1.js";
+//#region src/remote-routes.ts
+var REMOTE_ITEMS = [
+	{
+		id: "remotes",
+		path: "/remote/",
+		label: "My Remotes",
+		title: "My Remotes",
+		page: "settings"
+	},
+	{
+		id: "overview",
+		path: "/remote/overview",
+		label: "Overview",
+		title: "Overview",
+		page: "landing"
+	},
+	{
+		id: "members",
+		path: "/remote/members",
+		label: "Members",
+		title: "Members",
+		page: "settings"
+	},
+	{
+		id: "invites",
+		path: "/remote/invites",
+		label: "Invites",
+		title: "Invites",
+		page: "landing",
+		adminOnly: true
+	},
+	{
+		id: "my-devices",
+		path: "/remote/my-devices",
+		label: "My devices",
+		title: "My devices",
+		page: "settings"
+	},
+	{
+		id: "settings",
+		path: "/remote/settings",
+		label: "Settings",
+		title: "Settings",
+		page: "settings"
+	},
+	{
+		id: "service",
+		path: "/remote/service",
+		label: "Service & upgrade",
+		title: "Service & upgrade",
+		page: "settings",
+		adminOnly: true
+	}
+];
+[...REMOTE_ITEMS.filter((item) => item.id !== "remotes").map((item) => item.path), remotePath("remotes")];
+function remotePath(id) {
+	return REMOTE_ITEMS.find((item) => item.id === id).path;
+}
+/** Removed pre-launch paths have no alias or redirect. */
+function remoteItem(pathname) {
+	return REMOTE_ITEMS.find((item) => item.path === pathname || pathname === "/remote" && item.id === "remotes");
+}
+//#endregion
 //#region src/remote-state.ts
 /** A display observation only; pairing and sending permissions never imply a role. */
 function remoteRole(role) {
@@ -216,51 +279,6 @@ function settingsChoice(trigger, surface) {
 	};
 }
 //#endregion
-//#region src/remote-routes.ts
-var REMOTE_ITEMS = [
-	{
-		id: "status",
-		path: "/remote/",
-		label: "Status",
-		title: "Remote connection",
-		page: "landing"
-	},
-	{
-		id: "devices",
-		path: "/remote/devices",
-		label: "Devices",
-		title: "Devices",
-		page: "settings"
-	},
-	{
-		id: "connect",
-		path: "/remote/connect",
-		label: "Connect a device",
-		title: "Connect a device",
-		page: "landing"
-	},
-	{
-		id: "machine",
-		path: "/remote/machine",
-		label: "This machine’s settings",
-		title: "This machine’s settings",
-		page: "settings"
-	},
-	{
-		id: "settings",
-		path: "/remote/settings",
-		label: "My Remotes",
-		title: "My Remotes",
-		page: "settings"
-	}
-];
-[...REMOTE_ITEMS.filter((item) => item.id !== "settings").map((item) => item.path)];
-/** The row a path names; `/remote` and `/remote/` are Status, anything else under it is none. */
-function remoteItem(pathname) {
-	const path = pathname === "/remote" ? "/remote/" : pathname.replace(/(?<=.)\/$/, "");
-	return REMOTE_ITEMS.find((item) => item.path === path || item.path === `${path}/`);
-}
-//#endregion
 //#region src/remote-menu.ts
 function remoteMenu(actions, shell = void 0) {
 	if (!shell) return () => {};
@@ -280,8 +298,9 @@ function remoteMenu(actions, shell = void 0) {
 			};
 		};
 		const remotes = [{
-			...item("status"),
-			label: `Status · ${view?.text ?? "Checking"}`
+			...item("overview"),
+			label: `This Remote · ${view?.text ?? "Checking"}`,
+			current: showing !== "remotes"
 		}];
 		if (view?.action) {
 			run.set("recover", () => actions.recover(view.action));
@@ -295,14 +314,9 @@ function remoteMenu(actions, shell = void 0) {
 		}
 		shell.setMenu({
 			title: "Remote",
-			groups: [{ items: [item("settings")] }, {
+			groups: [{ items: [item("remotes")] }, {
 				label: "This machine",
-				items: [
-					...remotes,
-					item("devices"),
-					item("connect"),
-					item("machine")
-				]
+				items: remotes
 			}]
 		}, (id) => {
 			const action = run.get(id);
@@ -325,7 +339,7 @@ function remoteMenu(actions, shell = void 0) {
 	document.addEventListener("focusin", entered, { signal: shell.signal });
 	return (next) => {
 		projection = next;
-		if (next.current.connection.word === "Connected" && next.address) shell.describe(next.address);
+		if (next.current.connection.word === "connected" && next.address) shell.describe(next.address);
 		paint();
 	};
 }
@@ -825,6 +839,16 @@ function createMenuController(options) {
 * of Remote's describe contract; an unknown name falls back to `box`.
 */
 var shellIconNodes = {
+	link: [["path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" }], ["path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" }]],
+	info: [
+		["circle", {
+			cx: "12",
+			cy: "12",
+			r: "10"
+		}],
+		["path", { d: "M12 16v-4" }],
+		["path", { d: "M12 8h.01" }]
+	],
 	sun: [["circle", {
 		cx: "12",
 		cy: "12",
@@ -1495,6 +1519,7 @@ function registryView(catalog, observed) {
 		thisMachine,
 		backend: entry?.kind === "firestore" ? "Firebase" : "Local",
 		project: entry?.project ?? null,
+		role: thisMachine ? observed.role : void 0,
 		roleLabel: remoteRole(thisMachine ? observed.role : void 0),
 		connection: remoteState(observed.state, thisMachine)
 	});
@@ -1633,7 +1658,7 @@ async function buildHandoff(destination, value, page) {
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
 	valid(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
-	return `${new URL("/remote/", checked.url).href}#${params}`;
+	return `${new URL("/remote/overview", checked.url).href}#${params}`;
 }
 async function planImport(incoming, current) {
 	const next = await parseCatalog(incoming), before = await parseCatalog(current);
@@ -1800,7 +1825,12 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	let heldBy = initialBlocked;
 	const blocked = () => heldBy();
 	const root = document.getElementById("remotes");
-	if (!root) return Object.assign(() => {}, { blockedBy: () => {} });
+	if (!root) return Object.assign(() => {}, {
+		blockedBy: () => {},
+		renameCurrent: () => {},
+		watch: () => () => {}
+	});
+	const listeners = /* @__PURE__ */ new Set();
 	const fragment = location.hash;
 	if (fragment) history.replaceState(null, "", location.pathname + location.search);
 	const list = document.getElementById("remote-list");
@@ -1808,7 +1838,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const joinHost = document.getElementById("remote-join");
 	const joinMenu = mountBrowserMenu(joinHost, {
 		label: "Join a Remote",
-		triggerText: "Join a Remote",
+		...shell?.actions ? {} : { triggerText: "Join a Remote" },
 		items: [{
 			key: "invite",
 			label: "Join with an invitation"
@@ -1819,7 +1849,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		}],
 		onSelect: (key) => {
 			if (key === "address") openAdd();
-			else (shell ?? void 0)?.navigate(new URL("connect", new URL("./", location.href)).href);
+			else (shell ?? void 0)?.navigate(new URL(remotePath("overview"), location.href).href);
 		}
 	});
 	const join = joinHost.querySelector("button");
@@ -1832,27 +1862,28 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	let observedRole;
 	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
 	let currentDialog;
+	(shell ?? void 0)?.signal.addEventListener("abort", () => {
+		const leaving = currentDialog;
+		currentDialog = void 0;
+		leaving?.close();
+		leaving?.remove();
+	}, { once: true });
 	let catalog = {
 		version: 1,
 		entries: []
 	};
-	const settings = new URL("settings", new URL("./", location.href));
 	const menu = remoteMenu({
 		refresh: () => render(),
 		recover: (action) => {
-			const home = new URL("./", location.href).href;
+			const home = new URL(remotePath("overview"), location.href).href;
 			if (action === "Retry") {
 				const retry = ["check", "refresh"].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
 				if (retry && !retry.disabled) retry.click();
 				else (shell ?? void 0)?.navigate(home);
-			} else if (document.documentElement.dataset.tmtPage === "settings") (shell ?? void 0)?.navigate(home);
-			else {
-				const pair = [
-					"copy-refused-pair",
-					"copy-missing-pair",
-					"copy-unreadable-pair",
-					"copy-different-pair"
-				].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
+			} else {
+				if (location.pathname !== remotePath("overview")) (shell ?? void 0)?.navigate(home);
+				if (location.pathname !== remotePath("overview")) return;
+				const pair = document.getElementById("copy-guide-pair");
 				pair?.scrollIntoView();
 				pair?.focus();
 			}
@@ -1863,7 +1894,6 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	};
 	const dialog = (title, opener) => {
 		currentDialog?.close();
-		if (document.documentElement.dataset.tmtPage !== "settings") (shell ?? void 0)?.navigate(settings.href);
 		const box = node$1("dialog");
 		box.className = browserUiClasses.dialog;
 		const header = node$1("header");
@@ -1881,7 +1911,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		const buttons = node$1("footer");
 		buttons.className = browserUiClasses.dialogActions;
 		box.append(header, content, buttons);
-		root.append(box);
+		document.body.append(box);
 		const end = () => box.close();
 		box.addEventListener("close", () => {
 			box.remove();
@@ -2003,6 +2033,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			address,
 			role: observedRole
 		});
+		listeners.forEach((listener) => listener(projection));
 		const existing = [...list.children];
 		if (existing.length === projection.rows.length && existing.every((row, index) => {
 			const entry = projection.rows[index];
@@ -2012,14 +2043,14 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				const entry = projection.rows[index];
 				const role = row.querySelector("[data-role]");
 				role.querySelector(".tmt-ui-chip-label").textContent = entry.roleLabel;
-				role.dataset.roleTone = entry.roleLabel === "Admin" ? "selected" : entry.roleLabel === "Role unknown" ? "muted" : "neutral";
+				role.dataset.roleTone = entry.role === "owner" ? "selected" : entry.role === void 0 ? "muted" : "neutral";
 				const state = row.querySelector(".tmt-ui-list-state");
 				state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
 				state.dataset.tone = entry.connection.tone;
 				const open = row.querySelector("[data-action=\"open\"]");
 				open.setAttribute("aria-disabled", String(!entry.thisMachine && !!blocked()));
 				if (!entry.thisMachine && blocked()) open.removeAttribute("href");
-				else open.href = entry.thisMachine ? new URL("./", location.href).href : entry.url;
+				else open.href = entry.thisMachine ? new URL(remotePath("overview"), location.href).href : entry.url;
 				open.title = !entry.thisMachine ? blocked() : "";
 			}
 			menu(projection);
@@ -2043,7 +2074,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			const label = node$1("span");
 			label.className = `${browserUiClasses.listLabel} remote-label`;
 			const open = node$1("a", entry.name);
-			open.href = entry.thisMachine ? new URL("./", location.href).href : entry.url;
+			open.href = entry.thisMachine ? new URL(remotePath("overview"), location.href).href : entry.url;
 			open.dataset.action = "open";
 			open.setAttribute("role", "link");
 			open.setAttribute("aria-label", `Open ${entry.name}`);
@@ -2053,7 +2084,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			open.addEventListener("click", (event) => {
 				event.preventDefault();
 				if (entry.thisMachine) {
-					(shell ?? void 0)?.navigate(new URL("./", location.href).href);
+					(shell ?? void 0)?.navigate(new URL(remotePath("overview"), location.href).href);
 					return;
 				}
 				(async () => {
@@ -2077,7 +2108,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			const role = chip(entry.roleLabel);
 			role.className += " remote-role";
 			role.dataset.role = "";
-			role.dataset.roleTone = entry.roleLabel === "Admin" ? "selected" : entry.roleLabel === "Role unknown" ? "muted" : "neutral";
+			role.dataset.roleTone = entry.role === "owner" ? "selected" : entry.role === void 0 ? "muted" : "neutral";
 			label.append(role);
 			const description = node$1("span", `${entry.backend}${entry.project ? ` · ${entry.project}` : ""} · ${entry.url}`);
 			description.className = browserUiClasses.listDescription;
@@ -2126,16 +2157,16 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			showError(error, status);
 		}
 	};
-	function openAdd() {
-		const view = dialog("Add remote", join);
+	function openAdd(address = "", opener = join) {
+		const view = dialog("Add remote", opener);
 		const alias = field("Remote name", "");
-		const url = field("Remote address or link", "");
+		const url = field("Remote address or link", address);
 		view.body.append(alias.label, url.label);
 		view.buttons.append(action("Continue", () => {
 			reference(alias.input.value, url.input.value).then((entry) => {
 				if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
 				view.end();
-				confirmAdd(entry, join);
+				confirmAdd(entry, opener);
 			}).catch((error) => showError(error, view.message));
 		}), action("Cancel", view.end));
 		view.box.showModal();
@@ -2167,16 +2198,44 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		if (checkedAddress) address = checkedAddress;
 		paint();
 	};
-	return Object.assign(observe, { blockedBy: (reason) => {
-		heldBy = reason;
-	} });
+	return Object.assign(observe, {
+		renameCurrent: (opener) => {
+			const current = registryView(catalog, {
+				pageUrl: location.href,
+				state: observed,
+				address,
+				role: observedRole
+			}).current;
+			if (current.reference) rename(current.reference, opener);
+			else openAdd(current.url, opener);
+		},
+		watch: (listener) => {
+			listeners.add(listener);
+			listener(registryView(catalog, {
+				pageUrl: location.href,
+				state: observed,
+				address,
+				role: observedRole
+			}));
+			return () => listeners.delete(listener);
+		},
+		blockedBy: (reason) => {
+			(shell ?? void 0)?.holdNavigation?.(reason);
+			heldBy = reason;
+		}
+	});
 }
+var service_commands_default = {
+	status: "tmt remote status --layers",
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json"
+};
 //#endregion
 //#region src/firestore.ts
+/** Strict browser projection of the existing Remote readiness table; no provider I/O. */
 var firestoreTitles = {
 	sharing: "Page sharing",
-	operations: "Operation sync",
-	attachments: "Attachment storage"
+	operations: "Colab sync",
+	attachments: "File storage (paid add-on)"
 };
 var firestoreItems = {
 	project: "Project",
@@ -2187,6 +2246,8 @@ var firestoreItems = {
 	quota: "Free-plan quota",
 	support: "Availability in this release"
 };
+/** Copy-only references; the browser never submits these commands. */
+var serviceCommands = Object.freeze(service_commands_default);
 var firestoreReasons = {
 	project: {
 		"not-configured": ["No Firebase project is set up.", true],
@@ -2233,6 +2294,34 @@ var firestoreReasons = {
 	support: { "not-implemented": ["This isn't available in this release yet.", false] }
 };
 //#endregion
+//#region src/command-copy.ts
+/** A terminal reference with best-effort Copy and inline status; it never executes the command. */
+function commandCopy(text) {
+	const command = document.createElement("div");
+	command.className = browserUiClasses.command;
+	const code = document.createElement("code");
+	code.className = browserUiClasses.commandText;
+	code.textContent = text;
+	const copy = document.createElement("button");
+	copy.className = browserUiClasses.commandCopy;
+	copy.type = "button";
+	copy.setAttribute("aria-label", `Copy ${text}`);
+	copy.append(createIcon("copy"), "Copy");
+	const feedback = document.createElement("span");
+	feedback.className = browserUiClasses.commandFeedback;
+	feedback.setAttribute("role", "status");
+	copy.addEventListener("click", async () => {
+		try {
+			await navigator.clipboard.writeText(text);
+			feedback.textContent = "Copied.";
+		} catch {
+			feedback.textContent = "Copy failed. Select the command and copy it manually.";
+		}
+	});
+	command.append(code, copy, feedback);
+	return command;
+}
+//#endregion
 //#region src/firestore-page.ts
 /** Read-only settings presentation; all evidence was validated on the signed SDK lane. */
 var states = {
@@ -2262,11 +2351,6 @@ function node(tag, text = "") {
 	element.textContent = text;
 	return element;
 }
-function command(text) {
-	const code = node("code", text);
-	code.className = "tmt-ui-code";
-	return code;
-}
 function mark(state) {
 	const [icon, text, tone] = states[state];
 	const label = node("span");
@@ -2289,27 +2373,94 @@ function allowance(amount, bytes, period) {
 	}
 	return `${written}${period ? ` per ${period}` : ""}`;
 }
+function link(text, href) {
+	const anchor = node("a", text);
+	anchor.href = href;
+	anchor.target = "_blank";
+	anchor.rel = "noopener noreferrer";
+	return anchor;
+}
+function checks() {
+	const section = node("section");
+	section.className = "firestore-layer";
+	section.setAttribute("aria-label", "Checks before an update");
+	section.append(node("h3", "Before an update"));
+	const rows = [
+		{
+			id: "version",
+			title: "Deployed version and required version",
+			detail: "Version comparison is not available here. Check this Remote’s setup in this machine’s terminal before upgrading.",
+			command: serviceCommands.status
+		},
+		{
+			id: "changes",
+			title: "What will change",
+			detail: "No deployment plan has been checked here. Preview the exact changes in this machine’s terminal.",
+			command: serviceCommands.preview
+		},
+		{
+			id: "permissions",
+			title: "Account permissions",
+			detail: "Permissions have not been checked here. Use the Firebase account that manages the project in this machine’s terminal to check them.",
+			command: serviceCommands.preview
+		}
+	];
+	for (const row of rows) {
+		const item = node("section");
+		item.dataset.serviceCheck = row.id;
+		const title = node("h4", `${row.title}: `);
+		title.append(mark("unknown"));
+		item.append(title, node("p", row.detail), commandCopy(row.command));
+		section.append(item);
+	}
+	section.append(node("p", "Replace <project-id> and <region> with your Firebase project and its region. The preview command does not authorize deployment."));
+	return section;
+}
+function guidance() {
+	const section = node("section");
+	section.className = "firestore-layer";
+	section.append(node("h3", "Where to check and make changes"));
+	const steps = node("ol");
+	const consoleStep = node("li", "In the provider console, choose your Firebase project. Review its sign-in, database rules and usage. ");
+	consoleStep.append(link("Open Firebase console", "https://console.firebase.google.com/"));
+	const permissionStep = node("li", "In the provider console, open Project settings → Users and permissions. Ask the project administrator for missing access. ");
+	permissionStep.append(link("Firebase roles and permissions", "https://firebase.google.com/docs/projects/iam/roles"));
+	steps.append(node("li", "In this machine’s terminal, install the Firebase CLI and sign in with the account that manages the project."), consoleStep, node("li", "In this machine’s terminal, copy the preview command above to review changes and check permissions. Review and authorize any deployment there."), permissionStep, node("li", "After you act in the terminal or provider console, return here and use Refresh values. That rechecks this machine’s saved setup facts; it does not run a live provider check."));
+	section.append(steps);
+	return section;
+}
+function paidStorage() {
+	const paid = node("p", "Paid Firebase Blaze usage and separate consent are required when file storage becomes available. ");
+	paid.append(link("Firebase pricing plans", "https://firebase.google.com/docs/projects/billing/firebase-pricing-plans"));
+	return paid;
+}
+function futureServices(includeStorage = false) {
+	const section = node("section");
+	section.className = "firestore-layer";
+	section.setAttribute("aria-label", "Other services");
+	section.append(node("h3", "Other services"));
+	if (includeStorage) section.append(node("p", "File storage (paid add-on) — Not available in this release."), paidStorage());
+	section.append(node("p", "Cloudflare — Coming soon."));
+	return section;
+}
 var painted = /* @__PURE__ */ new WeakMap();
 function renderFirestore(target, access, view) {
 	const projection = JSON.stringify([access, view]);
 	if (painted.get(target) === projection) return;
 	painted.set(target, projection);
 	const announcement = document.getElementById("firestore-announcement");
-	const summary = access === "checking" ? "" : access !== "confirmed" || !view ? "Firestore setup could not be confirmed." : !view.firestoreLayers.length ? "Firestore is not configured." : view.firestoreLayers.map((layer) => `${firestoreTitles[layer.layer]}: ${layer.prerequisites.some((item) => item.item === "support" && item.reason === "not-implemented") ? "Not available in this release" : states[layer.state][1]}.`).join(" ");
+	const summary = access === "checking" ? "" : access !== "confirmed" || !view ? "Service status could not be confirmed." : !view.firestoreLayers.length ? "Firestore is not configured." : view.firestoreLayers.map((layer) => `${firestoreTitles[layer.layer]}: ${layer.prerequisites.some((item) => item.item === "support" && item.reason === "not-implemented") ? "Not available in this release" : states[layer.state][1]}.`).join(" ");
 	if (summary && announcement.textContent !== summary) announcement.textContent = summary;
 	target.replaceChildren();
 	if (access !== "confirmed" || !view) {
-		target.append(node("p", access === "checking" ? "Checking recorded Firestore setup…" : "Firestore setup could not be confirmed."));
-		if (access !== "checking") {
-			const hint = node("p", "Check with ");
-			hint.append(command("tmt remote status --layers"), document.createTextNode(" on the machine that runs Remote."));
-			target.append(hint);
-		}
+		target.append(node("p", access === "checking" ? "Checking service status…" : "Service status could not be confirmed."));
+		if (access !== "checking") target.append(checks(), guidance(), futureServices(true));
 		target.dataset.tone = access === "checking" ? "waiting" : "blocked";
 		return;
 	}
 	target.dataset.tone = "review";
-	if (!view.firestoreLayers.length) target.append(node("p", "Firestore is not configured."));
+	target.append(node("p", view.firestoreLayers.length ? "Cloud service: Firebase (Firestore)." : "Firestore is not configured."));
+	target.append(node("p", "These setup facts come from this machine. They are not a live check of your Firebase project."));
 	for (const layer of view.firestoreLayers) {
 		const group = node("section");
 		group.className = "firestore-layer";
@@ -2318,6 +2469,7 @@ function renderFirestore(target, access, view) {
 		if (layer.prerequisites.some((p) => p.item === "support" && p.reason === "not-implemented")) {
 			const line = node("h3", `${title} — Not available in this release.`);
 			group.append(line);
+			if (layer.layer === "attachments") group.append(paidStorage());
 		} else {
 			const heading = node("h3", `${title} `);
 			heading.append(mark(layer.state));
@@ -2331,9 +2483,8 @@ function renderFirestore(target, access, view) {
 				if (item.reason) row.append(node("p", firestoreReasons[item.item][item.reason][0]));
 				if (item.next) {
 					const nextLine = firestoreReasons[item.item][item.reason][2];
-					const hint = node("p", nextLine ?? "Next command on the machine that runs Remote: ");
-					if (!nextLine) hint.append(command(item.next));
-					row.append(hint);
+					const hint = node("p", nextLine ?? "Run this in this machine’s terminal:");
+					row.append(hint, commandCopy(item.next));
 				}
 				list.append(row);
 			}
@@ -2342,6 +2493,7 @@ function renderFirestore(target, access, view) {
 		}
 		target.append(group);
 	}
+	target.append(checks(), guidance(), futureServices(!view.firestoreLayers.some((layer) => layer.layer === "attachments")));
 	const details = node("details");
 	details.id = "firestore-budget";
 	details.className = browserUiClasses.disclosure;
@@ -2543,7 +2695,7 @@ var ManagementPage = class {
 			const intent = this.intent;
 			this.notice = intent?.kind === "setting" ? intent.input.setting === "open" ? "Browser opening saved." : "Session limit saved. Applies to new sessions." : intent?.kind === "rename" ? "Device renamed." : intent?.kind === "talk" ? intent.input.enabled ? "Sending enabled for this device." : "Sending disabled for this device." : intent?.kind === "remove-others" ? "The other devices were removed. This browser stays connected." : "Device removed.";
 			if (this.outcome.sessionEnded) this.notice += " This session ended. Use the local CLI to continue.";
-		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The saved value is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check the saved value before making another change.";
+		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The saved value is still unconfirmed. Check with tmt remote settings or tmt remote members." : "This change could not be confirmed. Check the saved value before making another change.";
 		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_DEVICE_LIST_CHANGED" ? "The device list changed. Review it, then confirm again." : this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI to make changes." : "Change refused. Check the current values or use the local CLI.";
 	}
 };
@@ -2593,10 +2745,10 @@ function createBusyMarkGate(onChange) {
 }
 //#endregion
 //#region src/settings-page.ts
-/** The Remote settings views (`/remote/devices`, `/machine`, `/settings`): run once per mount of
+/** The Remote management tabs (Members, My devices, Settings and Service & upgrade): run once per mount of
 * their markup. This bundle is loaded apart from the SDK, so the app hands it its part of the
 * shell and the route's one remotes controller. */
-async function settingsPage(shell, registry) {
+async function settingsPage(shell, registry, initial) {
 	function element(id) {
 		const found = document.getElementById(id);
 		if (!found) throw new Error(`Settings page lacks #${id}.`);
@@ -2710,7 +2862,7 @@ async function settingsPage(shell, registry) {
 		if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
 	});
 	function syncBusyMark() {
-		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher")) markSlot(button);
+		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked")) markSlot(button);
 		busyMark.set(page.busy);
 	}
 	function saveState(form, hint, changed, valid) {
@@ -2805,13 +2957,13 @@ async function settingsPage(shell, registry) {
 		element("read-only").hidden = editable || page.access !== "live";
 		const designation = element("designation-command");
 		designation.hidden = editable || page.access !== "live";
-		if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
+		if (!designation.hidden) element("designation-code").textContent = `tmt remote members designate ${page.clientId}`;
 		element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
 		const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check the saved value first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
 		element("controls-reason").textContent = reason;
 		element("controls-reason").hidden = !reason;
 		for (const button of document.querySelectorAll("button")) {
-			if (button.closest("#remotes, #remote-head, #remote-switcher")) continue;
+			if (button.closest("#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked")) continue;
 			if (reason) button.setAttribute("aria-describedby", "controls-reason");
 			else button.removeAttribute("aria-describedby");
 			button.setAttribute("aria-busy", String(page.busy));
@@ -3019,6 +3171,18 @@ async function settingsPage(shell, registry) {
 				}
 			}
 		}
+		const currentView = shell ? remoteItem(location.pathname)?.id : void 0;
+		const ownName = document.getElementById("current-browser-name");
+		for (const device of page.devices?.devices ?? []) {
+			const row = rows.get(device.clientId);
+			if (!row) continue;
+			const destination = currentView === "settings" && device.thisBrowser && ownName ? ownName : devices;
+			if (row.parentElement !== destination) destination.append(row);
+			row.hidden = (currentView === "my-devices" || currentView === "settings") && !device.thisBrowser;
+			for (const action of row.querySelectorAll("[data-action]")) action.hidden = currentView === "settings";
+		}
+		const ownMissing = document.getElementById("current-browser-name-missing");
+		if (ownMissing) ownMissing.hidden = !!page.devices?.devices.some((device) => device.thisBrowser);
 		renderOutcome();
 		syncBusyMark();
 	}
@@ -3122,7 +3286,7 @@ async function settingsPage(shell, registry) {
 	}
 	element("copy-designation").addEventListener("click", () => {
 		if (page.access !== "live") return;
-		navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(() => {
+		navigator.clipboard.writeText(`tmt remote members designate ${page.clientId}`).then(() => {
 			element("designation-copy-feedback").textContent = "Copied.";
 		}, () => {
 			element("designation-copy-feedback").textContent = "Copy failed. Select the command and copy it manually.";
@@ -3170,14 +3334,20 @@ async function settingsPage(shell, registry) {
 	more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null, more));
 	first.addEventListener("click", () => navigate(null, first));
 	for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
-	try {
-		let session = await reopenSession();
+	if (shell) window.addEventListener("popstate", () => {
+		if (page) render();
+	}, { signal: shell?.signal });
+	async function initialize(session) {
+		if (page) return;
+		shell?.observedSession?.(session);
 		page = new ManagementPage(management(session), async () => {
 			session = await reopenSession(session, { retry: "bounded" });
+			shell?.observedSession?.(session);
 			return management(session);
 		});
 		await run(() => refreshView());
-	} catch (error) {
+	}
+	function unavailable(error, report = true) {
 		const capacity = capacityCopy(error instanceof RefusalError ? error : void 0);
 		const ended = error instanceof RefusalError && [
 			"REMOTE_DEVICE_REVOKED",
@@ -3187,11 +3357,26 @@ async function settingsPage(shell, registry) {
 		].includes(error.code);
 		commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."));
 		element("access-announcement").textContent = capacity ?? (ended ? "Access ended" : "Access unconfirmed");
-		registryState(error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code) ? "Access ended" : "Unconfirmed");
+		const verifiedEnded = error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code);
+		if (report) registryState(verifiedEnded ? "Access ended" : "Unconfirmed");
 		refresh.disabled = true;
 		element("access-notice").dataset.tone = "blocked";
 		element("controls-reason").textContent = capacity ?? "Current access is unavailable. Use the local CLI.";
 	}
+	try {
+		if (shell && !initial) unavailable(void 0, false);
+		else await initialize(initial ?? await reopenSession());
+	} catch (error) {
+		unavailable(error);
+	}
+	return (session) => {
+		if (shell?.signal.aborted) return;
+		if (page && management(session).clientId !== page.clientId) {
+			registryState("Unconfirmed", void 0, null);
+			return;
+		}
+		if (!page) initialize(session).catch(unavailable);
+	};
 }
 //#endregion
 export { settingsPage };

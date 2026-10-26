@@ -2828,6 +2828,7 @@ dependencies = [
  "tmt-cli-style",
  "tmt-extension-state",
  "tmt-invoke",
+ "tmt-pty-protocol",
  "tmt-test-support",
  "tmt-tui",
  "toml_edit",
@@ -2901,6 +2902,7 @@ dependencies = [
  "tmt-cli-style",
  "unicode-segmentation",
  "unicode-width",
+ "vt100",
 ]
 
 [[package]]

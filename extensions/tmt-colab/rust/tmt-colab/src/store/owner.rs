@@ -481,9 +481,58 @@ impl OwnerTransaction<'_> {
         )?;
         Ok(true)
     }
-    /// Create, rename or delete one project in the transaction. Create is idempotent; renaming onto
-    /// an existing name merges the two; deleting removes the grouping and never a page. A project
-    /// that does not exist cannot be renamed or deleted.
+    /// The owner's pinned projects in order, and whether the owner has written the list. Until then
+    /// the effective list is the automatic default (`projects::automatic_pins`), computed with the
+    /// page list.
+    pub fn project_pins(&self) -> Result<(bool, Vec<String>)> {
+        let chosen: bool =
+            self.tx
+                .query_row("SELECT EXISTS(SELECT 1 FROM project_pin_choice)", [], |r| {
+                    r.get(0)
+                })?;
+        let mut query = self
+            .tx
+            .prepare("SELECT name FROM project_pins ORDER BY seq")?;
+        let names = query
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok((chosen, names))
+    }
+    /// Replace the whole pinned-project list and mark it the owner's. Every name is valid, exists
+    /// and appears once (else invalid); more than `SPACE_PROJECT_PINS` is a capacity refusal, never
+    /// a dropped pin. The empty list is a choice too.
+    fn set_project_pins(&mut self, names: &[String]) -> Result<()> {
+        let mut seen = std::collections::BTreeSet::new();
+        for name in names {
+            let exists: bool = self.tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM projects WHERE name=?)",
+                [name],
+                |r| r.get(0),
+            )?;
+            if !crate::projects::valid(name) || !exists || !seen.insert(name.as_str()) {
+                return Err(OwnerFault::Invalid.into());
+            }
+        }
+        if names.len() > crate::limits::SPACE_PROJECT_PINS {
+            return Err(OwnerFault::Capacity.into());
+        }
+        self.tx.execute("DELETE FROM project_pins", [])?;
+        for (place, name) in names.iter().enumerate() {
+            self.tx.execute(
+                "INSERT INTO project_pins(name,seq) VALUES (?,?)",
+                params![name, place as i64 + 1],
+            )?;
+        }
+        self.tx.execute(
+            "INSERT OR IGNORE INTO project_pin_choice(chosen) VALUES (1)",
+            [],
+        )?;
+        Ok(())
+    }
+    /// Create, rename or delete one project in the transaction, or replace the pinned-project list.
+    /// Create is idempotent; renaming onto an existing name merges the two (a pin moves with the
+    /// name, a merge keeping the earlier place); deleting removes the grouping and its pin and never
+    /// a page. A project that does not exist cannot be renamed or deleted.
     pub fn manage_project(&mut self, change: &crate::projects::Change) -> Result<()> {
         use crate::projects::{Change, valid};
         let exists = |name: &str| -> Result<bool> {
@@ -512,6 +561,12 @@ impl OwnerTransaction<'_> {
                         SELECT page,? FROM page_projects WHERE project=?",
                     params![to, from],
                 )?;
+                self.tx.execute(
+                    "INSERT INTO project_pins(name,seq)
+                        SELECT ?,seq FROM project_pins WHERE name=?
+                        ON CONFLICT(name) DO UPDATE SET seq=MIN(project_pins.seq,excluded.seq)",
+                    params![to, from],
+                )?;
                 self.remove_project(from)?;
             }
             Change::Delete(name) => {
@@ -520,10 +575,13 @@ impl OwnerTransaction<'_> {
                 }
                 self.remove_project(name)?;
             }
+            Change::Pins(names) => self.set_project_pins(names)?,
         }
         Ok(())
     }
     fn remove_project(&self, name: &str) -> Result<()> {
+        self.tx
+            .execute("DELETE FROM project_pins WHERE name=?", [name])?;
         self.tx
             .execute("DELETE FROM page_projects WHERE project=?", [name])?;
         self.tx

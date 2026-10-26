@@ -205,6 +205,7 @@ function answers(list: ThreadView[], existing = false, texts = ['Only the API', 
 function discussion(fail: ReadonlySet<string> = new Set()) {
   const calls: {
     kind: 'reply' | 'create';
+    questionId?: string;
     body: string;
     attach?: MessageAttachments;
   }[] = [];
@@ -215,8 +216,9 @@ function discussion(fail: ReadonlySet<string> = new Set()) {
       body: string,
       revision?: string,
       attach?: MessageAttachments,
+      questionId?: string,
     ) {
-      calls.push({ kind: 'reply', body, attach });
+      calls.push({ questionId, kind: 'reply', body, attach });
       if ([...fail].some((part) => body.includes(part))) throw new Error('refused');
       return {
         thread,
@@ -225,8 +227,13 @@ function discussion(fail: ReadonlySet<string> = new Set()) {
         messageRevision: '1',
       } satisfies CommentContext;
     },
-    async create(body: string, _anchor?: unknown, attach?: MessageAttachments) {
-      calls.push({ kind: 'create', body, attach });
+    async create(
+      body: string,
+      _anchor?: unknown,
+      attach?: MessageAttachments,
+      questionId?: string,
+    ) {
+      calls.push({ questionId, kind: 'create', body, attach });
       if ([...fail].some((part) => body.includes(part))) throw new Error('refused');
       return {
         thread: { writer: ME, id: id(80 + calls.length) },
@@ -432,7 +439,14 @@ it('an answered question replies in its own thread, with that thread’s earlier
     { ...base, answers: answers(list.slice(0, 1), true), recipients: recipients('alpha') },
     [],
   );
-  expect(calls).toEqual([{ kind: 'reply', body: answerBody(questions[0], 'Only the API') }]);
+  expect(calls).toEqual([
+    {
+      kind: 'reply',
+      body: answerBody(questions[0], 'Only the API'),
+      questionId: 'q1',
+      attach: undefined,
+    },
+  ]);
   expect(prepared[0].context?.conversation).toEqual(earlier);
 });
 
@@ -524,6 +538,7 @@ it('an answer’s files upload under its own message and go with its one comment
   if ('refused' in result) throw new Error('unexpected refusal');
   expect(result.answers.map((value) => value.state)).toEqual(['recorded', 'recorded', 'recorded']);
   expect(calls.map((call) => call.attach?.messageId)).toEqual(['m1', undefined, undefined]);
+  expect(calls.map((call) => call.questionId)).toEqual(['q1', 'q2', 'q3']);
   expect(withFiles.committed).toHaveBeenCalledTimes(1);
   expect(none.committed).toHaveBeenCalledTimes(1);
 });

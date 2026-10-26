@@ -28,6 +28,13 @@ export interface BrowserShellProps {
   commonControls?: ShellCommonControls;
 }
 
+const TopBarReady = createContext<(() => boolean) | null>(null);
+
+/** Read readiness for this render; the root installs controls before mounting its routes. */
+export function useTopBarReady(): boolean {
+  return useContext(TopBarReady)?.() ?? false;
+}
+
 const TopBar = createContext<(() => ShellTopBar) | null>(null);
 
 export interface BrowserTopBarProps {
@@ -86,6 +93,7 @@ export function BrowserShell({ view, select, children, commonControls }: Browser
     controls.current?.setCommonControls(commonControls);
   }, [commonControls]);
   const adopt = useMemo(() => () => controls.current!.setTopBar(), []);
+  const ready = useMemo(() => () => controls.current?.topBarReady() ?? false, []);
   return (
     <div ref={root} className="tmt-ui-shell">
       <div className="tmt-ui-shell-content">
@@ -99,7 +107,9 @@ export function BrowserShell({ view, select, children, commonControls }: Browser
               so a host header portals into them from its first mount and is never remounted. */}
           <ShellBar value={bar}>
             <ShellToolsContext.Provider value={tools}>
-              <TopBar.Provider value={adopt}>{bar && tools ? children : null}</TopBar.Provider>
+              <TopBarReady.Provider value={ready}>
+                <TopBar.Provider value={adopt}>{bar && tools ? children : null}</TopBar.Provider>
+              </TopBarReady.Provider>
             </ShellToolsContext.Provider>
           </ShellBar>
         </div>
@@ -126,7 +136,9 @@ export function HostedShell({ slot, menu, select, children }: HostedShellProps) 
   return (
     <ShellBar value={slot.bar}>
       <ShellToolsContext.Provider value={slot.tools}>
-        <TopBar.Provider value={slot.setTopBar}>{children}</TopBar.Provider>
+        <TopBarReady.Provider value={slot.topBarReady}>
+          <TopBar.Provider value={slot.setTopBar}>{children}</TopBar.Provider>
+        </TopBarReady.Provider>
       </ShellToolsContext.Provider>
     </ShellBar>
   );

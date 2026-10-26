@@ -93,7 +93,15 @@ fn seat_spent(seat: &Seat, now: u64) -> Option<Spent> {
 fn rows(app: &App, now: u64) -> Vec<Row> {
     let spent = spent(app, now);
     app.limits.as_deref().map_or_else(Vec::new, |standings| {
-        crate::board::limits::rows(standings, now, &|provider| spent.get(provider).copied())
+        // Tokens are counted per driver, never per account: with several accounts of one driver
+        // there is no honest per-account spend, and one account reads as the plain driver.
+        crate::board::limits::rows(standings, now, &|provider| {
+            if provider.names_account() {
+                None
+            } else {
+                spent.get(&provider.plain()).copied()
+            }
+        })
     })
 }
 

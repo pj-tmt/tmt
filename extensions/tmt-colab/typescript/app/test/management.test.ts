@@ -7,6 +7,7 @@ import {
   managementLog,
   newLink,
   project,
+  projectPolicies,
   selectionBytes,
   type Pending,
   type Selection,
@@ -102,6 +103,7 @@ async function fixture() {
     owner: hex(v.public),
     revision: '2',
     projects: [],
+    projectPins: { names: [], automatic: true },
     pages: [page],
     pageIds: [{ pageId: page.pageId, deleted: false }],
   };
@@ -349,6 +351,7 @@ function serve(f: Awaited<ReturnType<typeof fixture>>) {
           ownerKey: c.encodeBinary(f.boot.owner),
           revision: String(f.log.at(-1)!.head.revision),
           projects: f.boot.projects,
+          projectPins: f.boot.projectPins,
           pages: f.boot.pages,
           pageIds: [...knownIds].sort().map((pageId) => ({
             pageId,
@@ -675,4 +678,50 @@ it('restores only an archived page through signed preparation and verified log r
       value: { pageId: v.page },
     }),
   ).rejects.toThrow();
+});
+
+it('projects every page policy in one pass over the signed log, exactly as one page at a time', async () => {
+  const f = await fixture();
+  const other = { ...page, pageId: crypto.randomUUID(), epoch: '3' };
+  const gone = { ...page, pageId: crypto.randomUUID() };
+  const quiet = { ...page, pageId: crypto.randomUUID() };
+  await f.append('page.share', { pageId: other.pageId, mode: 'link', epoch: '4' });
+  await f.append('page.history', { pageId: other.pageId, mode: 'current' });
+  await f.append('retention.set', { pageId: v.page, days: 7 });
+  await f.append('page.archive', { pageId: v.page });
+  await f.append('retention.set', { pageId: other.pageId, days: null });
+  await f.append('page.delete', { pageId: gone.pageId });
+  const pages = [page, other, gone, quiet];
+  let walks = 0;
+  const counted = new Proxy(f.log, {
+    get(target, key, receiver) {
+      if (key === Symbol.iterator) walks++;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const policies = projectPolicies(pages, counted);
+  expect(walks).toBe(1);
+  expect([...policies.keys()]).toEqual(pages.map((entry) => entry.pageId));
+  for (const entry of pages) {
+    expect(policies.get(entry.pageId)).toEqual(project(entry, f.log, f.boot.owner).page);
+  }
+  expect(policies.get(v.page)).toMatchObject({ archived: true, retentionDays: 7 });
+  expect(policies.get(other.pageId)).toMatchObject({
+    sharing: 'link',
+    history: 'current',
+    epoch: '4',
+    retentionDays: null,
+  });
+  expect(policies.get(gone.pageId)).toMatchObject({ deleted: true });
+  expect(policies.get(quiet.pageId)).toMatchObject({ sharing: 'private', retentionDays: 30 });
+  // An unarchive with nothing archived is not a chain this projection will admit.
+  await f.append('page.unarchive', { pageId: quiet.pageId });
+  expect(() => projectPolicies(pages, f.log)).toThrow();
+  expect(() => project(quiet, f.log, f.boot.owner)).toThrow();
+});
+
+it('projectPolicies reads no chain for a space with no page to project', () => {
+  // An empty space, or Home after the last page's deletion is still unconfirmed, has no log to
+  // fold; nothing asks for a policy, so nothing is refused.
+  expect(projectPolicies([], []).size).toBe(0);
 });

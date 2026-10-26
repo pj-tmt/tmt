@@ -31,6 +31,10 @@ pub enum Invocation {
     Version,
     Api,
     ConsumptionSample,
+    /// The first-party Claude mod hands over the rate-limit windows it measured (#5187).
+    AllowancePush {
+        provider: String,
+    },
     /// Agent-facing local stdio MCP tools bound to one saved identity.
     Mcp {
         identity: String,
@@ -164,6 +168,7 @@ pub enum Invocation {
         target: String,
         lines: Option<u64>,
         capture_only: bool,
+        expect_name: Option<String>,
     },
     /// An identity name, or a pane target (for example a previous `from`).
     Focus {
@@ -271,9 +276,12 @@ pub enum Invocation {
     },
     NativeRefreshIntegrations,
     NativeRenameDatabase,
+    NativeCompactDatabase,
+    Storage,
     NativeUpgradeExtensions {
         plan: bool,
         progress: bool,
+        complete: bool,
     },
     Uninstall {
         purge: bool,
@@ -534,6 +542,10 @@ pub struct ListScope {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchOperation {
+    Write {
+        operation: OrchWriteOperation,
+        yes: bool,
+    },
     Overview {
         range_days: u8,
         at: Option<String>,
@@ -554,5 +566,22 @@ pub enum OrchOperation {
         subject: String,
         before: Option<u64>,
         limit: u16,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrchWriteOperation {
+    AddPlan {
+        file: std::path::PathBuf,
+    },
+    SetPlan {
+        plan: String,
+        file: std::path::PathBuf,
+    },
+    RemovePlan {
+        plan: String,
+    },
+    Focus {
+        member: String,
+        duration_ms: Option<u64>,
     },
 }

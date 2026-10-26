@@ -30,6 +30,63 @@ async function seedDiagnostic(fixture: E2EFixture, message: string): Promise<voi
 }
 
 describe('recorded-recipient diagnostic routing', { concurrent: false }, () => {
+  it('pins a capture-only UUID and refuses a renamed or retired name before capture', async () => {
+    await withE2EFixture(async (fixture) => {
+      expect(await fixture.runJsonCli(['name', '-s', 'Alice'])).toMatchObject({ code: 0 });
+      const shown = await fixture.runJsonCli<{ identity: { id: string } }>([
+        'identity',
+        'show',
+        'Alice',
+      ]);
+      expect(shown).toMatchObject({ code: 0, json: { identity: { id: expect.any(String) } } });
+      const id = shown.json!.identity.id;
+      await seedDiagnostic(fixture, 'pinned-capture-marker');
+      const trace = installTmuxTrace(fixture);
+      const capture = (name: string) =>
+        fixture.runJsonCli<Capture>([
+          'read',
+          id,
+          '--capture-only',
+          '--expect-name',
+          name,
+          '--lines=0',
+        ]);
+      expect(await capture('aLiCe')).toMatchObject({
+        code: 0,
+        json: {
+          target: id,
+          pane: fixture.pane,
+          lines: 0,
+          output: expect.stringContaining('pinned-capture-marker'),
+        },
+      });
+      expect(trace.commands().filter((command) => command === 'capture-pane')).toHaveLength(1);
+      expect(await fixture.runJsonCli(['mv', 'Alice', 'Reviewer'])).toMatchObject({ code: 0 });
+      expect(await fixture.runJsonCli(['identity', 'create', 'Alice'])).toMatchObject({ code: 0 });
+      trace.clear();
+      expect(await capture('Alice')).toMatchObject({
+        code: 5,
+        json: { error: { code: 'IDENTITY_CHANGED' } },
+      });
+      expect(trace.commands()).not.toContain('capture-pane');
+      expect(trace.commands()).not.toContain('send-keys');
+      expect(trace.commands()).not.toContain('paste-buffer');
+      expect(await capture('Reviewer')).toMatchObject({
+        code: 0,
+        json: { pane: fixture.pane, identity: { name: 'Reviewer' } },
+      });
+      expect(await fixture.runJsonCli(['rm', '--force', 'Reviewer'])).toMatchObject({ code: 0 });
+      trace.clear();
+      expect(await capture('Reviewer')).toMatchObject({
+        code: 5,
+        json: { error: { code: 'IDENTITY_CHANGED' } },
+      });
+      expect(trace.commands()).not.toContain('capture-pane');
+      expect(trace.commands()).not.toContain('send-keys');
+      expect(trace.commands()).not.toContain('paste-buffer');
+    }, inputLog);
+  });
+
   it('captures names, stable panes and tmux targets with configured and explicit line counts', async () => {
     await withE2EFixture(async (fixture) => {
       expect(await fixture.runJsonCli(['name', 'Alice'])).toMatchObject({
@@ -225,6 +282,7 @@ describe('recorded-recipient diagnostic routing', { concurrent: false }, () => {
         expect(await first.runJsonCli(['name', 'Foreign'])).toMatchObject({ code: 0 });
         await seedDiagnostic(first, 'recorded-socket-only');
         const serverId = JSON.parse(first.paneMetadata()).globalIdentity.serverId;
+        const identityId = JSON.parse(first.paneMetadata()).globalIdentity.identityId;
         await withE2EFixture(
           async (second) => {
             expect(second.pane).toBe(first.pane);
@@ -235,18 +293,22 @@ describe('recorded-recipient diagnostic routing', { concurrent: false }, () => {
             });
             const before = durableState(first);
             const trace = installTmuxTrace(second);
-            const result = await second.runJsonCli<Capture>(['check', 'Foreign'], {
-              outsideTmux: true,
-            });
-            expect(result).toMatchObject({
-              code: 0,
-              stderr: '',
-              json: { pane: first.pane, output: expect.stringContaining('recorded-socket-only') },
-            });
-            const captures = trace.invocations().filter((line) => line.includes('capture-pane'));
-            expect(captures).toHaveLength(1);
-            expect(captures[0]).toContain(first.socketPath);
-            expect(captures[0]).not.toContain(second.socketPath);
+            for (const argv of [
+              ['check', 'Foreign'],
+              ['check', identityId, '--capture-only', '--expect-name', 'foreign'],
+            ]) {
+              trace.clear();
+              const result = await second.runJsonCli<Capture>(argv, { outsideTmux: true });
+              expect(result).toMatchObject({
+                code: 0,
+                stderr: '',
+                json: { pane: first.pane, output: expect.stringContaining('recorded-socket-only') },
+              });
+              const captures = trace.invocations().filter((line) => line.includes('capture-pane'));
+              expect(captures).toHaveLength(1);
+              expect(captures[0]).toContain(first.socketPath);
+              expect(captures[0]).not.toContain(second.socketPath);
+            }
             const after = durableState(first);
             for (const binding of after.bindings) {
               const previous = before.bindings.find((row) => row.id === binding.id)!;

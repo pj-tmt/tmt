@@ -17,7 +17,7 @@ is a duration. `off` disables the member's configured digest mode.
 it back on, by writing `enabled = false` (absent means on, and a fresh install is on).
 While it is off every member is handled as `off`: nothing is held or merged, held
 messages are offered for delivery one by one, and no stored member setting or default is
-read or changed; they apply again when it is on, so a non-auto default survives off and
+changed; they apply again when it is on, so a non-auto default survives off and
 on. The tick keeps running while it is off, so turning it on needs no restart. Both
 commands then start one `tmt digest tick` now, detached, so the change lands without
 waiting for the next minute (a tick that is already running re-reads the settings within
@@ -100,20 +100,20 @@ including members without overrides. Rows are sorted by canonical `identityId`;
 an empty inventory is `members: []`. Names are display text, never action selectors.
 Each row contains:
 
-| Field                        | Definition                                                                                                                                          |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `identityId`, `name`         | Core canonical identity UUID and current display name.                                                                                              |
-| `mode`                       | Resolved `auto`, `interval` or `off`, following [Settings](#settings).                                                                              |
-| `intervalMs`                 | Resolved positive duration in milliseconds for interval mode; null otherwise.                                                                       |
-| `settingSource`              | `default` for inheritance, `member` for a current override.                                                                                         |
-| `settingValue`               | `default` for inheritance; otherwise `auto`, `off` or the current duration, normalized for display/action selection.                                |
-| `setByIdentityId`, `setAtMs` | Current override attribution as defined by Settings; both omitted for inheritance, setter ID omitted when unknown.                                  |
-| `heldCount`                  | Core held count, or null when unavailable; missing evidence is never zero.                                                                          |
-| `statsObservedAtMs`          | Core observation timestamp for the held snapshot, or null when unavailable.                                                                         |
-| `nextSendAtMs`               | Deadline of the oldest held message: the interval, or for `auto` its `maxWait`; null without a known deadline.                                      |
-| `timeToSendMs`               | Zero when the interval flushCount or the auto `maxCount` threshold is reached; otherwise `max(0, nextSendAtMs - observedAtMs)`. Null when unknown.  |
-| `savings`                    | Null without usable history; otherwise the [savings projection](#savings). Unavailable estimates are never zero.                                    |
-| `labels`                     | Ordered ready-made labels defined below.                                                                                                            |
+| Field                        | Definition                                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `identityId`, `name`         | Core canonical identity UUID and current display name.                                                                                             |
+| `mode`                       | Resolved `auto`, `interval` or `off`, following [Settings](#settings).                                                                             |
+| `intervalMs`                 | Resolved positive duration in milliseconds for interval mode; null otherwise.                                                                      |
+| `settingSource`              | `default` for inheritance, `member` for a current override.                                                                                        |
+| `settingValue`               | `default` for inheritance; otherwise `auto`, `off` or the current duration, normalized for display/action selection.                               |
+| `setByIdentityId`, `setAtMs` | Current override attribution as defined by Settings; both omitted for inheritance, setter ID omitted when unknown.                                 |
+| `heldCount`                  | Core held count, or null when unavailable; missing evidence is never zero.                                                                         |
+| `statsObservedAtMs`          | Core observation timestamp for the held snapshot, or null when unavailable.                                                                        |
+| `nextSendAtMs`               | Deadline of the oldest held message: the interval, or for `auto` its `maxWait`; null without a known deadline.                                     |
+| `timeToSendMs`               | Zero when the interval flushCount or the auto `maxCount` threshold is reached; otherwise `max(0, nextSendAtMs - observedAtMs)`. Null when unknown. |
+| `savings`                    | Null without usable history; otherwise the [savings projection](#savings). Unavailable estimates are never zero.                                   |
+| `labels`                     | Ordered ready-made labels defined below.                                                                                                           |
 
 `autoCaps` (`{maxWaitMs, maxCount}`, the caps in force) is an additive field on `auto` rows only.
 
@@ -149,15 +149,31 @@ required fields are unavailable, not guessed defaults.
 window ending now, oldest first, as one document and keeps no state of its own:
 
 ```json
-{"version":1,"since":"24h","fromMs":0,"throughMs":0,"decisions":[
-  {"atMs":0,"identityId":"<uuid>","name":"worker","mode":"interval","intervalMs":20000,
-   "flushCount":10,"rule":"interval_deadline","heldCount":3,"oldestHeldAgeMs":21000,
-   "outcome":"delivered"}]}
+{
+  "version": 1,
+  "since": "24h",
+  "fromMs": 0,
+  "throughMs": 0,
+  "decisions": [
+    {
+      "atMs": 0,
+      "identityId": "<uuid>",
+      "name": "worker",
+      "mode": "interval",
+      "intervalMs": 20000,
+      "flushCount": 10,
+      "rule": "interval_deadline",
+      "heldCount": 3,
+      "oldestHeldAgeMs": 21000,
+      "outcome": "delivered"
+    }
+  ]
+}
 ```
 
-`mode` is `auto`, `off` or `interval`; `intervalMs` is null unless `interval`. `rule`
+`mode` is `auto`, `off`, `interval` or Core-resolved `urgent`; `intervalMs` is null unless `interval`. `rule`
 is one of `interval_deadline`, `flush_count`, `auto_hold`, `auto_cap`, `auto_idle_point`
-(stored rows from before `auto` held messages), `off` or `not_due`;
+(stored rows from before `auto` held messages), `off`, `urgent` or `not_due`;
 `outcome` is Core's answer to the delivery opportunity (`delivered`, `not_idle`,
 `nothing_due`, `unavailable`, `uncertain` or `error`) and is null exactly for
 `not_due`. `name` is null when the roster cannot name the member (retired or Core
@@ -176,14 +192,37 @@ delivers nothing and changes no store. `--recompute` needs `--report`, takes an 
 defaults to the configured `flushCount`.
 
 ```json
-{"version":1,"since":"24h","fromMs":0,"throughMs":0,
- "baseline":"each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway","delayBasis":"settled minus arrival",
- "members":[{"id":"<uuid>","name":"worker","messages":6,"baseline":{"deliveries":6},
-   "actual":{"deliveries":3,"delayMs":{"median":15000,"p90":40000,"max":40000},
-             "byRule":{"interval_deadline":2,"unrecorded":1}},
-   "turnsSaved":3,"excluded":{"notDelivered":0,"incomplete":0,"clock":0},
-   "coverage":{"startsAtMs":0,"collectedThroughMs":0,"complete":true,"gap":null}}],
- "total":{"messages":6,"baseline":{"deliveries":6},"actual":{},"turnsSaved":3,"excluded":{}}}
+{
+  "version": 1,
+  "since": "24h",
+  "fromMs": 0,
+  "throughMs": 0,
+  "baseline": "each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway",
+  "delayBasis": "settled minus arrival",
+  "members": [
+    {
+      "id": "<uuid>",
+      "name": "worker",
+      "messages": 6,
+      "baseline": { "deliveries": 6 },
+      "actual": {
+        "deliveries": 3,
+        "delayMs": { "median": 15000, "p90": 40000, "max": 40000 },
+        "byRule": { "interval_deadline": 2, "unrecorded": 1 }
+      },
+      "turnsSaved": 3,
+      "excluded": { "notDelivered": 0, "incomplete": 0, "clock": 0 },
+      "coverage": { "startsAtMs": 0, "collectedThroughMs": 0, "complete": true, "gap": null }
+    }
+  ],
+  "total": {
+    "messages": 6,
+    "baseline": { "deliveries": 6 },
+    "actual": {},
+    "turnsSaved": 3,
+    "excluded": {}
+  }
+}
 ```
 
 Every output, with or without `--recompute`, carries the baseline (one delivery per
@@ -401,10 +440,19 @@ The price table is one public file in the repository,
 status `pricing` object plus `schema`:
 
 ```json
-{"schema":"tmt-digest-pricing-v1","version":"2026-10-14","asOf":"2026-10-14",
- "basis":"standard-base-input",
- "models":[{"modelId":"claude-opus-5-5","usdMicrosPerMillionInputTokens":4000000,
-            "source":"https://platform.claude.com/docs/en/about-claude/pricing"}]}
+{
+  "schema": "tmt-digest-pricing-v1",
+  "version": "2026-10-14",
+  "asOf": "2026-10-14",
+  "basis": "standard-base-input",
+  "models": [
+    {
+      "modelId": "claude-opus-5-5",
+      "usdMicrosPerMillionInputTokens": 4000000,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    }
+  ]
+}
 ```
 
 - **Built-in table.** Digest embeds these exact bytes; they are the built-in table
@@ -461,6 +509,11 @@ or provider files.
 Each identity's first successful collection atomically records the observed
 sequence/counter as its baseline and start time; prior settlements are excluded.
 This avoids presenting pre-collection activity as lifetime savings.
+
+Incoming summary history carries optional projection/count metadata. Its token,
+context and avoided separate-delivery savings are unavailable (`incoming_summary`),
+while observed successful-delivery counts remain recorded. Full checklist
+estimation is unchanged.
 
 Subsequent terminal events and their cursor/lifetime totals commit in one
 transaction, deduplicated by checklist ID and monotonic settlement sequence.

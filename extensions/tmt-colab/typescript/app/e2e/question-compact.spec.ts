@@ -66,7 +66,7 @@ test('split Send publishes only its own question and keeps another passage draft
   await page.getByLabel('Your answer', { exact: true }).fill('Only this passage is sent.');
   await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
   await expectAnswered(rows.nth(1), 'Only this passage is sent.');
-  await expect(rows.first()).toContainText('Needs your answer');
+  await expect(rows.first()).toContainText('Open');
   const threads = await run(page, 'discussionProof');
   expect(threads).toHaveLength(1);
   expect(threads[0].anchor.exact).toBe('What should the introduction say?');
@@ -138,7 +138,7 @@ test('a split question cannot bypass the recipient read by pressing Enter', asyn
   ).toBeEnabled();
   await answer.press('Enter');
   await expectAnswered(rows.nth(1), 'Keep the directory admission fence.');
-  await expect(rows.first()).toContainText('Needs your answer');
+  await expect(rows.first()).toContainText('Open');
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });
@@ -176,8 +176,9 @@ for (const width of [1440, 390]) {
       await expect(surface).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await row.hover();
     await expect(row).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-    await page.getByRole('button', { name: 'Needs you: 1', exact: true }).click();
-    const menuRow = page.getByRole('menu').locator('.needs-you-header-row');
+    await page.getByRole('button', { name: 'Needs you: 2', exact: true }).click();
+    await expect(page.getByRole('menu').locator('.needs-you-header-row')).toHaveCount(2);
+    const menuRow = page.getByRole('menu').locator('.needs-you-header-row').first();
     const agent = menuRow.locator('.agent-chip-name');
     await expect(agent).toHaveText('Agent 1');
     await expect(agent).toHaveCSS('white-space', 'nowrap');

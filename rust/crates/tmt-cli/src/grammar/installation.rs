@@ -160,7 +160,7 @@ pub(in crate::grammar) fn install(names: Vec<&'static str>) -> Command {
 pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
     general(spec!(
         "setup",
-        "Set up every detected agent: skills and session hooks, after one approval",
+        "Set up detected agents and selected official extensions after one approval",
         [
             "Review and apply what is missing" => "tmt setup",
             "Claude's session and usage hooks" => "tmt setup claude --yes",
@@ -270,7 +270,7 @@ pub(in crate::grammar) fn digest_hook(hooked: Vec<&'static str>) -> Command {
 pub(in crate::grammar) fn upgrade() -> Command {
     general(spec!(
         "upgrade",
-        "Upgrade TMT, managed skills and installed official extensions",
+        "Upgrade TMT and offer missing official integrations",
         [
             "Update to the latest release on your channel" => "tmt upgrade",
             "Switch to the stable channel" => "tmt upgrade --channel stable",
@@ -279,6 +279,7 @@ pub(in crate::grammar) fn upgrade() -> Command {
     ))
     .visible_alias("update")
     .arg(option("yes"))
+    .mut_arg("yes",|arg|arg.help("Install missing official extensions; new provider scopes require interactive approval"))
     .arg(channel_option())
     .arg(option("to"))
     .arg(option("unpin"))
@@ -310,6 +311,15 @@ pub(in crate::grammar) fn uninstall() -> Command {
     )
 }
 
+pub(in crate::grammar) fn allowance_intake(hooked: Vec<&'static str>) -> Command {
+    internal(
+        "__allowance",
+        "Internal bounded intake of provider allowance observations",
+    )
+    .hide(true)
+    .arg(operand("provider", true).value_parser(hooked))
+}
+
 pub(in crate::grammar) fn refresh_skills() -> Command {
     internal("__native-refresh-skills", "Internal managed skill refresh")
         .hide(true)
@@ -322,6 +332,26 @@ pub(in crate::grammar) fn refresh_skills() -> Command {
 
 pub(in crate::grammar) fn rename_database() -> Command {
     internal("__native-rename-database", "Internal Core database rename").hide(true)
+}
+
+pub(in crate::grammar) fn compact_database() -> Command {
+    internal(
+        "__native-compact-database",
+        "Internal Core database compaction",
+    )
+    .hide(true)
+}
+
+pub(in crate::grammar) fn storage_report() -> Command {
+    general(spec!(
+        "storage",
+        "Show what TMT's local stores occupy on disk; changes nothing",
+        details = "Reads file sizes and the Core database's page counts only: it never writes, migrates or locks a store, and a store that does not exist is shown as absent.",
+        [
+            "Show each store's size and free space" => "tmt storage",
+            "Report the same as JSON" => "tmt storage --json",
+        ]
+    ))
 }
 
 pub(in crate::grammar) fn refresh_integrations() -> Command {
@@ -338,6 +368,11 @@ pub(in crate::grammar) fn upgrade_extensions() -> Command {
         "Internal extension upgrade plan/apply",
     )
     .hide(true)
+    .arg(
+        Arg::new("complete")
+            .long("complete")
+            .action(ArgAction::SetTrue),
+    )
     .arg(
         Arg::new("progress")
             .long("progress")

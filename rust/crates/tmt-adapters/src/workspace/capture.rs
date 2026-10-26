@@ -6,7 +6,10 @@ use crate::{
     host::Host,
     process::{CommandRunner, UnixCommandRunner, runtime::ProcessObservation},
 };
-use std::{fs, io, os::unix::fs::MetadataExt, path::Path, time::Instant};
+use std::{
+    cell::Cell, collections::BTreeMap, fmt, fs, io, os::unix::fs::MetadataExt, path::Path,
+    time::Instant,
+};
 use tmt_core::{
     endpoint::{ProcessIncarnation, ServerEvidence},
     host::HostKind,
@@ -127,11 +130,84 @@ pub fn capture_hook(
     )
 }
 
+/// Why an examined record ended without a published generation. A closed set: the report never
+/// carries host text, paths or error strings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureReason {
+    /// The shared acquisition budget was spent, before the callback or inside it.
+    Deadline,
+    /// Another process holds the publication lock.
+    Busy,
+    /// The same server incarnation was attempted less than one period ago.
+    NotDue,
+    /// Coordination or the recorded record is malformed, symlinked or unreadable.
+    Refused,
+    /// The topology was read and nothing changed: the healthy outcome of an unchanged attempt.
+    Unchanged,
+    /// The native incarnation pre-check found the recorded server gone or replaced.
+    ServerNotCurrent,
+    /// The server, socket or incarnation differs after the read.
+    ServerChanged,
+    /// The host read, the parse or the write failed.
+    Failed,
+}
+
+/// `published + sum(reasons)` is the number of examined recognized records. `skipped` keeps its
+/// meaning, records refused before the callback; `reasons` is omitted when empty.
 #[derive(Default, Debug, serde::Serialize)]
 pub struct WorkspaceCaptureReport {
     pub attempted: usize,
     pub published: usize,
     pub skipped: usize,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub reasons: BTreeMap<CaptureReason, usize>,
+}
+
+impl WorkspaceCaptureReport {
+    fn count(&mut self, reason: CaptureReason) {
+        *self.reasons.entry(reason).or_default() += 1;
+    }
+    fn skip(&mut self, reason: CaptureReason) {
+        self.skipped += 1;
+        self.count(reason);
+    }
+}
+
+/// Typed failures of the recorded-server callback, recovered from the `io::Error` that carries them.
+#[derive(Debug)]
+enum ServerFailure {
+    NotCurrent,
+    Changed,
+}
+impl fmt::Display for ServerFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::NotCurrent => "Recorded workspace server is not current.",
+            Self::Changed => "Recorded workspace server changed.",
+        })
+    }
+}
+impl std::error::Error for ServerFailure {}
+impl From<ServerFailure> for io::Error {
+    fn from(failure: ServerFailure) -> Self {
+        Self::other(failure)
+    }
+}
+
+/// An error from the callback, named. A budget that is spent by now explains the failure better
+/// than a pre-check that ran out of it.
+fn failure_reason(error: &io::Error, deadline: Instant) -> CaptureReason {
+    let spent = error.kind() == io::ErrorKind::TimedOut || Instant::now() >= deadline;
+    match error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<ServerFailure>())
+    {
+        Some(ServerFailure::Changed) => CaptureReason::ServerChanged,
+        Some(ServerFailure::NotCurrent) if !spent => CaptureReason::ServerNotCurrent,
+        _ if spent => CaptureReason::Deadline,
+        _ => CaptureReason::Failed,
+    }
 }
 
 /// No socket discovery or server enrollment: only private, previously captured
@@ -144,13 +220,11 @@ pub fn capture_recorded(paths: &ConfigPaths) -> io::Result<WorkspaceCaptureRepor
         Instant::now() + CAPTURE_BUDGET,
         |previous, deadline| {
             if native(previous.process.pid(), deadline).as_ref() != Some(&previous.process) {
-                return Err(io::Error::other(
-                    "Recorded workspace server is not current.",
-                ));
+                return Err(ServerFailure::NotCurrent.into());
             }
             let snapshot = capture_snapshot(paths, &host, &previous.socket, None, None, deadline)?;
             if snapshot.server != *previous {
-                return Err(io::Error::other("Recorded workspace server changed."));
+                return Err(ServerFailure::Changed.into());
             }
             Ok(snapshot)
         },
@@ -181,7 +255,7 @@ fn recorded_with(
             continue;
         }
         if Instant::now() >= deadline {
-            report.skipped += 1;
+            report.skip(CaptureReason::Deadline);
             continue;
         }
         let load = (|| {
@@ -201,31 +275,42 @@ fn recorded_with(
             Ok::<_, io::Error>(snapshot.server)
         })();
         let Ok(previous) = load else {
-            report.skipped += 1;
+            report.skip(CaptureReason::Refused);
             continue;
         };
         let mut attempted = false;
+        let gate = Cell::new(None);
+        let failure = Cell::new(None);
         let published = publish_gated(
             paths,
             &previous.socket,
             |directory| {
                 if Instant::now() >= deadline {
+                    gate.set(Some(CaptureReason::Deadline));
                     return Ok(false);
                 }
-                admit(directory, &previous.process, now_ms)
+                let admitted = admit(directory, &previous.process, now_ms)?;
+                if !admitted {
+                    gate.set(Some(CaptureReason::NotDue));
+                }
+                Ok(admitted)
             },
             |_| true,
             || {
                 attempted = true;
                 report.attempted += 1;
                 capture(&previous, deadline)
+                    .inspect_err(|error| failure.set(Some(failure_reason(error, deadline))))
             },
         );
-        if published.unwrap_or(false) {
-            report.published += 1;
-        }
-        if !attempted {
-            report.skipped += 1;
+        // Exactly one outcome per examined record. A lock held by another process is the one
+        // refusal that reaches neither the admission closure nor the callback.
+        match (published, attempted) {
+            (Ok(true), _) => report.published += 1,
+            (Ok(false), true) => report.count(CaptureReason::Unchanged),
+            (Err(_), true) => report.count(failure.get().unwrap_or(CaptureReason::Failed)),
+            (Ok(false), false) => report.skip(gate.get().unwrap_or(CaptureReason::Busy)),
+            (Err(_), false) => report.skip(CaptureReason::Refused),
         }
     }
     Ok(report)
@@ -247,6 +332,27 @@ mod tests {
         let snapshot = sample();
         publish_event(&paths, &snapshot.server.socket, || Ok(snapshot.clone())).unwrap();
         (root, paths, snapshot)
+    }
+    fn reasons(report: &WorkspaceCaptureReport) -> Vec<(CaptureReason, usize)> {
+        report
+            .reasons
+            .iter()
+            .map(|(reason, count)| (*reason, *count))
+            .collect()
+    }
+    fn failing(reason: CaptureReason, deadline: Instant) -> WorkspaceCaptureReport {
+        let (_root, paths, _) = fixture();
+        recorded_with(&paths, 1, deadline, |_, _| {
+            Err(match reason {
+                CaptureReason::ServerNotCurrent => ServerFailure::NotCurrent.into(),
+                CaptureReason::ServerChanged => ServerFailure::Changed.into(),
+                CaptureReason::Deadline => {
+                    io::Error::new(io::ErrorKind::TimedOut, "Workspace budget exhausted.")
+                }
+                _ => io::Error::other("tmux read failed"),
+            })
+        })
+        .unwrap()
     }
     fn files(directory: &Path) -> Vec<(std::path::PathBuf, Vec<u8>, u64, i64, i64)> {
         let mut entries = fs::read_dir(directory)
@@ -280,6 +386,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!((first.attempted, first.published, first.skipped), (1, 0, 0));
+        assert_eq!(reasons(&first), [(CaptureReason::Unchanged, 1)]);
         assert_eq!(files(&directory), before);
         let stamp = fs::read(directory.join(CADENCE)).unwrap();
         let second = recorded_with(&paths, 39_999, deadline, |_, _| {
@@ -287,12 +394,14 @@ mod tests {
         })
         .unwrap();
         assert_eq!((second.attempted, second.skipped), (0, 1));
+        assert_eq!(reasons(&second), [(CaptureReason::NotDue, 1)]);
         assert_eq!(fs::read(directory.join(CADENCE)).unwrap(), stamp);
         assert_eq!(files(&directory), before);
         snapshot.windows[0].name = "changed".into();
         snapshot.captured_at_ms = 40_000;
         let changed = recorded_with(&paths, 40_000, deadline, |_, _| Ok(snapshot.clone())).unwrap();
         assert_eq!((changed.attempted, changed.published), (1, 1));
+        assert!(changed.reasons.is_empty());
         snapshot.server.process = ProcessIncarnation::new(11, "new-native-start").unwrap();
         snapshot.captured_at_ms += 1;
         publish_event(&paths, &snapshot.server.socket, || Ok(snapshot.clone())).unwrap();
@@ -315,6 +424,7 @@ mod tests {
         .unwrap();
         assert_eq!(failed.attempted, 1);
         assert_eq!(failed.published, 0);
+        assert_eq!(reasons(&failed), [(CaptureReason::Failed, 1)]);
         recorded_with(&paths, 100_001, deadline, |_, _| {
             panic!("failed capture cannot retry immediately")
         })
@@ -329,6 +439,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(skipped.skipped, 1);
+        assert_eq!(reasons(&skipped), [(CaptureReason::NotDue, 1)]);
         assert_eq!(files(&directory), before);
     }
     #[test]
@@ -342,6 +453,7 @@ mod tests {
         let busy =
             recorded_with(&paths, 1, deadline, |_, _| panic!("busy capture must skip")).unwrap();
         assert_eq!(busy.skipped, 1);
+        assert_eq!(reasons(&busy), [(CaptureReason::Busy, 1)]);
         assert_eq!(files(&directory), before);
         drop(lock);
         let target = root.path.join("foreign");
@@ -352,6 +464,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(refused.skipped, 1);
+        assert_eq!(reasons(&refused), [(CaptureReason::Refused, 1)]);
         assert_eq!(fs::read_to_string(target).unwrap(), "do not replace");
         fs::remove_file(directory.join(CADENCE)).unwrap();
         crate::private_file::replace(&directory.join(CADENCE), br#"{"version":99}"#).unwrap();
@@ -360,6 +473,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(refused.skipped, 1);
+        assert_eq!(reasons(&refused), [(CaptureReason::Refused, 1)]);
     }
     #[test]
     fn absent_disabled_and_expired_backstops_never_discover_or_start_servers() {
@@ -379,6 +493,7 @@ mod tests {
         let expired =
             recorded_with(&paths, 1, deadline, |_, _| panic!("one aggregate deadline")).unwrap();
         assert_eq!(expired.skipped, 1);
+        assert_eq!(reasons(&expired), [(CaptureReason::Deadline, 1)]);
         fs::write(
             paths.global_dir.join("config.json"),
             r#"{"workspace":{"snapshotEnabled":false},"opaque":{"keep":1}}"#,
@@ -394,6 +509,82 @@ mod tests {
                 .workspace_directory(&snapshot.server.socket)
                 .join(CADENCE)
                 .exists()
+        );
+    }
+    #[test]
+    fn a_failed_attempt_names_why_and_a_spent_budget_outranks_a_pre_check() {
+        let live = Instant::now() + std::time::Duration::from_secs(5);
+        for reason in [
+            CaptureReason::ServerNotCurrent,
+            CaptureReason::ServerChanged,
+            CaptureReason::Deadline,
+            CaptureReason::Failed,
+        ] {
+            let report = failing(reason, live);
+            assert_eq!(
+                (report.attempted, report.published, report.skipped),
+                (1, 0, 0),
+                "{reason:?}"
+            );
+            assert_eq!(reasons(&report), [(reason, 1)]);
+        }
+        let spent = Instant::now();
+        assert_eq!(
+            failure_reason(&ServerFailure::NotCurrent.into(), spent),
+            CaptureReason::Deadline
+        );
+        assert_eq!(
+            failure_reason(&ServerFailure::Changed.into(), spent),
+            CaptureReason::ServerChanged
+        );
+    }
+    #[test]
+    fn every_examined_record_is_published_or_has_exactly_one_reason() {
+        let (root, paths, first) = fixture();
+        let mut second = sample();
+        second.server.socket = root.path.join("second.sock").display().to_string();
+        publish_event(&paths, &second.server.socket, || Ok(second.clone())).unwrap();
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        let report = recorded_with(&paths, 1, deadline, |previous, _| {
+            if previous.socket == first.server.socket {
+                Ok(first.clone())
+            } else {
+                Err(io::Error::other("tmux read failed"))
+            }
+        })
+        .unwrap();
+        assert_eq!(report.attempted, 2);
+        assert_eq!(report.published + report.reasons.values().sum::<usize>(), 2);
+        assert_eq!(
+            reasons(&report),
+            [(CaptureReason::Unchanged, 1), (CaptureReason::Failed, 1)]
+        );
+    }
+    #[test]
+    fn reasons_are_closed_snake_case_tokens_and_omitted_when_empty() {
+        assert_eq!(
+            serde_json::to_value(WorkspaceCaptureReport::default()).unwrap(),
+            serde_json::json!({"attempted": 0, "published": 0, "skipped": 0})
+        );
+        let mut report = WorkspaceCaptureReport::default();
+        for reason in [
+            CaptureReason::Deadline,
+            CaptureReason::Busy,
+            CaptureReason::NotDue,
+            CaptureReason::Refused,
+            CaptureReason::Unchanged,
+            CaptureReason::ServerNotCurrent,
+            CaptureReason::ServerChanged,
+            CaptureReason::Failed,
+        ] {
+            report.count(reason);
+        }
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            serde_json::json!({"attempted": 0, "published": 0, "skipped": 0, "reasons": {
+                "deadline": 1, "busy": 1, "not_due": 1, "refused": 1, "unchanged": 1,
+                "server_not_current": 1, "server_changed": 1, "failed": 1,
+            }})
         );
     }
 }

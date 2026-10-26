@@ -246,6 +246,9 @@ fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Va
                 value
             })
         });
+        if let Some(batch) = &capture.input_batch_id {
+            value["passthrough"]["inputBatchId"] = json!(batch);
+        }
     }
     value
 }

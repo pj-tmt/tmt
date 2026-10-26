@@ -1,13 +1,13 @@
 ---
 name: tmt
-description: "Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`."
+description: 'Coordinate local agents with TMT: send `tmt talk` through a host terminal (built-in, tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
 ---
 
 # TMT
 
 Use `tmt` for local agent communication across supported hosts and runtimes.
-The native CLI needs no Node/npm/pnpm or Rust toolchain. A live host pane is needed
-for pane delivery; existing identities can receive through the local inbox.
+The native CLI needs no Node/npm/pnpm or Rust toolchain. A live host terminal is needed
+for terminal delivery; existing identities can receive through the local inbox.
 
 ## Quick start
 
@@ -41,7 +41,7 @@ as described below. Waiting `talk` returns that durable final directly.
 
 ## Can and won't
 
-TMT can send to a verified host pane (tmux, or Herdr, whose shipped driver TMT
+TMT can send to a verified host terminal (built-in, tmux, or Herdr, whose shipped driver TMT
 approves on first use in a Herdr pane and prints one line saying so; the user
 undoes it with `tmt driver rm herdr`, and a removed driver stays removed until
 `tmt driver install herdr`) or queue an existing identity's local inbox. It
@@ -113,6 +113,13 @@ Its positional count or `--lines` accepts integers from 0 through 2147483647;
 zero captures the visible pane. Invalid counts are rejected, not clamped.
 Invalid configured capture counts also fail before target lookup or capture.
 
+Use `tmt check <canonical-uuid> --capture-only --expect-name <name>` to pin a
+capture to the identity and name you last saw; `read` accepts the same options.
+A renamed or retired identity refuses with `IDENTITY_CHANGED` (exit 5) before
+capture; an unknown UUID is `NAME_NOT_FOUND` (exit 3). Capture-only never delivers
+a retained Digest checklist. Without `--expect-name`, a capture-only UUID still
+selects that identity directly, without falling back to a UUID-shaped name.
+
 Live `talk` can cause external input in another agent's host pane. Only use
 it when the user has requested that communication or the surrounding task
 clearly authorizes it; do not infer permission for unrelated changes. For a
@@ -180,11 +187,15 @@ Digest holds non-owner, non-urgent automatic requests and result notices in a
 single durable checklist. Held talk returns queued immediately with remaining
 time; JSON adds `digest:true`, `digestUntilMs`, `remainingMs`, `notification:"held"`
 and `waitingFor:"digest_checklist"`. Preserve the request ID; do not resend just
-because it was held. `--urgent` bypasses Digest only, and `--kind decision|review|fyi`
-records its checklist purpose (default `fyi`). The pinned recorded owner UUID
-also bypasses. All channel, host and pending-approval guards still apply.
+because it was held. `--urgent` and the pinned recorded owner bypass ordinary
+Digest Base holds. Orchestration Focus admits urgent traffic without an owner/lead
+exemption; Sleep holds urgent automatic agent traffic too. The global-off switch
+and a person marked `user` retain their immunity. `--kind decision|review|fyi`
+records checklist purpose (default `fyi`). All channel, host and pending-approval
+guards still apply.
 `tmt send-now <request-id>` sends one held request now (its originator or a
-person only); it skips just the hold and never types a delivered request twice.
+person only); it promotes urgency, keeps orchestration's mode-aware admission,
+and never types a delivered request twice.
 `tmt focus` switches host panes, or attaches to a built-in-host terminal.
 
 For a lead doing a review or other work that benefits from fewer interruptions,
@@ -824,13 +835,17 @@ detaches and leaves the member running; Ctrl-C goes to the program. `attach -d`
 takes sole use and disconnects other viewers. Terminal sizes above 1000 columns
 or rows are clamped; another viewer's resize never resizes your physical window.
 After a program exits, attachment restores your terminal and prints its resume
-command. A lost connection does not prove the program ended; inspect before retrying.
+command. A lost connection does not prove the program ended; inspect `tmt ls --json`
+and `tmt check <name>` first. Once a saved member is offline after supervisor loss,
+`tmt resume <name>` starts its recorded session in a new terminal; it never resends
+old requests. `tmt stop --close <name>` stops the verified agent and waits for its
+supervisor to end. `rm` and `unbind` change identity bindings; they are not stop commands.
 If startup is unconfirmed, inspect the named pane before retrying: an agent may
 have started, and the command never resends the launch.
 
 `tmt resume` uses this pane's verified bound identity; an unbound pane refuses and
 lists saved names. `tmt resume <name>` (alias `tmt run --resume <name>`) resumes the exact
-hook-recorded session in the current pane. It replays the associated executable,
+hook-recorded session in the current verified host, or a new built-in terminal outside one. It replays the associated executable,
 last observed model and launch effort. `--model` and `--effort` before the name
 explicitly override those values; present allowed environment keys override stored
 ones, even when empty. `--show` displays the preset without launching and
@@ -894,7 +909,10 @@ selected message channel cannot take initial handoff input, use the error's
 TMT records the owned command's exit and keeps its remembered session. A foreground
 launch returns the command's status, or 128 plus a terminating signal number; a
 built-in background launch returns startup confirmation. Its supervisor ends when
-the owned launcher exits, so its binding can become offline. It reaps only
+the owned launcher exits, so its binding can become offline. A supervisor that is
+killed takes its program with it: `tmt ls` shows the member offline, `check` refuses
+it as not active, and a new `talk` queues for its inbox instead of pasting anywhere;
+other built-in members are unaffected. It reaps only
 its direct child; harness-created background processes are the harness's
 responsibility. Killing TMT with SIGKILL cannot guarantee child cleanup. A live
 child whose launch owner is lost is Unknown and is not a verified input target.
@@ -913,10 +931,23 @@ completion scripts still require separate installation.
 
 ### Provider setup and usage
 
-For Claude/Codex lifecycle integration, `tmt setup` shows every detected agent and
-the files it would change, then asks once; without a terminal it refuses unless
-`--yes` is given, changing nothing. `tmt setup claude` or `tmt setup codex` shows
-one agent's plan and asks for approval;
+`tmt setup` shows detected agents and four official extensions: ops, digest,
+remote and colab, all selected by default with their bundled skills. In an
+interactive terminal, use ↑/↓ and space to select extensions, then Enter to
+review one approval for the complete plan. Colab needs Remote: selecting Colab
+selects Remote visibly; unchecking Remote also unchecks Colab. Without a terminal
+or with `--json`, setup never prompts; user-authorized `--yes` applies the four
+defaults. Declining changes nothing. Healthy extensions are kept without an
+upgrade; missing bundled skills are retried from the verified active release.
+Independent items continue after a failure; completed work stays installed and
+`tmt setup --yes` retries missing work. A failed Remote installation skips Colab.
+JSON adds per-extension outcomes and a nonzero exit for incomplete setup.
+Interrupting installation stops later items, keeps completed work and exits 130.
+For read-only installation facts, use `tmt extension ls --json`: its four official
+rows include installed state, active version, `missing` and `dependencies` (Colab
+needs Remote). An unhealthy installation has recovery diagnostics; it is not
+reported as missing. Listing never installs or starts a service.
+`tmt setup claude` or `tmt setup codex` shows one agent's plan and asks for approval;
 noninteractive changes require explicit user-authorized `--yes`. It adds only
 owned start/end/prompt-submit/turn-end hooks using the stable PATH launcher; `--remove` removes only
 unchanged owned hooks. Do not install into the user's provider settings merely
@@ -943,7 +974,10 @@ these are the agent's own final answers for display, not delivered replies.
 Answers already kept stop appearing when they expire; later collection
 removes them. With `--no-usage` the Stop hook stays for the agent's answers only: no usage,
 consumption or transcript data is read or stored. An install made with `--no-usage` before that
-has no Stop hook until `tmt setup` runs again. Consumption reports cumulative
+has no Stop hook until `tmt setup` runs again. With usage on, setup also keeps a small managed
+Claude Code mod in Claude's skills root that hands its rate-limit windows to TMT, so allowance
+figures stay fresh; `--no-usage`, `--remove` and uninstall remove it, and a directory that is
+not TMT's is left alone. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input. Foreground `tmt run`/`resume` observes accepted
 completed-request evidence every five seconds during a turn. Listing never reads
@@ -1165,15 +1199,40 @@ directories remain available for recovery, not automatic cache deletion.
 
 Publication across providers is not all-or-nothing; a warning retains completed
 skill targets. Custom target intents are recorded in `skill-installations.json`
-for future refresh at those published names. Missing integrations stay missing.
+for future refresh at those published names. Refresh alone creates no new provider scope.
 Native passive reminders cover known defaults only during interactive human
 commands; JSON and piped automation do not perform that scan.
 
 For a managed native installation, `tmt upgrade` (alias `tmt update`) retains the
 receipt's channel (`--channel`, `--to` and `--unpin` are in `tmt upgrade --help`);
-do not combine `--to` and `--unpin`. Downgrades are rejected. An ordinary pinned invocation is
-a no-network no-op. Package-manager or unmanaged binaries refuse native updates;
+do not combine `--to` and `--unpin`. Downgrades are rejected. Pinned products stay
+pinned while upgrade can offer other components. Package-manager or unmanaged binaries refuse native updates;
 use their original manager, not an overwrite workaround.
+
+Upgrade also offers missing ops, digest, remote and colab with their bundled skills,
+using setup's inventory and the upgrading CLI's prefix. Colab visibly needs Remote.
+A human terminal can select missing items and approve the complete plan once;
+decline/EOF changes nothing, and deselections are not remembered. User-authorized
+`--yes` installs missing official extensions and bundled skills even with JSON or
+no terminal. Without it, machine runs report missing items and exact commands.
+New extensions use the displayed alpha release without a pin; installed channels
+and pins are retained. Damaged or unmanaged entries require their recovery command.
+
+Detected providers' new TMT hooks/Core skill scopes require the interactive
+whole-plan approval. **`upgrade --yes` never creates a new provider scope**, even
+at a human terminal; it reports the exact supported `tmt setup` command instead.
+Existing recorded refresh keeps its approved paths and usage choices. No provider
+applications or arbitrary drivers are installed; existing host-driver approval
+and removal rules remain. Agents must not use upgrade to obtain new setup authority.
+
+Completed items stay installed after an independent failure. Rerunning retries
+unfinished work. Ctrl-C reaches the apply child, which stops at checkpoints,
+keeps completed outcomes and returns 130. A second Ctrl-C shortens the wait;
+forced cleanup or a deadline leaves an unconfirmed outcome. Inspect before retrying.
+JSON adds
+`providerSetup` outcomes (`changed`, `consentRequired`, `needsApproval`, `skipped`
+or `failed`) beside existing `integrations` and per-product results. A target
+that cannot apply the new plan reports its exact follow-up; no apply is replayed.
 
 Successful native updates use the new executable to refresh existing recorded
 skill targets, replacing entries at the published names. With `--json`, inspect
@@ -1185,6 +1244,12 @@ selection (including `--to <version>` when pinned); an ordinary pinned invocatio
 will not retry skill work. Check `pathWarning` before assuming the
 shell selects the updated binary. Reload/restart the agent, or read the complete
 `tmt learn --skill` output in an existing conversation.
+
+`tmt storage` (or `--json`) shows what each local store occupies: the data root,
+`tmt.db` with its free pages and auto-vacuum mode, notes, and Colab `space.db`
+with its backups. It changes nothing. When it reports the one-time `tmt.db`
+compaction as pending, `tmt upgrade` finishes it; the upgrade reports the
+outcome as `databaseCompaction` and never fails because of it.
 
 ### Missing official extensions
 

@@ -340,6 +340,9 @@ pub fn focus(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneClose {
     Closed,
+    /// The host proves the pane is already gone, so there was nothing to close. A built-in
+    /// member usually ends with its program, so this is its normal result after a stop.
+    AlreadyGone,
     Kept(Kept),
 }
 
@@ -371,6 +374,11 @@ pub fn close_opened_pane(
             presence: InterfacePresence::Present,
             ..
         }) => {}
+        // Only the host's proof of loss counts; an unknown presence is refused below.
+        ActionResult::Completed(InterfaceStatus {
+            presence: InterfacePresence::Gone,
+            ..
+        }) => return Ok(PaneClose::AlreadyGone),
         ActionResult::Failed(error) => return Err(error),
         _ => return Err(ActionError::Unverified),
     }
@@ -495,3 +503,6 @@ impl HostDriver for Unavailable {
         Err(self.error())
     }
 }
+
+#[cfg(test)]
+mod close_tests;

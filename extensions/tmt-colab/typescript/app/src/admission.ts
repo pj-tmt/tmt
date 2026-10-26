@@ -36,25 +36,34 @@ export interface ReaderSeat {
   expiresAt: number;
 }
 
+export interface Lifecycle {
+  archived: boolean;
+  deleted: boolean;
+}
+
+/** One owner-log statement's effect on its page's lifecycle; restore never clears a deletion. */
+export function applyLifecycle(state: Lifecycle, operation: string): void {
+  if (operation === 'page.archive') state.archived = true;
+  else if (operation === 'page.delete') state.deleted = true;
+  else if (operation === 'page.unarchive') {
+    requireValue(state.archived && !state.deleted);
+    state.archived = false;
+  }
+}
+
 /** The page's state at a verified owner-log cut. Restore never clears a deletion. */
 export function pageLifecycle(
   log: readonly statement.Verified[],
   page: string,
   through?: bigint,
-): { archived: boolean; deleted: boolean } {
-  let archived = false,
-    deleted = false;
+): Lifecycle {
+  const state: Lifecycle = { archived: false, deleted: false };
   for (const { payload: p, head } of log) {
     if (through !== undefined && head.revision > through) break;
     if (!('pageId' in p.value) || p.value.pageId !== page) continue;
-    if (p.operation === 'page.archive') archived = true;
-    else if (p.operation === 'page.delete') deleted = true;
-    else if (p.operation === 'page.unarchive') {
-      requireValue(archived && !deleted);
-      archived = false;
-    }
+    applyLifecycle(state, p.operation);
   }
-  return { archived, deleted };
+  return state;
 }
 
 /** Content subset for the owner browser or a link reader. A transport head/hash is never log authority. */

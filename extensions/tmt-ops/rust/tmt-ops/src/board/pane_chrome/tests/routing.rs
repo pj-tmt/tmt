@@ -147,7 +147,7 @@ fn conversation_has_one_title_and_stack_separator_while_uuid_draft_survives_focu
             assert!(matches!(buffer[(pane.x, pane.y)].symbol(), "─" | "▸"));
             assert_eq!(
                 (pane.y..pane.bottom())
-                    .filter(|y| line(*y).contains("Exchanges with you"))
+                    .filter(|y| line(*y).contains("Conversation"))
                     .count(),
                 1
             );

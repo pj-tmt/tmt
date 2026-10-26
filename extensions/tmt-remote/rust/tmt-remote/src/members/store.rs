@@ -17,7 +17,7 @@ fn invalid() -> RemoteError {
         "Member or machine changed, is unavailable, or belongs to another remote. Review and confirm again.",
     )
 }
-fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Member> {
+pub(super) fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Member> {
     let role: String = r.get(2)?;
     Ok(Member {
         remote_id: r.get(0)?,
@@ -34,7 +34,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Member> {
         revoked_at_ms: r.get::<_, Option<i64>>(7)?.map(|n| n as u64),
     })
 }
-fn member_in(c: &Connection, remote: &str, id: &str) -> Result<Option<Member>> {
+pub(super) fn member_in(c: &Connection, remote: &str, id: &str) -> Result<Option<Member>> {
     c.query_row(
         &format!("SELECT {COLUMNS} FROM members WHERE remote_id=?1 AND member_id=?2"),
         params![remote, id],
@@ -43,7 +43,7 @@ fn member_in(c: &Connection, remote: &str, id: &str) -> Result<Option<Member>> {
     .optional()
     .map_err(database)
 }
-fn for_client(c: &Connection, client: &str) -> Result<Option<Member>> {
+pub(crate) fn for_client(c: &Connection, client: &str) -> Result<Option<Member>> {
     let id: Option<(String, String)> = c
         .query_row(
             "SELECT remote_id,member_id FROM member_machines WHERE client_id=?1",
@@ -138,7 +138,7 @@ fn fence(c: &Connection, client: &str, now: u64) -> Result<()> {
     c.execute("UPDATE sessions SET ended_reason='REMOTE_GRANT_CHANGED',ended_at_ms=?2 WHERE client_id=?1 AND ended_reason IS NULL",params![client,bounded_time(now)?]).map_err(database)?;
     Ok(())
 }
-fn check_member(c: &Connection, id: &str, revision: u64) -> Result<Member> {
+pub(super) fn check_member(c: &Connection, id: &str, revision: u64) -> Result<Member> {
     let remote = machine_in(c)?.id;
     member_in(c, &remote, id)?
         .filter(|m| m.revoked_at_ms.is_none() && m.revision == revision)
@@ -308,25 +308,9 @@ impl Store {
             .map_err(database)?;
         require_owner(&tx, &owner, now)?;
         let member = check_member(&tx, id, expected)?;
-        let ids = clients(&tx, &member.remote_id, id)?;
-        for client in &ids {
-            crate::store::revoke_in(&tx, client)?;
-            tx.execute(
-                "UPDATE cloud_peer_routes SET revoked=1,pending=1 WHERE client_id=?1",
-                [client],
-            )
-            .map_err(database)?;
-            fence(&tx, client, now)?;
-        }
-        tx.execute("UPDATE members SET revoked_at_ms=?3,sending_enabled=0 WHERE remote_id=?1 AND member_id=?2",params![member.remote_id,id,bounded_time(now)?]).map_err(database)?;
-        bump(&tx, &member.remote_id, id)?;
-        sync_designation(&tx)?;
-        let member = member_in(&tx, &member.remote_id, id)?.ok_or_else(invalid)?;
+        let change = revoke_in(&tx, member, now)?;
         tx.commit().map_err(database)?;
-        Ok(Change {
-            member,
-            clients: ids,
-        })
+        Ok(change)
     }
 }
 
@@ -350,7 +334,12 @@ pub(crate) fn sending_for_client(
     sending_in(c, member, enabled, crate::pairing::now_ms()?)?;
     grant_in(c, client)
 }
-fn sending_in(c: &Connection, member: Member, enabled: bool, now: u64) -> Result<Change> {
+pub(super) fn sending_in(
+    c: &Connection,
+    member: Member,
+    enabled: bool,
+    now: u64,
+) -> Result<Change> {
     let ids = clients(c, &member.remote_id, &member.member_id)?;
     let mut changed = Vec::new();
     for client in ids {
@@ -378,10 +367,10 @@ fn sending_in(c: &Connection, member: Member, enabled: bool, now: u64) -> Result
         clients: changed,
     })
 }
-pub(crate) fn renamed(c: &Connection, client: &str, name: &str) -> Result<()> {
-    let Some(member) = for_client(c, client)? else {
-        return Ok(());
-    };
+pub(super) fn rename_in(c: &Connection, member: Member, name: &str) -> Result<Change> {
+    if !crate::canonical::device_name(name) {
+        return Err(invalid());
+    }
     if member.display_name != name {
         c.execute(
             "UPDATE members SET display_name=?3 WHERE remote_id=?1 AND member_id=?2",
@@ -390,8 +379,12 @@ pub(crate) fn renamed(c: &Connection, client: &str, name: &str) -> Result<()> {
         .map_err(database)?;
         bump(c, &member.remote_id, &member.member_id)?;
     }
-    Ok(())
+    Ok(Change {
+        member: member_in(c, &member.remote_id, &member.member_id)?.ok_or_else(invalid)?,
+        clients: Vec::new(),
+    })
 }
+
 pub(crate) fn revoked(c: &Connection, client: &str) -> Result<()> {
     if let Some(member) = for_client(c, client)? {
         let live:bool=c.query_row("SELECT EXISTS(SELECT 1 FROM member_machines mm JOIN grants g ON g.client_id=mm.client_id WHERE mm.remote_id=?1 AND mm.member_id=?2 AND g.disabled=0)",params![member.remote_id,member.member_id],|r|r.get(0)).map_err(database)?;
@@ -466,4 +459,31 @@ pub(crate) fn grants_for_client(c: &Connection, client: &str) -> Result<Vec<Gran
         .iter()
         .map(|id| grant_in(c, id)?.ok_or_else(invalid))
         .collect()
+}
+
+pub(super) fn revoke_in(c: &Connection, member: Member, now: u64) -> Result<Change> {
+    let id = member.member_id.as_str();
+    let ids = clients(c, &member.remote_id, id)?;
+    for client in &ids {
+        crate::store::revoke_in(c, client)?;
+        c.execute(
+            "UPDATE cloud_peer_routes SET revoked=1,pending=1 WHERE client_id=?1",
+            [client],
+        )
+        .map_err(database)?;
+        fence(c, client, now)?;
+    }
+    c.execute(
+        "UPDATE members SET revoked_at_ms=?3,sending_enabled=0 WHERE remote_id=?1 AND member_id=?2",
+        params![member.remote_id, id, bounded_time(now)?],
+    )
+    .map_err(database)?;
+    bump(c, &member.remote_id, id)?;
+    sync_designation(c)?;
+    let member = member_in(c, &member.remote_id, id)?.ok_or_else(invalid)?;
+
+    Ok(Change {
+        member,
+        clients: ids,
+    })
 }

@@ -211,6 +211,7 @@ impl Store {
         schema::check_version(&connection)?;
         connection.pragma_update(None, "journal_mode", "DELETE")?;
         schema::migrate(&mut connection)?;
+        schema::enable_incremental(&connection);
         Ok(Self {
             connection,
             clock: Arc::new(now_ms),
@@ -390,6 +391,9 @@ impl Store {
         // publication and pruning together, including the old checkpoint pair.
         capacity(&tx, s.page, 0, false)?;
         tx.commit()?;
+        if paired {
+            schema::reclaim(&self.connection);
+        }
         Ok(Accepted::New)
     }
     /// Install a verified checkpoint pair (or owner fold pair) for a stream this machine holds

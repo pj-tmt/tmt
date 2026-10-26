@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { parse, parseFragment, serialize, serializeOuter } from "parse5";
+import { languageInfo } from "./languages.mjs";
+import { validatePostTags } from "./tags.mjs";
 
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const stableJson = (value) => JSON.stringify(value, null, 2) + "\n";
@@ -37,8 +39,13 @@ export function rasterExtension(bytes) {
 
 export function metadata(value) {
   const keys = ["slug", "title", "summary", "date", "language"];
-  if (!value || Object.keys(value).sort().join() !== keys.sort().join())
-    throw new Error("Metadata requires exactly slug, title, summary, date, language");
+  if (
+    !value ||
+    keys.some((key) => !Object.hasOwn(value, key)) ||
+    Object.keys(value).some((key) => ![...keys, "tags"].includes(key))
+  )
+    throw new Error("Metadata requires slug, title, summary, date, language and optional tags");
+  if (Object.hasOwn(value, "tags")) validatePostTags(value.tags);
   if (!slugPattern.test(value.slug) || value.slug.length > 100)
     throw new Error("Invalid post slug");
   for (const [key, limit] of [
@@ -58,10 +65,7 @@ export function metadata(value) {
     new Date(value.date).toISOString().slice(0, 10) !== value.date
   )
     throw new Error("Invalid post date");
-  if (value.language !== "en")
-    throw new Error(
-      "Posts are English-only; add a repository language exception before enabling another language",
-    );
+  languageInfo(value.language);
   return value;
 }
 

@@ -9,6 +9,13 @@ Pairing/send/baseline builders remain later L1 work.
 No app, persistence, transport or authority lookup is included. A valid signature
 is insufficient without current log, device, role, epoch and stream admission.
 
+`editRequest.editorRequest` admits source v1 or metadata v2 request syntax;
+`metadataRequest` also checks terminal `edit-result` records. `resultFor` requires
+the caller's verified owner-member provenance and binds the requesting writer,
+operation and canonical request digest. A valid record kind or an agent label
+never establishes that provenance. The [metadata request contract](../../contracts/colab-v1.md#editor-metadata-requests-5195-a-5256)
+owns fields, automatic owner admission and recovery; this library performs no lookup or publication.
+
 `statement.Envelope.verifyNext` binds the URL space/root, exact payload digest and
 next retained head; revision 1 pins the editor management member. Persist that
 head before dependent state. `certificate.Chain.verify` requires a caller-resolved

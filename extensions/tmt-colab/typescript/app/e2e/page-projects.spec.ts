@@ -220,11 +220,14 @@ for (const width of [1440, 390])
   test(`the picker opened from More → Projects… sits right-aligned under More at ${width}`, async ({
     page,
   }) => {
-    const header = await open(page, width, 'light');
+    await open(page, width, 'light');
     await (await pageAction(page.locator('#ask-page-fixture'), 'Projects…')).click();
     const picker = page.locator('dialog[open]:has([role="menuitemcheckbox"])');
     await expect(picker).toBeVisible();
-    const more = (await header.getByRole('button', { name: 'More', exact: true }).boundingBox())!;
+    const more = (await page
+      .locator('.tmt-ui-topbar:visible')
+      .getByRole('button', { name: 'More', exact: true })
+      .boundingBox())!;
     const box = (await picker.boundingBox())!;
     // Under the More button, flush with its right edge, never floating under the title.
     expect(box.y).toBeGreaterThanOrEqual(more.y + more.height - 2);

@@ -18,6 +18,14 @@ use tmt_core::{
 };
 
 pub enum Operation {
+    WakeStep {
+        budget_ms: u64,
+        limit: u64,
+    },
+    ReceivingSync {
+        expected_revision: u64,
+        settings: crate::orchestration::DigestReceivingSettings,
+    },
     Write(DigestPolicyWrite),
     Show(Vec<String>),
     Stats(Vec<String>),
@@ -65,6 +73,14 @@ struct Write {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReceivingSync {
+    expected_revision: u64,
+    enabled: bool,
+    default_receiving: crate::orchestration::DigestReceiving,
+    members: Vec<crate::orchestration::DigestReceivingMember>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Show {
     identities: Vec<String>,
 }
@@ -72,6 +88,12 @@ struct Show {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Due {
     identity_id: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WakeStep {
+    budget_ms: u64,
+    limit: u64,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -118,6 +140,32 @@ fn uuid(id: &str) -> Result<(), Fault> {
 
 pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
     let op = match operation {
+        "digest.wake.step" => {
+            let v: WakeStep = serde_json::from_slice(input).map_err(|_| invalid())?;
+            if !(1..=60_000).contains(&v.budget_ms) || !(1..=256).contains(&v.limit) {
+                return Err(invalid());
+            }
+            Operation::WakeStep {
+                budget_ms: v.budget_ms,
+                limit: v.limit,
+            }
+        }
+        "digest.receiving.sync" => {
+            let v: ReceivingSync = serde_json::from_slice(input).map_err(|_| invalid())?;
+            if v.expected_revision > MAX_JS_SAFE_INTEGER {
+                return Err(invalid());
+            }
+            let mut settings = crate::orchestration::DigestReceivingSettings {
+                enabled: v.enabled,
+                default_receiving: v.default_receiving,
+                members: v.members,
+            };
+            settings.normalize().map_err(|_| invalid())?;
+            Operation::ReceivingSync {
+                expected_revision: v.expected_revision,
+                settings,
+            }
+        }
         "digest.policy.set" | "digest.policy.clear" => {
             let v: Write = serde_json::from_slice(input).map_err(|_| invalid())?;
             for id in [&v.identity_id, &v.owner_identity_id, &v.setter_identity_id] {
@@ -239,6 +287,31 @@ pub(super) fn execute(
     delay: Duration,
 ) -> Result<Vec<u8>, Fault> {
     let document = match operation {
+        Operation::ReceivingSync {
+            expected_revision,
+            settings,
+        } => {
+            let revision = storage
+                .sync_digest_receiving(expected_revision, settings)
+                .map_err(super::orchestration::write_error)?;
+            let projection = crate::orchestration::orchestration_read(
+                storage,
+                crate::orchestration::OrchReadQuery::Overview {
+                    range_days: Some(1),
+                    at_ms: None,
+                    plan: None,
+                    member_query: None,
+                },
+                wall_time_ms(),
+            )
+            .map_err(super::orchestration::write_error)?;
+            let projection: Value =
+                serde_json::from_slice(&projection).map_err(|_| Fault::unavailable())?;
+            json!({"revision":revision,"projection":projection})
+        }
+        Operation::WakeStep { budget_ms, limit } => {
+            digest::wake_step(storage, delay, budget_ms, limit).map_err(error)?
+        }
         Operation::Write(input) => view(
             &RequestService::new(&mut *storage, wall_time_ms)
                 .write_digest(input)
@@ -263,7 +336,10 @@ pub(super) fn execute(
             let stats = RequestService::new(&mut *storage, wall_time_ms)
                 .digest_stats(std::slice::from_ref(&identity))
                 .map_err(error)?;
-            let state = if stats[0].due_count == 0 {
+            let pending = RequestService::new(&mut *storage, wall_time_ms)
+                .digest_wake_pending(&identity)
+                .map_err(error)?;
+            let state = if stats[0].due_count == 0 && !pending {
                 "nothing_due"
             } else {
                 let readiness = if when_busy {
@@ -318,7 +394,7 @@ pub(super) fn execute(
                 None => json!({"claimed":false}),
                 Some((batch, text)) => {
                     let page = match digest::read(storage, &identity, Some(&batch.id), 0, 128) {
-                        Ok(p) => p,
+                        Ok(page) => page,
                         Err(e) => {
                             digest::release_unsent(storage, &batch).map_err(error)?;
                             return Err(error(e));
@@ -348,7 +424,7 @@ fn history_value(identity: &str, page: &tmt_core::request::digest::DigestHistory
         "legacySettledCount":page.legacy_settled_count,"deliveredDigests":page.delivered_digests,
         "nextAfter":page.next_after,"checklists":page.checklists.iter().map(|row| {
             let evidence = &row.evidence;
-            json!({"checklistId":evidence.checklist.id,"settlementSequence":evidence.settlement_sequence,
+            let mut value = json!({"checklistId":evidence.checklist.id,"settlementSequence":evidence.settlement_sequence,
                 "claimedAtMs":evidence.checklist.created_at_ms,"settledAtMs":evidence.settled_at_ms,
                 "outcome":evidence.checklist.state.as_str(),"opportunity":evidence.opportunity.map(|o| match o {
                     DigestOpportunity::Idle => "idle", DigestOpportunity::TurnBoundary => "turn_boundary"}),
@@ -358,6 +434,11 @@ fn history_value(identity: &str, page: &tmt_core::request::digest::DigestHistory
                     "sequence":item.sequence,"createdAtMs":item.created_at_ms,
                     "contextTokensAtArrival":item.context_tokens_at_arrival,
                     "contextObservedAtMs":item.context_observed_at_ms})).collect::<Vec<_>>()})
+            ;
+            if let tmt_core::request::digest::DigestProjection::IncomingSummary { incoming_count, urgent_count } = evidence.checklist.projection {
+                value["projection"] = json!({"kind":"incoming_summary","incomingCount":incoming_count,"urgentCount":urgent_count});
+            }
+            value
         }).collect::<Vec<_>>()})
 }
 

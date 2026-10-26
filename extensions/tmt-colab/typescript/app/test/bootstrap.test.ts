@@ -48,6 +48,7 @@ async function response(pages: unknown[], extra: unknown[] = []) {
         ...extra,
       ]),
     ].sort(),
+    projectPins: { names: [], automatic: true },
     pages,
     pageIds: pages
       .map((page) => ({ pageId: (page as { pageId: string }).pageId, deleted: false }))
@@ -75,6 +76,33 @@ it('preserves out-of-ID-order pins while matching the sorted catalog with delete
   expect(boot.pages).toEqual(pages);
   expect(boot.pageIds).toEqual(body.pageIds);
   expect(verify).toHaveBeenCalledWith(boot.space, boot.owner);
+});
+it('a caller whose document is another module’s neither reads nor rewrites its location', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  await response([{ ...metadata, title: 'Alpha' }]);
+  const reads: string[] = [];
+  const replaceState = vi.fn();
+  // The global search on the Ops page: a fragment that is not Colab's, on a path that is not Colab's.
+  vi.stubGlobal('location', {
+    origin: 'https://example.test',
+    pathname: '/ops/',
+    search: '',
+    get hash() {
+      reads.push('hash');
+      return '#agents';
+    },
+  });
+  vi.stubGlobal('history', { state: null, replaceState });
+  // Colab's own discovery holds the document to Colab's grammar: this one it refuses.
+  await expect(discover(mount)).rejects.toThrow();
+  reads.length = 0;
+  replaceState.mockClear();
+  const boot = await discover(mount, undefined, undefined, { locate: false });
+  expect(boot.pages).toHaveLength(1);
+  expect(reads).toEqual([]);
+  expect(replaceState).not.toHaveBeenCalled();
 });
 it('refuses duplicate or mismatched live IDs even when pins use display order', async () => {
   const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -472,6 +500,7 @@ it('refuses a malformed space project list or an entry naming a project the spac
       ownerKey: encodeBinary(owner),
       revision: '1',
       ...(projects === undefined ? {} : { projects }),
+      projectPins: { names: [], automatic: true },
       pages,
       pageIds: pages.map((page) => ({
         pageId: (page as { pageId: string }).pageId,
@@ -498,6 +527,55 @@ it('refuses a malformed space project list or an entry naming a project the spac
   }
   // The page names a project the space does not list.
   reply(['a'], [{ ...metadata, projects: ['b'] }]);
+  await expect(discover(mount)).rejects.toThrow();
+});
+it('accepts the owner pinned projects only as an ordered, unique list of projects the space has', async () => {
+  const owner = new Uint8Array(32).fill(9),
+    space = await deriveSpaceId(owner);
+  vi.stubGlobal('location', { hash: `#space=${space}` });
+  const reply = (pins: unknown, projects: string[] = ['a', 'b', 'c']) => {
+    const body = JSON.stringify({
+      spaceId: space,
+      ownerKey: encodeBinary(owner),
+      revision: '1',
+      projects,
+      ...(pins === undefined ? {} : { projectPins: pins }),
+      pages: [],
+      pageIds: [],
+    });
+    vi.stubGlobal('fetch', async () => new Response(body));
+  };
+  reply({ names: ['c', 'a'], automatic: false });
+  await expect(discover(mount)).resolves.toMatchObject({
+    projectPins: { names: ['c', 'a'], automatic: false },
+  });
+  // The owner's empty list is a choice and arrives as one.
+  reply({ names: [], automatic: false });
+  await expect(discover(mount)).resolves.toMatchObject({ projectPins: { names: [] } });
+  const twenty = Array.from({ length: 20 }, (_, n) => `p${n}`);
+  reply({ names: twenty, automatic: false }, twenty);
+  await expect(discover(mount)).resolves.toMatchObject({ projectPins: { names: twenty } });
+  for (const pins of [
+    undefined,
+    null,
+    [],
+    { names: ['a'] },
+    { automatic: true },
+    { names: ['a'], automatic: 'yes' },
+    { names: ['a'], automatic: true, extra: 1 },
+    { names: 'a', automatic: true },
+    { names: ['a', 'a'], automatic: true },
+    { names: ['missing'], automatic: true },
+    { names: [1], automatic: true },
+    { names: [''], automatic: true },
+    { names: ['tab\there'], automatic: true },
+  ]) {
+    reply(pins);
+    await expect(discover(mount)).rejects.toThrow();
+  }
+  // A 21st pin is past what the owner stores.
+  const over = Array.from({ length: 21 }, (_, n) => `p${n}`);
+  reply({ names: over, automatic: false }, over);
   await expect(discover(mount)).rejects.toThrow();
 });
 it('rejects unsafe or ill-typed expiry hints before accepting discovery', async () => {

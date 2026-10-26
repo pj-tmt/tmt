@@ -33,6 +33,9 @@ pub(in crate::storage) fn start_capture(
         ),
     }
     .map_err(|error| classify(error, "Start passthrough capture"))?;
+    if folded_into.is_some() {
+        super::super::capture_batches::delivered(db, request_id, "delivered", delivered_at_ms)?;
+    }
     Ok(())
 }
 
@@ -42,7 +45,8 @@ pub(in crate::storage) fn capture(
 ) -> Result<Option<PassthroughCapture>, StorageError> {
     db.query_row(
         "SELECT delivered_at_ms,state,bound_session,bound_turn,bound_at_ms,answer_text,
-                answer_truncated,answer_provider,answer_ended_ms,settled_at_ms,folded,answer_response
+                answer_truncated,answer_provider,answer_ended_ms,settled_at_ms,folded,answer_response,
+                (SELECT batch_id FROM capture_entries e WHERE e.kind='input' AND e.source='incoming' AND e.request_id=request_passthrough.request_id LIMIT 1)
          FROM request_passthrough WHERE request_id=?",
         [request_id],
         |row| {
@@ -67,6 +71,7 @@ pub(in crate::storage) fn capture(
                 bound_at_ms: rows::optional_u64_at(row, 4)?,
                 folded: row.get::<_, i64>(10)? == 1,
                 answer,
+                input_batch_id: row.get(12)?,
                 settled_at_ms: rows::optional_u64_at(row, 9)?,
             })
         },
@@ -281,7 +286,7 @@ fn raise_originator_attention(
     db: &Connection,
     answered: &[(String, Option<String>)],
 ) -> Result<(), StorageError> {
-    let mut records = super::RequestRows(db);
+    let mut records = super::RequestRows(db, None);
     for (request, originator) in answered {
         let Some(originator) = originator else {
             continue;

@@ -1,5 +1,5 @@
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { chatAction, commentsAction, pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
@@ -23,7 +23,7 @@ async function mount(page: Page, long: boolean) {
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount(html);
   }, source(long));
-  await expect(page.locator('.tmt-ui-header:visible .status')).toContainText('Live');
+  await expect(page.locator('.tmt-ui-topbar:visible .status')).toContainText('Live');
   await expect(page.frameLocator('iframe').locator('h1')).toBeVisible();
 }
 for (const width of [1440, 390])
@@ -35,7 +35,8 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       await mount(page, false);
-      const bar = page.locator('.tmt-ui-header:visible'),
+      const bar = page.locator('.tmt-ui-topbar:visible'),
+        title = page.locator('.colab-title-row header:visible'),
         frame = page.locator('iframe');
       await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
       await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
@@ -44,7 +45,7 @@ for (const width of [1440, 390])
       await expect(page.locator('.canvas')).toHaveCSS('box-shadow', 'none');
       // Inside the TMT web shell the page fills the main column beside the rail (the module's pages
       // nest in it)
-      // and starts under the bar, plus the module menu's tab row on a phone.
+      // and starts under the bar, plus the module menu's tab row on a phone and the page's title row.
       const rect = await frame.boundingBox();
       const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!;
       const lead = await page.evaluate(() =>
@@ -62,7 +63,8 @@ for (const width of [1440, 390])
         (await page.evaluate(() => document.documentElement.clientWidth)) - column.x,
       );
       const header = (await bar.boundingBox())!;
-      expect(rect?.y).toBe(header.y + header.height + lead);
+      const row = (await page.locator('.colab-title-row:visible').boundingBox())!;
+      expect(rect?.y).toBe(header.y + header.height + lead + row.height);
       expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
       // The frame ends the document: a page taller than the room grows it (window scroll mode), so
       // the bottom is the frame's, not a fixed 900 that depends on the runner's fonts. The frame
@@ -77,7 +79,7 @@ for (const width of [1440, 390])
       await expect(frame).toHaveAttribute('scrolling', 'no');
       await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-      await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
+      await expect(title).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
       const heading = page.getByRole('heading', { name: 'Release notes', exact: true });
       // The header holds no access chip at any width (#4116), so the title keeps its room.
@@ -91,16 +93,20 @@ for (const width of [1440, 390])
       // The bar draws no module crumb (the rail names the module), so the title keeps its row; the
       // module and the connection identity stay in the header's accessible name.
       await expect(bar.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-      await expect(bar).toHaveAttribute('aria-label', 'Colab · local · Studio Mac · Release notes');
+      await expect(title.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
+      await expect(title).toHaveAttribute(
+        'aria-label',
+        'Colab · local · Studio Mac · Release notes',
+      );
       // The connection words stay in the document for assistive technology; nothing shows.
       await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
       await expect(bar.locator('.page-attention')).toHaveCount(0);
-      // Discussion and More at every width; Agent status is a writer-only More entry.
-      await expect(bar.locator('.page-header-actions button')).toHaveCount(2);
+      // More alone at every width (Comments and Chat are the dock's); Agent status is a writer-only
+      // More entry.
+      await expect(bar.locator('.page-header-actions button')).toHaveCount(1);
       await page.getByRole('button', { name: 'More', exact: true }).click();
-      await expect(
-        page.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
-      ).toHaveAttribute('aria-checked', 'true');
+      // Theme is the shared bar's: More keeps no copy of it.
+      await expect(page.getByRole('menuitemradio')).toHaveCount(0);
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-menu.png` });
       await page.keyboard.press('Escape');
       await mount(page, true);
@@ -164,7 +170,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
       await commentsClose(page, 'list').click();
       await expect(comments).not.toBeVisible();
-      await expect(page.getByRole('button', { name: /^Discussion \(/ })).toBeFocused();
+      await expect(commentsAction(page)).toBeFocused();
       await (await pageAction(page, 'Chat')).click();
       const asks = page.locator('.tmt-ui-drawer[data-panel=chat]');
       await expect(asks.getByTestId('chat-panel')).toBeVisible();
@@ -221,8 +227,9 @@ for (const width of [1440, 390])
     });
     await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
     const actions = page.getByRole('navigation', { name: 'Page actions' });
-    // The same two entries at every width; Agent status, Files, Source and Export live in More.
-    const names = [/^Discussion \(0\)$/, /^More$/];
+    // The header holds More alone at every width (Comments and Chat are the dock's); Agent status,
+    // Files, Source and Export live in More.
+    const names = [/^More$/];
     for (const name of names) {
       const button = actions.getByRole('button', { name });
       await expect(button).toBeInViewport();
@@ -240,25 +247,9 @@ for (const width of [1440, 390])
       await expect(tooltip).toBeHidden();
       await expect(button).toBeFocused();
     }
-    const discussion = actions.getByRole('button', { name: /^Discussion \(/ });
-    await discussion.evaluate((node: HTMLButtonElement) => node.click());
-    await expect(actions.getByRole('menu')).toHaveCount(0);
-    await discussion.press('ArrowDown');
-    const chat = actions.getByRole('menuitem', { name: 'Chat', exact: true });
-    const comments = actions.getByRole('menuitem', { name: 'Comments 0', exact: true });
-    await expect(chat).toBeFocused();
-    await page.keyboard.press('ArrowUp');
-    await expect(comments).toBeFocused();
-    await page.keyboard.press('ArrowDown');
-    await expect(chat).toBeFocused();
-    await page.keyboard.press('End');
-    await expect(comments).toBeFocused();
-    await page.keyboard.press('Home');
-    await expect(chat).toBeFocused();
-    await page.keyboard.press('Escape');
-    await expect(discussion).toBeFocused();
-    await discussion.press('Space');
-    await chat.press('Enter');
+    // The dock opens Chat; Escape closes it and focus returns to the action that opened it.
+    const dockChat = chatAction(page);
+    await dockChat.press('Enter');
     const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
     await expect(drawer).toBeVisible();
     const close = drawer.getByRole('button', { name: 'Close Chat', exact: true });
@@ -268,24 +259,29 @@ for (const width of [1440, 390])
     // One Escape dismisses the tooltip and closes its containing drawer.
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);
-    await expect(discussion).toBeFocused();
+    await expect(dockChat).toBeFocused();
     await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(0);
     const frame = page.locator('#ask-page-fixture iframe');
     const render = await frame.getAttribute('data-render-id');
-    await (await pageAction(page, 'Theme: Dark')).click();
+    // Theme is the shared bar's menu; the page's More keeps no copy of it.
+    const theme = page.locator('.tmt-ui-topbar-common').getByRole('button', { name: /^Theme:/ });
+    await theme.click();
+    await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    await (await pageAction(page, 'Theme: System')).click();
+    await theme.click();
+    await page.getByRole('menuitemradio', { name: 'System', exact: true }).click();
     await expect(page.locator('html')).not.toHaveAttribute('data-theme');
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
     await expect(frame).toHaveAttribute('data-render-id', render!);
-    await (await pageAction(page, 'Theme: System')).focus();
-    await expect(
-      actions.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
-    ).toHaveAttribute('aria-checked', 'true');
-    await page.keyboard.press('Tab');
-    await expect(actions.getByRole('menu')).toHaveCount(0);
+    await theme.click();
+    await expect(page.getByRole('menuitemradio', { name: 'System', exact: true })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
   });
 
@@ -313,6 +309,17 @@ for (const width of [1440, 390])
       const frame = page.locator('#ask-page-fixture iframe');
       const marker = page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]');
       await expect(marker).toBeVisible();
+      // The page starts under the title row: give it room and scroll exactly past the row, so the
+      // column's sticky offset under the bar applies and the marker stays clear of the bar.
+      const rowHeight = Math.round(
+        (await page.locator('.colab-title-row:visible').boundingBox())!.height,
+      );
+      await page.evaluate((top) => {
+        document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
+          '3000px';
+        window.scrollTo(0, top);
+      }, rowHeight);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(rowHeight);
       const before = await frame.boundingBox();
       const scroll = await page.evaluate(() => window.scrollY);
       await (await pageAction(page, 'Comments')).click();
@@ -336,12 +343,12 @@ for (const width of [1440, 390])
         );
       };
       if (width === 1440) {
-        // A column: 24px clear of the viewport's right edge, sticky 20px under the header, ruled on
-        // its left only; it reflows the page beside it, so the marker lane stays uncovered.
+        // A column: 24px clear of the viewport's right edge, sticky 20px under the header, with no
+        // edge of its own; it reflows the page beside it, so the marker lane stays uncovered.
         await expect(panel).toHaveAttribute('data-mode', 'column');
         expect(edge.x + edge.width).toBe(width - (await length('--colab-panel-edge')));
         expect(edge.y).toBe(headerHeight(width) + (await length('--colab-panel-sticky-gap')));
-        await expect(panel).toHaveCSS('border-left-width', '1px');
+        await expect(panel).toHaveCSS('border-left-width', '0px');
         await expect(panel).toHaveCSS('border-right-width', '0px');
         expect((await frame.boundingBox())?.width).toBeLessThan(before!.width);
         await expect.poll(frameAt).toBe(true);
@@ -426,7 +433,8 @@ test('one-row fitting retains full labels, stable content and compact action aut
     },
     { title, deviceName },
   );
-  const header = page.locator('.tmt-ui-header:visible');
+  const header = page.locator('.colab-title-row header:visible');
+  const bar = page.locator('.tmt-ui-topbar:visible');
   const heading = header.getByRole('heading', { name: title, exact: true });
   await expect(heading).toBeVisible();
   await expect(header).toHaveAttribute('aria-label', `Colab · local · ${deviceName} · ${title}`);
@@ -454,14 +462,20 @@ test('one-row fitting retains full labels, stable content and compact action aut
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
     await expect(heading).toBeVisible();
-    const actions = header.getByRole('navigation', { name: 'Page actions' });
-    await expect(actions.getByRole('button')).toHaveCount(2);
+    const actions = bar.getByRole('navigation', { name: 'Page actions' });
+    await expect(actions.getByRole('button')).toHaveCount(1);
     const more = actions.getByRole('button', { name: 'More', exact: true });
     await more.press('ArrowDown');
-    // Share… waits on page management and a page that holds no file shows no Files entry; the first
-    // enabled entry is Agent status, then Source and Export page.
+    // Share… waits on page management and an empty page has no Files entry. Metadata inspection
+    // remains reachable before Agent status, Source and Export page.
     await expect(actions.getByRole('menuitem', { name: /^Share…/ })).toBeDisabled();
     await expect(actions.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
+    await expect(actions.getByRole('menuitem', { name: 'Questions…', exact: true })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(
+      actions.getByRole('menuitem', { name: 'Set creator…', exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     await expect(
       actions.getByRole('menuitem', { name: 'Agent status', exact: true }),
     ).toBeFocused();

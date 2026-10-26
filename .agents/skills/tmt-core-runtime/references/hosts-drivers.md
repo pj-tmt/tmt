@@ -20,7 +20,15 @@ channels and the driver protocol. The owner map is in
   `snapshot` (all panes, or one).
 
 - A running-command handle separates launch from wait but keeps the original deadline and
-  cleanup; an abandoned handle stops and reaps its child. There is no second runner.
+  cleanup; an abandoned handle stops and reaps its child. Cancellable waits forward one SIGINT
+  to their private group while retaining the unreaped leader and bounded checkpoint report.
+  A repeat expires the wait; timeout/forced cleanup never confirms partial bytes. The resumable
+  communicator uses bounded blocking slices against the original absolute deadline, including
+  after pipe EOF. There is no second runner or signal/reader thread.
+- `process::runtime` uses the runner's native process evidence before bounded `ps` fallback.
+  Native Unknown or late evidence grants nothing and never triggers a second acquisition;
+  only unavailable native acquisition falls back. Owned unreaped children retain zombie
+  identity; ordinary runtime observations treat zombies as gone.
 - `process::interactive` runs direct-terminal children: terminal interrupts reach the child,
   wrapper TERM/HUP are forwarded to the owned child only, and a notification failure degrades
   supervision instead of killing a live agent. Abandonment terminates, then kills and reaps
@@ -213,14 +221,21 @@ channels and the driver protocol. The owner map is in
 - A host's launch template (`LaunchTemplate` in `tmt-host-grammar`, the optional `launch`
   capability) is data core publishes and never runs: Ops expands and runs it. The tmux
   template is the constant in `tmt-adapters::tmux::launch`; `host::launch::launch_templates`
-  composes it with each approved driver's (an `ok` driver only) for `tmt host templates`.
+  composes it with the built-in host's (`host::pty::launch_template`, which starts a background
+  member through `tmt run --host pty` and opens no pane) and each approved driver's (an `ok`
+  driver only) for `tmt host templates`.
   The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` is its reader. It
   runs the verified stop first (`verified_stop`, shared with `resume --move`), then asks the
   host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
   policy in `host::driver::close_opened_pane`). The op is optional and capability-gated: tmux
   closes through `Tmux::close_opened_pane` (one `kill-pane`, never a session's only pane),
-  an external driver through its `close` op, and a host without either leaves the pane open.
-  An unmarked, unknown or unlisted pane is never closed, and no close is retried.
+  an external driver through its `close` op, and the built-in pty host by waiting up to
+  `CLOSE_WAIT` for the member's supervisor process to end (`PtyDriver::close_pane` checks the
+  process incarnation only; core never signals it, and a program still running is refused with
+  the evidence). The supervisor ends by itself once the program exits and removes its own
+  socket and lock. A host without any of these leaves the
+  pane open. An unmarked or unknown pane is never closed, a pane the host proves gone is
+  reported as already gone (`PaneClose::AlreadyGone`), and no close is retried.
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no
   process); only `locations`, `resume` and `usage` run the driver. The client validates the
   `locations` answer and calls `within(home)` before admitting write targets; approval alone
@@ -234,7 +249,8 @@ tmux or Herdr hosts it. `run`/`resume` default to this host outside a verified h
 `--host tmux|herdr|pty` selects explicitly and never silently falls back. `HostKind`
 keeps the existing `External` shape for the reserved `pty` grammar. `Host::for_server`
 reaches its in-process `host::pty` driver; no executable approval is involved.
-Attach/focus and the Ops stream are not yet shipped.
+`tmt attach` and plain `focus` reach a built-in member; terminal views discover its
+stream through the public `terminal.stream` API rather than deriving socket paths.
 
 - **One process per member, no daemon.** `tmt __pty-serve DIRECTORY ID COLS ROWS PROGRAM...`
   (hidden; `tmt-adapters::pty::serve_process`) leaves its session, takes the member's lock,
@@ -242,9 +258,11 @@ Attach/focus and the Ops stream are not yet shipped.
   controlling terminal it is), prints `ready <program pid>` and points its standard streams
   at `/dev/null`, so a launcher can read its pipes to the end. It ends when the program
   does: it tells attached clients (`Exited`), then removes its socket and lock. A supervisor
-  that dies, even by SIGKILL, closes the terminal and the kernel hangs the program up; its
-  leftover socket and lock are replaced by the next start of the same id (ids are never
-  reused).
+  that dies, even by SIGKILL, closes the terminal and the kernel hangs the program up. The
+  next `Supervisor::start`, after taking its own lock, scans at most 64 directory entries and
+  only tries another ID's lock when its socket exists, then reclaims the socket and lock while
+  holding that ID's nonblocking exclusive flock. Lock-only starters, live or unknown locks and
+  scan/removal errors are left alone without failing startup.
 - **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
   (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
   `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);
@@ -268,6 +286,13 @@ Attach/focus and the Ops stream are not yet shipped.
   then submit Enter separately; Core owns the `!` rewrite, delay and SQLite delivery stages.
   Control clients drain output and disconnect promptly, including between paste and Enter;
   they never resize. Failed post-paste transport is uncertain and never replayed.
+- **Terminal stream.** [terminal-stream-v1](../../../../contracts/terminal-stream-v1.md) publishes
+  these frames as the owner-only local stream a view such as the Ops Terminal tab reads and types
+  into. `Snapshot` is its one addition for a view that joins mid-session: the supervisor
+  (`Supervisor::snapshot`, in the same single thread that orders output) answers with
+  `SnapshotStart`, chunked `SnapshotData` (`vt100` `state_formatted` plus `ESC[?1049h` on the
+  alternate screen) and `SnapshotEnd(size)`, queued behind the client's other frames. A client
+  that asks with 256 KiB unread is evicted `TooSlow`. `tmt attach` never asks for one.
 - **Interactive attach.** `tmt attach <name-or-UUID> [-d]` resolves the existing
   binding and admits one connection through `Host`, checking the supervisor/pane
   incarnations and marker before terminal input. SQLite closes before the relay.
@@ -298,12 +323,28 @@ Attach/focus and the Ops stream are not yet shipped.
 - **Tests** run real pseudo-terminals with `sh` programs, in process
   (`tmt-adapters/src/pty/tests.rs`) and as a process (`tmt-cli/tests/pty_supervisor.rs`:
   terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).
+  `tmt-cli/tests/pty_host.rs` drives the public CLI with a `PATH` that has no tmux; its
+  `pty_host/e2e.rs` story runs two replying members through talk, attach and detach, then
+  loses one supervisor and explicitly resumes its recorded session in a new pane: identity,
+  retained exchanges and exactly-once processing survive; queued work is never silently
+  replayed, the other member stays available, and old/new supervisor files are absent before
+  fixture deletion. A shared fixture barrier waits for exact Running provider/owner evidence
+  before releasing SessionStart, then reads its committed session. The separate quarantined
+  resume control remains opt-in; a passing local story does not resolve hosted intermittency.
 
 ## Agent drivers
 
 Claude owns `drivers/claude/plugins/` prompt-picker plugins (root `.claude-plugin`
 marketplace; user-installed) and a read-only missing-plugin hint. Launch adds no
 plugin arguments or persistent provider settings.
+
+`drivers/claude/plugins/tmt-allowance` is the first-party mod that hands Claude's rate-limit
+windows to `tmt __allowance claude` (#5187). The marketplace stays picker-only. Intake keeps
+nothing without usage consent and never opens the SQL store: it writes one private JSON file
+under the data root, and `claude/allowance.rs` returns the newer of that entry and the
+`cachedUsageUtilization` cache ([extension API](../../../../contracts/extension-api.md)).
+Consented setup installs it (see [setup and uninstall](identity-bindings.md#hooks-setup-and-uninstall));
+its own test runs under `claude plugin test`.
 
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for

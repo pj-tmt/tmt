@@ -104,11 +104,14 @@ pub(crate) fn items(
     anchors: &SummaryAnchors,
     view: &Conversations,
     writers: &BTreeSet<String>,
+    questions: Option<&[serde_json::Value]>,
 ) -> Vec<PendingItem> {
     let mut pending = Vec::new();
     let mut seen = BTreeSet::new();
     let mut add = |kind, id: &str| {
-        if seen.insert(id.to_owned()) {
+        // Keep the existing cross-kind deduplication for other passage types. Registered
+        // questions own their count even when old markup reused their ID for another type.
+        if seen.insert((questions.is_some() && kind == "answer", id.to_owned())) {
             pending.push(PendingItem {
                 kind,
                 id: id.to_owned(),
@@ -143,26 +146,39 @@ pub(crate) fn items(
             add("reading", &reading.id);
         }
     }
-    for group in &report.groups {
-        if !group.questions.iter().all(|id| anchors.contains(id)) {
-            continue;
+    if let Some(questions) = questions {
+        // An explicit registry owns every question target, including removed markup.
+        for question in questions {
+            if question["state"] == "open"
+                && let Some(id) = question["id"].as_str()
+            {
+                add("answer", id);
+            }
         }
-        let unanswered = group.questions.iter().any(|id| {
-            let Some(question) = report.questions.iter().find(|question| &question.id == id) else {
-                return true;
-            };
-            let prefix = format!("Answer to “{}”: ", question.title);
-            let thread = canonical(associated(view, anchors, id), writers, |body| {
-                body.starts_with(&prefix)
+    } else {
+        // Pages without a registry retain their admitted markup group/standalone counts.
+        for group in &report.groups {
+            if !group.questions.iter().all(|id| anchors.contains(id)) {
+                continue;
+            }
+            let unanswered = group.questions.iter().any(|id| {
+                let Some(question) = report.questions.iter().find(|question| &question.id == id)
+                else {
+                    return true;
+                };
+                let prefix = format!("Answer to “{}”: ", question.title);
+                let thread = canonical(associated(view, anchors, id), writers, |body| {
+                    body.starts_with(&prefix)
+                });
+                !thread.is_some_and(|thread| {
+                    device(&thread.comments, writers)
+                        .iter()
+                        .any(|comment| comment.body.starts_with(&prefix))
+                })
             });
-            !thread.is_some_and(|thread| {
-                device(&thread.comments, writers)
-                    .iter()
-                    .any(|comment| comment.body.starts_with(&prefix))
-            })
-        });
-        if unanswered {
-            add("answer", &group.id);
+            if unanswered {
+                add("answer", &group.id);
+            }
         }
     }
     for review in &report.reviews {

@@ -1,3 +1,4 @@
+import { validQuestionId } from './question-id.js';
 import {
   attachment,
   decimal,
@@ -88,6 +89,8 @@ const proposalKey = (value?: Proposal) =>
     : '';
 export interface CommentRecord extends DiscussionRecordScope {
   kind: 'comment';
+  /** Stable binding to one registered question; immutable across comment revisions. */
+  questionId?: string;
   messageId: string;
   thread: DiscussionRef;
   body: string;
@@ -195,12 +198,15 @@ export function validateDiscussionRecord(
       'thread',
       'body',
       ...(Object.hasOwn(r, 'sequence') ? ['sequence'] : []),
+      ...(Object.hasOwn(r, 'questionId') ? ['questionId'] : []),
       ...(Object.hasOwn(r, 'attachments') ? ['attachments'] : []),
     ]);
     requireValue(root === 'messages' && r.kind === 'comment');
     generatedId(r.messageId as string);
     validateRef(r.thread);
     if (Object.hasOwn(r, 'sequence')) validateSequence(r.sequence);
+    if (Object.hasOwn(r, 'questionId'))
+      requireValue(typeof r.questionId === 'string' && validQuestionId(r.questionId));
     requireValue(typeof r.body === 'string' && text(r.body).length <= COMMENT_BYTES);
     const attachments = Object.hasOwn(r, 'attachments')
       ? attachment.attachmentList(
@@ -278,7 +284,8 @@ function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undef
       previous.kind === 'comment' &&
       (record.thread.writer !== previous.thread.writer ||
         record.thread.id !== previous.thread.id ||
-        sequenceOf(record) !== sequenceOf(previous))
+        sequenceOf(record) !== sequenceOf(previous) ||
+        record.questionId !== previous.questionId)
     )
       return;
     previous = record;
@@ -360,7 +367,9 @@ export function readThreads(
           if (value.kind !== 'thread' && value.kind !== 'comment') continue;
           const id = value.kind === 'thread' ? value.threadId : value.messageId;
           const group = `${value.kind}:${id}`;
-          groups.set(group, [...(groups.get(group) ?? []), structuredClone(value)]);
+          const records = groups.get(group);
+          if (records) records.push(structuredClone(value));
+          else groups.set(group, [structuredClone(value)]);
         } catch {
           // The containing stream grants no authority for a substituted scope.
         }
@@ -382,19 +391,42 @@ export function readThreads(
   }
   for (const comment of comments) threads.get(refKey(comment.thread))?.comments.push(comment);
   for (const thread of threads.values()) thread.comments.sort(compareComments);
+  // Group statuses by thread and notifications by status once, so each thread folds only its own.
+  const statusesByThread = new Map<string, Omit<ThreadStatusView, 'depth'>[]>();
+  for (const status of statuses) {
+    const key = refKey(status.thread);
+    const group = statusesByThread.get(key);
+    if (group) group.push(status);
+    else statusesByThread.set(key, [status]);
+  }
+  const notificationsByStatus = new Map<string, ThreadNotificationRecord[]>();
+  for (const notification of notifications) {
+    const key = refKey(notification.status);
+    const group = notificationsByStatus.get(key);
+    if (group) group.push(notification);
+    else notificationsByStatus.set(key, [notification]);
+  }
   for (const thread of threads.values()) {
     if (thread.proposal && !thread.deleted)
       thread.decision = foldProposalDecision(thread.ref, decisions);
-    Object.assign(thread, foldThreadStatus(thread, thread.ref.writer, statuses));
-    const failures = notifications.filter((notification) =>
-      thread.statuses?.some(
-        (status) =>
-          status.ref.writer === notification.status.writer &&
-          status.ref.id === notification.status.id &&
-          status.recipients.some((recipient) => recipient.operationId === notification.operationId),
+    Object.assign(
+      thread,
+      foldThreadStatus(
+        thread,
+        thread.ref.writer,
+        statusesByThread.get(refKey({ writer: thread.ref.writer, id: thread.threadId })) ?? [],
       ),
     );
-    if (failures.length) thread.notifications = failures;
+    const matched = new Set<ThreadNotificationRecord>();
+    for (const status of thread.statuses ?? [])
+      for (const notification of notificationsByStatus.get(refKey(status.ref)) ?? [])
+        if (
+          status.recipients.some((recipient) => recipient.operationId === notification.operationId)
+        )
+          matched.add(notification);
+    // Kept in record order, as before indexing.
+    if (matched.size)
+      thread.notifications = notifications.filter((notification) => matched.has(notification));
   }
   return [...threads.values()].sort((a, b) => refKey(a.ref).localeCompare(refKey(b.ref)));
 }

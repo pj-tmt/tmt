@@ -1,3 +1,4 @@
+import { remotePath } from './remote-routes.js';
 import { remoteShell, type RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
 import type { ViewerRole } from './remote-state.js';
@@ -11,6 +12,7 @@ import {
   reference,
   RemoteRegistryError,
   type RemoteReference,
+  type RemoteRegistryView,
   type ImportPlan,
 } from './remote-registry.js';
 
@@ -57,6 +59,10 @@ export type RemoteRegistryPage = ((
 ) => void) & {
   /** Replaces the reason a foreign Open waits (the settings page holds unsent work). */
   blockedBy(reason: () => string): void;
+  /** Browser-local catalog naming only; reuses the CAS dialog owner. */
+  renameCurrent(opener: HTMLElement): void;
+  /** Subscribe to this existing projection; never reads or grants authority. */
+  watch(listener: (view: RemoteRegistryView) => void): () => void;
 };
 
 export function remoteRegistryPage(
@@ -66,7 +72,13 @@ export function remoteRegistryPage(
   let heldBy = initialBlocked;
   const blocked = (): string => heldBy();
   const root = document.getElementById('remotes');
-  if (!root) return Object.assign(() => {}, { blockedBy: () => {} });
+  if (!root)
+    return Object.assign(() => {}, {
+      blockedBy: () => {},
+      renameCurrent: () => {},
+      watch: () => () => {},
+    });
+  const listeners = new Set<(view: RemoteRegistryView) => void>();
   // Remove the entire untrusted fragment synchronously, before any admission can begin.
   const fragment = location.hash;
   if (fragment) history.replaceState(null, '', location.pathname + location.search);
@@ -75,15 +87,14 @@ export function remoteRegistryPage(
   const joinHost = document.getElementById('remote-join')!;
   const joinMenu = mountBrowserMenu(joinHost, {
     label: 'Join a Remote',
-    triggerText: 'Join a Remote',
+    ...(shell?.actions ? {} : { triggerText: 'Join a Remote' }),
     items: [
       { key: 'invite', label: 'Join with an invitation' },
       { key: 'address', label: 'Remember a Remote', separated: true },
     ],
     onSelect: (key) => {
       if (key === 'address') openAdd();
-      else
-        (shell ?? remoteShell())?.navigate(new URL('connect', new URL('./', location.href)).href);
+      else (shell ?? remoteShell())?.navigate(new URL(remotePath('overview'), location.href).href);
     },
   });
   const join = joinHost.querySelector<HTMLButtonElement>('button')!;
@@ -103,13 +114,22 @@ export function remoteRegistryPage(
       ? new URL('./', location.href).href
       : undefined;
   let currentDialog: HTMLDialogElement | undefined;
+  (shell ?? remoteShell())?.signal.addEventListener(
+    'abort',
+    () => {
+      const leaving = currentDialog;
+      currentDialog = undefined;
+      leaving?.close();
+      leaving?.remove();
+    },
+    { once: true },
+  );
   let catalog = { version: 1 as const, entries: [] as readonly RemoteReference[] };
-  const settings = new URL('settings', new URL('./', location.href));
   const menu = remoteMenu(
     {
       refresh: () => render(),
       recover: (action) => {
-        const home = new URL('./', location.href).href;
+        const home = new URL(remotePath('overview'), location.href).href;
         if (action === 'Retry') {
           // The retry control of the view showing: the connection check, or the settings read.
           const retry = ['check', 'refresh']
@@ -117,17 +137,12 @@ export function remoteRegistryPage(
             .find((button) => button && button.getClientRects().length > 0);
           if (retry && !retry.disabled) retry.click();
           else (shell ?? remoteShell())?.navigate(home);
-        } else if (document.documentElement.dataset.tmtPage === 'settings')
-          (shell ?? remoteShell())?.navigate(home);
-        else {
-          const pair = [
-            'copy-refused-pair',
-            'copy-missing-pair',
-            'copy-unreadable-pair',
-            'copy-different-pair',
-          ]
-            .map((id) => document.getElementById(id))
-            .find((button) => button && button.getClientRects().length > 0);
+        } else {
+          if (location.pathname !== remotePath('overview'))
+            (shell ?? remoteShell())?.navigate(home);
+          // A retained draft may refuse navigation; do not focus its hidden destination.
+          if (location.pathname !== remotePath('overview')) return;
+          const pair = document.getElementById('copy-guide-pair');
           pair?.scrollIntoView();
           pair?.focus();
         }
@@ -151,10 +166,7 @@ export function remoteRegistryPage(
     end: () => void;
   } => {
     currentDialog?.close();
-    // The registry is the settings view's: a handoff that arrives on another view (a link to the
-    // landing) asks its questions where the remotes are.
-    if (document.documentElement.dataset.tmtPage !== 'settings')
-      (shell ?? remoteShell())?.navigate(settings.href);
+    // The document-level modal works from the global list or any current-door tab.
     const box = node('dialog');
     box.className = browserUiClasses.dialog;
     const header = node('header');
@@ -172,7 +184,8 @@ export function remoteRegistryPage(
     const buttons = node('footer');
     buttons.className = browserUiClasses.dialogActions;
     box.append(header, content, buttons);
-    root.append(box);
+    // A registry action can originate in Settings while the global list is hidden.
+    document.body.append(box);
     const end = (): void => box.close();
     box.addEventListener(
       'close',
@@ -327,6 +340,7 @@ export function remoteRegistryPage(
       address,
       role: observedRole,
     });
+    listeners.forEach((listener) => listener(projection));
     const existing = [...list.children] as HTMLElement[];
     if (
       existing.length === projection.rows.length &&
@@ -344,18 +358,17 @@ export function remoteRegistryPage(
         const role = row.querySelector<HTMLElement>('[data-role]')!;
         role.querySelector<HTMLElement>('.tmt-ui-chip-label')!.textContent = entry.roleLabel;
         role.dataset.roleTone =
-          entry.roleLabel === 'Admin'
-            ? 'selected'
-            : entry.roleLabel === 'Role unknown'
-              ? 'muted'
-              : 'neutral';
+          entry.role === 'owner' ? 'selected' : entry.role === undefined ? 'muted' : 'neutral';
         const state = row.querySelector<HTMLElement>('.tmt-ui-list-state')!;
         state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
         state.dataset.tone = entry.connection.tone;
         const open = row.querySelector<HTMLAnchorElement>('[data-action="open"]')!;
         open.setAttribute('aria-disabled', String(!entry.thisMachine && !!blocked()));
         if (!entry.thisMachine && blocked()) open.removeAttribute('href');
-        else open.href = entry.thisMachine ? new URL('./', location.href).href : entry.url;
+        else
+          open.href = entry.thisMachine
+            ? new URL(remotePath('overview'), location.href).href
+            : entry.url;
         open.title = !entry.thisMachine ? blocked() : '';
       }
       menu(projection);
@@ -380,7 +393,9 @@ export function remoteRegistryPage(
         const label = node('span');
         label.className = `${browserUiClasses.listLabel} remote-label`;
         const open = node('a', entry.name);
-        open.href = entry.thisMachine ? new URL('./', location.href).href : entry.url;
+        open.href = entry.thisMachine
+          ? new URL(remotePath('overview'), location.href).href
+          : entry.url;
         open.dataset.action = 'open';
         open.setAttribute('role', 'link');
         open.setAttribute('aria-label', `Open ${entry.name}`);
@@ -390,7 +405,7 @@ export function remoteRegistryPage(
         open.addEventListener('click', (event) => {
           event.preventDefault();
           if (entry.thisMachine) {
-            (shell ?? remoteShell())?.navigate(new URL('./', location.href).href);
+            (shell ?? remoteShell())?.navigate(new URL(remotePath('overview'), location.href).href);
             return;
           }
           void (async () => {
@@ -416,11 +431,7 @@ export function remoteRegistryPage(
         role.className += ' remote-role';
         role.dataset.role = '';
         role.dataset.roleTone =
-          entry.roleLabel === 'Admin'
-            ? 'selected'
-            : entry.roleLabel === 'Role unknown'
-              ? 'muted'
-              : 'neutral';
+          entry.role === 'owner' ? 'selected' : entry.role === undefined ? 'muted' : 'neutral';
         label.append(role);
         const description = node(
           'span',
@@ -468,10 +479,10 @@ export function remoteRegistryPage(
       showError(error, status);
     }
   };
-  function openAdd(): void {
-    const view = dialog('Add remote', join);
+  function openAdd(address = '', opener: HTMLElement = join): void {
+    const view = dialog('Add remote', opener);
     const alias = field('Remote name', '');
-    const url = field('Remote address or link', '');
+    const url = field('Remote address or link', address);
     view.body.append(alias.label, url.label);
     view.buttons.append(
       action('Continue', () => {
@@ -481,7 +492,7 @@ export function remoteRegistryPage(
             // a later opening.
             if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
             view.end();
-            confirmAdd(entry, join);
+            confirmAdd(entry, opener);
           })
           .catch((error: unknown) => showError(error, view.message));
       }),
@@ -524,7 +535,30 @@ export function remoteRegistryPage(
     paint();
   };
   return Object.assign(observe, {
+    renameCurrent: (opener: HTMLElement): void => {
+      const current = registryView(catalog, {
+        pageUrl: location.href,
+        state: observed,
+        address,
+        role: observedRole,
+      }).current;
+      if (current.reference) rename(current.reference, opener);
+      else openAdd(current.url, opener);
+    },
+    watch: (listener: (view: RemoteRegistryView) => void): (() => void) => {
+      listeners.add(listener);
+      listener(
+        registryView(catalog, {
+          pageUrl: location.href,
+          state: observed,
+          address,
+          role: observedRole,
+        }),
+      );
+      return () => listeners.delete(listener);
+    },
     blockedBy: (reason: () => string): void => {
+      (shell ?? remoteShell())?.holdNavigation?.(reason);
       heldBy = reason;
     },
   });

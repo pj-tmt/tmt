@@ -37,6 +37,15 @@ pub struct CreatedIdentity {
     pub created: bool,
 }
 
+/// Canonical lowercase RFC 4122 version 4 spelling for durable identity IDs.
+pub fn canonical_identity_id(value: &str) -> bool {
+    Uuid::parse_str(value).is_ok_and(|id| {
+        id.get_variant() == Variant::RFC4122
+            && id.get_version() == Some(Version::Random)
+            && id.to_string() == value
+    })
+}
+
 /// A storage-safe identifier for identity-owned notes. Constructing this type
 /// proves both saved lifetime eligibility and canonical UUID path material.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,12 +81,7 @@ impl TryFrom<&Identity> for NotesIdentityId {
         if identity.lifetime != Lifetime::Saved {
             return Err(NotesIdentityError::SavedIdentityRequired);
         }
-        let id =
-            Uuid::parse_str(&identity.id).map_err(|_| NotesIdentityError::InvalidIdentityId)?;
-        if id.get_variant() != Variant::RFC4122
-            || id.get_version() != Some(Version::Random)
-            || id.to_string() != identity.id
-        {
+        if !canonical_identity_id(&identity.id) {
             return Err(NotesIdentityError::InvalidIdentityId);
         }
         Ok(Self(identity.id.clone()))

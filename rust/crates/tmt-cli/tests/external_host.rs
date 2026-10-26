@@ -7,6 +7,8 @@
 // This fixture uses only the shared private command environment.
 #[path = "external_host/caller_session.rs"]
 mod caller_session;
+#[path = "external_host/digest_refusal.rs"]
+mod digest_refusal;
 #[path = "external_host/discovery.rs"]
 mod discovery;
 #[path = "external_host/driver_switch.rs"]
@@ -33,6 +35,8 @@ mod sampling;
 mod send_now;
 #[path = "external_host/stop.rs"]
 mod stop;
+#[path = "external_host/stop_capture.rs"]
+mod stop_capture;
 #[allow(dead_code)]
 mod support;
 #[path = "external_host/unrecoverable_session.rs"]
@@ -840,7 +844,7 @@ fn focus_into_is_unsupported_on_external_hosts_without_a_focus_effect() {
 }
 
 #[test]
-fn focus_uuid_survives_rename_and_name_reuse_without_changing_check_routing() {
+fn focus_uuid_survives_rename_and_name_reuse_without_changing_ordinary_check_routing() {
     register();
     let fixture = Fixture::delivering("focus-uuid-rename");
     fixture.approve();
@@ -862,8 +866,16 @@ fn focus_uuid_survives_rename_and_name_reuse_without_changing_check_routing() {
     assert!(fixture.requests("typed").is_empty());
     assert!(fixture.requests("prompted").is_empty());
 
-    // Check retains name routing: this UUID-shaped display name is offline.
-    let checked = fixture.tmt_in(Some("f1"), &["check", id, "--capture-only", "--json"]);
+    // Capture-only selects the recorded UUID despite the colliding display name.
+    let captured = fixture.tmt_in(Some("f1"), &["check", id, "--capture-only", "--json"]);
+    assert!(captured.status.success(), "{captured:?}");
+    let result: Value = serde_json::from_slice(&captured.stdout).unwrap();
+    assert_eq!(result["target"], id);
+    assert_eq!(result["identity"]["name"], "reviewer");
+    assert_eq!(result["pane"], "fake-1");
+
+    // Ordinary check retains name routing: this UUID-shaped display name is offline.
+    let checked = fixture.tmt_in(Some("f1"), &["check", id, "--json"]);
     assert_eq!(checked.status.code(), Some(3), "{checked:?}");
     let failure: Value = serde_json::from_slice(&checked.stdout).unwrap();
     assert_eq!(failure["error"]["code"], "NAME_NOT_FOUND");
@@ -2084,7 +2096,13 @@ impl SteppedProvider {
                    while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/$i.args\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
                    if [ -e \"$1/$i.json\" ]; then
                      (if [ -e \"$1/$i.env\" ]; then while IFS= read -r v; do export \"$v\"; done < \"$1/$i.env\"; fi
-                      exec \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"); echo $? > \"$1/$i.status\"
+                      if [ -e \"$1/$i.digest\" ]; then
+                        exec \"$0\" __digest-hook \"$2\" --discover-launch < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      elif [ -e \"$1/$i.activity\" ]; then
+                        exec \"$0\" __hook \"$2\" --activity-only < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      else
+                        exec \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      fi); echo $? > \"$1/$i.status\"
                    elif [ -e \"$1/$i.args\" ]; then
                      (t=\"$0\"; s=\"$1/$i\"; set --
                       while IFS= read -r a; do set -- \"$@\" \"$a\"; done < \"$s.args\"
@@ -2188,6 +2206,17 @@ impl SteppedProvider {
     fn hook(&mut self, payload: Value) -> (i32, String, String) {
         self.hook_with_env(payload, &[])
     }
+    fn digest_hook(&mut self, payload: Value) -> (i32, String, String) {
+        fs::write(
+            self.steps
+                .join(self.next.to_string())
+                .with_extension("digest"),
+            "",
+        )
+        .unwrap();
+        self.hook(payload)
+    }
+
     /// `hook` with these variables exported for that hook only.
     fn hook_with_env(&mut self, payload: Value, env: &[(&str, &[u8])]) -> (i32, String, String) {
         let step = self.steps.join(self.next.to_string());

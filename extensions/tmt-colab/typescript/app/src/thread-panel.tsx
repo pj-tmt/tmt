@@ -1,6 +1,6 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
-import type { CreationRecipient } from './fold-protocol.js';
+import type { CreatorTarget } from './creator-default.js';
 import { Check, ChevronUp, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import {
@@ -481,7 +481,7 @@ export function threadTitle(thread: ThreadView) {
 
 export type ThreadWindowProps = {
   number?: number;
-  creationRecipient?: CreationRecipient;
+  creationRecipient?: CreatorTarget;
   /** Absent until the first committed turn; the composer stays in this same window. */
   thread?: ThreadView;
   anchor?: QuoteSelector;
@@ -929,13 +929,14 @@ export function ThreadWindow({
   );
 }
 
-type CommentsView = 'open' | 'needs' | 'resolved' | 'proposals';
+type CommentsView = 'open' | 'needs' | 'proposals';
 
 export function ThreadPanel({
   numbers: suppliedNumbers,
   creationRecipient,
   hideHeader = false,
   threads,
+  showResolved = false,
   resolved,
   anchorsChecked,
   selection,
@@ -958,9 +959,11 @@ export function ThreadPanel({
   showInPage,
   headerSlot,
 }: {
-  creationRecipient?: CreationRecipient;
+  creationRecipient?: CreatorTarget;
   hideHeader?: boolean;
   threads: readonly ThreadView[];
+  /** The Open view also lists resolved threads, marked as resolved. */
+  showResolved?: boolean;
   numbers?: ReadonlyMap<string, number>;
   resolved: readonly string[];
   anchorsChecked: boolean;
@@ -1008,12 +1011,10 @@ export function ThreadPanel({
   });
   const matches = (row: (typeof rows)[number]) =>
     shownView === 'open'
-      ? !row.shownResolved
+      ? showResolved || !row.shownResolved
       : shownView === 'needs'
         ? row.needsYou
-        : shownView === 'resolved'
-          ? row.shownResolved
-          : !!row.thread.proposal;
+        : !!row.thread.proposal;
   const visibleRows = rows.filter(matches);
   const discussed = active ? rows.find((row) => row.id === active) : undefined;
   // Leaving the Discussion view removes the control that held focus; the thread's row takes it, so
@@ -1029,23 +1030,15 @@ export function ThreadPanel({
       ?.querySelector<HTMLElement>(`.annotation-row[data-thread-id="${CSS.escape(threadId)}"]`)
       ?.focus();
   }, [discussed]);
-  const tab = (id: CommentsView, label: string, state?: BrowserTab['state']): BrowserTab => ({
+  const tab = (id: CommentsView, label: string): BrowserTab => ({
     id,
     tabId: `${scope}-tab-${id}`,
     panelId: `${scope}-panel-${id}`,
     label,
-    ...(state ? { state } : {}),
   });
-  // News in a resolved thread is not in the Open view; its tab says so.
-  const resolvedNews = rows.some((row) => row.shownResolved && row.status?.unseen);
   const tabs = [
     tab('open', text.commentsViewOpen),
     tab('needs', text.needsYouWord),
-    tab(
-      'resolved',
-      text.threadResolved,
-      resolvedNews ? { mark: '●', tone: 'waiting', word: text.threadUnseen } : undefined,
-    ),
     ...(hasProposals ? [tab('proposals', text.commentsViewProposals)] : []),
   ];
   if (discussed) {
@@ -1166,12 +1159,18 @@ export function ThreadPanel({
               {!visibleRows.length && (
                 <div className="comments-empty" data-testid="comments-empty">
                   <Check aria-hidden />
-                  <h3>{threads.length ? text.commentsEmptyTitle : text.commentsEmptyNone}</h3>
+                  <h3>
+                    {!threads.length
+                      ? text.commentsEmptyNone
+                      : shownView === 'open'
+                        ? text.commentsNoOpen
+                        : text.commentsEmptyTitle}
+                  </h3>
                   <p>
                     {!threads.length
                       ? text.commentsEmptyNoneHint
-                      : shownView === 'resolved'
-                        ? text.commentsEmptyResolved
+                      : shownView === 'open' && rows.some((row) => row.shownResolved)
+                        ? text.commentsNoOpenHidden
                         : text.commentsEmptyCaughtUp}
                   </p>
                 </div>

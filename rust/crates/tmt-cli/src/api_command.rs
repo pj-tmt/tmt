@@ -22,8 +22,8 @@ pub fn execute() -> io::Result<u8> {
             }
             let paths = ConfigPaths::discover().map_err(|_| (1, api::Fault::unavailable().encode()))?;
             api::execute(&paths, request).map_err(|mut fault| {
-                if let Some(error) = fault.take_storage_open() {
-                    let failure = Failure::storage_access(error, &paths.global_dir, "No API operation was performed.", fault.code(), fault.message());
+                if let Some((error, effect)) = fault.take_storage_access() {
+                    let failure = Failure::storage_access(error, &paths.global_dir, effect, fault.code(), fault.message());
                     (failure.status, serde_json::to_vec(&failure.document()).expect("bounded storage failure"))
                 } else { (fault.status(), fault.encode()) }
             })

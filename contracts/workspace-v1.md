@@ -60,12 +60,25 @@ the Core SQL cursor, so a due attempt reads topology once to learn its fingerpri
 
 Public API `workspace.capture` accepts only an empty `input` object, with no
 identity, originator, socket, host selector or timeout override. It returns
-`{attempted,published,skipped}`. It examines at most 64 entries under the private
+`{attempted,published,skipped}` and, when any examined record did not publish,
+`reasons`. It examines at most 64 entries under the private
 workspace root and considers only recognized, owned socket records. Counts refer
 to those examined records: `attempted` counts admitted capture callbacks (including
 failed/unchanged attempts), `published` counts changed generations, and `skipped`
-counts recognized records refused before their callback. It is advisory, not an
-exhaustive host inventory or confirmation that a snapshot is current.
+counts recognized records refused before their callback. `reasons` is an object of
+counts per closed token, omitted when empty, naming how each unpublished record
+ended, so `published` plus the sum of `reasons` is the number of examined records.
+Before the callback: `deadline` (the shared budget was spent), `busy` (another
+process holds the publication lock), `not_due` (the same server incarnation was
+attempted less than 30 seconds ago) and `refused` (coordination or the recorded
+record is malformed, symlinked or unreadable); these are the `skipped` records.
+After it: `unchanged` (topology read, nothing changed: the healthy outcome),
+`server_not_current` (the native incarnation pre-check found the recorded server gone
+or replaced), `server_changed` (server, socket or incarnation differs after the read),
+`deadline` (the budget ran out inside the attempt, or ran out while the pre-check was
+running) and `failed` (the host read, parse or write failed). Tokens never carry host
+text, paths or error strings, and clients tolerate tokens added later. It is advisory,
+not an exhaustive host inventory or confirmation that a snapshot is current.
 
 All candidates share one 200 ms acquisition deadline and the same 30-second
 coordination as hooks. Before querying a recorded socket, verify its saved native

@@ -19,12 +19,25 @@ pub(in crate::board) struct Projection {
     pub pace: Pace,
 }
 
+/// `name` is a row's name on the board: a driver ID (every account of it, or, beside several
+/// accounts, the sessions that name none), or `driver.key` for one account of a driver that has
+/// several (#5275).
 pub(in crate::board) fn projection(
     app: &App,
-    provider: &str,
+    name: &str,
     kind: QuotaWindow,
     now: u64,
 ) -> Projection {
+    let (driver, account) = name
+        .split_once('.')
+        .map_or((name, None), |(d, k)| (d, Some(k)));
+    let several = app.limits.as_deref().is_some_and(|items| {
+        items
+            .iter()
+            .filter(|s| s.provider.id() == driver && s.provider.names_account())
+            .count()
+            > 0
+    });
     let reports: Vec<_> = app
         .view
         .as_ref()
@@ -33,14 +46,30 @@ pub(in crate::board) fn projection(
         .filter(|(_, rate)| rate.settings.enabled)
         .filter_map(|(name, _)| app.home_meter(name))
         .flat_map(|meter| meter.history().quota_reports())
-        .filter(|(driver, _)| *driver == provider)
+        .filter(|(reported, report)| {
+            *reported == driver
+                && match (account, several) {
+                    (Some(key), _) => report.account.as_ref().is_some_and(|a| a.key == key),
+                    // Beside several accounts the plain driver is the unnamed sessions only.
+                    (None, true) => report.account.is_none(),
+                    (None, false) => true,
+                }
+        })
         .map(|(_, report)| report)
         .collect();
     let pace = pace::project(reports.iter().copied(), kind, now);
     let balance = if reports.is_empty() {
         app.limits
             .as_deref()
-            .and_then(|items| items.iter().find(|s| s.provider.id() == provider))
+            .and_then(|items| {
+                items.iter().find(|s| match account {
+                    Some(key) => s.provider.id() == driver && s.provider.account_key() == Some(key),
+                    None if several => {
+                        s.provider.id() == driver && s.provider.account_key().is_none()
+                    }
+                    None => s.provider.id() == driver,
+                })
+            })
             .and_then(|s| match s.outlook(now) {
                 Outlook::Known(figures) => match kind {
                     QuotaWindow::Weekly => Some(figures.weekly),
@@ -167,7 +196,7 @@ pub(in crate::board) fn usage_clock_mark(app: &App, now: u64, width: u16) -> Str
         .limits
         .iter()
         .flatten()
-        .map(|s| s.provider.id())
+        .map(|s| s.provider.board_name())
         .collect();
     providers.sort_unstable();
     providers.dedup();
@@ -175,7 +204,12 @@ pub(in crate::board) fn usage_clock_mark(app: &App, now: u64, width: u16) -> Str
         "{:?}",
         providers
             .into_iter()
-            .map(|provider| usage_row(projection(app, provider, kind, now), now, width, app.look()))
+            .map(|provider| usage_row(
+                projection(app, &provider, kind, now),
+                now,
+                width,
+                app.look()
+            ))
             .collect::<Vec<_>>()
     )
 }
@@ -261,6 +295,68 @@ mod tests {
         known.pace.exhausts_at_ms = Some(NOW + 8 * 86_400_000);
         let row = usage_row(known, NOW, 49, look).to_string();
         assert!(row.contains("on pace") && !row.contains('↑') && !row.contains('◆'));
+    }
+    #[test]
+    fn an_account_row_reads_its_own_balance_and_the_plain_driver_beside_several_only_the_unnamed() {
+        use crate::board::limits::Provider;
+        const WORK: &str = "0123456789ab";
+        const HOME: &str = "ba9876543210";
+        crate::status::with_now_ms(NOW, || {
+            let mut app = crate::board::home::tests::oracle::metered(Look::default());
+            let template = app.limits.as_ref().unwrap()[0].clone();
+            let standing = |provider: Provider, left: f64| {
+                let mut standing = template.clone();
+                standing.provider = provider;
+                standing.latest.as_mut().unwrap().weekly.left = left;
+                standing
+            };
+            let account = |key: &str, label: &str, shown: bool| {
+                Provider::from_key(&format!("newcomer.{key}"))
+                    .unwrap()
+                    .labelled(label)
+                    .showing_account(shown)
+            };
+            let plain = |unknown: bool| {
+                Provider::from_driver("newcomer")
+                    .unwrap()
+                    .showing_unknown_account(unknown)
+            };
+            let left = |app: &App, name: &str| {
+                projection(app, name, QuotaWindow::Weekly, NOW)
+                    .balance
+                    .map(|balance| balance.left.round())
+            };
+            app.limits = Some(vec![
+                standing(plain(true), 90.0),
+                standing(account(WORK, "work", true), 70.0),
+                standing(account(HOME, "home", true), 30.0),
+            ]);
+            let names: Vec<_> = app
+                .limits
+                .iter()
+                .flatten()
+                .map(|standing| standing.provider.board_name())
+                .collect();
+            assert_eq!(
+                names,
+                [
+                    "newcomer".to_owned(),
+                    format!("newcomer.{WORK}"),
+                    format!("newcomer.{HOME}")
+                ]
+            );
+            assert_eq!(left(&app, "newcomer"), Some(90.0), "the unnamed sessions");
+            assert_eq!(left(&app, &format!("newcomer.{WORK}")), Some(70.0));
+            assert_eq!(left(&app, &format!("newcomer.{HOME}")), Some(30.0));
+            assert_eq!(left(&app, "newcomer.ffffffffffff"), None);
+            // One account is the whole driver and is asked for by the driver's name.
+            app.limits = Some(vec![standing(account(WORK, "work", false), 70.0)]);
+            assert_eq!(
+                app.limits.as_ref().unwrap()[0].provider.board_name(),
+                "newcomer"
+            );
+            assert_eq!(left(&app, "newcomer"), Some(70.0));
+        });
     }
     #[test]
     fn held_balances_remain_available_without_claiming_an_api_backed_rate() {

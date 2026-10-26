@@ -81,6 +81,7 @@ mod status_update;
 mod tab_strip;
 mod talk_measure;
 mod team_strip;
+mod terminal_tab;
 mod timer_rows;
 mod top_bar;
 mod tree_row;
@@ -621,6 +622,7 @@ fn session(
     mut reassert_mouse: impl FnMut() -> io::Result<()>,
     mut state: Option<&mut view_state::Session>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
+    history_read: impl Fn(refresh::HistoryJob),
 ) -> io::Result<Option<i32>> {
     // Nothing below may start a command: jobs go to the lane, reads to the worker.
     let _no_commands = crate::runner::forbid_commands();
@@ -755,10 +757,11 @@ fn session(
         });
         if demand != history_demand {
             history_demand = demand;
-            revision += 1;
-            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-            request(app.current.clone(), true, app.settings.is_some(), history);
-            refreshed = Instant::now();
+            // A chart/window change reads history for the published workspace;
+            // it neither reloads that workspace nor fences its selected lane.
+            if let Some(job) = refresh::HistoryJob::requested(app, history) {
+                history_read(job);
+            }
             dirty = true;
         }
         if dirty {
@@ -1720,6 +1723,7 @@ pub fn run(
                 })
                 .map(|_| ())
         },
+        |job| worker.history(job),
     );
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
@@ -1789,6 +1793,31 @@ mod tests {
         io: impl Fn(lane::Job),
         draw: impl FnMut(&mut App) -> io::Result<()>,
     ) -> io::Result<Option<i32>> {
+        session_with_history(
+            app,
+            stop,
+            input,
+            request,
+            selected_read,
+            checklist,
+            io,
+            draw,
+            |_| {},
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)] // Inject both independent acquisition boundaries.
+    fn session_with_history(
+        app: &mut App,
+        stop: &AtomicUsize,
+        input: &Receiver<BoardEvent>,
+        request: impl Fn(Option<String>, bool, bool, Option<rate::history::Demand>),
+        selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
+        checklist: impl Fn(checklist::load::Task),
+        io: impl Fn(lane::Job),
+        draw: impl FnMut(&mut App) -> io::Result<()>,
+        history: impl Fn(refresh::HistoryJob),
+    ) -> io::Result<Option<i32>> {
         let expired = std::sync::atomic::AtomicBool::new(false);
         std::thread::scope(|scope| {
             let (complete, completion) = channel::<()>();
@@ -1815,6 +1844,7 @@ mod tests {
                 || Ok(()),
                 None,
                 draw,
+                history,
             );
             drop(complete);
             assert!(
@@ -1846,6 +1876,86 @@ mod tests {
             bindings.insert("T".into(), crate::action::Action::parse("theme").unwrap());
         }
         app
+    }
+
+    fn add_history_source(app: &mut App) {
+        let fixture = rate::tests::history_fixture();
+        app.view.as_mut().unwrap().home_rate.insert(
+            "product".into(),
+            app::RateView {
+                settings: crate::config::TokenRate {
+                    enabled: true,
+                    ..Default::default()
+                },
+                input: rate::tests::historical_input(&fixture, false),
+                history: None,
+            },
+        );
+    }
+
+    #[test]
+    fn history_demand_does_not_fence_the_selected_conversation() {
+        use std::cell::Cell;
+        let mut app = app::workspace::tests::board();
+        app.view.as_mut().unwrap().refresh = None;
+        app.view.as_mut().unwrap().replies = vec![serde_json::json!({
+            "recipientId": app::workspace::tests::MEMBER,
+            "requestId": "req-history-selection",
+            "submittedAtMs": 20,
+            "response": null,
+        })];
+        add_history_source(&mut app);
+        app.select(app.selected);
+        app.set_body_width(160);
+        app.usage_chart
+            .borrow_mut()
+            .restore_chart_controls(360, Default::default());
+        let (events, input) = channel();
+        let dispatched = Cell::new(false);
+        let held_history = std::cell::RefCell::new(None);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 50)).unwrap();
+        terminal.draw(|frame| view::render(frame, &app)).unwrap();
+        assert!(app.history_demand().is_some());
+        assert!(matches!(
+            app.selected_read(),
+            Some(refresh::SelectedRead::Conversation(_))
+        ));
+        session_with_history(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| panic!("history demand must not reload the full base snapshot"),
+            |_, selected| {
+                if matches!(selected, Some(refresh::SelectedRead::Conversation(_))) {
+                    assert!(held_history.borrow().is_some(), "history has not published");
+                    dispatched.set(true);
+                    events.send(self::key(KeyCode::Char('q'))).unwrap();
+                }
+            },
+            |_| {},
+            no_io,
+            |app| {
+                terminal.draw(|frame| view::render(frame, app)).unwrap();
+                Ok(())
+            },
+            |job| {
+                assert!(
+                    held_history.borrow().is_none(),
+                    "one demand, one history job"
+                );
+                held_history.replace(Some(job));
+                // Keep the job uncompleted, but bound the scripted session even
+                // if the selected callback is accidentally suppressed.
+                events.send(self::key(KeyCode::Char('q'))).unwrap();
+            },
+        )
+        .unwrap();
+        assert!(
+            dispatched.get(),
+            "a visible member starts on its independent lane"
+        );
+        assert!(held_history.borrow().is_some());
     }
 
     #[test]
@@ -2590,6 +2700,7 @@ print(json.dumps(out))
             || Ok(()),
             None,
             |_| Ok(()),
+            |_| {},
         )
         .unwrap();
         assert_eq!(*windows.borrow(), [DigestWindow::Week]);
@@ -2601,9 +2712,11 @@ print(json.dumps(out))
     }
 
     #[test]
-    fn long_chart_demand_uses_existing_refresh_and_does_not_reacquire_a_closed_range() {
+    fn long_chart_demand_uses_history_work_and_does_not_reacquire_a_closed_range() {
         crate::status::with_now_ms(1_791_600_000_000, || {
             let mut app = theme_board();
+            add_history_source(&mut app);
+            app.limits = Some(Vec::new());
             let mut terminal =
                 ratatui::Terminal::new(ratatui::backend::TestBackend::new(103, 51)).unwrap();
             let paint =
@@ -2636,17 +2749,30 @@ print(json.dumps(out))
             }
             let expected = rate::history::rollup::Request::new(900_000, 21_600_000).unwrap();
             assert_eq!(app.retained_history_request(), Some(expected));
+            assert!(
+                !app.quota_history_visible(),
+                "this case changes only chart demand"
+            );
             let (events, input) = channel();
             let requests = std::cell::RefCell::new(Vec::new());
             let draws = std::cell::Cell::new(0);
-            let ended = session(
+            let ended = session_with_history(
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |owner, preempt, preview, chart| {
-                    assert_eq!(owner.as_deref(), Some(ALL));
-                    assert!(preempt && !preview);
-                    requests.borrow_mut().push(chart);
+                |_, _, _, _| panic!("history demand must not reload the base"),
+                |_, _| {},
+                |_| {},
+                |_| panic!("read-only controls must not act"),
+                |app| {
+                    draws.set(draws.get() + 1);
+                    paint(app, &mut terminal);
+                    Ok(())
+                },
+                |job| {
+                    let (owner, demand) = job.test_owner_and_demand();
+                    assert_eq!(owner, ALL);
+                    requests.borrow_mut().push(demand);
                     match requests.borrow().len() {
                         // Moving within the closed range, then to Digest, which shows
                         // the same chart, changes nothing the refresh would reacquire.
@@ -2663,14 +2789,6 @@ print(json.dumps(out))
                         }
                         _ => panic!("unchanged closed range must not reacquire"),
                     }
-                },
-                |_, _| {},
-                |_| {},
-                |_| panic!("read-only controls must not act"),
-                |app| {
-                    draws.set(draws.get() + 1);
-                    paint(app, &mut terminal);
-                    Ok(())
                 },
             )
             .unwrap();
@@ -2743,6 +2861,7 @@ print(json.dumps(out))
                 paints.set(paints.get() + 1);
                 Ok(())
             },
+            |_| {},
         )
         .unwrap();
         assert_eq!(pauses.get(), 1);
@@ -2945,6 +3064,7 @@ print(json.dumps(out))
                         .unwrap();
                     Ok(())
                 },
+                |_| {},
             )
             .unwrap()
         });
@@ -3011,6 +3131,7 @@ print(json.dumps(out))
                     painted.send(app.meter_hover).unwrap();
                     Ok(())
                 },
+                |_| {},
             )
             .unwrap()
         });
@@ -3069,6 +3190,7 @@ print(json.dumps(out))
                         painted.send(()).unwrap();
                         Ok(())
                     },
+                    |_| {},
                 )
                 .unwrap()
             });
@@ -3116,6 +3238,7 @@ print(json.dumps(out))
                     painted.send(()).unwrap();
                     Ok(())
                 },
+                |_| {},
             )
             .unwrap()
         });
@@ -3491,6 +3614,7 @@ print(json.dumps(out))
                         overlay_seen.set(overlay_seen.get() | app.modal_open());
                         Ok(())
                     },
+                    |_| {},
                 )
                 .unwrap();
             });
@@ -3665,6 +3789,7 @@ print(json.dumps(out))
                 frames.set(frames.get() + 1);
                 Ok(())
             },
+            |_| {},
         )
         .unwrap();
         assert_eq!(

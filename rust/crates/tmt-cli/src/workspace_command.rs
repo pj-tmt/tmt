@@ -193,6 +193,7 @@ mod tests {
                 target: text("seat"),
                 lines: None,
                 capture_only: false,
+                expect_name: None,
             },
             Invocation::Focus {
                 target: text("seat"),

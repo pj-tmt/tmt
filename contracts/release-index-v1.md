@@ -8,10 +8,15 @@ client consumes fixed-origin channel pointers and verified records without an AP
 ## Origins and identity
 
 The fixed index base is
-`https://raw.githubusercontent.com/pj-tmt/tmt/release-index/`.
+`https://raw.githubusercontent.com/tmt-ninja/tmt/release-index/`.
 A channel pointer lives at `channels/<product>/<alpha|stable>.json`. A new release's
 record is its `tmt-release-record.json` asset at
-`https://github.com/pj-tmt/tmt/releases/download/<tag>/tmt-release-record.json`.
+`https://github.com/tmt-ninja/tmt/releases/download/<tag>/tmt-release-record.json`.
+The client reads every pointer, record and asset from `tmt-ninja/tmt`. Pointers and
+records published before the organization rename name the same files under `pj-tmt/tmt`;
+the client accepts either prefix in a record URL and still fetches from `tmt-ninja/tmt`,
+checking the bytes against the record's size and SHA-256. The `pj-tmt` acceptance is
+dropped after a stable release that postdates the rename.
 An explicitly reviewed bootstrap may instead place a record at the index base's
 `records/<tag>.json`; it never adds assets to immutable historical releases.
 Only the newest published release per product/channel is backfilled. An older

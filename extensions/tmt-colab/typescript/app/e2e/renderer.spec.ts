@@ -534,6 +534,10 @@ async function bindFrame(page: Page, id: string, extra: Record<string, unknown>)
         document.body.append(target);
       });
       const digest = 'c'.repeat(64);
+      // The parent keeps its end of the channel: the frame takes its later messages (a change of theme) there.
+      const channel = new MessageChannel();
+      const held = window as unknown as { colabPorts?: Record<string, MessagePort> };
+      held.colabPorts = { ...held.colabPorts, [id]: channel.port1 };
       target.contentWindow!.postMessage(
         {
           type: 'colab.render.bind',
@@ -544,7 +548,7 @@ async function bindFrame(page: Page, id: string, extra: Record<string, unknown>)
           ...extra,
         },
         '*',
-        [new MessageChannel().port2],
+        [channel.port2],
       );
     },
     { id, extra },
@@ -782,6 +786,111 @@ test("a design-system page the author paints takes the scheme it paints, not the
     design: false,
     scheme: null,
   });
+});
+
+test('a design-system page the frame paints follows a live change of theme; one the author paints stays as painted', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const content = `<p id="plain">Plain text <a id="link" href="#">link</a></p>
+    <table class="tmt-ui-table" id="table"><tbody><tr><td>Build</td></tr></tbody></table>
+    <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
+    <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
+  const setTheme = (id: string, theme: 'light' | 'dark') =>
+    page.evaluate(
+      ({ id, theme }) =>
+        (window as unknown as { colabPorts: Record<string, MessagePort> }).colabPorts[
+          id
+        ].postMessage({
+          type: 'colab.render.theme',
+          renderId: `00000000-0000-4000-8000-000000000003:${'c'.repeat(64)}`,
+          theme,
+        }),
+      { id, theme },
+    );
+  // The scheme the frame measured must not keep painting the page in itself: an unpainted page is painted by
+  // the frame's paper, so it follows the viewer in both directions.
+  await bindFrame(page, 'target-live-unpainted', { theme: 'light', source: content });
+  const unpainted = page.frameLocator('#target-live-unpainted');
+  await expect(unpainted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+  for (const theme of ['dark', 'light', 'dark'] as const) {
+    await setTheme('target-live-unpainted', theme);
+    await expect(unpainted.locator('html')).toHaveAttribute('data-colab-scheme', theme);
+    await expect(unpainted.locator('body')).toHaveCSS(
+      'background-color',
+      theme === 'dark' ? 'rgb(14, 23, 29)' : 'rgb(243, 246, 245)',
+    );
+    const found = await inkOnPaper(page, 'target-live-unpainted');
+    expect(found.ratios.length).toBe(5);
+    for (const ratio of found.ratios) expect(ratio, theme).toBeGreaterThanOrEqual(4.5);
+  }
+  // A page the author paints light stays light under either theme.
+  const light = '<style>body{background:#fffdf7;color:#2b2b2b}a{color:#0a5c3a}</style>';
+  await bindFrame(page, 'target-live-painted', { theme: 'light', source: `${light}${content}` });
+  const painted = page.frameLocator('#target-live-painted');
+  await expect(painted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+  for (const theme of ['dark', 'light'] as const) {
+    await setTheme('target-live-painted', theme);
+    await expect(painted.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(painted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+    const found = await inkOnPaper(page, 'target-live-painted');
+    for (const ratio of found.ratios) expect(ratio, theme).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+test('the native parts of a design-system page take the scheme it paints: a page painted light under a dark viewer is light', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const light = '<style>body{background:#fffdf7;color:#2b2b2b}</style>';
+  const content = '<p>Plain text</p><input class="tmt-ui-field-control" value="Note">';
+  const cases = [
+    ['painted-light-in-dark', 'dark', `${light}${content}`, 'light'],
+    [
+      'painted-dark-in-light',
+      'light',
+      `<style>body{background:#111418;color:#eef2f4}</style>${content}`,
+      'dark',
+    ],
+    ['unpainted-in-dark', 'dark', content, 'dark'],
+    ['unpainted-in-light', 'light', content, 'light'],
+  ] as const;
+  for (const [name, theme, source, scheme] of cases) {
+    const id = `target-native-${name}`;
+    await bindFrame(page, id, { theme, source });
+    const root = page.frameLocator(`#${id}`).locator('html');
+    // The frame measures what the page paints; the native parts follow that, as the tokens do.
+    await expect(root, name).toHaveAttribute('data-colab-scheme', scheme);
+    await expect(root, name).toHaveCSS('color-scheme', scheme);
+  }
+  // A page that does not use the design system keeps the browser's own `color-scheme`.
+  await bindFrame(page, 'target-native-bare', { theme: 'dark', source: '<p>Bare</p>' });
+  await expect(page.frameLocator('#target-native-bare').locator('html')).toHaveCSS(
+    'color-scheme',
+    'normal',
+  );
+});
+
+test('the frame treats a page as using the design system exactly as the shared marker vectors say', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/design-marker-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  expect(vectors.cases.length).toBeGreaterThanOrEqual(20);
+  for (const [index, row] of vectors.cases.entries()) {
+    const id = `target-marker-${index}`;
+    await bindFrame(page, id, { source: row.source });
+    const root = page.frameLocator(`#${id}`).locator('html');
+    // The bootstrap sets the theme first, so the document is written once it is there.
+    await expect(root).toHaveAttribute('data-theme', 'light');
+    if (row.usesDesign) await expect(root, row.name).toHaveAttribute('data-colab-design', '');
+    else await expect(root, row.name).not.toHaveAttribute('data-colab-design');
+  }
 });
 
 test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unknown name draws nothing', async ({
@@ -2021,6 +2130,14 @@ test('selection mode outlines one target, captures text-bearing clicks and refus
   await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(0);
   await frame.locator('#target').click();
   await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
+  // Re-enabling the mode accepts the next element gesture after a completed drag.
+  await page.evaluate(() => {
+    (
+      window as unknown as { probe: { handle: { selectionMode(enabled: boolean): void } } }
+    ).probe.handle.selectionMode(true);
+  });
+  await frame.locator('#target').click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '3');
 });
 
 test('highlight clicks choose the shortest known quote while drag selection and scroll stay native', async ({

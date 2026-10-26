@@ -311,6 +311,11 @@ impl Controller {
         }
         notes
     }
+    /// Where the sheet was last painted.
+    pub fn modal_outer(&self) -> Option<Rect> {
+        self.ui.borrow().outer()
+    }
+
     pub fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
         static REVIEW_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();

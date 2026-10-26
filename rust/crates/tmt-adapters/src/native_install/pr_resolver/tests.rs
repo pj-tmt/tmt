@@ -82,12 +82,12 @@ struct Fixture {
 impl Fixture {
     fn put(&mut self, route: &str, value: Value) {
         self.routes.insert(
-            format!("{ROOT}/{route}"),
+            format!("{}/{route}", api_root()),
             serde_json::to_vec(&value).unwrap(),
         );
     }
     fn modify(&mut self, route: &str, fresh: bool, change: impl FnOnce(&mut Value)) {
-        let url = format!("{ROOT}/{route}");
+        let url = format!("{}/{route}", api_root());
         let mut value = serde_json::from_slice(&self.routes[&url]).unwrap();
         change(&mut value);
         let destination = if fresh {
@@ -129,7 +129,7 @@ impl Fixture {
                 "size_in_bytes":payload.len(),"digest":format!("sha256:{}",artifact::digest(&payload)),"workflow_run":membership,
             }));
             fixture.routes.insert(
-                format!("{ROOT}/actions/artifacts/{payload_id}/zip"),
+                format!("{}/actions/artifacts/{payload_id}/zip", api_root()),
                 payload,
             );
             if target == TARGET {
@@ -146,9 +146,10 @@ impl Fixture {
             "actions/artifacts?name=tmt-pr-rc-catalog-v2-pr234&per_page=100&page=1",
             json!({"total_count":1,"artifacts":[metadata]}),
         );
-        fixture
-            .routes
-            .insert(format!("{ROOT}/actions/artifacts/8201/zip"), catalog_zip);
+        fixture.routes.insert(
+            format!("{}/actions/artifacts/8201/zip", api_root()),
+            catalog_zip,
+        );
         let api: Value =
             serde_json::from_slice(include_bytes!("../fixtures/pr-rc-api-v2.json")).unwrap();
         fixture.put("pulls/234", api["pull"].clone());
@@ -268,7 +269,7 @@ fn current_source_acquires_exact_native_bytes_and_records_one_fresh_admission() 
             fixture
                 .calls
                 .iter()
-                .filter(|url| **url == format!("{ROOT}/{route}"))
+                .filter(|url| **url == format!("{}/{route}", api_root()))
                 .count(),
             2,
             "{route}"
@@ -318,7 +319,7 @@ fn close_head_change_disable_and_reenable_before_admission_refuse_without_fallba
             fixture
                 .calls
                 .iter()
-                .filter(|url| **url == format!("{ROOT}/{route}"))
+                .filter(|url| **url == format!("{}/{route}", api_root()))
                 .count(),
             2
         );
@@ -354,7 +355,7 @@ fn timeline_refuses_absent_duplicate_tied_noncanonical_and_incomplete_evidence()
     }
     let mut fixture = Fixture::new();
     fixture.links.insert(
-        format!("{ROOT}/issues/234/timeline?per_page=100&page=1"),
+        format!("{}/issues/234/timeline?per_page=100&page=1", api_root()),
         "next page".into(),
     );
     assert!(fixture.download().is_err());
@@ -390,7 +391,7 @@ fn unknown_publisher_and_changed_workflow_never_search_old_success() {
 fn newer_main_producer_run_is_followed_without_a_tooling_rotation() {
     let mut fixture = Fixture::new();
     let newer = "dddddddddddddddddddddddddddddddddddddddd";
-    let catalog_url = format!("{ROOT}/actions/artifacts/8201/zip");
+    let catalog_url = format!("{}/actions/artifacts/8201/zip", api_root());
     let mut archive = zip::ZipArchive::new(Cursor::new(&fixture.routes[&catalog_url])).unwrap();
     let mut catalog = String::new();
     archive
@@ -407,14 +408,14 @@ fn newer_main_producer_run_is_followed_without_a_tooling_rotation() {
     let published_routes = fixture
         .routes
         .iter()
-        .filter(|(url, _)| !url.starts_with(ROOT))
+        .filter(|(url, _)| !url.starts_with(&api_root()))
         .map(|(url, body)| (url.clone(), body.clone()))
         .collect::<BTreeMap<_, _>>();
     let old = std::mem::take(&mut fixture.routes);
     for (url, body) in old {
         // Only Actions/API JSON contains the producer identity. Published index
         // and asset routes stay byte-opaque, including their bound record hashes.
-        let (url, body) = if url.starts_with(ROOT) && !url.ends_with("/zip") {
+        let (url, body) = if url.starts_with(&api_root()) && !url.ends_with("/zip") {
             (
                 url.replace(TOOLING, newer).replace("9001", "9002"),
                 String::from_utf8(body)
@@ -480,11 +481,10 @@ fn local_newer_than_candidate_and_unknown_latest_alpha_refuse() {
     );
     let mut fixture = Fixture::new();
     let manifest_url =
-        "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.92/dist-manifest.json";
-    let record_url =
-        "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.92/tmt-release-record.json";
+        "https://github.com/tmt-ninja/tmt/releases/download/v5.0.0-alpha.92/dist-manifest.json";
+    let record_url = "https://github.com/tmt-ninja/tmt/releases/download/v5.0.0-alpha.92/tmt-release-record.json";
     let pointer_url =
-        "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/cli/alpha.json";
+        "https://raw.githubusercontent.com/tmt-ninja/tmt/release-index/channels/cli/alpha.json";
     let mut alpha: Value = serde_json::from_slice(&fixture.routes[manifest_url]).unwrap();
     alpha
         .as_object_mut()

@@ -1054,6 +1054,13 @@ impl crate::runtime::lifecycle::LifecycleObservation for CodexObservation {
         now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
         // Codex reports no usage at a start; the next turn end records it.
+        if self.transition == SessionTransition::Compacted {
+            return crate::runtime::driver_state::after_compaction(
+                self.model.as_deref(),
+                previous,
+                now_ms,
+            );
+        }
         crate::runtime::driver_state::after_start(self.model.as_deref(), None, previous, now_ms)
     }
     fn starting(&self) -> bool {

@@ -6,39 +6,38 @@ import { createPage, freePort } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'home') {
-  const header = page.locator('.tmt-ui-header:visible');
-  // The bar has no module crumb: the header's accessible name carries the module and connection.
-  await expect(header).toHaveAttribute('aria-label', /^Colab · local/);
-  const fullName = await header.getAttribute('aria-label');
+  const bar = page.locator('.tmt-ui-topbar:visible');
+  const header = page.locator('.colab-title-row header:visible');
+  // The bar draws no title. A page's title row carries the module and connection in its accessible
+  // name; the list names itself in its content and has no row.
+  if (screen === 'page') await expect(header).toHaveAttribute('aria-label', /^Colab · local/);
+  else await expect(header).toHaveCount(0);
+  const fullName = screen === 'page' ? await header.getAttribute('aria-label') : undefined;
   for (const theme of ['light', 'dark']) {
     await page.evaluate((value) => {
       document.documentElement.dataset.theme = value;
     }, theme);
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
-      await expect(header).toHaveCSS('height', width === 390 ? '48px' : '56px');
-      await expect(header).toHaveAttribute('aria-label', fullName!);
+      await expect(bar).toHaveCSS('height', width === 390 ? '48px' : '56px');
+      if (fullName) await expect(header).toHaveAttribute('aria-label', fullName);
       const mark = page.locator('.tmt-ui-shell-brand .tmt-brand-mark');
       if (width === 1440) await expect(mark).toBeVisible();
       else await expect(mark).toBeHidden();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       if (screen === 'page') {
-        const connection = header.locator('.page-connection');
+        const connection = bar.locator('.page-connection');
         await expect(connection).toHaveText('Private · Live');
         expect((await connection.boundingBox())!.width).toBeLessThanOrEqual(1);
-        const actions = header.getByRole('navigation', { name: 'Page actions' });
-        await expect(actions.getByRole('button')).toHaveCount(2);
-        for (const name of [/^Discussion \(/, 'More'])
+        const actions = bar.getByRole('navigation', { name: 'Page actions' });
+        await expect(actions.getByRole('button')).toHaveCount(1);
+        for (const name of ['More'])
           await expect(actions.getByRole('button', { name, exact: true })).toBeInViewport();
-        await expect(
-          page
-            .locator('.tmt-ui-shell-tools')
-            .getByRole('button', { name: 'Search pages', exact: true }),
-        ).toBeInViewport();
+        await expect(bar.getByRole('button', { name: 'Search TMT', exact: true })).toBeInViewport();
         const more = actions.getByRole('button', { name: 'More', exact: true });
         await more.click();
         const menu = actions.getByRole('menu');
-        for (const name of [/^Share…/, /^Remote:/, 'Agent status', /^Files \(/, 'Source'])
+        for (const name of [/^Share…/, 'Agent status', /^Files \(/, 'Source'])
           await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
         await expect(menu.getByRole('menuitem', { name: /^Share…/ })).toContainText(
           'Private · Live',

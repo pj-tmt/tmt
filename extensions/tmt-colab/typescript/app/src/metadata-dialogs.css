@@ -1,0 +1,12 @@
+.metadata-editor {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.metadata-editor p {
+  margin: 0;
+}
+.metadata-creator-search {
+  width: 100%;
+}

@@ -592,9 +592,12 @@ fn foreground_with_native(
         let firestore: Arc<dyn tmt_remote::readiness::FirestoreEvidenceSource> = Arc::new(
             tmt_remote::deploy_record::DeployRecordEvidence::new(&layout),
         );
+        let member_observations =
+            Arc::new(tmt_remote::cloud_pairing::service::MemberObservationLink::default());
         let operations = Arc::new(
             Operations::new(core, Arc::clone(stop), input_limit)
                 .with_management(Arc::clone(&devices))
+                .with_member_observations(member_observations.clone())
                 .with_firestore(Arc::clone(&firestore)),
         );
         let messages = Arc::new(
@@ -623,6 +626,7 @@ fn foreground_with_native(
                 stop: stop.clone(),
             },
         ));
+        member_observations.attach(&cloud)?;
         let cloud_worker = cloud.worker()?;
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?
             .with_pairing(Arc::clone(&pairing))

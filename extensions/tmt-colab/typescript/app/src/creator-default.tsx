@@ -1,5 +1,25 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
+import type { Projection } from './fold-protocol.js';
+
+/** A new draft resolves a stable creator ID in its current admitted directory. Legacy creation
+ * preferences also pin a machine; display-only authors never become routing targets. */
+export interface CreatorTarget {
+  agentId: string;
+  machineId?: string;
+  label?: string;
+}
+export function creatorTarget(
+  view: Pick<Projection, 'creator' | 'creationRecipient'>,
+): CreatorTarget | undefined {
+  return view.creator
+    ? {
+        agentId: view.creator.agent.id,
+        ...(view.creator.machineId ? { machineId: view.creator.machineId } : {}),
+      }
+    : view.creationRecipient;
+}
+
 type Preference = { enabled: boolean; revision: number; toggle(): void };
 const CreatorDefault = createContext<Preference | undefined>(undefined);
 const prefix = 'tmt-colab-creator-default-v1:';

@@ -3,12 +3,18 @@ use super::*;
 use crate::extension_install_command::upgrade_all::{self, Plan};
 const EXTENSION_BUDGET: Duration = Duration::from_secs(180);
 
+pub(super) struct ChildWait<'a> {
+    pub(super) budget: Duration,
+    pub(super) interrupt: Option<&'a tmt_adapters::interrupt::Interrupt>,
+}
+
 pub(super) fn upgrade_frozen(
     executable: &Path,
     approved: &Plan,
     consented: bool,
     mode: OutputMode,
     runner: &impl CommandRunner,
+    interrupt: Option<&tmt_adapters::interrupt::Interrupt>,
 ) -> Vec<Value> {
     upgrade_with_observations(
         executable,
@@ -17,6 +23,7 @@ pub(super) fn upgrade_frozen(
         |remote_pending| show_remote_progress(remote_pending, mode),
         Some(approved),
         Some(mode),
+        interrupt,
     )
 }
 
@@ -60,7 +67,7 @@ fn upgrade_with_plan(
     progress: impl FnOnce(bool),
     approved: Option<&Plan>,
 ) -> Vec<Value> {
-    upgrade_with_observations(executable, runner, consent, progress, approved, None)
+    upgrade_with_observations(executable, runner, consent, progress, approved, None, None)
 }
 
 fn upgrade_with_observations(
@@ -70,6 +77,7 @@ fn upgrade_with_observations(
     progress: impl FnOnce(bool),
     approved: Option<&Plan>,
     mode: Option<OutputMode>,
+    interrupt: Option<&tmt_adapters::interrupt::Interrupt>,
 ) -> Vec<Value> {
     let (plan, live) = match plan_child(executable, runner, mode.is_some()) {
         Ok(plan) => plan,
@@ -110,9 +118,16 @@ fn upgrade_with_observations(
     }
     let input = serde_json::to_vec(&apply.document()).expect("JSON plan");
     let result = if live {
-        observed_child(executable, runner, &input, budget, mode.unwrap_or_default())
+        observed_child(
+            executable,
+            runner,
+            &input,
+            budget,
+            mode.unwrap_or_default(),
+            interrupt,
+        )
     } else {
-        child(executable, runner, false, &input, budget)
+        child(executable, runner, false, &input, budget, interrupt)
     };
     match result.and_then(|(bytes, failed)| {
         let rows = upgrade_all::parse_results(&bytes).ok_or_else(invalid_report)?;
@@ -145,7 +160,7 @@ fn upgrade_with_observations(
 
 /// The new executable retains inventory authority. Presentation/error wording
 /// may change across versions; consent covers product, state and exact target.
-pub(super) fn targets(plan: &Plan) -> BTreeMap<String, (String, Value, Value)> {
+pub(crate) fn targets(plan: &Plan) -> BTreeMap<String, (String, Value, Value)> {
     plan.products
         .iter()
         .map(|row| {
@@ -188,7 +203,10 @@ fn plan_child(
             true,
             true,
             &[],
-            EXTENSION_BUDGET,
+            ChildWait {
+                budget: EXTENSION_BUDGET,
+                interrupt: None,
+            },
             &mut |_| {},
         );
         match probe {
@@ -212,7 +230,7 @@ fn plan_child(
             }
         }
     }
-    let (bytes, failed) = child(executable, runner, true, &[], EXTENSION_BUDGET)?;
+    let (bytes, failed) = child(executable, runner, true, &[], EXTENSION_BUDGET, None)?;
     if failed {
         return Err(invalid_report());
     }
@@ -227,6 +245,7 @@ fn child(
     planning: bool,
     input: &[u8],
     budget: Duration,
+    interrupt: Option<&tmt_adapters::interrupt::Interrupt>,
 ) -> io::Result<(Vec<u8>, bool)> {
     let (output, failed) = completed(invoke(
         executable,
@@ -234,7 +253,7 @@ fn child(
         planning,
         false,
         input,
-        budget,
+        ChildWait { budget, interrupt },
         &mut |_| {},
     ))?;
     if !output.stderr.is_empty() {
@@ -249,6 +268,7 @@ fn observed_child(
     input: &[u8],
     budget: Duration,
     mode: OutputMode,
+    interrupt: Option<&tmt_adapters::interrupt::Interrupt>,
 ) -> io::Result<(Vec<u8>, bool)> {
     let mut decoder = crate::native_progress::child::Decoder::default();
     let mut presentations = BTreeMap::new();
@@ -270,7 +290,7 @@ fn observed_child(
         false,
         true,
         input,
-        budget,
+        ChildWait { budget, interrupt },
         &mut |bytes| decoder.feed(bytes, &mut observe),
     );
     let (output, failed) = completed(result)?;
@@ -286,7 +306,37 @@ fn invoke(
     planning: bool,
     progress: bool,
     input: &[u8],
-    budget: Duration,
+    wait: ChildWait<'_>,
+    observer: &mut dyn FnMut(&[u8]),
+) -> Result<tmt_adapters::process::CommandOutput, tmt_adapters::process::CommandError> {
+    invoke_mode(
+        executable, runner, planning, progress, false, input, wait, observer,
+    )
+}
+
+pub(super) fn invoke_complete(
+    executable: &Path,
+    runner: &impl CommandRunner,
+    planning: bool,
+    progress: bool,
+    input: &[u8],
+    wait: ChildWait<'_>,
+    observer: &mut dyn FnMut(&[u8]),
+) -> Result<tmt_adapters::process::CommandOutput, tmt_adapters::process::CommandError> {
+    invoke_mode(
+        executable, runner, planning, progress, true, input, wait, observer,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn invoke_mode(
+    executable: &Path,
+    runner: &impl CommandRunner,
+    planning: bool,
+    progress: bool,
+    complete: bool,
+    input: &[u8],
+    wait: ChildWait<'_>,
     observer: &mut dyn FnMut(&[u8]),
 ) -> Result<tmt_adapters::process::CommandOutput, tmt_adapters::process::CommandError> {
     let mut args = vec![
@@ -297,14 +347,28 @@ fn invoke(
     if progress {
         args.push("--progress".into());
     }
+    if complete {
+        args.push("--complete".into());
+    }
     let request = CommandRequest {
         program: executable.as_os_str(),
         args: &args,
         input,
-        deadline: Instant::now() + budget,
+        deadline: Instant::now() + wait.budget,
         max_output_bytes: upgrade_all::LIMIT,
     };
-    if progress && !planning {
+    if let Some(interrupt) = wait.interrupt {
+        runner.execute_cancellable(
+            request,
+            if progress && !planning {
+                crate::native_progress::child::LIMIT
+            } else {
+                upgrade_all::LIMIT
+            },
+            observer,
+            interrupt,
+        )
+    } else if progress && !planning {
         runner.execute_observed(request, crate::native_progress::child::LIMIT, observer)
     } else {
         runner.execute(request)

@@ -1,5 +1,13 @@
 //! Member identity and policy over the existing grant/Store authority owner.
+pub mod observations;
+pub(crate) mod policy;
+mod projection;
+pub mod reads;
+pub mod selectors;
+pub mod service;
 mod store;
+pub mod terminal;
+pub mod terminal_machines;
 #[cfg(test)]
 mod tests;
 
@@ -50,8 +58,9 @@ pub struct Change {
     pub clients: Vec<String>,
 }
 
+pub(crate) use store::for_client as member_for_client_in;
 pub(crate) use store::require_owner as authorize_owner_in;
 pub(crate) use store::{
-    confirm_member_grant_in, grants_for_client, insert_mapping, migrate_legacy, renamed, revoked,
+    confirm_member_grant_in, grants_for_client, insert_mapping, migrate_legacy, revoked,
     sending_for_client, sync_designation,
 };

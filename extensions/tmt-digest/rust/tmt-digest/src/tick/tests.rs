@@ -33,9 +33,9 @@ impl TickPort for Port {
         Ok(vec![TickObservation {
             identity_id: "member".into(),
             mode: if self.off_at.is_some_and(|at| self.time.get() >= at) {
-                Mode::Off
+                Receiving::Direct
             } else {
-                Mode::parse("20s").unwrap()
+                Receiving::parse("20s").unwrap()
             },
             flush_count: 10,
             auto_caps: AutoCaps {
@@ -109,7 +109,7 @@ fn restart_needs_no_last_sent_state_and_auto_has_no_interval_deadline() {
     assert_eq!(port.delivered, [100_000]);
     let row = TickObservation {
         identity_id: "member".into(),
-        mode: Mode::Auto,
+        mode: Receiving::Auto,
         flush_count: 10,
         auto_caps: AutoCaps::default(),
         held_count: 50,
@@ -131,7 +131,7 @@ fn thirty_due_members_are_serialized_and_no_delivery_starts_after_the_boundary()
                 (0..30)
                     .map(|i| TickObservation {
                         identity_id: i.to_string(),
-                        mode: Mode::parse("20s").unwrap(),
+                        mode: Receiving::parse("20s").unwrap(),
                         flush_count: 10,
                         auto_caps: AutoCaps::default(),
                         held_count: 10,
@@ -182,7 +182,7 @@ fn rollback_does_not_extend_the_monotonic_budget_and_started_work_may_finish() {
             Ok(vec![
                 TickObservation {
                     identity_id: "member".into(),
-                    mode: Mode::parse("20s").unwrap(),
+                    mode: Receiving::parse("20s").unwrap(),
                     flush_count: 10,
                     auto_caps: AutoCaps::default(),
                     held_count: 10,
@@ -190,7 +190,7 @@ fn rollback_does_not_extend_the_monotonic_budget_and_started_work_may_finish() {
                 },
                 TickObservation {
                     identity_id: "next".into(),
-                    mode: Mode::parse("20s").unwrap(),
+                    mode: Receiving::parse("20s").unwrap(),
                     flush_count: 10,
                     auto_caps: AutoCaps::default(),
                     held_count: 10,
@@ -225,7 +225,7 @@ fn rollback_does_not_extend_the_monotonic_budget_and_started_work_may_finish() {
 fn row(mode: &str, held: u64, oldest: Option<u64>) -> TickObservation {
     TickObservation {
         identity_id: "member".into(),
-        mode: Mode::parse(mode).unwrap(),
+        mode: Receiving::parse(mode).unwrap(),
         flush_count: 10,
         auto_caps: AutoCaps::default(),
         held_count: held,
@@ -280,7 +280,7 @@ fn a_postponed_member_is_reported_until_its_deadline_and_never_after_delivery() 
 fn an_auto_member_is_due_at_its_own_caps_not_the_defaults() {
     let observation = |caps: AutoCaps, held_count: u64, waited: u64| TickObservation {
         identity_id: "member".into(),
-        mode: Mode::Auto,
+        mode: Receiving::Auto,
         flush_count: 10,
         auto_caps: caps,
         held_count,

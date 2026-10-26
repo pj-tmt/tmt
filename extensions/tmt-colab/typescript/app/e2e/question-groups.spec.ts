@@ -313,7 +313,8 @@ test('a successful local callback cannot supply a verified answer or close the q
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   // The answer stands at once on its folded line as an echo that no record backs: the count does
   // not move, and no status step is spelled out.
-  await expectAnswered(rows.first(), 'Keep it');
+  await expect(rows.first().locator('.question-line-state')).toHaveText('Open');
+  await expect(rows.first().locator('.question-line-answer')).toContainText('Keep it');
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
   await expect(rows.first()).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByText(/Sending…|waiting for the verified view/)).toHaveCount(0);
@@ -346,7 +347,8 @@ test('a delayed verified answer preserves a question the reader explicitly opene
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   await expect(rows.first()).toHaveAttribute('aria-disabled', 'true');
-  await expectAnswered(rows.first(), 'Keep it');
+  await expect(rows.first().locator('.question-line-state')).toHaveText('Open');
+  await expect(rows.first().locator('.question-line-answer')).toContainText('Keep it');
   await rows.nth(2).click();
   await activeCard(page).getByLabel('Your answer', { exact: true }).fill('A newer local draft.');
   await run(page, 'releaseQuestionView');
@@ -376,7 +378,8 @@ test('an echo on the folded line is replaced in place by the verified answer, no
   await expect(card.locator('.question-status')).toHaveCount(0);
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   // Send folds the card to its answered line; focus stays on that line, not the page.
-  await expectAnswered(rows.first(), 'Keep it');
+  await expect(rows.first().locator('.question-line-state')).toHaveText('Open');
+  await expect(rows.first().locator('.question-line-answer')).toContainText('Keep it');
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
   await expect(rows.first()).toBeFocused();
   await expect(page.locator('.question-card:visible')).toHaveCount(0);
@@ -736,7 +739,7 @@ test('question collision placement preserves the fixed header controls', async (
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   const surface = page.locator('#ask-page-fixture');
   const floating = surface.locator('.selection-mode');
-  const header = await surface.locator('.tmt-ui-header').boundingBox();
+  const header = await surface.locator('.tmt-ui-topbar').boundingBox();
   const fab = await floating.boundingBox();
   expect(header).not.toBeNull();
   expect(fab).not.toBeNull();
@@ -754,7 +757,7 @@ test('question collision placement preserves the fixed header controls', async (
       async () => {
         if (!(await floating.isVisible())) return true;
         const fab = await floating.boundingBox();
-        const header = await surface.locator('.tmt-ui-header').boundingBox();
+        const header = await surface.locator('.tmt-ui-topbar').boundingBox();
         return !!fab && !!header && fab.y >= header.y + header.height + 8;
       },
       { message: 'moving FAB above a card must not overlap fixed chrome' },

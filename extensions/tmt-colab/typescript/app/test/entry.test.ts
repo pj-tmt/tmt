@@ -1,5 +1,12 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { entryHash, entryMount, entryOpenTarget, entryTarget, publicEntry } from '../src/entry.js';
+import {
+  entryHash,
+  entryMount,
+  entryOpenTarget,
+  entryTarget,
+  mountOfModule,
+  publicEntry,
+} from '../src/entry.js';
 import { deriveSpaceId, encodeBinary } from '@tmt/colab-client';
 import { readerUrl, parseReaderFragment } from '../src/reader-link.js';
 afterEach(() => vi.unstubAllGlobals());
@@ -25,6 +32,21 @@ it('uses only the Remote-supplied same-origin canonical mount at public entries'
     '/r/abcdefghijklmnop/x/colab/?x=1',
   ])
     expect(() => entryMount()).toThrow();
+});
+it('names the paired mount a module script was loaded from, and nothing else', () => {
+  const door = 'https://door.test';
+  const script = `${door}/r/abcdefghijklmnop/x/colab/assets/colab-module.js`;
+  expect(mountOfModule(script, door)?.href).toBe(`${door}/r/abcdefghijklmnop/x/colab/`);
+  expect(mountOfModule(new URL(script), door)?.href).toBe(`${door}/r/abcdefghijklmnop/x/colab/`);
+  for (const other of [
+    // The dev server, another module's script, another origin, a script outside any mount.
+    `${door}/src/colab-module.tsx`,
+    `${door}/r/abcdefghijklmnop/x/ops/assets/colab-module.js`,
+    `https://other.test/r/abcdefghijklmnop/x/colab/assets/colab-module.js`,
+    `${door}/assets/colab-module.js`,
+    `${door}/r/abcdefghijklmnop/x/colab/assets/deep/colab-module.js`,
+  ])
+    expect(mountOfModule(other, door), other).toBeNull();
 });
 it('serializes one reader capability with matching path and fragment identity', async () => {
   const link = '22222222-2222-4222-8222-222222222222';

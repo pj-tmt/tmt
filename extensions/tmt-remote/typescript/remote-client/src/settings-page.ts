@@ -1,20 +1,23 @@
+import { remoteItem } from './remote-routes.js';
 import { managementRole } from './remote-state.js';
 import { settingsChoice } from './settings-controls.js';
 import { remoteRegistryPage, type RemoteRegistryPage } from './remote-registry-page.js';
 import type { RemoteShell } from './remote-shell.js';
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
+import type { Session } from './device.js';
 import { renderFirestore } from './firestore-page.js';
 import { ManagementPage, type PageIntent } from './management-page.js';
 import { browserUiClasses, createActionMark } from '@tmt/browser-ui/static';
 import { createBusyMarkGate } from '@tmt/browser-ui/busy-mark';
 
-/** The Remote settings views (`/remote/devices`, `/machine`, `/settings`): run once per mount of
+/** The Remote management tabs (Members, My devices, Settings and Service & upgrade): run once per mount of
  * their markup. This bundle is loaded apart from the SDK, so the app hands it its part of the
  * shell and the route's one remotes controller. */
 export async function settingsPage(
   shell?: RemoteShell,
   registry?: RemoteRegistryPage,
-): Promise<void> {
+  initial?: Session,
+): Promise<(session: Session) => void> {
   function element<T extends HTMLElement>(id: string): T {
     const found = document.getElementById(id);
     if (!found) throw new Error(`Settings page lacks #${id}.`);
@@ -141,7 +144,12 @@ export async function settingsPage(
   });
   function syncBusyMark(): void {
     for (const button of document.querySelectorAll<HTMLElement>('button.tmt-ui-action'))
-      if (!button.closest('#remotes, #remote-head, #remote-switcher')) markSlot(button);
+      if (
+        !button.closest(
+          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked',
+        )
+      )
+        markSlot(button);
     busyMark.set(page.busy);
   }
   function saveState(form: string, hint: string, changed: boolean, valid: boolean): void {
@@ -284,7 +292,7 @@ export async function settingsPage(
     const designation = element('designation-command');
     designation.hidden = editable || page.access !== 'live';
     if (!designation.hidden)
-      element('designation-code').textContent = `tmt remote devices designate ${page.clientId}`;
+      element('designation-code').textContent = `tmt remote members designate ${page.clientId}`;
     element('access-notice').dataset.tone =
       page.access === 'live'
         ? editable
@@ -308,7 +316,12 @@ export async function settingsPage(
     element('controls-reason').textContent = reason;
     element('controls-reason').hidden = !reason;
     for (const button of document.querySelectorAll<HTMLButtonElement>('button')) {
-      if (button.closest('#remotes, #remote-head, #remote-switcher')) continue;
+      if (
+        button.closest(
+          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked',
+        )
+      )
+        continue;
       if (reason) button.setAttribute('aria-describedby', 'controls-reason');
       else button.removeAttribute('aria-describedby');
       button.setAttribute('aria-busy', String(page.busy));
@@ -574,6 +587,22 @@ export async function settingsPage(
         }
       }
     }
+    const currentView = shell ? remoteItem(location.pathname)?.id : undefined;
+    const ownName = document.getElementById('current-browser-name');
+    for (const device of page.devices?.devices ?? []) {
+      const row = rows.get(device.clientId);
+      if (!row) continue;
+      const destination =
+        currentView === 'settings' && device.thisBrowser && ownName ? ownName : devices;
+      if (row.parentElement !== destination) destination.append(row);
+      row.hidden =
+        (currentView === 'my-devices' || currentView === 'settings') && !device.thisBrowser;
+      for (const action of row.querySelectorAll<HTMLElement>('[data-action]'))
+        action.hidden = currentView === 'settings';
+    }
+    const ownMissing = document.getElementById('current-browser-name-missing');
+    if (ownMissing)
+      ownMissing.hidden = !!page.devices?.devices.some((device) => device.thisBrowser);
     renderOutcome();
     syncBusyMark();
   }
@@ -688,7 +717,7 @@ export async function settingsPage(
   }
   element('copy-designation').addEventListener('click', () => {
     if (page.access !== 'live') return;
-    void navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(
+    void navigator.clipboard.writeText(`tmt remote members designate ${page.clientId}`).then(
       () => {
         element('designation-copy-feedback').textContent = 'Copied.';
       },
@@ -742,14 +771,25 @@ export async function settingsPage(
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-recover]'))
     button.addEventListener('click', recoverOriginal);
 
-  try {
-    let session = await reopenSession();
+  if (shell)
+    window.addEventListener(
+      'popstate',
+      () => {
+        if (page) render();
+      },
+      { signal: shell?.signal },
+    );
+  async function initialize(session: Session): Promise<void> {
+    if (page) return;
+    shell?.observedSession?.(session);
     page = new ManagementPage(management(session), async () => {
       session = await reopenSession(session, { retry: 'bounded' });
+      shell?.observedSession?.(session);
       return management(session);
     });
     await run(() => refreshView());
-  } catch (error) {
+  }
+  function unavailable(error: unknown, report = true): void {
     const capacity = capacityCopy(error instanceof RefusalError ? error : undefined);
     const ended =
       error instanceof RefusalError &&
@@ -771,10 +811,27 @@ export async function settingsPage(
     const verifiedEnded =
       error instanceof RefusalError &&
       ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED'].includes(error.code);
-    registryState(verifiedEnded ? 'Access ended' : 'Unconfirmed');
+    if (report) registryState(verifiedEnded ? 'Access ended' : 'Unconfirmed');
     refresh.disabled = true;
     element('access-notice').dataset.tone = 'blocked';
     element('controls-reason').textContent =
       capacity ?? 'Current access is unavailable. Use the local CLI.';
   }
+  try {
+    if (shell && !initial) unavailable(undefined, false);
+    else await initialize(initial ?? (await reopenSession()));
+  } catch (error) {
+    unavailable(error);
+  }
+  return (session: Session): void => {
+    if (shell?.signal.aborted) return;
+    // Never retarget retained drafts or original outcomes to another paired client.
+    if (page && management(session).clientId !== page.clientId) {
+      registryState('Unconfirmed', undefined, null);
+      return;
+    }
+    // A landing recheck must not trigger a second management admission. Its retained port
+    // recovers through the existing identity-checked path when management is read again.
+    if (!page) void initialize(session).catch(unavailable);
+  };
 }

@@ -1,12 +1,52 @@
-//! Best-effort allowance from Claude Code's own usage cache. Never refresh the
-//! cache, read credentials, or retain unrelated configuration fields.
+//! Best-effort allowance from Claude Code's own usage cache and from the observations the
+//! first-party mod pushes (#5187). Never refresh the cache, read credentials, or retain unrelated
+//! configuration fields. The newest observation per account wins, whole.
 use crate::{
-    runtime::consumption::{RateLimits, RateWindow},
+    runtime::consumption::{RateAccount, RateLimits, RateWindow},
     skill_installation::ProviderEnvironment,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    io,
+    path::{Path, PathBuf},
+};
 
 const MAX_CONFIG_BYTES: usize = 1024 * 1024;
+/// Pushed observations, under Core's data directory.
+/// The first-party mod setup keeps in Claude's skills root once usage is consented. Its sources
+/// are the plugin directory in the repository, locked to this build (#5187).
+pub(super) static MOD: crate::setup::provider_mod::ProviderMod =
+    crate::setup::provider_mod::ProviderMod {
+        directory: "skills/tmt-allowance",
+        files: &[
+            (
+                ".claude-plugin/plugin.json",
+                include_bytes!(
+                    "../../../../../../drivers/claude/plugins/tmt-allowance/.claude-plugin/plugin.json"
+                ),
+            ),
+            (
+                "hooks/hooks.json",
+                include_bytes!(
+                    "../../../../../../drivers/claude/plugins/tmt-allowance/hooks/hooks.json"
+                ),
+            ),
+            (
+                "hooks/register.mjs",
+                include_bytes!(
+                    "../../../../../../drivers/claude/plugins/tmt-allowance/hooks/register.mjs"
+                ),
+            ),
+        ],
+        purpose: "Claude Code mod that hands its rate-limit windows to tmt, so allowance figures stay fresh",
+    };
+
+const STORE: &str = "claude/allowance.json";
+const STORE_LIMIT: usize = 8 * 1024;
+const MAX_ACCOUNTS: usize = 8;
+/// The mod sends the windows it measured; only these two are kept.
+const MAX_PUSHED: usize = 3;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,13 +88,184 @@ struct Window<'a> {
     resets_at: &'a str,
 }
 
-pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<RateLimits> {
-    let path = environment.var("CLAUDE_CONFIG_DIR").map_or_else(
+fn config_path(environment: &ProviderEnvironment) -> PathBuf {
+    environment.var("CLAUDE_CONFIG_DIR").map_or_else(
         || environment.home().join(".claude.json"),
         |_| super::config_root(environment).join(".claude.json"),
-    );
-    let bytes = crate::bounded_file::read_no_follow(&path, MAX_CONFIG_BYTES).ok()?;
-    parse(&bytes, now_ms)
+    )
+}
+
+pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<RateLimits> {
+    let bytes =
+        crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES).ok()?;
+    let cached = parse(&bytes, now_ms);
+    let pushed = environment
+        .data_root()
+        .zip(account(&bytes))
+        .and_then(|(root, account)| pushed(root, account, now_ms));
+    // The newest observation wins whole; a tie prefers the cache. Never merged per window.
+    match (cached, pushed) {
+        (Some(cached), Some(pushed)) if pushed.observed_at_ms > cached.observed_at_ms => {
+            Some(pushed)
+        }
+        (Some(cached), _) => Some(cached),
+        (None, pushed) => pushed,
+    }
+}
+
+/// The account of `environment`'s Claude root as consumers group it (#5274): an opaque key over
+/// the root's `oauthAccount.accountUuid` and the root's name. Both allowance sources are this
+/// account's (the cache is admitted only when its account is the file's own). It is attached to
+/// sampled readings and never stored in the 1024-byte remembered state.
+pub(super) fn rate_account(environment: &ProviderEnvironment) -> Option<RateAccount> {
+    let bytes =
+        crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES).ok()?;
+    let uuid = account(&bytes)?;
+    let root = super::config_root(environment);
+    let name = root.file_name().and_then(|name| name.to_str());
+    Some(RateAccount::derive(
+        super::NAME,
+        uuid,
+        name.unwrap_or_default(),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OauthAccountShape<'a> {
+    #[serde(borrow)]
+    oauth_account: Account<'a>,
+}
+
+/// The nonempty account of the root's own `.claude.json`: selected field only.
+fn account(bytes: &[u8]) -> Option<&str> {
+    let identity: OauthAccountShape<'_> = serde_json::from_slice(bytes).ok()?;
+    let uuid = identity.oauth_account.account_uuid;
+    (!uuid.trim().is_empty()).then_some(uuid)
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PushedWindowStore {
+    version: u8,
+    accounts: BTreeMap<String, RateLimits>,
+}
+
+fn load(path: &Path) -> Option<PushedWindowStore> {
+    let bytes = crate::bounded_file::read_no_follow(path, STORE_LIMIT).ok()?;
+    let store: PushedWindowStore = serde_json::from_slice(&bytes).ok()?;
+    (store.version == 1).then_some(store)
+}
+
+fn pushed(data_root: &Path, account: &str, now_ms: u64) -> Option<RateLimits> {
+    let mut limits = load(&data_root.join(STORE))?.accounts.remove(account)?;
+    if limits.provider != super::NAME || limits.observed_at_ms > now_ms || !limits.valid() {
+        return None;
+    }
+    limits.windows.retain(|window| window.resets_at_ms > now_ms);
+    (!limits.windows.is_empty()).then_some(limits)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PushDocument {
+    rate_limits: Vec<PushedWindow>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PushedWindow {
+    kind: String,
+    percent_used: f64,
+    #[serde(default)]
+    resets_at: Option<String>,
+}
+
+/// Keep what the mod measured for the account of `environment`'s Claude root, stamped with the
+/// receive time `now_ms`. `Ok(false)` means there was nothing to keep (no relevant or only
+/// elapsed windows, no account); a malformed document is an error and changes nothing.
+pub(super) fn push(
+    environment: &ProviderEnvironment,
+    data_root: &Path,
+    input: &[u8],
+    now_ms: u64,
+) -> io::Result<bool> {
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "Invalid Claude allowance push.");
+    let push: PushDocument = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if push.rate_limits.len() > MAX_PUSHED || !tmt_core::limits::is_valid_js_safe_integer(now_ms) {
+        return Err(invalid());
+    }
+    let mut windows = Vec::new();
+    for limit in push.rate_limits {
+        let window_minutes = match limit.kind.as_str() {
+            "five_hour" => 300,
+            "seven_day" => 10_080,
+            _ => continue,
+        };
+        let resets_at_ms = limit
+            .resets_at
+            .as_deref()
+            .and_then(reset_ms)
+            .ok_or_else(invalid)?;
+        windows.push(RateWindow {
+            window_minutes,
+            used_percent: limit.percent_used,
+            resets_at_ms,
+        });
+    }
+    if windows.is_empty() {
+        return Ok(false);
+    }
+    windows.sort_by_key(|window| window.window_minutes);
+    let mut limits = RateLimits {
+        provider: super::NAME.into(),
+        observed_at_ms: now_ms,
+        windows,
+        account: None,
+    };
+    if limits
+        .windows
+        .windows(2)
+        .any(|pair| pair[0].window_minutes == pair[1].window_minutes)
+        || !limits.valid()
+    {
+        return Err(invalid());
+    }
+    limits.windows.retain(|window| window.resets_at_ms > now_ms);
+    if limits.windows.is_empty() {
+        return Ok(false);
+    }
+    let bytes = crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES)
+        .map_err(io::Error::other)?;
+    let Some(account) = account(&bytes) else {
+        return Ok(false);
+    };
+    let path = data_root.join(STORE);
+    let mut store = load(&path).unwrap_or(PushedWindowStore {
+        version: 1,
+        accounts: BTreeMap::new(),
+    });
+    store.accounts.insert(account.to_owned(), limits);
+    while store.accounts.len() > MAX_ACCOUNTS {
+        let Some(oldest) = store
+            .accounts
+            .iter()
+            .min_by_key(|(_, limits)| limits.observed_at_ms)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        store.accounts.remove(&oldest);
+    }
+    let bytes = serde_json::to_vec(&store).map_err(io::Error::other)?;
+    if bytes.len() > STORE_LIMIT {
+        return Err(invalid());
+    }
+    if let Some(directory) = path.parent() {
+        crate::private_file::ensure_private_directory(directory)?;
+    }
+    crate::private_file::replace(&path, &bytes)?;
+    Ok(true)
 }
 
 fn parse(bytes: &[u8], now_ms: u64) -> Option<RateLimits> {
@@ -73,6 +284,7 @@ fn parse(bytes: &[u8], now_ms: u64) -> Option<RateLimits> {
         provider: super::NAME.into(),
         observed_at_ms: cache.fetched_at_ms,
         windows: Vec::new(),
+        account: None,
     };
     for (minutes, window) in [
         (300, cache.utilization.five_hour),

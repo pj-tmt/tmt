@@ -1067,7 +1067,7 @@ exec /opt/tmt-tests/claude "$@"
         });
         first = JSON.parse(await waitForFileContent(ready)) as { child: number; owner: number };
         await waitForFileContent(admission, {
-          description: 'real owned-child ps exec held before admission',
+          description: 'real owned-child native stat read held before admission',
         });
         await fixture.waitFor(
           () => readFileSync(`/proc/${first!.child}/status`, 'utf8').includes('State:\tT'),

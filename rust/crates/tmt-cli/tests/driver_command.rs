@@ -789,8 +789,10 @@ fn a_driver_publishes_its_launch_template_and_host_templates_reads_it() {
     assert_eq!(code, 0, "{templates}");
     assert_eq!(templates["version"], 1);
     let hosts = templates["hosts"].as_array().unwrap();
-    // tmux first, then the approved drivers in the registry's order.
+    // The built-in hosts (tmux, then pty) first, then the approved drivers in the registry's order.
     assert_eq!(hosts[0]["host"], "tmux");
+    assert_eq!(hosts[1]["host"], "pty");
+    assert_eq!(hosts[1]["state"], "builtin");
     assert_eq!(hosts[0]["state"], "builtin");
     assert_eq!(
         hosts[0]["launch"]["placeholders"],
@@ -799,7 +801,7 @@ fn a_driver_publishes_its_launch_template_and_host_templates_reads_it() {
     assert_eq!(hosts[0]["launch"]["argv"][0], "sh", "{templates}");
     assert_eq!(hosts[0]["launch"]["argv"][1], "-c");
     let host = |name: &str| hosts.iter().find(|host| host["host"] == name).unwrap();
-    assert_eq!(hosts.len(), 3);
+    assert_eq!(hosts.len(), 4);
     assert_eq!(host("screen")["state"], "ok");
     assert_eq!(
         host("screen")["launch"]["argv"],

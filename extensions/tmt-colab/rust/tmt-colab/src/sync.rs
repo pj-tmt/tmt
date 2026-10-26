@@ -446,6 +446,7 @@ pub(crate) struct SaveJob {
     /// A work action instead of a source: `save` then names only the page and the operation, and
     /// the job prepares from the action.
     work: Option<crate::page::work::WorkEdit>,
+    metadata: Option<crate::page::metadata::MetadataEdit>,
 }
 /// Whether a save's turn under the lock replied, or its hunks are to be evaluated once more on
 /// a page that moved after they were.
@@ -763,32 +764,51 @@ impl<A: Admission> Server<A> {
         loop {
             let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
             let mut made = Made::default();
-            let (prepared, task) = match (&job.work, &job.hunks) {
-                (Some(work), _) if crate::page::work::is_convert(&work.action) => {
-                    let mut create = |page: &str, title: &str, source: &str| {
-                        self.create_child(job, page, title, source)
-                    };
-                    let converted =
-                        crate::page::convert::prepare(&job.open, work, &read_clock, &mut create);
-                    made.child = converted.child;
-                    match converted.prepared {
-                        Ok((prepared, task)) => (Ok((prepared, None)), task),
-                        Err(error) => (Err(error), None),
-                    }
-                }
-                (Some(work), _) => match crate::page::work::prepare(&job.open, work, &read_clock) {
-                    Ok((prepared, task)) => (Ok((prepared, None)), task),
-                    Err(error) => (Err(error), None),
-                },
-                (None, Some(hunks)) => (
-                    crate::page::save::prepare_merging(&job.open, &job.save, hunks, &read_clock),
-                    None,
-                ),
-                (None, None) => (
-                    crate::page::save::prepare(&job.open, &job.save, &read_clock)
+            let (prepared, task) = if let Some(edit) = &job.metadata {
+                (
+                    crate::page::metadata::prepare(&job.open, edit, &read_clock)
                         .map(|prepared| (prepared, None)),
                     None,
-                ),
+                )
+            } else {
+                match (&job.work, &job.hunks) {
+                    (Some(work), _) if crate::page::work::is_convert(&work.action) => {
+                        let mut create = |page: &str, title: &str, source: &str| {
+                            self.create_child(job, page, title, source)
+                        };
+                        let converted = crate::page::convert::prepare(
+                            &job.open,
+                            work,
+                            &read_clock,
+                            &mut create,
+                        );
+                        made.child = converted.child;
+                        match converted.prepared {
+                            Ok((prepared, task)) => (Ok((prepared, None)), task),
+                            Err(error) => (Err(error), None),
+                        }
+                    }
+                    (Some(work), _) => {
+                        match crate::page::work::prepare(&job.open, work, &read_clock) {
+                            Ok((prepared, task)) => (Ok((prepared, None)), task),
+                            Err(error) => (Err(error), None),
+                        }
+                    }
+                    (None, Some(hunks)) => (
+                        crate::page::save::prepare_merging(
+                            &job.open,
+                            &job.save,
+                            hunks,
+                            &read_clock,
+                        ),
+                        None,
+                    ),
+                    (None, None) => (
+                        crate::page::save::prepare(&job.open, &job.save, &read_clock)
+                            .map(|prepared| (prepared, None)),
+                        None,
+                    ),
+                }
             };
             made.task = task;
             let now = clock();
@@ -1147,7 +1167,8 @@ impl<A: Admission> State<A> {
             | Frame::Awareness { .. }
             | Frame::Usage { .. }
             | Frame::Compact { .. }
-            | Frame::Work { .. } => {
+            | Frame::Work { .. }
+            | Frame::Metadata { .. } => {
                 self.admission
                     .authorize(&principal, &scope, Access::Publish)?;
             }
@@ -1161,6 +1182,7 @@ impl<A: Admission> State<A> {
                     | Frame::Save { .. }
                     | Frame::Compact { .. }
                     | Frame::Work { .. }
+                    | Frame::Metadata { .. }
             )
         {
             return Err(Code::ResyncRequired);
@@ -1450,6 +1472,36 @@ impl<A: Admission> State<A> {
                 let result = report.map(|report| serde_json::json!({ "report": report }));
                 self.reply_page(id, &scope, "compactresult", result)?;
             }
+            Frame::Metadata {
+                operation_id,
+                expected_revision,
+                action,
+                body,
+                ..
+            } => {
+                if self.peers[&id].incoming.is_some() {
+                    return Err(Code::Invalid);
+                }
+                values::generated_id(&operation_id)?;
+                crate::page::metadata::validate(&action, &body).map_err(|_| Code::Invalid)?;
+                if expected_revision.is_empty()
+                    || expected_revision.len() > 128
+                    || !expected_revision
+                        .bytes()
+                        .all(|byte| (0x21..=0x7e).contains(&byte))
+                {
+                    return Err(Code::Invalid);
+                }
+                let mut job = self.structured_job_base(&scope, principal, operation_id.clone())?;
+                job.metadata = Some(crate::page::metadata::MetadataEdit {
+                    page: scope.page.clone(),
+                    operation_id,
+                    expected_revision,
+                    action,
+                    body,
+                });
+                return Ok(Some(job));
+            }
             Frame::Work {
                 operation_id,
                 action,
@@ -1549,6 +1601,7 @@ impl<A: Admission> State<A> {
             },
             hunks,
             work: None,
+            metadata: None,
         })
     }
     /// One work action of the owner device, handed out of the lock like a save.
@@ -1563,6 +1616,22 @@ impl<A: Admission> State<A> {
         if !crate::page::work::known(&action) && !crate::page::work::is_convert(&action) {
             return Err(Code::Invalid);
         }
+        let mut job = self.structured_job_base(scope, principal, operation_id.clone())?;
+        job.work = Some(crate::page::work::WorkEdit {
+            page: scope.page.clone(),
+            operation_id,
+            action,
+            body,
+        });
+        Ok(job)
+    }
+    /// Structured owner commands share admission and operation/status bookkeeping, never actions.
+    fn structured_job_base(
+        &mut self,
+        scope: &SyncScope,
+        principal: String,
+        operation_id: String,
+    ) -> Result<SaveJob, Code> {
         let open = self.admission.save_source().ok_or(Code::Denied)?;
         *self
             .saving
@@ -1575,27 +1644,25 @@ impl<A: Admission> State<A> {
             for_request: false,
             save: crate::page::save::Save {
                 page: scope.page.clone(),
-                operation_id: operation_id.clone(),
+                operation_id,
                 base_sha256: [0; 32],
                 source: String::new(),
                 attachments: None,
             },
             hunks: None,
-            work: Some(crate::page::work::WorkEdit {
-                page: scope.page.clone(),
-                operation_id,
-                action,
-                body,
-            }),
+            work: None,
+            metadata: None,
         })
     }
     /// The save is no longer preparing; its outcome, if any, is in the store.
     fn unsave(&mut self, job: &SaveJob) {
-        let key = (job.save.page.clone(), job.save.operation_id.clone());
-        if let Some(count) = self.saving.get_mut(&key) {
+        self.release_save(&(job.save.page.clone(), job.save.operation_id.clone()));
+    }
+    fn release_save(&mut self, key: &(String, String)) {
+        if let Some(count) = self.saving.get_mut(key) {
             *count -= 1;
             if *count == 0 {
-                self.saving.remove(&key);
+                self.saving.remove(key);
             }
         }
     }
@@ -1656,11 +1723,12 @@ impl<A: Admission> State<A> {
                 }
                 (Prepared::Write(frozen), merged) => (frozen, merged),
             };
-            let access = if job.save.attachments.is_some() || job.work.is_some() {
-                Access::Publish
-            } else {
-                Access::Save
-            };
+            let access =
+                if job.save.attachments.is_some() || job.work.is_some() || job.metadata.is_some() {
+                    Access::Publish
+                } else {
+                    Access::Save
+                };
             if job.for_request {
                 self.admission
                     .authorize_link_save(&job.principal, &job.scope)
@@ -1733,7 +1801,9 @@ impl<A: Admission> State<A> {
             self.reply_save(
                 id,
                 &job.scope,
-                if job.work.is_some() {
+                if job.metadata.is_some() {
+                    "metadataresult"
+                } else if job.work.is_some() {
                     "workresult"
                 } else {
                     "saveresult"

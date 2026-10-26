@@ -10,6 +10,7 @@ import {
   type Bytes,
 } from './bytes.js';
 import { digest } from './crypto.js';
+import { metadataRequest, type MetadataRequest } from './metadata-request.js';
 
 /** The most source a request may carry, in UTF-8 bytes. */
 export const SOURCE_BYTES = 128 * 1024;
@@ -81,4 +82,15 @@ export async function verifiedEditRequest(
   const v = editRequest(value, root, key);
   requireValue(encodeBinary(await sourceDigest(v.source)) === v.sourceSha256);
   return v;
+}
+
+/** Both versions share the immutable intent kind and the owner's automatic consumer. */
+export function editorRequest(
+  value: unknown,
+  root = 'intents',
+  key?: string,
+): EditRequest | MetadataRequest {
+  if (value !== null && typeof value === 'object' && 'version' in value && value.version === 2)
+    return metadataRequest(value, root, key);
+  return editRequest(value, root, key);
 }

@@ -1,5 +1,6 @@
 //! All production yrs decoding lives here, reached only by the private child entry.
 use super::*;
+use crate::edit_scale::content_hunks;
 use std::io::{Read, Write};
 use yrs::{
     Any, Doc, GetString, Map, MapRef, Out, ReadTxn, Root, StateVector, Text, TextRef, Transact,
@@ -297,22 +298,6 @@ fn execute_with(
     checkpoint(Stage::ReplyBuild, CheckpointBoundary::Leave, 0);
     write_reply_with(&reply, writer, checkpoint)
 }
-fn content_diff(old: &str, source: &str) -> (usize, usize) {
-    let start = old
-        .chars()
-        .zip(source.chars())
-        .take_while(|(a, b)| a == b)
-        .map(|(c, _)| c.len_utf8())
-        .sum::<usize>();
-    let end = old[start..]
-        .chars()
-        .rev()
-        .zip(source[start..].chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(c, _)| c.len_utf8())
-        .sum::<usize>();
-    (start, end)
-}
 fn content_document(
     baseline: &[u8],
     updates: &[Vec<u8>],
@@ -447,33 +432,61 @@ fn prepare_content(
             let key = structured.kind.key();
             let meta = doc.get_or_insert_map("meta");
             let mut tx = doc.transact_mut();
-            meta.insert(
-                &mut tx,
-                key,
-                Any::from_json(&expected["meta"][key].to_string())
-                    .map_err(|_| DecodeFault::Rejected)?,
-            );
+            match expected["meta"].get(key) {
+                Some(value) => {
+                    meta.insert(
+                        &mut tx,
+                        key,
+                        Any::from_json(&value.to_string()).map_err(|_| DecodeFault::Rejected)?,
+                    );
+                }
+                // A cleared value (a template mark) leaves the key absent.
+                None => {
+                    meta.remove(&mut tx, key);
+                }
+            }
             updates.push(tx.encode_update_v1());
         } else {
             let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
-            let (start, end) = content_diff(old, &wire.source);
-            let mut rest = &wire.source[start..wire.source.len() - end];
             let html = doc.get_or_insert_text("html");
             let meta = doc.get_or_insert_map("meta");
-            let mut first = true;
-            let mut offset = start;
-            while first || !rest.is_empty() {
-                let mut cut = rest.len().min(CREATE_CHUNK_BYTES);
-                while !rest.is_char_boundary(cut) {
-                    cut -= 1;
-                }
-                let (piece, tail) = rest.split_at(cut);
-                let mut tx = doc.transact_mut();
-                if first {
-                    let remove = old.len() - start - end;
-                    if remove > 0 {
-                        html.remove_range(&mut tx, start as u32, remove as u32);
+            // One step per changed region, last to first so that an edit never moves the offset
+            // of a region before it. A region's new text is cut into steps of at most
+            // CREATE_CHUNK_BYTES, the first of which removes the old text.
+            let mut steps: Vec<(usize, usize, &str)> = Vec::new();
+            for hunk in content_hunks(old, &wire.source).iter().rev() {
+                let (mut at, mut remove, mut rest) = (hunk.start, hunk.remove, hunk.insert);
+                loop {
+                    let mut cut = rest.len().min(CREATE_CHUNK_BYTES);
+                    while !rest.is_char_boundary(cut) {
+                        cut -= 1;
                     }
+                    let (piece, tail) = rest.split_at(cut);
+                    steps.push((at, remove, piece));
+                    (at, remove, rest) = (at + piece.len(), 0, tail);
+                    if rest.is_empty() {
+                        break;
+                    }
+                }
+            }
+            // Steps share an update until their new text would pass the chunk size. A change that
+            // touches only metadata is one update with no step.
+            let mut groups: Vec<Vec<(usize, usize, &str)>> = vec![Vec::new()];
+            let mut inserted = 0;
+            for step in steps {
+                if inserted + step.2.len() > CREATE_CHUNK_BYTES
+                    && !groups[groups.len() - 1].is_empty()
+                {
+                    groups.push(Vec::new());
+                    inserted = 0;
+                }
+                inserted += step.2.len();
+                let last = groups.len() - 1;
+                groups[last].push(step);
+            }
+            for (index, group) in groups.iter().enumerate() {
+                let mut tx = doc.transact_mut();
+                if index == 0 {
                     if before["meta"]["publisherAgent"].as_str() != edit.publisher_agent {
                         if let Some(agent) = edit.publisher_agent {
                             meta.insert(&mut tx, "publisherAgent", agent);
@@ -503,13 +516,15 @@ fn prepare_content(
                         }
                     }
                 }
-                if !piece.is_empty() {
-                    html.insert(&mut tx, offset as u32, piece);
+                for &(at, remove, piece) in group {
+                    if remove > 0 {
+                        html.remove_range(&mut tx, at as u32, remove as u32);
+                    }
+                    if !piece.is_empty() {
+                        html.insert(&mut tx, at as u32, piece);
+                    }
                 }
                 updates.push(tx.encode_update_v1());
-                offset += piece.len();
-                rest = tail;
-                first = false;
             }
         }
         if updates.len() > WRITE_TAIL_UPDATES
@@ -570,7 +585,7 @@ fn immutable_own_records(
             .ok_or(DecodeFault::Rejected)?;
         for (key, value) in map.iter(&txn) {
             if let Out::Any(Any::Map(fields)) = value
-                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "proposal-decision" | "attachment-publication" | "edit-request"))
+                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "proposal-decision" | "attachment-publication" | "edit-request" | "edit-result"))
             {
                 records.insert(
                     (root.into(), key.into()),
@@ -684,6 +699,22 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     let wire: WireBaseline =
         serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
+        || wire
+            .creator
+            .as_ref()
+            .is_some_and(|v| crate::question_registry::validate_creator(v).is_err())
+        || wire
+            .questions
+            .as_ref()
+            .is_some_and(|v| crate::question_registry::validate(v).is_err())
+        || wire
+            .template
+            .as_ref()
+            .is_some_and(|v| crate::template_marks::validate_template(v).is_err())
+        || wire
+            .from_template
+            .as_ref()
+            .is_some_and(|v| crate::template_marks::validate_from(v).is_err())
         || wire.creation_recipient.as_ref().is_some_and(|v| !v.valid())
         || wire
             .original_author
@@ -713,6 +744,10 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
             let source_text =
                 std::str::from_utf8(&source).map_err(|_| DecodeFault::InvalidInput)?;
             let creation = BaselineMeta {
+                creator: wire.creator.as_ref(),
+                questions: wire.questions.as_ref(),
+                template: wire.template.as_ref(),
+                from_template: wire.from_template.as_ref(),
                 publisher_agent: wire.publisher_agent.as_deref(),
                 original_author: wire.original_author.as_deref(),
                 creation_recipient: wire.creation_recipient.as_ref(),
@@ -800,6 +835,14 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("work") != wire.work.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
+    if producing
+        && (projection["meta"].get("creator") != wire.creator.as_ref()
+            || projection["meta"].get("questions") != wire.questions.as_ref()
+            || projection["meta"].get("template") != wire.template.as_ref()
+            || projection["meta"].get("fromTemplate") != wire.from_template.as_ref())
+    {
         return Err(DecodeFault::Rejected);
     }
     let source_text = projection["html"].as_str().ok_or(DecodeFault::Rejected)?;
@@ -905,6 +948,10 @@ fn chunked_baseline(
 }
 /// The optional metadata a creation baseline carries beside its title.
 struct BaselineMeta<'a> {
+    creator: Option<&'a Value>,
+    questions: Option<&'a Value>,
+    template: Option<&'a Value>,
+    from_template: Option<&'a Value>,
     publisher_agent: Option<&'a str>,
     original_author: Option<&'a str>,
     creation_recipient: Option<&'a CreationRecipient>,
@@ -914,6 +961,20 @@ struct BaselineMeta<'a> {
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
+        for (key, value) in [
+            ("creator", self.creator),
+            ("questions", self.questions),
+            ("template", self.template),
+            ("fromTemplate", self.from_template),
+        ] {
+            if let Some(value) = value {
+                meta.insert(
+                    txn,
+                    key,
+                    Any::from_json(&value.to_string()).expect("validated metadata"),
+                );
+            }
+        }
         if let Some(agent) = self.publisher_agent {
             meta.insert(txn, "publisherAgent", agent);
         }
@@ -994,6 +1055,10 @@ mod baseline_tests {
                 source,
                 title,
                 &BaselineMeta {
+                    creator: None,
+                    questions: None,
+                    template: None,
+                    from_template: None,
                     publisher_agent: vector["publisherAgent"].as_str(),
                     original_author: vector["originalAuthor"].as_str(),
                     creation_recipient: recipient.as_ref(),

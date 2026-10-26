@@ -47,23 +47,30 @@ pub(super) fn render(
     // A member of a squad has a checklist in its room; one of the Common pool has no room,
     // so it keeps the link line.
     if let Some(key) = conversation_checklist::Key::of(target) {
-        let chip = format!(
-            " {}",
-            conversation_checklist::fitted(
-                app.notes.summary(&key),
-                usize::from(area.width).saturating_sub(1)
-            )
+        // The key that opens the list is a keycap before the summary, as on the tab labels.
+        let open_key = super::super::keycap::key(app, crate::action::OpsUiAction::MemberNotes, "C");
+        let lead = open_key
+            .as_deref()
+            .map_or(1, |key| unicode_width::UnicodeWidthStr::width(key) + 4);
+        let summary = conversation_checklist::fitted(
+            app.notes.summary(&key),
+            usize::from(area.width).saturating_sub(lead),
         );
+        let mut chip = super::super::keycap::label(open_key.as_deref(), &summary, false, look);
+        if open_key.is_none() {
+            chip.spans.insert(0, ratatui::text::Span::raw(" "));
+        }
+        let chip = chip.style(look.role(Role::Muted));
         // The chip opens the list where it is drawn, for the member that is selected.
         if app.workspace_selection_visible() {
-            let width = unicode_width::UnicodeWidthStr::width(chip.as_str());
+            let width = chip.width();
             app.workspace_action_hits.borrow_mut().push((
                 Rect::new(area.x, *y, (width as u16).min(area.width), 1),
                 target.clone(),
                 super::super::app::Choice::MemberNotes,
             ));
         }
-        line(frame, area, y, neutral(chip, look));
+        line(frame, area, y, chip);
     } else {
         let link = conversation::link_preview(app, row, &app.workspace_bindings());
         line(

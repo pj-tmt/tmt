@@ -37,13 +37,28 @@ Static markup uses shared class/slot and native accessibility contracts.
 never establish access. Socket tests verify exact shared-plus-host CSS bytes and
 unchanged CSP/types. Browser cases compare computed presentation with current browser
 tokens at 1440/390 light/dark and 320 fit, retaining keyboard focus and disabled/loading
-states. The card heading is the page's `h2`; the header title is its only `h1`.
+states. The card heading is the page's `h2`; the original page title remains its only `h1`.
+
+The SPA root installs shared top-bar bindings before route adoption. Remote-owned routes move
+their original title into the content column, using the same title-row type as Colab's own shell,
+and put only module actions in the bar's existing action slot. The GUI-owned leaf controls their
+order. The leaf owns the single trusted Command/Ctrl+K listener; Remote owns the
+confined module prefetch, registry and pending-open lifetime. Navigation is unavailable until the
+live composed shell describes its admitted modules and sections. Unconfirmed session counts stay
+unconfirmed, rather than using a device count. Search uses Colab's `mountSearchSession` entry;
+Colab owns transport admission, the dialog and focus return. Prefetch imports code only after a
+live description admits the entry; an unpaired page acquires no extra session or read. Route or
+verified Session replacement disposes search and provider registrations, and a late import cannot
+open an old route. Root search navigation reuses the management model's existing hold reason for
+unsent names and unconfirmed operations. `Search TMT…` names no adapter that has not shipped.
+After disposal, a persisted document restoration reloads through the normal entry, preserving
+the stored pairing rather than keeping ended sessions or asking to pair again.
 
 ## Browser entry
 
 The human serve link names `/`; protocol readiness/status/SDK addresses retain `/r/<prefix>`.
 Home and TMT settings follow the [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes); they expose only navigation, no state or authority.
-`Pages` serves Remote's entry at `/remote/` and same-origin `/sdk/landing.js` bootstrap under the existing
+`Pages` serves the global list at `/remote/` and the current-door Overview at `/remote/overview` and same-origin `/sdk/landing.js` bootstrap under the existing
 CSP/no-store/Host/Origin boundary. `browser.ts` validates local pairing before network, then checks
 once on page open through descriptor, verified Session and scope-free `capabilities` observation.
 Manual Check again reuses the current Session. An expired Session is silently reopened once
@@ -59,8 +74,8 @@ revoked/expired authority; a session-ended/evicted body offers Check again witho
 loss. Opaque404 remains unconfirmed even after a
 descriptor-only recheck, never another admission. Page-lifetime/signing fences prevent new
 requests after departure; per-check fences prevent late painting. A valid stored pairing short-circuits manual enrollment, leaves its offer open and continues
-to `/remote/`; unreadable/unconfirmed state never enrolls silently. Pair success still links back
-to `/remote/`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.
+to `/remote/overview`; unreadable/unconfirmed state never enrolls silently. Pair success still links back
+to `/remote/overview`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.
 
 The native CLI regression fetches the printed human URL as HTML and verifies protocol-base
 refusal with zero request-triggered core calls. Existing Chromium owners cover exact pairing,
@@ -68,7 +83,7 @@ entry states, keyboard activation, storage/transport/pin errors, refusal, token 
 1440/390 light/dark captures plus a 320-pixel fit check. The SDK fixture covers complete stored-record guards
 and page replacement; actual browser/terminal fixtures remain the user-flow evidence owner.
 
-The Remote rail opens **My Remotes** at the existing `/remote/settings` route. One
+The Remote rail opens **My Remotes** at `/remote/`, with a second link into the current door’s Overview. One
 `registryView` projection feeds the page and the rail's current-machine context; the rail does
 not enumerate a second remote list. This machine is first, explicitly marked, including when
 no public reference has been saved. Each row shows its backend, mark plus connection word,
@@ -95,14 +110,26 @@ signed catalog/default read or client factory is shipped.
 
 ## The one web app and public entries
 
-Every app route (`/`, `/settings`, `/remote/` with `/remote/devices`, `/remote/connect`, `/remote/machine` and `/remote/settings`, `/ops`, `/digest`, `/colab/…`)
+Every app route (`/`, `/settings`, `/remote/` and its current-door tabs, `/ops`, `/digest`, `/colab/…`)
 is the static `assets/shell.html`; `shell-app.ts` routes inside it, adopting each page's markup
 from `assets/*.html` and loading Colab's module from the composed shell's `entry`. The pairing
 page stays its own document and mounts the rail only.
-Remote is one route (`remote-routes.ts` is its table of paths and rows). `remote-app.ts` mounts both
-pages' markup once and shows the view the path names (`data-view` on the markup), so a switch
-between Remote's rows swaps no slot and loads nothing; each page's code starts when its first view
-shows and shares one remotes controller. The module menu holds no position of its own. `/p/<id>` answers 308 to `/colab/p/<id>`.
+Remote’s `remote-routes.ts` is the one browser route/menu declaration. My Remotes is the global
+origin-local list; its Open enters the selected door’s Overview. One current-door frame owns the
+Overview, Members, Invites, My devices, Settings and Service & upgrade tabs, with no Remote ID in
+the path. The native page allowlist mirrors that explicit set, and old machine/devices/connect
+paths have no shims. The [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes)
+owns the exact paths. The rail links to the list and current Remote rather than duplicating the tabs.
+`remote-app.ts` keeps both markup models and persistent tab panels mounted, moving the same form
+nodes instead of cloning or remounting their draft/original-outcome owners. Tabs use the shipped
+static roles, roving focus, keyboard selection and disposable resize visibility. A registry
+observation subscription supplies role and clears it on access loss; no second source or authority
+is created. The verified landing Session initializes management once; unavailable management
+initializes read-only without another discovery. Manual connection rechecks do not trigger an
+extra management admission; later management reads retain their bounded identity-checked recovery. Member admin-only tabs stay visible with lock word/mark, reason and a copy-only request.
+Unknown access has its own text. The existing composed-shell observation supplies Needs-you counts.
+A document-level registry modal remains visible from every tab and is removed on route abort;
+late validation cannot write or reopen it. `/p/<id>` still answers 308 to `/colab/p/<id>`.
 Remote forwards only `/read/<id>` in place to Colab's public mount socket, with the
 Remote-computed `tmt-mount` header.
 For that entry it owns no Colab catalog, capability or CSP; no cookie/session lookup occurs.
@@ -140,7 +167,7 @@ agent or schedule controls, owner reads or persistence.
 
 ## Settings page
 
-The settings views (`/remote/devices`, `/remote/machine`, `/remote/settings`) use the same embedded shared CSS, Header/Notice/Field/Action classes and
+The current-door management tabs use the same embedded shared CSS, Header/Notice/Field/Action classes and
 Remote host metrics; its additional stylesheet owns settings layout and static listbox geometry.
 Normal settings use thin section rules, a desktop summary/control grid and a single-column
 narrow layout. Each setting keeps its unchanged hint and original-result feedback beside its
@@ -161,7 +188,7 @@ so only one bounded page of forms is retained. The separately generated
 Both generated modules must pass rebuild byte equality. The owning
 [management protocol](../../../../contracts/remote-channel-v1.md#remote-settings-page)
 defines the unlimited default/source, capacity, durable last use and atomic remove-others behavior.
-Only the locally designated browser may remove devices; read-only pages show its exact designation
+Settings combines opening/session controls, Name in this browser (catalog-only CAS), and the honestly labelled current browser/device name. Remote-wide and person names have no new setter. My devices filters the same admitted page to this browser; a missing row is reported, never inferred. One state-aware pairing guidance owner replaces the repeated status/Connect blocks. Only the locally designated browser may remove devices; read-only pages show its exact designation
 command. Removed rows disappear without deleting revocation tombstones.
 
 The existing Chromium pairing fixture also exercises the actual settings page: designated/
@@ -185,9 +212,17 @@ states at 1440/390 light/dark and 320 fit. Refresh restores its initiating keybo
 only when the person has not moved elsewhere. Device forms and action names use the admitted
 device name, never an unsent draft. The capture index records the served state and provenance.
 
-The Firestore section is read-only: it explicitly requests the signed settings projection,
-sharing status's recorded layer evidence and dated published limits. Unsupported layers use
-one not-available line, even when their other prerequisites are off or unknown. The page
+Service & upgrade is read-only: it explicitly requests the signed settings projection,
+sharing status's saved evidence and dated published limits. Backend and add-on availability
+come from that observation; unsupported add-ons remain unavailable, including paid file
+storage until it ships. Cloudflare is coming soon. Missing deployed/required version, plan
+and permission observations stay **Not checked**. Copy-only references use `status --layers`
+and a `deploy firestore --defaults --json` preview without `--authorize`, from the single
+`assets/service-commands.json` catalog shared with the native parser proof; they run only when
+the person copies them into this machine's terminal. Provider-console links explain where
+to review project setup, permissions and billing. Refresh values rereads this machine's
+saved facts after the person acts; it is not a live provider check. No browser execute or
+confirmation action, provider call, native field or second readiness owner is added. The page
 never displays reason codes, measured usage or an invented quota warning; ready sharing includes the
 [contract's fixed limits note](../../../../contracts/remote-channel-v1.md#local-cli-discovery). Native Details
 contains the wrapping budget table and its date, Pacific reset and local guard thresholds.
@@ -222,7 +257,32 @@ row; selecting it adds no read, mutation, route or persistence. Long names wrap 
 stacks below the table on phone. Without inventory the page says unavailable or empty, preserves
 specific refusal text, and names tmt ls with the shared nonexecuting Copy. Injected samples remain
 labelled in the notice and inventory; the duplicated sample line is hidden on this section.
-Source failure and route-disposal fences remain with the existing page/source owner.
+Source failure and route-disposal fences remain with the existing page/source owner. A source-read
+inventory is a neutral read-only note; only a missing read or refusal is the amber warning, and the
+name button's inset focus frame has padding around the name.
+
+## TMT Settings Modules
+
+Modules uses the same shell menu and inset: a hero, a read-only note with `tmt extension ls` and the
+shared nonexecuting Copy, and one card of module records (glyph tile, name, one line of product copy,
+an Installed or Not installed state with its mark, the channel and version in mono). The page keeps
+one static map of copy for the product's own modules (`tmt-settings-copy.ts`); another module shows
+no line. An installed module gets a Settings action only from the composed shell's description of it,
+which can arrive after the read and repaints the card; an uninstalled one never has an action. The
+Remote card and its link appear only for an installed, described Remote. Without a browser read the
+page shows the amber notice and the command and no record, version or channel; sample injection stays
+labelled "Sample installed modules". No install, update or read is added by this page.
+
+## TMT Settings Drivers & hooks
+
+Drivers & hooks takes the same inset and shell menu: a hero, a note, two nonexecuting Copy commands
+(`tmt driver ls` and `tmt setup --status`), a Host drivers card, an Agent hooks card and a card that
+says what each role is. A driver is its name, the product's line for herdr (the one map in
+`tmt-settings-copy.ts`; another name shows no line), an Approved state and the version in mono; a
+driver that no longer runs as approved shows its reason in the waiting tone instead of Approved. A hook
+is its provider, whether usage collection is on, and a Set up state. Without a browser read the page
+shows the amber notice, the commands and the roles card and no record, version or state; sample
+injection is labelled "Sample data". The page installs, approves and removes nothing.
 
 ## Digest presentation
 

@@ -22,7 +22,7 @@ import { AgentChip, agentSentence, agentsSentence } from './components/agent-chi
 import { MessageComposer } from './components/message-composer.js';
 import { MessageToolbar } from './components/message-toolbar.js';
 import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
-import type { CreationRecipient } from './fold-protocol.js';
+import type { CreatorTarget } from './creator-default.js';
 import { messageRecipient } from './message-recipient.js';
 import {
   messageSendRefusal,
@@ -76,7 +76,7 @@ export function AnnotationInput({
   asks: readonly PageAsk[];
   title: string;
   /** Admitted page/proposal UUIDs select the recipient; an optional label is display only. */
-  creationRecipient?: CreationRecipient & { label?: string };
+  creationRecipient?: CreatorTarget & { label?: string };
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;
   initialEdit?: ComposerEdit;
@@ -174,7 +174,8 @@ export function AnnotationInput({
     creationRecipient && agents
       ? agents.filter(
           (agent) =>
-            agent.machine === creationRecipient.machineId &&
+            (creationRecipient.machineId === undefined ||
+              agent.machine === creationRecipient.machineId) &&
             agent.agent === creationRecipient.agentId,
         )
       : [];
