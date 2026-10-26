@@ -1210,7 +1210,7 @@ describe('tmt extension install surface', () => {
 
 describe('aggregate official upgrades', () => {
   it(
-    'keeps independent CLI/Ops/Remote/Colab pins and leaves retired Office bytes untouched',
+    'keeps independent official product pins and leaves retired Office bytes untouched',
     { timeout: 60000 },
     async () => {
       await withReleaseSandbox(async (sandbox) => {
@@ -1278,6 +1278,11 @@ describe('aggregate official upgrades', () => {
             product: 'colab',
             status: 'skippedPinned',
             hint: 'tmt extension upgrade colab --unpin',
+          },
+          {
+            product: 'digest',
+            status: 'skippedPinned',
+            hint: 'tmt extension upgrade digest --unpin',
           },
         ]);
         const retiredOffice = path.join(prefix, 'bin/tmt-office');
