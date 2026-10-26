@@ -20,8 +20,8 @@ use tmt_core::{
             HarnessId, RuntimeState, SessionTransition,
             launch::{
                 LaunchObservation, LaunchStatus, PendingStart, SessionLearningDetail,
-                SessionLearningDiagnostic, SessionLearningDigestStop, SessionLearningReason,
-                SessionLearningStep,
+                SessionLearningDiagnostic, SessionLearningDigestStop, SessionLearningEvent,
+                SessionLearningReason, SessionLearningStep, SessionLearningStop,
             },
         },
     },
@@ -154,6 +154,16 @@ impl Learning {
                         },
                         detail,
                     },
+                    Update::Note(detail)
+                        if detail == NO_ADMITTED_START
+                            && observed.status == LaunchStatus::Admitted =>
+                    {
+                        SessionLearningDiagnostic {
+                            step: SessionLearningStep::Storage,
+                            reason: SessionLearningReason::NotAdmitted,
+                            detail: Some(detail),
+                        }
+                    }
                     Update::Note(detail) => SessionLearningDiagnostic {
                         detail: Some(detail),
                         ..previous
@@ -195,6 +205,7 @@ impl Learning {
                 if observed.status != LaunchStatus::Admitted
                     || observed.diagnostic.is_none()
                     || digest_stopped(&observed)
+                    || no_admitted_start(&observed)
                 {
                     return Ok(true);
                 }
@@ -426,6 +437,15 @@ fn digest_stopped(observed: &LaunchObservation) -> bool {
         .is_some_and(|d| matches!(d.detail, Some(SessionLearningDetail::DigestStop(_))))
 }
 
+const NO_ADMITTED_START: SessionLearningDetail = SessionLearningDetail::Stopped(
+    SessionLearningEvent::Stop,
+    SessionLearningStop::NoAdmittedStart,
+);
+
+fn no_admitted_start(observed: &LaunchObservation) -> bool {
+    observed.diagnostic.and_then(|diagnostic| diagnostic.detail) == Some(NO_ADMITTED_START)
+}
+
 /// Called only inside the same writer transaction as session admission/settlement.
 pub fn settle(
     records: &mut dyn BindingRecords<Error = StorageError>,
@@ -483,11 +503,12 @@ pub struct LearningView {
     pub reason: &'static str,
     pub detail: Option<&'static str>,
     pub next_step: String,
-    /// Whether the launch is not admitted. A Digest Stop reason on an admitted launch is not.
+    /// Whether the launch is not admitted. An admitted turn/Digest Stop diagnostic is not.
     pub unbound: bool,
 }
 
 const DIGEST_STOP_NEXT_STEP: &str = "Nothing to do now; the next turn end tries the Digest again.";
+const NO_ADMITTED_START_NEXT_STEP: &str = "Check the provider's start/stop hook ordering.";
 pub fn view(
     storage: &Storage,
     binding: Option<&tmt_core::binding::Binding>,
@@ -510,16 +531,19 @@ fn from_observation(
     identity: &tmt_core::identity::Identity,
     preferences: &tmt_core::binding::session::SessionPreferences,
 ) -> Option<LearningView> {
-    // An admitted session suppresses an older failure, but not a Digest Stop's own reason.
+    // An admitted session still shows a dropped final or a Digest Stop's own reason.
     let admitted = observed.status == LaunchStatus::Admitted;
-    if admitted && !digest_stopped(&observed) {
+    let missing_start = no_admitted_start(&observed);
+    if admitted && !digest_stopped(&observed) && !missing_start {
         return None;
     }
     observed.diagnostic.map(|diagnostic| LearningView {
         step: diagnostic.step.as_str(),
         reason: diagnostic.reason.as_str(),
         detail: diagnostic.detail.map(SessionLearningDetail::as_str),
-        next_step: if admitted {
+        next_step: if admitted && missing_start {
+            NO_ADMITTED_START_NEXT_STEP.to_owned()
+        } else if admitted {
             DIGEST_STOP_NEXT_STEP.to_owned()
         } else {
             tmt_core::binding::session::launch::session_learning_recovery(
@@ -550,6 +574,11 @@ impl LearningView {
         if self.unbound {
             format!(
                 "The provider session{whose} was not recorded ({}). Resume may be unavailable.",
+                self.cause()
+            )
+        } else if self.detail == Some(NO_ADMITTED_START.as_str()) {
+            format!(
+                "The last Stop{whose} had no admitted start ({}).",
                 self.cause()
             )
         } else {

@@ -54,7 +54,7 @@ pub use footprint::{
 pub use host_servers::{HostServerIncarnation, RecordedHostServers};
 pub use orchestration::{ORCH_JOURNAL_RETENTION_MS, OrchJournalPage, OrchStoredState};
 pub use requests::PassthroughFacts;
-pub use responses::{CaptureFailure, ResponseCapture, TurnCapture};
+pub use responses::{CaptureFailure, ResponseCapture, TurnCapture, TurnCaptureOutcome};
 pub use room::RoomStoreError;
 pub use room_roster::{RoomRoster, RosterError, RosterMember};
 pub use storage_cutover::StorageCutover;

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tmt_core::responses::{FinalText, MAX_KEPT, MAX_PAGE, RETENTION_MS, response_id};
 
 mod capture;
-pub use capture::{CaptureFailure, TurnCapture};
+pub use capture::{CaptureFailure, TurnCapture, TurnCaptureOutcome};
 
 pub struct ResponseCapture {
     pub text: FinalText,

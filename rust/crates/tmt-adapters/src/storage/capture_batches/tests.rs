@@ -1,5 +1,5 @@
 //! Real private SQLite state for ordered inputs/finals and frozen ack revisions.
-use super::super::{ResponseCapture, Storage, TurnCapture};
+use super::super::{ResponseCapture, Storage, TurnCapture, TurnCaptureOutcome};
 use super::*;
 use crate::{runtime::lifecycle::RuntimeLifecycle, test_support::TestDirectory};
 use std::time::{Duration, Instant};
@@ -108,7 +108,7 @@ impl World {
             .unwrap()
             .unwrap();
         self.now += 1;
-        assert!(
+        assert!(matches!(
             self.storage
                 .capture_turn_end(TurnCapture {
                     expected: &expected,
@@ -121,8 +121,9 @@ impl World {
                     now_ms: self.now,
                     deadline: Instant::now() + Duration::from_secs(2)
                 })
-                .unwrap()
-        );
+                .unwrap(),
+            TurnCaptureOutcome::Committed | TurnCaptureOutcome::Duplicate
+        ));
     }
     fn timeline(&mut self, limit: u64, before: Option<u64>) -> serde_json::Value {
         self.storage
@@ -189,6 +190,153 @@ fn fifty_one_folded_inputs_keep_the_answer_for_all_and_bound_only_the_painted_ac
         final_entry["acknowledgements"], last["acknowledgements"],
         "a later request revision never replaces the painted body's revision"
     );
+}
+
+#[test]
+fn rejected_turn_ends_distinguish_missing_starts_from_duplicates_interrupts_and_clock_rollback() {
+    use crate::runtime::hook_protocol::ActivityObservation;
+    use rusqlite::types::Value;
+    let snapshot = |storage: &Storage| -> Vec<Vec<Vec<Value>>> {
+        [
+            "recent_responses",
+            "capture_batches",
+            "capture_entries",
+            "request_passthrough",
+        ]
+        .into_iter()
+        .map(|table| {
+            let mut statement = storage
+                .connection()
+                .unwrap()
+                .prepare(&format!("SELECT * FROM {table} ORDER BY 1"))
+                .unwrap();
+            let columns = statement.column_count();
+            statement
+                .query_map([], |row| {
+                    (0..columns)
+                        .map(|column| row.get(column))
+                        .collect::<rusqlite::Result<Vec<Value>>>()
+                })
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        })
+        .collect()
+    };
+    for (case, wanted) in [
+        ("no_start", TurnCaptureOutcome::NoAdmittedStart),
+        ("other_session", TurnCaptureOutcome::NoAdmittedStart),
+        ("other_process", TurnCaptureOutcome::NoAdmittedStart),
+        ("other_turn", TurnCaptureOutcome::NoAdmittedStart),
+        ("clock_rollback", TurnCaptureOutcome::NotApplicable),
+        ("duplicate", TurnCaptureOutcome::Duplicate),
+        ("continued_duplicate", TurnCaptureOutcome::NotApplicable),
+        (
+            "interrupted_without_start",
+            TurnCaptureOutcome::NotApplicable,
+        ),
+    ] {
+        let mut w = World::new();
+        let request = w.input(0);
+        if matches!(case, "duplicate" | "continued_duplicate") {
+            w.end("one kept answer", false);
+        }
+        let mut preferences = BindingRows(w.storage.connection().unwrap())
+            .session_preferences(&w.agent)
+            .unwrap();
+        if matches!(case, "no_start" | "interrupted_without_start") {
+            preferences.remembered.as_mut().unwrap().state = None;
+        } else if matches!(case, "other_session" | "other_process" | "other_turn") {
+            let session = ProviderSessionId::new(if case == "other_session" {
+                "other"
+            } else {
+                "fixture-session"
+            })
+            .unwrap();
+            let process = if case == "other_process" {
+                ProcessIncarnation::new(13, "other-provider").unwrap()
+            } else {
+                w.process.clone()
+            };
+            preferences.remembered.as_mut().unwrap().state =
+                crate::runtime::driver_state::after_activity(
+                    None,
+                    &session,
+                    &process,
+                    &Event {
+                        kind: EventKind::TurnStarted,
+                        turn: (case == "other_turn")
+                            .then(|| ProviderSessionId::new("started").unwrap()),
+                    },
+                    None,
+                    w.now,
+                );
+        }
+        BindingRows(w.storage.connection().unwrap())
+            .set_session_preferences(&w.agent, &preferences)
+            .unwrap();
+        let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
+            .unwrap()
+            .unwrap();
+        let before = snapshot(&w.storage);
+        let activity = ActivityObservation {
+            event: Event {
+                kind: if case == "continued_duplicate" {
+                    EventKind::ContinuationEnded
+                } else {
+                    EventKind::TurnEnded
+                },
+                turn: (case == "other_turn").then(|| ProviderSessionId::new("missing").unwrap()),
+            },
+            model: None,
+        };
+        let payload = br#"{"hook_event_name":"Stop","session_id":"fixture-session","last_assistant_message":"must not be captured"}"#;
+        let lifecycle = crate::drivers::claude::ClaudeLifecycle;
+        let outcome = w
+            .storage
+            .capture_turn_end(TurnCapture {
+                expected: &expected,
+                process: &w.process,
+                activity: &activity,
+                response: Some(ResponseCapture {
+                    text: lifecycle.decode_turn(payload).unwrap().final_text.unwrap(),
+                }),
+                interrupted: case == "interrupted_without_start",
+                now_ms: match case {
+                    "clock_rollback" => w.now - 1,
+                    "continued_duplicate" => w.now,
+                    _ => w.now + 1,
+                },
+                deadline: Instant::now() + Duration::from_secs(2),
+            })
+            .unwrap();
+        assert_eq!(outcome, wanted, "{case}");
+        assert_eq!(
+            snapshot(&w.storage),
+            before,
+            "{case}: no final, capture or bound-input settlement"
+        );
+        assert_eq!(
+            BindingRows(w.storage.connection().unwrap())
+                .session_preferences(&w.agent)
+                .unwrap(),
+            preferences,
+            "{case}: rejected ends do not renew activity or optional state"
+        );
+        if !matches!(case, "duplicate" | "continued_duplicate") {
+            let state: String = w
+                .storage
+                .connection()
+                .unwrap()
+                .query_row(
+                    "SELECT state FROM request_passthrough WHERE request_id=?",
+                    [&request],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(state, "bound", "{case}: the input remains bound");
+        }
+    }
 }
 
 #[test]
@@ -336,8 +484,8 @@ fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
         } else {
             Instant::now()
         };
-        assert!(
-            !w.storage
+        assert_eq!(
+            w.storage
                 .capture_turn_end(TurnCapture {
                     expected: &expected,
                     process: &w.process,
@@ -349,7 +497,8 @@ fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
                     now_ms: w.now + 1,
                     deadline
                 })
-                .unwrap()
+                .unwrap(),
+            TurnCaptureOutcome::NotApplicable
         );
         w.storage
             .record_capture_failure(
@@ -379,7 +528,7 @@ fn interruption_keeps_earlier_answers_but_closes_the_batch_without_capturing_par
     let payload=serde_json::json!({"hook_event_name":"Stop","session_id":"fixture-session","stop_hook_active":true,"last_assistant_message":"partial"}).to_string();
     let turn = lifecycle.decode_turn(payload.as_bytes()).unwrap();
     let activity = lifecycle.decode_activity(payload.as_bytes()).unwrap();
-    assert!(
+    assert_eq!(
         w.storage
             .capture_turn_end(TurnCapture {
                 expected: &expected,
@@ -392,7 +541,8 @@ fn interruption_keeps_earlier_answers_but_closes_the_batch_without_capturing_par
                 now_ms: w.now + 1,
                 deadline: Instant::now() + Duration::from_secs(2)
             })
-            .unwrap()
+            .unwrap(),
+        TurnCaptureOutcome::Committed
     );
     assert!(
         current(w.storage.connection().unwrap(), &w.agent)

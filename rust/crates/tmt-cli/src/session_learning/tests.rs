@@ -716,3 +716,53 @@ fn a_digest_stop_never_writes_to_a_launch_that_is_not_admitted() {
     assert_eq!(stored(&launch), before);
     assert!(launch.diagnostic().unwrap().unbound);
 }
+
+#[test]
+fn a_missing_start_diagnostic_survives_hook_success_until_the_next_stage() {
+    let mut launch = launch(HostKind::pty(), "claude");
+    admit(&mut launch);
+    let learning = &launch.learning;
+    learning.set_role(Role::Observer);
+    learning.note(NO_ADMITTED_START, launch.deadline).unwrap();
+    learning.succeeded(launch.deadline).unwrap();
+    let view = launch.diagnostic().unwrap();
+    assert_eq!(
+        (view.step, view.reason, view.detail, view.unbound),
+        (
+            "storage",
+            "not_admitted",
+            Some("stopped:turn:Stop:no_admitted_start"),
+            false
+        )
+    );
+    assert_eq!(view.next_step, NO_ADMITTED_START_NEXT_STEP);
+    assert_eq!(
+        view.warning(Some("Alpha")),
+        "The last Stop for 'Alpha' had no admitted start (storage: not_admitted, stopped:turn:Stop:no_admitted_start)."
+    );
+    learning
+        .stage(SessionLearningStep::Input, launch.deadline)
+        .unwrap();
+    assert!(launch.diagnostic().is_none());
+    learning.succeeded(launch.deadline).unwrap();
+    assert!(launch.diagnostic().is_none());
+}
+
+#[test]
+fn a_missing_start_does_not_replace_a_digest_stop_diagnostic() {
+    let mut launch = launch(HostKind::pty(), "claude");
+    admit(&mut launch);
+    launch
+        .learning
+        .digest_stop(SessionLearningDigestStop::WorkerTimeout, launch.deadline)
+        .unwrap();
+    launch
+        .learning
+        .note(NO_ADMITTED_START, launch.deadline)
+        .unwrap();
+    launch.learning.succeeded(launch.deadline).unwrap();
+    assert_eq!(
+        launch.diagnostic().unwrap().detail,
+        Some("digest_stop:worker_timeout")
+    );
+}
