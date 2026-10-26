@@ -39,9 +39,14 @@ for (const source of ['React', 'Native'] as const)
           await page.keyboard.press('Shift+Escape');
           await expect(menu).toBeVisible();
           const frames = await focusFrames(page, '.tmt-ui-menu-surface[open]');
-          // Pre-existing last-row corner clipping is tracked in #4778; this foundation keeps
-          // the existing presentation and asserts the same audit result in both renderers.
-          expect(frames.clipped).toEqual(['button.tmt-ui-menu-item in dialog.tmt-ui-menu-surface']);
+          expect(frames.clipped).toEqual([]);
+          // The audit walks focusable controls; explicitly focus the last row for its geometry.
+          await delta.focus();
+          await expect(delta).toBeFocused();
+          expect((await focusFrames(page, '.tmt-ui-menu-surface[open]')).clipped).toEqual([]);
+          await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS('padding', '4px');
+          await expect(delta).toHaveCSS('border-radius', '6px');
+          await expect(delta).toHaveCSS('height', '42px');
           expect(frames.doubled).toEqual([]);
           expect(await textAtSurfaceEdge(page, '.tmt-ui-menu-surface[open]')).toEqual([]);
           expect((await controlRadii(page, '.tmt-ui-menu-surface[open]')).off).toEqual([]);

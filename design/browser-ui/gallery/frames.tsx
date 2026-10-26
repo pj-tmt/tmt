@@ -34,6 +34,7 @@ import { startShellHost, type ShellSlot } from '../src/shell-host.js';
 import { FramePair, Section, noop } from './kit.js';
 import { menuItems, NoticeSection } from './components.js';
 import { UiOverlayFrame } from './ui-overlays.js';
+import { createIcon } from '../src/glyph.js';
 
 /*
  * Frames are real pages of this gallery (`?frame=<name>&theme=<theme>`) shown in iframes, for the
@@ -544,6 +545,11 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
             keepMounted={keepMounted}
             title="Discussion"
             caption="1 / 2"
+            headerActions={
+              params.has('header-action') ? (
+                <BrowserAction type="button" variant="primary" label="Save" onActivate={noop} />
+              ) : undefined
+            }
             mode={mode}
             focusFallback={() =>
               Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
@@ -595,8 +601,32 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
   );
 }
 
+function GlyphFrame() {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = host.current!;
+    for (const size of [14, 24]) {
+      const row = document.createElement('p');
+      row.style.fontSize = `${size}px`;
+      row.style.color = 'var(--tmt-ui-color-link)';
+      row.dataset.size = String(size);
+      for (const name of ['link', 'info'] as const) {
+        const sample = document.createElement('span');
+        sample.dataset.glyph = name;
+        sample.append(createIcon(name), ` ${name} `);
+        row.append(sample);
+      }
+      root.append(row);
+    }
+    return () => root.replaceChildren();
+  }, []);
+  return <main className="gallery-main" ref={host} aria-label="Shared glyphs" />;
+}
+
 export function frameFor(name: string, params: URLSearchParams): ReactNode {
   switch (name) {
+    case 'glyphs':
+      return <GlyphFrame />;
     case 'notice':
       return (
         <main className="gallery-main">

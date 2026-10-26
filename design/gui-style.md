@@ -59,6 +59,9 @@ the matching Lucide icon, followed by the state word.
 
 ## Icons
 
+The shared framework-free `createIcon('link' | 'info')` uses pinned Lucide nodes, inherits
+text colour at 1em and is decorative. It does not expand the module icon contract.
+
 Lucide (`lucide-react`), with square line caps and miter joins, 18 px at a
 1.75 stroke in the header and 16 px inline, colored with `currentColor`. An icon
 never stands alone where a word fits; an icon-only button needs an accessible
@@ -490,7 +493,7 @@ Chat, Source, Share and settings panels (Comments is the non-modal panel below).
 - Opens over the page without moving it, closes with its own `×`, Esc or a backdrop press. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
 - Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native HTML dialog containment at every width.
-- Source uses the shared header action slot for primary Save before Close, with a truthful draft explanation, paper-toned bordered monospace editor and lower draft-equality metadata. The owner and editor-link save contracts and real notice states remain unchanged. No equality state claims a confirmed save.
+- Source uses the shared header action slot for primary Save before Close (11px/620 type, 7px/10px padding and canonical 8px radius), with a truthful draft explanation, paper-toned bordered monospace editor and lower draft-equality metadata. The owner and editor-link save contracts and real notice states remain unchanged. No equality state claims a confirmed save.
 - Colab shared page drawers (Chat, Source, Agents, Files, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; regular drawers are at most 430 px (viewport minus 18 px), and use viewport minus 12 px through 640 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width. The modal scrim dims and blurs the page using the shared scrim role and 3 px overlay blur.
 
 ### Non-modal side panel

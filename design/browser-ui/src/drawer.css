@@ -86,6 +86,15 @@
   gap: var(--tmt-ui-space-s);
   margin-left: auto;
 }
+/* Shared Drawer/Panel header controls use the website's compact type and padding.
+   Footer and body actions keep their normal geometry. */
+.tmt-ui-drawer-header-actions .tmt-ui-action {
+  min-height: 0;
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1.35;
+  padding: 7px 10px;
+}
 .tmt-ui-drawer-heading {
   display: flex;
   align-items: baseline;
