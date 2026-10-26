@@ -1589,15 +1589,18 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         ])
       );
       const database = path.join(fixture.globalDir, 'ops', 'ops.db');
-      const read = () =>
-        JSON.parse(
-          storedDocument(
-            database,
-            'checklist',
-            `${shown.room.id}/${created.current.member.id}`
-          )!.toString('utf8')
+      type StoredChecklist = {
+        items: { id: string; completion: string; revision: number }[];
+      };
+      const read = (): StoredChecklist | undefined => {
+        const bytes = storedDocument(
+          database,
+          'checklist',
+          `${shown.room.id}/${created.current.member.id}`
         );
-      expect(read().items[0]).toMatchObject({ id: item, completion: 'open', revision: 1 });
+        return bytes === undefined ? undefined : JSON.parse(bytes.toString('utf8'));
+      };
+      expect(read()?.items[0]).toMatchObject({ id: item, completion: 'open', revision: 1 });
       const beforeRequests = requestAttempts(fixture);
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('checklist-count-board');
@@ -1640,12 +1643,18 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      let completed: ReturnType<typeof read>;
       await fixture.waitFor(
-        () => read().items[0].completion === 'complete',
+        () => {
+          const current = read();
+          if (current?.items[0]?.completion !== 'complete') return false;
+          completed = current;
+          return true;
+        },
         5_000,
         'Checklist Done publication'
       );
-      expect(read().items[0]).toMatchObject({ id: item, completion: 'complete', revision: 2 });
+      expect(completed?.items[0]).toMatchObject({ id: item, completion: 'complete', revision: 2 });
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('✓ Completed Finish the causal Checklist check') &&
