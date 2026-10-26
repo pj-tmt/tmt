@@ -270,7 +270,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("D", "digest"),
             ("c", "timers"),
             ("R", "member-session"),
-            ("N", "member-checklist"),
+            ("C", "member-checklist"),
             ("p", "pin"),
         ]
     } else {
@@ -321,7 +321,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("j", "jump"),
             ("o", "open"),
             ("x", "remove-membership"),
-            ("N", "member-checklist"),
+            ("C", "member-checklist"),
             ("m", "move-membership"),
             ("S", "switch-tool"),
             ("D", "digest"),
@@ -1362,7 +1362,8 @@ mod tests {
         assert_eq!(squad["p"].text, "pin");
         for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
             let keys = config.workspace_keys(scope, None, None).unwrap().bindings;
-            assert_eq!(keys["N"].text, "member-checklist", "{scope:?}");
+            assert_eq!(keys["C"].text, "member-checklist", "{scope:?}");
+            assert!(!keys.contains_key("N"), "{scope:?}");
         }
         let pool = config
             .workspace_keys(OpsKeyScope::Pool, None, None)
