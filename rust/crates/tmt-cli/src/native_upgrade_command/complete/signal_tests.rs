@@ -4,7 +4,7 @@ use crate::native_upgrade_command::{DatabaseSteps, FinishContext, Prior, finish}
 use crate::setup_command::guided::tests::Directory;
 use nix::{
     errno::Errno,
-    sys::signal::{Signal, kill, killpg},
+    sys::signal::{Signal, kill, killpg, raise},
     unistd::Pid,
 };
 use std::{
@@ -88,7 +88,10 @@ impl CommandRunner for ApplyRunner {
             interrupt,
         );
         if self.mode == "late" {
-            kill(Pid::this(), Signal::SIGINT).unwrap();
+            // Complete injection on this thread before returning the settled
+            // child. Process-directed kill may run the handler later on
+            // libtest's other thread, outside the checkpoint under test.
+            raise(Signal::SIGINT).unwrap();
         }
         result
     }
@@ -121,7 +124,7 @@ fn parent_fixture() {
         skipped_pinned: true,
     };
     if runner.mode == "before" {
-        kill(Pid::this(), Signal::SIGINT).unwrap();
+        raise(Signal::SIGINT).unwrap();
     }
     // Exercise root finish, including a pinned CLI, with its real invocation
     // guard alive through final JSON publication and status selection.
