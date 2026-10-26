@@ -4656,6 +4656,14 @@ test('Create guide keeps prerequisites and completion unchecked and copies only 
     await guide.getByRole('button', { name: 'Continue', exact: true }).click();
     const prepare = guide.locator('[data-create-step="2"]');
     await expect(prepare).toBeVisible();
+    await expect(guide.getByRole('button', { name: '1 Type · done', exact: true })).toHaveText(
+      '✓ 1 Type',
+    );
+    await expect(
+      guide.getByRole('button', { name: '2 Prepare · current', exact: true }),
+    ).toHaveAttribute('aria-current', 'step');
+    await expect(prepare.locator('.tmt-ui-command-feedback').first()).toBeEmpty();
+
     await guide.getByRole('button', { name: /^2 Prepare/ }).focus();
     await page.keyboard.press('Enter');
     await expect(prepare.getByRole('heading')).toBeFocused();
@@ -4690,6 +4698,19 @@ test('Create guide keeps prerequisites and completion unchecked and copies only 
     await expect(prepare.getByRole('status').first()).toContainText(
       'Copy failed. Select the command',
     );
+    await page.evaluate(() =>
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            (window as unknown as { guideCopied: string }).guideCopied = text;
+          },
+        },
+      }),
+    );
+    await prepare.getByRole('button', { name: 'Copy node --version', exact: true }).click();
+    await expect(prepare.getByRole('status').first()).toHaveText('Copied.');
+    await expect(prepare).not.toContainText('Copy failed.');
     await expect(prepare.getByRole('img', { name: 'Not checked', exact: true })).toHaveCount(4);
     const directory =
       process.env.TMT_REMOTE_CREATE_CAPTURE_DIR ??
@@ -4712,6 +4733,44 @@ test('Create guide keeps prerequisites and completion unchecked and copies only 
             ),
           }));
           expect(sizes.title).toBeGreaterThan(sizes.step);
+          if (state === 'result') {
+            const row = await guide
+              .locator('.create-actions[data-step="5"] > button:visible')
+              .evaluateAll((buttons) =>
+                buttons.map((button) => {
+                  const box = button.getBoundingClientRect();
+                  return { top: box.top, height: box.height };
+                }),
+              );
+            expect(new Set(row.map((box) => box.top)).size).toBe(1);
+            expect(new Set(row.map((box) => box.height)).size).toBe(1);
+          }
+
+          const wrapping = await guide
+            .locator('.create-step-panel:not([hidden]) .tmt-ui-command-text')
+            .evaluateAll((codes) =>
+              codes.map((code) => ({
+                overflow: getComputedStyle(code).overflowX,
+                wrap: getComputedStyle(code).overflowWrap,
+                tokensStayWhole: Array.from(code.querySelectorAll('.create-command-token')).every(
+                  (token) => {
+                    const range = document.createRange();
+                    range.selectNodeContents(token);
+                    return range.getClientRects().length === 1;
+                  },
+                ),
+              })),
+            );
+          for (const command of wrapping) {
+            expect(command).toEqual({ overflow: 'auto', wrap: 'normal', tokensStayWhole: true });
+          }
+          if (width === 390 && state === 'prepare') {
+            const longToken = prepare.locator('code').filter({ hasText: 'npm install' });
+            expect(await longToken.evaluate((code) => code.scrollWidth > code.clientWidth)).toBe(
+              true,
+            );
+          }
+
           if (directory) {
             await mkdir(directory, { recursive: true });
             await page.screenshot({
@@ -4740,6 +4799,13 @@ test('Create guide keeps prerequisites and completion unchecked and copies only 
       "tmt remote deploy firestore --project='demo-guide' --region='asia-east1' --defaults",
     ]);
     await expect(review.getByRole('button', { name: 'Deploy', exact: true })).toHaveCount(0);
+    await review.getByRole('button', { name: /^Copy .*--json$/ }).click();
+    expect(
+      await page.evaluate(() => (window as unknown as { guideCopied: string }).guideCopied),
+    ).toBe(
+      "tmt remote deploy firestore --project='demo-guide' --region='asia-east1' --defaults --json",
+    );
+
     await expect(review).toContainText('answer y/N there');
     await guide.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(project).toHaveValue('demo-guide');
@@ -4761,6 +4827,20 @@ test('Create guide keeps prerequisites and completion unchecked and copies only 
     await expect(
       guide.getByRole('button', { name: 'Recheck saved facts', exact: true }),
     ).toBeDisabled();
+    await expect(guide.locator('.create-result-card')).toContainText(
+      'Pair this browser and confirm readable management access',
+    );
+    await expect(
+      guide.locator('.create-result-card').getByRole('button', { name: 'Recheck saved facts' }),
+    ).toBeDisabled();
+    await expect(guide.locator('.create-actions[data-step="5"] > button:visible')).toHaveText([
+      'Back',
+      'Open this Remote',
+      'Invite someone',
+    ]);
+    await expect(
+      guide.getByRole('button', { name: 'Invite someone', exact: true }),
+    ).toHaveAttribute('data-variant', 'primary');
     await capture('result');
     expect(posts).toEqual([]);
 
@@ -4784,6 +4864,27 @@ test('Create guide keeps prerequisites and completion unchecked and copies only 
     await page.goto(`${origin}/remote/create`);
     await expect(guide.getByRole('radio', { name: /This machine/ })).toBeChecked();
     await expect(guide.locator('[data-create-step="1"]')).toBeVisible();
+    await guide.getByRole('radio', { name: /Firebase · Free Spark plan/ }).check();
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await project.fill('demo-guide');
+    await region.fill('asia-east1');
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    const recheck = guide.getByRole('button', { name: 'Recheck saved facts', exact: true });
+    await expect(recheck).toBeEnabled();
+    await expect(guide.locator('#create-recheck-reason')).toBeHidden();
+    await expect(recheck).toHaveAttribute('data-variant', 'secondary');
+    for (const theme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      await settled(page);
+      expect(await recheck.evaluate((button) => getComputedStyle(button).color)).toBe(
+        await guide
+          .getByRole('button', { name: 'Open this Remote', exact: true })
+          .evaluate((button) => getComputedStyle(button).color),
+      );
+    }
+    expect(await identity()).toEqual(original);
   });
 });
 

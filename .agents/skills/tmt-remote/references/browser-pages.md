@@ -102,7 +102,10 @@ deployment completion remain Not checked. Browser-local naming uses the existing
 and CAS, never a deploy flag. One product command catalog supplies every copy-only reference;
 the selected project/region are validated before substitution. Preview is JSON without authorization;
 the separate terminal deployment reference leaves plan review and y/N with the person. Copy never
-executes either. Service shares one preview for both changes and permissions. A saved enabled layer
+executes either. Guide steps mark visited steps as done without checking prerequisites or completion;
+command tokens stay whole and scroll inside their block, and denied-copy feedback clears on success.
+Result facts and access-gated Recheck share one card; disabled Recheck explains the missing access.
+Service shares one preview for both changes and permissions. A saved enabled layer
 or copied command never certifies a completed deployment. Unknown/partial outcomes keep the original
 terminal record and its recovery instructions. Guide listeners and late reads follow route disposal.
 

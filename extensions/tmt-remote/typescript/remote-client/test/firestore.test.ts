@@ -550,6 +550,18 @@ test('service guidance keeps missing version, plan and permission observations e
     });
     await checks[0]!.find('button')[0]!.click();
     assert.ok(checks[0]!.text().includes('Copy failed. Select the command and copy it manually.'));
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        writeText: async (value: string) => {
+          copied.push(value);
+        },
+      },
+    });
+    await checks[0]!.find('button')[0]!.click();
+    assert.ok(checks[0]!.text().includes('Copied.'));
+    assert.equal(checks[0]!.text().includes('Copy failed.'), false);
+    assert.equal(copied.at(-1), serviceCommands.status);
+
     assert.equal(JSON.stringify(layers), before);
     const unconfigured = render([]);
     assert.ok(unconfigured.text().includes('Firestore is not configured.'));
