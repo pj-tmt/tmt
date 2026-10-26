@@ -46,7 +46,11 @@ function languageViolations(
   listed: Readonly<Record<string, string>>
 ): string[] {
   return files
-    .filter((file) => file.startsWith(I18N_ROOT))
+    .filter(
+      (file) =>
+        file.startsWith(I18N_ROOT) ||
+        /^site\/src\/posts\/[^/]+\/(?!scripts\/|images\/)[^/]+\//.test(file)
+    )
     .filter((file) => !Object.keys(listed).some((directory) => file.startsWith(`${directory}/`)))
     .map((file) => `${file}: add its directory to languageExceptions or move the file`);
 }
@@ -56,16 +60,30 @@ function languageEntryProblems(
   files: readonly string[]
 ): string[] {
   return Object.entries(listed).flatMap(([directory, tag]) => {
-    if (!(directory in LANGUAGE_TAGS)) {
+    const post = directory.match(
+      /^site\/src\/posts\/[a-z0-9]+(?:-[a-z0-9]+)*\/(ja|zh-hant|zh-hans)$/
+    );
+    const expected =
+      LANGUAGE_TAGS[directory] ??
+      (post ? { ja: 'ja', 'zh-hant': 'zh-Hant', 'zh-hans': 'zh-Hans' }[post[1]] : undefined);
+    if (!expected) {
       return [`${directory}: not an allowed language (ja, zh-hant, zh-hans)`];
     }
     return [
-      ...(tag === LANGUAGE_TAGS[directory]
+      ...(tag === expected ? [] : [`${directory}: expected the language tag ${expected}`]),
+      ...((
+        post
+          ? ['article.html', 'meta.json', 'approval.json'].every((name) =>
+              files.includes(`${directory}/${name}`)
+            )
+          : files.some((file) => file.startsWith(`${directory}/`))
+      )
         ? []
-        : [`${directory}: expected the language tag ${LANGUAGE_TAGS[directory]}`]),
-      ...(files.some((file) => file.startsWith(`${directory}/`))
-        ? []
-        : [`${directory}: track a translated page in it or remove the entry`]),
+        : [
+            post
+              ? `${directory}: track article.html, meta.json and approval.json or remove the entry`
+              : `${directory}: track a translated page in it or remove the entry`,
+          ]),
     ];
   });
 }
@@ -151,6 +169,41 @@ describe('repository layout', () => {
     expect(languageEntryProblems({ 'site/src/i18n/fr': 'fr' }, ['site/src/i18n/fr/a.mdx'])).toEqual(
       ['site/src/i18n/fr: not an allowed language (ja, zh-hant, zh-hans)']
     );
+  });
+
+  it('requires an exact per-post exception and a complete translation bundle', () => {
+    const directory = 'site/src/posts/example-post/ja';
+    const files = ['article.html', 'meta.json', 'approval.json'].map(
+      (name) => `${directory}/${name}`
+    );
+    const listed = { [directory]: 'ja' };
+    expect(languageViolations(files, listed)).toEqual([]);
+    expect(languageEntryProblems(listed, files)).toEqual([]);
+    expect(languageViolations(files, {})).toHaveLength(3);
+    expect(languageViolations(['site/src/posts/other-post/ja/article.html'], listed)).toHaveLength(
+      1
+    );
+    expect(languageEntryProblems(listed, files.slice(0, 2))).toHaveLength(1);
+    expect(languageEntryProblems({ [directory]: 'zh-Hant' }, files)).toEqual([
+      `${directory}: expected the language tag ja`,
+    ]);
+    for (const invalid of [
+      'site/src/posts/example-post/fr',
+      'site/src/posts/*/ja',
+      'site/src/posts/example-post/en',
+    ])
+      expect(languageEntryProblems({ [invalid]: 'ja' }, files)).toHaveLength(1);
+    expect(
+      languageViolations(
+        [
+          'site/src/posts/example-post/article.html',
+          'site/src/posts/example-post/meta.json',
+          'site/src/posts/example-post/scripts/example.mjs',
+          'site/src/posts/example-post/images/example.png',
+        ],
+        {}
+      )
+    ).toEqual([]);
   });
 
   it('reports an unowned file even when its top-level home is allowed', () => {

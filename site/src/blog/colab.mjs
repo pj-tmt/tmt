@@ -19,7 +19,8 @@ import {
   uuid,
   walk,
 } from "./content.mjs";
-import { escapeHtml } from "./site.mjs";
+import { escapeHtml, readPosts } from "./site.mjs";
+import { languageInfo, postDirectory } from "./languages.mjs";
 
 const execute = promisify(execFile);
 export async function tmt(...args) {
@@ -47,7 +48,7 @@ export async function draft({ root, sourcePath, meta, call = tmt }) {
   const article = articleFromSource(await readFile(sourcePath, "utf8"));
   const css = await readFile(join(root, "src/blog/blog.css"), "utf8");
   const e = escapeHtml;
-  const source = `<!doctype html><html lang="${meta.language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(meta.title)}</title><style>${css}</style></head><body><main class="post-shell"><header class="post-heading"><p class="eyebrow">ARTICLE DRAFT / ${meta.date}</p><h1>${e(meta.title)}</h1><p>${e(meta.summary)}</p></header>${article}</main></body></html>`;
+  const source = `<!doctype html><html lang="${languageInfo(meta.language).tag}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(meta.title)}</title><style>${css}</style></head><body><main class="post-shell"><header class="post-heading"><p class="eyebrow">ARTICLE DRAFT / ${meta.date}</p><h1>${e(meta.title)}</h1><p>${e(meta.summary)}</p></header>${article}</main></body></html>`;
   const directory = join(root, ".private/drafts");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, randomUUID() + ".html");
@@ -198,7 +199,13 @@ export async function publish({ root, proposalId, call = tmt }) {
       await mkdir(dirname(join(staging, path)), { recursive: true });
       await writeFile(join(staging, path), bytes);
     }
-    const destination = join(root, "src/posts", record.meta.slug);
+    metadata(record.meta);
+    if (record.meta.language !== "en") {
+      const posts = await readPosts(join(root, "src/posts"));
+      if (!posts.some(({ meta }) => meta.slug === record.meta.slug && meta.language === "en"))
+        throw new Error("Publish the approved English post before its translations");
+    }
+    const destination = join(root, "src/posts", postDirectory(record.meta));
     // Refuse replacement so an existing published post is never silently lost.
     // Revisions are prepared as a reviewed Git change using the documented flow.
     try {
@@ -210,7 +217,12 @@ export async function publish({ root, proposalId, call = tmt }) {
     await mkdir(dirname(destination), { recursive: true });
     await rename(staging, destination);
     committed = true;
-    return { slug: record.meta.slug, path: destination, artifactSha256: record.artifactSha256 };
+    return {
+      slug: record.meta.slug,
+      language: record.meta.language,
+      path: destination,
+      artifactSha256: record.artifactSha256,
+    };
   } finally {
     if (!committed) await rm(staging, { recursive: true, force: true });
   }

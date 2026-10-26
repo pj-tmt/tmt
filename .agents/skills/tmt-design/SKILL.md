@@ -41,11 +41,10 @@ swap `*` and `_` in samples: grep and run samples after formatting.
 ## Blog
 
 Marketing owns and reviews the blog end to end (`site/src/blog/` code and `site/src/posts/`);
-GUI reviews shared site behavior outside it. Approved English posts
-live in `site/src/posts/<slug>/` with article HTML, metadata, approval and only
-referenced module/image assets. Other post languages require an explicit
-`languageExceptions` addition before enabling them. See [site README](../../../site/README.md#blog)
-for the Colab approval protocol and commands.
+GUI reviews shared site behavior outside it. English posts live at the slug root; independently approved translations live under
+its `ja/`, `zh-hant/` or `zh-hans/` directory. Each translated directory needs its
+own `languageExceptions` entry with its first approved post. See [site README](../../../site/README.md#blog)
+for language URLs, English fallback, the approval protocol and commands.
 
 Vite builds complete blog HTML plus external bundled article modules into the
 same `site/dist` artifact as Home; URLs derive from `SITE_ORIGIN` plus `SITE_BASE` plus `blog/`

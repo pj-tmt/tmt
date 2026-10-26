@@ -51,7 +51,7 @@ product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.m
 
 ## Public blog boundary
 
-`site/src/blog/` builds `site/src/posts/` into the shared site artifact.
+`site/src/blog/` builds independently approved `site/src/posts/` language variants into the shared site artifact.
 [The site guide](site/README.md#blog) owns content, approval, CSP and base paths.
 
 ## TypeScript workspace boundary

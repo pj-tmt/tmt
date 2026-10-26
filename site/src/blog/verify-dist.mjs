@@ -4,6 +4,7 @@ import { parse } from "parse5";
 import { SaxesParser } from "saxes";
 import { attr, walk } from "./content.mjs";
 import { assertSiteOrigin, filesBelow, csp } from "./site.mjs";
+import { languageInfo } from "./languages.mjs";
 
 // A production artifact is checked against the origin it was built for (SITE_ORIGIN): its canonical
 // links, RSS and sitemap must name it. A demo artifact has no canonical links and an empty feed.
@@ -38,6 +39,10 @@ export async function verifyDist(
     )
       throw new Error(`Private source in dist: ${path}`);
   const htmlPaths = Object.keys(files).filter((path) => path.endsWith(".html"));
+  if (!Array.isArray(info.pages) || !info.pages.length) throw new Error("Missing page inventory");
+  const expectedPages = new Map(info.pages.map((page) => [page.path + "index.html", page]));
+  if (expectedPages.size !== info.pages.length || htmlPaths.length !== expectedPages.size)
+    throw new Error("Article HTML count mismatch");
   if (!files["index.html"] || !files["feed.xml"] || !files["sitemap.xml"] || !files[".nojekyll"]) {
     // An empty .nojekyll Buffer is truthy; file existence, not byte count, matters.
     throw new Error("Missing static site outputs");
@@ -58,14 +63,36 @@ export async function verifyDist(
     if (!allFiles[path]) throw new Error(`Missing target ${raw} from ${owner}`);
   };
   for (const path of htmlPaths) {
+    const page = expectedPages.get(path);
+    if (!page) throw new Error(`Unexpected HTML page: ${path}`);
+    const route = page.path.match(
+      /^(?:(ja|zh-hant|zh-hans)\/)?(?:posts\/([a-z0-9]+(?:-[a-z0-9]+)*)\/)?$/,
+    );
+    if (!route) throw new Error(`Invalid blog route: ${path}`);
+    const fallback = page.fallbackTo !== undefined;
+    const englishTarget = route[2] ? `posts/${route[2]}/` : "";
+    if (fallback && (!route[1] || page.fallbackTo !== englishTarget))
+      throw new Error(`Invalid English fallback target: ${path}`);
+    if (route[1] && !route[2]) {
+      const expectedFallback = !info.pages.some(
+        (other) => other.path.startsWith(`${route[1]}/posts/`) && other.fallbackTo === undefined,
+      );
+      if (fallback !== expectedFallback)
+        throw new Error(`Index fallback must match approved language articles: ${path}`);
+    }
     const html = files[path].toString("utf8");
     let policy = false;
     let article = null;
     let canonical = null;
+    let htmlLanguage = null;
+    const alternates = [];
     walk(parse(html), (node) => {
+      if (node.tagName === "html") htmlLanguage = attr(node, "lang");
       if (node.tagName === "article" && attr(node, "id") === "blog-article") article = node;
       if (node.tagName === "link" && attr(node, "rel") === "canonical")
         canonical = attr(node, "href");
+      if (node.tagName === "link" && attr(node, "hreflang"))
+        alternates.push({ href: attr(node, "href"), tag: attr(node, "hreflang") });
       if (node.attrs?.some(({ name }) => /^on/i.test(name)))
         throw new Error(`Inline event handler in ${path}`);
       if (
@@ -92,11 +119,35 @@ export async function verifyDist(
     if (!policy || !html.includes("<h1"))
       throw new Error(`Missing CSP or rendered content in ${path}`);
     if (!demo) {
-      const expected = origin + info.base + path.replace(/index\.html$/, "");
+      const expected = origin + info.base + (page.fallbackTo ?? page.path);
       if (canonical !== expected)
         throw new Error(`Canonical link of ${path} must be ${expected}, found ${canonical}`);
     }
-    if (path.startsWith("posts/")) {
+    for (const { href, tag } of alternates) {
+      const url = URL.canParse(href) ? new URL(href) : null;
+      const target = url?.pathname.startsWith(info.base)
+        ? expectedPages.get(url.pathname.slice(info.base.length) + "index.html")
+        : null;
+      if (
+        !target ||
+        target.fallbackTo !== undefined ||
+        url.origin !== origin ||
+        (tag === "x-default" ? target.language !== "en" : tag !== target.language)
+      )
+        throw new Error(`Invalid language alternate in ${path}: ${href}`);
+    }
+    if (
+      page.language !== languageInfo(fallback ? "en" : (route[1] ?? "en")).tag ||
+      htmlLanguage !== page.language
+    )
+      throw new Error(`Wrong HTML language in ${path}`);
+    if (
+      fallback &&
+      (!expectedPages.has(page.fallbackTo + "index.html") ||
+        (!demo && !html.includes('name="robots" content="noindex,follow"')))
+    )
+      throw new Error(`Invalid or indexable fallback: ${path}`);
+    if (/^(?:(?:ja|zh-hant|zh-hans)\/)?posts\//.test(path)) {
       let visibleText = "";
       const text = (node) => {
         if (["style", "script"].includes(node.tagName)) return;
@@ -108,7 +159,9 @@ export async function verifyDist(
     }
   }
   const feed = files["feed.xml"].toString("utf8");
-  for (const path of ["feed.xml", "sitemap.xml"]) {
+  for (const path of Object.keys(files).filter(
+    (path) => path.endsWith("feed.xml") || path === "sitemap.xml",
+  )) {
     const xml = new SaxesParser({ xmlns: true });
     let element = "";
     xml.on("opentag", (tag) => {
@@ -126,12 +179,17 @@ export async function verifyDist(
         if (!parsed.pathname.startsWith(info.base))
           throw new Error("Feed/sitemap URL escapes base");
         checkLink(local, "index.html");
+        const linked = expectedPages.get(parsed.pathname.slice(info.base.length) + "index.html");
+        if (linked?.fallbackTo !== undefined)
+          throw new Error(`Fallback URL in feed/sitemap: ${value}`);
       }
     });
     xml.on("closetag", () => {
       element = "";
     });
     xml.write(files[path].toString("utf8")).close();
+    if (info.demo && path.endsWith("feed.xml") && files[path].toString("utf8").includes("<item>"))
+      throw new Error("Examples must not enter RSS or indexing");
   }
   if (!feed.startsWith("<?xml") || !feed.includes('<rss version="2.0">'))
     throw new Error("Invalid RSS document");
@@ -140,9 +198,8 @@ export async function verifyDist(
     (feed.includes("<item>") || !files["robots.txt"].toString().includes("Disallow: /"))
   )
     throw new Error("Examples must not enter RSS or indexing");
-  if (htmlPaths.length !== info.articles.length + 1) throw new Error("Article HTML count mismatch");
-  for (const slug of info.articles)
-    if (!files[`posts/${slug}/index.html`]) throw new Error("Missing prerendered article");
+  for (const path of expectedPages.keys())
+    if (!files[path]) throw new Error("Missing prerendered article");
   console.log(`Verified ${htmlPaths.length} rendered HTML pages, local links, CSP and RSS.`);
 }
 

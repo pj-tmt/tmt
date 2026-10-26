@@ -145,6 +145,65 @@ test("a production build needs SITE_ORIGIN and its artifact names that origin, n
     const dist = join(root, "dist");
     await verifyDist(dist, { origin });
     await assert.rejects(verifyDist(dist, { origin: "https://old.example.org" }), /Canonical link/);
+    const fallbackPath = join(dist, "blog/ja/posts/hello-from-tmt/index.html");
+    const fallback = await readFile(fallbackPath, "utf8");
+    await writeFile(
+      fallbackPath,
+      fallback.replace(
+        'name="robots" content="noindex,follow"',
+        'name="robots" content="index,follow"',
+      ),
+    );
+    await assert.rejects(verifyDist(dist, { origin }), /Invalid or indexable fallback/);
+    await writeFile(fallbackPath, fallback.replace('<html lang="en">', '<html lang="ja">'));
+    await assert.rejects(verifyDist(dist, { origin }), /Wrong HTML language/);
+    await writeFile(fallbackPath, fallback);
+    await writeFile(fallbackPath, fallback.replace('hreflang="en"', 'hreflang="ja"'));
+    await assert.rejects(verifyDist(dist, { origin }), /Invalid language alternate/);
+    await writeFile(fallbackPath, fallback);
+    const feedPath = join(dist, "blog/ja/feed.xml");
+    const feed = await readFile(feedPath, "utf8");
+    await writeFile(
+      feedPath,
+      feed.replace(
+        "</channel>",
+        `<item><link>${origin}/tmt/blog/ja/posts/hello-from-tmt/</link></item></channel>`,
+      ),
+    );
+    await assert.rejects(verifyDist(dist, { origin }), /Fallback URL in feed\/sitemap/);
+    await writeFile(feedPath, feed);
+    const indexPath = join(dist, "blog/ja/index.html");
+    const fallbackIndex = await readFile(indexPath, "utf8");
+    assert.match(fallbackIndex, /<html lang="en">/);
+    assert.ok(fallbackIndex.includes(`rel="canonical" href="${origin}/tmt/blog/"`));
+    await writeFile(
+      indexPath,
+      fallbackIndex.replace(
+        'name="robots" content="noindex,follow"',
+        'name="robots" content="index,follow"',
+      ),
+    );
+    await assert.rejects(verifyDist(dist, { origin }), /Invalid or indexable fallback/);
+    await writeFile(indexPath, fallbackIndex);
+    const infoPath = join(dist, "blog/build-info.json");
+    const inventory = await readFile(infoPath, "utf8");
+    const info = JSON.parse(inventory);
+    delete info.pages.find((page) => page.path === "ja/").fallbackTo;
+    await writeFile(infoPath, JSON.stringify(info));
+    await assert.rejects(
+      verifyDist(dist, { origin }),
+      /Index fallback must match approved language articles/,
+    );
+    await writeFile(infoPath, inventory);
+    const sitemapPath = join(dist, "blog/sitemap.xml");
+    const sitemap = await readFile(sitemapPath, "utf8");
+    await writeFile(
+      sitemapPath,
+      sitemap.replace("</urlset>", `<url><loc>${origin}/tmt/blog/ja/</loc></url></urlset>`),
+    );
+    await assert.rejects(verifyDist(dist, { origin }), /Fallback URL in feed\/sitemap/);
+    await writeFile(sitemapPath, sitemap);
+    await verifyDist(dist, { origin });
     const index = await readFile(join(dist, "blog/index.html"), "utf8");
     assert.ok(index.includes(`<link rel="canonical" href="${origin}/tmt/blog/">`));
     assert.match(
