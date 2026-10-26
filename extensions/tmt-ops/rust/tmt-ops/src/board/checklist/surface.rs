@@ -183,7 +183,7 @@ impl Controller {
                     Screen::Form => "Authored fields",
                     Screen::Confirm if self.deleting() => "Review delete",
                     Screen::Confirm => "Review exact update",
-                    Screen::Reorder => "Full inventory order (including archived)",
+                    Screen::Reorder => "Open item order",
                     Screen::OrderActions(_) => "Move item",
                     _ => "Checklist",
                 }
@@ -192,14 +192,9 @@ impl Controller {
         let total = current
             .items
             .iter()
-            .filter(|v| self.archived || !v.item.archived)
+            .filter(|v| super::super::conversation_checklist::open_item(v))
             .count();
         let visible = current.items.iter().filter(|v| self.matches(v)).count();
-        let completion = match self.completion {
-            Some(Completion::Open) => "Open",
-            Some(Completion::Complete) => "Complete",
-            None => "All completion",
-        };
         let assignment = match &self.assignment {
             Assignment::All => "Squad-wide".into(),
             Assignment::Unassigned => "Unassigned".into(),
@@ -212,12 +207,7 @@ impl Controller {
             ),
         };
         format!(
-            "{name} · {completion} · {assignment} · archived {} · {visible} visible / {total} total{}",
-            if self.archived {
-                "included"
-            } else {
-                "excluded"
-            },
+            "{name} · Open · {assignment} · {visible} visible / {total} todo{}",
             if current.room.available {
                 ""
             } else {
@@ -306,7 +296,11 @@ impl Controller {
                 if let Some(current) = self.current() {
                     let empty = if current.checklist_id.is_none() {
                         Some("No checklist yet · Actions → Create")
-                    } else if current.items.is_empty() {
+                    } else if !current
+                        .items
+                        .iter()
+                        .any(super::super::conversation_checklist::open_item)
+                    {
                         Some("Checklist is empty · Actions → Create")
                     } else if !current.items.iter().any(|v| self.matches(v)) {
                         Some("No items match these filters · Filter to change scope")
@@ -319,17 +313,7 @@ impl Controller {
                     rows.extend(current.items.iter().filter(|v| self.matches(v)).map(|v| {
                         Row::choice(
                             v.item.id.as_str(),
-                            format!(
-                                "{} {} · {}{}",
-                                if v.item.completion == Completion::Complete {
-                                    "✓"
-                                } else {
-                                    "○"
-                                },
-                                v.item.content.title,
-                                assignee(v),
-                                if v.item.archived { " · archived" } else { "" }
-                            ),
+                            format!("○ {} · {}", v.item.content.title, assignee(v)),
                         )
                     }));
                 }
@@ -347,20 +331,22 @@ impl Controller {
                 }
                 if self.draft.is_none() && self.submit.is_none() && self.writable() {
                     rows.push(Row::choice("create", "Create item (unassigned)"));
-                    if self.manager() && self.current().is_some_and(|c| !c.items.is_empty()) {
-                        rows.push(Row::choice("reorder", "Reorder full inventory"));
+                    if self.manager()
+                        && self.current().is_some_and(|c| {
+                            c.items
+                                .iter()
+                                .any(super::super::conversation_checklist::open_item)
+                        })
+                    {
+                        rows.push(Row::choice("reorder", "Reorder open items"));
                     }
                 }
             }
             Screen::Filters => rows.extend(
                 [
-                    ("open", "Open"),
-                    ("complete", "Complete"),
-                    ("all", "All completion"),
                     ("squad", "Squad-wide"),
                     ("unassigned", "Unassigned"),
                     ("member", "Choose member filter"),
-                    ("archive", "Toggle archived inclusion"),
                 ]
                 .map(|(id, label)| Row::choice(id, label)),
             ),
@@ -410,33 +396,19 @@ impl Controller {
                         rows.push(Row::text("detail-reference", link.clone()));
                         rows.push(Row::choice("reference", "Open reference"));
                     }
-                    if self.writable() && self.draft.is_none() && self.submit.is_none() {
-                        if !item.archived {
-                            rows.push(Row::choice("edit", "Edit title, body and reference"));
-                            rows.push(Row::choice(
-                                if item.completion == Completion::Open {
-                                    "complete"
-                                } else {
-                                    "reopen"
-                                },
-                                if item.completion == Completion::Open {
-                                    "Complete"
-                                } else {
-                                    "Reopen"
-                                },
-                            ));
-                        }
+                    if self.writable()
+                        && self.draft.is_none()
+                        && self.submit.is_none()
+                        && super::super::conversation_checklist::open_item(v)
+                    {
+                        rows.push(Row::choice("edit", "Edit title, body and reference"));
+                        rows.push(Row::choice("complete", "Complete"));
                         if self.manager() {
-                            if !item.archived {
-                                rows.push(Row::choice("assign", "Assign to member"));
-                                if item.assignee.is_some() {
-                                    rows.push(Row::choice("unassign", "Unassign"));
-                                }
+                            rows.push(Row::choice("assign", "Assign to member"));
+                            if item.assignee.is_some() {
+                                rows.push(Row::choice("unassign", "Unassign"));
                             }
-                            rows.push(Row::choice(
-                                if item.archived { "restore" } else { "archive" },
-                                if item.archived { "Restore" } else { "Archive" },
-                            ));
+                            rows.push(Row::choice("archive", "Archive"));
                             rows.push(Row::choice("delete", "Delete permanently…"));
                         }
                     }
@@ -533,17 +505,25 @@ impl Controller {
                     ..
                 }) = &self.submit
                 {
-                    rows.extend(order.iter().map(|id| {
-                        Row::choice(
-                            id.as_str(),
-                            format!(
-                                "{} · {}",
+                    rows.extend(
+                        order
+                            .iter()
+                            .filter(|id| {
                                 self.item(id)
-                                    .map_or("Unavailable item", |v| &v.item.content.title),
-                                id.as_str()
-                            ),
-                        )
-                    }));
+                                    .is_some_and(super::super::conversation_checklist::open_item)
+                            })
+                            .map(|id| {
+                                Row::choice(
+                                    id.as_str(),
+                                    format!(
+                                        "{} · {}",
+                                        self.item(id)
+                                            .map_or("Unavailable item", |v| &v.item.content.title),
+                                        id.as_str()
+                                    ),
+                                )
+                            }),
+                    );
                 }
                 rows.push(Row::choice("apply", "Preview full order…"));
             }

@@ -9,7 +9,7 @@ use std::{
 pub(in crate::board) mod activity;
 mod draft;
 mod summary;
-pub(in crate::board) use summary::{Counts, Summary, Total};
+pub(in crate::board) use summary::{Counts, Summary, Total, open_item};
 pub(in crate::board) mod overlay;
 mod rows;
 mod surface;
@@ -535,20 +535,13 @@ impl Entry {
     }
 }
 
-/// The chip's words: `Checklist · 3 links · 2 todo · 1 done`, `Checklist · empty`, or the name alone
-/// until the first read answers. The key that opens the list is drawn before them as a keycap.
+/// Open todo count, empty, or the read state; the effective key is drawn as a keycap.
 pub(in crate::board) fn chip(summary: Option<&Summary>) -> String {
     match summary {
         None | Some(Summary::Pending) => "Checklist".into(),
         Some(Summary::Unavailable(_)) => "Checklist · unavailable".into(),
         Some(Summary::Counts(counts)) if counts.is_empty() => "Checklist · empty".into(),
-        Some(Summary::Counts(counts)) => format!(
-            "Checklist · {} {} · {} todo · {} done",
-            counts.links,
-            if counts.links == 1 { "link" } else { "links" },
-            counts.todo,
-            counts.done
-        ),
+        Some(Summary::Counts(counts)) => format!("Checklist · {} todo", counts.todo),
     }
 }
 

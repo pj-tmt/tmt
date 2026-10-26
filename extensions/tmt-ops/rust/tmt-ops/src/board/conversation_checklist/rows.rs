@@ -1,14 +1,13 @@
 //! What the list overlay shows of each item: its kind, its title and who added it when.
 use crate::checklist::{
     Preview,
-    model::{Completion, Id, Stamp},
+    model::{Id, Stamp},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
     Link,
     Todo,
-    Done,
 }
 
 impl Kind {
@@ -16,7 +15,6 @@ impl Kind {
         match self {
             Self::Link => "↗",
             Self::Todo => "○",
-            Self::Done => "✓",
         }
     }
 }
@@ -29,9 +27,7 @@ pub(super) struct Row {
     pub reference: Option<String>,
     /// The host of a link; empty for a todo.
     pub host: String,
-    /// Whether the item is complete, which a link row's kind does not say.
-    pub completed: bool,
-    /// `who · age` or `who · done age`; empty when nothing is known.
+    /// `who · age`; empty when nothing is known.
     pub byline: String,
 }
 
@@ -48,37 +44,25 @@ impl Row {
     }
 }
 
-/// The items the overlay lists, archived ones left out, in the list's own order.
+/// Open, nonarchived items in the list's own order.
 pub(super) fn rows(preview: &Preview, now_ms: u64) -> Vec<Row> {
     preview
         .current
         .items
         .iter()
-        .filter(|view| !view.item.archived)
+        .filter(|view| super::open_item(view))
         .map(|view| {
             let item = &view.item;
-            let kind = match (&item.content.reference, item.completion) {
-                (Some(_), _) => Kind::Link,
-                (None, Completion::Open) => Kind::Todo,
-                (None, Completion::Complete) => Kind::Done,
+            let kind = if item.content.reference.is_some() {
+                Kind::Link
+            } else {
+                Kind::Todo
             };
-            let author = item
+            let byline = item
                 .added
                 .as_ref()
-                .map(|stamp| format!("{} · {}", who(preview, stamp), age(now_ms, stamp)));
-            let byline = match kind {
-                Kind::Link | Kind::Todo => author.unwrap_or_default(),
-                Kind::Done => {
-                    let done = item.last_changed.as_ref().map_or_else(
-                        || "done".to_owned(),
-                        |stamp| format!("done {}", age(now_ms, stamp)),
-                    );
-                    match &item.added {
-                        Some(stamp) => format!("{} · {done}", who(preview, stamp)),
-                        None => done,
-                    }
-                }
-            };
+                .map(|stamp| format!("{} · {}", who(preview, stamp), age(now_ms, stamp)))
+                .unwrap_or_default();
             let host = match kind {
                 Kind::Link => host(item.content.reference.as_deref().unwrap_or_default()),
                 _ => String::new(),
@@ -89,7 +73,6 @@ pub(super) fn rows(preview: &Preview, now_ms: u64) -> Vec<Row> {
                 title: item.content.title.clone(),
                 reference: item.content.reference.clone(),
                 host,
-                completed: item.completion == Completion::Complete,
                 byline,
             }
         })

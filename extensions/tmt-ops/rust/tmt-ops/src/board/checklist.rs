@@ -68,9 +68,7 @@ pub(in crate::board) struct Controller {
     rooms: Vec<(Id, String)>,
     screen: Screen,
     preview: Option<Preview>,
-    completion: Option<Completion>,
     assignment: Assignment,
-    archived: bool,
     focus: usize,
     pending: Option<load::Key>,
     draft: Option<forms::Draft>,
@@ -108,9 +106,7 @@ impl Controller {
             room,
             rooms: vec![],
             preview: None,
-            completion: Some(Completion::Open),
             assignment: Assignment::All,
-            archived: false,
             focus: 0,
             pending: None,
             draft: None,
@@ -173,8 +169,7 @@ impl Controller {
             .find(|view| &view.item.id == id)
     }
     fn matches(&self, view: &crate::checklist::ItemView) -> bool {
-        (self.archived || !view.item.archived)
-            && self.completion.is_none_or(|c| c == view.item.completion)
+        super::conversation_checklist::open_item(view)
             && match &self.assignment {
                 Assignment::All => true,
                 Assignment::Unassigned => view.item.assignee.is_none(),

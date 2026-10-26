@@ -124,6 +124,66 @@ fn paint(app: &App) -> String {
 }
 
 #[test]
+fn completed_rows_leave_immediately_and_the_status_names_the_completed_title() {
+    let (mut app, key) = opened(vec![todo(1), done(2)]);
+    paint(&app);
+    assert_eq!(
+        app.notes_overlay.as_ref().unwrap().items(&app.notes).len(),
+        1
+    );
+    let (task, write) = write_of(press(&mut app, KeyCode::Enter));
+    assert!(matches!(write, Write::Toggle { complete: true, .. }));
+    accepted(&mut app, &task, vec![done(1), done(2)], Some(id(1)));
+    let screen = paint(&app);
+    assert!(screen.contains("✓ Completed item 1"), "{screen}");
+    assert!(screen.contains("No items yet"), "{screen}");
+    assert!(
+        app.notes_overlay
+            .as_ref()
+            .unwrap()
+            .items(&app.notes)
+            .is_empty()
+    );
+    assert_eq!(
+        super::super::chip(app.notes.summary(&key)),
+        "Checklist · empty"
+    );
+    assert_eq!(app.notes.preview(&key).unwrap().current.items.len(), 2);
+}
+
+#[test]
+fn a_refused_completion_keeps_the_open_row_and_does_not_claim_completed() {
+    let (mut app, _) = opened(vec![todo(1)]);
+    let (task, _) = write_of(press(&mut app, KeyCode::Enter));
+    refused(
+        &mut app,
+        &task,
+        Error {
+            code: Code::MemberUnavailable,
+            message: "The member is unavailable.".into(),
+            current: None,
+        },
+    );
+    let screen = paint(&app);
+    assert!(screen.contains("○ item 1"), "{screen}");
+    assert!(screen.contains("The member is unavailable."), "{screen}");
+    assert!(!screen.contains("✓ Completed"), "{screen}");
+}
+
+#[test]
+fn moving_open_rows_keeps_completed_and_archived_ids_in_the_full_order() {
+    let mut archived = todo(3);
+    archived.item.archived = true;
+    let (mut app, _) = opened(vec![todo(1), done(2), archived, todo(4)]);
+    paint(&app);
+    let (_, write) = write_of(press_with(&mut app, KeyCode::Down, KeyModifiers::SHIFT));
+    let Write::Reorder { order, .. } = write else {
+        panic!("reorder")
+    };
+    assert_eq!(order, [id(4), id(2), id(3), id(1)]);
+}
+
+#[test]
 fn c_is_checklist_on_a_member_and_n_still_creates_a_squad_on_a_squad_row() {
     let (mut app, _) = read_with(vec![todo(1)]);
     assert_eq!(app.bindings()["C"].text, "member-checklist");
@@ -261,12 +321,12 @@ fn clicking_the_chip_opens_the_list_for_the_selected_member() {
 fn the_list_shows_links_then_todos_with_who_and_when_and_esc_closes_it() {
     let (mut app, _) = opened(vec![todo(1), link(2), done(3)]);
     let screen = paint(&app);
-    assert!(screen.contains("Checklist · worker · 3 items"), "{screen}");
-    let (links, todos) = (screen.find("Links · 1"), screen.find("Todo · 2"));
+    assert!(screen.contains("Checklist · worker · 2 items"), "{screen}");
+    let (links, todos) = (screen.find("Links · 1"), screen.find("Todo · 1"));
     assert!(links.is_some() && todos > links, "{screen}");
     assert!(screen.contains("↗ item 2"), "{screen}");
     assert!(screen.contains("○ item 1"), "{screen}");
-    assert!(screen.contains("✓ item 3"), "{screen}");
+    assert!(!screen.contains("item 3"), "{screen}");
     press(&mut app, KeyCode::Esc);
     assert!(app.notes_overlay.is_none());
 }
@@ -294,19 +354,17 @@ fn enter_opens_a_link_and_ticks_a_todo_at_the_revision_it_was_read_at() {
 }
 
 #[test]
-fn a_done_todo_is_unticked_by_enter() {
+fn an_all_done_list_is_empty_and_enter_cannot_reopen_an_item() {
     let (mut app, _) = opened(vec![done(1)]);
-    let (_, write) = write_of(press(&mut app, KeyCode::Enter));
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     assert!(
-        matches!(
-            write,
-            Write::Toggle {
-                complete: false,
-                ..
-            }
-        ),
-        "{write:?}"
+        app.notes_overlay
+            .as_ref()
+            .unwrap()
+            .items(&app.notes)
+            .is_empty()
     );
+    assert!(paint(&app).contains("No items yet"));
 }
 
 #[test]
@@ -536,11 +594,7 @@ fn a_read_that_began_before_a_write_cannot_undo_it() {
     app.finished_notes(stale, t1);
     assert_eq!(
         app.notes.summary(&key),
-        Some(&Summary::Counts(Counts {
-            links: 0,
-            todo: 0,
-            done: 1
-        }))
+        Some(&Summary::Counts(Counts { links: 0, todo: 0 }))
     );
 }
 
@@ -559,6 +613,7 @@ fn a_form_takes_digits_and_the_tab_keys_instead_of_switching_tabs() {
 pub(in crate::board) const LIST_SCENES: &[&str] = &[
     "notes-list",
     "notes-list-empty",
+    "notes-list-completed",
     "notes-list-retired",
     "notes-list-conflict",
 ];
@@ -579,7 +634,18 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
     const HOURS: u64 = 9_000_000;
     const DAYS: u64 = 129_600_000;
     let items = match scene {
-        "notes-list-empty" => vec![],
+        "notes-list-empty" => vec![stamped(
+            done(5),
+            "Completed item retained in storage",
+            ALICE,
+            HOURS,
+        )],
+        "notes-list-completed" => vec![stamped(
+            todo(3),
+            "Review the open checklist",
+            ACTOR,
+            MINUTES,
+        )],
         _ => vec![
             stamped(link(1), "Notes list design, frame 3", ALICE, HOURS),
             stamped(
@@ -621,6 +687,21 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
         .squad_looks
         .clear();
     if scene == "notes-list-empty" {
+        return app;
+    }
+    if scene == "notes-list-completed" {
+        let (task, _) = write_of(press(&mut app, KeyCode::Enter));
+        accepted(
+            &mut app,
+            &task,
+            vec![stamped(
+                done(3),
+                "Review the open checklist",
+                ACTOR,
+                MINUTES,
+            )],
+            Some(id(3)),
+        );
         return app;
     }
     press(&mut app, KeyCode::Down);
@@ -675,7 +756,7 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
 fn the_counter_counts_items_not_headings_and_an_empty_list_has_none() {
     let (app, _) = opened(vec![link(1), todo(2), todo(3), done(4), done(5)]);
     let screen = paint(&app);
-    assert!(screen.contains("1–5 of 5"), "{screen}");
+    assert!(screen.contains("1–3 of 3"), "{screen}");
     assert!(!screen.contains("of 7"));
     let (app, _) = opened(vec![]);
     let screen = paint(&app);
@@ -1170,21 +1251,21 @@ fn enter_on_a_todo_row_ticks_whatever_the_setting_says_and_o_says_there_is_no_li
 }
 
 #[test]
-fn ticking_a_completed_link_row_reopens_it() {
+fn a_completed_link_is_hidden_and_cannot_be_reopened_by_space() {
     let (mut app, _) = opened(vec![view(
         1,
         Some("https://example.com/a"),
         Completion::Complete,
         false,
     )]);
-    let (_, write) = write_of(press(&mut app, KeyCode::Char(' ')));
-    assert!(matches!(
-        write,
-        Write::Toggle {
-            complete: false,
-            ..
-        }
-    ));
+    assert_eq!(press(&mut app, KeyCode::Char(' ')), Effect::None);
+    assert!(
+        app.notes_overlay
+            .as_ref()
+            .unwrap()
+            .items(&app.notes)
+            .is_empty()
+    );
 }
 
 #[test]

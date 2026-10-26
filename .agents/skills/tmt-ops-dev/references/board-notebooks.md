@@ -336,8 +336,11 @@ Current-frame UUID hits, loading and overlay guards prevent a stale row from cho
 another room. A row's optional count yields before the existing state/unread words.
 
 Every open, nonarchived item is a todo, including an item with a reference. Completed
-items count as done; archived items count nowhere. Links remain a secondary attribute:
-the link count overlaps todo/done instead of reducing them. The global header includes
+and archived items are absent from board lists and counts. The chip keeps its effective
+keycap and reads `Checklist · N todo`, or `Checklist · empty` when none are open.
+Completing a row removes it after the admitted write and shows `✓ Completed <title>`;
+reopening is a CLI action. Storage and completed-item references remain unchanged.
+The global header includes
 each room list and each admitted room/member conversation once, independent of search,
 collapse or viewport. Unknown and partial totals retain their existing presentation.
 [Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
