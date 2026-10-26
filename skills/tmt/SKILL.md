@@ -1212,7 +1212,10 @@ applications or arbitrary drivers are installed; existing host-driver approval
 and removal rules remain. Agents must not use upgrade to obtain new setup authority.
 
 Completed items stay installed after an independent failure. Rerunning retries
-unfinished work; interruption stops later actions and returns 130. JSON adds
+unfinished work. Within one apply process, interruption is honoured between items
+and returns 130. Root upgrade does not yet forward terminal Ctrl-C to its separate
+apply child; [#5180](https://github.com/tmt-ninja/tmt/issues/5180) tracks that limitation.
+JSON adds
 `providerSetup` outcomes (`changed`, `consentRequired`, `needsApproval`, `skipped`
 or `failed`) beside existing `integrations` and per-product results. A target
 that cannot apply the new plan reports its exact follow-up; no apply is replayed.

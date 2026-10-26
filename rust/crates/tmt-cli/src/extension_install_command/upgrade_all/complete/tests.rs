@@ -128,7 +128,7 @@ fn a_remote_failure_skips_colab_and_continues_independent_installation() {
 }
 
 #[test]
-fn interruption_keeps_completed_installation_and_stops_later_items() {
+fn an_in_process_installer_interrupt_keeps_completed_work_and_stops_later_items() {
     let root = Directory::new();
     let prefix = root.path.join("prefix");
     let mut plan = plan();
