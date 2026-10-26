@@ -149,6 +149,9 @@ struct Member {
     provider_splits: BTreeMap<u64, BTreeMap<u16, u128>>,
     drivers: Vec<String>,
     current_driver: Option<u16>,
+    /// The driver and provider account the member's latest limits name (#5274). Tokens and quota
+    /// go by this account only where the driver has more than one.
+    account: Option<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -234,13 +237,33 @@ impl Default for Rate {
 
 impl Member {
     fn observe_driver(&mut self, resume: &serde_json::Value) {
-        self.current_driver = resume["driver"]
+        let driver = resume["driver"]
             .as_str()
-            .filter(|driver| crate::board::limits::Provider::from_driver(driver).is_some())
-            .and_then(|driver| match self.driver(driver) {
-                Provider::Driver(id) => Some(id),
-                _ => None,
-            });
+            .filter(|driver| crate::board::limits::Provider::from_driver(driver).is_some());
+        self.current_driver = driver.and_then(|driver| match self.driver(driver) {
+            Provider::Driver(id) => Some(id),
+            _ => None,
+        });
+        self.account = driver
+            .zip(
+                crate::board::limits::observation::Account::read(
+                    &resume["consumption"]["rateLimits"]["account"],
+                )
+                .map(|account| account.key),
+            )
+            .map(|(driver, key)| (driver.to_owned(), key));
+    }
+    /// What a ring's driver is called on the board: the driver ID, or the driver and the member's
+    /// account key when `several` names the driver as one with several accounts (the limits'
+    /// standings decide that, #5275) and this member's tokens are its own account's.
+    fn name_of(&self, id: u16, several: &std::collections::BTreeSet<String>) -> Option<String> {
+        let driver = self.drivers.get(usize::from(id))?;
+        Some(match &self.account {
+            Some((plain, key)) if plain == driver && several.contains(driver) => {
+                format!("{driver}.{key}")
+            }
+            _ => driver.clone(),
+        })
     }
     fn driver(&mut self, driver: &str) -> Provider {
         self.holding(driver, &[])

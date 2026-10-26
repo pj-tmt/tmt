@@ -85,6 +85,136 @@ async function squadWithMember(fixture: E2EFixture, command = 'cat'): Promise<st
   return member;
 }
 
+/** A real launch and installed Stop hook, shared by causal captured-answer scenarios. */
+function capturedTurnWorker(fixture: E2EFixture, name: string) {
+  const home = path.join(fixture.root, `${name}-home`);
+  const sessionId = randomUUID();
+  const tree = path.join(home, '.claude', 'projects', '-workspace');
+  fs.mkdirSync(tree, { recursive: true });
+  const transcript = path.join(tree, `${sessionId}.jsonl`);
+  fs.writeFileSync(transcript, '');
+  const cliEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    HOME: home,
+    TMT_HOME: fixture.globalDir,
+    PATH: `${fixture.wrapperDir}:${path.dirname(fixture.executables.cli.executable)}:${process.env.PATH ?? ''}`,
+    XDG_CACHE_HOME: path.join(home, 'cache'),
+    TMUX_TMPDIR: fixture.socketRoot,
+  };
+  delete cliEnv.TMUX;
+  delete cliEnv.TMUX_PANE;
+  const cli = (args: string[], input?: unknown) =>
+    JSON.parse(
+      execFileSync(fixture.executables.cli.executable, [...fixture.executables.cli.args, ...args], {
+        env: cliEnv,
+        input: input === undefined ? undefined : JSON.stringify(input),
+        encoding: 'utf8',
+        timeout: 10_000,
+      })
+    );
+  const api = (operation: string, input: unknown, identity?: string) =>
+    cli(['api'], { version: 1, operation, input, ...(identity ? { identity } : {}) });
+  cli(['setup', 'claude', '--usage', '--yes', '--json']);
+  fs.copyFileSync('/opt/tmt-tests/claude', path.join(fixture.wrapperDir, 'claude'));
+  fs.chmodSync(path.join(fixture.wrapperDir, 'claude'), 0o755);
+  const worker = fixture.createShellPane(`${name}-worker`);
+  const log = path.join(fixture.root, `${name}-worker.log`);
+  const status = path.join(fixture.root, `${name}-worker.status`);
+  const mock = fileURLToPath(new URL('./mock-claude-channel.mjs', import.meta.url));
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  const command = [
+    'env',
+    `HOME=${home}`,
+    `MOCK_CHANNEL_LOG=${log}`,
+    `MOCK_DB=${path.join(fixture.globalDir, 'tmt.db')}`,
+    'MOCK_AUTOREPLY=0',
+    `MOCK_SESSION_ID=${sessionId}`,
+    'MOCK_LAUNCH_HOOKS=1',
+    `MOCK_TURN_TRANSCRIPT=${transcript}`,
+    `TMT_TEST_CLAUDE_MOCK=${mock}`,
+    `TMT_TEST_CLAUDE_NODE=${process.execPath}`,
+    'TMT_TEST_CLAUDE_NATIVE_CHANNEL=1',
+    fixture.executables.cli.executable,
+    ...fixture.executables.cli.args,
+    'run',
+    '-s',
+    name,
+    path.join(fixture.wrapperDir, 'claude'),
+  ]
+    .map(quote)
+    .join(' ');
+  fixture.tmux([
+    'send-keys',
+    '-t',
+    worker.pane,
+    '-l',
+    `${command}; printf '%s' "$?" > ${quote(status)}`,
+  ]);
+  fixture.tmux(['send-keys', '-t', worker.pane, 'Enter']);
+  const events = () => readCompleteJsonLines<{ event: string; line?: string }>(log);
+  const event = async (name: string) => {
+    await fixture.waitFor(
+      () => events().some((item) => item.event === name || item.event === 'hook-error'),
+      15_000,
+      name
+    );
+    expect(events().filter((item) => item.event === 'hook-error')).toEqual([]);
+    expect(events().some((item) => item.event === name)).toBe(true);
+  };
+  const step = async (name: string, fields: Record<string, unknown>) => {
+    await publishDigestStep(log, { event: name, transcript, ...fields });
+    await event(name);
+  };
+  return {
+    cli,
+    api,
+    event,
+    step,
+    events,
+    async finish() {
+      fs.writeFileSync(`${log}.quit`, '');
+      expect(
+        await waitForFileContent(status, { description: 'captured mock foreground exited' })
+      ).toBe('0');
+    },
+  };
+}
+
+/** Bulk/growth fixture only; causal cases use capturedTurnWorker and the installed hook. */
+function retainedFinalWriter(store: Database.Database) {
+  const response = store.prepare(
+    "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms, original_bytes) VALUES (?, ?, ?, 'claude', ?, ?, ?, ?)"
+  );
+  const final = store.prepare(
+    "INSERT INTO capture_entries (identity_id, batch_id, kind, response_sequence, created_ms) VALUES (?, NULL, 'final', ?, ?)"
+  );
+  // Source: capture_batches.rs::final_entry. The canonical body and its committed
+  // final reference are published in one transaction, as the real Stop capture does.
+  return store.transaction(
+    (
+      identity: string,
+      text: string,
+      ended: number,
+      expires: number,
+      options: { truncated?: boolean; session?: string; originalBytes?: number } = {}
+    ) => {
+      const inserted = response.run(
+        identity,
+        text,
+        ended,
+        Number(options.truncated ?? false),
+        options.session ?? null,
+        expires,
+        options.originalBytes ?? Buffer.byteLength(text)
+      );
+      return {
+        response: inserted.lastInsertRowid,
+        entry: final.run(identity, inserted.lastInsertRowid, ended).lastInsertRowid,
+      };
+    }
+  );
+}
+
 /** Actual pane slots, independent of the board's selected-row/model state. */
 function hostPaneSlots(fixture: E2EFixture): Record<string, string> {
   return Object.fromEntries(
@@ -1590,88 +1720,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
   it('pairs a raw Ops chat with its captured turn and settles only the oldest question', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);
-      const home = path.join(fixture.root, 'passthrough-home');
-      const sessionId = randomUUID();
-      const tree = path.join(home, '.claude', 'projects', '-workspace');
-      fs.mkdirSync(tree, { recursive: true });
-      const transcript = path.join(tree, `${sessionId}.jsonl`);
-      fs.writeFileSync(transcript, '');
-      const cliEnv: NodeJS.ProcessEnv = {
-        ...process.env,
-        HOME: home,
-        TMT_HOME: fixture.globalDir,
-        PATH: `${fixture.wrapperDir}:${path.dirname(fixture.executables.cli.executable)}:${process.env.PATH ?? ''}`,
-        XDG_CACHE_HOME: path.join(home, 'cache'),
-        TMUX_TMPDIR: fixture.socketRoot,
-      };
-      delete cliEnv.TMUX;
-      delete cliEnv.TMUX_PANE;
-      const cli = (args: string[], input?: unknown) =>
-        JSON.parse(
-          execFileSync(
-            fixture.executables.cli.executable,
-            [...fixture.executables.cli.args, ...args],
-            {
-              env: cliEnv,
-              input: input === undefined ? undefined : JSON.stringify(input),
-              encoding: 'utf8',
-              timeout: 10_000,
-            }
-          )
-        );
-      const api = (operation: string, input: unknown, identity?: string) =>
-        cli(['api'], { version: 1, operation, input, ...(identity ? { identity } : {}) });
-      cli(['setup', 'claude', '--usage', '--yes', '--json']);
-      fs.copyFileSync('/opt/tmt-tests/claude', path.join(fixture.wrapperDir, 'claude'));
-      fs.chmodSync(path.join(fixture.wrapperDir, 'claude'), 0o755);
-      const worker = fixture.createShellPane('passthrough-worker');
-      const log = path.join(fixture.root, 'passthrough-worker.log');
-      const status = path.join(fixture.root, 'passthrough-worker.status');
-      const mock = fileURLToPath(new URL('./mock-claude-channel.mjs', import.meta.url));
-      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-      const command = [
-        'env',
-        `HOME=${home}`,
-        `MOCK_CHANNEL_LOG=${log}`,
-        `MOCK_DB=${path.join(fixture.globalDir, 'tmt.db')}`,
-        'MOCK_AUTOREPLY=0',
-        `MOCK_SESSION_ID=${sessionId}`,
-        'MOCK_LAUNCH_HOOKS=1',
-        `MOCK_TURN_TRANSCRIPT=${transcript}`,
-        `TMT_TEST_CLAUDE_MOCK=${mock}`,
-        `TMT_TEST_CLAUDE_NODE=${process.execPath}`,
-        'TMT_TEST_CLAUDE_NATIVE_CHANNEL=1',
-        fixture.executables.cli.executable,
-        ...fixture.executables.cli.args,
-        'run',
-        '-s',
-        'chat-worker',
-        path.join(fixture.wrapperDir, 'claude'),
-      ]
-        .map(quote)
-        .join(' ');
-      fixture.tmux([
-        'send-keys',
-        '-t',
-        worker.pane,
-        '-l',
-        `${command}; printf '%s' "$?" > ${quote(status)}`,
-      ]);
-      fixture.tmux(['send-keys', '-t', worker.pane, 'Enter']);
-      const events = () => readCompleteJsonLines<{ event: string; line?: string }>(log);
-      const event = async (name: string) => {
-        await fixture.waitFor(
-          () => events().some((item) => item.event === name || item.event === 'hook-error'),
-          15_000,
-          name
-        );
-        expect(events().filter((item) => item.event === 'hook-error')).toEqual([]);
-        expect(events().some((item) => item.event === name)).toBe(true);
-      };
-      const step = async (name: string, fields: Record<string, unknown>) => {
-        await publishDigestStep(log, { event: name, transcript, ...fields });
-        await event(name);
-      };
+      const { cli, api, event, step, events, finish } = capturedTurnWorker(fixture, 'chat-worker');
       try {
         await event('prompt-recorded');
         await step('initial-stop', { message: 'An earlier unrelated turn' });
@@ -1758,7 +1807,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         await fixture.waitForCapture(
           (screen) =>
-            screen.includes('turn output') && screen.includes('Captured answer from this turn'),
+            screen.includes('in turn') && screen.includes('Captured answer from this turn'),
           board.pane
         );
         expect(sends()).toHaveLength(1);
@@ -1768,10 +1817,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           board.pane
         );
       } finally {
-        fs.writeFileSync(`${log}.quit`, '');
-        expect(
-          await waitForFileContent(status, { description: 'passthrough mock foreground exited' })
-        ).toBe('0');
+        await finish();
       }
     });
   }, 60_000);
@@ -1932,16 +1978,14 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         const agent = store.prepare('SELECT id FROM identities WHERE name = ?').get('auth-fix') as {
           id: string;
         };
-        const land = store.prepare(
-          "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms, original_bytes) VALUES (?, ?, ?, 'claude', 0, NULL, ?, ?)"
-        );
+        const land = retainedFinalWriter(store);
         const grow = store.prepare(
           'UPDATE recent_responses SET text = ?, original_bytes = ? WHERE sequence = (SELECT max(sequence) FROM recent_responses WHERE identity_id = ?)'
         );
         const now = Date.now();
         for (let round = 1; round <= 4; round += 1) {
           const landed = `step ${round} is done`;
-          land.run(agent.id, landed, now + round, now + 3_600_000, Buffer.byteLength(landed));
+          land(agent.id, landed, now + round, now + 3_600_000);
           await fixture.waitForCapture(
             (current) => current.includes(`step ${round} is done`),
             shell.pane
@@ -2011,19 +2055,21 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
             id: string;
           }
         ).id;
-        const insert = store.prepare(
-          "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms, original_bytes) VALUES (?, ?, ?, 'claude', ?, 'fixture-session', ?, ?)"
-        );
+        const insert = retainedFinalWriter(store);
         store.transaction(() => {
+          // Mirror a removed ordered final as well as the existing recent-response floor.
+          const dropped = insert(identityId, 'Removed older answer', now - 130 * 60_000, now - 1);
+          store.prepare('DELETE FROM capture_entries WHERE sequence = ?').run(dropped.entry);
+          store.prepare('DELETE FROM recent_responses WHERE sequence = ?').run(dropped.response);
+          store
+            .prepare('INSERT INTO capture_floor (identity_id, through_sequence) VALUES (?, ?)')
+            .run(identityId, dropped.entry);
           for (const [index, text] of texts.entries())
-            insert.run(
-              identityId,
-              text,
-              now - (121 - index) * 60_000,
-              Number(index === 120),
-              now + 3_600_000,
-              index === 120 ? 20_000 : Buffer.byteLength(text)
-            );
+            insert(identityId, text, now - (121 - index) * 60_000, now + 3_600_000, {
+              truncated: index === 120,
+              session: 'fixture-session',
+              originalBytes: index === 120 ? 20_000 : Buffer.byteLength(text),
+            });
           store
             .prepare(
               'INSERT INTO recent_response_floor (identity_id, dropped_through_ms) VALUES (?, ?)'
@@ -2058,18 +2104,22 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         `#!/bin/sh\nif [ "$1" = api ]; then\ncall=$(mktemp ${quote(path.join(calls, 'call.XXXXXX'))}) || exit 1\ncat > "$call"\n${core} "$@" < "$call" > "$call.response.stage"\nstatus=$?\nmv "$call.response.stage" "$call.response.json"\nmv "$call" "$call.request.json"\ncat "$call.response.json"\nexit "$status"\nfi\nexec ${core} "$@"\n`
       );
       const pageInputs = () =>
-        recorded<{ operation: string; input: { before?: number } }>('.request.json').filter(
-          (value) => value.operation === 'responses.recent'
+        recorded<{ operation: string; input: { before?: string } }>('.request.json').filter(
+          (value) => value.operation === 'responses.timeline'
         );
       const pages = () =>
         recorded<{
           identityId: string;
-          items: unknown[];
-          nextBefore?: number;
+          entries: unknown[];
+          responses: unknown[];
+          nextBefore?: string;
           coverage: { olderDropped: boolean };
           capture?: { enabled: boolean };
         }>('.response.json').filter(
-          (value) => value.identityId === identityId && Array.isArray(value.items)
+          (value) =>
+            value.identityId === identityId &&
+            Array.isArray(value.entries) &&
+            Array.isArray(value.responses)
         );
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('answer-pages-board');
@@ -2095,7 +2145,9 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       );
       expect(pageInputs().every((value) => value.input.before === undefined)).toBe(true);
       const first = pages()[0]!;
-      expect(first.items).toHaveLength(50);
+      expect(first.entries).toHaveLength(50);
+      expect(first.responses).toHaveLength(50);
+      expect(first.nextBefore).toEqual(expect.any(String));
       expect(first.capture).toEqual({ enabled: false });
       expect(first.coverage.olderDropped).toBe(true);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Home']);
@@ -2108,11 +2160,17 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         (screen) => screen.includes('older answers not kept'),
         shell.pane
       );
-      expect(top).toContain('at or before');
+      expect(top).toContain('○ older answers not kept');
+      expect(top).not.toContain('at or before');
       expect(top).toContain('answers are not captured for this agent: run tmt setup');
       expect(top).toContain('Retained answer 000');
       expect(
-        pages().some((page) => page.nextBefore === undefined && page.items.length === 21)
+        pages().some(
+          (page) =>
+            page.nextBefore === undefined &&
+            page.entries.length === 21 &&
+            page.responses.length === 21
+        )
       ).toBe(true);
       const after = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
@@ -2130,129 +2188,135 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
 
   it('opens a chat link in a popover that copies it, shows it whole and runs the opener once (#4377)', async () => {
     await withE2EFixture(async (fixture) => {
-      await squadWithMember(fixture);
-      // The opener records its argv instead of starting a browser: the link must arrive as
-      // one argument, whatever characters it holds.
-      const log = path.join(fixture.root, 'opener.log');
-      const recorder = path.join(fixture.root, 'record-open');
-      fs.writeFileSync(recorder, `#!/bin/sh\nprintf '%s\\n' "$#" "$@" >> '${log}'\n`, {
-        mode: 0o755,
-      });
-      fs.appendFileSync(
-        path.join(fixture.globalDir, 'ops.toml'),
-        `\nopener = [${JSON.stringify(recorder)}, "{url}"]\n`
-      );
-      const link = "https://example.com/a%20b;c?x='1'&y=2#frag";
-      const store = new Database(path.join(fixture.globalDir, 'tmt.db'));
+      installSquad(fixture);
+      const capture = capturedTurnWorker(fixture, 'auth-fix');
       try {
-        const agent = store.prepare('SELECT id FROM identities WHERE name = ?').get('auth-fix') as {
-          id: string;
+        await capture.event('prompt-recorded');
+        expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+        expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+        expectJsonResult(await squadCli(fixture, ['add', 'auth-fix']));
+        // The opener records its argv instead of starting a browser: the link must arrive as
+        // one argument, whatever characters it holds.
+        const log = path.join(fixture.root, 'opener.log');
+        const recorder = path.join(fixture.root, 'record-open');
+        fs.writeFileSync(recorder, `#!/bin/sh\nprintf '%s\\n' "$#" "$@" >> '${log}'\n`, {
+          mode: 0o755,
+        });
+        fs.appendFileSync(
+          path.join(fixture.globalDir, 'ops.toml'),
+          `\nopener = [${JSON.stringify(recorder)}, "{url}"]\n`
+        );
+        const link = "https://example.com/a%20b;c?x='1'&y=2#frag";
+        const text = `Read [the docs](${link}) first.`;
+        await capture.step('link-stop', { message: text });
+        const member = durableIdentity(fixture, 'auth-fix')!;
+        await fixture.waitFor(
+          () =>
+            capture
+              .api('responses.recent', { identityId: member.id })
+              .items.some((item: { text: string }) => item.text === text),
+          10_000,
+          'installed Stop hook captured the link answer'
+        );
+        await fixture.attachSessionClient('e2e');
+        const shell = fixture.createShellPane('link-board');
+        fixture.tmux(['select-window', '-t', shell.pane]);
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          shell.pane,
+          'tmt ops ui --squad product; echo LINK_BOARD_EXIT=$?',
+          'Enter',
+        ]);
+        await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+        await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('⏎ to message auth-fix'),
+          shell.pane
+        );
+        await fixture.waitForCapture(
+          (screen) => screen.includes('Read the docs first.'),
+          shell.pane
+        );
+
+        const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
+        const where = (needle: string) => {
+          const rows = screen().split('\n');
+          const y = rows.findIndex((row) => row.includes(needle));
+          expect(y, `${needle} on screen:\n${screen()}`).toBeGreaterThanOrEqual(0);
+          return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
         };
-        const now = Date.now();
-        store
-          .prepare(
-            "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms, original_bytes) VALUES (?, ?, ?, 'claude', 0, NULL, ?, ?)"
-          )
-          .run(
-            agent.id,
-            `Read [the docs](${link}) first.`,
-            now,
-            now + 3_600_000,
-            Buffer.byteLength(`Read [the docs](${link}) first.`)
-          );
+        const click = (x: number, y: number) => {
+          for (const final of ['M', 'm'])
+            fixture.tmux([
+              'send-keys',
+              '-t',
+              shell.pane,
+              '-l',
+              `\u001b[<0;${x + 1};${y + 1}${final}`,
+            ]);
+        };
+        const buffer = () => {
+          try {
+            return fixture.tmux(['show-buffer']).trim();
+          } catch {
+            return '';
+          }
+        };
+        const open = async () => {
+          const label = where('the docs');
+          click(label.x + 1, label.y);
+          await fixture.waitForCapture((current) => current.includes('┌ Link'), shell.pane);
+        };
+
+        // The popover names where the link goes before it offers anything.
+        await open();
+        const popover = screen();
+        expect(popover).toContain('https://example.com');
+        for (const action of ['Open', 'Copy', 'Show full'])
+          expect(popover, popover).toContain(action);
+
+        // Copy puts the whole address, not the label, on the clipboard.
+        fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'y']);
+        await fixture.waitFor(() => buffer() === link, 5_000, `Copy:\n${screen()}`);
+
+        // Show full lists every character of the address.
+        await open();
+        fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'f']);
+        await fixture.waitForCapture((current) => current.includes('Full link'), shell.pane);
+        const lines = screen()
+          .split('\n')
+          .map((row) => /│ [› ]\s?(\S.*?)\s*│\s*$/.exec(row)?.[1])
+          .filter((row): row is string => Boolean(row));
+        expect(lines.join('').replace(/\s/g, ''), screen()).toContain(link);
+        expect(screen()).toContain('Enter copies · Esc back');
+        // Esc goes back to the popover; a second Esc closes it.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        await fixture.waitForCapture(
+          (current) => current.includes('┌ Link') && !current.includes('Full link'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        await fixture.waitForCapture((current) => !current.includes('┌ Link'), shell.pane);
+
+        // Open runs the configured command with the address as one argument, once.
+        await open();
+        fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'o']);
+        await fixture.waitFor(() => fs.existsSync(log), 10_000, 'the opener ran');
+        expect(fs.readFileSync(log, 'utf8')).toBe(`1\n${link}\n`);
+
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+        await fixture.waitForCapture(
+          (current) => current.includes('LINK_BOARD_EXIT=0'),
+          shell.pane
+        );
       } finally {
-        store.close();
+        await capture.finish();
       }
-      await fixture.attachSessionClient('e2e');
-      const shell = fixture.createShellPane('link-board');
-      fixture.tmux(['select-window', '-t', shell.pane]);
-      fixture.tmux([
-        'send-keys',
-        '-t',
-        shell.pane,
-        'tmt ops ui --squad product; echo LINK_BOARD_EXIT=$?',
-        'Enter',
-      ]);
-      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
-      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('⏎ to message auth-fix'),
-        shell.pane
-      );
-      await fixture.waitForCapture((screen) => screen.includes('Read the docs first.'), shell.pane);
-
-      const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
-      const where = (needle: string) => {
-        const rows = screen().split('\n');
-        const y = rows.findIndex((row) => row.includes(needle));
-        expect(y, `${needle} on screen:\n${screen()}`).toBeGreaterThanOrEqual(0);
-        return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
-      };
-      const click = (x: number, y: number) => {
-        for (const final of ['M', 'm'])
-          fixture.tmux([
-            'send-keys',
-            '-t',
-            shell.pane,
-            '-l',
-            `\u001b[<0;${x + 1};${y + 1}${final}`,
-          ]);
-      };
-      const buffer = () => {
-        try {
-          return fixture.tmux(['show-buffer']).trim();
-        } catch {
-          return '';
-        }
-      };
-      const open = async () => {
-        const label = where('the docs');
-        click(label.x + 1, label.y);
-        await fixture.waitForCapture((current) => current.includes('┌ Link'), shell.pane);
-      };
-
-      // The popover names where the link goes before it offers anything.
-      await open();
-      const popover = screen();
-      expect(popover).toContain('https://example.com');
-      for (const action of ['Open', 'Copy', 'Show full'])
-        expect(popover, popover).toContain(action);
-
-      // Copy puts the whole address, not the label, on the clipboard.
-      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'y']);
-      await fixture.waitFor(() => buffer() === link, 5_000, `Copy:\n${screen()}`);
-
-      // Show full lists every character of the address.
-      await open();
-      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'f']);
-      await fixture.waitForCapture((current) => current.includes('Full link'), shell.pane);
-      const lines = screen()
-        .split('\n')
-        .map((row) => /│ [› ]\s?(\S.*?)\s*│\s*$/.exec(row)?.[1])
-        .filter((row): row is string => Boolean(row));
-      expect(lines.join('').replace(/\s/g, ''), screen()).toContain(link);
-      expect(screen()).toContain('Enter copies · Esc back');
-      // Esc goes back to the popover; a second Esc closes it.
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture(
-        (current) => current.includes('┌ Link') && !current.includes('Full link'),
-        shell.pane
-      );
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture((current) => !current.includes('┌ Link'), shell.pane);
-
-      // Open runs the configured command with the address as one argument, once.
-      await open();
-      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'o']);
-      await fixture.waitFor(() => fs.existsSync(log), 10_000, 'the opener ran');
-      expect(fs.readFileSync(log, 'utf8')).toBe(`1\n${link}\n`);
-
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
-      await fixture.waitForCapture((current) => current.includes('LINK_BOARD_EXIT=0'), shell.pane);
     });
   }, 90_000);
 

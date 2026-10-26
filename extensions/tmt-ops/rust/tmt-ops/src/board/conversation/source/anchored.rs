@@ -28,7 +28,7 @@ impl Spot {
         (self.line, self.column)
     }
     /// The line of `text` this end stands on now, as `resolve` describes.
-    fn follow(&self, lines: &[String], width: u16, gutter: usize) -> Option<usize> {
+    fn follow(&self, lines: &[String], width: u16) -> Option<usize> {
         let nearest = |keep: &dyn Fn(&str) -> bool| {
             (0..lines.len())
                 .filter(|index: &usize| keep(&lines[*index]))
@@ -47,10 +47,8 @@ impl Spot {
             .or_else(|| {
                 // Text changed in place (an age stamp, a progress line): the same line, as
                 // long as what lies before this end is what it was.
-                // Columns count displayed cells; the transcript's text has no gutter.
-                let kept = glyphs(old, width, 0, self.column.saturating_sub(gutter))
-                    .1
-                    .end;
+                // Both the anchor and columns count the fully painted line.
+                let kept = glyphs(old, width, 0, self.column).1.end;
                 let now = lines.get(self.line)?;
                 (now.get(..kept) == old.get(..kept)).then_some(self.line)
             })
@@ -73,7 +71,7 @@ pub(in crate::board::conversation) struct Anchored {
     pub(super) control: Option<super::Menu>,
 }
 
-/// The transcript's text on displayed `line`, without the gutter.
+/// The fully painted transcript line, including its message gutter.
 fn displayed_line(rendered: &Rendered, line: usize) -> String {
     rendered
         .mapped
@@ -256,8 +254,8 @@ impl Anchored {
             .map(|line| displayed_line(rendered, line))
             .collect();
         let (Some(fixed), Some(moving)) = (
-            self.fixed.follow(&lines, self.width, rendered.gutter),
-            self.moving.follow(&lines, self.width, rendered.gutter),
+            self.fixed.follow(&lines, self.width),
+            self.moving.follow(&lines, self.width),
         ) else {
             return false;
         };

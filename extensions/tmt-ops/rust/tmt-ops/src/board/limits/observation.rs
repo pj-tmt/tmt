@@ -18,9 +18,47 @@ impl Point {
     }
 }
 
+/// Which of a provider's accounts a report belongs to, as Core names it in `rateLimits.account`
+/// (#5274): an opaque grouping key and a display label. The key is never shown; the label is
+/// untrusted display text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) struct Account {
+    pub key: String,
+    pub label: String,
+}
+
+impl Account {
+    /// An account key as Core writes it: 12 lowercase hex digits.
+    pub fn valid_key(key: &str) -> bool {
+        key.len() == 12
+            && key
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    }
+
+    /// An account label as Core writes it: 1 to 32 of `[A-Za-z0-9._-]`.
+    pub fn valid_label(label: &str) -> bool {
+        (1..=32).contains(&label.len())
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+    }
+
+    /// Any other shape is no account.
+    pub fn read(value: &Value) -> Option<Self> {
+        let (key, label) = (value["key"].as_str()?, value["label"].as_str()?);
+        (Self::valid_key(key) && Self::valid_label(label)).then(|| Self {
+            key: key.into(),
+            label: label.into(),
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::board) struct Report {
     pub observed_at_ms: u64,
+    /// Absent for a provider with one implicit account and for an older Core.
+    pub account: Option<Account>,
     windows: Vec<Point>,
 }
 impl Report {
@@ -57,8 +95,15 @@ impl Report {
         {
             return None;
         }
+        // A present but malformed account makes the report unusable: it must not fold into
+        // another account's numbers.
+        let account = match value.get("account") {
+            None | Some(Value::Null) => None,
+            Some(account) => Some(Account::read(account)?),
+        };
         Some(Self {
             observed_at_ms,
+            account,
             windows,
         })
     }
@@ -78,6 +123,28 @@ impl Report {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn an_account_is_read_whole_and_a_malformed_one_makes_the_report_unusable() {
+        let mut value = json!({"observedAtMs":1000,"windows":[{"windowMinutes":300,"usedPercent":12.5,"resetsAtMs":5000}]});
+        assert_eq!(Report::read(&value).unwrap().account, None);
+        value["account"] = json!({"key":"0123456789ab","label":"claude-work"});
+        let account = Report::read(&value).unwrap().account.unwrap();
+        assert_eq!(
+            (account.key.as_str(), account.label.as_str()),
+            ("0123456789ab", "claude-work")
+        );
+        for bad in [
+            json!({"key":"0123456789AB","label":"claude"}),
+            json!({"key":"0123456789ab","label":""}),
+            json!({"key":"0123456789ab","label":"a b"}),
+            json!({"key":"0123456789ab"}),
+            json!("claude"),
+        ] {
+            value["account"] = bad.clone();
+            assert_eq!(Report::read(&value), None, "{bad}");
+        }
+    }
+
     #[test]
     fn short_only_is_evidence_and_invalid_optional_objects_are_not_partial() {
         let value = json!({"observedAtMs":1000,"windows":[{"windowMinutes":300,"usedPercent":12.5,"resetsAtMs":5000}]});

@@ -17,7 +17,7 @@ pub(super) struct Message {
     acquired: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(super) struct Plan {
     key: FinalsKey,
     squad: String,
@@ -25,13 +25,51 @@ pub(super) struct Plan {
     sent: bool,
     messages: Vec<Message>,
     pane: Option<recent_responses::AnswerRead>,
+    held_timeline: Option<std::sync::Arc<recent_responses::Page>>,
 }
+
+impl PartialEq for Plan {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+            && self.squad == other.squad
+            && self.finals == other.finals
+            && self.sent == other.sent
+            && self.messages == other.messages
+            && self.pane == other.pane
+            && match (&self.held_timeline, &other.held_timeline) {
+                (None, None) => true,
+                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+                _ => false,
+            }
+    }
+}
+impl Eq for Plan {}
 
 pub(super) struct Projection {
     finals: Option<Result<Vec<Value>, String>>,
     sent: Option<Result<Vec<Value>, String>>,
     bodies: Vec<(MessageKey, Result<String, String>)>,
     pane: Option<recent_responses::Observation>,
+}
+
+/// A published timeline owns its request-keyed bodies, including unavailable
+/// bodies. Only an independent incoming question retains legacy hydration.
+pub(super) fn needs_request_body(
+    key: &MessageKey,
+    timeline: Option<&recent_responses::timeline::Page>,
+) -> bool {
+    let Some(timeline) = timeline else {
+        return true;
+    };
+    key.kind == Kind::Question
+        && !timeline.entries.iter().any(|entry| {
+            use recent_responses::timeline::Kind;
+            match &entry.kind {
+                Kind::Input(input) => input.request == key.request,
+                Kind::Reply { request, .. } => request == &key.request,
+                _ => false,
+            }
+        })
 }
 
 impl Plan {
@@ -84,9 +122,93 @@ impl Plan {
         sent_texts: &mut SentTexts,
         cancellation: &Cancellation,
     ) -> Projection {
-        let finals = self
-            .finals
+        let pane = self
+            .pane
+            .as_ref()
+            .filter(|_| !cancellation.cancelled())
+            .map(|read| read.read(core, cancellation));
+        let timeline = pane
+            .as_ref()
+            .and_then(|observation| match observation {
+                recent_responses::Observation::Observed(page) => page.timeline.as_ref(),
+                _ => None,
+            })
+            .or_else(|| self.held_timeline.as_ref()?.timeline.as_ref());
+        // Reply clocks and request source keys are not part of timeline Reply
+        // entries. Keep the one bounded metadata list, never its body.
+        let finals = (self.finals && !cancellation.cancelled())
             .then(|| self.key.read(core).map_err(|error| error.to_string()));
+        if let Some(timeline) = timeline {
+            // The committed stream owns its inputs and replies, including an
+            // unavailable body. A legacy show must not replace that observation.
+            let mut bodies: Vec<_> = self
+                .messages
+                .iter()
+                .filter(|message| {
+                    !message.acquired && needs_request_body(&message.key, Some(timeline))
+                })
+                .take_while(|_| !cancellation.cancelled())
+                .map(|message| {
+                    let body = message.key.read(core).map_err(|error| error.to_string());
+                    (message.key.clone(), body)
+                })
+                .collect();
+            // Retain existing reply metadata across older-page acquisitions too.
+            // Bodies always come from the committed entry, joined by request ID.
+            let mut replies: BTreeMap<_, _> = self
+                .messages
+                .iter()
+                .filter(|message| !message.acquired && message.key.kind == Kind::Reply)
+                .map(|message| (message.key.request.clone(), message.key.clone()))
+                .collect();
+            if let Some(Ok(finals)) = &finals {
+                for reply in finals {
+                    if let Some(request) = reply["requestId"].as_str() {
+                        replies.insert(
+                            request.to_owned(),
+                            MessageKey {
+                                sender: self.key.sender.clone(),
+                                lead: self.key.agent.clone(),
+                                squad: self.squad.clone(),
+                                request: request.to_owned(),
+                                kind: Kind::Reply,
+                            },
+                        );
+                    }
+                }
+            }
+            for entry in &timeline.entries {
+                if let recent_responses::timeline::Kind::Reply {
+                    request,
+                    body: Some(body),
+                } = &entry.kind
+                    && let Some(key) = replies.get(request)
+                {
+                    bodies.push((key.clone(), Ok(body.text.clone())));
+                }
+            }
+            // Held/queued sends have no committed input yet. Restore their
+            // Core state and bounded preview without hydrating prompt bodies.
+            let sent = (self.sent && !cancellation.cancelled()).then(|| {
+                SentKey {
+                    sender: self.key.sender.clone(),
+                    agent: self.key.agent.clone(),
+                }
+                .read_with(core, sent_texts, |_| {
+                    Err(crate::core::SquadError::new(
+                        "SQUAD_RESPONSE_UNAVAILABLE",
+                        "The committed conversation owns full prompt bodies.",
+                    ))
+                })
+                .map_err(|error| error.to_string())
+            });
+            return Projection {
+                finals,
+                sent,
+                bodies,
+                pane,
+            };
+        }
         let mut documents = BTreeMap::new();
         let mut show = |request: &str| {
             documents
@@ -149,11 +271,6 @@ impl Plan {
                 .map_err(|error| error.to_string());
             bodies.push((message.key, body));
         }
-        let pane = self
-            .pane
-            .as_ref()
-            .filter(|_| !cancellation.cancelled())
-            .map(|read| read.read(core, cancellation));
         Projection {
             finals,
             sent,
@@ -169,30 +286,44 @@ impl App {
         let detail = self.detail(&Target::Row(self.conversation_target()?))?;
         let finals = self.finals_read().is_some();
         let sent = finals || self.sent_read().is_some();
+        let pane = self.pane_output_plan();
+        let held_timeline =
+            self.held_conversation_timeline(&(Some(key.sender.clone()), key.agent.clone()));
+        let timeline = held_timeline
+            .as_ref()
+            .and_then(|page| page.timeline.as_ref());
         let messages: Vec<_> = detail
             .messages()
             .into_iter()
             .filter_map(|reply| {
+                let key = reply.key.as_ref()?;
                 Some(Message {
-                    key: reply.key.clone()?,
+                    key: key.clone(),
                     at_ms: reply.at_ms,
                     acquired: reply.acquired,
                 })
             })
             .collect();
-        let pane = self.pane_output_plan();
-        if !finals && !sent && pane.is_none() && messages.iter().all(|message| message.acquired) {
+        if !finals
+            && !sent
+            && pane.is_none()
+            && messages
+                .iter()
+                .all(|message| message.acquired || !needs_request_body(&message.key, timeline))
+        {
             return None;
         }
         Some(Plan {
             key,
             squad: self
-                .target_squad(&self.conversation_target()?)
-                .unwrap_or_default(),
+                .message_squad(&self.conversation_target()?)
+                .unwrap_or_default()
+                .to_owned(),
             finals,
             sent,
             messages,
             pane,
+            held_timeline,
         })
     }
 
@@ -220,6 +351,9 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod timeline_tests;
 
 #[cfg(test)]
 mod tests {
@@ -288,6 +422,7 @@ mod tests {
                 .map(|i| message(format!("question-{i}"), Kind::Question, i + 10))
                 .collect(),
             pane: None,
+            held_timeline: None,
         };
         let (events, input) = mpsc::channel();
         let worker = super::super::refresh::Worker::spawn(Core::at(fake), false, events, None);
@@ -392,6 +527,7 @@ mod tests {
             finals: false,
             sent: false,
             pane: None,
+            held_timeline: None,
             messages: vec![
                 message("same".into(), Kind::Reply, 1),
                 message("same".into(), Kind::Question, 2),
@@ -726,6 +862,7 @@ mod tests {
             finals: false,
             sent: false,
             pane: None,
+            held_timeline: None,
             messages: vec![
                 message("old-first".into(), Kind::Question, 2),
                 message("old-second".into(), Kind::Question, 1),

@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 mod paging;
+pub(in crate::board) mod timeline;
 pub(super) use paging::AnswerRead;
 
 pub(super) const MAX_ITEMS: usize = 50;
@@ -29,8 +30,15 @@ pub(crate) struct Coverage {
 }
 
 /// One coherent loaded cursor chain. Items remain in capture order, oldest first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) enum Cursor {
+    Recent(u64),
+    Timeline(String),
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Page {
+    pub timeline: Option<timeline::Page>,
     pub items: Vec<Item>,
     pub coverage: Coverage,
     pub next_before: Option<u64>,
@@ -45,8 +53,17 @@ impl std::ops::Deref for Page {
 }
 
 impl Page {
-    pub fn as_slice(&self) -> &[Item] {
-        &self.items
+    pub fn cursor(&self) -> Option<Cursor> {
+        match &self.timeline {
+            Some(page) => page.next_before.clone().map(Cursor::Timeline),
+            None => self.next_before.map(Cursor::Recent),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.timeline
+            .as_ref()
+            .map_or_else(|| self.items.is_empty(), |page| page.entries.is_empty())
     }
 }
 
@@ -169,6 +186,7 @@ fn parse(identity: &str, value: &Value) -> Option<Page> {
         Some(value) => Some(value["enabled"].as_bool()?),
     };
     Some(Page {
+        timeline: None,
         items,
         coverage,
         next_before,

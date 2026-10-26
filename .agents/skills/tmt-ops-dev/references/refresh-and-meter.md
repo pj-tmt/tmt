@@ -142,10 +142,18 @@
   exchanges, cron or history work never queues in front of the selected member's reads.
   Selection replacement cancels that lane between reads without cancelling or restarting
   base acquisition; explicit base preemption and shutdown cancel both lanes. `board::selected_conversation` gathers the selected
-  conversation's bounded finals, durable sends, missing bodies and provider observations
-  on this lane and publishes one projection. Full request documents are reused within
-  that refresh, so a prompt and reply for one request never cause two shows. Targeted
-  list reads remain unless held-page coverage is proven. There is no per-body publication
+  conversation on this lane and publishes one projection. It acquires the public
+  committed timeline first. Timeline inputs and replies own their inline bodies,
+  including explicit unavailable observations; only independent incoming questions
+  need `requests.show`. One bounded finals list supplies reply times and request source
+  keys, joined to timeline replies by request ID; reply bodies remain the inline
+  timeline bodies, never list previews. A reply absent from that list retains its
+  inline body with an unknown age and no inferred source key. One bounded own-send metadata list retains held/queued sends,
+  their Core delivery state and preview before a committed input exists; it does not
+  hydrate prompt bodies or treat a preview as full text. A held timeline shares the existing page by `Arc` and compares
+  by pointer, so a failed refresh or a new question does not hydrate covered bodies again.
+  Older Core keeps bounded finals/sends lists and per-refresh request-document reuse,
+  so its prompt and reply for one request never cause two shows. There is no per-body publication
   or growing-transcript render between reads; the existing Session keeps retained content
   while the refresh runs. The live selected-lane demand belongs to App so painters can
   show the shell spinner glyph on the conversation rule, only after `SPINNER_DELAY` and
@@ -299,9 +307,13 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   cursor and identical UUID set; each entry additionally validates the closed
   retained boundary and interval/range. There is no historical paging contract
   or session-long page cache. Range
-  changes and each new closed boundary preempt through the existing generation
-  while the Agents or Digest Usage surface is enabled. Leaving it cancels the
-  demand. The Agents tab's visible quota requests a separate fixed four-hour window
+  changes and each new closed boundary submit a coalesced `HistoryJob` using the
+  published workspace's inputs on the existing base worker. This demand does not
+  reload roster/config, wait for a new snapshot, or cancel the selected lane.
+  An already queued full reload takes priority and applies the newest demand to
+  freshly acquired inputs. Jobs carry the base generation; admission also checks the displayed owner,
+  current window and target observations. Leaving the Usage surface releases the
+  demand through the same history owner. The Agents tab's visible quota requests a separate fixed four-hour window
   at five-minute resolution (48 buckets), independent of chart Each/Range. The
   quota cache remains independent of token interval/range pairs;
   inactive demand releases its corresponding cache. Quota choice changes require no source
@@ -417,6 +429,18 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   30 minutes, starts a new cycle) and needs 1 h of samples. A reading older than 2
   h, or whose week has already reset, is shown only as `no reading for <age>`.
   Only windows of about 7 days and 5 hours are shown, so the labels are exact.
+  A provider is the driver ID, or the driver and `rateLimits.account.key` when Core names an
+  account (#5274): `samples.json` keys it `driver.key` and keeps the newest label beside the history
+  under `accounts`, a section written only once an account exists. Per driver the store keeps at most 8
+  entries (the plain driver counts as one) and at most 8 drivers. A driver shows its accounts only when
+  the standings (live listing plus kept history) hold two or more (`Claude · work`); the plain driver
+  beside them is `Claude · unknown account` only while a live session names no account, and readings
+  kept before accounts were named are never a row of their own (`tmt ops limits` omits them too). One
+  account folds the plain history into itself and reads as the driver. A label change keeps the key and
+  the history, and two keys never merge. `limits::several_accounts(snapshot)` is the one owner of
+  "several": tokens go to the seat's latest account only for those drivers, so a driver's tokens and
+  quota share rows. Digest spend stays per driver, so an account row shows none.
+  `tmt ops limits --json` adds `account: {key, label}` to an entry only for a named account.
   These held estimates continue to serve Digest. Agents uses one selected
   window and the fixed two-hour API-backed projection described in
   [board-home.md](board-home.md#usage-and-verification); its four-hour quota tier

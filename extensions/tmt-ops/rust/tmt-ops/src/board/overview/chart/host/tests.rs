@@ -79,6 +79,7 @@ fn source_and_geometry_invalidation_have_distinct_lifetimes() {
         [],
         Grid::new(300_000, 3_600_000, 3_600_000).unwrap(),
         None,
+        &Default::default(),
     )));
     state.invalidate_geometry();
     assert!(state.hits.is_empty());

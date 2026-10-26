@@ -69,7 +69,7 @@ fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
     let sparse = draw(&mut app, 148, 51);
     let text = screen(&sparse);
     for value in [
-        "Exchanges with you",
+        "Conversation",
         "One short observed response.",
         "tmux work:2.1",
     ] {
@@ -144,7 +144,7 @@ fn squad_actions_follow_only_the_verified_current_lead_from_either_pane() {
             "Board",
             "Usage",
             "Timers",
-            "Exchanges with you",
+            "Conversation",
             "Lead reply.",
         ] {
             assert!(text.contains(value), "{value}:\n{text}");

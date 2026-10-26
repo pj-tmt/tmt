@@ -133,14 +133,6 @@ pub(in crate::board) fn body(line: Line<'static>, look: Look) -> Line<'static> {
     }));
     Line::from(spans)
 }
-pub(in crate::board) fn replier(sender: Sender<'_>, look: Look) -> Line<'static> {
-    let mut line = body(Line::default(), look);
-    line.spans.push(Span::styled(
-        super::notes::single_line(sender.name()),
-        sender.style(look),
-    ));
-    line
-}
 pub(in crate::board) fn waiting(look: Look) -> Line<'static> {
     Line::from(vec![
         Span::raw(" "),
@@ -178,14 +170,6 @@ mod tests {
                     assert_eq!(line.spans[3].style, look.role(Role::Text));
                     assert_eq!(line.spans.last().unwrap().style, look.role(Role::Dim));
                 }
-                assert_eq!(
-                    replier(Sender::You("Ben"), look).spans[3].style,
-                    you.spans[1].style
-                );
-                assert_eq!(
-                    replier(Sender::Agent("you"), look).spans[3].style,
-                    agent.spans[1].style
-                );
                 let working = feedback_content("⠹ worker is working · 0:42", look);
                 assert_eq!(working.to_string(), "⠹ worker is working · 0:42");
                 assert_eq!(working.spans[0].style, look.role(Role::Working));
@@ -256,15 +240,8 @@ mod tests {
         }
     }
     #[test]
-    fn replies_share_the_gutter_without_an_arrow_or_extra_indent() {
+    fn reply_headers_keep_age_and_read_only_at_narrow_widths() {
         let look = Look::default();
-        let reply = replier(Sender::You("you"), look);
-        assert_eq!(reply.to_string(), " │ you");
-        assert!(!reply.to_string().contains('→'));
-        assert_eq!(
-            reply.spans[3].style,
-            look.role(Role::Accent).add_modifier(Modifier::BOLD)
-        );
         let title = header(Sender::Agent("member"), "you", "6h ago", false, 59, look);
         assert!(title.to_string().ends_with("6h ago "));
         let narrow = header(
