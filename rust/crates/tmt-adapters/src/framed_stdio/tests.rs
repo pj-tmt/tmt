@@ -2,8 +2,8 @@ use super::*;
 use nix::unistd::pipe;
 use std::{cell::Cell, fs::File, io::Write, os::fd::OwnedFd, rc::Rc};
 
-/// A manual monotonic clock. `jump_after_next_read` moves it once the reader
-/// has read it, so a stall reaches its deadline without a real five-second wait.
+/// A manual monotonic clock. `jump_after_next_clock_read` moves it once the reader
+/// has read the clock, so a stall reaches its deadline without a real five-second wait.
 #[derive(Clone)]
 struct Clock {
     now: Rc<Cell<Instant>>,
@@ -19,7 +19,7 @@ impl Clock {
     fn advance(&self, by: Duration) {
         self.now.set(self.now.get() + by);
     }
-    fn jump_after_next_read(&self, by: Duration) {
+    fn jump_after_next_clock_read(&self, by: Duration) {
         self.jump.set(Some(by));
     }
     fn reader<'a>(
@@ -81,11 +81,13 @@ fn a_stalled_leftover_frame_still_times_out_at_its_own_bound() {
     client.write_all(b"0\n1").unwrap();
     assert_eq!(reader.read_frame().unwrap().unwrap(), b"0\n");
     clock.advance(STEP);
-    // The leftover's interval starts at this read; every later read is at its end.
-    clock.jump_after_next_read(IO_TIMEOUT);
+    // Closing the writer first makes a leftover without a deadline fail fast
+    // with UnexpectedEof instead of blocking in poll.
+    drop(client);
+    // The leftover's interval starts at this clock read; every later read is at its end.
+    clock.jump_after_next_clock_read(IO_TIMEOUT);
     let error = reader.read_frame().unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-    drop(client);
 }
 
 #[test]
@@ -98,7 +100,7 @@ fn a_leftover_frame_is_accepted_just_inside_its_own_bound() {
     assert_eq!(reader.read_frame().unwrap().unwrap(), b"0\n");
     clock.advance(STEP);
     client.write_all(b"\n").unwrap();
-    clock.jump_after_next_read(IO_TIMEOUT - Duration::from_millis(1));
+    clock.jump_after_next_clock_read(IO_TIMEOUT - Duration::from_millis(1));
     assert_eq!(reader.read_frame().unwrap().unwrap(), b"1\n");
 }
 
