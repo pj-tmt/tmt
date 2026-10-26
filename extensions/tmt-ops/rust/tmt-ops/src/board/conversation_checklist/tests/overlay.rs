@@ -53,7 +53,7 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
 
 fn opened(items: Vec<ItemView>) -> (App, Key) {
     let (mut app, key) = read_with(items);
-    press(&mut app, KeyCode::Char('N'));
+    press(&mut app, KeyCode::Char('C'));
     assert!(app.notes_overlay.is_some(), "N opens the list");
     (app, key)
 }
@@ -124,16 +124,23 @@ fn paint(app: &App) -> String {
 }
 
 #[test]
-fn n_is_checklist_on_a_member_and_still_creates_a_squad_on_a_squad_row() {
+fn c_is_checklist_on_a_member_and_n_still_creates_a_squad_on_a_squad_row() {
     let (mut app, _) = read_with(vec![todo(1)]);
-    assert_eq!(app.bindings()["N"].text, "member-checklist");
+    assert_eq!(app.bindings()["C"].text, "member-checklist");
     assert!(
-        paint(&app).contains("N checklist"),
-        "the footer names the verb"
+        !app.bindings().contains_key("N"),
+        "N no longer opens the list"
+    );
+    let screen = paint(&app);
+    assert!(screen.contains("C checklist"), "the footer names the verb");
+    assert!(
+        screen.contains(" C  Checklist"),
+        "the chip shows its key as a keycap, as the tab labels do: {screen}"
     );
     app.select(0);
     assert_eq!(app.bindings()["N"].text, "create-squad");
-    assert!(!paint(&app).contains("N checklist"));
+    assert!(!app.bindings().contains_key("C"));
+    assert!(!paint(&app).contains("C checklist"));
 }
 
 #[test]
@@ -143,7 +150,7 @@ fn checklist_captions_keep_the_held_member_when_the_selection_changes() {
         if form {
             app.add_to_notes(note_seed(&app, NoteKind::Todo));
         } else {
-            press(&mut app, KeyCode::Char('N'));
+            press(&mut app, KeyCode::Char('C'));
             press(&mut app, KeyCode::Char('a'));
         }
         app.select(0);
@@ -166,7 +173,7 @@ fn checklist_captions_keep_the_held_member_when_the_selection_changes() {
 fn an_unread_caption_uses_the_frozen_roster_then_an_explicit_uuid_fallback() {
     let (mut app, key) = read_with(vec![]);
     app.notes = State::reading();
-    press(&mut app, KeyCode::Char('N'));
+    press(&mut app, KeyCode::Char('C'));
     app.select(0);
     let screen = paint(&app);
     assert!(screen.contains("Checklist · worker"), "{screen}");
@@ -378,7 +385,7 @@ fn esc_keeps_a_typed_draft_and_the_list_reopens_on_it_while_an_empty_one_is_drop
         "the draft outlives the overlay"
     );
 
-    press(&mut app, KeyCode::Char('N'));
+    press(&mut app, KeyCode::Char('C'));
     assert!(paint(&app).contains("half a thought"));
     press(&mut app, KeyCode::Char('!'));
     assert_eq!(app.notes.draft(&key).unwrap().text(0), "half a thought!");
