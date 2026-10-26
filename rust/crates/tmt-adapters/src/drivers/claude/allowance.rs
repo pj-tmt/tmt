@@ -14,6 +14,34 @@ use std::{
 
 const MAX_CONFIG_BYTES: usize = 1024 * 1024;
 /// Pushed observations, under Core's data directory.
+/// The first-party mod setup keeps in Claude's skills root once usage is consented. Its sources
+/// are the plugin directory in the repository, locked to this build (#5187).
+pub(super) static MOD: crate::setup::provider_mod::ProviderMod =
+    crate::setup::provider_mod::ProviderMod {
+        directory: "skills/tmt-allowance",
+        files: &[
+            (
+                ".claude-plugin/plugin.json",
+                include_bytes!(
+                    "../../../../../../drivers/claude/plugins/tmt-allowance/.claude-plugin/plugin.json"
+                ),
+            ),
+            (
+                "hooks/hooks.json",
+                include_bytes!(
+                    "../../../../../../drivers/claude/plugins/tmt-allowance/hooks/hooks.json"
+                ),
+            ),
+            (
+                "hooks/register.mjs",
+                include_bytes!(
+                    "../../../../../../drivers/claude/plugins/tmt-allowance/hooks/register.mjs"
+                ),
+            ),
+        ],
+        purpose: "Claude Code mod that hands its rate-limit windows to tmt, so allowance figures stay fresh",
+    };
+
 const STORE: &str = "claude/allowance.json";
 const STORE_LIMIT: usize = 8 * 1024;
 const MAX_ACCOUNTS: usize = 8;

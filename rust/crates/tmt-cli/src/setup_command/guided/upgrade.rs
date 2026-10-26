@@ -69,6 +69,7 @@ fn plans_with(
                 Some(driver.name()),
             )?;
             plan.owned.clear(); // Each consented extension owns publication of its bundled skills.
+            plan.mods.clear(); // A provider mod follows an explicit setup, never an upgrade offer.
             plan.core
                 .retain(|(_, skill)| !targets.contains(&skill.target) && skill.state.changes());
             plan.hooks.retain(|hooks| {
@@ -280,6 +281,8 @@ mod tests {
             assert_eq!(row["status"], "pending");
             assert!(plan.is_some());
             assert_eq!(row["hooks"][0]["launcher"], json!(prefix.join("bin/tmt")));
+            // A provider mod follows an explicit setup, never an upgrade offer.
+            assert!(plan.as_ref().unwrap().mods.is_empty());
         }
         let config_only = Directory::new();
         let config_env = environment(&config_only, &[]);

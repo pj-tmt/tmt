@@ -64,6 +64,7 @@ impl Plan {
             if let HookStep::Remove(planned) = step {
                 rows.push(("hooks", planned.change.path.clone()));
             }
+            rows.extend(removal::mod_target(step).map(|path| ("mod", path)));
         }
         rows.extend(
             self.skills
@@ -295,10 +296,12 @@ fn remove(
     removed: &mut Vec<PathBuf>,
 ) -> io::Result<bool> {
     for step in &plan.hooks {
+        let provider_mod = removal::mod_target(step);
         removal::remove_hooks(&plan.data, step)?;
         if let HookStep::Remove(planned) = step {
             removed.push(planned.change.path.clone());
         }
+        removed.extend(provider_mod);
     }
     removed.extend(skill_installation::uninstall(environment, &plan.data)?.removed);
     for (product, _) in &plan.products {

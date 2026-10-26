@@ -22,6 +22,8 @@ WORKDIR /workspace
 COPY rust/ rust/
 COPY drivers/herdr/rust/ drivers/herdr/rust/
 COPY skills/ skills/
+# The Claude allowance mod setup embeds (include_bytes).
+COPY drivers/claude/plugins/tmt-allowance/ drivers/claude/plugins/tmt-allowance/
 # Workspace member: Cargo must load its manifest even when not building it.
 COPY extensions/tmt-ops/ extensions/tmt-ops/
 COPY extensions/tmt-remote/rust/ extensions/tmt-remote/rust/
