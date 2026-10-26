@@ -39,22 +39,19 @@ static void gate(const char *name) {
   if (count != 1 || close(fd)) _exit(92);
 }
 
-/* Optional admission boundary for the same owned launcher. Gate the real ps
- * exec only when its target is a direct child of that launcher, not the ps
- * helper itself or a prior runtime. The test can stop the provider before the
- * unmodified native observation executes; no process evidence is synthesized. */
-static void admission_probe(const char *file, char *const argv[]) {
+/* Gate the native process reader only for this launcher's direct child.
+ * The test stops the provider before the real stat read proceeds; process
+ * evidence still comes from the kernel, never from this interposer. */
+static void admission_probe(const char *file) {
   const char *ready = getenv("TMT_ADMISSION_READY");
-  if (ready && access(ready, F_OK) && !strcmp(file, "/usr/bin/env")) {
+  if (ready && access(ready, F_OK)) {
     long target = 0;
-    int runtime_probe = 0;
-    for (int i = 0; argv[i]; ++i) {
-      if (!strcmp(argv[i], "-p") && argv[i + 1]) target = strtol(argv[i + 1], NULL, 10);
-      if (!strcmp(argv[i], "stat=")) runtime_probe = 1;
-    }
-    if (runtime_probe && target > 0 && target != (long)getpid()) {
+    int consumed = 0;
+    if (sscanf(file, "/proc/%ld/stat%n", &target, &consumed) == 1 &&
+        consumed > 0 && file[consumed] == 0 &&
+        target > 0 && target != (long)getpid()) {
       char children[128];
-      snprintf(children, sizeof children, "/proc/%ld/task/%ld/children", (long)getppid(), (long)getppid());
+      snprintf(children, sizeof children, "/proc/self/task/%ld/children", (long)getpid());
       FILE *stream = fopen(children, "r");
       long child;
       int owned = 0;
@@ -70,18 +67,29 @@ static void admission_probe(const char *file, char *const argv[]) {
   }
 }
 
-int execv(const char *file, char *const argv[]) {
-  int (*original)(const char *, char *const[]) = dlsym(RTLD_NEXT, "execv");
+static int open_probe(const char *symbol, const char *file, int flags, va_list args) {
+  int (*original)(const char *, int, ...) = dlsym(RTLD_NEXT, symbol);
   if (!original) _exit(90);
-  admission_probe(file, argv);
-  return original(file, argv);
+  admission_probe(file);
+  if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE)
+    return original(file, flags, va_arg(args, mode_t));
+  return original(file, flags);
 }
 
-int execve(const char *file, char *const argv[], char *const envp[]) {
-  int (*original)(const char *, char *const[], char *const[]) = dlsym(RTLD_NEXT, "execve");
-  if (!original) _exit(90);
-  admission_probe(file, argv);
-  return original(file, argv, envp);
+int open(const char *file, int flags, ...) {
+  va_list args;
+  va_start(args, flags);
+  int result = open_probe("open", file, flags, args);
+  va_end(args);
+  return result;
+}
+
+int open64(const char *file, int flags, ...) {
+  va_list args;
+  va_start(args, flags);
+  int result = open_probe("open64", file, flags, args);
+  va_end(args);
+  return result;
 }
 
 static int invoke(const char *symbol, int fd, int command, va_list args) {

@@ -210,31 +210,6 @@ mod tests {
     };
     use std::time::Duration;
 
-    struct Ps;
-    impl CommandRunner for Ps {
-        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
-            UnixCommandRunner.execute(request)
-        }
-    }
-
-    #[test]
-    fn native_start_and_parent_equal_the_existing_ps_identity() {
-        let pid = u64::from(std::process::id());
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let ProcessObservation::Live(native) = observe(pid, deadline).expect("native acquisition")
-        else {
-            panic!("test process is live");
-        };
-        assert_eq!(
-            Some(native.start_identity()),
-            observe_start(&Ps, pid, deadline).unwrap().as_deref()
-        );
-        assert_eq!(
-            parent(pid, deadline),
-            Some(nix::unistd::getppid().as_raw() as u64)
-        );
-    }
-
     #[test]
     fn a_native_link_is_the_observation_and_parent_of_one_read() {
         let pid = u64::from(std::process::id());
@@ -265,6 +240,28 @@ mod tests {
             },
             unistd::Pid,
         };
+        // Keep the real-ps oracle and all state parity in the existing pinned
+        // environment case, including the single-process native-first path.
+        struct Ps;
+        impl CommandRunner for Ps {
+            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                UnixCommandRunner.execute(request)
+            }
+        }
+        let pid = u64::from(std::process::id());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let ProcessObservation::Live(native) = observe(pid, deadline).expect("native acquisition")
+        else {
+            panic!("test process is live");
+        };
+        assert_eq!(
+            Some(native.start_identity()),
+            observe_start(&Ps, pid, deadline).unwrap().as_deref()
+        );
+        assert_eq!(
+            parent(pid, deadline),
+            Some(nix::unistd::getppid().as_raw() as u64)
+        );
         struct Child(std::process::Child);
         impl Drop for Child {
             fn drop(&mut self) {
