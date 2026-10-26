@@ -9923,6 +9923,8 @@ fn the_skill_and_its_editing_reference_name_only_flags_the_cli_ships() {
         "page read",
         "page write",
         "page patch",
+        "page lock",
+        "page unlock",
         "page compact",
         "export",
         "page create",
