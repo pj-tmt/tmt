@@ -49,6 +49,8 @@ const INPUT_HIGH_WATER: usize = 64 * 1024;
 const CLOSING_GRACE: Duration = Duration::from_secs(1);
 /// How long the program's last output and exit may take to reach clients.
 const FLUSH_GRACE: Duration = Duration::from_millis(500);
+/// Opportunistic crash cleanup must not grow with the member directory.
+const RECLAIM_ENTRIES: usize = 64;
 
 /// Where and how to run one member.
 pub struct Launch {
@@ -255,6 +257,36 @@ impl Supervisor {
                 error
             }
         })?;
+        // A crashed member cannot unlink its files. An acquired flock proves
+        // there is no live holder; IDs are never reused, as for Files::drop.
+        // Unknown neighbours and scan errors never prevent this member starting.
+        if let Ok(entries) = fs::read_dir(&directory) {
+            for entry in entries.take(RECLAIM_ENTRIES).flatten() {
+                let name = entry.file_name();
+                let Some(other) = name.to_str().and_then(|name| name.strip_suffix(".lock")) else {
+                    continue;
+                };
+                if other == id || validate(&directory, other).is_err() {
+                    continue;
+                }
+                let socket = socket_path(&directory, other);
+                // A starter opens its lock before taking the flock and only
+                // binds its socket afterwards. Leave lock-only neighbours alone.
+                if fs::symlink_metadata(&socket).is_err() {
+                    continue;
+                }
+                let Ok(_neighbour_lock) = file_lock::exclusive(&entry.path()) else {
+                    // WouldBlock is live; every other failure is unknown.
+                    continue;
+                };
+                if let Err(error) = fs::remove_file(socket)
+                    && error.kind() != io::ErrorKind::NotFound
+                {
+                    continue;
+                }
+                let _ = fs::remove_file(entry.path());
+            }
+        }
         let files = Files {
             socket: socket_path(&directory, &id),
             lock: lock_path(&directory, &id),
