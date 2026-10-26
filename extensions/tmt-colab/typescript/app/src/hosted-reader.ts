@@ -1,3 +1,4 @@
+import { readEditLocks } from './edit-locks.js';
 import {
   binary,
   certificate,
@@ -301,6 +302,11 @@ export class HostedPageReader {
       return {
         ...projection,
         ownData: this.objects.ownData,
+        editLocks: readEditLocks(
+          projection.own ?? {},
+          { spaceId: a.space, pageId: a.page, epoch: a.epoch },
+          (writer) => this.objects.statusWriter(writer),
+        ),
         threads: readThreads(
           projection.own ?? {},
           { spaceId: a.space, pageId: a.page, epoch: a.epoch },

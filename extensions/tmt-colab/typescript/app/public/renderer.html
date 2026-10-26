@@ -515,6 +515,7 @@
             // own does. One accent at three strengths: at rest a light tint under a 1 px rule, the
             // pointer's between, the open thread's the deepest under a solid 2 px rule; a resolved thread
             // that is open keeps only a quiet dashed rule.
+            `::highlight(colab-edit-locks){background:${accentTint(20)};color:inherit}` +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             `::highlight(colab-comments){background:${accentTint(14)};color:inherit;text-decoration:underline;text-decoration-color:${accentTint(45)};text-decoration-thickness:1px;text-decoration-skip-ink:none}` +
             `::highlight(colab-selected){background:${accentTint(28)};color:inherit;text-decoration:underline;text-decoration-color:${accent};text-decoration-thickness:2px;text-decoration-skip-ink:none}` +
@@ -585,9 +586,12 @@
           document.head.append(ui);
           sheet.textContent = highlightStyle;
           document.head.append(sheet);
-          function collect() {
+          function collect(root = document.body, boundaries) {
             const deadline = performance.now() + 20;
-            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            const walker = document.createTreeWalker(
+              root,
+              NodeFilter.SHOW_TEXT | (boundaries ? NodeFilter.SHOW_COMMENT : 0),
+            );
             const points = [],
               spans = [],
               units = [];
@@ -598,6 +602,10 @@
             while ((node = walker.nextNode())) {
               if (++count > 20000 || performance.now() > deadline) throw new Error('text budget');
               if (node.parentElement?.closest(excluded)) continue;
+              if (node.nodeType === Node.COMMENT_NODE) {
+                if (boundaries.has(node.data)) boundaries.set(node.data, unit);
+                continue;
+              }
               let offset = 0;
               for (const point of node.data) {
                 const end = offset + point.length;
@@ -1200,6 +1208,120 @@
               slots: positions,
             });
           }
+          let lockRequestId = '',
+            lockBatch = [],
+            lockQuotes = new Map(),
+            lockText;
+          // Source markers exist only in an inert parsed copy. A marker inside an attribute,
+          // raw-text element or excluded subtree cannot authorize a highlight in the live page.
+          function prepareLockQuotes() {
+            lockQuotes.clear();
+            lockText = undefined;
+            if (!lockBatch.some((lock) => !lock.target.whole)) return;
+            try {
+              const deadline = performance.now() + 20,
+                inserts = [],
+                boundaries = new Map();
+              for (const lock of lockBatch) {
+                if (lock.target.whole) continue;
+                let offset = 0,
+                  selected = -1,
+                  matches = 0,
+                  candidates = 0;
+                const target = lock.target;
+                while ((offset = boundSource.indexOf(target.exact, offset)) >= 0) {
+                  if (++candidates > 64 || performance.now() > deadline)
+                    throw new Error('lock budget');
+                  if (
+                    boundSource.slice(0, offset).endsWith(target.prefix) &&
+                    boundSource.slice(offset + target.exact.length).startsWith(target.suffix)
+                  ) {
+                    selected = offset;
+                    matches++;
+                  }
+                  offset++;
+                }
+                if (matches !== 1) continue;
+                const start = `colab-lock-${lock.id}-start`,
+                  end = `colab-lock-${lock.id}-end`;
+                boundaries.set(start, null);
+                boundaries.set(end, null);
+                inserts.push(
+                  { at: selected, marker: start },
+                  { at: selected + target.exact.length, marker: end },
+                );
+              }
+              if (!inserts.length) return;
+              // A signed lock ID still cannot collide with an authored comment marker.
+              if (inserts.some(({ marker }) => boundSource.includes(marker))) return;
+              const chunks = [];
+              let cursor = 0;
+              for (const { at, marker } of inserts.sort((a, b) => a.at - b.at)) {
+                chunks.push(boundSource.slice(cursor, at), `<!--${marker}-->`);
+                cursor = at;
+              }
+              chunks.push(boundSource.slice(cursor));
+              const inert = parsePage(chunks.join(''));
+              const map = collect(inert.body, boundaries);
+              lockText = map.text;
+              for (const lock of lockBatch) {
+                const start = boundaries.get(`colab-lock-${lock.id}-start`),
+                  end = boundaries.get(`colab-lock-${lock.id}-end`);
+                if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start) continue;
+                const quote = {
+                  exact: map.text.slice(start, end),
+                  prefix: [...map.text.slice(0, start)].slice(-32).join(''),
+                  suffix: [...map.text.slice(end)].slice(0, 32).join(''),
+                };
+                if (validQuote(quote)) lockQuotes.set(lock.id, quote);
+              }
+            } catch {
+              lockQuotes.clear();
+              lockText = undefined;
+            }
+          }
+          function resolveLocks() {
+            if (!lockRequestId || stopped) return;
+            CSS.highlights?.delete('colab-edit-locks');
+            const report = (positions) =>
+              port.postMessage({
+                type: 'colab.render.edit-locks',
+                renderId,
+                requestId: lockRequestId,
+                positions,
+              });
+            if (!lockQuotes.size || typeof Highlight !== 'function' || !CSS.highlights) {
+              report([]);
+              if (!lockBatch.length) lockRequestId = '';
+              return;
+            }
+            const positions = [],
+              ranges = [];
+            try {
+              const map = collect(),
+                deadline = performance.now() + 20;
+              if (map.text === lockText && typeof Highlight === 'function' && CSS.highlights)
+                for (const lock of lockBatch) {
+                  const quote = lockQuotes.get(lock.id);
+                  if (!quote) continue;
+                  const range = quoteRange(map, quote, deadline);
+                  if (!range) continue;
+                  const box = range.getBoundingClientRect();
+                  if (!box.width || !box.height) continue;
+                  ranges.push(range);
+                  positions.push({
+                    id: lock.id,
+                    rect: { x: box.left, y: box.top, width: box.width, height: box.height },
+                  });
+                }
+              if (ranges.length && typeof Highlight === 'function' && CSS.highlights)
+                CSS.highlights.set('colab-edit-locks', new Highlight(...ranges));
+            } catch {
+              positions.length = 0;
+              CSS.highlights?.delete('colab-edit-locks');
+            }
+            report(positions);
+          }
           // The same normal quote owner resolves annotation and question anchors.
           function quoteRange(map, selector, deadline) {
             let offset = 0,
@@ -1433,6 +1555,7 @@
           function resolve() {
             resolveSlots();
             resolveQuestions();
+            resolveLocks();
             if (stopped || !requestId) return;
             clear();
             const resolved = [],
@@ -1671,6 +1794,8 @@
               state: sourceState,
             });
             if (imageRequestId) configureImages(imageRequestId);
+            boundSource = source;
+            prepareLockQuotes();
             resolve();
             measureHeight();
             measureScheme();
@@ -1704,6 +1829,35 @@
                       reason: 'remount',
                     },
               );
+              return;
+            }
+            if (
+              v?.type === 'colab.render.edit-locks' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
+              v.renderId === renderId &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId) &&
+              Array.isArray(v.locks) &&
+              v.locks.length <= 1000 &&
+              new Set(v.locks.map((lock) => lock?.id)).size === v.locks.length &&
+              utf8.encode(JSON.stringify(v)).length <= 256 * 1024 &&
+              v.locks.every(
+                (lock) =>
+                  lock &&
+                  Object.keys(lock).length === 2 &&
+                  typeof lock.id === 'string' &&
+                  /^[0-9a-f-]{36}$/.test(lock.id) &&
+                  (validQuote(lock.target) ||
+                    (lock.target &&
+                      Object.keys(lock.target).length === 1 &&
+                      lock.target.whole === true)),
+              )
+            ) {
+              lockRequestId = v.requestId;
+              lockBatch = v.locks;
+              prepareLockQuotes();
+              resolveLocks();
               return;
             }
             if (
@@ -2203,6 +2357,10 @@
           addEventListener('scroll', clearTarget, { passive: true });
           addEventListener('resize', capture);
           addEventListener('scroll', capture, { passive: true });
+          const scheduleLocks = () => {
+            if (lockQuotes.size) schedule();
+          };
+          addEventListener('scroll', scheduleLocks, { passive: true });
           addEventListener('resize', schedule);
           addEventListener('resize', scheduleHeight);
           addEventListener(
@@ -2239,6 +2397,8 @@
               removeEventListener('scroll', clearTarget);
               removeEventListener('resize', capture);
               removeEventListener('scroll', capture);
+              removeEventListener('scroll', scheduleLocks);
+              CSS.highlights?.delete('colab-edit-locks');
               removeEventListener('resize', schedule);
               removeEventListener('resize', scheduleHeight);
             },

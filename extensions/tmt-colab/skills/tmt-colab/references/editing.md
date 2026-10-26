@@ -41,8 +41,10 @@ of this machine's local-writer lock is retired and hidden; a foreign-writer hold
 missing from the local directory stays unknown. To clear a
 forgotten lock whose holder is no longer active, use
 `tmt colab page unlock PAGE LOCK --stale --json` (omit LOCK to clear eligible locks).
-A failed presence observation clears nothing. This phase publishes and reads locks;
-browser overlays and agent overlap refusal are separate follow-up work.
+A failed presence observation clears nothing. The page tints an agent's editing range
+and shows its identity above it, or floats a chip for a whole-page lock. A range that
+cannot be located unambiguously also gets the floating chip. These hints move no
+content and never block people. Agent overlap refusal is separate follow-up work.
 
 ## Change only that part
 

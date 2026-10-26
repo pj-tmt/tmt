@@ -6314,8 +6314,8 @@ to the page since that revision, anywhere, is `COLAB_STALE_BASE`, and nothing is
 
 `page lock PAGE (--find TEXT | --whole)` and `page unlock PAGE [LOCK] [--stale]`
 publish signed own records without changing source. A lock is advisory: people
-are never blocked. Browser overlays (#5294) and agent overlap refusal (#5295)
-are separate work. `--find` must match exactly once and captures the shared quote
+are never blocked. Browser overlays are implemented in #5294; agent overlap refusal
+remains separate work in #5295. `--find` must match exactly once and captures the shared quote
 selector (`exact`, `prefix`, `suffix`); `--whole` captures `{whole:true}`.
 
 The closed `edit-lock` v1 record is defined by the independent literal
@@ -6363,6 +6363,30 @@ and any uncertain release operation ID; the warning gives the exact unlock comma
 for the captured ID. Never replay the source patch to recover release. Successful
 release reports `confirmed:true`, released IDs and its publication operation ID;
 the receipt revision includes that follow-up publication.
+
+### Browser edit-lock overlay (#5294)
+
+The mounted browser and shared readers paint an admitted range with CSS Custom Highlights and put
+an identity chip in the parent overlay above the range. At the top edge, where
+that chip would cover the text, the label floats instead. Whole-page locks use a
+floating chip at the page's upper right. Neither operation inserts a node into the
+authored document, reserves a lane, moves blocks or changes the page's header,
+navigation, dimensions or scroll position. Chips are read-only hints; people keep
+editing normally. Released locks disappear; public offline or active-ended
+observations hide a holder, while unknown, missing and failed observations keep it.
+
+The renderer receives only closed bounded `{id,target}` entries, not identity
+labels or application authority. Source selectors are mapped in an inert copy
+through comment boundaries and the existing canonical text/quote owner. Only
+recognized text boundaries whose normalized source agrees with the live canonical
+text and yields one quote range are tinted. Attribute/raw-text matches, missing
+or ambiguous ranges and exhausted matching budgets use the floating chip instead;
+the renderer never substitutes a different passage. Geometry reports are cosmetic,
+bound to the current frame and lock request, restricted to admitted lock IDs and
+validated rectangles. Range chips follow internal frame scrolling; teardown clears
+paint and listeners. The shared identity chip stays in the trusted parent. Reader and hosted-reader
+projections use the same owner-member provenance filter; readers with no public
+directory observation keep holder presence unknown.
 
 ### Page usage and requested compaction (#2846)
 

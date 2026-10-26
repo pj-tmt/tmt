@@ -182,6 +182,7 @@ export function finishQuestionDirectory() {
   releaseQuestionDirectory = undefined;
 }
 let presentationAgents: AgentDestination[] = [];
+let presentationReads = 0;
 let presentationGate: Promise<void> | undefined;
 let releasePresentation: (() => void) | undefined;
 let rejectPresentation = false;
@@ -377,6 +378,7 @@ export async function mount(
     : undefined;
   const ask: AskBinding = {
     async observeDestinations() {
+      presentationReads++;
       const agents = structuredClone(presentationAgents);
       const failed = rejectPresentation;
       if (presentationGate) await presentationGate;
@@ -2418,4 +2420,22 @@ export function changePageCreator(index: number) {
     },
   };
   emit();
+}
+
+/** Admitted lock projection updates, independent of source and discussion changes. */
+export function setEditLocks(editLocks: import('../src/edit-locks.js').EditLockRecord[]) {
+  current = { ...current, editLocks: structuredClone(editLocks) };
+  emit();
+}
+
+/** Public directory snapshots for lock lifecycle cases; no authored frame can reach this seam. */
+export function setEditLockHolders(input: {
+  holders: Pick<AgentDestination, 'agent' | 'presence' | 'activity'>[];
+  failed?: boolean;
+}) {
+  presentationAgents = input.holders.map((holder) => ({ ...destination(), ...holder }));
+  rejectPresentation = !!input.failed;
+}
+export function editLockDirectoryReads() {
+  return presentationReads;
 }

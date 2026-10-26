@@ -59,8 +59,9 @@ export function updatePublisher(publisherAgent?: string) {
 
 export async function mountReader(
   source: string,
-  attribution?: Pick<Projection, 'originalAuthor' | 'publisherAgent'>,
+  attribution?: Pick<PageView, 'originalAuthor' | 'publisherAgent' | 'editLocks'>,
 ) {
+  await import('@tmt/browser-ui/static.css');
   await import('../src/reader-style.css');
   root?.unmount();
   // The shipped reader has no TMT shell: drop the app's hidden one, which would still match

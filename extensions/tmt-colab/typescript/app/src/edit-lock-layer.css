@@ -1,0 +1,21 @@
+.edit-lock-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+  z-index: 2;
+}
+.edit-lock-chip {
+  position: absolute;
+  display: block;
+  box-sizing: border-box;
+  padding: 4px 9px;
+  border: 1px solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: 500 12px/18px var(--tmt-ui-font-body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
