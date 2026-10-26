@@ -418,7 +418,15 @@ fn header_usage_fits_escaped_unicode_names_and_keeps_whole_optional_groups() {
     }
 }
 
+/// The clock is frozen: a conversation still waiting for its exchanges shows "Loading exchanges…"
+/// once 400 ms have passed since its first render, so on a slow runner the last render of the
+/// resize round trip would not be the first. Frozen, they are the same frame however long the
+/// sequence takes.
 fn header_frames() -> Value {
+    crate::status::with_now_ms(1_791_600_000_000, header_frames_now)
+}
+
+fn header_frames_now() -> Value {
     let mut captures = Vec::new();
     for (base, depth, name) in [
         ("tmt", tmt_cli_style::Depth::TrueColor, "tmt"),
