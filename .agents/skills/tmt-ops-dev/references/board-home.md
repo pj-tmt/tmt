@@ -86,7 +86,7 @@ from held observations, never perform acquisition or display raw UUIDs. A lane j
 progress notice is held until `SPINNER_DELAY` (`App::set_progress`), so a job that ends
 sooner paints nothing; a job the user did not ask to wait on (`Job::shows_progress`) has
 none, and a result or failure is shown at once. Persistent
-migration and acquisition failures retain their existing footer priority.
+migration and acquisition failures retain their existing footer priority. `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
 
 `board::unread` projects what answered the user's messages from one page of Core's
 originator `answers` view (a submitted final, or a passthrough's captured turn), limited
@@ -100,7 +100,7 @@ Optional failed/malformed reads retain the previous page for the same actor; act
 changes discard it. A member's count is `N+ unread` only when `nextBefore` is present and that
 member's oldest answer on the page is unacknowledged.
 Aggregate `+` is the OR of eligible members' partial flags;
-observed zero renders no unread state, even when older replies are possible.
+observed zero renders no unread state, even when older replies are possible. Its ordered lane acknowledges painted body rows and explicit Mark read through public `requests.ack`, and consumes legacy cutoffs through bounded pages under Config's lock.
 
 StateCell supplies `● N unread` in place of the glyph and activity words
 (working/idle/ended/stale/`?`); the member's task state still follows, as

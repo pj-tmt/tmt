@@ -44,8 +44,7 @@ are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/S
 owns moves and the tracked-file guard.
 
 `tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
-`design/browser-ui`: `./ui`/`./react`: React/Radix/cmdk/CVA, themes/portals, decorative action marks; `./static`/`./shell`/`./chart`/`./menu-host`: framework-free DOM; `./search`: import-free provider registry; hosts own domain state.
-`./ui` uses Radix; BrowserDialog/Drawer use native modality; BrowserPanel is non-modal. Drawer and Panel forward host-owned header actions to the shared header; hosts retain commands and admit closure. See leaf contracts.
+`design/browser-ui` splits React entries (`./ui`, `./react`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The [README](design/browser-ui/README.md) owns modality and header-action rules.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -388,7 +387,7 @@ discovery, receipts, skills, repair and handoff; [release procedures](.agents/sk
 
 Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
 A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off. An `auto` member is held like an interval one: the tick renews the hold and offers [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery); Core and the turn end deliver.
-Prices are one [public file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file), embedded as the built-in table and refetched anonymously by status only.
+Prices are one [public file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file).
 The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
 ## Ops extension
@@ -418,15 +417,11 @@ own module/drawing boundaries and verification.
   No Ops data enters `config.json` or Core's database.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
-  `board::unread` projects Core answer revisions; its ordered lane acknowledges painted body rows and explicit Mark read through public `requests.ack`, and consumes legacy cutoffs through bounded pages under Config's lock.
-  `board::selected_conversation` acquires public `responses.timeline` order and frozen body acknowledgment keys off-thread, joining one bounded finals list for reply times/source keys to inline reply bodies by request ID; [lifecycle](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
-  `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
+  `board::unread`, `board::selected_conversation` and `board::buttons` project Core answers off-thread and acknowledge only through public `requests.ack`; their lifecycles and module rules are in the [Ops references](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
   The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.
-  `labels::Reader` acquires Config-selected windows; `labels::digest` sums [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings) with cost and share valuations, not provider history. `board::savings` formats them; the price table is display-only.
-  `usage_report::Reader` acquires public Core usage/traffic off-thread; `usage_report::valuation` is the one reader of its TOK and input price, for the Digest table and the Agents TOK figures alike;
-  [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns its range and lifecycle.
-  Member references resolve through the acquired global identity inventory; Markdown carries UUID tags into clipped frame hits. Existing menu/actions own navigation, while copy/annotation retain raw source. No text grants new delivery authority or paint/input I/O. [Reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md).
+  Savings and usage figures come from `labels::Reader`/`labels::digest` (supplier estimates, never provider history) and `usage_report::Reader`; `usage_report::valuation` is the one reader of TOK and input price, for the Digest table and the Agents TOK figures alike. [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns ranges and lifecycles.
+  Member references resolve through the acquired global identity inventory and grant no delivery authority or paint/input I/O ([reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md)).
   Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config and cron namespaces under owned locks; partial results
   offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
 - **Board rendering.** The [Ops board guide](.agents/skills/tmt-ops-dev/references/board-home.md#shared-board-components) owns shared painter responsibilities and their host adapters.
@@ -573,8 +568,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
   from a browser. Public short entries bootstrap from validated `tmt-mount` without device context;
   Colab resolves page prefixes from its verified catalog; reader seeds stay in fragments.
-  It stores ciphertext, never decodes Yjs; the sync owner serializes authority
-  changes with delivery and shares bounded admission sweeps ([sync rules](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#stream-sync)).
+  It stores ciphertext, never decodes Yjs ([sync rules](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#stream-sync)).
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
@@ -590,7 +584,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   through the same tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
-  Colab owns layout, routing, state words, trusted recovery, archived reads and bounded missing-title folds ([browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253)).
+  Colab owns the mounted browser app, including trusted recovery and archived reads ([browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253)).
   One `tmt colab serve` is enough for a browser: it attaches to a running door, else starts
   one as a supervised child it alone stops.
   This edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
@@ -608,4 +602,4 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
 - **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. ([native opening](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission))
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`; [detail](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission)), and the Worker is resource
-  containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Source/shell actions, attributed creator/question metadata, thread status and proposals publish through it (offline or the local `page-publish` route), browser Save and closed creator/handled/reopen metadata commands use the owner sync socket, signed by the root-local writer. Metadata commands retain expected-revision and save operation/status fences. Link editors request bounded metadata changes through automatic owner admission; [target and result rules](extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256) preserve root-local content authority.
+  containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store, signed by the root-local writer. Metadata commands retain expected-revision and save operation/status fences; [editor metadata requests](extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256) pass automatic owner admission and preserve root-local content authority. [Routing](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#page-source-and-export) of each action kind is in the sync reference.
