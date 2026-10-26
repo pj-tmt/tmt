@@ -81,16 +81,31 @@ impl CoreClient {
         expected_name: &str,
         stop: &AtomicBool,
     ) -> Result<(), RemoteError> {
-        // An equals-form value cannot become an option even when the name starts with '-'.
-        let expected = format!("--expect-name={expected_name}");
+        self.identity_by_id_until(
+            id,
+            Some(expected_name),
+            stop,
+            Instant::now() + crate::limits::CORE_CALL,
+        )
+        .map(|_| ())
+    }
+
+    fn identity_by_id_until(
+        &self,
+        id: &str,
+        expected_name: Option<&str>,
+        stop: &AtomicBool,
+        deadline: Instant,
+    ) -> Result<crate::cloud_command::PeerIdentity, RemoteError> {
+        // Equals-form values and the separator keep names/UUIDs out of option syntax.
+        let expected = expected_name.map(|name| format!("--expect-name={name}"));
+        let mut argv = vec!["identity", "show", "--json"];
+        if let Some(expected) = expected.as_deref() {
+            argv.push(expected);
+        }
+        argv.extend(["--", id]);
         let answer = self
-            .call(
-                &["identity", "show", "--json", &expected, "--", id],
-                &[],
-                stop,
-                crate::limits::CORE_CALL,
-                OUTPUT_LIMIT,
-            )
+            .call_until(&argv, &[], stop, deadline, OUTPUT_LIMIT)
             .map_err(|error| match error.code.as_str() {
                 "IDENTITY_CHANGED" => {
                     RemoteError::new("REMOTE_AGENT_STALE", "The recipient identity changed.")
@@ -102,25 +117,29 @@ impl CoreClient {
                 _ => error,
             })?;
         let identity = &answer["identity"];
-        // Core owns normalization and the atomic expected-name check. Presence is evidence,
-        // not authority: an offline identity still has its name.
-        if identity["id"].as_str() == Some(id)
-            && crate::canonical::is_core_id(id)
-            && identity["name"].as_str().is_some_and(|name| {
-                !name.is_empty() && name.len() <= 128 && !name.chars().any(char::is_control)
-            })
-            && identity["retired"] != true
-            && matches!(
-                identity["presence"].as_str(),
-                Some("active" | "offline" | "unknown")
-            )
+        let name = identity["name"].as_str().filter(|name| {
+            !name.is_empty() && name.len() <= 128 && !name.chars().any(char::is_control)
+        });
+        // Core owns normalization and the expected-name comparison. Its pinned query
+        // reports presence; ordinary UUID resolution need not report it.
+        if identity["id"].as_str() != Some(id)
+            || !crate::canonical::is_core_id(id)
+            || name.is_none()
+            || identity["retired"] == true
+            || (expected_name.is_some()
+                && !matches!(
+                    identity["presence"].as_str(),
+                    Some("active" | "offline" | "unknown")
+                ))
         {
-            Ok(())
-        } else {
-            Err(failure(
+            return Err(failure(
                 "Core identity show returned invalid identity evidence.",
-            ))
+            ));
         }
+        Ok(crate::cloud_command::PeerIdentity {
+            id: id.to_owned(),
+            name: name.unwrap().to_owned(),
+        })
     }
 
     /// Core alone resolves its name syntax and excludes retired identities. The returned
@@ -246,45 +265,32 @@ impl CoreClient {
         lines: Option<u64>,
         stop: &AtomicBool,
     ) -> Result<Value, RemoteError> {
-        // UUID authority stays at admission; the public check command takes a name.
-        // Identity inventory excludes retired rows and both reads share one budget.
-        let deadline = Instant::now() + crate::limits::CORE_CALL;
-        let directory = self.call_until(
-            &["identity", "list", "--json"],
-            &[],
+        self.check_until(
+            agent,
+            lines,
             stop,
-            deadline,
-            OUTPUT_LIMIT,
-        )?;
-        let rows = directory["identities"]
-            .as_array()
-            .ok_or_else(|| failure("Core identity list returned invalid JSON."))?;
-        let mut matching = rows.iter().filter(|row| row["id"] == agent);
-        let row = matching
-            .next()
-            .filter(|_| matching.next().is_none())
-            .ok_or_else(|| failure("Check agent is absent or ambiguous."))?;
-        let name = row["name"]
-            .as_str()
-            .filter(|name| !name.is_empty())
-            .ok_or_else(|| failure("Check agent has no current name."))?;
-        let canonical = row["canonicalName"]
-            .as_str()
-            .filter(|name| !name.is_empty())
-            .ok_or_else(|| failure("Check agent has no canonical name."))?;
-        if rows
-            .iter()
-            .filter(|row| row["canonicalName"] == canonical)
-            .count()
-            != 1
-        {
-            return Err(failure("Check agent name is ambiguous."));
-        }
+            Instant::now() + crate::limits::CORE_CALL,
+        )
+    }
+
+    fn check_until(
+        &self,
+        agent: &str,
+        lines: Option<u64>,
+        stop: &AtomicBool,
+        deadline: Instant,
+    ) -> Result<Value, RemoteError> {
+        // One budget covers UUID resolution, the pinned query and capture. Until Core
+        // #5154 supplies atomic capture, a later name change can still race the last call.
+        let target = self.identity_by_id_until(agent, None, stop, deadline)?;
+        self.identity_by_id_until(agent, Some(&target.name), stop, deadline)?;
+        let name = target.name.as_str();
         let count = lines.map(|value| value.to_string());
-        let mut argv = vec!["check", name, "--json"];
+        let mut argv = vec!["check", "--capture-only", "--json"];
         if let Some(count) = count.as_deref() {
             argv.extend(["--lines", count]);
         }
+        argv.extend(["--", name]);
         self.call_until(&argv, &[], stop, deadline, OUTPUT_LIMIT)
     }
     pub(crate) fn api(&self, input: &[u8], stop: &AtomicBool) -> Result<Value, RemoteError> {

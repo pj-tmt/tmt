@@ -534,7 +534,7 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 [SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
 [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`.
 
-Remote uses public Core JSON only via absolute `TMT_EXECUTABLE`/`tmt-invoke`.
+Remote uses only public Core JSON via absolute `TMT_EXECUTABLE`/`tmt-invoke`; agent checks use capture-only and UUID-pinned name queries.
 Core never uses Remote trust. Other extensions use public CLI/SDK/`tmt-extension-objects`,
 never Remote state files. Remote owns member/channel authority, roster and invitations; UI grants none;
 Firestore uses Auth/Rules only. Read-only auto-pair; no companions/skills.
