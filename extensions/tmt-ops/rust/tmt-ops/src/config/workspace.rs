@@ -274,6 +274,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("R", "member-session"),
             ("C", "member-checklist"),
             ("t", "terminal"),
+            ("z", "terminal-zoom"),
             ("p", "pin"),
         ]
     } else {
@@ -326,6 +327,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("x", "remove-membership"),
             ("C", "member-checklist"),
             ("t", "terminal"),
+            ("z", "terminal-zoom"),
             ("m", "move-membership"),
             ("S", "switch-tool"),
             ("D", "digest"),
@@ -907,6 +909,11 @@ impl Config {
                 }
                 continue;
             }
+            if action.verb == Verb::Ui(OpsUiAction::TerminalZoom) && !is_chord(&key) {
+                notices.push(format!(
+                    "`bind.{key}` = terminal-zoom also keeps `{key}` from reaching the agent while you type into its terminal; a ctrl- or alt- chord avoids that."
+                ));
+            }
             let source = configured_binding_source(&key, host, &hosts, section);
             sources.insert(key.clone(), source);
             effective.insert(key, action);
@@ -917,6 +924,11 @@ impl Config {
             notices,
         })
     }
+}
+
+/// A key with Ctrl, Alt or Super held, which a program in a terminal rarely needs for itself.
+fn is_chord(key: &str) -> bool {
+    key.starts_with("ctrl-") || key.starts_with("alt-") || key.starts_with("super-")
 }
 
 fn configured_binding_source(
@@ -1455,6 +1467,39 @@ mod tests {
             Verb::Unbound,
             "the authored word is kept in the table"
         );
+    }
+
+    #[test]
+    fn zoom_is_z_on_members_and_readers_only_and_a_bare_key_warns() {
+        for scope in [
+            OpsKeyScope::Squad,
+            OpsKeyScope::Member,
+            OpsKeyScope::Pool,
+            OpsKeyScope::Reader,
+        ] {
+            let factory = config("").workspace_keys(scope, None, None).unwrap();
+            match scope {
+                OpsKeyScope::Member | OpsKeyScope::Reader => {
+                    assert_eq!(factory.bindings["z"].text, "terminal-zoom", "{scope:?}");
+                }
+                _ => assert!(!factory.bindings.contains_key("z"), "{scope:?}"),
+            }
+        }
+        for (key, warns) in [("x", true), ("ctrl-x", false), ("alt-x", false)] {
+            let keys = config(&format!("[bind]\n{key}='terminal-zoom'\n"))
+                .workspace_keys(OpsKeyScope::Member, None, None)
+                .unwrap();
+            assert_eq!(keys.bindings[key].verb, Verb::Ui(OpsUiAction::TerminalZoom));
+            assert_eq!(
+                keys.notices
+                    .iter()
+                    .any(|notice| notice.contains(&format!("`bind.{key}`"))
+                        && notice.contains("reaching the agent")),
+                warns,
+                "{key}: {:?}",
+                keys.notices
+            );
+        }
     }
 
     #[test]

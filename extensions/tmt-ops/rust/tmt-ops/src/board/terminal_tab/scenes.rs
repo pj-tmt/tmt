@@ -20,6 +20,8 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "terminal-live",
     "terminal-reconnecting",
     "terminal-ended",
+    "terminal-typing",
+    "terminal-zoomed",
 ];
 
 /// A build with colours, a bold word, a wide character and the cursor on the sixth and last row
@@ -51,7 +53,9 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         assert!(app.terminal_sync());
     }
     let events: &[StreamEvent] = &match scene {
-        "terminal-live" => vec![StreamEvent::Screen(program())],
+        "terminal-live" | "terminal-typing" | "terminal-zoomed" => {
+            vec![StreamEvent::Screen(program())]
+        }
         "terminal-reconnecting" => vec![
             StreamEvent::Screen(program()),
             StreamEvent::Connecting { attempt: 2 },
@@ -64,6 +68,13 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     };
     for event in events {
         app.apply_terminal(1, event.clone());
+    }
+    match scene {
+        "terminal-typing" => assert!(app.terminal.start_typing()),
+        "terminal-zoomed" => {
+            app.toggle_terminal_zoom();
+        }
+        _ => {}
     }
     app
 }

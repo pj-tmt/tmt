@@ -22,27 +22,39 @@ use tmt_tui::components::{
 };
 use unicode_width::UnicodeWidthStr;
 
-const OPTIONS: [(&str, &str, bool); 2] = [("chat", "Chat", false), ("terminal", "Terminal", true)];
+/// The chips: the two views, and Zoom while the terminal is the one shown.
+fn options(showing: bool, zoomed: bool) -> Vec<(&'static str, &'static str, Choice, bool)> {
+    let mut options = vec![
+        ("chat", "Chat", Choice::TerminalView(false), !showing),
+        ("terminal", "Terminal", Choice::TerminalView(true), showing),
+    ];
+    if showing {
+        options.push(("zoom", "⤢ Zoom", Choice::TerminalZoom, zoomed));
+    }
+    options
+}
 
-/// Paints `Chat  t  Terminal` on `row`: the key that switches the views is a keycap right before
-/// the label it opens, as on the tab labels, and the chip's hit covers both.
+/// Paints `Chat   t  Terminal  ⤢ Zoom` on `row`: the key that switches the views is a keycap right
+/// before the label it opens, as on the tab labels, and that chip's hit covers both.
 pub(in crate::board) fn chips(buffer: &mut Buffer, app: &App, row: Rect) {
     let action = crate::action::OpsUiAction::Terminal;
     let cap = keycap::key(app, action, "t").map(|key| keycap::control_span(app, &key, action));
     let cap_width = cap.as_ref().map_or(0, Span::width) as u16;
+    let options = options(app.terminal_showing(), app.terminal_zoomed());
     let width = cap_width
-        + OPTIONS
+        + options
             .iter()
-            .map(|(_, label, _)| label.width() as u16 + 3)
+            .map(|(_, label, _, _)| label.width() as u16 + 3)
             .sum::<u16>();
     if row.height == 0 || row.width < width + 2 {
         return;
     }
-    let showing = app.terminal_showing();
     let mut x = row.x + 1;
-    for (id, label, terminal) in OPTIONS {
+    for option in &options {
         let from = x;
-        if terminal && let Some(cap) = cap.clone() {
+        if option.0 == "terminal"
+            && let Some(cap) = cap.clone()
+        {
             strip::paint_left(
                 buffer,
                 Rect::new(x, row.y, cap_width, 1),
@@ -50,27 +62,76 @@ pub(in crate::board) fn chips(buffer: &mut Buffer, app: &App, row: Rect) {
             );
             x += cap_width;
         }
-        let chip = label.width() as u16 + 3;
-        let groups = [chip_group::ChipGroup {
-            label: String::new(),
-            choices: vec![chip_group::Choice {
-                id: id.into(),
+        let chip = option.1.width() as u16 + 3;
+        paint_chips(
+            buffer,
+            app,
+            Rect::new(x, row.y, chip, 1),
+            std::slice::from_ref(option),
+            from,
+        );
+        x += chip;
+    }
+}
+
+/// Paints `options` in `area`; each hit reaches left to `from`, so a keycap before a chip is part
+/// of it.
+fn paint_chips(
+    buffer: &mut Buffer,
+    app: &App,
+    area: Rect,
+    options: &[(&'static str, &'static str, Choice, bool)],
+    from: u16,
+) {
+    let groups = [chip_group::ChipGroup {
+        label: String::new(),
+        choices: options
+            .iter()
+            .map(|(id, label, _, selected)| chip_group::Choice {
+                id: (*id).into(),
                 actionable: true,
                 text: format!(" {label} "),
                 gap: " ".into(),
-                selected: terminal == showing,
+                selected: *selected,
                 disabled: false,
                 cursor: false,
-            }],
-        }];
-        for hit in chip_group::paint(buffer, Rect::new(x, row.y, chip, 1), &groups, app, None) {
-            let area = Rect::new(from, hit.area.y, hit.area.right() - from, hit.area.height);
+            })
+            .collect(),
+    }];
+    for hit in chip_group::paint(buffer, area, &groups, app, None) {
+        if let Some((_, _, choice, _)) = options.iter().find(|(id, _, _, _)| *id == hit.id) {
+            let left = from.min(hit.area.x);
+            let area = Rect::new(left, hit.area.y, hit.area.right() - left, hit.area.height);
             app.workspace_strip_hits
                 .borrow_mut()
-                .push((area, Choice::TerminalView(terminal)));
+                .push((area, choice.clone()));
         }
-        x += chip;
     }
+}
+
+/// The terminal filling the board: a row with the Zoom chip, then the screen and its line.
+pub(in crate::board) fn zoomed(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    if area.height < 2 {
+        return;
+    }
+    let width = "⤢ Zoom".width() as u16 + 3;
+    if area.width > width {
+        paint_chips(
+            frame.buffer_mut(),
+            app,
+            Rect::new(area.x + 1, area.y, width, 1),
+            &[("zoom", "⤢ Zoom", Choice::TerminalZoom, true)],
+            area.x + 1,
+        );
+    }
+    render(
+        frame.buffer_mut(),
+        app,
+        Rect::new(area.x, area.y + 1, area.width, area.height - 1),
+        app.terminal_view(),
+        &app.terminal_member_name(),
+    );
 }
 
 /// The rule's title: what is shown and, once there is a screen, its size.
@@ -102,6 +163,7 @@ pub(in crate::board) fn render(
         return;
     }
     let look = app.look();
+    let typing = app.terminal.typing();
     // The last row is the stream's own line; the screen has the rest.
     let (screen_area, note_area) = if area.height > 1 {
         (
@@ -111,6 +173,7 @@ pub(in crate::board) fn render(
     } else {
         (area, None)
     };
+    app.terminal.drew(screen_area);
     let Some(view) = view else {
         say(
             buffer,
@@ -139,7 +202,13 @@ pub(in crate::board) fn render(
         None => {}
     }
     if let Some(note_area) = note_area {
-        let text = note(&view.condition, view.screen.is_some(), name);
+        let text = note(
+            &view.condition,
+            view.screen.is_some(),
+            typing,
+            app.terminal_zoomed(),
+            name,
+        );
         strip::paint_left(
             buffer,
             note_area,
@@ -163,27 +232,36 @@ fn say(buffer: &mut Buffer, area: Rect, text: &str, look: Look) {
 }
 
 /// The line under the screen.
-fn note(condition: &Condition, screen: bool, name: &str) -> String {
+fn note(condition: &Condition, screen: bool, typing: bool, zoomed: bool, name: &str) -> String {
     match condition {
-        Condition::Live => format!(" Live view of {name}'s terminal"),
+        Condition::Live if typing && zoomed => {
+            format!(" Typing into {name}'s terminal · Ctrl-\\ back")
+        }
+        Condition::Live if typing => {
+            format!(" Typing into {name}'s terminal · Ctrl-\\ back to the list")
+        }
+        Condition::Live if zoomed => {
+            format!(" Live view of {name}'s terminal · ⏎ type into it · Esc back")
+        }
+        Condition::Live => format!(" Live view of {name}'s terminal · ⏎ type into it"),
         Condition::Connecting { attempt } if *attempt > 1 || screen => {
             format!(" Reconnecting to {name}'s terminal… (try {attempt})")
         }
         Condition::Connecting { .. } => String::new(),
         Condition::Exited(Exit::Code(code)) => {
-            format!(" The program ended (exit {code}). Switch away and back to look again.")
+            format!(" The program ended (exit {code}). ⏎ attaches again.")
         }
         Condition::Exited(Exit::Signal(signal)) => {
-            format!(" The program ended (signal {signal}). Switch away and back to look again.")
+            format!(" The program ended (signal {signal}). ⏎ attaches again.")
         }
         Condition::Evicted(Eviction::TakenOver) => {
-            " Another viewer took over this terminal. Switch away and back to look again.".into()
+            " Another viewer took over this terminal. ⏎ attaches again.".into()
         }
         Condition::Evicted(Eviction::TooSlow) => {
-            " This view fell behind and was dropped. Switch away and back to look again.".into()
+            " This view fell behind and was dropped. ⏎ attaches again.".into()
         }
         Condition::Refused(refusal) => format!(
-            " The terminal would not attach this view ({}).",
+            " The terminal would not attach this view ({}). ⏎ tries again.",
             match refusal {
                 Refusal::Version => "different protocol version",
                 Refusal::Handshake => "bad handshake",
@@ -191,7 +269,9 @@ fn note(condition: &Condition, screen: bool, name: &str) -> String {
                 Refusal::Full => "too many viewers",
             }
         ),
-        Condition::Lost(reason) => format!(" The terminal could not be reached: {reason}."),
+        Condition::Lost(reason) => {
+            format!(" The terminal could not be reached: {reason}. ⏎ tries again.")
+        }
     }
 }
 

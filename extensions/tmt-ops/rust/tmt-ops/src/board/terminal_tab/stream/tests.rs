@@ -15,7 +15,7 @@ const WAIT: Duration = Duration::from_secs(5);
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
 /// Short waits, so a retry or a stop takes milliseconds.
-fn quick() -> Timing {
+pub(in crate::board) fn quick() -> Timing {
     Timing {
         poll: Duration::from_millis(5),
         publish: Duration::from_millis(5),
@@ -26,19 +26,19 @@ fn quick() -> Timing {
     }
 }
 
-fn size(cols: u16, rows: u16) -> Size {
+pub(in crate::board) fn size(cols: u16, rows: u16) -> Size {
     Size::new(cols, rows).unwrap()
 }
 
 /// A listening socket in a directory of its own.
-struct Fake {
+pub(in crate::board) struct Fake {
     listener: UnixListener,
-    address: Address,
+    pub address: Address,
     dir: PathBuf,
 }
 
 impl Fake {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let dir = std::env::temp_dir().join(format!(
             "tmt-term-{}-{}",
             std::process::id(),
@@ -57,7 +57,7 @@ impl Fake {
         }
     }
 
-    fn accept(&self) -> Peer {
+    pub fn accept(&self) -> Peer {
         let (socket, _) = self.listener.accept().unwrap();
         socket.set_read_timeout(Some(WAIT)).unwrap();
         Peer {
@@ -82,7 +82,7 @@ impl Drop for Fake {
     }
 }
 
-struct Peer {
+pub(in crate::board) struct Peer {
     socket: UnixStream,
     decoder: Decoder,
 }
@@ -101,7 +101,7 @@ impl Peer {
         }
     }
 
-    fn expect(&mut self) -> ClientMessage {
+    pub fn expect(&mut self) -> ClientMessage {
         self.receive().expect("a frame from the viewer")
     }
 
@@ -109,8 +109,18 @@ impl Peer {
         self.socket.write_all(&message.encode()).unwrap();
     }
 
+    /// Nothing more arrives within a moment.
+    pub fn quiet(&mut self) -> bool {
+        self.socket
+            .set_read_timeout(Some(Duration::from_millis(150)))
+            .unwrap();
+        let quiet = self.receive().is_none();
+        self.socket.set_read_timeout(Some(WAIT)).unwrap();
+        quiet
+    }
+
     /// Welcome, the viewer's `Snapshot`, and a snapshot of `bytes` at `size`.
-    fn attach(&mut self, size: Size, bytes: &[u8]) {
+    pub fn attach(&mut self, size: Size, bytes: &[u8]) {
         assert_eq!(self.expect(), ClientMessage::Hello { version: VERSION });
         self.send(ServerMessage::Welcome {
             version: VERSION,

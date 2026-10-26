@@ -1,11 +1,19 @@
 //! What the board does for the Terminal tab: which member it is about, when core is asked where
 //! the stream is, and what the loop keeps open. The state itself is [`Tab`](super::tab::Tab).
 use super::{discovery::Located, stream::StreamEvent};
-use crate::board::{
-    app::{App, Effect},
-    shell::{OpsTab, RightTab},
+use crate::{
+    action::{OpsUiAction, Verb},
+    board::{
+        app::{App, Effect, event_name},
+        shell::{OpsTab, RightTab},
+    },
+};
+use ratatui::{
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
+    layout::Position,
 };
 use std::time::Duration;
+use tmt_tui::components::terminal::{is_leave, key_bytes, paste_bytes, wheel_bytes};
 
 impl App {
     /// The member the Terminal tab is about: the selected agent while the Agents tab shows Talk.
@@ -86,8 +94,131 @@ impl App {
                 let address = self.terminal.address(&id)?.clone();
                 Some((id, address))
             });
+        let changed = self
+            .terminal
+            .sync(wanted.as_ref().map(|(id, address)| (id.as_str(), address)));
+        self.terminal.fit_window();
+        changed
+    }
+
+    /// The selected member's name, for the lines under the screen.
+    pub(in crate::board) fn terminal_member_name(&self) -> String {
+        self.conversation_target()
+            .and_then(|target| {
+                self.target_row(&target)?["name"]
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| "agent".to_owned())
+    }
+
+    /// `⏎` on a shown terminal: keys go to the program until Ctrl-\. After the stream ended it
+    /// attaches again instead.
+    pub(in crate::board) fn type_into_terminal(&mut self) -> Effect {
+        if self
+            .terminal_view()
+            .is_some_and(|view| view.condition.ended())
+        {
+            self.terminal.reattach();
+        } else {
+            self.terminal.start_typing();
+        }
+        Effect::None
+    }
+
+    /// The tab fills the board and back. Only a shown terminal can fill it.
+    pub(in crate::board) fn toggle_terminal_zoom(&mut self) -> Effect {
+        let zoom = !self.terminal.zoomed() && self.terminal_showing();
+        self.terminal.set_zoomed(zoom);
+        self.invalidate_frame_geometry();
+        Effect::None
+    }
+
+    pub(in crate::board) fn terminal_zoomed(&self) -> bool {
+        self.terminal.zoomed() && self.terminal_showing()
+    }
+
+    /// The key is bound to `terminal-zoom`; with `authored` only a binding the user wrote
+    /// counts, since the default `z` is a key the program may need while typing.
+    fn zoom_key(&self, key: KeyEvent, authored: bool) -> bool {
+        let Some(name) = event_name(key) else {
+            return false;
+        };
+        self.workspace_bindings()
+            .get(&name)
+            .is_some_and(|action| action.verb == Verb::Ui(OpsUiAction::TerminalZoom))
+            && (!authored
+                || self
+                    .workspace_binding_sources()
+                    .and_then(|sources| sources.get(&name))
+                    .is_some_and(|source| source != "workspace default"))
+    }
+
+    /// While typing, every key but the way out and an authored zoom key is the program's, byte
+    /// for byte. While zoomed and not typing, only the way out of zoom and `⏎` mean anything.
+    pub(in crate::board) fn terminal_key(&mut self, key: KeyEvent) -> Option<Effect> {
+        if self.modal_open() {
+            return None;
+        }
+        if self.terminal.typing() {
+            if is_leave(&key) {
+                self.terminal.stop_typing();
+            } else if self.zoom_key(key, true) {
+                return Some(self.toggle_terminal_zoom());
+            } else if let Some(bytes) = key_bytes(&key, self.terminal.modes()) {
+                self.terminal.send(&bytes);
+            }
+            return Some(Effect::None);
+        }
+        if !self.terminal_zoomed() {
+            return None;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            return None;
+        }
+        match key.code {
+            KeyCode::Enter => return Some(self.type_into_terminal()),
+            KeyCode::Esc => return Some(self.toggle_terminal_zoom()),
+            _ if self.zoom_key(key, false) => return Some(self.toggle_terminal_zoom()),
+            _ => {}
+        }
+        Some(Effect::None)
+    }
+
+    /// While typing, the wheel over the screen is the program's and a press elsewhere ends
+    /// typing (and then lands as usual).
+    pub(in crate::board) fn terminal_mouse(&mut self, event: MouseEvent) -> Option<Effect> {
+        if !self.terminal.typing() || self.modal_open() {
+            return None;
+        }
+        let area = self.terminal.area()?;
+        if !area.contains(Position::new(event.column, event.row)) {
+            if matches!(event.kind, MouseEventKind::Down(_)) {
+                self.terminal.stop_typing();
+            }
+            return None;
+        }
+        if let MouseEventKind::ScrollUp | MouseEventKind::ScrollDown = event.kind
+            && let Some(bytes) = wheel_bytes(
+                event.kind == MouseEventKind::ScrollUp,
+                event.column - area.x,
+                event.row - area.y,
+                self.terminal.modes(),
+            )
+        {
+            self.terminal.send(&bytes);
+        }
+        Some(Effect::None)
+    }
+
+    /// While typing, a paste is the program's.
+    pub(in crate::board) fn terminal_paste(&mut self, text: &str) -> Option<Effect> {
+        if !self.terminal.typing() || self.modal_open() {
+            return None;
+        }
         self.terminal
-            .sync(wanted.as_ref().map(|(id, address)| (id.as_str(), address)))
+            .send(&paste_bytes(text, self.terminal.modes()));
+        Some(Effect::None)
     }
 
     pub(in crate::board) fn apply_terminal(&mut self, epoch: u64, event: StreamEvent) -> bool {
