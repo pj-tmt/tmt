@@ -40,6 +40,8 @@ pub enum Verb {
     HomePick,
     /// A retired action name, retained only to report an authored binding migration.
     Retired(&'static str),
+    /// `unbound`: the key loses the binding it would otherwise have. It is never run.
+    Unbound,
     Reply,
     Annotate,
     UpdateStatus,
@@ -76,6 +78,7 @@ impl Verb {
             "overview-filter" => Self::Retired("overview-filter"),
             "overview-view" => Self::Retired("overview-view"),
             "overview" => Self::Retired("overview"),
+            "unbound" => Self::Unbound,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
             "update-status" => Self::UpdateStatus,
@@ -131,6 +134,7 @@ impl Verb {
             Self::HomeWrite => "home-write",
             Self::HomePick => "home-pick",
             Self::Retired(name) => name,
+            Self::Unbound => "unbound",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
             Self::UpdateStatus => "update-status",
@@ -216,7 +220,8 @@ impl Action {
             | Verb::ViewReply
             | Verb::HomeWrite
             | Verb::HomePick
-            | Verb::Retired(_) => 10,
+            | Verb::Retired(_)
+            | Verb::Unbound => 10,
             Verb::Jump => 11,
             Verb::View => 12,
             Verb::Theme => 13,
@@ -236,6 +241,7 @@ impl Action {
         match self.verb {
             Verb::Ui(action) => action.spec().description.into(),
             Verb::Retired(name) => format!("retired action `{name}`"),
+            Verb::Unbound => "no action: the key's default binding is removed".into(),
             Verb::Jump if target == Some("lead") => "go to the squad lead's pane".into(),
             Verb::Jump => "go to the member's pane".into(),
             Verb::Swap => format!(
@@ -486,6 +492,11 @@ pub fn valid_event(event: &str) -> bool {
 /// Parsed bindings, by event.
 pub type Bindings = BTreeMap<String, Action>;
 
+/// `unbound` entries remove the key from a merged table, the rule every reader of `[bind]` shares.
+pub fn drop_unbound(bindings: &mut Bindings) {
+    bindings.retain(|_, action| action.verb != Verb::Unbound);
+}
+
 pub fn parse_bindings<'a>(
     entries: impl Iterator<Item = (&'a str, Option<&'a str>)>,
     place: &str,
@@ -576,6 +587,7 @@ pub fn effective_bindings(
     if let Some(section) = section {
         bindings.extend(section.clone());
     }
+    drop_unbound(&mut bindings);
     if !token_rate {
         bindings.retain(|_, action| action.verb != Verb::TokenWindow);
     }

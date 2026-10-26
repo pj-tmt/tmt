@@ -107,13 +107,7 @@ impl OpsWorkspaceSnapshot {
         self.set_preferences(config.workspace_preferences()?);
         self.read_markers = config.read_markers()?;
         self.config_path = config.path().display().to_string();
-        let scopes = [
-            OpsKeyScope::Squad,
-            OpsKeyScope::Member,
-            OpsKeyScope::Pool,
-            OpsKeyScope::Reader,
-        ];
-        for scope in scopes {
+        for scope in OpsKeyScope::ALL {
             let keys = config.workspace_keys(scope, None, None)?;
             self.binding_sources
                 .insert((scope, BindingContext::Global), keys.sources);
@@ -122,7 +116,7 @@ impl OpsWorkspaceSnapshot {
         }
         for host in config.host_bindings()?.into_keys() {
             let mut tables = BTreeMap::new();
-            for scope in scopes {
+            for scope in OpsKeyScope::ALL {
                 let keys = config.workspace_keys(scope, Some(&host), None)?;
                 self.binding_sources
                     .insert((scope, BindingContext::Host(host.clone())), keys.sources);
@@ -151,7 +145,7 @@ impl OpsWorkspaceSnapshot {
                 {
                     let host = row["pane"]["location"]["host"].as_str();
                     let mut tables = BTreeMap::new();
-                    for scope in scopes {
+                    for scope in OpsKeyScope::ALL {
                         let mut keys = config.workspace_keys(scope, host, Some(&section.bind))?;
                         for (key, source) in &mut keys.sources {
                             if source == "selected squad section.bind" {
