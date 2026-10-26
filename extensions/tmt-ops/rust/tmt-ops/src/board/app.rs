@@ -4466,7 +4466,10 @@ impl App {
         {
             self.move_pointer(event);
         }
-        // A peek window closes on an outside press and the press goes on below.
+        // A dialog closes on an outside press and takes it; a peek window closes and lets it land.
+        if let Some(effect) = self.dialog_dismiss(event) {
+            return effect;
+        }
         self.light_dismiss(event);
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
             return effect;

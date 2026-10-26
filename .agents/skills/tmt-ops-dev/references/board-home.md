@@ -371,9 +371,13 @@ agent details, and the Actions and mention menus close on a left press outside t
 sheet, and the same press goes on to what is under it. Each window records its painted sheet
 during paint (`PeekAreas`, cleared at the start of every paint), so a stale frame never
 dismisses. A wheel or other button outside, a keyboard close, a press inside, and any press
-while the composer holds a draft leave the window as it is. Dialogs (forms, Settings, Timer
-review, pickers, Recovery, Checklist, the reply reader, Discovery, Usage controls) are not peeks
-and still swallow outside presses.
+while the composer holds a draft leave the window as it is. Every other centered overlay (the
+forms, Settings, Timer review, the theme and panels pickers, Recovery, both Checklists, the reply
+reader, Discovery, Session, New agent, Switch tool and Idle alert) is a dialog: it registers its
+painted sheet the same way (`set_dialog`) and a left press outside it closes it as Esc does, then
+takes the press. Esc is sent until the dialog is gone (at most four), so a delete question or an
+edit prompt is dropped on the way, and the conversation Checklist's unsent form, which Esc keeps,
+is discarded. The Usage controls dropdown keeps its own dismissal.
 
 ## Usage and verification
 

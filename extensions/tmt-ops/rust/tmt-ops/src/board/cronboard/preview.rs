@@ -208,6 +208,8 @@ impl Review {
             modal.title = "Enlarge terminal · Esc closes timer review".into();
         }
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+        app.peek_areas
+            .set_dialog(crate::board::app::Overlay::CronReview, Some(areas.outer));
         let lines: Vec<_> = self
             .lines()
             .into_iter()

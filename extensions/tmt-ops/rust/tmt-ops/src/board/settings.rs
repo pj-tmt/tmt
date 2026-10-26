@@ -969,6 +969,15 @@ fn notice_role(notice: Option<&SettingNotice>) -> &'static str {
         .name()
 }
 
+/// Where the settings sheet, or the edit prompt over it, was last painted.
+pub(super) fn modal_outer(overlay: &Overlay) -> Option<Rect> {
+    if overlay.editing.is_some() {
+        overlay.prompt.borrow().outer()
+    } else {
+        overlay.surface.borrow().outer()
+    }
+}
+
 pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rect) {
     if let (Some(host), Some((_, text))) = (&overlay.host_action, &overlay.editing) {
         host.render_preview(frame, overlay, text, look, body);
@@ -1215,6 +1224,41 @@ pub(in crate::board) mod tests {
     use super::*;
     use crate::config::Pane;
     use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyModifiers};
+
+    #[test]
+    fn an_outside_press_closes_the_settings_sheet_and_drops_an_open_edit() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let mut f = fixture("outside-press", "");
+        let click = |app: &mut crate::board::app::App, column, row| {
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column,
+                    row,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            )
+        };
+        let paint = |app: &crate::board::app::App| {
+            Terminal::new(TestBackend::new(120, 40))
+                .unwrap()
+                .draw(|frame| crate::board::view::render(frame, app))
+                .unwrap();
+        };
+        paint(&f.app);
+        let outer = modal_outer(f.app.settings.as_ref().unwrap()).expect("painted");
+        click(&mut f.app, outer.x + 1, outer.y + 1);
+        assert!(f.app.settings.is_some(), "a press inside keeps the sheet");
+        assert!(outer.y > 0, "the header row is outside the sheet");
+        click(&mut f.app, 0, 0);
+        assert!(f.app.settings.is_none());
+        assert_eq!(
+            std::fs::read_to_string(&f.path).unwrap(),
+            f.original,
+            "closing writes nothing"
+        );
+    }
 
     #[test]
     fn shared_window_override_reset_and_reopen_preserve_authored_keys() {

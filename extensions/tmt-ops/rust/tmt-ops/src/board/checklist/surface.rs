@@ -13,9 +13,25 @@ const READING: &str = r#"<tmt-view version="1"><tmt-modal id="checklist" title="
 const CONFIRM: &str = r#"<tmt-view version="1"><tmt-modal id="checklist" title="Checklist" placement="center" class="w-100 h-30"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" token-bind="note.role" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty="(no matching items)"><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" token-bind="row.role" wrap="true"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="query" bind="$.query" token="accent" wrap="true"/><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" class="truncate"/></tmt-modal></tmt-view>"#;
 
 impl Controller {
+    fn reading(&self) -> bool {
+        self.screen == Screen::Unknown
+            || matches!(self.screen, Screen::Details(_)) && self.focus == 0
+    }
+
+    /// Where the sheet was last painted.
+    pub(in crate::board) fn modal_outer(&self) -> Option<Rect> {
+        let state = if self.reading() {
+            &self.reading
+        } else if self.screen == Screen::List {
+            &self.list
+        } else {
+            &self.panel
+        };
+        state.borrow().outer()
+    }
+
     pub(in crate::board) fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
-        let reading = self.screen == Screen::Unknown
-            || matches!(self.screen, Screen::Details(_)) && self.focus == 0;
+        let reading = self.reading();
         let title = format!(
             "Checklist · {}",
             self.current()
