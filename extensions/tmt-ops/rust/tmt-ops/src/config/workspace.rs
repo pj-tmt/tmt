@@ -1412,9 +1412,13 @@ mod tests {
             );
         }
         // A key that is a default in some other scope is not a no-op, so it is not noticed.
-        let keys = config("[bind]\nt='unbound'\n")
+        let keys = config("[bind]\nx='unbound'\n")
             .workspace_keys(OpsKeyScope::Squad, None, None)
             .unwrap();
+        assert!(
+            defaults(OpsKeyScope::Member).contains_key("x")
+                && !defaults(OpsKeyScope::Squad).contains_key("x")
+        );
         assert!(keys.notices.is_empty(), "{:?}", keys.notices);
     }
 
