@@ -81,6 +81,7 @@ mod status_update;
 mod tab_strip;
 mod talk_measure;
 mod team_strip;
+mod terminal_tab;
 mod timer_rows;
 mod top_bar;
 mod tree_row;

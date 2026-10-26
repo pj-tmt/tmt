@@ -67,6 +67,105 @@ fn version(store: &Path) -> u32 {
 }
 
 #[test]
+fn physical_conversion_shrinks_a_current_legacy_store_without_a_copy() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    Store::open(&layout).unwrap().close().unwrap();
+    let store = layout.directory.join("space.db");
+    let connection = Connection::open(&store).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        2
+    );
+    connection
+        .execute_batch(
+            "PRAGMA auto_vacuum=NONE; VACUUM;
+        CREATE TABLE marker(value BLOB); INSERT INTO marker VALUES(zeroblob(1048576));
+        DELETE FROM marker; INSERT INTO marker VALUES(X'0102');",
+        )
+        .unwrap();
+    drop(connection);
+    let before = fs::read(&store).unwrap();
+    Store::open(&layout).unwrap().close().unwrap();
+    assert!(names(&layout).is_empty());
+    eprintln!(
+        "space.db after legacy conversion: {} -> {} bytes",
+        before.len(),
+        fs::metadata(&store).unwrap().len()
+    );
+    assert!(fs::metadata(&store).unwrap().len() < before.len() as u64);
+    let connection = Connection::open(&store).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT value FROM marker", [], |r| r.get::<_, Vec<u8>>(0))
+            .unwrap(),
+        [1, 2]
+    );
+    assert_eq!(version(&store), SCHEMA_VERSION);
+    let unchanged = fs::read(&store).unwrap();
+    drop(connection);
+    Store::open(&layout).unwrap().close().unwrap();
+    assert_eq!(fs::read(&store).unwrap(), unchanged);
+    assert!(names(&layout).is_empty());
+}
+
+#[test]
+fn busy_physical_conversion_keeps_the_store_usable_and_retries_on_next_open() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    Store::open(&layout).unwrap().close().unwrap();
+    let path = layout.directory.join("space.db");
+    let reader = Connection::open(&path).unwrap();
+    reader
+        .execute_batch(
+            "PRAGMA auto_vacuum=NONE; VACUUM;
+        CREATE TABLE marker(value); INSERT INTO marker VALUES('saved');
+        BEGIN; SELECT * FROM marker;",
+        )
+        .unwrap();
+    // The migration's no-op transaction can finish, but VACUUM cannot commit with this reader.
+    Store::open(&layout).unwrap().close().unwrap();
+    assert!(names(&layout).is_empty());
+    assert_eq!(
+        reader
+            .pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        reader
+            .query_row("SELECT value FROM marker", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "saved"
+    );
+    reader.execute_batch("COMMIT").unwrap();
+    drop(reader);
+    Store::open(&layout).unwrap().close().unwrap();
+    assert!(names(&layout).is_empty());
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(
+        oracle
+            .pragma_query_value(None, "auto_vacuum", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        oracle
+            .query_row("SELECT value FROM marker", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "saved"
+    );
+}
+
+#[test]
 fn an_upgrade_copies_the_store_first_byte_for_byte_and_owner_only() {
     let fixture = Fixture::new();
     let layout = fixture.layout();

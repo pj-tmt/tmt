@@ -1891,6 +1891,8 @@ updates in that prefix has a committed checkpoint at exactly `n`, each binding
 the same update hash in its signed previous-hash field. An unpaired checkpoint
 is retained without pruning and is not selected for bootstrap. Completing the
 pair atomically prunes both covered prefixes and superseded unpinned checkpoints.
+After a prune commits, the local Store best-effort returns up to 64 free SQLite pages
+to disk with incremental vacuum; reclaim failure never fails or rolls back the write.
 
 The dormant native publication tracker adds a fence only for an explicitly tracked own
 stream. Its initial pending set is the current paired checkpoint plus its contiguous
@@ -2870,8 +2872,10 @@ the parent enables it only for the admitted comment surface. Its bound port proj
 exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). Mode is cosmetic:
 one hover outline, a completed text selection or a text-bearing click captured through
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
-show a temporary polite hint and create nothing. Source replacement reprojects mode;
-page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
+show a temporary polite hint and create nothing. Starting a comment exits selection mode,
+so cancelling or closing its composer leaves the mode off. Each mode projection clears the
+renderer's completed-selection gesture marker; the parent remains the sole mode owner.
+Source replacement reprojects mode; page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
 Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted; in the Comments panel, Escape from inside it: from a Discussion view's reply field it first returns to the comment list, and a send or status change in flight holds the panel; Escape on the page leaves the panel open), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
@@ -5636,6 +5640,13 @@ when a store is newer than this build, the `COLAB_STORE_NEWER` refusal names the
 this build supports, "This space was saved by a newer Colab. Run tmt upgrade to open it. To stay on
 this version instead, stop Colab and replace space.db with the backup from before that update
 (<path>); changes made since then are lost.", and is unchanged when there is none. No command restores a copy.
+
+After schema migrations commit, `Store::open` separately converts a store to SQLite
+`auto_vacuum=INCREMENTAL` with `VACUUM` outside any transaction. This physical conversion
+is transactional and creates no backup; copies and their pruning remain tied to schema
+migrations only. Conversion is best effort: failure leaves the store usable and retries on
+the next open. The stored vacuum mode marks completion, with no schema-version change.
+Reads never convert or reclaim the file; per-prune reclaim failures stay silent.
 
 ### Projects (#3747)
 

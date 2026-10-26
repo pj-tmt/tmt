@@ -2130,6 +2130,14 @@ test('selection mode outlines one target, captures text-bearing clicks and refus
   await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(0);
   await frame.locator('#target').click();
   await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
+  // Re-enabling the mode accepts the next element gesture after a completed drag.
+  await page.evaluate(() => {
+    (
+      window as unknown as { probe: { handle: { selectionMode(enabled: boolean): void } } }
+    ).probe.handle.selectionMode(true);
+  });
+  await frame.locator('#target').click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '3');
 });
 
 test('highlight clicks choose the shortest known quote while drag selection and scroll stay native', async ({

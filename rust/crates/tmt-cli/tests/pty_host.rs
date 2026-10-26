@@ -17,7 +17,7 @@ use std::{
 use tmt_adapters::{
     process::{
         UnixCommandRunner,
-        runtime::{ProcessObservation, observe_runtime_process},
+        runtime::{ProcessObservation, observe_runtime_process, recorded_process_gone},
     },
     pty::{
         Connection,
@@ -455,18 +455,44 @@ fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_membe
         );
     }
 
-    // Its program ends on its own; the supervisor follows, and the close finds it gone.
     let pane = row("alpha")["pane"].as_str().unwrap().to_owned();
-    let mut terminal =
-        Connection::connect(&support::state_dir(&world.root).join("pty"), &pane).unwrap();
+    let directory = support::state_dir(&world.root).join("pty");
+    let socket = PathBuf::from(&server.socket_path);
+    let supervisor_ended = || recorded_process_gone(server.server_pid);
+
+    // A missing connection is not process death: keep the live supervisor behind
+    // an unavailable socket and require the shutdown barrier to stay closed.
+    let parked = socket.with_extension("parked");
+    fs::rename(&socket, &parked).unwrap();
+    assert!(Connection::connect(&directory, &pane).is_err());
+    assert!(
+        !supervisor_ended(),
+        "a failed connection is not supervisor exit"
+    );
+    assert!(matches!(
+        host.session().close_opened_pane(&alpha),
+        Err(tmt_adapters::host::ActionError::Unverified)
+    ));
+    fs::rename(&parked, &socket).unwrap();
+
+    // Its program ends on its own; the supervisor follows, and the close finds it gone.
+    let mut terminal = Connection::connect(&directory, &pane).unwrap();
     terminal.input(b"quit\r").unwrap();
     drop(terminal);
     world.remember();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while Connection::connect(&support::state_dir(&world.root).join("pty"), &pane).is_ok() {
+    while !supervisor_ended() {
         assert!(Instant::now() < deadline, "the supervisor did not end");
         std::thread::sleep(Duration::from_millis(20));
     }
+    assert!(
+        !socket.try_exists().unwrap(),
+        "the supervisor left its socket"
+    );
+    assert!(
+        !socket.with_extension("lock").try_exists().unwrap(),
+        "the supervisor left its lock"
+    );
     let closed = host.session().close_opened_pane(&alpha).unwrap();
     assert_eq!(closed, PaneClose::AlreadyGone);
 

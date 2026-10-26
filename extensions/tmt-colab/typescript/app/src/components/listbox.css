@@ -41,11 +41,11 @@
 .tmt-listbox-option:hover,
 .tmt-listbox-option[data-active='true'] {
   color: var(--c-text);
-  background: var(--c-accent-soft);
+  background: var(--tmt-ui-surface-selection);
 }
 .tmt-listbox-option[aria-selected='true']::before {
   content: '✓ ';
-  color: var(--c-accent);
+  color: var(--tmt-ui-color-accent);
 }
 /* The active option is the list's focus: the one inset frame, as on every focused control. */
 .tmt-listbox-option[data-active='true'] {
