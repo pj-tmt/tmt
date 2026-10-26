@@ -40,24 +40,38 @@ pub struct TurnCapture<'a> {
     pub deadline: Instant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnCaptureOutcome {
+    Committed,
+    /// An ordinary Stop for this exact idle turn was already committed.
+    Duplicate,
+    /// The deadline, authority or activity transition does not permit a commit.
+    NotApplicable,
+    /// A non-interrupted end has no start in its exact session/process/turn.
+    NoAdmittedStart,
+}
+
 impl Storage {
     /// The verified authority is rechecked under the writer. Activity is
     /// recomputed from current state, independently of optional usage changes.
     /// A duplicate ordinary Stop is already settled; a stale authority refuses.
-    pub fn capture_turn_end(&mut self, capture: TurnCapture<'_>) -> Result<bool, StorageError> {
+    pub fn capture_turn_end(
+        &mut self,
+        capture: TurnCapture<'_>,
+    ) -> Result<TurnCaptureOutcome, StorageError> {
         let Some(binding) = capture.expected.entry.binding.as_ref() else {
-            return Ok(false);
+            return Ok(TurnCaptureOutcome::NotApplicable);
         };
         if !matches!(
             capture.activity.event.kind,
             EventKind::TurnEnded | EventKind::ContinuationEnded
         ) || binding.session.state != RuntimeState::Running
         {
-            return Ok(false);
+            return Ok(TurnCaptureOutcome::NotApplicable);
         }
         with_immediate_transaction(self, "capture turn final", |db| {
             if Instant::now() >= capture.deadline {
-                return Ok(false);
+                return Ok(TurnCaptureOutcome::NotApplicable);
             }
             let mut records = BindingRows(db);
             if records
@@ -66,14 +80,14 @@ impl Storage {
                 .as_ref()
                 != Some(binding)
             {
-                return Ok(false);
+                return Ok(TurnCaptureOutcome::NotApplicable);
             }
             let mut current = records.session_preferences(&binding.identity_id)?;
             let Some(remembered) = current.remembered.as_ref() else {
-                return Ok(false);
+                return Ok(TurnCaptureOutcome::NotApplicable);
             };
             let Some(expected) = capture.expected.preferences.remembered.as_ref() else {
-                return Ok(false);
+                return Ok(TurnCaptureOutcome::NotApplicable);
             };
             let mut selection = current.clone();
             selection.remembered.as_mut().unwrap().state = expected.state.clone();
@@ -83,7 +97,7 @@ impl Storage {
                         && key.provider_session.as_ref() == Some(&remembered.provider_session)
                 })
             {
-                return Ok(false);
+                return Ok(TurnCaptureOutcome::NotApplicable);
             }
             let Some(next) = driver_state::after_activity(
                 remembered.state.as_ref(),
@@ -95,23 +109,38 @@ impl Storage {
             ) else {
                 // No writer repeats a normal end that another observer has
                 // already committed for this exact active session/process.
-                return Ok(capture.activity.event.kind == EventKind::TurnEnded
-                    && remembered
-                        .state
-                        .as_ref()
-                        .and_then(driver_state::state_activity)
-                        .is_some_and(|activity| {
-                            activity.matches(&remembered.provider_session, capture.process)
-                                && activity.phase
-                                    == tmt_core::binding::session::activity::ActivityPhase::Idle
+                let previous = remembered
+                    .state
+                    .as_ref()
+                    .and_then(driver_state::state_activity)
+                    .filter(|activity| {
+                        activity.matches(&remembered.provider_session, capture.process)
+                    });
+                return Ok(
+                    if capture.activity.event.kind == EventKind::TurnEnded
+                        && previous.as_ref().is_some_and(|activity| {
+                            activity.phase
+                                == tmt_core::binding::session::activity::ActivityPhase::Idle
                                 && activity.turn == capture.activity.event.turn
-                        }));
+                        })
+                    {
+                        TurnCaptureOutcome::Duplicate
+                    } else if !capture.interrupted
+                        && previous
+                            .as_ref()
+                            .is_none_or(|activity| activity.turn != capture.activity.event.turn)
+                    {
+                        TurnCaptureOutcome::NoAdmittedStart
+                    } else {
+                        TurnCaptureOutcome::NotApplicable
+                    },
+                );
             };
             let driver = remembered.harness.as_str().to_owned();
             let session = remembered.provider_session.as_str().to_owned();
             current.remembered.as_mut().unwrap().state = Some(next);
             if !records.set_session_preferences(&binding.identity_id, &current)? {
-                return Ok(false);
+                return Ok(TurnCaptureOutcome::NotApplicable);
             }
             super::super::capture_batches::ensure(
                 db,
@@ -179,7 +208,7 @@ impl Storage {
                     "Final capture exceeded its hook budget",
                 ));
             }
-            Ok(true)
+            Ok(TurnCaptureOutcome::Committed)
         })
     }
 }

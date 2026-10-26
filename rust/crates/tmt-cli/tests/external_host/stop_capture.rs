@@ -202,6 +202,116 @@ fn a_stop_without_a_new_activity_transition_still_records_consented_usage() {
     }
 }
 
+#[test]
+fn a_stop_without_an_admitted_start_leaves_one_bounded_diagnostic() {
+    register();
+    for driver in ["claude", "codex"] {
+        let fixture = Fixture::delivering(&format!("missing-start-{driver}"));
+        bind(&fixture, fixture.approve());
+        let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let settings = fixture.root.join(if driver == "claude" {
+            "home/.claude/settings.json"
+        } else {
+            "home/.codex/hooks.json"
+        });
+        fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        let entry = tmt_adapters::runtime::hook_protocol::command_entry(driver, "/stable/tmt");
+        fs::write(
+            settings,
+            serde_json::json!({"hooks":{"Stop":[entry]}}).to_string(),
+        )
+        .unwrap();
+        let mut provider = SteppedProvider::start(&fixture, driver, "missing-start-steps");
+        let event = |name, turn| {
+            if driver == "claude" {
+                claude_event(name)
+            } else {
+                codex_event(name, Some(turn))
+            }
+        };
+        ok(provider.hook(event("SessionStart", "missing")));
+        let ProcessObservation::Live(owner) = observe_runtime_process(
+            &UnixCommandRunner,
+            u64::from(std::process::id()),
+            deadline(),
+        )
+        .unwrap() else {
+            panic!("the fixture launch owner must be live");
+        };
+        let launch = record_admitted_launch(&fixture, &agent, driver, &owner);
+        let observation = serde_json::to_string(&launch).unwrap();
+        let hook = |provider: &mut SteppedProvider, payload| {
+            ok(provider.hook_with_env(
+                payload,
+                &[("TMT_LAUNCH_OBSERVATION", observation.as_bytes())],
+            ))
+        };
+        let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+        let lifetime =
+            || {
+                db.query_row(
+                "SELECT count(*),min(created_at_ms),min(expires_at_ms) FROM launch_observations",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+            )
+            .unwrap()
+            };
+        let original_lifetime = lifetime();
+        let finals = || {
+            db.query_row("SELECT count(*) FROM recent_responses", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+        };
+        let mut stop = event("Stop", "missing");
+        stop["last_assistant_message"] = "a discarded answer must not enter diagnostics".into();
+        for _ in 0..2 {
+            hook(&mut provider, stop.clone());
+            let listed = fixture.json(&["ls", "--json"]);
+            let session = &worker(&listed)["session"];
+            assert_eq!(
+                session["learning"]["detail"], "stopped:turn:Stop:no_admitted_start",
+                "missing-start Stop must leave its fixed diagnostic: {listed:#}"
+            );
+            assert_eq!(session["learning"]["step"], "storage");
+            assert_eq!(session["learning"]["reason"], "not_admitted");
+            assert_eq!(session["unbound"], false, "the session remains admitted");
+            assert_eq!(
+                lifetime(),
+                original_lifetime,
+                "repeat does not grow or renew the row"
+            );
+            assert_eq!(finals(), 0, "an unadmitted final remains dropped");
+        }
+
+        // A later real start clears the old diagnostic under the ordinary stage rules.
+        let mut prompt = event("UserPromptSubmit", "normal");
+        prompt["prompt"] = "a new question".into();
+        hook(&mut provider, prompt);
+        assert!(worker(&fixture.json(&["ls", "--json"]))["session"]["learning"].is_null());
+        let mut stop = event("Stop", "normal");
+        stop["last_assistant_message"] = "one admitted answer".into();
+        for _ in 0..2 {
+            hook(&mut provider, stop.clone());
+            assert!(worker(&fixture.json(&["ls", "--json"]))["session"]["learning"].is_null());
+            assert_eq!(
+                finals(),
+                1,
+                "a duplicate Stop does not append another final"
+            );
+        }
+        if driver == "codex" {
+            hook(&mut provider, event("Interrupt", "never-started"));
+            assert!(worker(&fixture.json(&["ls", "--json"]))["session"]["learning"].is_null());
+            assert_eq!(finals(), 1, "an interrupt stays activity-only");
+        }
+        drop(db);
+    }
+}
+
 fn observer(
     provider: &mut SteppedProvider,
     payload: Value,

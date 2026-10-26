@@ -338,6 +338,10 @@ delivery. They install and launch nothing.
   it grants no authority. End cannot resurrect the pending key. Retention, fixed
   diagnostics and stored-only recovery projections have one owner in the
   [session binding contract](../../../../contracts/identity-status-v1.md#managed-launch-session-learning).
+  An exact bound Stop without an admitted activity start records
+  `stopped:turn:Stop:no_admitted_start` on that row, without retaining its final or
+  settling inputs. It stays visible through hook success with no unbound-session
+  claim; later hook stages follow the existing clearing rules and preserve Digest's diagnostic priority.
 - Activity comes from TMT's own UserPromptSubmit/Stop hooks (Claude runs them synchronously;
   ordering relies on that provider contract) and, for Codex, its first-party turn ID.
   A Codex `Interrupt` with its turn ID also ends that turn as idle, through the same turn-end

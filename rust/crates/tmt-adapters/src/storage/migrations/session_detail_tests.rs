@@ -7,6 +7,101 @@ const BINDING: &str = "INSERT INTO identities (id,name,canonical_name,created_at
     INSERT INTO bindings (id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at)
     VALUES ('binding','identity','tmux','%3','server','/tmp/private',41,'server-start',51,'bound','verified');";
 
+const NO_ADMITTED_START: &str = "stopped:turn:Stop:no_admitted_start";
+
+#[test]
+fn the_missing_start_detail_preserves_schema_81_rows_and_change_cursor_triggers() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema81.db");
+    let mut old = Connection::open(&path).unwrap();
+    old.pragma_update(None, "foreign_keys", true).unwrap();
+    apply_through(&mut old, 81).unwrap();
+    old.execute_batch(BINDING).unwrap();
+    let kept: Vec<&str> = SessionLearningDetail::ALL
+        .iter()
+        .map(|detail| detail.as_str())
+        .filter(|token| *token != NO_ADMITTED_START)
+        .collect();
+    assert_eq!(kept.len(), 55);
+    for (index, token) in kept.iter().enumerate() {
+        old.execute(&observation(100 + index as u32, &format!("'{token}'")), [])
+            .unwrap();
+    }
+    old.execute(&observation(200, "NULL"), []).unwrap();
+    assert!(
+        old.execute(&observation(201, &format!("'{NO_ADMITTED_START}'")), [])
+            .is_err()
+    );
+    let cursor = |db: &Connection| {
+        db.query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap()
+    };
+    let original_cursor = cursor(&old);
+    let objects = |db: &Connection| {
+        db.prepare("SELECT name FROM sqlite_schema WHERE tbl_name='launch_observations' AND type IN ('index','trigger') ORDER BY name")
+            .unwrap().query_map([], |row| row.get::<_, String>(0)).unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>().unwrap()
+    };
+    let original_objects = objects(&old);
+    old.close().unwrap();
+
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 82);
+    storage.close().unwrap();
+    let db = Connection::open(&path).unwrap();
+    db.pragma_update(None, "foreign_keys", true).unwrap();
+    let stored: Vec<Option<String>> = db
+        .prepare("SELECT detail FROM launch_observations ORDER BY owner_pid")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    let expected: Vec<Option<String>> = kept
+        .iter()
+        .map(|token| Some((*token).to_owned()))
+        .chain([None])
+        .collect();
+    assert_eq!(stored, expected, "all 55 prior tokens and NULL survive");
+    assert_eq!(objects(&db), original_objects);
+    assert_eq!(
+        cursor(&db),
+        original_cursor,
+        "copying the column invents no row change"
+    );
+    db.execute(&observation(201, &format!("'{NO_ADMITTED_START}'")), [])
+        .unwrap();
+    for token in [
+        "stopped:turn:Stop:other",
+        "stopped:turn:Interrupt:no_admitted_start",
+        "stopped:unknown:no_admitted_start",
+    ] {
+        assert!(
+            db.execute(&observation(202, &format!("'{token}'")), [])
+                .is_err(),
+            "{token}"
+        );
+    }
+    let before = cursor(&db);
+    db.execute(
+        "UPDATE launch_observations SET detail=? WHERE owner_pid=200",
+        [NO_ADMITTED_START],
+    )
+    .unwrap();
+    assert_eq!(cursor(&db), before + 1);
+    assert!(
+        db.prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .query([])
+            .unwrap()
+            .next()
+            .unwrap()
+            .is_none()
+    );
+}
+
 fn observation(owner_pid: u32, detail: &str) -> String {
     format!(
         "INSERT INTO launch_observations
@@ -43,7 +138,7 @@ fn the_widened_detail_list_keeps_every_stored_detail_and_accepts_the_new_tokens(
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 81);
+    assert_eq!(storage.health().unwrap().schema_version, 82);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -116,7 +211,7 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
     let kept: Vec<&str> = SessionLearningDetail::ALL
         .iter()
         .map(|detail| detail.as_str())
-        .filter(|token| !token.starts_with("digest_stop:"))
+        .filter(|token| !token.starts_with("digest_stop:") && *token != NO_ADMITTED_START)
         .collect();
     assert_eq!(kept.len(), 34);
     for (index, token) in kept.iter().enumerate() {
@@ -132,7 +227,7 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 81);
+    assert_eq!(storage.health().unwrap().schema_version, 82);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();

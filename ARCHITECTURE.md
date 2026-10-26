@@ -232,7 +232,8 @@ check keeps name/pane routing and its existing Digest opportunity.
   authorize retirement or detachment; unchanged records retain conclusive stale
   binding cleanup.
 - Lifecycle hooks complete existing bindings, never create or move identities.
-  Binding-owned starts and launch learning are diagnostic; [projections](contracts/identity-status-v1.md#session-binding-observation) read stored facts.
+  Binding-owned launch learning owns bounded diagnostics, including a dropped Stop's
+  `stopped:turn:Stop:no_admitted_start`; [projections](contracts/identity-status-v1.md#session-binding-observation) read stored facts, never grant capture authority.
   Bounded hooks exit zero; launch hooks keep externalized-name compatibility. Only consented
   setup publication (including interactively approved upgrade scopes) and recorded refresh change provider settings.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the

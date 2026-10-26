@@ -378,6 +378,43 @@ fn bind_pane(fixture: &Fixture, record: registry::DriverRecord, pane: &str, name
     storage.close().unwrap();
 }
 
+/// Records the same bounded launch row a managed wrapper owns, after the fixture
+/// provider's session has been admitted. The caller owns the exact native owner.
+fn record_admitted_launch(
+    fixture: &Fixture,
+    agent: &str,
+    driver: &str,
+    owner: &tmt_core::endpoint::ProcessIncarnation,
+) -> tmt_adapters::runtime::hook_protocol::HookLaunch {
+    use tmt_core::binding::{BindingRepository, session::launch::LaunchStatus};
+    let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+    let binding = storage
+        .with_binding_transaction::<_, tmt_adapters::storage::StorageError>(|rows| {
+            let binding = rows.entry_by_id(agent)?.unwrap().binding.unwrap();
+            let mut state = binding.session.clone();
+            state.launch_owner = Some(owner.clone());
+            assert!(rows.set_session_state(&binding.id, &binding.session, &state)?);
+            let binding = rows.entry_by_id(agent)?.unwrap().binding.unwrap();
+            let now = tmt_adapters::request_runtime::wall_time_ms();
+            let driver = tmt_core::binding::session::HarnessId::new(driver).unwrap();
+            assert!(rows.begin_launch_observation(&binding, owner, &driver, now)?);
+            let observed = rows.launch_observation(&binding.id, owner)?.unwrap();
+            let mut admitted = observed.clone();
+            admitted.status = LaunchStatus::Admitted;
+            admitted.diagnostic = None;
+            assert!(rows.set_launch_observation(&observed, &admitted)?);
+            Ok(binding)
+        })
+        .unwrap();
+    storage.close().unwrap();
+    tmt_adapters::runtime::hook_protocol::HookLaunch {
+        identity_id: agent.into(),
+        binding_id: binding.id,
+        owner_pid: owner.pid(),
+        owner_start: owner.start_identity().into(),
+    }
+}
+
 fn deadline() -> std::time::Instant {
     std::time::Instant::now() + std::time::Duration::from_secs(5)
 }
