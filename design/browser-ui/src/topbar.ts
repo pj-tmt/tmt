@@ -98,7 +98,8 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
     };
     const searchHelp = help(search, 'Search TMT');
     const remoteHelp = help(remote, 'Remote: session count unconfirmed');
-    common.append(theme, searchHelp.wrapper, remoteHelp.wrapper);
+    left.append(searchHelp.wrapper);
+    common.append(theme, remoteHelp.wrapper);
     right.append(actions, common);
     header.append(left, right);
 
@@ -196,6 +197,7 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
       if (!next) clear();
       else active?.update();
     },
+    topBarReady: () => !disposed && options !== undefined,
     setTopBar(): ShellTopBar {
       if (disposed) throw new Error('The shell has been disposed');
       if (!options)

@@ -1,5 +1,6 @@
 mod bindings;
 mod capture_batches;
+mod compaction;
 mod consumption_family;
 mod consumption_history;
 mod context;
@@ -8,6 +9,7 @@ mod digest_hook;
 mod discovery;
 mod dispatch;
 mod errors;
+mod footprint;
 mod host_servers;
 mod identities;
 mod identity_hooks;
@@ -36,6 +38,7 @@ use std::{
 };
 
 pub use bindings::PurgedSession;
+pub use compaction::{AutoVacuum, Compaction, DatabasePages, compact_database, observe_pages};
 pub use consumption_history::{
     BUCKET_MS, ConsumptionLatest, HISTORY_MS, MAX_BUCKETS, MAX_RESPONSE_BUCKETS,
     RuntimeObservation, TurnBoundary, window_resolution_ms,
@@ -45,6 +48,9 @@ pub use database_rename::{DatabaseRename, Kept, rename_database};
 pub use dispatch::DispatchError;
 pub use errors::{StorageError, StorageErrorCode, classify};
 use errors::{classify_io, classify_open, incompatible};
+pub use footprint::{
+    ColabFootprint, DatabaseFootprint, Footprint, NotesFootprint, StoreFile, footprint,
+};
 pub use host_servers::{HostServerIncarnation, RecordedHostServers};
 pub use orchestration::{ORCH_JOURNAL_RETENTION_MS, OrchJournalPage, OrchStoredState};
 pub use requests::PassthroughFacts;

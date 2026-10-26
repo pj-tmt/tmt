@@ -161,6 +161,8 @@ struct Control {
     grant: Grant,
     nonce: String,
 }
+pub(crate) type DeviceActivities = Vec<(usize, Option<u64>)>;
+
 impl DoorSessions {
     pub fn new(
         machine_id: String,
@@ -338,7 +340,7 @@ impl DoorSessions {
         &self,
         grants: &[Grant],
         now: u64,
-    ) -> Result<Vec<(usize, Option<u64>)>, RemoteError> {
+    ) -> Result<DeviceActivities, RemoteError> {
         let live = self.live.lock().map_err(crate::store::database)?;
         Ok(grants
             .iter()

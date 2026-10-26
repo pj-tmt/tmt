@@ -21,6 +21,7 @@ import { until } from './harness/process.js';
 import { captureResponsive } from './harness/captures.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import type { AcceptanceWorld } from './harness/world.js';
+import { commentsAction } from '../test/page-actions.js';
 
 // #1110 Ask agent real-binary acceptance. The Ask UI, Remote operations, the page
 // (`tmt colab page create`), the recipient and `tmt reply` are all real; the page exists
@@ -605,8 +606,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // The scenario's tab is A. Tab B is a second tab of the same paired browser.
       const tabA = s.askerPage;
       const tabB = await openPage(s.door, s.asker, s.page);
-      await expect(tabA.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
-      await expect(tabB.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
+      await expect(commentsAction(tabA)).toBeVisible();
+      await expect(commentsAction(tabB)).toBeVisible();
       const draft = await composeChat(tabB, s.recipient, 'Sent from the second tab');
       const ask = await sendChat(tabB, draft);
       await expect(askEntry(tabB, ask.operationId)).toHaveAttribute(
@@ -619,7 +620,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await expect(askEntry(tabA, ask.operationId).getByTestId('ask-reply')).toHaveText(
         replyBody(draft.delivered()),
       );
-      await expect(tabB.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
+      await expect(commentsAction(tabB)).toBeVisible();
       // Both live tabs see the same signed Ask record; opening either tab never resends.
       expect(s.recipient.received()).toHaveLength(1);
       expect(dispatches(world)).toHaveLength(1);

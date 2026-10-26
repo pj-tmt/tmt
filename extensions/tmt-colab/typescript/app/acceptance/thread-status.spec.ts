@@ -1,5 +1,5 @@
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, commentsAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { text } from '../src/strings.js';
@@ -90,9 +90,7 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     await expect(row2).toContainText(unseen);
     await expect(markers(second)).toHaveCount(0);
     await expect(markers(first)).toHaveCount(0);
-    await expect(second.getByRole('button', { name: /^Discussion \(/ })).toHaveAccessibleName(
-      new RegExp(text.threadUnseen),
-    );
+    await expect(commentsAction(second)).toHaveAccessibleName(new RegExp(text.threadUnseen));
     // The same resolution again is a no-op: no second action is published.
     const again = JSON.parse(
       colab(['threads', 'resolve', created.pageId, threadId, '--json'], agent.pane),
@@ -111,9 +109,7 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     await expect(t2).toContainText(text.threadResolvedBy(agent.name));
     await expect(t2).toHaveAttribute('data-anchor', 'resolved');
     await expect(reloaded).not.toContainText(text.threadUnseen);
-    await expect(second.getByRole('button', { name: /^Discussion \(/ })).not.toHaveAccessibleName(
-      new RegExp(text.threadUnseen),
-    );
+    await expect(commentsAction(second)).not.toHaveAccessibleName(new RegExp(text.threadUnseen));
     await second.reload();
     await comments(second);
     await view(second, 'Resolved');
@@ -121,9 +117,7 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
       second.getByTestId('annotation-row').filter({ hasText: 'Quoted passage' }),
     ).not.toContainText(text.threadUnseen);
     // The first device never opened it, so it is still unseen there.
-    await expect(first.getByRole('button', { name: /^Discussion \(/ })).toHaveAccessibleName(
-      new RegExp(text.threadUnseen),
-    );
+    await expect(commentsAction(first)).toHaveAccessibleName(new RegExp(text.threadUnseen));
 
     // The agent reopens it: the marker returns on both pages.
     const reopened = JSON.parse(
@@ -164,12 +158,10 @@ test('status states captured for the UX look', async () => {
         await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
         await page.mouse.move(width - 1, 899);
         if (options.header && width < 600) {
-          // The 390px sheet covers the header: shoot the menu with the toggle copy with it closed.
+          // The 390px sheet covers the dock: shoot its Comments action and its count with it closed.
           await commentsClose(page, 'list').click();
-          await page.getByRole('button', { name: /^Discussion \(/ }).click();
           await page.mouse.move(width - 1, 899);
-          await page.screenshot({ path: `${captureDir}/${state}-menu-${width}-${theme}.png` });
-          await page.keyboard.press('Escape');
+          await page.screenshot({ path: `${captureDir}/${state}-dock-${width}-${theme}.png` });
           await comments(page);
         }
         await page.mouse.move(width - 1, 899);
@@ -181,10 +173,10 @@ test('status states captured for the UX look', async () => {
     const toggleCopy = async (page: Page, expected: string, state: string) => {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.mouse.move(0, 899);
-      await expect(page.getByRole('button', { name: /^Discussion \(/ })).toHaveAccessibleName(
+      await expect(commentsAction(page)).toHaveAccessibleName(
         expected === text.comments
-          ? 'Discussion (0)'
-          : expected.replace(/^Comments (\d+)/, 'Discussion ($1)'),
+          ? 'Comments (0)'
+          : expected.replace(/^Comments (\d+)/, 'Comments ($1)'),
       );
       await page.screenshot({
         path: `${captureDir}/toggle-${state}.png`,
@@ -193,7 +185,7 @@ test('status states captured for the UX look', async () => {
     };
 
     const second = await openPage(door, viewer, created);
-    await expect(second.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
+    await expect(commentsAction(second)).toBeVisible();
     await toggleCopy(second, text.comments, 'none');
     await comments(second);
 

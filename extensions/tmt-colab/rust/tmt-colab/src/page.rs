@@ -4,6 +4,7 @@ pub mod compact_ipc;
 pub mod convert;
 pub mod ipc;
 pub mod lines;
+pub mod metadata;
 pub mod owner_fold;
 pub mod patch;
 pub mod save;
@@ -99,6 +100,19 @@ impl From<&statement::Head> for Head {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
+    /// Read-only projection; content metadata cannot assert an answered state.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub question_states: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub questions: Option<serde_json::Value>,
+    /// `{name, description}` when the page is a template (#5066).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<serde_json::Value>,
+    /// `{name}` or `{name, revision}` when the page was created from a template.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_template: Option<serde_json::Value>,
     pub space_id: String,
     pub page_id: String,
     pub source: String,
@@ -128,6 +142,10 @@ pub struct Receipt {
     pub memory_limit: MemoryLimit,
     pub changed: bool,
     pub update: UpdateSize,
+    /// How much of the existing source this write replaced. It sizes the editing hint and is not
+    /// part of the receipt's JSON.
+    #[serde(skip)]
+    pub scale: crate::edit_scale::EditScale,
     /// How full the page is after this write; absent when the page could not be read back.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<PageUsage>,
@@ -285,6 +303,7 @@ impl Receipt {
             memory_limit,
             changed: false,
             update: UpdateSize::NONE,
+            scale: crate::edit_scale::EditScale::NONE,
             usage: None,
             publication: None,
         }
@@ -437,7 +456,19 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
     if view.meta.get("pageType").is_some() {
         return Err(Fault::Invalid.into());
     }
+    let question_states = if let Some(registry) = view.meta.get("questions") {
+        let conversations = crate::discussion::project(key, page, &s, &view);
+        crate::question_registry::answers::project(registry, &conversations, &view.status_writers)
+            .map_err(|_| Fault::Invalid)?
+    } else {
+        Vec::new()
+    };
     Ok(Page {
+        question_states,
+        creator: view.meta.get("creator").cloned(),
+        questions: view.meta.get("questions").cloned(),
+        template: view.meta.get("template").cloned(),
+        from_template: view.meta.get("fromTemplate").cloned(),
         space_id: key.space_id.clone(),
         page_id: page.into(),
         source: view.source,
@@ -547,8 +578,13 @@ pub struct FrozenPublication {
     job: Box<crate::publication::SignedJob>,
     packet: Vec<u8>,
     chain: Vec<u8>,
+    scale: crate::edit_scale::EditScale,
 }
 impl FrozenPublication {
+    /// How much of the existing source this publication replaces.
+    pub fn scale(&self) -> crate::edit_scale::EditScale {
+        self.scale
+    }
     pub fn job(&self) -> &crate::publication::SignedJob {
         &self.job
     }
@@ -661,7 +697,10 @@ pub fn prepare_publication_with_clock<'a>(
         },
         now,
     )?;
-    Ok(PublicationPreparation::Write(frozen))
+    Ok(PublicationPreparation::Write(FrozenPublication {
+        scale: prepared.scale,
+        ..frozen
+    }))
 }
 /// One explicit structured action (a shell's, or the work of an ordinary page) against the
 /// revision the caller read. Agent metadata is display only; the writer and time below come from
@@ -972,6 +1011,7 @@ fn freeze(
         job: Box::new(job),
         packet,
         chain,
+        scale: crate::edit_scale::EditScale::NONE,
     })
 }
 /// Allocate a canonical random UUID for a retained publication or discussion ID.
@@ -1293,6 +1333,7 @@ pub fn publication_receipt(
                 memory_limit: evidence.memory_limit,
                 changed: true,
                 update: UpdateSize::of(manifest),
+                scale: crate::edit_scale::EditScale::NONE,
                 usage: None,
                 publication: Some(PublicationReceipt {
                     operation_id: key.operation_id.clone(),

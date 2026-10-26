@@ -77,6 +77,8 @@ impl Controller {
         );
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         app.input_band.set(Some(areas.outer));
+        app.peek_areas
+            .set_dialog(crate::board::app::Overlay::SwitchTool, Some(areas.outer));
         let lines = wrap(areas.content.width);
         let mut scroll = self.scroll.borrow_mut();
         scroll.update(areas.content, lines.len(), None);

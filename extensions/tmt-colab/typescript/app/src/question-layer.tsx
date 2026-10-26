@@ -22,6 +22,8 @@ import type {
   ReadingRenderBlock,
   mountRenderer,
 } from './renderer.js';
+import { text } from './strings.js';
+import { verifiedQuestionStates } from './question-registry.js';
 import type { CommentContext } from './thread-store.js';
 
 /** The parent owns logical groups and viewer disclosures. The frame supplies quotes/geometry. */
@@ -30,6 +32,7 @@ export function useQuestionLayer({
   view,
   renderer,
   state,
+  contentRevision,
   slots,
   blocked,
   connectionPresentation,
@@ -50,6 +53,8 @@ export function useQuestionLayer({
   view: PageView;
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   state: RenderState | 'loading';
+  /** Counts sources the open frame applied in place (#5022); each one sends the blocks again. */
+  contentRevision: number;
   slots: readonly AnchorPosition[];
   blocked: boolean;
   connectionPresentation?: ComposerConnectionPresentation;
@@ -65,16 +70,20 @@ export function useQuestionLayer({
   const focusPanel = useRef<string | undefined>(undefined);
   const navigationFocus = useRef<string | undefined>(undefined);
   const threads = useMemo(
-    () =>
-      (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal && thread.anchor),
+    () => (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal),
     [view.threads],
   );
   const associated = useCallback(
     (id: string) =>
-      threads.filter((thread) =>
-        anchors
-          ?.find((anchor) => anchor.id === id)
-          ?.threads.includes(`${thread.ref.writer}:${thread.ref.id}`),
+      threads.filter(
+        (thread) =>
+          thread.comments.some(
+            (comment) =>
+              !comment.deleted && comment.deviceAuthor === true && comment.questionId === id,
+          ) ||
+          anchors
+            ?.find((anchor) => anchor.id === id)
+            ?.threads.includes(`${thread.ref.writer}:${thread.ref.id}`),
       ),
     [anchors, threads],
   );
@@ -108,10 +117,16 @@ export function useQuestionLayer({
     ),
   );
   const identity = JSON.stringify(
-    threads.map((thread) => ({
-      id: `${thread.ref.writer}:${thread.ref.id}`,
-      selector: thread.anchor!,
-    })),
+    threads.flatMap((thread) =>
+      thread.anchor
+        ? [
+            {
+              id: `${thread.ref.writer}:${thread.ref.id}`,
+              selector: thread.anchor,
+            },
+          ]
+        : [],
+    ),
   );
   useLayoutEffect(() => {
     if (state !== 'ready') return;
@@ -122,7 +137,16 @@ export function useQuestionLayer({
       JSON.parse(renderedReviews),
       JSON.parse(renderedReadings),
     );
-  }, [state, questions, renderedGroups, renderedReviews, renderedReadings, identity, renderer]);
+  }, [
+    state,
+    contentRevision,
+    questions,
+    renderedGroups,
+    renderedReviews,
+    renderedReadings,
+    identity,
+    renderer,
+  ]);
   const notificationThreads = useMemo(
     () =>
       !questions.length
@@ -248,6 +272,17 @@ export function useQuestionLayer({
             >
               <QuestionGroupCard
                 group={group}
+                registry={view.questions}
+                states={verifiedQuestionStates(view)}
+                creator={
+                  view.creator?.agent ??
+                  (view.creationRecipient
+                    ? {
+                        id: view.creationRecipient.agentId,
+                        name: view.originalAuthor ?? text.unknownAuthor,
+                      }
+                    : undefined)
+                }
                 members={members}
                 selected={current}
                 onSelect={(id) => setActive((previous) => ({ ...previous, [group.id]: id }))}

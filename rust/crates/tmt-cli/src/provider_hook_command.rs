@@ -30,6 +30,7 @@ use tmt_core::{
 
 const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
 use crate::session_learning::{Learning, Role};
+use tmt_core::binding::session::launch::SessionLearningDigestStop as DigestStop;
 use tmt_core::binding::session::launch::{
     SessionLearningDetail, SessionLearningEvent, SessionLearningReason as Reason,
     SessionLearningStep as Step, SessionLearningStop as Stop,
@@ -319,7 +320,9 @@ fn observe_turn(
             return Ok(false);
         };
         let fallback = if turn.final_text.is_none() && usage_on {
-            let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+            let environment = ProviderEnvironment::capture()
+                .map_err(|_| ())?
+                .with_data_root(&paths.global_dir);
             lifecycle
                 .turn_observation(
                     turn,
@@ -389,7 +392,9 @@ fn observe_turn(
             {
                 return Err(());
             }
-            let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+            let environment = ProviderEnvironment::capture()
+                .map_err(|_| ())?
+                .with_data_root(&paths.global_dir);
             let now_ms = tmt_adapters::request_runtime::wall_time_ms();
             let observation = lifecycle.turn_observation(
                 turn,
@@ -438,7 +443,7 @@ pub(crate) fn capture_before_digest(
     provider: &str,
     input: &[u8],
     deadline: Instant,
-) -> Result<(), ()> {
+) -> Result<(), DigestStop> {
     if !tmt_adapters::drivers::Registry::builtin()
         .find(provider)
         .is_some_and(tmt_adapters::setup::stop_hook_installed)
@@ -470,7 +475,7 @@ pub(crate) fn capture_before_digest(
         },
     ) {
         Ok(_) | Err(TurnFailure::NotApplicable) => Ok(()),
-        Err(TurnFailure::CaptureFailed) => Err(()),
+        Err(TurnFailure::CaptureFailed) => Err(DigestStop::CaptureFailed),
     }
 }
 
@@ -762,7 +767,8 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
 }
 
 /// Discover or verify this exact foreground launch in one native admission pass.
-/// Supplied argv and discovered coordinates are locators, never authority.
+/// Supplied argv and discovered coordinates are locators, never authority. A refusal names
+/// the check that failed, so a Digest Stop that ends with no output can say why.
 pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
     provider: &str,
     lifecycle: &dyn RuntimeLifecycle,
@@ -776,29 +782,40 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
         ConfigPaths,
         IdentityContextSnapshot,
     ),
-    (),
+    DigestStop,
 > {
     if launch.is_some_and(|v| !v.valid()) {
-        return Err(());
+        return Err(DigestStop::LaunchArgument);
     }
-    let host = lifecycle.host_evidence().map_err(|_| ())?;
-    let Caller::Bound(bound) = verified_lifecycle_caller(
-        provider,
-        lifecycle,
-        host,
-        session,
-        None,
+    let host = lifecycle
+        .host_evidence()
+        .map_err(|_| DigestStop::LaunchHost)?;
+    let bound = caller_check(
+        verified_lifecycle_caller(
+            provider,
+            lifecycle,
+            host,
+            session,
+            None,
+            deadline,
+            runner.clone(),
+        ),
         deadline,
-        runner.clone(),
-    )?
-    else {
-        return Err(());
-    };
-    let binding = bound.stored.entry.binding.as_ref().ok_or(())?;
+    )?;
+    let binding = bound
+        .stored
+        .entry
+        .binding
+        .as_ref()
+        .ok_or(DigestStop::LaunchBinding)?;
     let launch = match launch {
         Some(launch) => launch.clone(),
         None => {
-            let owner = binding.session.launch_owner.as_ref().ok_or(())?;
+            let owner = binding
+                .session
+                .launch_owner
+                .as_ref()
+                .ok_or(DigestStop::LaunchBinding)?;
             tmt_adapters::runtime::hook_protocol::HookLaunch {
                 identity_id: binding.identity_id.clone(),
                 binding_id: binding.id.clone(),
@@ -807,41 +824,92 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
             }
         }
     };
-    if !launch.valid() {
-        return Err(());
-    }
-    let owner = launch.owner().ok_or(())?;
+    let owner = launch
+        .valid()
+        .then(|| launch.owner())
+        .flatten()
+        .ok_or(DigestStop::LaunchArgument)?;
     let process = lifecycle
         .digest_process(&binding.session, &bound.process, session, host, deadline)
-        .ok_or(())?;
-    let expected = binding.id == launch.binding_id
-        && binding.identity_id == launch.identity_id
-        && binding.session.state == tmt_core::binding::session::RuntimeState::Running
-        && binding.session.launch_owner.as_ref() == Some(&owner)
-        && binding.session.key.as_ref().is_some_and(|key| {
-            key.incarnation == process && key.provider_session.as_ref() == Some(session)
-        })
-        && bound
-            .stored
-            .preferences
-            .remembered
-            .as_ref()
-            .is_some_and(|remembered| {
-                remembered.harness.as_str() == provider && &remembered.provider_session == session
-            })
-        && matches!(
-            evaluate_binding(&bound.stored.entry, &EndpointProbe::Live(bound.snapshot)),
-            BindingEvidence::Active(_)
-        );
-    if !expected {
-        return Err(());
+        .ok_or(DigestStop::LaunchProcess)?;
+    if binding.id != launch.binding_id
+        || binding.identity_id != launch.identity_id
+        || binding.session.state != tmt_core::binding::session::RuntimeState::Running
+        || binding.session.launch_owner.as_ref() != Some(&owner)
+    {
+        return Err(DigestStop::LaunchBinding);
     }
-    let alive = matches!(observe_runtime_process(&runner, owner.pid(), deadline).map_err(|_| ())?,
-        tmt_adapters::process::runtime::ProcessObservation::Live(current) if current == owner);
-    if !alive || Instant::now() >= deadline {
-        return Err(());
+    if !binding.session.key.as_ref().is_some_and(|key| {
+        key.incarnation == process && key.provider_session.as_ref() == Some(session)
+    }) {
+        return Err(DigestStop::LaunchSession);
+    }
+    if !bound
+        .stored
+        .preferences
+        .remembered
+        .as_ref()
+        .is_some_and(|remembered| {
+            remembered.harness.as_str() == provider && &remembered.provider_session == session
+        })
+    {
+        return Err(DigestStop::LaunchRemembered);
+    }
+    if !matches!(
+        evaluate_binding(&bound.stored.entry, &EndpointProbe::Live(bound.snapshot)),
+        BindingEvidence::Active(_)
+    ) {
+        return Err(DigestStop::LaunchEndpoint);
+    }
+    owner_check(
+        observe_runtime_process(&runner, owner.pid(), deadline).map_err(|_| ()),
+        &owner,
+        deadline,
+    )?;
+    if Instant::now() >= deadline {
+        return Err(DigestStop::LaunchDeadline);
     }
     Ok((launch, bound.paths, bound.stored))
+}
+
+/// A probe that failed is not a refused caller: it names the deadline once that passed.
+fn probe_failure(probe: DigestStop, deadline: Instant) -> DigestStop {
+    if Instant::now() >= deadline {
+        DigestStop::LaunchDeadline
+    } else {
+        probe
+    }
+}
+
+fn caller_check(
+    caller: Result<Caller, ()>,
+    deadline: Instant,
+) -> Result<Box<BoundCaller>, DigestStop> {
+    match caller {
+        Ok(Caller::Bound(bound)) => Ok(bound),
+        Ok(_) => Err(DigestStop::LaunchCaller),
+        Err(()) => Err(probe_failure(DigestStop::LaunchCallerProbe, deadline)),
+    }
+}
+
+/// Only a live owner with a different start is `launch:owner`, the start identity check
+/// itself; a probe with no answer and an owner that is not live are named apart.
+fn owner_check(
+    observed: Result<tmt_adapters::process::runtime::ProcessObservation, ()>,
+    owner: &ProcessIncarnation,
+    deadline: Instant,
+) -> Result<(), DigestStop> {
+    use tmt_adapters::process::runtime::ProcessObservation as Observed;
+    match observed {
+        Ok(Observed::Live(current)) if current == *owner => Ok(()),
+        Ok(Observed::Live(_)) => Err(DigestStop::LaunchOwner),
+        Ok(Observed::Gone | Observed::Stopped(_) | Observed::UnreapedZombie(_)) => {
+            Err(DigestStop::LaunchOwnerNotLive)
+        }
+        Ok(Observed::Unknown) | Err(()) => {
+            Err(probe_failure(DigestStop::LaunchOwnerProbe, deadline))
+        }
+    }
 }
 
 fn observe(
@@ -1648,6 +1716,7 @@ fn observe_main_event(
             .is_some_and(tmt_adapters::setup::usage_consented)
     {
         ProviderEnvironment::capture().ok().and_then(|environment| {
+            let environment = environment.with_data_root(&paths.global_dir);
             let locator = lifecycle.consumption_locator(payload?, &environment);
             let turn =
                 lifecycle.sampling_turn(session, locator.as_deref(), &environment, deadline)?;
@@ -1789,6 +1858,56 @@ mod decode_tests;
 
 #[cfg(test)]
 mod interrupt_tests;
+
+#[cfg(test)]
+mod digest_launch_tests {
+    use super::*;
+    use tmt_adapters::process::runtime::ProcessObservation as Observed;
+
+    #[test]
+    fn each_owner_and_caller_outcome_has_its_own_name() {
+        let owner = ProcessIncarnation::new(7, "ps-v1:Sat Oct 24 11:40:50 2026").unwrap();
+        let other = ProcessIncarnation::new(7, "ps-v1:Sat Oct 24 11:40:51 2026").unwrap();
+        let later = Instant::now() + Duration::from_secs(5);
+        let passed = Instant::now();
+        let check = |observed, deadline| owner_check(observed, &owner, deadline);
+        assert_eq!(check(Ok(Observed::Live(owner.clone())), later), Ok(()));
+        assert_eq!(
+            check(Ok(Observed::Live(other.clone())), later),
+            Err(DigestStop::LaunchOwner),
+            "only a live owner with a different start is the start identity check"
+        );
+        for gone in [
+            Observed::Gone,
+            Observed::Stopped(owner.clone()),
+            Observed::UnreapedZombie(owner.clone()),
+        ] {
+            assert_eq!(check(Ok(gone), later), Err(DigestStop::LaunchOwnerNotLive));
+        }
+        assert_eq!(check(Err(()), later), Err(DigestStop::LaunchOwnerProbe));
+        assert_eq!(
+            check(Ok(Observed::Unknown), later),
+            Err(DigestStop::LaunchOwnerProbe)
+        );
+        assert_eq!(check(Err(()), passed), Err(DigestStop::LaunchDeadline));
+        assert_eq!(
+            caller_check(Ok(Caller::Unobserved), later).err(),
+            Some(DigestStop::LaunchCaller)
+        );
+        assert_eq!(
+            caller_check(Ok(Caller::Unbound { marked: false }), later).err(),
+            Some(DigestStop::LaunchCaller)
+        );
+        assert_eq!(
+            caller_check(Err(()), later).err(),
+            Some(DigestStop::LaunchCallerProbe)
+        );
+        assert_eq!(
+            caller_check(Err(()), passed).err(),
+            Some(DigestStop::LaunchDeadline)
+        );
+    }
+}
 
 #[cfg(test)]
 mod budget_tests {

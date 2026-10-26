@@ -1,7 +1,7 @@
 //! Setup consent and presentation; provider file policy belongs to adapters.
 //! `tmt setup` without a driver is the guided flow in [`guided`].
 
-mod guided;
+pub(crate) mod guided;
 pub(crate) mod refresh;
 
 use crate::{invocation::OutputMode, output::Failure};
@@ -10,7 +10,11 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::ConfigPaths,
     drivers::Registry,
-    setup::{self, SetupEnvironment, UsageHook, record},
+    setup::{
+        self, SetupEnvironment, UsageHook,
+        provider_mod::{self, ModStep, PendingMod},
+        record,
+    },
 };
 
 pub fn execute(
@@ -22,16 +26,32 @@ pub fn execute(
     mode: OutputMode,
 ) -> io::Result<u8> {
     match run(provider.as_deref(), status, remove, usage, yes, mode) {
-        Ok(()) => Ok(0),
+        Ok(status) => Ok(status),
         Err(error) => error.publish(mode),
     }
 }
 
 /// What the usage hook reads, shown wherever setup plans it.
-const USAGE_NOTE: &str = "Usage and recent responses: after each turn, TMT reads token counts and keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). Use --no-usage to stop collecting.";
+pub(crate) const USAGE_NOTE: &str = "Usage and recent responses: after each turn, TMT reads token counts and keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). Use --no-usage to stop collecting.";
 
 /// What the turn-end hook keeps when usage collection is off: the agent's answers for the chat.
-const ANSWERS_NOTE: &str = "Chat answers: after each turn, TMT keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). No usage data is read or stored.";
+pub(crate) const ANSWERS_NOTE: &str = "Chat answers: after each turn, TMT keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). No usage data is read or stored.";
+
+/// What setup says about the managed mod a driver keeps once usage is consented (#5187).
+fn mod_note(pending: &PendingMod) -> String {
+    let provider = pending.provider();
+    let target = pending.target().display();
+    match pending.step {
+        ModStep::Install | ModStep::Refresh => format!(
+            "{provider} mod: {}. TMT keeps a managed copy in {target}; turning usage off, --remove and uninstall remove it.",
+            pending.purpose()
+        ),
+        ModStep::Remove => format!("Removes TMT's managed {provider} mod in {target}."),
+        ModStep::Blocked => format!(
+            "Leaves {target} as it is: it is not TMT's, so the {provider} mod is not installed."
+        ),
+    }
+}
 
 fn failure(error: impl std::error::Error + 'static) -> Failure {
     Failure::new("SETUP_ERROR", error.to_string(), 1).caused_by(error)
@@ -44,10 +64,10 @@ fn run(
     usage: UsageHook,
     yes: bool,
     mode: OutputMode,
-) -> Result<(), Failure> {
+) -> Result<u8, Failure> {
     let drivers = Registry::builtin();
     if status {
-        return show_status(&drivers, provider, mode);
+        return show_status(&drivers, provider, mode).map(|()| 0);
     }
     let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
     let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
@@ -97,6 +117,9 @@ fn run(
         .expect("one selected provider plan");
     // The record was validated before planning any settings changes.
     let removing = remove;
+    let provider_mod =
+        provider_mod::pending(plan.provider, &plan.change.path, !remove && plan.usage)
+            .map_err(failure)?;
     if !mode.json {
         writeln!(output, "{} {} {} in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
             if removing { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.events(), plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
@@ -116,6 +139,9 @@ fn run(
             writeln!(output, "{ANSWERS_NOTE}").map_err(failure)?;
             writeln!(output, "{}", collection_off(plan.provider)).map_err(failure)?;
         }
+        if let Some(pending) = &provider_mod {
+            writeln!(output, "{}", mod_note(pending)).map_err(failure)?;
+        }
     }
     if !crate::consent::ask(
         &mut output,
@@ -129,7 +155,7 @@ fn run(
         },
         failure,
     )? {
-        return Ok(());
+        return Ok(0);
     }
     let backup = setup::apply(&plan).map_err(failure)?;
     let warning = setup::backup_warning(&plan.change.path);
@@ -157,10 +183,35 @@ fn run(
         )
         .suggestion(format!("run tmt setup {} again", plan.provider))
     })?;
+    // The hooks are in place; the mod follows them and its failure leaves them alone.
+    let mod_outcome = provider_mod
+        .as_ref()
+        .map(|pending| pending.apply())
+        .transpose()
+        .map_err(|error| {
+            Failure::new(
+                "SETUP_ERROR",
+                format!(
+                    "The {} hooks were updated, but the mod could not be: {error}",
+                    plan.provider
+                ),
+                1,
+            )
+            .suggestion(format!("run tmt setup {} again", plan.provider))
+        })?;
+    let mod_changed = provider_mod
+        .as_ref()
+        .zip(mod_outcome)
+        .is_some_and(|(pending, outcome)| {
+            pending.changes() && outcome != provider_mod::ModOutcome::Blocked
+        });
     if mode.json {
         let mut document = json!({"provider": plan.provider, "changed": plan.change.changed(),
             "removed": remove, "settingsPath": plan.change.path, "launcher": plan.launcher, "backup": backup
         });
+        if let (Some(pending), Some(outcome)) = (&provider_mod, mod_outcome) {
+            document["mod"] = json!({"path": pending.target(), "status": outcome.label()});
+        }
         if let Some(warning) = &warning {
             document["warnings"] = json!([warning]);
         }
@@ -178,8 +229,29 @@ fn run(
                 ),
             )
             .map_err(failure)?;
-        } else {
+        } else if !mod_changed {
             writeln!(output, "Already current; no changes made.").map_err(failure)?;
+        }
+        if let (Some(pending), Some(outcome)) = (&provider_mod, mod_outcome) {
+            let provider = pending.provider();
+            match outcome {
+                provider_mod::ModOutcome::Blocked => tmt_cli_style::message::warning(
+                    &mut output,
+                    terminal,
+                    &format!(
+                        "Left {} as it is: it is not TMT's, so the {provider} mod was not installed",
+                        pending.target().display()
+                    ),
+                    None,
+                )
+                .map_err(failure)?,
+                done => tmt_cli_style::message::success(
+                    &mut output,
+                    terminal,
+                    &format!("{} the {provider} mod", capitalized(done.label())),
+                )
+                .map_err(failure)?,
+            }
         }
         if let Some(warning) = &warning {
             tmt_cli_style::message::warning(&mut output, terminal, warning, None)
@@ -189,7 +261,15 @@ fn run(
             writeln!(output, "Recoverable backup: {}", backup.display()).map_err(failure)?;
         }
     }
-    Ok(())
+    Ok(0)
+}
+
+fn capitalized(word: &str) -> String {
+    let mut letters = word.chars();
+    letters
+        .next()
+        .map(|first| first.to_uppercase().chain(letters).collect())
+        .unwrap_or_default()
 }
 
 fn collection_off(provider: &str) -> String {
@@ -270,3 +350,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 
 #[cfg(test)]
 pub(crate) use guided::PRINTED_HINTS as GUIDED_HINTS;
+
+#[cfg(test)]
+pub(crate) use guided::EXTENSION_HINTS as GUIDED_EXTENSION_HINTS;

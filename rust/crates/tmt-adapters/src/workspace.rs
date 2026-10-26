@@ -1,7 +1,7 @@
 //! Private, advisory workspace publication. No scheduler or authority store.
 
 mod capture;
-pub use capture::{WorkspaceCaptureReport, capture_hook, capture_recorded};
+pub use capture::{CaptureReason, WorkspaceCaptureReport, capture_hook, capture_recorded};
 pub mod generations;
 pub mod plan;
 pub mod restore;

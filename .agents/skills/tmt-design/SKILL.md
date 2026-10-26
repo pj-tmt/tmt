@@ -29,8 +29,8 @@ cd site
 pnpm install --frozen-lockfile
 pnpm dev                        # http://127.0.0.1:5173/tmt/
 pnpm check                      # types, Vite+ lint/format, MDX imports, translation sync
-pnpm build                      # four Homes, Colab landing and historical redirect stubs
-SITE_BASE=/ pnpm build          # root path or custom domain
+SITE_ORIGIN=https://example.com pnpm build              # four Homes, Colab landing, historical redirect stubs
+SITE_ORIGIN=https://example.com SITE_BASE=/ pnpm build  # root path or custom domain
 SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # preview at an unknown path
 ```
 
@@ -40,14 +40,15 @@ swap `*` and `_` in samples: grep and run samples after formatting.
 
 ## Blog
 
-UX reviews `site/src/blog/` code and shared site behavior. Approved English posts
-live in `site/src/posts/<slug>/` with article HTML, metadata, approval and only
-referenced module/image assets. Other post languages require an explicit
-`languageExceptions` addition before enabling them. See [site README](../../../site/README.md#blog)
-for the Colab approval protocol and commands.
+Marketing owns and reviews the blog end to end (`site/src/blog/` code and `site/src/posts/`);
+GUI reviews shared site behavior outside it. English posts live at the slug root; independently approved translations live under
+its `ja/`, `zh-hant/` or `zh-hans/` directory. Each translated directory needs its
+own `languageExceptions` entry with its first approved post. See [site README](../../../site/README.md#blog)
+for language URLs, English fallback, the approval protocol and commands.
 
 Vite builds complete blog HTML plus external bundled article modules into the
-same `site/dist` artifact as Home; URLs derive from `SITE_BASE` plus `blog/`.
+same `site/dist` artifact as Home; URLs derive from `SITE_ORIGIN` plus `SITE_BASE` plus `blog/`
+(a production build requires `SITE_ORIGIN`; the workflow derives it from the repository owner).
 Preserve the existing blog CSP: no inline scripts or new resource origins.
 `pnpm blog:demo` is an explicit local example build; production verification
 rejects it by default. Only the existing `site.yml` Build site job checks/uploads

@@ -854,3 +854,273 @@ fn codex_counts_the_sessions_it_started_and_a_hook_read_keeps_them() {
         .unwrap();
     assert_eq!(counted(&state), (1_500, 150));
 }
+
+/// A Claude compaction appends its boundary and summary to the same session's
+/// transcript, and its `SessionStart` (`source: compact`) arrives through the
+/// start hook. An agent that then stays idle is observed: the sampler's next
+/// caught-up read is a complete zero observation, not an unknown gap (#5122).
+#[test]
+fn an_idle_claude_after_a_compaction_reads_as_observed_zero() {
+    use super::lifecycle::LifecycleObservation;
+    let home = TestDirectory::new();
+    let directory = home.path.join(".claude/projects/-workspace");
+    fs::create_dir_all(&directory).unwrap();
+    let transcript = directory.join("session.jsonl");
+    fs::write(
+        &transcript,
+        include_str!("fixtures/claude-usage-sequence.jsonl"),
+    )
+    .unwrap();
+    let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+    let turn = claude::ClaudeLifecycle
+        .decode_turn(&stop(Some(&transcript)))
+        .unwrap();
+    let sample = |previous: &DriverState, now: u64| {
+        claude::ClaudeLifecycle
+            .turn_state(
+                &turn,
+                &environment,
+                Some(previous),
+                now,
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap()
+    };
+    let consumption = |state: &DriverState| driver_state::state_consumption(state).unwrap().value;
+    let start = driver_state::after_start(Some("claude-opus-5-5"), None, None, NOW - 1).unwrap();
+    let caught_up = sample(&start, NOW);
+    let before = consumption(&caught_up);
+    // Claude writes the compaction as appended records of the same session.
+    let mut appended = fs::OpenOptions::new()
+        .append(true)
+        .open(&transcript)
+        .unwrap();
+    for record in [
+        json!({"type":"system","subtype":"compact_boundary","sessionId":SESSION,
+            "compactMetadata":{"trigger":"auto","preTokens":180_000}}),
+        json!({"type":"user","isCompactSummary":true,"sessionId":SESSION,
+            "message":{"role":"user","content":"<summary>"}}),
+    ] {
+        writeln!(appended, "{record}").unwrap();
+    }
+    drop(appended);
+    let compacted = claude::decode_hook(
+        json!({"session_id":SESSION,"hook_event_name":"SessionStart","source":"compact",
+            "cwd":"/workspace","transcript_path":transcript})
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap()
+    .driver_state(Some(&caught_up), NOW + 1_000)
+    .unwrap();
+    let idle = sample(&compacted, NOW + 5_000);
+    let observed = consumption(&idle);
+    assert!(
+        observed.complete && !observed.gap,
+        "an idle agent after a compaction is observed: {observed:?}"
+    );
+    assert_eq!(
+        observed.epoch, before.epoch,
+        "a compaction is no new baseline"
+    );
+    assert_eq!(
+        (observed.input_tokens, observed.output_tokens),
+        (before.input_tokens, before.output_tokens)
+    );
+    // Later idle ticks write nothing new (#5019).
+    assert_eq!(sample(&idle, NOW + 10_000), idle);
+    // Real growth after the compaction still counts its tokens.
+    let mut appended = fs::OpenOptions::new()
+        .append(true)
+        .open(&transcript)
+        .unwrap();
+    writeln!(
+        appended,
+        "{}",
+        json!({"type":"assistant","requestId":"after-compaction","message":{
+            "id":"after-compaction","model":"claude-opus-5-5",
+            "usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":4}
+        }})
+    )
+    .unwrap();
+    drop(appended);
+    let grown = consumption(&sample(&idle, NOW + 15_000));
+    assert!(grown.complete && !grown.gap);
+    assert_eq!(grown.input_tokens, observed.input_tokens + 14);
+    assert_eq!(grown.output_tokens, observed.output_tokens + 2);
+}
+
+/// A Claude clear starts a new conversation in a new transcript file. The
+/// counter starts again there: the first read is a new baseline, and the next
+/// caught-up read makes the agent observed while it stays idle (#5122).
+#[test]
+fn a_claude_clear_starts_a_new_baseline_that_is_observed_while_idle() {
+    use super::lifecycle::LifecycleObservation;
+    let home = TestDirectory::new();
+    let directory = home.path.join(".claude/projects/-workspace");
+    fs::create_dir_all(&directory).unwrap();
+    let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+    let sample = |transcript: &Path, previous: &DriverState, now: u64| {
+        let turn = claude::ClaudeLifecycle
+            .decode_turn(&stop(Some(transcript)))
+            .unwrap();
+        claude::ClaudeLifecycle
+            .turn_state(
+                &turn,
+                &environment,
+                Some(previous),
+                now,
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap()
+    };
+    let consumption = |state: &DriverState| driver_state::state_consumption(state).unwrap().value;
+    let source = include_str!("fixtures/claude-usage-sequence.jsonl");
+    let old = directory.join("old.jsonl");
+    fs::write(&old, source).unwrap();
+    let start = driver_state::after_start(Some("claude-opus-5-5"), None, None, NOW - 1).unwrap();
+    let before = sample(&old, &sample(&old, &start, NOW), NOW + 1);
+    assert!(consumption(&before).complete);
+    let fresh = directory.join("fresh.jsonl");
+    fs::write(&fresh, source).unwrap();
+    let cleared = claude::decode_hook(
+        json!({"session_id":SESSION,"hook_event_name":"SessionStart","source":"clear",
+            "cwd":"/workspace"})
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap()
+    .driver_state(Some(&before), NOW + 2)
+    .unwrap();
+    assert_eq!(driver_state::state_consumption(&cleared), None);
+    let first = sample(&fresh, &cleared, NOW + 5_000);
+    assert_ne!(consumption(&first).epoch, consumption(&before).epoch);
+    assert_eq!(
+        consumption(&first).input_tokens,
+        0,
+        "no history is replayed"
+    );
+    let idle = sample(&fresh, &first, NOW + 10_000);
+    let observed = consumption(&idle);
+    assert!(observed.complete && !observed.gap, "{observed:?}");
+    assert_eq!(sample(&fresh, &idle, NOW + 15_000), idle);
+}
+
+/// A Codex compaction goes on in the same rollout, so it keeps the counter and
+/// an idle agent stays observed (#5122).
+#[test]
+fn an_idle_codex_after_a_compaction_stays_observed() {
+    use super::lifecycle::LifecycleObservation;
+    let driver = &drivers()[1];
+    let home = TestDirectory::new();
+    let directory = home.path.join(driver.tree);
+    fs::create_dir_all(&directory).unwrap();
+    let rollout = directory.join("session.jsonl");
+    let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+    let turn = codex::CodexLifecycle
+        .decode_turn(&stop(Some(&rollout)))
+        .unwrap();
+    let sample = |previous: &DriverState, now: u64| {
+        codex::CodexLifecycle
+            .turn_state(
+                &turn,
+                &environment,
+                Some(previous),
+                now,
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap()
+    };
+    let consumption = |state: &DriverState| driver_state::state_consumption(state).unwrap().value;
+    let line = |total: u64| {
+        edited(driver.line, |value| {
+            let usage = value
+                .pointer_mut("/payload/info/total_token_usage")
+                .unwrap();
+            usage["output_tokens"] = json!(total);
+            usage["total_tokens"] = json!(usage["input_tokens"].as_u64().unwrap() + total);
+        }) + "\n"
+    };
+    fs::write(&rollout, line(1)).unwrap();
+    let start = driver_state::after_start(Some("gpt-5.5"), None, None, NOW - 1).unwrap();
+    let first = sample(&start, NOW);
+    fs::write(&rollout, line(1) + &line(2)).unwrap();
+    let working = sample(&first, NOW + 5_000);
+    let before = consumption(&working);
+    assert!(before.complete && !before.gap, "{before:?}");
+    let compacted = codex::decode_hook(
+        json!({"session_id":SESSION,"hook_event_name":"SessionStart","source":"compact",
+            "cwd":"/workspace"})
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap()
+    .driver_state(Some(&working), NOW + 6_000)
+    .unwrap();
+    let idle = sample(&compacted, NOW + 10_000);
+    assert_eq!(consumption(&idle), before, "a compaction keeps the counter");
+    assert_eq!(sample(&idle, NOW + 15_000), idle);
+}
+
+/// A Codex fresh launch, clear or new thread begins a new baseline in its
+/// rollout. Through the real hook path the first read may be a gap; the next
+/// idle read is a complete zero observation and later ones write nothing (#5122).
+#[test]
+fn an_idle_codex_after_a_new_start_is_observed() {
+    use super::lifecycle::LifecycleObservation;
+    let driver = &drivers()[1];
+    let mut failures = Vec::new();
+    for source in [None, Some("clear"), Some("startup")] {
+        let home = TestDirectory::new();
+        let directory = home.path.join(driver.tree);
+        fs::create_dir_all(&directory).unwrap();
+        let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+        let sample = |rollout: &Path, previous: &DriverState, now: u64| {
+            let turn = codex::CodexLifecycle
+                .decode_turn(&stop(Some(rollout)))
+                .unwrap();
+            codex::CodexLifecycle
+                .turn_state(
+                    &turn,
+                    &environment,
+                    Some(previous),
+                    now,
+                    std::time::Instant::now() + std::time::Duration::from_secs(2),
+                )
+                .unwrap()
+        };
+        let consumption =
+            |state: &DriverState| driver_state::state_consumption(state).unwrap().value;
+        let line = format!("{}\n", driver.line.trim_end());
+        let start = driver_state::after_start(Some("gpt-5.5"), None, None, NOW - 1).unwrap();
+        let rollout = directory.join("new.jsonl");
+        let started = match source {
+            None => start,
+            Some(source) => {
+                let old = directory.join("old.jsonl");
+                fs::write(&old, &line).unwrap();
+                let before = sample(&old, &start, NOW);
+                codex::decode_hook(
+                    json!({"session_id":SESSION,"hook_event_name":"SessionStart",
+                        "source":source,"cwd":"/workspace"})
+                    .to_string()
+                    .as_bytes(),
+                )
+                .unwrap()
+                .driver_state(Some(&before), NOW + 1)
+                .unwrap()
+            }
+        };
+        fs::write(&rollout, &line).unwrap();
+        let first = sample(&rollout, &started, NOW + 5_000);
+        let idle = sample(&rollout, &first, NOW + 10_000);
+        let observed = consumption(&idle);
+        if !observed.complete || observed.gap {
+            failures.push(format!("{source:?}: {observed:?}"));
+            continue;
+        }
+        assert_eq!(observed.epoch, consumption(&first).epoch, "{source:?}");
+        assert_eq!(sample(&rollout, &idle, NOW + 15_000), idle, "{source:?}");
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

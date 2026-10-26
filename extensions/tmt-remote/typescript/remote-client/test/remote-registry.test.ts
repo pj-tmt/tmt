@@ -60,7 +60,11 @@ test('handoff is public-only, bounded and targeted', async () => {
   const packet = await parseHandoff(new URL(url).hash);
   assert.deepEqual(packet.catalog, catalog);
   assert.equal(new URL(url).origin, new URL(b.url).origin);
-  assert.equal(new URL(url).pathname, '/remote/', 'local handoff reaches the moved Remote entry');
+  assert.equal(
+    new URL(url).pathname,
+    '/remote/overview',
+    'local handoff reaches the selected Remote overview',
+  );
   await assert.rejects(parseHandoff(new URL(url).hash + '&tmt-source=host'));
   await assert.rejects(parseHandoff(`#tmt-remotes=${'x'.repeat(8193)}`));
   await assert.rejects(buildHandoff({ ...b, url: 'http://attacker/next?return=secret' }, catalog));
@@ -217,6 +221,7 @@ test('an empty remembered catalog still projects this machine first, with no inv
   assert.equal(view.current.url, 'http://localhost:9001/');
   assert.equal(view.current.backend, 'Local');
   assert.equal(view.current.roleLabel, 'Role unknown');
+  assert.equal(view.current.role, undefined);
 });
 
 test('one source deduplicates this machine and keeps foreign roles and connections unchecked', () => {
@@ -240,10 +245,12 @@ test('one source deduplicates this machine and keeps foreign roles and connectio
   assert.equal(view.current.reference, a);
   assert.equal(view.current.thisMachine, true);
   assert.equal(view.current.roleLabel, 'Admin');
+  assert.equal(view.current.role, 'owner');
   assert.equal(view.current.connection.text, 'Connected');
   for (const row of view.rows.slice(1)) {
     assert.equal(row.thisMachine, false);
     assert.equal(row.roleLabel, 'Role unknown');
+    assert.equal(row.role, undefined);
     assert.equal(row.connection.text, 'Not checked');
   }
   assert.equal(view.rows[2]!.backend, 'Firebase');
@@ -254,5 +261,6 @@ test('one source deduplicates this machine and keeps foreign roles and connectio
   );
   assert.equal(offline.rows.length, 1);
   assert.equal(offline.current.roleLabel, 'Member');
+  assert.equal(offline.current.role, 'user');
   assert.equal(offline.current.connection.text, 'Offline');
 });

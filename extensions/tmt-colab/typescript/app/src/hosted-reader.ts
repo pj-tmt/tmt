@@ -37,6 +37,7 @@ import {
 } from './hosted-documents.js';
 import { hostedQuery } from './hosted-query.js';
 import type { PageView } from './transport.js';
+import { readThreads } from './thread-records.js';
 
 /** One page's verifier and own sender, with shared serialized state and joined shutdown. */
 export class HostedPageReader {
@@ -297,7 +298,16 @@ export class HostedPageReader {
       a.validateRead(['link', 'public']);
       writers.forEach((writer) => this.knownWriters.add(writer));
       this.started = true;
-      return { ...projection, ownData: this.objects.ownData };
+      return {
+        ...projection,
+        ownData: this.objects.ownData,
+        threads: readThreads(
+          projection.own ?? {},
+          { spaceId: a.space, pageId: a.page, epoch: a.epoch },
+          (writer) => this.objects.ownSigningKey(writer),
+          (writer) => this.objects.statusWriter(writer),
+        ),
+      };
     } finally {
       catchup.close();
     }

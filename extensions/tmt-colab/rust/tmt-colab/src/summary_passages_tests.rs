@@ -7,6 +7,7 @@ fn vectors() -> Value {
 }
 fn comment(id: &str, at: &str, body: &str, deleted: bool) -> Comment {
     Comment {
+        question_id: None,
         writer: "10000000-0000-4000-8000-000000000101".into(),
         id: id.into(),
         revision: "1".into(),
@@ -66,8 +67,9 @@ fn every_pending_item_of_the_shared_vectors_is_named_review_first_and_in_page_or
         let (report, anchors) =
             crate::page_check::summary(case["source"].as_str().unwrap(), &conversations.threads)
                 .unwrap();
-        let pending = crate::summary_pending::items(&report, &anchors, &conversations, &writers);
-        let named = needs(&report, &conversations, &pending);
+        let pending =
+            crate::summary_pending::items(&report, &anchors, &conversations, &writers, None);
+        let named = needs(&report, &conversations, &pending, &[]);
         let name = case["name"].as_str().unwrap();
         // The same targets as the count, none lost and none added.
         let mut counted: Vec<_> = pending.iter().map(|item| item.id.clone()).collect();
@@ -91,7 +93,7 @@ fn every_pending_item_of_the_shared_vectors_is_named_review_first_and_in_page_or
 }
 
 #[test]
-fn a_question_group_is_named_by_its_title_and_a_reading_carries_its_reason() {
+fn registered_questions_are_named_individually_and_a_reading_carries_its_reason() {
     let cases = vectors();
     let case = &cases["cases"][0];
     let conversations = crate::summary_pending::tests::view(case);
@@ -104,10 +106,24 @@ fn a_question_group_is_named_by_its_title_and_a_reading_carries_its_reason() {
     let (report, anchors) =
         crate::page_check::summary(case["source"].as_str().unwrap(), &conversations.threads)
             .unwrap();
-    let pending = crate::summary_pending::items(&report, &anchors, &conversations, &writers);
-    let named = needs(&report, &conversations, &pending);
+    let questions: Vec<_> = report.questions.iter().map(|question| serde_json::json!({"id":question.id,"title":question.title,"agent":{"name":question.agent},"state":"open"})).collect();
+    let pending = crate::summary_pending::items(
+        &report,
+        &anchors,
+        &conversations,
+        &writers,
+        Some(&questions),
+    );
+    let named = needs(&report, &conversations, &pending, &questions);
+    assert_eq!(
+        named
+            .iter()
+            .filter(|need| need.kind == NeedKind::Question)
+            .count(),
+        2
+    );
     let by_kind = |kind| named.iter().find(|need| need.kind == kind).unwrap();
-    assert_eq!(by_kind(NeedKind::Question).title, "Decisions");
+    assert_eq!(by_kind(NeedKind::Question).title, "First choice?");
     assert_eq!(
         by_kind(NeedKind::Question).agent.as_deref(),
         Some("Agent 1")
@@ -154,9 +170,9 @@ fn only_the_first_twenty_by_rank_are_named_while_the_count_stays_whole() {
     let (report, anchors) =
         crate::page_check::summary("<p>Plain</p>", &conversations.threads).unwrap();
     let pending =
-        crate::summary_pending::items(&report, &anchors, &conversations, &Default::default());
+        crate::summary_pending::items(&report, &anchors, &conversations, &Default::default(), None);
     assert_eq!(pending.len(), 25, "{}", case["name"]);
-    let named = needs(&report, &conversations, &pending);
+    let named = needs(&report, &conversations, &pending, &[]);
     assert_eq!(named.len(), NEEDS_PASSAGES);
     assert_eq!(named[0].title, "Proposal 1", "page order inside a kind");
 }

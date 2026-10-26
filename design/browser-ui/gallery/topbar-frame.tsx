@@ -1,10 +1,19 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import {
   BrowserAction,
   BrowserDialog,
   BrowserField,
   BrowserShell,
   BrowserTopBar,
+  useTopBarReady,
 } from '../src/react.js';
 import {
   mountShell,
@@ -13,6 +22,9 @@ import {
   type ShellView,
 } from '../src/shell.js';
 import { startShellHost, type ShellHost, type ShellRoute } from '../src/shell-host.js';
+
+const rootNote =
+  'Search stays first at the left; its shortcut hint is hidden below 640px. Gallery root bindings only; product search remains in its owning adoption.';
 
 const destinations = [
   ['home', 'Home'],
@@ -55,6 +67,11 @@ const view: ShellView = {
   },
 };
 
+/** The gallery adopts only when its root has installed the common controls. */
+function ReadyTopBar({ actions }: { actions: ReactNode }) {
+  return useTopBarReady() ? <BrowserTopBar actions={actions} /> : null;
+}
+
 function NativeTopBar({
   common,
   hosted,
@@ -83,8 +100,7 @@ function NativeTopBar({
       heading.textContent = title;
       heading.tabIndex = -1;
       const note = document.createElement('p');
-      note.textContent =
-        'Gallery root bindings only. Product search remains in its owning adoption.';
+      note.textContent = rootNote;
       main.replaceChildren(heading, note);
       heading.focus();
       const action = document.createElement('button');
@@ -206,7 +222,7 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
       {shown &&
         (renderer === 'react' ? (
           <BrowserShell view={view} commonControls={common} select={() => true}>
-            <BrowserTopBar
+            <ReadyTopBar
               actions={
                 <BrowserAction
                   type="button"
@@ -218,7 +234,7 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
             />
             <div className="tmt-ui-page">
               <h1 className="tmt-ui-page-title">Shared top bar</h1>
-              <p>Gallery root bindings only. Product search remains in its owning adoption.</p>
+              <p>{rootNote}</p>
             </div>
           </BrowserShell>
         ) : (

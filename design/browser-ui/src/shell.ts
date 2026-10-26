@@ -324,6 +324,8 @@ export interface ShellControls {
   readonly tools: ShellTools;
   /** Root-only common bindings; route modules never receive this method. */
   setCommonControls(options: ShellCommonControls | undefined): void;
+  /** True while common controls are installed and the shell is not disposed. */
+  topBarReady(): boolean;
   setTopBar(): ShellTopBar;
   /** The route owner releases the active action slot and transient common UI. */
   clearTopBar(): void;
@@ -376,6 +378,8 @@ export function mountShell(
   const rail = document.createElement('nav');
   rail.className = 'tmt-ui-rail';
   rail.setAttribute('aria-label', 'TMT');
+  const syncRailScroll = () => rail.toggleAttribute('data-scrolled', rail.scrollTop > 0);
+  rail.addEventListener('scroll', syncRailScroll, { passive: true });
   const menu = document.createElement('nav');
   menu.className = 'tmt-ui-module-menu';
   root.prepend(open, rail);
@@ -565,11 +569,15 @@ export function mountShell(
     if (key === shown) return;
     shown = key;
     hideTip();
+    const railTop = rail.scrollTop;
     rail.replaceChildren(
       brand,
       railList(next.rail.main, undefined, onPhone ? undefined : next.menu),
       railList(next.rail.bottom, 'tmt-ui-rail-bottom', onPhone ? undefined : next.menu),
     );
+    // Keep the same scroll owner across refreshes; shrinking content clamps its position.
+    rail.scrollTop = railTop;
+    syncRailScroll();
     root.dataset.menu = next.menu ? 'shown' : 'none';
     if (!next.menu || !onPhone) {
       menu.replaceChildren();
@@ -609,6 +617,7 @@ export function mountShell(
   return {
     tools,
     setCommonControls: topBar.setCommonControls,
+    topBarReady: topBar.topBarReady,
     setTopBar: topBar.setTopBar,
     clearTopBar: topBar.clear,
     update: render,
@@ -623,6 +632,7 @@ export function mountShell(
       hideTip();
       open.remove();
       tip.remove();
+      rail.removeEventListener('scroll', syncRailScroll);
       rail.remove();
       menu.remove();
     },

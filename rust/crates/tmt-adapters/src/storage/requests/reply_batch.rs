@@ -209,9 +209,10 @@ impl Storage {
         request_id: &str,
         worker: &ProcessIncarnation,
     ) -> Result<bool, StorageError> {
+        let calendar = super::super::orchestration::ReceivingCalendar::load(self.connection()?)?;
         with_immediate_transaction(self, "reply frame attempt", |db| {
             let owned:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM reply_notices n JOIN reply_notice_batches b ON b.id=n.batch_id WHERE n.batch_id=? AND n.request_id=? AND n.attempted=0 AND b.sending=1 AND b.worker_pid=? AND b.worker_start=?)",params![id,request_id,checked_now(worker.pid(),"Reply worker PID")?,worker.start_identity()],|r|r.get(0)).map_err(|e|classify(e,"Verify unattempted reply frame owner"))?;
-            if !owned || digest_hold(db, request_id)? {
+            if !owned || digest_hold(db, request_id, &calendar)? {
                 return Ok(false);
             }
             let changed=db.execute("UPDATE reply_notices SET attempted=1 WHERE batch_id=? AND request_id=? AND attempted=0 AND EXISTS (SELECT 1 FROM reply_notice_batches WHERE id=? AND sending=1 AND worker_pid=? AND worker_start=?)",params![id,request_id,id,checked_now(worker.pid(),"Reply worker PID")?,worker.start_identity()])
@@ -227,6 +228,7 @@ impl Storage {
         id: &str,
         worker: &ProcessIncarnation,
     ) -> Result<bool, StorageError> {
+        let calendar = super::super::orchestration::ReceivingCalendar::load(self.connection()?)?;
         with_immediate_transaction(self, "reply host attempt", |db| {
             let owned:bool=db.query_row("SELECT EXISTS (SELECT 1 FROM reply_notice_batches WHERE id=? AND sending=1 AND worker_pid=? AND worker_start=?)",params![id,checked_now(worker.pid(),"Reply worker PID")?,worker.start_identity()],|row|row.get(0))
                 .map_err(|error|classify(error,"Verify reply host owner"))?;
@@ -244,7 +246,7 @@ impl Storage {
                 };
                 let mut held = false;
                 for request in ids {
-                    held |= digest_hold(db, &request)?;
+                    held |= digest_hold(db, &request, &calendar)?;
                 }
                 if held {
                     return Ok(false);
@@ -335,8 +337,12 @@ fn validate_outcome(outcome: WakeState) -> Result<(), StorageError> {
     }
 }
 
-fn digest_hold(db: &Connection, request_id: &str) -> Result<bool, StorageError> {
-    let mut records = super::RequestRows(db);
+fn digest_hold(
+    db: &Connection,
+    request_id: &str,
+    calendar: &super::super::orchestration::ReceivingCalendar,
+) -> Result<bool, StorageError> {
+    let mut records = super::RequestRows(db, Some(calendar));
     let Some(attempt) = records.find_request(request_id)? else {
         return Ok(false);
     };

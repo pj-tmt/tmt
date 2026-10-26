@@ -171,7 +171,8 @@ the shared Chromium dependency action and pnpm lockfile, plus weekly/manual even
 worker/no retries/no Rust; native-executable specs skip with a named reason, so
 the run proves the browser components only. Bounded logs/failure traces last seven days. Whole-file weights in
 `e2e/shard-weights.json` use `typescript/scripts/colab-acceptance-shards.mjs`;
-helper/matrix share a guarded count, assigning each spec exactly once, including
+helper/matrix share eleven whole-file shards under the unchanged 720-second modeled
+wall guard, assigning each spec exactly once, including
 new default-weight files. Keep the 20-minute job/30-second test limits, one worker
 and no retries. Component jobs restore the main-owned Chromium cache without saving,
 and always install system dependencies. Dot/JSON reporters share the results artifact (`results.json`
@@ -344,6 +345,15 @@ report. Run the command again for evidence after that boundary:
 ```sh
 node typescript/scripts/infra-tick-summary.mjs --output /tmp/tmt-infra-tick --review-map /tmp/infra-review-map.json
 ```
+
+Retention lives inside `--output`. After a complete tick has written its cursor, it removes
+cached `evidence/<sha256>.json` files that are older than 48 hours, not named in
+`cursor.json` and not read by that tick, then the oldest unprotected ones while the rest
+exceeds 50 MB. It touches only regular files with that name, never links. An
+`INCOMPLETE` or refused tick prunes nothing, and a pruning failure is reported as
+skipped without changing the complete tick. Each run first keeps `calls.jsonl` to the
+invocations of the previous 24 hours (at most 20,000 lines). `summary.*` reports only
+the counts of pruned and kept files.
 
 `--bootstrap` can establish a boundary after historical refusal only without an
 existing cursor or `--since`. It omits earlier failure/review history; changed old

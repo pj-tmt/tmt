@@ -20,7 +20,15 @@ channels and the driver protocol. The owner map is in
   `snapshot` (all panes, or one).
 
 - A running-command handle separates launch from wait but keeps the original deadline and
-  cleanup; an abandoned handle stops and reaps its child. There is no second runner.
+  cleanup; an abandoned handle stops and reaps its child. Cancellable waits forward one SIGINT
+  to their private group while retaining the unreaped leader and bounded checkpoint report.
+  A repeat expires the wait; timeout/forced cleanup never confirms partial bytes. The resumable
+  communicator uses bounded blocking slices against the original absolute deadline, including
+  after pipe EOF. There is no second runner or signal/reader thread.
+- `process::runtime` uses the runner's native process evidence before bounded `ps` fallback.
+  Native Unknown or late evidence grants nothing and never triggers a second acquisition;
+  only unavailable native acquisition falls back. Owned unreaped children retain zombie
+  identity; ordinary runtime observations treat zombies as gone.
 - `process::interactive` runs direct-terminal children: terminal interrupts reach the child,
   wrapper TERM/HUP are forwarded to the owned child only, and a notification failure degrades
   supervision instead of killing a live agent. Abandonment terminates, then kills and reaps
@@ -313,12 +321,25 @@ stream its terminal yet.
 - **Tests** run real pseudo-terminals with `sh` programs, in process
   (`tmt-adapters/src/pty/tests.rs`) and as a process (`tmt-cli/tests/pty_supervisor.rs`:
   terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).
+  `tmt-cli/tests/pty_host.rs` drives the public CLI with a `PATH` that has no tmux; its
+  `pty_host/e2e.rs` story runs two replying members through talk, attach and detach, then
+  loses one supervisor: the other member keeps answering, the lost one reads offline and
+  queues a new request without any replay, and a member that exits on its own removes its
+  socket and lock. The resume leg is the separate `#[ignore]`d test quarantined for #4767.
 
 ## Agent drivers
 
 Claude owns `drivers/claude/plugins/` prompt-picker plugins (root `.claude-plugin`
 marketplace; user-installed) and a read-only missing-plugin hint. Launch adds no
 plugin arguments or persistent provider settings.
+
+`drivers/claude/plugins/tmt-allowance` is the first-party mod that hands Claude's rate-limit
+windows to `tmt __allowance claude` (#5187). The marketplace stays picker-only. Intake keeps
+nothing without usage consent and never opens the SQL store: it writes one private JSON file
+under the data root, and `claude/allowance.rs` returns the newer of that entry and the
+`cachedUsageUtilization` cache ([extension API](../../../../contracts/extension-api.md)).
+Consented setup installs it (see [setup and uninstall](identity-bindings.md#hooks-setup-and-uninstall));
+its own test runs under `claude plugin test`.
 
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for

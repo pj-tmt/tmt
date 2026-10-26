@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { readRecentlyOpened } from './recently-opened.js';
+import type { ProjectPins } from './bootstrap.js';
 import type { PageSummary, PageTransport } from './transport.js';
 
 /** What a quick switcher can show: nothing while closed, then the page list and the device's
@@ -34,6 +35,14 @@ export function rememberedProjects(
 ): readonly string[] | undefined {
   return projectCache.get(transport)?.get(space);
 }
+/** The owner's pinned projects the last list read named, beside its pages. */
+const pinCache = new WeakMap<PageTransport, Map<string | undefined, ProjectPins>>();
+export function rememberedProjectPins(
+  transport: PageTransport,
+  space: string | undefined,
+): ProjectPins | undefined {
+  return pinCache.get(transport)?.get(space);
+}
 /** Readers of the remembered list that never read it themselves (the shell's module menu). */
 const rememberedListeners = new Set<() => void>();
 export function onRememberedPages(listener: () => void): () => void {
@@ -43,13 +52,15 @@ export function onRememberedPages(listener: () => void): () => void {
 /**
  * A list this transport and space already loaded elsewhere (the space home), so a switcher opened
  * before it ever read one still shows it at once. The opened pages stay what a switcher last read,
- * or none yet. Projects, when the read named them, are kept beside the pages.
+ * or none yet. Projects and the owner's pinned projects, when the read named them, are kept
+ * beside the pages.
  */
 export function rememberPages(
   transport: PageTransport,
   space: string | undefined,
   pages: readonly PageSummary[],
   projects?: readonly string[],
+  pins?: ProjectPins,
 ) {
   let spaces = cache.get(transport);
   if (!spaces) cache.set(transport, (spaces = new Map()));
@@ -58,6 +69,11 @@ export function rememberPages(
     let named = projectCache.get(transport);
     if (!named) projectCache.set(transport, (named = new Map()));
     named.set(space, projects);
+  }
+  if (pins) {
+    let pinned = pinCache.get(transport);
+    if (!pinned) pinCache.set(transport, (pinned = new Map()));
+    pinned.set(space, pins);
   }
   for (const listener of rememberedListeners) listener();
   watchers

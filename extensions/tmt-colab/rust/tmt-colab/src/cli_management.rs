@@ -679,11 +679,23 @@ pub fn create_page(
     source: String,
     page_layout: &tmt_colab::decoder::PageLayout,
     checks: &[page_check::Finding],
+    hints: &[page_check::Hint],
+    metadata: crate::cli_metadata::CreateMetadata,
 ) -> Result<()> {
-    create_page_kind(root, args, source, Some(page_layout), checks, false)
+    create_page_kind(
+        root,
+        args,
+        source,
+        CreateKind::Page {
+            layout: page_layout,
+            metadata,
+        },
+        checks,
+        hints,
+    )
 }
 pub fn create_dashboard(root: &Path, args: &ArgMatches) -> Result<()> {
-    create_page_kind(root, args, String::new(), None, &[], true)
+    create_page_kind(root, args, String::new(), CreateKind::Dashboard, &[], &[])
 }
 /// A page committed through ordinary creation, and what was observed of the machine while it was.
 pub(crate) struct Created {
@@ -700,13 +712,39 @@ pub(crate) fn commit_creation(
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
     shell: bool,
 ) -> Result<Created> {
+    commit_creation_with(root, title, source, page_layout, shell, None)
+}
+fn commit_creation_with(
+    root: &Path,
+    title: &str,
+    source: String,
+    page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    shell: bool,
+    metadata: Option<crate::cli_metadata::CreateMetadata>,
+) -> Result<Created> {
     if title.is_empty() {
         return Err(input("Page title cannot be empty."));
     }
     if title.len() > tmt_colab::decoder::BASELINE_TITLE_BYTES {
         return Err(management_error("CAPACITY"));
     }
-    let caller = crate::core::caller_snapshot();
+    let (caller, selected, template, template_page) = match metadata {
+        Some(metadata) => (
+            metadata.caller,
+            metadata.selected,
+            metadata.template,
+            metadata.template_page,
+        ),
+        None => {
+            let caller = crate::core::caller_snapshot();
+            let selected = if shell {
+                None
+            } else {
+                crate::cli_metadata::default_creator(caller.as_ref())
+            };
+            (caller, selected, None, None)
+        }
+    };
     let observation = crate::door::creation_observation();
     let machine = observation.machine_id.clone();
     let creation_recipient = caller.as_ref().and_then(|caller| {
@@ -721,6 +759,19 @@ pub(crate) fn commit_creation(
     let layout = Layout::open(root)?;
     let correlation = json!({"operationId":operation_id,"pageId":page_id});
     let mut payload = json!({"pageId":page_id,"title":title,"source":source});
+    if let Some(selected) = &selected {
+        let mut creator = json!({"agent":selected.agent});
+        if let Some(machine) = &observation.machine_id {
+            creator["machineId"] = json!(machine);
+        }
+        payload["creator"] = creator;
+    }
+    if let Some(template) = &template {
+        payload["template"] = json!(template);
+    }
+    if let Some(template_page) = &template_page {
+        payload["templatePage"] = json!(template_page);
+    }
     if shell {
         payload["pageType"] = json!("shell");
     }
@@ -744,7 +795,7 @@ pub(crate) fn commit_creation(
             "payload":values::encode_binary(&serde_json::to_vec(&payload)?)}),
         )?)
     };
-    let result = (|| -> Result<Value> {
+    let mut result = (|| -> Result<Value> {
         let (space, bytes) = match layout.serve_lock() {
             Ok(_lock) => {
                 let key = Keyring::open(&layout)?;
@@ -781,26 +832,49 @@ pub(crate) fn commit_creation(
             code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),source:Some(error),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
+    if let Some(selected) = selected {
+        result["identityVerified"] = json!(!selected.unverified);
+    }
     Ok(Created {
         page_id,
         result,
         observation,
     })
 }
+enum CreateKind<'a> {
+    Page {
+        layout: &'a tmt_colab::decoder::PageLayout,
+        metadata: crate::cli_metadata::CreateMetadata,
+    },
+    Dashboard,
+}
 fn create_page_kind(
     root: &Path,
     args: &ArgMatches,
     source: String,
-    page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    kind: CreateKind<'_>,
     checks: &[page_check::Finding],
-    shell: bool,
+    hints: &[page_check::Hint],
 ) -> Result<()> {
+    let (page_layout, shell, metadata) = match kind {
+        CreateKind::Page { layout, metadata } => (Some(layout), false, Some(metadata)),
+        CreateKind::Dashboard => (None, true, None),
+    };
+    // The receipt names the template the page started from, as resolved: a name typed as an ID, or
+    // the space default, is the template's name.
+    let template = metadata.as_ref().and_then(|m| m.template.clone());
+    let template_default = metadata.as_ref().is_some_and(|m| m.template_default);
     let title = text(args, "title");
+    let mut read = crate::cli_layout::read_first(shell, page_layout, &source);
+    // A page from a template starts by reading the template's rules.
+    if let Some(name) = &template {
+        read.insert(0, format!("tmt colab template show {name}"));
+    }
     let Created {
         page_id,
         result,
         observation,
-    } = commit_creation(root, title, source, page_layout, shell)?;
+    } = commit_creation_with(root, title, source, page_layout, shell, metadata)?;
     // The effect is already committed. A catalog-read failure must not turn it into a failed create;
     // the full UUID alias remains safe when uniqueness cannot be observed.
     let ids = (|| -> Result<Vec<String>> {
@@ -833,22 +907,26 @@ fn create_page_kind(
             warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
         }
     }
-    if let Some(layout) = page_layout {
-        if let Some(fields) = crate::cli_layout::json_fields(layout).as_object() {
-            result
-                .as_object_mut()
-                .expect("creation result")
-                .extend(fields.clone());
-        }
-        result["read"] = json!(crate::cli_layout::READ_FIRST);
+    if let Some(layout) = page_layout
+        && let Some(fields) = crate::cli_layout::json_fields(layout).as_object()
+    {
+        result
+            .as_object_mut()
+            .expect("creation result")
+            .extend(fields.clone());
     }
-    let template = args.try_get_one::<String>("template").ok().flatten();
+    result["read"] = json!(read);
+    let template = template.as_ref();
     if let Some(name) = template {
         result["template"] = json!(name);
+        if template_default {
+            result["templateDefault"] = json!(true);
+        }
     }
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
         result["warnings"] = crate::cli_page_check::warnings_json(checks);
+        result["hints"] = crate::cli_page_check::hints_json(hints);
         return output(&result, true);
     }
     let mut out = tmt_cli_style::stream::stdout(false);
@@ -859,20 +937,22 @@ fn create_page_kind(
         ("open", shown),
     ];
     if let Some(name) = template {
-        rows.push(("template", name.clone()));
+        rows.push((
+            "template",
+            if template_default {
+                format!("{name} (space default)")
+            } else {
+                name.clone()
+            },
+        ));
     }
     if let Some(layout) = page_layout {
         rows.push(("layout", crate::cli_layout::describe(layout)));
         if let Some(reason) = &layout.reason {
             rows.push(("reason", tmt_cli_style::table::escape(reason)));
         }
-        rows.push((
-            "read first",
-            crate::cli_layout::READ_FIRST
-                .map(|topic| format!("tmt colab skill {topic}"))
-                .join(" · "),
-        ));
     }
+    rows.push(("read first", read.join(" · ")));
     rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
     tmt_cli_style::detail::write(&mut out, terminal, "PAGE CREATED", &rows)?;
     for what in &warnings {
@@ -881,6 +961,7 @@ fn create_page_kind(
         tmt_cli_style::message::warning(&mut err, terminal, what, None)?;
     }
     crate::cli_page_check::print_warnings(checks)?;
+    crate::cli_page_check::print_hints(hints)?;
     Ok(())
 }
 /// Names a page's title, or, when that page cannot be opened, records why on that page alone so
@@ -1290,10 +1371,20 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             Err(error) => return Err(error),
         }
     };
+    // A deleted page that was the space's default template is no longer one: the default returns to
+    // starter (a delete from the browser leaves it to the fallback of the next `page create`).
+    let default_reset = command == "delete"
+        && crate::cli_template::forget_default(
+            root,
+            outcome["pageId"].as_str().unwrap_or_default(),
+        );
     // The door is looked up after the commit, so a slow answer never delays the effect.
     let reach = crate::reach::Reach::gather().with_pages(&ids);
     let path = crate::reach::Reach::path(&key.space_id, &id);
     let mut outcome = outcome;
+    if default_reset {
+        outcome["templateDefaultReset"] = json!(true);
+    }
     if let Some(url) = outcome["readerPath"]
         .as_str()
         .and_then(|reader| reach.link(reader))
@@ -1305,6 +1396,9 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return output(&outcome, true);
     }
     let mut rows = page_rows(&reach, &path);
+    if default_reset {
+        rows.push(("template default", "was this page; now starter".to_owned()));
+    }
     if let Ok(storage) = serde_json::from_value::<management::Storage>(outcome["storage"].clone()) {
         rows.push(("storage", storage.message()));
     }
@@ -1390,7 +1484,7 @@ fn archive_text(page: &Value, now_ms: u64) -> Option<String> {
         format!("{mark}in {}", retention_interval(at - now_ms))
     })
 }
-fn last_edit_text(updated_ms: u64, now_ms: u64) -> String {
+pub(crate) fn last_edit_text(updated_ms: u64, now_ms: u64) -> String {
     let duration = updated_ms.abs_diff(now_ms);
     if duration < 60_000 {
         return if updated_ms > now_ms {

@@ -65,7 +65,7 @@ pub struct Latest {
 /// One line of inert text: control characters and runs of whitespace become single spaces, then
 /// it is clipped to `points` code points. The browser refuses control characters and empty text,
 /// so one odd label must not hide the whole reply.
-fn excerpt(text: &str, points: usize) -> String {
+pub(crate) fn excerpt(text: &str, points: usize) -> String {
     let spaced: String = text
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -102,8 +102,14 @@ fn need(
 
 /// The pending items with what a reader needs to recognise each, review first, then question,
 /// reading and proposal, each in page order; at most [`NEEDS_PASSAGES`] (the count stays
-/// `summary.needsYou`). An item the report no longer lists, or with no usable title, is left out.
-pub(crate) fn needs(report: &Report, view: &Conversations, pending: &[PendingItem]) -> Vec<Need> {
+/// `summary.needsYou`). Registered questions retain their title or ID even without markup;
+/// other passage types need an admitted source title.
+pub(crate) fn needs(
+    report: &Report,
+    view: &Conversations,
+    pending: &[PendingItem],
+    questions: &[serde_json::Value],
+) -> Vec<Need> {
     let mut needs: Vec<Need> = pending
         .iter()
         .filter_map(|item| match item.kind {
@@ -118,16 +124,35 @@ pub(crate) fn needs(report: &Report, view: &Conversations, pending: &[PendingIte
                 )
             }
             "answer" => {
-                let group = report.groups.iter().find(|group| group.id == item.id)?;
-                let first = group
-                    .questions
-                    .iter()
-                    .find_map(|id| report.questions.iter().find(|question| &question.id == id))?;
+                let Some(question) = questions.iter().find(|question| question["id"] == item.id)
+                else {
+                    let group = report.groups.iter().find(|group| group.id == item.id)?;
+                    let first = group.questions.iter().find_map(|id| {
+                        report.questions.iter().find(|question| &question.id == id)
+                    })?;
+                    return need(
+                        NeedKind::Question,
+                        &item.id,
+                        group.title.as_deref().unwrap_or(&first.title),
+                        Some(&first.agent),
+                        None,
+                    );
+                };
+                let title = question["title"]
+                    .as_str()
+                    .or_else(|| {
+                        report
+                            .questions
+                            .iter()
+                            .find(|question| question.id == item.id)
+                            .map(|question| question.title.as_str())
+                    })
+                    .unwrap_or(&item.id);
                 need(
                     NeedKind::Question,
                     &item.id,
-                    group.title.as_deref().unwrap_or(&first.title),
-                    Some(&first.agent),
+                    title,
+                    question["agent"]["name"].as_str(),
                     None,
                 )
             }

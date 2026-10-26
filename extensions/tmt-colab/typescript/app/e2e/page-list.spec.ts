@@ -881,7 +881,7 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(titles(page)).toHaveText(['Delta ops']);
   await expect(scopeRows(page)).toHaveCount(4);
   await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toHaveCount(0);
-  await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toHaveCount(0);
+  await expect(moduleMenu(page).getByRole('link', { name: 'All projects…' })).toHaveCount(0);
 });
 
 test('the module menu lists All pages and each project with its counts and needs-you', async ({
@@ -899,7 +899,7 @@ test('the module menu lists All pages and each project with its counts and needs
   await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*(?:◆ )?1/);
   await expect(rows.nth(0)).toHaveAttribute('aria-current', 'page');
   await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toBeVisible();
-  await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toBeVisible();
+  await expect(moduleMenu(page).getByRole('link', { name: 'All projects…' })).toBeVisible();
 });
 
 test('the module menu lists dashboards under Dashboards and opens Colab settings read-only', async ({
@@ -1224,7 +1224,7 @@ test('rename is one request for every page in the project, archived included, an
   page,
 }) => {
   await mount(page, 'bulk');
-  await fromScopeMenu(page, 'Manage projects…');
+  await fromScopeMenu(page, 'All projects…');
   // Management replaces its drawer with a confirmation, then returns to the same owner.
   const dialog = app(page).getByRole('dialog');
   await expect(dialog).toContainText('old');
@@ -1252,7 +1252,7 @@ test('rename is one request for every page in the project, archived included, an
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
   await mount(page);
-  await fromScopeMenu(page, 'Manage projects…');
+  await fromScopeMenu(page, 'All projects…');
   // Management replaces its drawer with a confirmation, then returns to the same owner.
   const dialog = app(page).getByRole('dialog');
   await dialog.getByRole('button', { name: 'Rename ops' }).click();
@@ -1271,7 +1271,7 @@ test('renaming onto an existing project says it merges', async ({ page }) => {
 
 test('delete removes the project in one request and keeps the pages', async ({ page }) => {
   await mount(page);
-  await fromScopeMenu(page, 'Manage projects…');
+  await fromScopeMenu(page, 'All projects…');
   // Management replaces its drawer with a confirmation, then returns to the same owner.
   const dialog = app(page).getByRole('dialog');
   // The list shows the active pages (2 are in design); the dialog counts the archived one too.
@@ -1330,14 +1330,12 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`3747-scoped-list-${width}-${theme}.png`) });
       await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
       const crumb = app(page).locator('.colab-scope-crumb', { hasText: /^design$/ });
-      if (width > 390) await expect(crumb).toBeVisible();
-      else await expect(crumb).toBeHidden();
+      // The page's header holds only More, so the crumb has room on a phone too.
+      await expect(crumb).toBeVisible();
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3747-page-crumb-${width}-${theme}.png`) });
-      if (width > 390) {
-        await crumb.click();
-        await showAll(page);
-      } else await page.goBack();
+      await crumb.click();
+      await showAll(page);
       await scopeTo(page, 'All pages');
       await expect(titles(page)).toHaveCount(4);
       await app(page)
@@ -1383,7 +1381,7 @@ for (const width of [1440, 390])
         .getByRole('tab', { name: /^All, \d+\+?$/ })
         .click();
       await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
-      await fromScopeMenu(page, 'Manage projects…');
+      await fromScopeMenu(page, 'All projects…');
       await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-manage-${width}-${theme}.png`) });
       // Renaming onto an existing project says the two merge.
@@ -1541,16 +1539,20 @@ for (const width of [1440, 390, 320])
       const inside = () =>
         page.evaluate(() => {
           const viewport = document.documentElement.clientWidth;
-          const crumb = [
+          const current = [
             ...document.querySelectorAll(
               '#list-fixture .tmt-ui-rail-sub-item[aria-current="page"], #list-fixture .tmt-ui-module-menu a[aria-current="page"]',
             ),
-          ]
-            .find((node) => (node as HTMLElement).offsetParent !== null)!
-            .getBoundingClientRect();
+          ].find((node) => (node as HTMLElement).offsetParent !== null)!;
+          const crumb = current.getBoundingClientRect();
+          const rail = current.closest<HTMLElement>('.tmt-ui-rail');
+          const bounds = rail?.getBoundingClientRect();
           return {
             scroll: document.documentElement.scrollWidth - viewport,
-            crumbInside: crumb.left >= -0.5 && crumb.right <= viewport + 0.5,
+            crumbInside:
+              crumb.left >= Math.max(0, bounds?.left ?? 0) - 0.5 &&
+              crumb.right <= Math.min(viewport, bounds?.right ?? viewport) + 0.5,
+            railOverflow: rail ? rail.scrollWidth - rail.clientWidth : 0,
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
@@ -1568,12 +1570,12 @@ for (const width of [1440, 390, 320])
         expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
         await row.click();
         await expect(scopeTrigger(page, long)).toBeVisible();
-        expect(await inside()).toEqual({ scroll: 0, crumbInside: true });
+        expect(await inside()).toEqual({ scroll: 0, crumbInside: true, railOverflow: 0 });
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
-        // A heading too narrow for the crumb and the title leaves the crumb out; the title stays.
+        // The title row owns the column's whole width (the actions are in the shared bar), so even a
+        // 320px phone keeps the crumb, ellipsized at its own cap.
         const crumb = app(page).locator('.colab-scope-crumb', { hasText: long });
-        if (width > 390) await expect(crumb).toBeVisible();
-        else await expect(crumb).toBeHidden();
+        await expect(crumb).toBeVisible();
         expect(
           await page.evaluate(
             () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -1583,10 +1585,8 @@ for (const width of [1440, 390, 320])
           await page.screenshot({
             path: await capturePath(`3747-page-crumb-long-${width}-${theme}.png`),
           });
-        if (width > 390) {
-          await crumb.click();
-          await showAll(page);
-        } else await page.goBack();
+        await crumb.click();
+        await showAll(page);
         await expect(scopeTrigger(page, long)).toBeVisible();
       }
     });
@@ -1713,3 +1713,93 @@ test('viewer project tags keep filtering without a picker or empty labelled list
   await expect(design).toHaveAttribute('aria-pressed', 'true');
   expect(await requests(page)).toEqual([]);
 });
+
+for (const width of [1440, 390, 320])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a long creator is one ellipsized line and no taller row at ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'long');
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const long = rows(page).filter({ hasText: 'Long names' });
+      const author = long.locator('.page-author');
+      // The full label is the tooltip; the text on the row is one line, cut with an ellipsis.
+      await expect(author).toHaveAttribute('title', 'W'.repeat(120));
+      const shown = await author.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node.firstChild!);
+        const style = getComputedStyle(node);
+        return {
+          // The text's own box is as tall as one line.
+          lines: Math.round(range.getBoundingClientRect().height / parseFloat(style.lineHeight)),
+          cut: node.scrollWidth > node.clientWidth,
+          ellipsis: style.textOverflow,
+          inside: node.getBoundingClientRect().right <= document.documentElement.clientWidth,
+        };
+      });
+      expect(shown).toEqual({ lines: 1, cut: true, ellipsis: 'ellipsis', inside: true });
+      await insideViewport(page);
+      // The label's length moves nothing: a label ten times shorter that still passes the cut is the
+      // same height, and so is an ordinary creator that fits whole.
+      const height = () => long.evaluate((node) => node.getBoundingClientRect().height);
+      const withLong = await height();
+      await author.evaluate((node) => (node.textContent = 'W'.repeat(40)));
+      expect(await height()).toBe(withLong);
+      await author.evaluate((node) => (node.textContent = 'Studio agent'));
+      expect(await height()).toBe(withLong);
+      await page.screenshot({ path: await capturePath(`5144-author-${width}-${theme}.png`) });
+    });
+
+for (const width of [1440, 390, 320])
+  for (const theme of ['light', 'dark'] as const)
+    for (const [kind, name] of [
+      ['Latin', 'W'.repeat(32)],
+      ['CJK', '漢'.repeat(32)],
+    ] as const)
+      test(`a ${kind} project name wraps inside the heading and New page stays in view at ${width}px ${theme}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme });
+        await mount(page, 'long');
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        // On a phone the module menu is a scrolling tab strip.
+        const entry = moduleMenu(page)
+          .locator('a')
+          .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: name }) });
+        await entry.scrollIntoViewIfNeeded();
+        await entry.click();
+        const heading = app(page).locator('.page-list-hero h1');
+        await expect(heading).toHaveText(name);
+        await expect(heading).toHaveAttribute('title', name);
+        const create = app(page)
+          .locator('.page-list-hero-create')
+          .getByRole('button', { name: 'New page' });
+        await expect(create).toBeVisible();
+        const hero = await page.evaluate(() => {
+          const h1 = document.querySelector('#list-fixture .page-list-hero h1') as HTMLElement;
+          const button = document.querySelector(
+            '#list-fixture .page-list-hero-create button',
+          ) as HTMLElement;
+          const box = h1.getBoundingClientRect();
+          const action = button.getBoundingClientRect();
+          return {
+            lines: Math.round(box.height / parseFloat(getComputedStyle(h1).lineHeight)),
+            // The button is whole inside the window and the heading ends before it starts.
+            actionInside: action.left >= 0 && action.right <= document.documentElement.clientWidth,
+            beside: box.right <= action.left,
+          };
+        });
+        expect(hero.lines).toBeLessThanOrEqual(2);
+        expect(hero).toMatchObject({ actionInside: true, beside: true });
+        await insideViewport(page);
+        await page.screenshot({
+          path: await capturePath(`5144-heading-${kind}-${width}-${theme}.png`),
+        });
+      });

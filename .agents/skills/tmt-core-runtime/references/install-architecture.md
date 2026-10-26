@@ -125,8 +125,10 @@ or optional `paneRenameHints` JSON array, never upgrade failure, retirement, re-
   invocation-owned prefix; receipt, current and links written atomically under the installer
   lock; old owned releases kept until ownership and integrity permit cleanup), `receipt`,
   `release`, `managed`, `upgrade`, `repair`, `skills_tree`, `active_companion`. A receipt's
-  repository must be `pj-tmt/tmt` or the read-only historical `wkh237/tmt`;
-  new receipts use `pj-tmt/tmt`. `Product::accepts_prerelease_flag` mirrors
+  repository must be `tmt-ninja/tmt`, the previous `pj-tmt/tmt` or, for release
+  receipts, the read-only historical `wkh237/tmt`; new receipts use `tmt-ninja/tmt`.
+  `tmt_core::native_install::OFFICIAL_REPOSITORY` is the one source for every fetch URL and
+  message. `Product::accepts_prerelease_flag` mirrors
   `native-release-policy.mjs`.
 - Receipts anchor to the installation prefix and current executable, not `ConfigPaths.global_dir`.
   Failed validation or cancellation keeps the previous release and receipt; a post-activation
@@ -242,7 +244,19 @@ the move is a bootstrap reinstall.
   and uninstall; private modules own install, repair, list/upgrade and skills settlement. Names
   come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation;
   an unavailable channel pointer is an acquisition failure, never confirmation that no release exists,
-  and changes nothing. Digest remains unpublished until its release activation.
+  and changes nothing.
+- Guided setup composes this owner through `extension_install_command::setup`: verify
+  installed releases read-only, skip healthy binaries without upgrade, and retry missing
+  bundled skills from that verified release. Missing installations reuse the consented
+  install composition and progress. The setup owner controls the visible fixed selection,
+  Remote-before-Colab order and independent outcomes; it adds no archive or receipt policy.
+  This planner owns the official inventory consumed by setup and `extension ls --json`: each
+  row retains `name`, `installed` and active `version`, and adds `official: true`, `missing`
+  and `dependencies` (Colab lists `remote`; the others list none). `missing` means no command
+  or activation exists in the selected prefix; damaged, unmanaged and partially removed entries remain non-missing
+  with their existing recovery diagnostics. Inventory reads neither settle skills nor run
+  extensions, probe services, acquire releases or change provider settings. Third-party PATH
+  discovery remains with the existing help/completion owner.
 - Missing-command offers reuse the explicit install composition after one human consent.
   A three-second read-only metadata preview may fail soft to unknown version/size.
   `native_install::ProgressEvent` observes acquisition, actual HTTP byte counts, verification
@@ -295,22 +309,27 @@ the move is a bootstrap reinstall.
   child, and the parent never reads the candidate's inventory. Pre-activation failures keep the
   previous release; a reported post-activation failure keeps the active result; a missing report
   is uncertain and asks the user to inspect before retrying.
-- Root upgrade prepares a metadata-only, frozen CLI and installed-extension preview before one
-  human approval (`[Y/n]`: Enter agrees, end of input declines). Decline or failure to prepare
-  the CLI target changes no component; unavailable extension rows remain per-product failures.
-  `--yes` uses the same frozen selection; JSON, pipes and agent callers
-  never prompt. Machine runs retain CLI update behavior and report extension `consentRequired`
-  without `--yes`. The CLI then activates and refreshes managed skills through the new executable,
-  which keeps extension inventory authority. Its hidden `__native-upgrade-extensions --json --plan`
-  must match the consented products, installed versions, pin states and exact targets before the
-  parent sends the legacy plan on stdin with `--yes`. Optional live child observations use
-  the [consented progress contract](../../../../contracts/native-install-handoff-v1.md#consented-extension-progress)
-  through the existing bounded process owner, keeping the final JSON separate. Capability
-  fallback is read-only planning, never an apply retry. The apply child refuses a changed old
-  version or a newly pinned installation before acquisition; its immutable executable and the
-  adapter's current-id publication fence retain that observation. Unsupported targets fail with
-  a rerun hint, without an old-process fallback, activation retry or rollback. Product failures
-  remain independent; CLI failure stops extensions, and a pinned CLI permits them.
+- Root upgrade freezes CLI/extension targets and setup's missing inventory before one
+  human approval (`[Y/n]`: Enter agrees, EOF declines). Missing extensions and detected new
+  provider scopes are selectable; Remote precedes Colab. Declines are invocation-local.
+  `--yes` installs missing official extensions/bundled skills but never a new provider's
+  hooks or Core skill scope, even at a human terminal. JSON/pipes/agents never prompt;
+  without `--yes` they retain CLI update and recorded refresh but only report missing items.
+  The activated CLI rechecks approved versions, pins, absence and provider scope/input hashes.
+  Changed scope refuses reapproval rather than expanding consent. The setup owner publishes
+  new scopes only after interactive consent; recorded refresh keeps its narrower authority.
+- `upgrade_all::complete` composes the existing upgrade, setup and installer owners under the
+  [whole-plan handoff](../../../../contracts/native-install-handoff-v1.md#whole-upgrade-plan-v2).
+  The upgrading CLI's verified prefix is authoritative. New products select the displayed alpha
+  release without creating a pin; the activation lock requires continued absence. A concurrent
+  activation or foreign link is preserved. Skills-only retry uses the captured immutable release.
+  Legacy installed-only callers retain their protocol; capability fallback never applies missing
+  items, retries an apply, or runs the old updater. Independent failures retain completed results;
+  root Ctrl-C forwards SIGINT through the bounded process owner to the apply group. Child
+  checkpoints stop later items, retain completed results and exit 130. A repeat expires the
+  wait early; deadline/forced group cleanup is uncertain and never replays apply. Older
+  installed-only targets keep their own checkpoint capabilities. CLI failure stops the phase;
+  a pinned CLI permits it.
 - After a completed unpinned upgrade, the activated CLI's bounded
   `__native-refresh-integrations --json` phase refreshes only previously recorded setup scopes;
   the [setup owner](identity-bindings.md#hooks-setup-and-uninstall) retains file and consent

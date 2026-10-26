@@ -32,6 +32,10 @@ TMT_HOME="$tmt_preview_root" ./tmt install --dir "$tmt_preview_root/skills" --js
 
 Installing skills never installs agent applications. For normal use, run the
 installer from the README: it verifies the release and then runs `tmt setup`.
+Setup offers all four official extensions with their bundled skills in the same
+approval; Colab visibly requires Remote. Healthy extensions are kept without an
+upgrade, and rerunning setup completes missing work. See `tmt learn --skill` for
+selection, consent and partial-failure details.
 Installing or replacing a `tmt` binary never migrates, deletes or downgrades your
 data. State migrations only move forward, so stop older TMT commands before you
 switch.

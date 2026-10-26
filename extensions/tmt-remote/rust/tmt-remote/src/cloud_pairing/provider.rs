@@ -27,6 +27,12 @@ pub struct EnrollmentDocument {
     pub body: Vec<u8>,
     pub created_ms: u64,
     pub cursor: Value,
+    pub token: Option<[u8; 32]>,
+}
+
+pub struct InviteGate {
+    pub token_hash: [u8; 32],
+    pub expires_at_ms: u64,
 }
 fn id_ok(id: &str) -> bool {
     canonical::uuid(id.strip_suffix("-response").unwrap_or(id)).is_ok()
@@ -67,7 +73,7 @@ fn read(value: &Value, root: &str, machine: &str) -> Result<EnrollmentDocument, 
     {
         return Err(invalid());
     }
-    if fields.len() != 4 {
+    let token = if fields.len() != 4 {
         let token = fields
             .get("token")
             .and_then(Value::as_object)
@@ -88,7 +94,10 @@ fn read(value: &Value, root: &str, machine: &str) -> Result<EnrollmentDocument, 
         if fields.len() != expected || token.len() != 32 {
             return Err(invalid());
         }
-    }
+        Some(token.try_into().map_err(|_| invalid())?)
+    } else {
+        None
+    };
     let encoded = fields
         .get("body")
         .and_then(Value::as_object)
@@ -120,35 +129,28 @@ fn read(value: &Value, root: &str, machine: &str) -> Result<EnrollmentDocument, 
         body,
         created_ms,
         cursor: json!({"values":[{"timestampValue":indexed},{"referenceValue":name}],"before":false}),
+        token,
     })
 }
 impl Provider {
     pub fn uid(&self) -> &str {
         &self.identity().uid
     }
-    pub(super) async fn publish_invite(
+    pub async fn publish_invite_gate(
         &self,
-        invite: &super::wire::Invite,
+        offer: &str,
+        hash: &[u8; 32],
+        expires_at_ms: u64,
         io: &IoBudget<'_>,
     ) -> Result<(), RemoteError> {
-        use sha2::{Digest, Sha256};
-        if invite.challenge.owner != self.machine()
-            || invite.challenge.project != self.identity().project
-        {
+        canonical::uuid(offer).map_err(|_| invalid())?;
+        if expires_at_ms == 0 || expires_at_ms >= 1 << 53 {
             return Err(invalid());
         }
-        let mut token = invite.gate_token()?;
-        let hash = Sha256::digest(token);
-        token.fill(0);
-        let name = format!(
-            "{}/m/{}/invites/{}",
-            self.root(),
-            self.machine(),
-            invite.challenge.offer
-        );
+        let name = format!("{}/m/{}/invites/{}", self.root(), self.machine(), offer);
         let value = json!({"writes":[{"update":{"name":name,"fields":{
             "tokenHash":{"bytesValue":STANDARD.encode(hash)},
-            "expiresAt":{"timestampValue":stamp(invite.challenge.expires_at_ms)}
+            "expiresAt":{"timestampValue":stamp(expires_at_ms)}
         }},"currentDocument":{"exists":false}}]});
         let response = self
             .call(Operation::Commit, ":commit", value, WRITE_LOOKUPS, None, io)
@@ -159,6 +161,65 @@ impl Provider {
         } else {
             Err(status(&response))
         }
+    }
+    pub async fn invite_gate(
+        &self,
+        offer: &str,
+        io: &IoBudget<'_>,
+    ) -> Result<Option<InviteGate>, RemoteError> {
+        canonical::uuid(offer).map_err(|_| invalid())?;
+        let suffix = format!("/m/{}/invites/{offer}", self.machine());
+        let response = self
+            .call(
+                Operation::Read,
+                &suffix,
+                Value::Null,
+                1 + READ_LOOKUPS,
+                None,
+                io,
+            )
+            .await?
+            .ok_or_else(invalid)?;
+        if response.status == 404 {
+            return Ok(None);
+        }
+        if response.status != 200 {
+            return Err(status(&response));
+        }
+        let value = crate::wire::strict_json(&response.body).ok_or_else(invalid)?;
+        if value["name"] != format!("{}{suffix}", self.root()) {
+            return Err(invalid());
+        }
+        let fields = value["fields"]
+            .as_object()
+            .filter(|f| f.len() == 2)
+            .ok_or_else(invalid)?;
+        let hash = fields
+            .get("tokenHash")
+            .and_then(Value::as_object)
+            .filter(|v| v.len() == 1)
+            .and_then(|v| v.get("bytesValue"))
+            .and_then(Value::as_str)
+            .ok_or_else(invalid)?;
+        let bytes = STANDARD.decode(hash).map_err(|_| invalid())?;
+        if STANDARD.encode(&bytes) != hash {
+            return Err(invalid());
+        }
+        let expires = fields
+            .get("expiresAt")
+            .and_then(Value::as_object)
+            .filter(|v| v.len() == 1)
+            .and_then(|v| v.get("timestampValue"))
+            .and_then(Value::as_str)
+            .ok_or_else(invalid)?;
+        let expires_at_ms = crate::cloud_inbox::document::timestamp(expires)?;
+        if expires_at_ms == 0 || expires_at_ms >= 1 << 53 {
+            return Err(invalid());
+        }
+        Ok(Some(InviteGate {
+            token_hash: bytes.try_into().map_err(|_| invalid())?,
+            expires_at_ms,
+        }))
     }
     pub(super) async fn delete_invite(
         &self,

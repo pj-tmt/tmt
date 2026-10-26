@@ -498,7 +498,7 @@ jobs:
   upgrade-fetch:
     name: Stage the ${{ inputs.product }} candidate for the upgrade proof
     needs: [assemble, verify]
-    if: inputs.upgrade
+    if: ${{ !cancelled() && needs.assemble.result == 'success' && needs.verify.result == 'success' && inputs.upgrade }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -561,7 +561,7 @@ jobs:
   gates-dry:
     name: Publication gates (dry) for the ${{ inputs.product }} candidate
     needs: assemble
-    if: inputs.upgrade
+    if: ${{ !cancelled() && needs.assemble.result == 'success' && inputs.upgrade }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

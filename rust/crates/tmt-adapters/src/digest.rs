@@ -18,9 +18,15 @@ use tmt_core::{
     driver::{ActionResult, Driver, InterfacePresence, InterfaceStatus},
     request::{
         RequestAttempt, RequestError, RequestPrompt, RequestService, WakeState,
-        digest::{DigestChecklist, DigestItem, DigestOpportunity, DigestSource, DigestState},
+        digest::{
+            DigestChecklist, DigestItem, DigestOpportunity, DigestProjection, DigestSource,
+            DigestState,
+        },
     },
 };
+
+mod summary;
+pub use summary::wake_step;
 
 const PREVIEW_CHARS: usize = 160;
 /// One paste is bounded so a pane takes it safely. A claim seals whole items up to
@@ -67,6 +73,17 @@ pub fn read(
     after: u64,
     limit: u64,
 ) -> Result<Value, RequestError<StorageError>> {
+    if let Some(checklist) = checklist
+        && let Some(DigestProjection::IncomingSummary {
+            incoming_count,
+            urgent_count,
+        }) = RequestService::new(&mut *storage, wall_time_ms)
+            .digest_projection(identity, checklist)?
+    {
+        return Ok(
+            json!({"identityId":identity,"checklistId":checklist,"projection":"incoming_summary","incomingCount":incoming_count,"urgentCount":urgent_count,"items":[],"total":incoming_count,"remaining":0,"nextAfter":null}),
+        );
+    }
     let (items, total) = RequestService::new(&mut *storage, wall_time_ms)
         .digest_checklist_items(identity, checklist, after, limit)?;
     let mut projected = Vec::with_capacity(items.len());
@@ -133,7 +150,17 @@ pub fn read(
 }
 
 pub fn checklist_value(batch: &DigestChecklist) -> Value {
-    json!({"checklistId":batch.id,"identityId":batch.identity_id,"attemptToken":batch.attempt_token,"throughSequence":batch.through_sequence,"state":batch.state.as_str(),"createdAtMs":batch.created_at_ms})
+    let mut value = json!({"checklistId":batch.id,"identityId":batch.identity_id,"attemptToken":batch.attempt_token,"throughSequence":batch.through_sequence,"state":batch.state.as_str(),"createdAtMs":batch.created_at_ms});
+    if let DigestProjection::IncomingSummary {
+        incoming_count,
+        urgent_count,
+    } = batch.projection
+    {
+        value["projection"] = json!("incoming_summary");
+        value["incomingCount"] = json!(incoming_count);
+        value["urgentCount"] = json!(urgent_count);
+    }
+    value
 }
 
 /// Who sent an item: the originator of a request, the responder of a result.
@@ -283,6 +310,15 @@ pub fn text(
     storage: &mut Storage,
     batch: &DigestChecklist,
 ) -> Result<String, RequestError<StorageError>> {
+    if let DigestProjection::IncomingSummary {
+        incoming_count,
+        urgent_count,
+    } = batch.projection
+    {
+        return Ok(format!(
+            "you have {incoming_count} messages, {urgent_count} urgent: tmt inbox"
+        ));
+    }
     let items = RequestService::new(&mut *storage, wall_time_ms).digest_checklist_items(
         &batch.identity_id,
         Some(&batch.id),
@@ -310,6 +346,7 @@ pub fn fitting_through(
     opportunity: DigestOpportunity,
     first_may_exceed: bool,
 ) -> Result<Option<u64>, RequestError<StorageError>> {
+    let pending = RequestService::new(&mut *storage, wall_time_ms).digest_wake_pending(identity)?;
     let items = RequestService::new(&mut *storage, wall_time_ms).digest_claimable_items(
         identity,
         opportunity,
@@ -331,12 +368,31 @@ pub fn fitting_through(
         size += added;
         through = Some(item.sequence);
     }
-    Ok(through)
+    // Zero lets the launch-fenced owner try a count-only claim without granting
+    // a full checklist an unmeasured prefix when that summary must defer.
+    Ok(through.or_else(|| pending.then_some(0)))
 }
 
 /// Claims the next checklist and renders it. A failed render releases the claim
 /// as definitely unsent, so the items stay held.
 pub fn claim(
+    storage: &mut Storage,
+    identity: &str,
+    opportunity: DigestOpportunity,
+) -> Result<Option<(DigestChecklist, String)>, RequestError<StorageError>> {
+    if let Some(batch) = RequestService::new(&mut *storage, wall_time_ms).claim_digest_summary(
+        identity,
+        tmt_core::operation::new_operation_id(),
+        tmt_core::operation::new_operation_id(),
+        opportunity,
+        || true,
+    )? {
+        return rendered_claim(storage, batch);
+    }
+    claim_full(storage, identity, opportunity)
+}
+
+fn claim_full(
     storage: &mut Storage,
     identity: &str,
     opportunity: DigestOpportunity,
@@ -354,6 +410,13 @@ pub fn claim(
     else {
         return Ok(None);
     };
+    rendered_claim(storage, batch)
+}
+
+fn rendered_claim(
+    storage: &mut Storage,
+    batch: DigestChecklist,
+) -> Result<Option<(DigestChecklist, String)>, RequestError<StorageError>> {
     match text(storage, &batch) {
         Ok(text) => Ok(Some((batch, text))),
         Err(error) => {
@@ -489,13 +552,37 @@ pub fn flush(
     let Some(entry) = ready_entry(storage, identity, readiness)? else {
         return Ok(None);
     };
-    let Some((batch, text)) = claim(storage, identity, DigestOpportunity::Idle)? else {
+    let may_claim_summary =
+        readiness == Readiness::Idle || idle_entry(storage, identity)?.is_some();
+    let claimed = if may_claim_summary {
+        claim(storage, identity, DigestOpportunity::Idle)?
+    } else {
+        claim_full(storage, identity, DigestOpportunity::Idle)?
+    };
+    let Some((batch, text)) = claimed else {
         return Ok(None);
     };
-    let state = if ready_entry(storage, identity, readiness)?.as_ref() != Some(&entry) {
+    let readiness = if batch.projection == DigestProjection::Full {
+        readiness
+    } else {
+        Readiness::Idle
+    };
+    send_claim(storage, &entry, &batch, &text, delay, readiness).map(Some)
+}
+
+fn send_claim(
+    storage: &mut Storage,
+    entry: &BindingEntry,
+    batch: &DigestChecklist,
+    text: &str,
+    delay: Duration,
+    readiness: Readiness,
+) -> Result<DigestState, RequestError<StorageError>> {
+    let identity = batch.identity_id.as_str();
+    let state = if ready_entry(storage, identity, readiness)?.as_ref() != Some(entry) {
         DigestState::Unsent
     } else {
-        match delivery::send_digest(storage, &entry, &text, delay)?
+        match delivery::send_digest(storage, entry, text, delay)?
             .delivery
             .wake_state()
         {
@@ -510,5 +597,5 @@ pub fn flush(
         &batch.attempt_token,
         state,
     )?;
-    Ok(Some(state))
+    Ok(state)
 }

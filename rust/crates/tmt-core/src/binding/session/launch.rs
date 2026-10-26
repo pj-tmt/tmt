@@ -163,6 +163,132 @@ pub enum SessionLearningStop {
     /// The bound session or process is not the one the payload names.
     NotCurrent,
 }
+/// Why a Digest Stop hook ended with no output on an admitted launch (#4871). Only a
+/// refusal is named: a Stop with no Digest due is not one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionLearningDigestStop {
+    /// The supervisor could not start its worker.
+    WorkerSpawn,
+    /// The worker did not finish before its share of the hook budget.
+    WorkerTimeout,
+    /// The worker failed without naming a check.
+    WorkerError,
+    /// The worker finished but wrote to stderr.
+    WorkerStderr,
+    /// The answer capture that runs before a Digest failed.
+    CaptureFailed,
+    /// The supplied launch coordinates are not valid.
+    LaunchArgument,
+    /// The driver reported no host evidence.
+    LaunchHost,
+    /// The hook's caller is not a verified bound pane.
+    LaunchCaller,
+    /// The caller's verification failed before it gave an answer.
+    LaunchCallerProbe,
+    /// The binding is not this launch's running binding.
+    LaunchBinding,
+    /// The driver found no provider process for the session.
+    LaunchProcess,
+    /// The bound session key is not this process and provider session.
+    LaunchSession,
+    /// The remembered session is not this provider session.
+    LaunchRemembered,
+    /// The binding is not active on its live endpoint.
+    LaunchEndpoint,
+    /// The launch owner is live with a start identity other than the recorded one.
+    LaunchOwner,
+    /// The launch owner's process probe gave no answer.
+    LaunchOwnerProbe,
+    /// The launch owner is not live.
+    LaunchOwnerNotLive,
+    /// The hook deadline passed during verification.
+    LaunchDeadline,
+    /// The restart notice could not be claimed: its private directory is unusable.
+    NoticeUnavailable,
+    /// The worker's handoff did not match this launch or protocol.
+    HandoffInvalid,
+    /// The claimed checklist changed before it could be published.
+    ChecklistChanged,
+}
+impl SessionLearningDigestStop {
+    pub const ALL: [Self; 21] = [
+        Self::WorkerSpawn,
+        Self::WorkerTimeout,
+        Self::WorkerError,
+        Self::WorkerStderr,
+        Self::CaptureFailed,
+        Self::LaunchArgument,
+        Self::LaunchHost,
+        Self::LaunchCaller,
+        Self::LaunchCallerProbe,
+        Self::LaunchBinding,
+        Self::LaunchProcess,
+        Self::LaunchSession,
+        Self::LaunchRemembered,
+        Self::LaunchEndpoint,
+        Self::LaunchOwner,
+        Self::LaunchOwnerProbe,
+        Self::LaunchOwnerNotLive,
+        Self::LaunchDeadline,
+        Self::NoticeUnavailable,
+        Self::HandoffInvalid,
+        Self::ChecklistChanged,
+    ];
+    /// The name without the `digest_stop:` family prefix. A worker reports its own
+    /// refusal to its supervisor with this name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::WorkerSpawn => "worker_spawn",
+            Self::WorkerTimeout => "worker_timeout",
+            Self::WorkerError => "worker_error",
+            Self::WorkerStderr => "worker_stderr",
+            Self::CaptureFailed => "capture_failed",
+            Self::LaunchArgument => "launch:argument",
+            Self::LaunchHost => "launch:host",
+            Self::LaunchCaller => "launch:caller",
+            Self::LaunchCallerProbe => "launch:caller_probe",
+            Self::LaunchBinding => "launch:binding",
+            Self::LaunchProcess => "launch:process",
+            Self::LaunchSession => "launch:session",
+            Self::LaunchRemembered => "launch:remembered",
+            Self::LaunchEndpoint => "launch:endpoint",
+            Self::LaunchOwner => "launch:owner",
+            Self::LaunchOwnerProbe => "launch:owner_probe",
+            Self::LaunchOwnerNotLive => "launch:owner_not_live",
+            Self::LaunchDeadline => "launch:deadline",
+            Self::NoticeUnavailable => "notice_unavailable",
+            Self::HandoffInvalid => "handoff_invalid",
+            Self::ChecklistChanged => "checklist_changed",
+        }
+    }
+    /// A refusal the worker itself can report: the capture or one launch check.
+    pub fn from_worker(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|stop| {
+            stop.name() == name
+                && (*stop == Self::CaptureFailed || stop.name().starts_with("launch:"))
+        })
+    }
+    /// The stored diagnostic: the step that refused, and the closest reason.
+    pub fn diagnostic(self) -> SessionLearningDiagnostic {
+        let step = match self {
+            Self::CaptureFailed => SessionLearningStep::Storage,
+            stop if stop.name().starts_with("launch:") => SessionLearningStep::ProviderVerification,
+            _ => SessionLearningStep::Context,
+        };
+        let reason = match self {
+            Self::WorkerSpawn => SessionLearningReason::SpawnFailed,
+            Self::WorkerTimeout | Self::LaunchDeadline => SessionLearningReason::BudgetTimeout,
+            Self::NoticeUnavailable | Self::ChecklistChanged => SessionLearningReason::Conflict,
+            _ => SessionLearningReason::WorkerError,
+        };
+        SessionLearningDiagnostic {
+            step,
+            reason,
+            detail: Some(SessionLearningDetail::DigestStop(self)),
+        }
+    }
+}
+
 /// What a stage stopped on, beyond its step and reason. Fixed tokens only:
 /// never a payload body, path or identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +299,8 @@ pub enum SessionLearningDetail {
     HostUnsupported,
     /// A decoded event that cannot bind admitted nothing, for this reason.
     Stopped(SessionLearningEvent, SessionLearningStop),
+    /// A Digest Stop hook on an admitted launch refused, for this reason.
+    DigestStop(SessionLearningDigestStop),
 }
 impl SessionLearningDetail {
     /// Every `Stopped` pair a hook path can produce, with its stored token. Nothing else is
@@ -292,10 +420,10 @@ impl SessionLearningDetail {
         ]
     };
 
-    /// Every detail, in the order the latest `detail` migration (`schema/077.sql`) lists them.
-    pub const ALL: [Self; 34] = {
+    /// Every detail, in the order the latest `detail` migration (`schema/080.sql`) lists them.
+    pub const ALL: [Self; 55] = {
         use SessionLearningEvent as E;
-        let mut all = [Self::HostUnsupported; 34];
+        let mut all = [Self::HostUnsupported; 55];
         let head = [
             Self::Refused(E::SessionStart),
             Self::Refused(E::SessionEnd),
@@ -318,6 +446,12 @@ impl SessionLearningDetail {
             all[index + stopped] =
                 Self::Stopped(Self::STOPPED[stopped].0, Self::STOPPED[stopped].1);
             stopped += 1;
+        }
+        index += stopped;
+        let mut digest = 0;
+        while digest < SessionLearningDigestStop::ALL.len() {
+            all[index + digest] = Self::DigestStop(SessionLearningDigestStop::ALL[digest]);
+            digest += 1;
         }
         all
     };
@@ -355,6 +489,7 @@ impl SessionLearningDetail {
                 .iter()
                 .find(|(known_event, known_stop, _)| *known_event == event && *known_stop == stop)
                 .map_or("stopped:invalid", |(_, _, token)| token),
+            Self::DigestStop(stop) => DIGEST_STOP_TOKENS[stop as usize],
         }
     }
     pub fn parse(value: &str) -> Option<Self> {
@@ -363,6 +498,31 @@ impl SessionLearningDetail {
             .find(|detail| detail.as_str() == value)
     }
 }
+
+/// `digest_stop:` and the name, in `SessionLearningDigestStop` order.
+const DIGEST_STOP_TOKENS: [&str; 21] = [
+    "digest_stop:worker_spawn",
+    "digest_stop:worker_timeout",
+    "digest_stop:worker_error",
+    "digest_stop:worker_stderr",
+    "digest_stop:capture_failed",
+    "digest_stop:launch:argument",
+    "digest_stop:launch:host",
+    "digest_stop:launch:caller",
+    "digest_stop:launch:caller_probe",
+    "digest_stop:launch:binding",
+    "digest_stop:launch:process",
+    "digest_stop:launch:session",
+    "digest_stop:launch:remembered",
+    "digest_stop:launch:endpoint",
+    "digest_stop:launch:owner",
+    "digest_stop:launch:owner_probe",
+    "digest_stop:launch:owner_not_live",
+    "digest_stop:launch:deadline",
+    "digest_stop:notice_unavailable",
+    "digest_stop:handoff_invalid",
+    "digest_stop:checklist_changed",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionLearningDiagnostic {
@@ -480,6 +640,11 @@ mod tests {
                 assert_eq!(SessionLearningDetail::stopped(event, stop), Some(detail));
                 continue;
             }
+            if let SessionLearningDetail::DigestStop(stop) = detail {
+                assert_eq!(detail.as_str(), format!("digest_stop:{}", stop.name()));
+                assert_eq!(stop.diagnostic().detail, Some(detail));
+                continue;
+            }
             let SessionLearningDetail::Refused(event) = detail else {
                 continue;
             };
@@ -496,6 +661,29 @@ mod tests {
             }
         }
         assert_eq!(SessionLearningDetail::parse("refused:turn:Anything"), None);
+    }
+
+    #[test]
+    fn a_worker_reports_only_its_capture_or_a_launch_check() {
+        use SessionLearningDigestStop as D;
+        for stop in D::ALL {
+            let expected = stop == D::CaptureFailed || stop.name().starts_with("launch:");
+            assert_eq!(
+                D::from_worker(stop.name()) == Some(stop),
+                expected,
+                "{stop:?}"
+            );
+        }
+        assert_eq!(D::from_worker("digest_stop:launch:owner"), None);
+        assert_eq!(D::from_worker("launch:owner\n"), None);
+        assert_eq!(
+            D::LaunchOwner.diagnostic().step,
+            SessionLearningStep::ProviderVerification
+        );
+        assert_eq!(
+            D::WorkerTimeout.diagnostic().reason,
+            SessionLearningReason::BudgetTimeout
+        );
     }
 
     #[test]

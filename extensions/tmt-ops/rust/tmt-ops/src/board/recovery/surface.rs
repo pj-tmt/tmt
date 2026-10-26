@@ -304,6 +304,19 @@ impl Controller {
         }
         notes
     }
+    fn state(&self) -> &RefCell<picker_surface::State> {
+        match self.screen {
+            Screen::List => &self.list,
+            Screen::Save => &self.form,
+            _ => &self.panel,
+        }
+    }
+
+    /// Where the sheet was last painted.
+    pub fn modal_outer(&self) -> Option<Rect> {
+        self.state().borrow().outer()
+    }
+
     pub fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
         static REVIEW_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
@@ -335,12 +348,7 @@ impl Controller {
             })
         };
         let rows = self.rows();
-        let state = match self.screen {
-            Screen::List => &self.list,
-            Screen::Save => &self.form,
-            _ => &self.panel,
-        };
-        let mut state = state.borrow_mut();
+        let mut state = self.state().borrow_mut();
         state.reconcile(
             rows.iter()
                 .map(|r| ListRow {

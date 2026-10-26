@@ -74,7 +74,7 @@ for (const [width, scheme] of [
     await expect(line.locator('.question-line-icon')).toHaveText('?');
     await expect(line.locator('.question-line-eyebrow')).toHaveText('Q&A · Agent 1');
     await expect(line.locator('.question-line-title')).toHaveText('Which heading should we use?');
-    await expect(line.locator('.question-line-state')).toHaveText('◆Needs your answer');
+    await expect(line.locator('.question-line-state')).toHaveText('◆Open');
     await expect(line.locator('.lucide-chevron-down')).toHaveCount(1);
     await line.click();
     const controls = card.locator('.question-compact-controls:not([hidden])');
@@ -176,7 +176,7 @@ for (const [width, scheme] of [
     await expect(card.locator('.question-compact-controls')).toBeHidden();
     await line.click();
 
-    // Answered: the check and the quiet state word, the recorded answer under the title, and the
+    // Answered: the check and the semantic state word, the recorded answer under the title, and the
     // card folds.
     await send.click();
     await expect(line.locator('.question-line-state')).toHaveText('Answered');
@@ -185,14 +185,14 @@ for (const [width, scheme] of [
     await expect(line.locator('.lucide-chevron-down')).toHaveCount(1);
     await expect(line.locator('.question-line-state')).toHaveCSS(
       'color',
-      rgb(tokens.browser.color.secondary[scheme]),
+      rgb(tokens.browser.color.working[scheme]),
     );
   });
 }
 
 test('both state words read at 4.5:1 on the sheet in light and dark', () => {
   for (const scheme of ['light', 'dark'] as const)
-    for (const role of ['waiting', 'secondary'] as const)
+    for (const role of ['waiting', 'working'] as const)
       expect(
         contrast(tokens.browser.color[role][scheme], tokens.browser.surface.sheet[scheme]),
         `${role} ${scheme}`,

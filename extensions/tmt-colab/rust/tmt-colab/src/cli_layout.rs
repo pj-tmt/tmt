@@ -17,8 +17,31 @@ use tmt_colab_model::crypto;
 
 use crate::cli_management::{fail, resolve_page};
 
-/// The skill topics an agent reads before writing a page's markup, in the order they help.
-pub const READ_FIRST: [&str; 2] = ["layout", "components"];
+/// The skill topics every new HTML page starts from, in the order they help.
+const READ_FIRST: [&str; 3] = ["layout", "components", "page-style"];
+
+/// The runnable `tmt colab skill` commands to read before filling a new page, by page type. A
+/// dashboard has no author markup (its content is items and summaries written through the
+/// dashboard commands), so it is sent to its own reference only. An HTML page reads the markup
+/// topics, and the runtime too when it draws its own frame (`canvas`) or opts in to the bundled one.
+pub fn read_first(shell: bool, layout: Option<&PageLayout>, source: &str) -> Vec<String> {
+    let topics: Vec<&str> = if shell {
+        vec!["dashboard"]
+    } else {
+        let canvas = layout.is_some_and(|layout| layout.kind == LayoutKind::Canvas);
+        // A source too deep to parse is left to the page check; the hint just stays out.
+        let runtime =
+            canvas || tmt_colab::export::standalone::wants_runtime(source).unwrap_or(false);
+        READ_FIRST
+            .into_iter()
+            .chain(runtime.then_some("runtime"))
+            .collect()
+    };
+    topics
+        .into_iter()
+        .map(|topic| format!("tmt colab skill {topic}"))
+        .collect()
+}
 
 const KINDS: [&str; 3] = ["column", "full", "canvas"];
 
@@ -167,6 +190,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             .map(String::as_str),
         Some(crypto::digest(base.source.as_bytes())),
         Some(&wanted),
+        None,
         &mut decoder,
     )?;
     let json_output = args.get_flag("json");

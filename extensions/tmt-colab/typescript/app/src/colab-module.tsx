@@ -19,6 +19,11 @@ import { previewTransport } from './local-pages.js';
 import { MountedApp } from './mounted-app.js';
 import { UnsupportedBrowserNotice } from './notice-card.js';
 import { createAppRouter, shellLocation } from './router.js';
+import {
+  mount as mountSearchEntry,
+  type SearchEntry,
+  type SearchEntryOptions,
+} from './search-entry.js';
 
 /** The paired mount the composed shell names for Colab, or null for the local preview. */
 function pairedMount(slot: ShellSlot): URL | null {
@@ -40,6 +45,22 @@ function stylesheet(): () => void {
     Object.assign(document.createElement('link'), { rel: 'stylesheet', href }),
   );
   return () => link.remove();
+}
+
+/**
+ * The global search's Colab half (#4841), mounted by the shell off the Colab route: it links this
+ * module's stylesheet for as long as the search lives and adds no shortcut listener of its own.
+ */
+export function mountSearch(container: HTMLElement, options: SearchEntryOptions): SearchEntry {
+  const unstyle = stylesheet();
+  const entry = mountSearchEntry(container, options);
+  return {
+    open: entry.open,
+    dispose() {
+      entry.dispose();
+      unstyle();
+    },
+  };
 }
 
 export async function mount(slot: ShellSlot): Promise<() => void> {

@@ -15,14 +15,10 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
+import { resolveRepository, isRepository } from './github-repository.mjs';
 
-const DEFAULT_REPO = 'pj-tmt/tmt';
 function repositoryRoot(repo) {
-  if (
-    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ||
-    repo.split('/').some((part) => part === '.' || part === '..')
-  )
-    throw new Error('repo must be OWNER/REPO.');
+  if (!isRepository(repo)) throw new Error('repo must be OWNER/REPO.');
   return `repos/${repo}`;
 }
 // Keep verbose PR/timeline responses below the shared bounded command buffer.
@@ -101,11 +97,13 @@ const jobPage = (path) => /\/attempts\/\d+\/jobs\?/.test(path);
 /** Read-only, bounded REST requests. Only qualified terminal job pages may be frozen. */
 export function restClient({
   cache,
-  repo = DEFAULT_REPO,
+  repo,
+  env = process.env,
   offline = false,
   maxRequests = 500,
   execute = runPackedCommand,
 }) {
+  repo = resolveRepository({ repo, env, execute });
   const ROOT = repositoryRoot(repo);
   mkdirSync(cache, { recursive: true });
   let requests = 0;
@@ -252,7 +250,7 @@ function pages(api, path, key, immutable = false) {
 /** Collect one snapshot. Every rerun attempt has its own jobs and completion evidence. */
 export function collectMetrics(
   api,
-  { since, until, repo = DEFAULT_REPO, workflow = 'ci.yml', tagPrs = [961, 963] }
+  { since, until, repo, workflow = 'ci.yml', tagPrs = [961, 963] }
 ) {
   const ROOT = repositoryRoot(repo);
   const start = instant(since),
@@ -585,7 +583,7 @@ export function renderMetrics(snapshot, boundary, { details = false } = {}) {
   const lines = [
     '# Merge queue health',
     '',
-    `UTC snapshot: ${snapshot.since} ≤ run created_at / merge time < ${snapshot.until}. Repository: ${snapshot.repo ?? DEFAULT_REPO}. Workflow: ${snapshot.workflow}.`,
+    `UTC snapshot: ${snapshot.since} ≤ run created_at / merge time < ${snapshot.until}. Repository: ${snapshot.repo ?? 'unknown'}. Workflow: ${snapshot.workflow}.`,
     '',
     'Queue trial: 2026-10-02T06:08:40Z (wait 5 minutes, build concurrency 3). Confounders: #961 merged 05:21:13Z; #963 changes cumulative scope. Compare strata, not queue settings alone.',
     '',
@@ -652,7 +650,7 @@ function main(argv) {
   const { values } = parseArgs({
     args: argv,
     options: {
-      repo: { type: 'string', default: DEFAULT_REPO },
+      repo: { type: 'string' },
       since: { type: 'string' },
       until: { type: 'string' },
       boundary: { type: 'string' },
@@ -679,6 +677,7 @@ function main(argv) {
   const maxRequests = Number(values['max-requests']);
   if (!Number.isSafeInteger(maxRequests) || maxRequests < 1)
     throw new Error('max-requests must be positive.');
+  values.repo = resolveRepository({ repo: values.repo });
   const api = restClient({
     cache: resolve(values.cache),
     repo: values.repo,

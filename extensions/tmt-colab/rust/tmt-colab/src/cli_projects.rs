@@ -9,7 +9,7 @@ use tmt_cli_style::{CommandSpec, Example, OutputModes};
 use tmt_colab::{
     Result, inspection,
     keyring::{Keyring, Layout},
-    limits::{PAGE_PROJECTS, PROJECT_POINTS},
+    limits::{PAGE_PROJECTS, PROJECT_POINTS, SPACE_PROJECT_PINS},
     page::Fault,
     projects,
     store::Store,
@@ -49,6 +49,24 @@ pub fn command() -> Command {
         .subcommand(command_spec!("remove","Take a page out of projects","tmt colab project remove 10000000-0000-4000-8000-000000000001 launch","Removing a project the page is not in changes nothing. The project stays, even with no page left.").alias("rm").arg(crate::cli_grammar::page()).arg(names("Projects to remove")))
         .subcommand(command_spec!("rename","Rename a project","tmt colab project rename launch release","Archived pages are included. Renaming onto an existing project merges the two: a page in both keeps one entry. No page is deleted.").arg(Arg::new("name").required(true).index(1).help("The project to rename")).arg(Arg::new("to").required(true).index(2).help("Its new name")))
         .subcommand(command_spec!("delete","Delete a project","tmt colab project delete launch","Only the grouping goes: no page is deleted. Archived pages are included.").arg(Arg::new("name").required(true).index(1).help("The project to delete")))
+        .subcommand(command_spec!("pin","Show a project in the Colab side menu","tmt colab project pin launch --position 1","The side menu lists the projects you pin, in your order. Until you pin one it shows the five you used most recently; the first pin makes the list yours. At most 20. Pinning a pinned project moves it.").arg(Arg::new("name").required(true).index(1).help("The project to pin")).arg(Arg::new("position").long("position").value_parser(clap::value_parser!(usize)).help("Its place in the list, from 1 (default: last)")))
+        .subcommand(command_spec!("unpin","Take a project out of the Colab side menu","tmt colab project unpin launch","The project and its pages stay. Unpinning a project that is not pinned changes nothing.").arg(Arg::new("name").required(true).index(1).help("The project to unpin")))
+}
+/// The strings of a JSON array, in order; anything else reads as none.
+fn strings(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|name| name.as_str().map(str::to_owned))
+        .collect()
+}
+/// The pinned projects the catalog reports, in order, and whether they are the automatic default.
+fn pins(catalog: &Value) -> (Vec<String>, bool) {
+    (
+        strings(&catalog["projectPins"]["names"]),
+        catalog["projectPins"]["automatic"] == true,
+    )
 }
 fn invalid_name() -> Box<dyn std::error::Error + Send + Sync> {
     fail(
@@ -81,14 +99,7 @@ pub fn not_found(name: &str) -> Box<dyn std::error::Error + Send + Sync> {
 }
 /// Each page's projects and every project of the space, with its page count.
 fn current(catalog: &Value) -> (BTreeMap<String, Vec<String>>, BTreeMap<String, usize>) {
-    let names = |value: &Value| -> Vec<String> {
-        value
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|name| name.as_str().map(str::to_owned))
-            .collect()
-    };
+    let names = strings;
     let by_page: BTreeMap<String, Vec<String>> = catalog["pages"]
         .as_array()
         .into_iter()
@@ -167,19 +178,78 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let mut rows: Vec<(&str, String)> = Vec::new();
     let value = match mode {
         "ls" => {
+            let (pinned, automatic) = pins(&catalog);
+            let place = |name: &String| pinned.iter().position(|held| held == name).map(|n| n + 1);
             for (name, pages) in &counts {
                 rows.push((
                     "project",
                     format!(
-                        "{name} · {pages} page{}",
-                        if *pages == 1 { "" } else { "s" }
+                        "{name} · {pages} page{}{}",
+                        if *pages == 1 { "" } else { "s" },
+                        place(name).map_or(String::new(), |n| format!(" · pinned {n}")),
                     ),
                 ));
             }
             if counts.is_empty() {
                 rows.push(("projects", "none".into()));
+            } else if automatic {
+                rows.push((
+                    "side menu",
+                    "automatic: your most recently used projects, until you pin one".into(),
+                ));
             }
-            json!({"spaceId":key.space_id,"projects":counts.iter().map(|(name, pages)| json!({"name":name,"pages":pages})).collect::<Vec<_>>()})
+            json!({"spaceId":key.space_id,"pinsAutomatic":automatic,"projects":counts.iter().map(|(name, pages)| json!({"name":name,"pages":pages,"pinned":place(name)})).collect::<Vec<_>>()})
+        }
+        "pin" | "unpin" => {
+            let name = &names[0];
+            counts.get(name).ok_or_else(|| not_found(name))?;
+            let (shown, automatic) = pins(&catalog);
+            let mut next: Vec<String> =
+                shown.iter().filter(|held| *held != name).cloned().collect();
+            if mode == "pin" {
+                let last = next.len() + 1;
+                let place = match args.get_one::<usize>("position") {
+                    Some(&place) if (1..=last).contains(&place) => place,
+                    Some(_) => {
+                        return Err(fail(
+                            "COLAB_INPUT_INVALID",
+                            &format!("--position is a place from 1 to {last}."),
+                        ));
+                    }
+                    None => last,
+                };
+                next.insert(place - 1, name.clone());
+                if next.len() > SPACE_PROJECT_PINS {
+                    return Err(fail(
+                        "COLAB_CAPACITY",
+                        &format!(
+                            "At most {SPACE_PROJECT_PINS} projects can be pinned. Unpin one first."
+                        ),
+                    ));
+                }
+            }
+            // The first pin makes the list the shown automatic one, so it is written even when the
+            // list reads the same.
+            let changed = next != shown || (mode == "pin" && automatic);
+            if changed {
+                manage(&layout, &key, &json!({"action":"pins","names":next}))?;
+            }
+            let position = next.iter().position(|held| held == name).map(|n| n + 1);
+            rows.push(("project", name.clone()));
+            rows.push((
+                "pinned",
+                position.map_or("no".into(), |place| format!("place {place}")),
+            ));
+            rows.push((
+                "status",
+                match (changed, mode) {
+                    (false, _) => "unchanged",
+                    (true, "pin") => "pinned",
+                    (true, _) => "unpinned",
+                }
+                .into(),
+            ));
+            json!({"spaceId":key.space_id,"name":name,"pinned":position.is_some(),"position":position,"changed":changed})
         }
         "create" => {
             let name = &names[0];

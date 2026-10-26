@@ -8,10 +8,15 @@ configuration. The owner map is in
 ## SQLite adapter
 
 `storage::orchestration` pins one read snapshot for plans, current identities and
-personal focus. `tmt-core::orchestration::effective` owns policy; its calendar port
-receives adapter/Jiff conversions only. Journal appends share the future calling
-owner's transaction and freeze source evidence. No live producers ship in slice 1;
-reads and preview append nothing. [Orchestration v1](../../../../contracts/orchestration-v1.md)
+personal focus and typed configured Digest receiving. `tmt-core::orchestration::effective`
+owns policy; its calendar port receives adapter/Jiff conversions only. Calendar data
+loads before request transactions and its zone selection is rechecked inside them.
+Real hold, checklist admission and settlement journal appends share their request
+transaction; checklist settlement uses frozen claim evidence. Reads, preview and
+configuration publication append nothing. Actual restricted Incoming holds create class markers; the shared clock keeps
+only admission spacing/pass progress. Claims freeze eligible membership and counts
+in the existing summary-tagged checklist; settlement is terminal without captured
+input, prompt confirmation or reoffer. No range history or member copy exists. [Orchestration v1](../../../../contracts/orchestration-v1.md)
 owns shapes, recurrence rules, state defaults and slice boundaries.
 
 - Raw connections stay private; core sees narrow ports. Frozen fixtures keep their provenance in
@@ -318,6 +323,24 @@ this first discovery slice. CLI fixtures suppress automatic browser opens.
   binaries and the rollback release open the old name through the link (default open flags, no
   `NOFOLLOW`) and SQLite places the journals under `tmt.db`. Removing the link belongs to the
   later alias decision.
+- **Free pages and compaction (#5036).** A store created with `auto_vacuum=NONE` keeps every page
+  it ever used; deletes only grow the free list. `storage::compaction` owns the fix. The one-time
+  switch to `INCREMENTAL` needs a full `VACUUM`, so it runs only in `tmt upgrade`, after the rename
+  (hidden `__native-compact-database`, report key `databaseCompaction`, a 60 s child like the
+  rename). It never waits for a writer: busy timeout 0, a `BEGIN IMMEDIATE` probe, then `VACUUM`
+  with the same zero wait, so a concurrent writer refuses it (`in-use`, nothing changed) rather
+  than queueing. It also refuses unless the filesystem has twice the database's bytes (file plus
+  log) free, and reports `absent`, `current`, `compacted` (with bytes before and after) or
+  `refused` with a reason. A refusal never fails the upgrade. `Storage::open` does not compact or
+  change the mode. After the switch, request retention (`delete_retained`, the last step of
+  `RequestService` cleanup inside its immediate request transaction, which runs on every request
+  read and prepare) also runs `PRAGMA incremental_vacuum(64)` when the free list is not empty, so
+  freed pages return to the filesystem while agents run, at most 256 KiB per transaction.
+  `tmt storage` reports each local store read-only: `stat` sizes, the Core database's page
+  counts through a read-only connection (read as immutable when no `-wal` exists, so no sidecar
+  is created), notes under `<data root>/notes` (bounded walk) and Colab `colab/space.db` with its
+  `space.db.pre-v<N>.bak` copies; a missing store is `present: false`, and a pending compaction
+  names `tmt upgrade`.
 
 - `config::document` uses shared `Document` for set, theme-base and clear: current-byte
   read, known-setting validation through `tmt-core::settings` and mutation share one
@@ -357,7 +380,7 @@ legacy-counter provenance and the difference between idle and turn-boundary elig
 
 `storage::responses::capture` owns the final's activity transition under the binding/session/process
 fence, recomputing from current activity so a usage-only writer cannot discard the final or be
-reverted. Claude and Codex payload finals commit before optional telemetry and before Digest can block. A missing
+reverted. Antigravity, Claude and Codex payload finals commit before optional telemetry and before Digest can block. A missing
 payload final may use the existing consented driver reader; usage failure cannot roll back a kept
 answer. Both hooks use this capture entry point, so a normal Stop is retained once regardless of
 hook order. Inapplicable capture leaves Digest's independent launch verification unchanged;

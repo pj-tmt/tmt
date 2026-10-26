@@ -179,6 +179,7 @@ async function wire(
         ownerKey: c.encodeBinary(owner),
         revision: String(head.head.revision),
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: [{ pageId: v.page, deleted: false }],
         pages: [
           {
@@ -2073,11 +2074,11 @@ test('an upgraded server shows the update row in the shell bar without covering 
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const rowBox = (await row.boundingBox())!;
-    const headerBox = (await page.locator('header.tmt-ui-header').boundingBox())!;
+    const topBox = (await page.locator('.tmt-ui-shell-bar .tmt-ui-topbar').boundingBox())!;
     const barBox = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
-    // Inside the TMT web shell the row is the shell bar's line directly under the header: as wide
+    // Inside the TMT web shell the row is the shell bar's line directly under the top bar: as wide
     // as Colab's column (the bar), one line, and the page starts below it.
-    expect(rowBox.y).toBeCloseTo(headerBox.y + headerBox.height, 0);
+    expect(rowBox.y).toBeCloseTo(topBox.y + topBox.height, 0);
     expect(rowBox.x).toBeCloseTo(barBox.x, 0);
     expect(rowBox.width).toBeCloseTo(barBox.width, 0);
     expect(rowBox.y + rowBox.height).toBeCloseTo(barBox.y + barBox.height, 0);

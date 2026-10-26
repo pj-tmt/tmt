@@ -150,7 +150,7 @@ fn new_companion_is_judged_by_candidate_and_old_reader_never_reopens_new_invento
                     prefix: &request.prefix,
                     channel: Channel::Stable,
                     pin: PinAction::Preserve,
-                    expected: Some(old.id),
+                    expected: Some(old.id).into(),
                     provenance: Some(downloaded.provenance.clone()),
                     verifier: None,
                     explicit_channel: true,
@@ -251,7 +251,10 @@ fn unsupported_or_malformed_probe_never_calls_install_or_changes_current() {
         )
         .unwrap_err();
         assert!(error.get_ref().unwrap().is::<Unsupported>());
-        assert_eq!(error.to_string(), UNSUPPORTED);
+        assert_eq!(
+            error.to_string(),
+            "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh"
+        );
         assert_eq!(*calls.borrow(), 1);
         assert_eq!(layout.current().unwrap().unwrap().id, old.id);
         assert_clean(&runner);
@@ -671,7 +674,7 @@ fn pr_parent_probes_protocol_four_transfers_exact_admission_and_cleans_its_stagi
                     prefix: &request.transfer.prefix,
                     channel,
                     pin: PinAction::Preserve,
-                    expected: Some(old.id),
+                    expected: Some(old.id).into(),
                     provenance: Some(request.provenance),
                     verifier: None,
                     explicit_channel: request.explicit_channel,

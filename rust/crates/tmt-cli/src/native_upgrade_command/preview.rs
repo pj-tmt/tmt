@@ -16,35 +16,61 @@ pub(super) struct Approval {
 
 pub(super) fn approve(
     cli: &PreparedUpgrade,
-    extensions: &upgrade_all::Plan,
+    whole: &mut upgrade_all::complete::Plan,
     explicit: bool,
     yes: bool,
     mode: OutputMode,
 ) -> Result<Approval, Failure> {
     let human = caller_context::may_offer_install(tmt_cli_style::Interaction::detect(mode.json));
+    if yes || !human {
+        whole.defaults(yes);
+    }
     let version = cli.current().state.version.to_string();
     let selected = cli.selected_version().map(ToString::to_string);
     let changes = explicit
         || selected
             .as_ref()
             .is_some_and(|selected| selected != &version)
-        || !extensions.pending.is_empty();
+        || !whole.installed.pending.is_empty()
+        || whole.pending();
+    if human {
+        let rows = rows(
+            &version,
+            selected.as_deref(),
+            explicit,
+            cli.migration(),
+            &whole.installed,
+        );
+        let mut output = tmt_cli_style::stream::stdout(false);
+        let terminal = output.terminal();
+        write_rows(&mut output, terminal, &rows).map_err(presentation_failure)?;
+        if !whole
+            .select(&mut output, !yes)
+            .map_err(presentation_failure)?
+        {
+            writeln!(output, "  No components were changed.").map_err(presentation_failure)?;
+            return Ok(Approval {
+                proceed: false,
+                extensions: false,
+            });
+        }
+        if yes {
+            for row in &whole.providers {
+                if let Some(hint) = row["hint"].as_str() {
+                    writeln!(
+                        output,
+                        "  New provider scope requires interactive approval: {hint}"
+                    )
+                    .map_err(presentation_failure)?;
+                }
+            }
+        }
+    }
     approve_with(
         human,
         yes,
         changes,
-        || {
-            let rows = rows(
-                &version,
-                selected.as_deref(),
-                explicit,
-                cli.migration(),
-                extensions,
-            );
-            let mut output = tmt_cli_style::stream::stdout(false);
-            let terminal = output.terminal();
-            write_rows(&mut output, terminal, &rows).map_err(presentation_failure)
-        },
+        || Ok(()),
         || {
             consent::ask_defaulting_yes(
                 &mut tmt_cli_style::stream::stdout(false),

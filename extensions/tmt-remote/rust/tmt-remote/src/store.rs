@@ -705,7 +705,6 @@ pub(crate) fn rename_in(
             rusqlite::params![client_id, name],
         )
         .map_err(database)?;
-    crate::members::renamed(connection, client_id, name)?;
     grant_in(connection, client_id)
 }
 /// Durable counters belong to one live session/run. A restart never adopts an

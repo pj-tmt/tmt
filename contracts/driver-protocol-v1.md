@@ -311,6 +311,15 @@ belong to the [host reference](../.agents/skills/tmt-core-runtime/references/hos
   last `lines` lines. A driver must not refuse `lines: 0` as `bad_request`.
 - **Missing pane:** each of these answers `not_found`.
 
+**Core capture selection.** `tmt check <target> --capture-only` (alias `read`)
+accepts a name, pane or canonical lowercase UUIDv4. A UUID selects its recorded
+binding without falling back to a UUID-shaped name. Optional `--expect-name <name>`
+requires a UUID and `--capture-only`; a retired or renamed identity refuses with
+`IDENTITY_CHANGED` (exit 5) before capture, and an unknown UUID with `NAME_NOT_FOUND`
+(exit 3). Expected names use Core's canonical name comparison. Capture-only never
+delivers a Digest checklist. Ordinary check retains name/pane routing; capture line
+counts, output and this driver's wire requests are unchanged.
+
 **Core directional focus.** `tmt focus <target> --into <left|right|up|down>` is a
 Core host action, not an external-driver wire operation. External drivers,
 including Herdr, default to `HOST_UNSUPPORTED`. On tmux, Core verifies the caller

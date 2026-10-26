@@ -39,6 +39,9 @@ impl DurableFixture {
         store.connection = rusqlite::Connection::open_in_memory().unwrap();
         *store = Store::open(&self.serving).unwrap();
     }
+    pub(super) fn machine_key(&self) -> crate::state::MachineKey {
+        crate::state::MachineKey::open(&Layout::open(&self.root).unwrap()).unwrap()
+    }
     pub(super) fn counts(&self) -> (i64, i64, i64, i64) {
         self.store.lock().unwrap().connection.query_row(
             "SELECT (SELECT COUNT(*) FROM grants),(SELECT COUNT(*) FROM members),(SELECT COUNT(*) FROM member_machines),(SELECT COUNT(*) FROM management_receipts)",
@@ -149,7 +152,10 @@ pub(super) fn admitted(
 }
 impl Drop for DurableFixture {
     fn drop(&mut self) {
-        self.store.lock().unwrap().connection = rusqlite::Connection::open_in_memory().unwrap();
+        self.store
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .connection = rusqlite::Connection::open_in_memory().unwrap();
         std::fs::remove_dir_all(&self.root).unwrap();
     }
 }

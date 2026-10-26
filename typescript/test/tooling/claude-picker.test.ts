@@ -149,7 +149,12 @@ it('publishes the picker through the repository marketplace that the install hin
     path.join(root, 'rust/crates/tmt-adapters/src/drivers/claude/picker.rs'),
     'utf8'
   );
-  expect(hint).toContain('claude plugin marketplace add pj-tmt/tmt &&');
+  const official = readFileSync(
+    path.join(root, 'rust/crates/tmt-core/src/native_install.rs'),
+    'utf8'
+  ).match(/pub const OFFICIAL_REPOSITORY: &str = "([^"]+)";/)?.[1];
+  expect(official).toMatch(/^[\w.-]+\/[\w.-]+$/);
+  expect(hint).toContain('claude plugin marketplace add {OFFICIAL_REPOSITORY} &&');
   expect(hint).toContain(`claude plugin install ${entry.name}@${marketplace.name}"`);
 });
 

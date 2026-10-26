@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: 59fece53c9538c367373921a2a9a0b2b6611343c
+sourceRevision: db057b4464fc6014a7b3a3bda6a34ffa5b4cb708
 title: 各处保持一致的外观
 ---
 
@@ -10,11 +10,11 @@ import { Cmd } from "../../components/Cmd";
 import { Tag } from "../../components/marks";
 import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
 
-无论在命令行、Ops 看板还是本站，tmt 都保持一致的外观。本页是它们共同遵循的指南。所有值都来自同一个文件：[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json)。网站样式表和本页所有表格都读取这个文件，没有手工复制的值。
+无论在命令行、Ops 看板还是本站，tmt 都保持一致的外观。本页是它们共同遵循的指南。所有值都来自同一个文件：[`design/tokens/tokens.json`](https://github.com/tmt-ninja/tmt/blob/main/design/tokens/tokens.json)。网站样式表和本页所有表格都读取这个文件，没有手工复制的值。
 
 <Mdx.h3 id="interactive-design-guidebook-mdx">MDX 交互式设计指南</Mdx.h3>
 
-[浏览器指南](https://github.com/pj-tmt/tmt/blob/main/design/gui-style.md) 定义页头、卡片、控件、浮层、焦点和恢复提示。[CLI 指南](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md) 定义终端输出。先在这里操作示例，再查看完整规范。
+[浏览器指南](https://github.com/tmt-ninja/tmt/blob/main/design/gui-style.md) 定义页头、卡片、控件、浮层、焦点和恢复提示。[CLI 指南](https://github.com/tmt-ninja/tmt/blob/main/design/cli-style.md) 定义终端输出。先在这里操作示例，再查看完整规范。
 
 <Mdx.h3 id="try-the-components">试用组件</Mdx.h3>
 
@@ -22,7 +22,7 @@ import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../component
 
 <DesignPlayground />
 
-这是 **设计示例**，不是实际的 Colab 或 Remote 连接。标签保持英文，与产品用词一致。Colab 和 Remote 有各自已发布的组件；[#1797](https://github.com/pj-tmt/tmt/issues/1797) 的共享组件包仍是 **计划中**。示例不演示配对、权限、Ask 投递或重连。[组件规范 PR](https://github.com/pj-tmt/tmt/pull/1798) 记录了清单和提取边界。
+这是 **设计示例**，不是实际的 Colab 或 Remote 连接。标签保持英文，与产品用词一致。Colab 和 Remote 有各自已发布的组件；[#1797](https://github.com/tmt-ninja/tmt/issues/1797) 的共享组件包仍是 **计划中**。示例不演示配对、权限、Ask 投递或重连。[组件规范 PR](https://github.com/tmt-ninja/tmt/pull/1798) 记录了清单和提取边界。
 
 <Mdx.h3 id="principles">原则</Mdx.h3>
 
@@ -37,7 +37,7 @@ import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../component
 
 <TokenTable />
 
-命令行自己的 token 名称（`accent`、`ok`、`warn`、`error`、`dim` 和 driver 颜色）分别对应这些颜色之一：`ok` 对应 `working`，`warn` 对应 `waiting`，`error` 对应 `blocked`，Claude 和 Codex 的 driver 颜色分别对应 `review` 和 `link`。完整列表见 [design/cli-style.md](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md)。终端主题从同一个文件读取这些值；两者不一致时，测试会失败。
+命令行自己的 token 名称（`accent`、`ok`、`warn`、`error`、`dim` 和 driver 颜色）分别对应这些颜色之一：`ok` 对应 `working`，`warn` 对应 `waiting`，`error` 对应 `blocked`，Claude 和 Codex 的 driver 颜色分别对应 `review` 和 `link`。完整列表见 [design/cli-style.md](https://github.com/tmt-ninja/tmt/blob/main/design/cli-style.md)。终端主题从同一个文件读取这些值；两者不一致时，测试会失败。
 
 <Mdx.h3 id="surfaces">背景层</Mdx.h3>
 

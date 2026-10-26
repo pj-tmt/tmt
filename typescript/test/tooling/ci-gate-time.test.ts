@@ -380,6 +380,7 @@ describe('read-only REST reader', () => {
   it('does not retry client errors and stops at the request budget', () => {
     let client = 0;
     const failing = ghReader({
+      repo: 'pj-tmt/tmt',
       execute: () => {
         client += 1;
         throw new Error('gh: Not Found (HTTP 404)');
@@ -387,7 +388,7 @@ describe('read-only REST reader', () => {
     });
     expect(() => failing('x')).toThrow('HTTP 404');
     expect(client).toBe(1);
-    const bounded = ghReader({ maxRequests: 1, execute: () => ok });
+    const bounded = ghReader({ repo: 'pj-tmt/tmt', maxRequests: 1, execute: () => ok });
     bounded('a');
     expect(() => bounded('b')).toThrow('REST budget 1 exhausted');
     expect(() => ghReader({ repo: '../x' })).toThrow('OWNER/REPO');

@@ -11,7 +11,8 @@ mod registry;
 mod retired;
 mod setup_plan;
 pub use setup_plan::{
-    CorePublication, SkillState, SkillTarget, plan_core, plan_owned, publish_core, publish_owned,
+    CorePublication, SkillState, SkillTarget, plan_core, plan_owned, publish_core,
+    publish_missing_core, publish_owned, recorded_targets,
 };
 mod uninstall;
 pub use refresh::{RefreshFailure, RefreshReport, RefreshedSkill, refresh};
@@ -26,7 +27,8 @@ pub(crate) use owned::{
 };
 pub use owned::{
     OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned,
-    install_release_skills, owned_by, owned_roots, owners, refresh_owned, refusal, remove_owned,
+    install_release_skills, owned_by, owned_roots, owned_skills_current, owners, refresh_owned,
+    refusal, remove_owned,
 };
 #[cfg(test)]
 mod owned_tests;

@@ -71,6 +71,8 @@ impl Controller {
         }
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         app.input_band.set(Some(areas.outer));
+        app.peek_areas
+            .set_dialog(crate::board::app::Overlay::IdleAlert, Some(areas.outer));
         let content = areas.content;
         let complete = content.width >= 40 && usize::from(content.height) >= demand;
         let line = |row: u16| {

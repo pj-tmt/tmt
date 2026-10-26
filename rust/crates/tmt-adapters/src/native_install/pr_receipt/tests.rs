@@ -42,7 +42,7 @@ fn publish(
             prefix,
             channel: Channel::parse("pr234").unwrap(),
             pin: PinAction::Preserve,
-            expected,
+            expected: expected.into(),
             provenance: Some(provenance),
             verifier: None,
             explicit_channel,
@@ -124,6 +124,40 @@ fn managed_receipt_persists_pr_identity_epoch_and_admission_after_remote_expiry(
     }
     fs::write(receipt_path, bytes).unwrap();
     assert!(inspect(&report.active_executable).is_ok());
+}
+
+#[test]
+fn a_pr_receipt_names_the_current_or_the_previous_repository_and_no_other() {
+    let directory = TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let (artifact, source) = fixture();
+    let report = publish(&prefix, &artifact, source, None, true, 48).unwrap();
+    let receipt_path = report
+        .active_executable
+        .parent()
+        .unwrap()
+        .join("receipt.json");
+    let json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    assert_eq!(json["source"]["repository"], "tmt-ninja/tmt");
+    assert_eq!(json["source"]["evidence"]["repository"], "tmt-ninja/tmt");
+    for (repository, accepted) in [
+        ("tmt-ninja/tmt", true),
+        ("pj-tmt/tmt", true),
+        ("wkh237/tmt", false),
+        ("other/tmt", false),
+    ] {
+        for pointer in ["/source/repository", "/source/evidence/repository"] {
+            let mut changed = json.clone();
+            *changed.pointer_mut(pointer).unwrap() = repository.into();
+            fs::write(&receipt_path, serde_json::to_vec(&changed).unwrap()).unwrap();
+            assert_eq!(
+                inspect(&report.active_executable).is_ok(),
+                accepted,
+                "{pointer} {repository}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -222,7 +256,7 @@ fn explicit_alpha_return_requires_known_schema_and_never_downgrades_data() {
                     prefix: &prefix,
                     channel: Channel::Alpha,
                     pin: PinAction::Preserve,
-                    expected: Some(installed.id),
+                    expected: Some(installed.id).into(),
                     provenance: None,
                     verifier: None,
                     explicit_channel: explicit,
@@ -243,7 +277,7 @@ fn explicit_alpha_return_requires_known_schema_and_never_downgrades_data() {
             prefix: &prefix,
             channel: Channel::Alpha,
             pin: PinAction::Preserve,
-            expected: Some(installed.id),
+            expected: Some(installed.id).into(),
             provenance: None,
             verifier: None,
             explicit_channel: true,
@@ -320,7 +354,7 @@ fn synthetic_pr_returns_to_lower_published_versions_without_bypassing_admission(
                         prefix: &prefix,
                         channel,
                         pin,
-                        expected: Some(installed.id),
+                        expected: Some(installed.id).into(),
                         provenance: None,
                         verifier: None,
                         explicit_channel: true,
@@ -341,7 +375,7 @@ fn synthetic_pr_returns_to_lower_published_versions_without_bypassing_admission(
                 prefix: &prefix,
                 channel,
                 pin: PinAction::Preserve,
-                expected: Some(installed.id),
+                expected: Some(installed.id).into(),
                 provenance: None,
                 verifier: None,
                 explicit_channel: true,
@@ -372,7 +406,7 @@ fn pinned_pr_return_to_published_channel_preserves_the_active_receipt() {
             prefix: &prefix,
             channel: Channel::parse("pr234").unwrap(),
             pin: PinAction::PinCandidate,
-            expected: None,
+            expected: None.into(),
             provenance: Some(source.clone()),
             verifier: None,
             explicit_channel: true,
@@ -395,7 +429,7 @@ fn pinned_pr_return_to_published_channel_preserves_the_active_receipt() {
             prefix: &prefix,
             channel: Channel::Alpha,
             pin: PinAction::Preserve,
-            expected: Some(installed.id),
+            expected: Some(installed.id).into(),
             provenance: None,
             verifier: None,
             explicit_channel: true,
@@ -450,7 +484,7 @@ fn a_pr_channel_installation_moves_to_the_new_prefix_with_its_provenance() {
             prefix: &prefix,
             channel: Channel::Alpha,
             pin: PinAction::Preserve,
-            expected: Some(installed.id),
+            expected: Some(installed.id).into(),
             provenance: None,
             verifier: None,
             explicit_channel: true,

@@ -250,18 +250,3 @@ export function withdrawBlock(destination: 'Answer' | 'Proposal') {
   );
   publish();
 }
-
-/** Colab's preview already renders the shared shell. The static host additionally keeps this
- * placeholder before the module header; its real shell CSS hides it once that header is ready. */
-export function shellPlaceholder() {
-  const header = document.querySelector('.tmt-ui-shell-bar > .tmt-ui-header');
-  if (!header) throw new Error('The fixture page header is not ready');
-  const placeholder = document.createElement('header');
-  placeholder.className = 'tmt-ui-header';
-  placeholder.dataset.shellPlaceholder = '';
-  const title = document.createElement('span');
-  title.className = 'tmt-ui-title';
-  title.textContent = 'Colab';
-  placeholder.append(title);
-  header.before(placeholder);
-}

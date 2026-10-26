@@ -4,7 +4,7 @@ import { captureDirectory } from './captures.js';
 import { readFrameStyle } from './frame-style.js';
 import { destination } from '../test/ask-fixtures.js';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, showResolvedOn } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { rgb, tokens } from './tokens.js';
 
@@ -37,8 +37,8 @@ async function expectRuleEdge(panel: Locator, theme: 'light' | 'dark') {
   await expect(children.first()).toHaveCSS('border-top-width', '0px');
   await expect(children.nth(count - 1)).toHaveCSS('border-bottom-width', '0px');
 }
-/** The Comments panel's own edge by mode: a column is ruled on its left only (the page grid owns
- * the rest); a card and a sheet float and draw the leaf's edge on all four sides, once. */
+/** The Comments panel's own edge by mode: a column draws none (the page's edge is the one between
+ * them); a card and a sheet float and draw the leaf's edge on all four sides, once. */
 async function expectCommentsEdge(panel: Locator, theme: 'light' | 'dark') {
   const mode = await panel.getAttribute('data-mode');
   if (mode !== 'column') {
@@ -48,10 +48,7 @@ async function expectCommentsEdge(panel: Locator, theme: 'light' | 'dark') {
     }
     return;
   }
-  await expect(panel).toHaveCSS('border-left-width', '1px');
-  await expect(panel).toHaveCSS('border-left-style', 'solid');
-  await expect(panel).toHaveCSS('border-left-color', rule[theme]);
-  for (const side of ['top', 'right', 'bottom'])
+  for (const side of ['top', 'right', 'bottom', 'left'])
     await expect(panel).toHaveCSS(`border-${side}-width`, '0px');
 }
 for (const width of [1440, 390])
@@ -63,6 +60,8 @@ for (const width of [1440, 390])
       await page.addInitScript((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
+      // The matrix lists every thread, resolved ones included.
+      await showResolvedOn(page);
       await page.goto('/');
       await run(page, 'mount', {
         creator: true,
@@ -144,6 +143,9 @@ for (const width of [1440, 390])
         await expect(page.locator('.annotation-popover')).not.toHaveAttribute('data-leader');
       }
       await page.keyboard.press('Escape');
+      // Collapse the browser selection too, so its Annotate control does not float over the sheet the
+      // marker opens below.
+      await range.evaluate((node) => node.ownerDocument.getSelection()!.removeAllRanges());
       // The passage at rest is not selected; the one whose thread window opens takes the selected look
       // (#4490) and returns to rest when the window closes.
       const selectedPassages = () =>
@@ -198,20 +200,10 @@ for (const width of [1440, 390])
       // The position in the panel's header is the way back to the list.
       await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
       await expectCommentsEdge(commentsRegion(page), theme);
-      // The numbers are split between the Open and Resolved views (the open thread shows in both).
-      const allNumbers = async () => {
-        const seen = new Set<string>();
-        for (const view of ['Open', 'Resolved']) {
-          await panel.getByRole('tab', { name: view, exact: true }).click();
-          for (const value of await panel
-            .locator('.annotation-row .annotation-number')
-            .allTextContents())
-            seen.add(value);
-        }
-        return [...seen].sort();
-      };
+      // With Show resolved on, the Open view lists every thread.
+      const allNumbers = async () =>
+        (await panel.locator('.annotation-row .annotation-number').allTextContents()).sort();
       expect(await allNumbers()).toEqual(['1', '2', '3', '4', '5']);
-      await panel.getByRole('tab', { name: 'Resolved', exact: true }).click();
       await panel.locator('.annotation-row').filter({ hasText: 'old decision text' }).click();
       const resolved = panel.getByTestId('comment-thread');
       await expect(

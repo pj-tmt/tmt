@@ -102,6 +102,7 @@ impl Storage {
             return Err(DispatchError::Invalid);
         }
         let digest = intent_digest(&input);
+        let calendar = super::orchestration::ReceivingCalendar::load(self.connection()?)?;
         with_immediate_transaction(self, "Request dispatch", |transaction| {
             if let Some((stored_digest, receipt)) =
                 read_dispatch_operation(transaction, &input.operation_id)?
@@ -134,7 +135,7 @@ impl Storage {
             let now = clock();
             let expires_at_ms =
                 checked_deadline(now, REQUEST_MIN_EXPIRY_MS).ok_or(DispatchError::Invalid)?;
-            let mut repository = TransactionRequests(transaction);
+            let mut repository = TransactionRequests(transaction, &calendar);
             let mut service = RequestService::new(&mut repository, || now);
             let mut items = Vec::with_capacity(input.recipient_ids.len());
             for recipient_id in &input.recipient_ids {

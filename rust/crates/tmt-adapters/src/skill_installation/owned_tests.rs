@@ -381,3 +381,20 @@ fn default_directory_cutover_republishes_only_full_digest_verified_owned_sources
         assert!(!former.exists());
     }
 }
+
+#[test]
+fn setup_plans_only_missing_or_changed_release_skill_publication_without_writes() {
+    let (_directory, env, global, root) = fixture();
+    assert!(super::owned_skills_current(&env, &global, "ops", &[]).unwrap());
+    let skills = [skill("tmt-ops", "v1")];
+    assert!(!super::owned_skills_current(&env, &global, "ops", &skills).unwrap());
+    assert!(!global.exists(), "planning must not create the store");
+    install_owned(&env, &global, "ops", &skills, false).unwrap();
+    let before = fs::read(global.join("skill-owners.json")).unwrap();
+    assert!(super::owned_skills_current(&env, &global, "ops", &skills).unwrap());
+    assert!(!super::owned_skills_current(&env, &global, "ops", &[skill("tmt-ops", "v2")]).unwrap());
+    fs::remove_file(root.join("tmt-ops")).unwrap();
+    assert!(!super::owned_skills_current(&env, &global, "ops", &skills).unwrap());
+    assert_eq!(before, fs::read(global.join("skill-owners.json")).unwrap());
+    assert!(!root.join("tmt-ops").exists());
+}

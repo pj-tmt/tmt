@@ -191,6 +191,10 @@ struct Manifest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     original_author: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    creator: Option<&'a serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    questions: Option<&'a serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     publisher_agent: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
@@ -374,6 +378,8 @@ impl Bundle {
             title: &view.title,
             page_type: view.meta.get("shell").map(|_| "shell"),
             original_author: view.original_author.as_deref(),
+            creator: view.meta.get("creator"),
+            questions: view.meta.get("questions"),
             publisher_agent: view.publisher_agent.as_deref(),
             creation_recipient: view.creation_recipient.as_ref(),
             exported_at_ms: now,

@@ -1620,12 +1620,12 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('○ 1 todo') &&
-          screen.includes('≡ Checklist') &&
+          /\bC[ \t]+Checklist\b/.test(screen) &&
           memberRow(screen)?.includes('· 1 todo') === true &&
           screen.includes('1 todo · 0 done'),
         shell.pane
       );
-      fixture.tmux(['send-keys', '-t', shell.pane, 'N']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'C']);
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('Checklist · auth-fix') &&

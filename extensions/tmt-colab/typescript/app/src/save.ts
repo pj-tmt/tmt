@@ -1,4 +1,4 @@
-import { exactKeys, requireValue } from '@tmt/colab-client';
+import { exactKeys, requireValue, text as bytes } from '@tmt/colab-client';
 import { SOURCE_BYTES } from './fold-protocol.js';
 import { OwnAppendRefused } from './own-publication.js';
 import { SAVE_HUNKS, type SaveHunk } from './save-hunks.js';
@@ -9,7 +9,13 @@ export const SAVE_SOURCE_BYTES = SOURCE_BYTES;
 
 export type SaveState = 'committed' | 'unchanged' | 'absent' | 'pending' | 'rejected';
 /** The one reply to a save or a status request (`saveresult`). */
+export interface QuestionWriteFinding {
+  code: string;
+  line: number;
+  fix: string;
+}
 export interface SaveResult {
+  findings?: QuestionWriteFinding[];
   operationId: string;
   state: SaveState;
   revision?: string;
@@ -43,6 +49,9 @@ export type WorkAction =
   /** Makes a page from the task, then links it; the one action that makes a page. */
   | 'task.convert';
 
+/** Closed metadata actions; the native owner checks the expected revision and body. */
+export type MetadataAction = 'creator.set' | 'question.handle' | 'question.reopen';
+
 /** The source is over the page limit; nothing was sent. */
 export class SaveTooLarge extends Error {
   constructor(
@@ -62,8 +71,9 @@ export class SaveRefused extends Error {
     readonly conflicts?: number[],
     /** A convert refused after its page was made: the page exists and the task is not linked. */
     readonly childPage?: string,
+    readonly findings?: QuestionWriteFinding[],
   ) {
-    super(message);
+    super(findings?.length ? `${message} Fix: ${findings[0].fix}` : message);
   }
 }
 /** The page changed elsewhere where the edit is anchored, so nothing was saved and the draft is
@@ -110,6 +120,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     ...(state === 'rejected' ? ['code'] : []),
     ...(state === 'rejected' && Object.hasOwn(frame, 'message') ? ['message'] : []),
     ...(state === 'rejected' && Object.hasOwn(frame, 'conflicts') ? ['conflicts'] : []),
+    ...(state === 'rejected' && Object.hasOwn(frame, 'findings') ? ['findings'] : []),
     ...(Object.hasOwn(frame, 'childPage') ? ['childPage'] : []),
   ]);
   requireValue(frame.operationId === operationId);
@@ -137,6 +148,28 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     requireValue(
       typeof frame.sourceSha256 === 'string' && /^[A-Za-z0-9_-]{43}$/.test(frame.sourceSha256),
     );
+  const findings = frame.findings;
+  if (findings !== undefined) {
+    requireValue(Array.isArray(findings) && findings.length >= 1 && findings.length <= 50);
+    for (const finding of findings) {
+      exactKeys(finding, ['code', 'line', 'fix']);
+      requireValue(
+        [
+          'COLAB_QUESTION_UNREGISTERED',
+          'COLAB_QUESTION_AGENT_MISMATCH',
+          'COLAB_QUESTION_AGENT_UNKNOWN',
+        ].includes(finding.code as string) &&
+          Number.isSafeInteger(finding.line) &&
+          (finding.line as number) >= 1 &&
+          (finding.line as number) <= SOURCE_BYTES + 1 &&
+          typeof finding.fix === 'string' &&
+          bytes(finding.fix).length > 0 &&
+          bytes(finding.fix).length <= 2048 &&
+          !/[\p{Cc}]/u.test(finding.fix),
+      );
+    }
+    requireValue(frame.code === findings[0].code);
+  }
   const conflicts = frame.conflicts;
   if (conflicts !== undefined)
     // The hunks that do not fit, ascending and distinct, only for a patch conflict.
@@ -163,6 +196,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     ...(typeof frame.code === 'string' ? { code: frame.code } : {}),
     ...(typeof frame.message === 'string' ? { message: frame.message } : {}),
     ...(Array.isArray(conflicts) ? { conflicts: conflicts as number[] } : {}),
+    ...(Array.isArray(findings) ? { findings: findings as unknown as QuestionWriteFinding[] } : {}),
     ...(typeof frame.childPage === 'string' ? { childPage: frame.childPage } : {}),
   };
 }
@@ -185,6 +219,7 @@ export function settled(result: SaveResult): SaveResult {
       result.message ?? '',
       result.conflicts,
       result.childPage,
+      result.findings,
     );
   return result;
 }

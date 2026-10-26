@@ -34,6 +34,7 @@ import { startShellHost, type ShellSlot } from '../src/shell-host.js';
 import { FramePair, Section, noop } from './kit.js';
 import { menuItems, NoticeSection } from './components.js';
 import { UiOverlayFrame } from './ui-overlays.js';
+import { createIcon } from '../src/glyph.js';
 
 /*
  * Frames are real pages of this gallery (`?frame=<name>&theme=<theme>`) shown in iframes, for the
@@ -136,10 +137,27 @@ function ShellHeader() {
 }
 
 function ShellFrame({ params }: { params: URLSearchParams }) {
+  const [projects, setProjects] = useState(params.get('projects') === '20' ? 20 : 3);
+  const [mounted, setMounted] = useState(true);
+  const scrollFixture = params.has('projects');
   const view = useMemo<ShellView>(() => {
     const path = params.get('page') === 'project' ? '/colab/p/release' : '/colab/pages';
     const place = { origin, href: `${origin}${path}` };
-    const colab = answer.modules[0]!;
+    const original = answer.modules[0]!;
+    const colab = scrollFixture
+      ? {
+          ...original,
+          menu: [
+            original.menu[0]!,
+            ...Array.from({ length: projects }, (_, index) => ({
+              id: `project-${index}`,
+              label: `Project ${index + 1}`,
+              path: `${origin}/colab/p/${index}`,
+              group: 'Projects',
+            })),
+          ],
+        }
+      : original;
     const menu = params.get('menu') === 'none' ? undefined : describedMenu(colab, place);
     if (menu) menu.groups[0]!.items[0]!.total = 12;
     if (menu) menu.groups[0]!.items[0]!.count = shellCount(2);
@@ -153,16 +171,27 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
         }
       : answer;
     return { rail: shellRail(shown, place, colab), menu };
-  }, [params]);
+  }, [params, projects, scrollFixture]);
   useEffect(() => {
     const shell = document.querySelector<HTMLElement>('.tmt-ui-shell')!;
     if (params.get('drawer') === 'open')
       shell.querySelector<HTMLButtonElement>('.tmt-ui-shell-open')!.click();
   }, [params]);
+  if (!mounted) return <p>Shell disposed</p>;
   return (
     <BrowserShell view={view} select={() => true}>
       <ShellHeader />
-      <div className="tmt-ui-page">
+      <div className="tmt-ui-page" style={scrollFixture ? { minHeight: 1600 } : undefined}>
+        {scrollFixture && (
+          <>
+            <button type="button" onClick={() => setProjects(projects === 20 ? 3 : 20)}>
+              Use {projects === 20 ? 3 : 20} projects
+            </button>
+            <button type="button" onClick={() => setMounted(false)}>
+              Unmount shell
+            </button>
+          </>
+        )}
         <header className="tmt-ui-page-head">
           <h2 className="tmt-ui-page-title">Your pages, in one place.</h2>
           <p className="tmt-ui-page-subtitle">A shared space for your team’s work.</p>
@@ -516,6 +545,11 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
             keepMounted={keepMounted}
             title="Discussion"
             caption="1 / 2"
+            headerActions={
+              params.has('header-action') ? (
+                <BrowserAction type="button" variant="primary" label="Save" onActivate={noop} />
+              ) : undefined
+            }
             mode={mode}
             focusFallback={() =>
               Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
@@ -567,8 +601,32 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
   );
 }
 
+function GlyphFrame() {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = host.current!;
+    for (const size of [14, 24]) {
+      const row = document.createElement('p');
+      row.style.fontSize = `${size}px`;
+      row.style.color = 'var(--tmt-ui-color-link)';
+      row.dataset.size = String(size);
+      for (const name of ['link', 'info'] as const) {
+        const sample = document.createElement('span');
+        sample.dataset.glyph = name;
+        sample.append(createIcon(name), ` ${name} `);
+        row.append(sample);
+      }
+      root.append(row);
+    }
+    return () => root.replaceChildren();
+  }, []);
+  return <main className="gallery-main" ref={host} aria-label="Shared glyphs" />;
+}
+
 export function frameFor(name: string, params: URLSearchParams): ReactNode {
   switch (name) {
+    case 'glyphs':
+      return <GlyphFrame />;
     case 'notice':
       return (
         <main className="gallery-main">

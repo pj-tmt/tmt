@@ -51,6 +51,13 @@ then chooses whether the collaborator may send. After confirmation, the collabor
 chooses whether the owner may send to their agents. Both sending choices default to no.
 This single ceremony sets up both mailboxes; a reply uses the same connection.
 
+If confirmation was saved locally but its receipt could not arrive before the code
+expired, Remote reports that outcome without claiming rollback. The receiving owner can
+revoke that member with `tmt remote devices revoke <person-or-exact-client-id>`, then
+send a new invite. Do not keep trying
+an expired code or erase private state to reconnect. If the original outcome is unknown,
+check member status before starting another invitation.
+
 Keep the remote reference printed on each terminal. Sending can be enabled later by
 the person who owns the receiving machine:
 

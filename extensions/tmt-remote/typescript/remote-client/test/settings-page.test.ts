@@ -306,6 +306,7 @@ async function registryPage() {
     body.append(node);
   }
   vi.stubGlobal('document', {
+    body,
     getElementById: (id: string) => ids.get(id) ?? null,
     createElement: (tag: string) => new Element(tag, page),
     createElementNS: (_namespace: string, tag: string) => new Element(tag, page),
@@ -372,16 +373,25 @@ async function registryPage() {
   const { remoteRegistryPage } = await vi.importActual<
     typeof import('../src/remote-registry-page.js')
   >('../src/remote-registry-page.js');
-  const observe = remoteRegistryPage();
+  const lifetime = new AbortController();
+  const observe = remoteRegistryPage(undefined, {
+    signal: lifetime.signal,
+    setMenu() {},
+    navigate() {},
+    setTitle() {},
+    describe() {},
+    described() {},
+  });
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   await settle();
-  const dialogs = () => ids.get('remotes')!.querySelectorAll('dialog');
+  const dialogs = () => body.querySelectorAll('dialog');
   const title = (dialog: Element) => dialog.children[0]!.children[0]!.textContent;
   const entry = { name: 'alpha', kind: 'local', url: 'https://door.test/', project: null };
   return {
     page,
     list: ids.get('remote-list')!,
     observe,
+    depart: () => lifetime.abort(),
     add: ids.get('remote-join')!.button('Remember a Remote'),
     dialogs,
     title,
@@ -484,6 +494,42 @@ test('the current registry row displays only a live observed browser role', asyn
     assert.equal(view.list.children[0]!.querySelector('[data-role]')!.textContent, 'Role unknown');
     view.observe('Connected');
     assert.equal(view.list.children[0]!.querySelector('[data-role]')!.textContent, 'Role unknown');
+  } finally {
+    cleanUp();
+  }
+});
+
+test('Remote tab observations reuse the registry role projection and clear it on access loss', async () => {
+  const view = await registryPage();
+  try {
+    const roles: string[] = [];
+    const end = view.observe.watch((projection) => roles.push(projection.current.roleLabel));
+    view.observe('Connected', undefined, 'owner');
+    view.observe('Connected', undefined, 'user');
+    view.observe('Unconfirmed');
+    assert.deepEqual(roles.slice(-3), ['Admin', 'Member', 'Role unknown']);
+    end();
+    const length = roles.length;
+    view.observe('Connected', undefined, 'owner');
+    assert.equal(roles.length, length);
+  } finally {
+    cleanUp();
+  }
+});
+
+test('registry dialog departure removes its modal and fences late validation without a write', async () => {
+  const view = await registryPage();
+  try {
+    view.add.click();
+    const dialog = view.dialogs()[0]!;
+    dialog.button('Continue').click();
+    assert.equal(view.validations.length, 1);
+    view.depart();
+    assert.equal(view.dialogs().length, 0);
+    view.validations[0]!.resolve(view.entry);
+    await view.settle();
+    assert.equal(view.dialogs().length, 0);
+    assert.equal(view.added.length, 0);
   } finally {
     cleanUp();
   }

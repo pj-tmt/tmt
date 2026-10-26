@@ -66,6 +66,7 @@ export interface ThreadBinding {
     body: string,
     anchor: QuoteSelector | null,
     attach?: MessageAttachments,
+    questionId?: string,
   ): Promise<CommentContext>;
   createChat(body: string, attach?: MessageAttachments): Promise<CommentContext>;
   reply(
@@ -73,6 +74,7 @@ export interface ThreadBinding {
     body: string,
     expectedRevision?: string,
     attach?: MessageAttachments,
+    questionId?: string,
   ): Promise<CommentContext>;
   edit(message: DiscussionRef, revision: string, body: string): Promise<void>;
   deleteComment(message: DiscussionRef, revision: string): Promise<void>;
@@ -199,10 +201,15 @@ export class ThreadStore implements ThreadBinding {
       },
     );
   }
-  async create(body: string, anchor: QuoteSelector | null, attach?: MessageAttachments) {
+  async create(
+    body: string,
+    anchor: QuoteSelector | null,
+    attach?: MessageAttachments,
+    questionId?: string,
+  ) {
     const threadId = crypto.randomUUID();
     requireValue(threadId !== this.deviceId);
-    return this.#create(body, anchor, threadId, attach);
+    return this.#create(body, anchor, threadId, attach, questionId);
   }
   async createChat(body: string, attach?: MessageAttachments) {
     return this.#create(body, null, this.deviceId, attach);
@@ -232,6 +239,7 @@ export class ThreadStore implements ThreadBinding {
     anchor: QuoteSelector | null,
     threadId: string,
     attach?: MessageAttachments,
+    questionId?: string,
   ) {
     const captured = structuredClone(anchor),
       messageId = attach?.messageId ?? crypto.randomUUID();
@@ -256,6 +264,7 @@ export class ThreadStore implements ThreadBinding {
           {
             ...this.#scope(),
             kind: 'comment',
+            ...(questionId === undefined ? {} : { questionId }),
             messageId,
             revision: '1',
             thread: { writer: this.deviceId, id: threadId },
@@ -280,6 +289,7 @@ export class ThreadStore implements ThreadBinding {
     body: string,
     expectedRevision?: string,
     attach?: MessageAttachments,
+    questionId?: string,
   ) {
     const ref = structuredClone(thread),
       messageId = attach?.messageId ?? crypto.randomUUID();
@@ -294,6 +304,7 @@ export class ThreadStore implements ThreadBinding {
           {
             ...this.#scope(),
             kind: 'comment',
+            ...(questionId === undefined ? {} : { questionId }),
             messageId,
             revision: '1',
             thread: ref,

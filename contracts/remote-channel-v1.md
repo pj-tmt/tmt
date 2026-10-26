@@ -107,7 +107,7 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
-`/remote`, `/remote/`, `/remote/devices`, `/remote/connect`, `/remote/machine`, `/remote/settings`,
+`/remote`, `/remote/`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
 `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
 `/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
@@ -129,12 +129,23 @@ described `home` cards; it reads nothing else. `/settings` and `/settings/` are 
 sections listed in the module menu. `/ops` and `/digest` are Ops and Digest; their data have
 their [owner browser reads](#owner-browser-reads). Until a page has a browser read, the page says it is not in the browser yet, names the terminal command
 that shows the same facts and shows no values. Home preferences remain a
-separate consumer. Remote is one app route with five paths, each a menu row of its own and one view of the page:
-`/remote/` (Status, `/remote` is the same row), `/remote/connect` (Connect a device),
-`/remote/devices` (Devices), `/remote/machine` (This machine's settings) and `/remote/settings`
-(Remote settings). The selected row is whichever row the path names, so reload, Back and forward land
-on the same row, and a switch between paths only changes the view shown. The module menu lists each
-saved remote (or Status), the three rows for this machine, Add remote and Remote settings.
+separate consumer. Remote has two levels under one app route. `/remote/` (`/remote` names the same entry)
+is My Remotes, the origin-local public registry. Its rows open the selected door's `/remote/overview`.
+The current door's persistent tabs are `/remote/overview`, `/remote/members`, `/remote/invites`,
+`/remote/my-devices`, `/remote/settings` and `/remote/service`; no Remote ID appears in a path.
+`remote-routes.ts` owns their browser route/menu declaration; native page admission mirrors the explicit
+set. Reload, Back and Forward select the same tab without replacing its retained form/draft models.
+The rail links to My Remotes and the current Remote, rather than duplicating the six tabs.
+The old `/remote/machine`, `/remote/devices` and `/remote/connect` views have no redirect or alias.
+Overview reuses connection and admitted management observations for role, designation and capabilities,
+and the composed shell's reported Needs-you count when available. Missing evidence remains unknown.
+A designated readable browser is Admin; a readable non-designated pairing is Member. Labels add no
+admission. Invites and Service & upgrade remain visible locked tabs for Members, with the reason,
+the person to ask and copyable request text. Unconfirmed access does not assert a known role.
+Copy never runs a command, and a denied copy leaves selectable text. Until the dedicated Members,
+Invites and My devices flows replace them, their tabs reuse existing paired-device and connection
+guidance with their actual scope stated. One state-aware guidance owner serves Overview and Invites;
+unreadable storage or transport uncertainty never authorizes re-pairing.
 Pairing is not an app route: `/remote/pair` stays its own document with its own policy (below),
 so its fragment-erasing bootstrap runs before any other script. It shows the same rail, with no
 router, and its links load the app's routes.
@@ -369,7 +380,7 @@ correlated availability/results, never fabricates an agent signature.
 Pairing is durable across session end, tab closure and serve restart until the owner removes the
 device (or an explicit grant expiry is proved). The manual and automatic pairing pages first
 try bounded session reopen with the stored identity. Success creates no grant or candidate:
-manual entry shows `This browser is already paired.` and continues to `/remote/`, leaving the
+manual entry shows `This browser is already paired.` and continues to `/remote/overview`, leaving the
 manual offer and terminal untouched; automatic entry cancels its own fresh offer as before.
 An absent record or a machine-signed revoked/expired grant permits new enrollment. A stored
 machine-identity mismatch also permits the manual terminal-confirmed ceremony; the old record
@@ -566,7 +577,8 @@ payloads. The signed batch payload binds their exact bytes/order. Set nextCursor
 returned entry cursor, or to the input cursor on timeout; initially an empty stream returns its
 beginning cursor. The fixed observational operations (`capabilities`, `agents.list`, `identities.status`,
 `check`, `requests.show`, `result`, `dispatch.show`, `operation.show`, `remote.settings.show`,
-`remote.devices.list`, `remote.management.operation`) return live signed results without adopting
+`remote.devices.list`, `remote.members.list`, `remote.members.machines`,
+`remote.management.operation`) return live signed results without adopting
 the read ID, observed-read metadata or new ownership rows. `operation.show` is recovery observation:
 stable or still-unresolved originals are pure reads; a definitive outcome learned for an unresolved
 caller-owned original settles that original once, with its notification attributed to the observing
@@ -805,9 +817,10 @@ uncertain/dispatching outcomes remain recorded unchanged and cannot be released,
 observed or re-adopted by that new member. Cloud final selection and mapped result
 reads use the same ownership fence.
 
-The existing devices facade is the first consumer; this change adds no new public
-members command or invitation transport. Member-wide sending changes reuse its
-post-commit session cleanup; machine-specific removal retains its grant semantics.
+The shared member roster/policy service and the retained devices facade consume these
+Store identities and writers; the signed management protocol is specified below. This adds
+no CLI vocabulary or invitation transport. Member-wide sending changes reuse post-commit
+session cleanup; machine-specific removal retains its grant semantics.
 
 ### Trust grants and remote lifecycle
 
@@ -905,14 +918,14 @@ separate per-tab administrator role.
 
 Browser management uses the existing signed-envelope admission: pinned machine/key/origin,
 live Session and grant revision, timestamp, sequence/replay checks and bounded input. A cookie
-admits only the page/transport. Every mutation rechecks the current designation and grant at the
+admits only the page/transport. Every administrative mutation rechecks the current designation and grant at the
 effect fence; a cached capability or earlier authenticated read grants no authority. Local
 designation removal, grant authority loss and browser effects share the ordering fence: if removal
 wins, no later effect commits; if an effect already committed, report that outcome accurately.
 
-The initial non-designated-device disposition is **read-only, not held**. Live paired devices may
-read the bounded Remote settings/device projection; attempted settings writes, rename or revoke
-receive a signed refusal before effects, with zero writes and zero held intents. Unpaired, revoked,
+Non-designated browsers may read Remote settings and their own member/machines, and
+rename their own person. Other settings, device or member mutations require the current
+designated owner browser and otherwise refuse before effects, with zero writes or held intents. Unpaired, revoked,
 expired and extension-only principals receive no management inventory. The UI explains read-only
 access and the local CLI path; it cannot promise pending approval. The local CLI remains usable
 when no browser is designated. Existing default agent scopes, `direct`/`hold` modes, pairing expiry
@@ -932,12 +945,12 @@ resend or a replacement operation ID.
 Browser management never changes core settings, provider settings, drivers, extension installs or
 argv, and never approves, rejects, cancels or releases held operations. `tmt remote approve` and
 held-operation cancellation remain terminal-only. There is no generic config/command endpoint,
-and designation alone cannot widen agent or extension authority; the explicit device talk toggle
-is the sole scope-widening exception above. Typed wire/SDK payloads, refusals and mutation recovery
+and designation alone cannot widen agent or extension authority; explicit device talk or
+member sending changes use the existing member-policy writer. Typed wire/SDK payloads, refusals and mutation recovery
 must be specified with the implementation before any such operation is advertised as supported.
 
 Implementation acceptance must prove same-loopback browsers with different keys cannot impersonate
-the designated browser, designation is local-only and never automatic, non-designated writes cause
+the designated browser, designation is local-only and never automatic, non-designated administrative writes cause
 no effects or holds, and revoke/re-pair/key change, expiry, restart, rename and concurrent removal
 obey the lifecycle and effect fence above. The actual settings/device page separately requires
 product native/browser acceptance, UX review and publication evidence; a shared presentation
@@ -967,6 +980,72 @@ requests use a fresh envelope ID; original-operation lookup never adopts or exec
 | `remote.devices.remove-others`         | `{operationId,fingerprint}`                                                                                      | Management outcome; keeper is the authenticated caller                 |
 | `remote.devices.revoke`                | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
 | `remote.management.operation`          | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
+
+The member operations use the same channel, input bound, journal and exact-door browser
+admission; they add no agent scope. The local owner and the exact currently designated owner
+browser receive the full roster. Other admitted browsers receive only their current member
+and its machines; an owner role label on another machine is insufficient for administration.
+The retained `remote.devices.list` follows the same administrator/self visibility rule.
+
+| Operation                 | Exact input                                                      | Result                                             |
+| ------------------------- | ---------------------------------------------------------------- | -------------------------------------------------- |
+| `remote.members.list`     | `{cursor:null\|string,limit:integer}`                            | Member roster; limit 1–50                          |
+| `remote.members.machines` | `{memberId,cursor:null\|string,limit:integer}`                   | Machine page; limit 1–50                           |
+| `remote.members.rename`   | `{operationId,remoteId,memberId,memberRevision,name}`            | Member outcome; Admin any member, Member self only |
+| `remote.members.sending`  | `{operationId,remoteId,memberId,memberRevision,enabled:boolean}` | Member outcome; Admin only                         |
+| `remote.members.revoke`   | `{operationId,remoteId,memberId,memberRevision}`                 | Member outcome; Admin only                         |
+| `remote.name.set`         | `{operationId,remoteId,name}`                                    | Remote-name outcome; Admin only                    |
+
+`remoteId` is the current Remote UUID; existing member/client IDs remain opaque, including
+legacy IDs. `memberRevision` is a positive JSON-safe integer and must match the target at the
+effect fence. Names use the existing 1–64-byte nonblank/control-free rule. Person, machine,
+Remote-wide and browser-local catalog names are separate: renaming one never renames another.
+
+A member roster is exactly `{remoteId,administrator:boolean,displayName:null|string,
+members:[person],nextCursor:null|string,invitation:null|invitationView,routes:routeView}`.
+A person is exactly `{remoteId,memberId,role:"owner"|"user",displayName,sendingEnabled:boolean,
+revision,createdAtMs,revokedAtMs:null|integer}`. The administrator can inspect revoked members;
+a user must still have a live current member. A machine page is exactly
+`{remoteId,memberId,machines:[machine],nextCursor:null|string}`. A machine is exactly
+`{clientId,name,kind:"browser"|"addon"|"cli",revision,revoked:boolean,expiresAtMs:null|integer,
+sendingScope:boolean,delivery:"direct"|"hold",recipientAccess:"all"|"restricted",grantLive:boolean,
+lastUsedAtMs:null|integer,thisBrowser:boolean,liveSessionCount:null|integer,lastActivityAtMs:null|integer}`.
+Sending, delivery and recipient policy are independent of role. `grantLive` is local grant
+eligibility, never network reachability. Activity is a disposable Session observation; when
+that owner is unavailable, both activity fields are null, not an invented zero/online verdict.
+Durable `lastUsedAtMs` retains its existing meaning. No keys, origins, agents, Session identifiers
+or provider identifiers are exposed.
+
+Member and machine pages apply SQL limit plus one lookahead before materialization, without
+nested unbounded arrays. Their 54-character base64url cursor contains SHA-256 of the Remote,
+caller, visibility scope, view and target, followed by the row position; it grants no authority
+or snapshot lease. Authority and current machine association/revision are rechecked before
+returning observations. The private owner-only control socket accepts `members.list` and
+`members.machines` with the same inputs/projections, using the serving Store; terminal mutation
+and mutation-journal adapters are deferred and are not control operations.
+
+`invitation` is null for non-administrators. For administrators, `invitationView` is exactly
+`{state:"unavailable"}`, `{state:"no-current-offer"}`, or `{state:"current",expiresAtMs:null|integer,
+phase:"open"|"awaiting-owner"|"confirmed"|"refused"|"cancelled"|"expired"|"unconfirmed",
+localConfirmationKnown:boolean,cleanup:"not-requested"|"acknowledged"|"unconfirmed"}`.
+No current in-memory offer does not prove absence of provider state. `routeView` is exactly
+`{state:"unavailable"}`, `{state:"not-recorded"}`, or
+`{state:"recorded",publicationPending:boolean,removalPending:boolean}`. It aggregates the
+existing desired-route/publication-ACK queue, restricted to the user's member where applicable;
+no recorded row does not prove provider cleanup. Invitation capture occurs before the Store
+guard. These optional observations introduce no provider call, worker, retry or ledger and
+cannot authorize a mutation.
+
+Member effects return the ordinary outcome union with committed `result:{member:person}`;
+Remote name returns `result:{remote:{remoteId,displayName}}`. Both retain `sessionEnded`.
+Member rename preserves machine identity and Sessions. Sending/revoke reuse the M1 policy
+writer and post-commit Session/device cleanup. Each effect checks current actor key, origin,
+grant, designation/role and target revision in the same immediate transaction as the effect
+and immutable receipt. Only validation before writes can settle a refusal; a writer or receipt
+failure rolls back SQL authority and leaves the original unknown. Remote-name file publication
+uses the settings first-touch boundary below. `REMOTE_MEMBER_OWNER_REQUIRED` refuses insufficient
+administrative/self-service authority; `REMOTE_MEMBER_CONFLICT` refuses a stale or revoked target.
+These are typed pre-effect refusals, never permission to automatically retry a mutation.
 
 A settings value is exactly `{open:boolean,source:"default"|"settings.json",
 sessionsPerDevice:string|null,sessionsPerDeviceSource:"default"|"settings.json",warning:string|null}`.
@@ -1016,7 +1095,7 @@ Changed inventory yields `REMOTE_DEVICE_LIST_CHANGED` without mutation; above th
 `REMOTE_DEVICE_REMOVAL_LIMIT`, never a partial batch. Keeper authority is unchanged; target
 sessions end after commit. Local owner `tmt remote devices remove-others --keep <client-id>` uses
 the same atomic inventory/revocation owner, with an explicit live keeper. A non-designated browser
-can read inventory and sees its exact local `tmt remote devices designate <client-id>` command;
+can read its own inventory and sees its exact local `tmt remote devices designate <client-id>` command;
 it cannot designate itself or execute removal. Re-pair short-circuit preserves the existing
 designation because the device identity stays unchanged.
 
@@ -1024,7 +1103,7 @@ Browser device rows contain no keys, key fingerprints, cookies, Session identifi
 
 A management outcome is one of:
 
-- `{operationId,state:"committed",result:{settings}|{device:summary}|{removed:integer},sessionEnded:boolean}`;
+- `{operationId,state:"committed",result:{settings}|{device:summary}|{removed:integer}|{member:person}|{remote:{remoteId,displayName}},sessionEnded:boolean}`;
 - `{operationId,state:"refused",reason:<typed Remote refusal code>}`;
 - `{operationId,state:"unknown",reason:"effect_outcome_unconfirmed"}`.
 
@@ -1042,10 +1121,10 @@ failure cannot remove that receipt or turn committed work into no effect.
 Typed signed errors retain `{error:{code,message,limit?,retryAfterMs?,settingsUrl?,scope?}}` admission
 conventions. A missing sending scope returns signed `REMOTE_SCOPE_DENIED` with `scope:"talk"`
 and an optional same-origin `settingsUrl`, unlike a recipient allowlist refusal.
-`REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated effects before management intent adoption,
+`REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated legacy administrative effects before intent adoption,
 with no setting/device effects or management holds; ordinary sequence/budget/audit accounting remains.
 `REMOTE_MANAGEMENT_UNAVAILABLE` means an original receipt is missing,
-other-device or outside its deadline, never proof of no effect. `REMOTE_SETTINGS_UNAVAILABLE` is
+other-device, member-fenced or outside its deadline, never proof of no effect. `REMOTE_SETTINGS_UNAVAILABLE` is
 used only for a proved failure before the settings-file first-touch boundary. Existing input,
 rate, live-session, intent-conflict, device-not-found/revoked and state-unavailable codes retain
 relevant meanings. Read refusals are SDK `RefusalError`; mutation signed refusals are refused
@@ -1055,12 +1134,16 @@ phase-ambiguous after publication: the SDK raises `ClientError("outcome_unconfir
 that original ID and unknown outcome. `REMOTE_STATE_UNAVAILABLE`, `REMOTE_MANAGEMENT_UNAVAILABLE`,
 and generic closed/ended/core failures cannot prove that the mutation had no effect. Ordinary
 reads retain `RefusalError`; agent operation behavior is unchanged. Only explicit input, scope,
-rate, intent conflict, management read-only/capacity, device-list-changed/removal-limit, device not-found/revoked and proved
+rate, intent conflict, management read-only/capacity, member owner-required/conflict,
+device-list-changed/removal-limit, device not-found/revoked and proved
 settings-before-touch refusal codes establish a pre-effect management refusal. A post-publication HTTP 404 alone is unknown, not a signed zero-effect
 refusal. A prior ended Session that prevented publication is a refused unsent attempt.
 
 Store persists exact intent digest, original caller UUID, grant revision, immutable adoption time,
-30-day deadline and outcome. Management and agent operation IDs cannot collide. Identical
+30-day deadline and outcome. Every newly adopted management row binds `actorMemberId` inside its
+existing JSON wrapper, while unchanged historical rows are readable only when the current
+member ID equals their legacy client ID; otherwise reads return `REMOTE_MANAGEMENT_UNAVAILABLE`.
+Management and agent operation IDs cannot collide. Identical
 retained intent returns only its existing outcome; changed operation/input/caller conflicts.
 No lookup renews the deadline. Expired identity rows remain replay tombstones; capacity is bounded
 at 1000 per caller and 4000 installation-wide, refusing new adoption rather than evicting an
@@ -1108,15 +1191,19 @@ framework, agent/held-work recovery exception or general recovery route exists.
 
 #### Remote settings page
 
-`GET /remote/devices`, `/remote/machine` and `/remote/settings` serve the Remote-owned shared-presentation
-page with the existing page CSP, origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
-embed another signer/channel implementation. The additive public SDK exports are
-`FirestoreSettingsView`, `budget.parsePublishedLimits` and `budget.publishedLimitRows`. The sections are
-Browser opening and Session limit per device (`/remote/machine`), Firestore and the remotes saved in
-this browser (`/remote/settings`), and Paired devices (`/remote/devices`). Effective values, sources,
-warning and write capabilities come from admitted server reads. The shared package supplies checked CSS
-and static presentation contracts; Remote owns host layout and static listbox controls. Shared
-presentation never supplies authority or management outcomes.
+The Remote-owned management tabs use the existing page CSP, origin checks and no-store policy.
+`/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not embed another signer/channel implementation.
+Settings consolidates Browser opening, Session limit per device, the origin-local catalog name
+(labelled Name in this browser) and the admitted current browser/device name (labelled with that scope).
+A Remote-wide name or person display name has no browser setter here. Catalog naming reuses the existing
+browser-local CAS/import controller; device naming retains signed designated-browser admission.
+The same bounded device-page forms move between Members, My devices and Settings without cloning
+controls or resetting drafts/original outcomes. A current browser missing from that admitted page is
+not invented. Service & upgrade reuses the read-only recorded Firestore section and terminal guidance;
+it never executes deploy or upgrade. The additive public SDK exports remain `FirestoreSettingsView`,
+`budget.parsePublishedLimits` and `budget.publishedLimitRows`. Effective values, sources, warnings and
+write capabilities come from admitted server reads. Shared checked CSS/static presentation supplies
+no authority or management outcomes; Remote owns the tab/frame composition and listbox controls.
 
 The read-only Firestore section uses the signed opt-in settings view, showing the same recorded
 layer/prerequisite states and fixed next commands as `status --layers`. Any layer reporting
@@ -1408,7 +1495,7 @@ Remote narrows supported operations/authority before core calls.
 | `capabilities`                                                                                  | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                                                 |
 | `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional runtime/activity evidence below, without pane address/cwd/process/profile.                                                                         |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                                           |
-| `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                                          |
+| `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --capture-only --json` returns locally. Read-only; it never writes to a pane.                                                                                                                          |
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                                                    |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                               |
@@ -1431,6 +1518,15 @@ Remote forwards it unchanged and never infers it from panes; until core publishe
 the [public dispatch readiness and input-safety contract](extension-api.md#dispatch-readiness-and-input-safety)
 owns the shipped guarantees and limits. Diagnostic `check` capture and presence never prove
 safe input.
+
+For `check`, Remote resolves the admitted agent UUID with public `identity show`, freezes
+its current name, and verifies it with `identity show --expect-name=<name> -- <uuid>`
+before the capture-only call. A changed name refuses with `REMOTE_AGENT_STALE` before
+capture; missing UUIDs return `REMOTE_AGENT_NOT_FOUND`. Resolution, the pinned query
+and capture share one Core-call deadline. Capture uses the frozen name and never
+flushes Digest input. A later rename or name reassignment can still race the
+name-addressed capture: atomic UUID + expected-name capture depends on Core #5154,
+with Remote adoption tracked in #5254.
 
 Optional `runningDriver` uses Core's [List runtime driver](identity-status-v1.md#list-runtime-driver)
 provenance. Remote forwards only nonempty strings of at most 32 bytes in `[a-z0-9-]`; otherwise
@@ -2279,11 +2375,11 @@ never enables agent access; the [historical conformance material](#proposal-clou
 under the [superseded-authentication note](#superseded-cloud-authentication-proposal), not a shipped Firestore gate.
 Cloudflare remains proposed. Extension/page authority never substitutes for a local paired operation grant.
 
-| Backend      | Mapping                                                                                                                                                                                                                                      |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                                                                                  |
+| Backend      | Mapping                                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                                                                          |
 | `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Native agent binding:** invite/join, encrypted inboxes, owner responses and the one-way public Core sender; composed final acceptance remains separate. |
-| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                                                                             |
+| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                                                                     |
 
 ### Native Firestore agent binding
 
@@ -2486,9 +2582,9 @@ reads after arrival. The original receiving Core remains authoritative for its a
 
 The shared `invitations` owner handles cross-person offers independently of a terminal,
 browser or provider. Its version-2 proof context is distinct from local-browser pairing
-and the existing version-1 Firestore profile. The Firestore adapter below remains its
-current production path until the adapter cutover; backend selection never rewrites a
-legacy code into another profile. Local native-owned browser automatic pairing is not a
+and the existing version-1 Firestore profile. New Firestore invite/join ceremonies use
+this shared coordinator with the explicit v2 binding below; backend selection never
+rewrites a legacy code into another profile. Local native-owned browser automatic pairing is not a
 cross-person invitation or an owner confirmation for one.
 
 One offer is single-use, with a maximum ten-minute lifetime. Raw offer secrets and derived
@@ -2549,13 +2645,21 @@ action over that snapshot and comparison result; terminal and paired-owner-brows
 confirmation share the same transition owner. A normal user, mismatched comparison,
 JSON/agent command, cancellation, disconnect, expiry or revoked owner cannot supply that
 consent. Competing confirmations result in at most one committed receipt and first
-member-machine association. New invitation confirmation refuses talk/hold/agents options and persists M1's grant with sending off and direct delivery, whose stored values form the receipt; if I5 later offers an owner-browser default-no sending choice, it must apply member sending-on after that sink in the same transaction and serialize the result.
+member-machine association. New invitation confirmation refuses talk/hold/agents policy
+options and first persists M1's grant with sending off and direct delivery. Keep the
+separate default-no sending question for both candidate and reverse confirmation. An
+explicit owner yes applies sending-on through the member-policy writer immediately after
+the sink in the same transaction; no answer or EOF leaves sending off. The receipt always
+serializes the resulting persisted grant. This choice is not an enrollment policy field.
 
 Durable confirmation opens one existing Store IMMEDIATE transaction, rechecks authority
 and the frozen invitation/candidate, inserts the member and first grant through the M1
 transaction sink, and saves the immutable original receipt and policy in that same
 transaction. No second database opener, nested transaction or backend-owned grant writer
 is introduced. Provider publication happens after the transaction and outside its lock.
+A typed definite refusal requires proven no-commit or successful rollback and terminates
+the offer. A commit or rollback uncertainty remains original-journal observation-only;
+it cannot be reported as a definite refusal or retried as another confirmation.
 Publication observations and acknowledgments apply only to the unchanged captured
 snapshot; sending-off retains receiving routes, while revoke/removal uses the existing
 route cleanup owner.
@@ -2566,6 +2670,18 @@ candidate can recover only its original receipt through the retained proof and o
 expiry, not a regenerated grant or current mutable policy. Receipt proof authenticates
 its exact stored bytes. Failed or unknown provider cleanup does not turn logical expiry
 or revocation into authority.
+
+For Firestore version 2, confirmation captures the route/member/token snapshot in that
+transaction. Route publication only wakes the existing desired-route worker for an
+immediate flush and reports unconfirmed. Observation uses its existing Store publication
+acknowledgment, matching the captured member, generation, token hash and revocation; a
+late acknowledgment cannot cover a renewal. There is no new Rules read, publication
+ledger, poller or coordinator route retry. The existing idempotent desired-route flush
+remains the sole route writer. Receipt publication waits for that acknowledgment only
+within the offer's original remaining window. A route acknowledgment after expiry cannot
+publish a receipt: status remains locally confirmed with an undelivered receipt. Owner
+guidance is to remove this member and send a new invite; expiry alone does not roll back
+the locally committed member or grant.
 
 Old short-lived Firestore codes retain their original decoder, owner/native binding,
 remaining expiry and original-receipt recovery. They cannot be interpreted by another
@@ -2593,17 +2709,32 @@ Talk/revoke resolve an exact client UUID or a unique active person name; duplica
 UUID. JSON, CI, agent and noninteractive invocation never consent. Ctrl+C cancels the active invite
 and erases its secret. Neither command opens a browser or creates a local-browser session.
 
-The code carries public connection metadata, the owner pin, an offer UUID, nonce, generation,
-expiry and 128-bit secret. Firestore never stores that secret. Its separate enrollment transcript
-binds every field, the candidate native UUID/key, authenticated uid, name and nonce. Existing HMAC,
-Ed25519 possession, fingerprint and response-proof primitives are reused with distinct framing.
+A new code explicitly selects version 2 and carries the public Firebase configuration,
+Firestore project reference, authenticated owner uid, owner UUID/key, offer UUID, nonce,
+issued-at/expiry and 128-bit secret. The configuration project equals the bound reference.
+Before using it, the joiner verifies the registered native pin and descriptor revision,
+and matches the machine row uid to that owner principal. The enrollment transcript is the
+shared version-2 framing above, including the candidate native UUID/key, authenticated uid,
+name and nonce. Old version-1 codes retain their distinct decoder/transcript and remaining
+lifetime. Firestore never stores either profile's secret. HMAC, Ed25519 possession,
+fingerprint and response-proof primitives retain their existing algorithms.
+Before the candidate's first provider call, the existing private Connection atomically
+claims the exact signed v2 request and context. A restart with the original code restores
+that claim as observation-only, including when no provider row is visible. It does not
+replace a confirmed connection's pin, uid or policy. After receipt authentication, one
+Store transaction consumes only that matching claim and adopts reverse membership,
+optional local sending consent, route/token and connection. A repeated original cannot
+reapply policy or restore revoked authority. No raw code, gate or response key is persisted.
+
 The mailbox is one create-only collection `/m/<machine>/enroll`: `<offerId>` holds a candidate,
 `<offerId>-response` the owner's receipt. Responses contain only `{uid,kind,body,createdAt}`.
 Candidates carry those fields plus `token` (32 bytes) for a join, or `token` and its canonical
 native `peer` for a reroute. Rules bind the candidate uid to `request.auth.uid`, exact kinds/UUIDs,
 bounded bytes and server request time.
 Before exposing a code, the owner creates `/m/<machine>/invites/<offerId>` with
-`{tokenHash,expiresAt}`. The join token is HMAC-SHA256 under the code over LP of
+`{tokenHash,expiresAt}`. For v2, the join token is HMAC-SHA256 under the code over LP of
+`"tmt-invitation-gate-v2"`, backend, reference, owner principal, owner UUID/key, offer UUID,
+nonce, decimal issued-at and expiry, using the exact context bytes. Legacy v1 retains LP of
 `"tmt-cloud-invite-token-v1"`, project, owner UUID and offer UUID. Only SHA-256 of that token is
 stored in the invitation; it is neither the raw code nor its enrollment MAC/response key.
 A join requires its matching unexpired gate. The owner attempts gate deletion when the ceremony ends
@@ -3809,7 +3940,7 @@ references. Registry validation, storage and concurrent-edit failures use the ex
 `REMOTE_SELECTOR_INVALID`, `_UNAVAILABLE` and `_CONFLICT` family, not signed access evidence.
 
 Local Open validates the destination and the whole public handoff before navigation to that
-origin's `/remote/` entry; the stored public reference is unchanged.
+origin's `/remote/overview` entry; the stored public reference is unchanged.
 The fragment carries `tmt-remotes` (base64url compact catalog JSON in the field order above)
 and optional `tmt-page` (base64url compact `{spaceId,pageId}` JSON in that order, using Colab's ID
 grammar). All values count within the 8 KiB encoded-fragment bound. Unknown, duplicate or

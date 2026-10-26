@@ -408,6 +408,12 @@ fn forged_remote_provenance_is_not_accepted_as_owned_receipt_metadata() {
 
 #[test]
 fn legacy_receipts_upgrade_from_the_current_repository_without_rewriting_history() {
+    for retained in ["wkh237/tmt", "pj-tmt/tmt"] {
+        legacy_receipt_upgrades(retained);
+    }
+}
+
+fn legacy_receipt_upgrades(retained: &str) {
     let (_directory, layout, old) = published_layout();
     let release = layout.root.join("releases").join(old.id.to_string());
     let receipt_path = release.join("receipt.json");
@@ -415,7 +421,7 @@ fn legacy_receipts_upgrade_from_the_current_repository_without_rewriting_history
         serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
     // Existing installs retain provenance from before the transfer.
     legacy["source"] = serde_json::json!({
-        "kind": "github-release", "repository": "wkh237/tmt",
+        "kind": "github-release", "repository": retained,
         "release_id": 41, "manifest_sha256": "b".repeat(64),
     });
     fs::write(&receipt_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
@@ -444,7 +450,7 @@ fn legacy_receipts_upgrade_from_the_current_repository_without_rewriting_history
         .unwrap(),
     )
     .unwrap();
-    assert_eq!(written["source"]["repository"], "pj-tmt/tmt");
+    assert_eq!(written["source"]["repository"], "tmt-ninja/tmt");
     assert_eq!(written["source"]["release_id"], 42);
     // The superseded receipt is left as it was, and still reads.
     assert_eq!(
@@ -702,7 +708,7 @@ fn missing_release_preserves_active_files_without_staging() {
             calls += 1;
             assert_eq!(
                 url,
-                "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/cli/stable.json"
+                "https://raw.githubusercontent.com/tmt-ninja/tmt/release-index/channels/cli/stable.json"
             );
             Err(io::Error::new(io::ErrorKind::NotFound, "pointer missing"))
         },

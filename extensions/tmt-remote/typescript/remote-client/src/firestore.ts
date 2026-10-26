@@ -1,4 +1,5 @@
 /** Strict browser projection of the existing Remote readiness table; no provider I/O. */
+import commands from '../../../rust/tmt-remote/assets/service-commands.json' with { type: 'json' };
 export type FirestoreState = 'enabled' | 'not-enabled' | 'unknown';
 export interface FirestorePrerequisite {
   item: string;
@@ -13,8 +14,8 @@ export interface FirestoreLayerView {
 }
 export const firestoreTitles = {
   sharing: 'Page sharing',
-  operations: 'Operation sync',
-  attachments: 'Attachment storage',
+  operations: 'Colab sync',
+  attachments: 'File storage (paid add-on)',
 };
 export const firestoreItems: Record<string, string> = {
   project: 'Project',
@@ -25,6 +26,8 @@ export const firestoreItems: Record<string, string> = {
   quota: 'Free-plan quota',
   support: 'Availability in this release',
 };
+/** Copy-only references; the browser never submits these commands. */
+export const serviceCommands = Object.freeze(commands);
 const deploy = 'tmt remote deploy firestore';
 // Reason vocabulary follows readiness::ROWS; copy is fixed, never provider text.
 export const firestoreReasons: Record<string, Record<string, [string, boolean, string?]>> = {

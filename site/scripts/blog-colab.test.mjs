@@ -253,3 +253,85 @@ test("repeated import refuses to overwrite existing post and cleans staging", as
       false,
     );
   }));
+
+test("each language requires its own approval and imports beside English without overwriting it", async () =>
+  world(async (root) => {
+    const english = fakeColab();
+    const prepared = await prepare({ root, pageId, meta, call: english.call });
+    english.approve();
+    await publish({ root, proposalId: prepared.proposalId, call: english.call });
+    const original = await readFile(join(root, "src/posts", meta.slug, "approval.json"), "utf8");
+    for (const language of ["ja", "zh-hant", "zh-hans"]) {
+      const fake = fakeColab();
+      const result = await prepare({ root, pageId, meta: { ...meta, language }, call: fake.call });
+      assert.match(fake.state.body, new RegExp(`Language: ${language}`));
+      await assert.rejects(
+        publish({ root, proposalId: result.proposalId, call: fake.call }),
+        /must approve/,
+      );
+      fake.approve();
+      const imported = await publish({ root, proposalId: result.proposalId, call: fake.call });
+      assert.equal(imported.path, join(root, "src/posts", meta.slug, language));
+      assert.equal(imported.language, language);
+      const record = JSON.parse(await readFile(join(imported.path, "meta.json"), "utf8"));
+      assert.equal(record.language, language);
+      await assert.rejects(
+        publish({ root, proposalId: result.proposalId, call: fake.call }),
+        /already exists/,
+      );
+    }
+    assert.equal(
+      await readFile(join(root, "src/posts", meta.slug, "approval.json"), "utf8"),
+      original,
+    );
+    assert.equal((await readPosts(join(root, "src/posts"))).length, 4);
+  }));
+
+test("a translation cannot publish before English or reuse an English artifact approval", async () =>
+  world(async (root) => {
+    const fake = fakeColab();
+    const result = await prepare({
+      root,
+      pageId,
+      meta: { ...meta, language: "ja" },
+      call: fake.call,
+    });
+    fake.approve();
+    await assert.rejects(
+      publish({ root, proposalId: result.proposalId, call: fake.call }),
+      /English post before/,
+    );
+    assert.deepEqual(await readdir(join(root, "src/posts")), []);
+    const record = JSON.parse(await readFile(result.record, "utf8"));
+    record.meta.language = "en";
+    await writeFile(result.record, JSON.stringify(record));
+    await assert.rejects(
+      publish({ root, proposalId: result.proposalId, call: fake.call }),
+      /bytes changed/,
+    );
+    assert.deepEqual(await readdir(join(root, "src/posts")), []);
+  }));
+
+test("proposal shows approved tags and changing tags after preparation refuses import", async () =>
+  world(async (root) => {
+    const fake = fakeColab();
+    const tagged = { ...meta, tags: ["design", "colab"] };
+    const result = await prepare({ root, pageId, meta: tagged, call: fake.call });
+    assert.match(fake.state.body, /Tags: #design, #colab/);
+    fake.approve();
+    const record = JSON.parse(await readFile(result.record, "utf8"));
+    record.meta.tags = ["workflow"];
+    await writeFile(result.record, JSON.stringify(record));
+    await assert.rejects(
+      publish({ root, proposalId: result.proposalId, call: fake.call }),
+      /bytes changed/,
+    );
+    assert.deepEqual(await readdir(join(root, "src/posts")), []);
+    record.meta.tags = tagged.tags;
+    await writeFile(result.record, JSON.stringify(record));
+    const imported = await publish({ root, proposalId: result.proposalId, call: fake.call });
+    assert.deepEqual(
+      JSON.parse(await readFile(join(imported.path, "meta.json"), "utf8")).tags,
+      tagged.tags,
+    );
+  }));

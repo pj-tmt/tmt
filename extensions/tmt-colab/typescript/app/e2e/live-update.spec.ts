@@ -1,5 +1,5 @@
 import { commentsRegion, openPanel } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, showResolvedOn } from '../test/page-actions.js';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
@@ -7,8 +7,10 @@ import { annotationInput } from '../acceptance/harness/ask.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 const captureDir = process.env.COLAB_UPDATE_CAPTURE_DIR ?? '/tmp/colab-live-update-captures';
+// The script keeps every revision of this page a fresh frame (#5022): these cases are about what
+// the parent keeps while a replacement frame loads.
 const source = `<style>body{margin:0;padding:24px;font:18px/1.5 sans-serif}.before{height:1400px}.after{height:1800px}</style>
-<div class="before"></div><p id="selected">Exact selected text</p><div class="after"></div>`;
+<div class="before"></div><p id="selected">Exact selected text</p><div class="after"></div><script></script>`;
 const revised = source.replace('Exact selected text', 'New source without the captured quote');
 
 async function run(page: Page, method: string, argument?: string) {
@@ -342,6 +344,7 @@ for (const width of [1440, 390]) {
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
+      await showResolvedOn(page);
       await page.goto('/');
       await run(page, 'mount');
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
@@ -456,7 +459,9 @@ for (const width of [1440, 390]) {
       );
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
       await input.fill('@Agent 1 Exact unsent draft retained on collapse.');
-      await page.getByRole('heading', { name: 'Unrelated live title', exact: true }).click();
+      // The title row scrolls away with the page: the bar's empty middle is the click outside.
+      const topBar = (await page.locator('.tmt-ui-topbar:visible').boundingBox())!;
+      await page.mouse.click(topBar.x + topBar.width / 2, topBar.y + topBar.height / 2);
       await expect(dialog).toHaveCount(0);
       // The associated marker opens the thread's Discussion view with its quote, draft and bound mention.
       const marker = page

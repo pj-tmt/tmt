@@ -3,6 +3,7 @@ import {
   Fragment,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -29,6 +30,7 @@ import {
 import '@tmt/browser-ui/ui.css';
 import { Ellipsis } from 'lucide-react';
 import type { BrowserMenuItem } from '@tmt/browser-ui/react';
+import type { ShellRemoteStatus } from '@tmt/browser-ui/shell';
 import type { RemotePresence, RemotePresenceSnapshot, RemoteDevice } from './remote-presence.js';
 import { getTheme, subscribeTheme } from './theme.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
@@ -338,6 +340,18 @@ export function RemoteMoreMenu({
         </DropdownMenu>
       </UiTheme>
     </span>
+  );
+}
+/** What the shared top bar's Remote link shows: the live-session count this presence already reads
+ * and links to Remote's settings, or unconfirmed (no count) linking to `fallback`, the rail's Remote. */
+export function useShellRemoteStatus(fallback: string): ShellRemoteStatus {
+  const { snapshot } = usePresence();
+  return useMemo(
+    () =>
+      snapshot.kind === 'confirmed'
+        ? { kind: 'confirmed', liveSessions: snapshot.count, href: snapshot.settingsUrl }
+        : { kind: 'unconfirmed', href: fallback },
+    [snapshot, fallback],
   );
 }
 export function useRemoteHeaderAvailable(): boolean {

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { captureDirectory } from './captures.js';
+import { commentsAction } from '../test/page-actions.js';
 const directory = `${captureDirectory()}/header-actions`;
 mkdirSync(directory, { recursive: true });
 for (const width of [1440, 1024, 390])
@@ -15,20 +16,13 @@ for (const width of [1440, 1024, 390])
         await (await import(path)).mount({ attachments: true });
       }, theme);
       const actions = page.getByRole('navigation', { name: 'Page actions' });
-      const discussion = actions.getByRole('button', { name: /^Discussion \(/ });
+      // The header holds More alone; Comments is the first action of the dock.
+      const discussion = commentsAction(page);
       const more = actions.getByRole('button', { name: 'More', exact: true });
+      await expect(actions.getByRole('button')).toHaveCount(1);
       await expect(discussion).toBeVisible();
-      const bounds = await actions.locator('button').evaluateAll((nodes) =>
-        nodes
-          .map((node) => node.getBoundingClientRect())
-          .filter((box) => box.width)
-          .map((box) => ({ left: box.left, right: box.right })),
-      );
-      for (let i = 1; i < bounds.length; i++)
-        expect(bounds[i].left - bounds[i - 1].right).toBeGreaterThanOrEqual(6);
       await discussion.hover();
       expect(await discussion.evaluate((node) => node.matches(':focus-visible'))).toBe(false);
-      await expect(discussion).toHaveCSS('outline-style', 'none');
       await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(1);
       await page.screenshot({ path: `${directory}/header-hover-${width}-${theme}.png` });
       await page.mouse.move(0, 899);
@@ -37,8 +31,7 @@ for (const width of [1440, 1024, 390])
       await page.keyboard.press('Shift+Tab');
       await expect(discussion).toBeFocused();
       expect(await discussion.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
-      await expect(discussion).toHaveCSS('outline-width', '1px');
-      await expect(discussion).toHaveCSS('outline-offset', '-1px');
+      await expect(discussion).not.toHaveCSS('outline-style', 'none');
       await page.screenshot({ path: `${directory}/header-keyboard-${width}-${theme}.png` });
       await more.hover();
       await expect(more.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeVisible();

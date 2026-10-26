@@ -38,6 +38,7 @@ const connections = vi.hoisted(
         head: { revision: bigint; hash: Uint8Array } | null;
         root: object | null;
         validatePage: ReturnType<typeof vi.fn>;
+        ownerDevice(device: string): boolean;
         registration: Registration;
       };
     }[],
@@ -53,7 +54,12 @@ const connectionPlans = vi.hoisted(
 /** Connections the serve upgraded without an object channel; later ones start so too when set. */
 const objectChannel = vi.hoisted(() => ({ missing: new Set<object>(), startMissing: false }));
 const unseen = vi.hoisted(() => ({ cuts: new Set<object>(), startUnseen: false }));
-const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn(), work: vi.fn() }));
+const saves = vi.hoisted(() => ({
+  save: vi.fn(),
+  status: vi.fn(),
+  work: vi.fn(),
+  metadata: vi.fn(),
+}));
 const mutations = vi.hoisted(() => ({
   submitOwn: vi.fn(),
   submitOwnRecords: vi.fn(),
@@ -86,6 +92,7 @@ vi.mock('../src/admission.js', () => ({
     head = { revision: 2n, hash: new Uint8Array(32).fill(10) };
     root = {};
     validatePage = vi.fn();
+    ownerDevice = () => true;
     constructor(
       readonly space: string,
       readonly page: string,
@@ -161,6 +168,9 @@ vi.mock('../src/connection.js', () => ({
     work(operationId: string, action: string, body: unknown) {
       return saves.work(this, operationId, action, body);
     }
+    metadata(operationId: string, action: string, body: unknown, expectedRevision: string) {
+      return saves.metadata(this, operationId, action, body, expectedRevision);
+    }
     get active() {
       return this.close.mock.calls.length === 0;
     }
@@ -193,6 +203,7 @@ it('successful catchup resets reconnect failures across the page lifetime', asyn
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -235,6 +246,7 @@ it('tunnel disconnects and resyncs preserve the Session and Remote without reope
         revision: '1',
         owner: new Uint8Array(32),
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: [],
         pages: [],
       } as Bootstrap,
@@ -289,6 +301,7 @@ it('exports admitted committed view/head and denies blocked, missing-key and clo
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -331,6 +344,7 @@ async function liveWithUnseenCut(startUnseen = false) {
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -441,6 +455,7 @@ async function liveWithoutObjectChannel(startMissing = false) {
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -531,6 +546,7 @@ it('slow Ask verification keeps one latest view while source export reads the co
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -606,6 +622,7 @@ it('the first snapshot shows the document at once; threads and asks follow once 
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -657,6 +674,7 @@ it('page observer stops on hidden/close and resumes visible without another cont
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -740,6 +758,7 @@ it.each(['callback', 'message', 'typed error'] as const)(
         revision: '1',
         owner: new Uint8Array(32),
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: [],
         pages: [],
       } as Bootstrap,
@@ -816,6 +835,7 @@ it.each([
         revision: '1',
         owner: new Uint8Array(32),
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: [],
         pages: [],
       } as Bootstrap,
@@ -864,6 +884,7 @@ it('mounted ownership loss closes the Ask controller, observer and tunnel withou
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -925,6 +946,7 @@ it('only a typed fresh-session refusal uses bounded reload after stopping Live, 
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -959,6 +981,7 @@ it('remembers only accepted fold titles under the exact admission registration',
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -1041,6 +1064,7 @@ it.each(['send', 'operation'] as const)(
         revision: '1',
         owner: new Uint8Array(32),
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: [],
         pages: [],
       } as Bootstrap,
@@ -1118,6 +1142,7 @@ function heldResync(registration?: Registration, existingRemote?: RemoteClient) 
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -1401,6 +1426,7 @@ it('session end without an existing replacement owner is terminal', async () => 
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -1952,6 +1978,7 @@ function openLive() {
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -2263,6 +2290,7 @@ it('restore resync replaces archived admission before publishing writable policy
       revision: '1',
       owner: new Uint8Array(32),
       projects: [],
+      projectPins: { names: [], automatic: true },
       pageIds: [],
       pages: [],
     } as Bootstrap,
@@ -2407,6 +2435,58 @@ it('a convert resolves with the page it made, and a refusal after the page was m
     const unlinked = await live.work('task.convert', { taskId: 'T-1' }).catch((error) => error);
     expect(unlinked).toMatchObject({ childPage: page });
     expect(saves.status).toHaveBeenCalledOnce();
+  } finally {
+    live.close();
+  }
+});
+
+it('metadata revision capture refuses unseen choices and a lost reply is recovered without resending', async () => {
+  saves.metadata.mockReset();
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      projectPins: { names: [], automatic: true },
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  try {
+    const shown = await live.snapshot();
+    expect(await live.metadataRevision(shown)).toBe('v1:revision');
+    const connection = connections.at(-1)!;
+    connection.publish({ source: 'verified', title: 'Page', questions: [] });
+    await expect(live.metadataRevision(shown)).rejects.toMatchObject({ code: 'COLAB_STALE_BASE' });
+    expect(saves.metadata).not.toHaveBeenCalled();
+    const latest = await live.snapshot();
+    const revision = await live.metadataRevision(latest);
+    saves.metadata.mockImplementationOnce(async (lost) => {
+      lost.failed(new Error('Sync disconnected'));
+      throw new Error('Reply lost');
+    });
+    saves.status.mockImplementationOnce(async (_connection, operationId) => ({
+      operationId,
+      state: 'committed',
+      revision: 'v1:revision',
+    }));
+    await live.metadata(
+      'question.handle',
+      { id: '10000000-0000-4000-8000-000000000001' },
+      revision,
+    );
+    expect(saves.metadata).toHaveBeenCalledTimes(1);
+    const [, operationId, action, body, expected] = saves.metadata.mock.calls[0];
+    expect([action, body, expected]).toEqual([
+      'question.handle',
+      { id: '10000000-0000-4000-8000-000000000001' },
+      revision,
+    ]);
+    expect(saves.status.mock.calls.at(-1)?.[1]).toBe(operationId);
   } finally {
     live.close();
   }

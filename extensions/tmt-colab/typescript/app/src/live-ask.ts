@@ -10,7 +10,7 @@ import {
 } from './ask-attempt.js';
 import type { AskDestination, AdmittedSelection } from './ask-intent.js';
 import { AskRecordStore } from './ask-record-store.js';
-import { readAskViews, type AskRoot } from './ask-records.js';
+import { readAskViews, type AskRoot, type VerifiedAsks } from './ask-records.js';
 import type { RemoteClient, RemoteAgent, SessionEvictedError } from './ask-remote.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import { SendIdentityNotice } from './send-identity-notice.js';
@@ -365,8 +365,9 @@ export async function pageAsks(
   own: OwnState,
   admission: Admission,
   signingKey: (writer: string) => Uint8Array | undefined,
+  verified?: VerifiedAsks,
 ): Promise<PageAsk[]> {
-  const views = await readAskViews(own, admission, signingKey);
+  const views = await readAskViews(own, admission, signingKey, verified);
   let canPublish = false;
   try {
     requireValue(admission.head !== null);

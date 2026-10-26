@@ -281,7 +281,9 @@ impl Receipt {
         } else if value["source"]["kind"] == "github-actions" {
             let source = &value["source"];
             if source.as_object().is_none_or(|fields| fields.len() != 3)
-                || source["repository"] != super::OFFICIAL_REPOSITORY
+                || !source["repository"]
+                    .as_str()
+                    .is_some_and(super::current_or_previous_repository)
             {
                 return Err(invalid("Invalid native PR provenance."));
             }

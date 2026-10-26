@@ -1,94 +1,237 @@
-/**
- * Remote's one route (`/remote/…`, rows in `remote-routes.ts`). The markup of the connection check
- * and of the settings forms is in place from the start; the path decides which view shows, so a
- * switch between Remote's rows changes what the page shows and nothing else: no unmount, no
- * repaint of the shell or the rail, no second load. Each page's code starts the first time one of
- * its views shows, and ends with the route.
- */
+import type { Session } from './device.js';
+/** One mounted Remote model and persistent tab panels; paths are declared in remote-routes. */
 import { remoteRegistryPage, type RemoteRegistryPage } from './remote-registry-page.js';
-import { REMOTE_ITEMS, remoteItem, type RemoteItem } from './remote-routes.js';
+import { REMOTE_ITEMS, remoteItem, remoteTabAccess, type RemoteItem } from './remote-routes.js';
+import type { RemoteRegistryView } from './remote-registry.js';
 import type { RemoteShell } from './remote-shell.js';
+import { commandCopy } from './command-copy.js';
+import { createIcon } from '@tmt/browser-ui/glyph';
+import { browserUiClasses as c } from '@tmt/browser-ui/static';
 
-/** The two pages' code, loaded when a view of theirs first shows. */
 export interface RemotePages {
-  landing(lifetime: AbortSignal, registry: RemoteRegistryPage): Promise<void>;
-  settings(shell: RemoteShell, registry: RemoteRegistryPage): Promise<void>;
+  landing(
+    lifetime: AbortSignal,
+    registry: RemoteRegistryPage,
+    connected: (session: Session) => void,
+  ): Promise<void>;
+  settings(
+    shell: RemoteShell,
+    registry: RemoteRegistryPage,
+    initial?: Session,
+  ): Promise<(session: Session) => void>;
 }
-
 export async function remoteApp(
   shell: RemoteShell,
   main: HTMLElement,
   bar: HTMLElement,
-  /** Resolves once the settings views' stylesheet has loaded (they show only styled). */
   settingsStyles: () => Promise<void>,
   pages: () => Promise<RemotePages>,
 ): Promise<void> {
+  await settingsStyles();
+  if (shell.signal.aborted) return;
+  const models = [...main.querySelectorAll<HTMLElement>(':scope > [data-page]')];
+  const registry = remoteRegistryPage(undefined, shell);
   const started = new Map<RemoteItem['page'], Promise<void>>();
-  let registry: RemoteRegistryPage | undefined;
   let shown: RemoteItem | undefined;
+  let observed: RemoteRegistryView | undefined;
+  let admitted: Session | undefined;
+  let observeSession: ((session: Session) => void) | undefined;
+  const tabs = REMOTE_ITEMS.filter((item) => item.id !== 'remotes');
+  const frame = document.createElement('div');
+  frame.id = 'remote-context';
+  frame.className = `tmt-page remote-context ${c.tabs}`;
+  const heading = document.createElement('h2');
+  heading.className = 'settings-title';
+  const needsYou = document.createElement('p');
+  needsYou.id = 'remote-needs-you';
+  needsYou.hidden = true;
+  let reportedNeeds: number | undefined;
+  const designation = document.createElement('p');
+  designation.id = 'remote-designation';
+  const strip = document.createElement('div');
+  strip.className = c.tabList;
+  strip.setAttribute('role', 'tablist');
+  strip.setAttribute('aria-label', 'This Remote');
+  const buttons = new Map<string, HTMLButtonElement>();
+  const panels = new Map<string, HTMLElement>();
+  const globalPanel = document.createElement('div');
+  for (const item of tabs) {
+    const button = document.createElement('button');
+    button.id = `remote-tab-${item.id}`;
+    button.className = c.tab;
+    button.type = 'button';
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-controls', `remote-panel-${item.id}`);
+    button.addEventListener('click', () => shell.navigate(new URL(item.path, location.href).href), {
+      signal: shell.signal,
+    });
+    button.addEventListener(
+      'keydown',
+      (event) => {
+        const index = tabs.indexOf(item);
+        const next =
+          event.key === 'Home'
+            ? tabs[0]
+            : event.key === 'End'
+              ? tabs.at(-1)
+              : event.key === 'ArrowRight'
+                ? tabs[(index + 1) % tabs.length]
+                : event.key === 'ArrowLeft'
+                  ? tabs[(index + tabs.length - 1) % tabs.length]
+                  : undefined;
+        if (!next) return;
+        event.preventDefault();
+        shell.navigate(new URL(next.path, location.href).href);
+        // Navigation can be refused by a retained draft; never steal focus from that explanation.
+        if (remoteItem(location.pathname)?.id === next.id) buttons.get(next.id)?.focus();
+      },
+      { signal: shell.signal },
+    );
+    buttons.set(item.id, button);
+    strip.append(button);
+    const panel = document.createElement('div');
+    panel.id = `remote-panel-${item.id}`;
+    panel.className = `${c.tabPanel} remote-tab-content`;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', button.id);
+    panel.hidden = true;
+    panels.set(item.id, panel);
+  }
+  const locked = document.createElement('section');
+  locked.id = 'remote-locked';
+  locked.className = 'tmt-page';
+  const lockTitle = document.createElement('h2');
+  lockTitle.textContent = 'Locked';
+  const lockReason = document.createElement('p');
+  const request = document.createElement('div');
+  locked.append(lockTitle, lockReason, request);
+  let requestText = '';
+  frame.append(heading, designation, needsYou, strip);
+  main.prepend(frame, globalPanel, ...panels.values());
 
-  const start = (page: RemoteItem['page']): Promise<void> => {
+  function keepTabVisible(): void {
+    const button = shown && buttons.get(shown.id);
+    if (!button || frame.hidden) return;
+    const delta = button.getBoundingClientRect().left - strip.getBoundingClientRect().left;
+    if (delta < 0) strip.scrollLeft += delta;
+    else if (delta + button.offsetWidth > strip.clientWidth)
+      strip.scrollLeft += delta + button.offsetWidth - strip.clientWidth;
+  }
+  const resize = new ResizeObserver(keepTabVisible);
+  resize.observe(strip);
+  shell.signal.addEventListener('abort', () => resize.disconnect(), { once: true });
+  function layout(): void {
+    if (!shown) return;
+    const localName = document.getElementById('remote-local-name-value');
+    if (localName) localName.textContent = observed?.current.name ?? 'This machine';
+    const renameLabel = document.querySelector('#remote-local-rename .tmt-ui-action-label');
+    if (renameLabel)
+      renameLabel.textContent = observed?.current.reference
+        ? 'Rename in this browser'
+        : 'Remember this Remote';
+    const role = observed?.current.role;
+    const access = remoteTabAccess(shown, role);
+    needsYou.hidden = shown.id !== 'overview' || reportedNeeds === undefined;
+    needsYou.textContent =
+      reportedNeeds === undefined
+        ? ''
+        : reportedNeeds === 0
+          ? 'Nothing needs you.'
+          : `${reportedNeeds} ${reportedNeeds === 1 ? 'item needs' : 'items need'} your attention.`;
+    frame.hidden = shown.id === 'remotes';
+    heading.textContent = `${observed?.current.name ?? 'This Remote'} · ${observed?.current.roleLabel ?? 'Role unknown'}`;
+    designation.textContent =
+      role === 'owner'
+        ? 'This browser manages this Remote.'
+        : role === 'user'
+          ? 'Read-only in this browser. Ask the admin to make changes.'
+          : 'Access is not confirmed. Check again before making changes.';
+    for (const item of tabs) {
+      const button = buttons.get(item.id)!;
+      const policy = remoteTabAccess(item, role);
+      const selected = item === shown;
+      button.setAttribute('aria-selected', String(selected));
+      button.tabIndex = selected ? 0 : -1;
+      const label = policy.locked ? `Locked · ${item.label}` : item.label;
+      if (button.textContent !== label) {
+        button.replaceChildren();
+        if (policy.locked) button.append(createIcon('lock'));
+        const text = document.createElement('span');
+        text.className = c.tabLabel;
+        text.textContent = label;
+        button.append(text);
+      }
+      panels.get(item.id)!.hidden = !selected;
+    }
+    keepTabVisible();
+    globalPanel.hidden = shown.id !== 'remotes';
+    const panel = shown.id === 'remotes' ? globalPanel : panels.get(shown.id)!;
+    // Move the same retained models, never clone/restart their forms or original outcomes.
+    for (const model of models) {
+      if (model.parentElement !== panel) panel.append(model);
+      model.hidden = model.dataset.page !== shown.page || (access.locked && shown.id === 'invites');
+    }
+    for (const part of main.querySelectorAll<HTMLElement>('[data-view]'))
+      part.hidden = !part.dataset.view!.split(' ').includes(shown.id);
+    if (access.locked) {
+      if (locked.parentElement !== panel) panel.prepend(locked);
+      locked.hidden = false;
+      lockReason.textContent = access.reason;
+      if (requestText !== access.request) {
+        requestText = access.request;
+        request.replaceChildren(...(requestText ? [commandCopy(requestText)] : []));
+      }
+    } else locked.hidden = true;
+  }
+  const localRename = document.getElementById('remote-local-rename');
+  localRename?.addEventListener('click', () => registry.renameCurrent(localRename), {
+    signal: shell.signal,
+  });
+  shell.described((answer) => {
+    if (shell.signal.aborted) return;
+    reportedNeeds = answer?.modules.find((module) => module.extension === 'remote')?.needsYou;
+    layout();
+  });
+  const unsubscribe = registry.watch((view) => {
+    observed = view;
+    layout();
+  });
+  shell.signal.addEventListener('abort', unsubscribe, { once: true });
+  function start(page: RemoteItem['page']): Promise<void> {
     let run = started.get(page);
     if (!run) {
       run = (async () => {
         const code = await pages();
         if (shell.signal.aborted) return;
-        registry ??= remoteRegistryPage(undefined, shell);
-        if (page === 'landing') await code.landing(shell.signal, registry);
-        else {
-          // The settings views always talk to the door; the connection check waits for its own result.
-          shell.describe();
-          await code.settings(shell, registry);
-        }
+        if (page === 'landing')
+          await code.landing(shell.signal, registry, (session) => {
+            admitted = session;
+            if (observeSession) observeSession(session);
+            else void start('settings');
+          });
+        else observeSession = await code.settings(shell, registry, admitted);
       })();
       started.set(page, run);
     }
     return run;
-  };
-
-  /** Show the view the path names. */
-  const show = async (): Promise<void> => {
-    const named = () => remoteItem(location.pathname) ?? REMOTE_ITEMS[0]!;
-    if (named().page === 'settings') {
-      await settingsStyles();
-      // A later change of path is shown by its own call.
-      if (shell.signal.aborted) return;
-    }
-    const item = named();
-    const first = !shown;
+  }
+  async function show(): Promise<void> {
+    const item = remoteItem(location.pathname);
+    if (!item) return;
     const changed = shown !== item;
+    const first = !shown;
     shown = item;
     document.documentElement.dataset.tmtPage = item.page;
-    for (const page of main.querySelectorAll<HTMLElement>(':scope > [data-page]'))
-      page.hidden = page.dataset.page !== item.page;
-    for (const part of main.querySelectorAll<HTMLElement>('[data-view]'))
-      part.hidden = !part.dataset.view!.split(' ').includes(item.id);
+    layout();
+    bar.querySelector('header')?.setAttribute('aria-label', `Remote · ${item.title}`);
     const title = bar.querySelector('.header-title');
     if (title) title.textContent = item.title;
     shell.setTitle(item.title);
     if (changed && !first) window.scrollTo({ top: 0 });
-    return start(item.page);
-  };
-
-  // The Connect view's one command, copied the way the connection check's are.
-  const copy = document.getElementById('copy-connect-pair');
-  const feedback = document.getElementById('copy-feedback-connect-pair');
-  copy?.addEventListener(
-    'click',
-    async () => {
-      try {
-        await navigator.clipboard.writeText('tmt remote pair');
-        if (feedback) feedback.textContent = 'Copied.';
-      } catch {
-        if (feedback)
-          feedback.textContent = 'Copy failed. Select the command and copy it manually.';
-      }
-    },
-    { signal: shell.signal },
-  );
-
-  // Back, forward, the rail and the menu all end in the path changing under this mounted route;
-  // the shell announces it and the page follows it.
+    // The same bounded management observation supplies role on every current-door tab.
+    await start('landing');
+    if (!shell.signal.aborted) await start('settings');
+  }
   window.addEventListener('popstate', () => void show().catch(() => {}), { signal: shell.signal });
   await show();
 }

@@ -540,7 +540,9 @@ fn appended_until(
     {
         return Some(baseline(true));
     }
-    if end == cursor.offset {
+    // A caught-up read at a line end has nothing left to observe, so after a
+    // gap the loop below records it as a complete zero observation (#5122).
+    if end == cursor.offset && (previous.value.complete || !boundary) {
         return Some(previous.clone());
     }
     file.seek(SeekFrom::Start(cursor.offset)).ok()?;
@@ -741,10 +743,13 @@ pub fn codex_with(
     let replaced = cursor.dev != old_cursor.dev
         || cursor.ino != old_cursor.ino
         || cursor.offset < old_cursor.offset;
+    // As in `appended_until`, an unchanged complete read after a gap goes on to
+    // record a complete zero observation (#5122).
     if own == Some(counts)
         && cursor == *old_cursor
         && contribution == carried_counts
         && family_incomplete == carried_incomplete
+        && (previous.value.complete || !complete || family_incomplete)
     {
         return Some(previous.clone());
     }

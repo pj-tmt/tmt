@@ -124,6 +124,25 @@ fn guard_drop_releases_descriptors_and_allows_reinstallation() {
 }
 
 #[test]
+fn cancellable_children_keep_stream_bounds_input_and_post_eof_deadlines() {
+    for mode in [
+        "cancellable-streams",
+        "cancellable-stdout",
+        "cancellable-stderr",
+        "cancellable-eof",
+    ] {
+        let mut fixture = Fixture::start(mode);
+        let status = fixture.child.wait_for_exit(EXIT_TIMEOUT);
+        assert!(status.success(), "{mode}: {status}");
+        let pid: i32 = event(&fixture).trim().parse().unwrap();
+        assert_eq!(
+            nix::sys::signal::killpg(Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+}
+
+#[test]
 fn subprocess_fixture() {
     let Some(mode) = env::var_os(FIXTURE_MODE) else {
         return;
@@ -135,10 +154,69 @@ fn subprocess_fixture() {
         .map(std::path::PathBuf::from)
         .expect("fixture event path");
     let mode = mode.to_str().expect("fixture mode is UTF-8");
-    let interrupt = Interrupt::install().expect("install interrupt fixture");
+    let mut interrupt = Interrupt::install().expect("install interrupt fixture");
     fs::write(&ready, b"ready").expect("publish interrupt fixture readiness");
 
     match mode {
+        mode if mode.starts_with("cancellable-") => {
+            use crate::process::{
+                CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner,
+            };
+            use std::ffi::OsStr;
+            interrupt.defer_emergency_exit();
+            let script = match mode {
+                "cancellable-streams" => "echo $$ > \"$1\"; wc -c; printf progress >&2",
+                "cancellable-stdout" => "echo $$ > \"$1\"; printf 123456789",
+                "cancellable-stderr" => "echo $$ > \"$1\"; printf 123456789 >&2",
+                "cancellable-eof" => "echo $$ > \"$1\"; exec 1>&- 2>&-; exec /bin/sleep 10",
+                _ => unreachable!(),
+            };
+            let mut observed = Vec::new();
+            let result = UnixCommandRunner.execute_cancellable(
+                CommandRequest {
+                    program: OsStr::new("/bin/sh"),
+                    args: &[
+                        "-c".into(),
+                        script.into(),
+                        "cancellable-fixture".into(),
+                        event.into_os_string(),
+                    ],
+                    input: &vec![b'x'; 128 * 1024],
+                    deadline: Instant::now() + Duration::from_millis(300),
+                    max_output_bytes: if mode == "cancellable-streams" { 32 } else { 8 },
+                },
+                8,
+                &mut |bytes| observed.extend_from_slice(bytes),
+                &interrupt,
+            );
+            match mode {
+                "cancellable-streams" => {
+                    let output = result.unwrap();
+                    assert_eq!(
+                        std::str::from_utf8(&output.stdout).unwrap().trim(),
+                        "131072"
+                    );
+                    assert_eq!(output.stderr, b"progress");
+                    assert_eq!(observed, output.stderr);
+                }
+                _ => {
+                    let error = result.unwrap_err();
+                    assert_eq!(
+                        error.kind,
+                        if mode == "cancellable-eof" {
+                            CommandFailure::Timeout
+                        } else {
+                            CommandFailure::OutputLimit
+                        }
+                    );
+                    assert!(!error.cleanup_failed());
+                    assert!(
+                        error.output.is_none(),
+                        "unconfirmed bytes must not become a report"
+                    );
+                }
+            }
+        }
         "wake" => {
             interrupt
                 .wait_until(Instant::now() + Duration::from_secs(5))

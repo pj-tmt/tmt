@@ -17,7 +17,7 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-use tmt_core::native_install::{Channel, PinAction};
+use tmt_core::native_install::{Channel, OFFICIAL_REPOSITORY, PinAction};
 use uuid::Uuid;
 
 /// Protocols 1 and 2 belong to updaters that validate the former `lib/tmux-team`
@@ -50,13 +50,15 @@ fn caller(version: u32) -> super::Caller {
         super::Caller::Legacy
     }
 }
-pub const UNSUPPORTED: &str = "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh";
 
 #[derive(Debug)]
 pub(super) struct Unsupported(Option<CommandError>);
 impl std::fmt::Display for Unsupported {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(UNSUPPORTED)
+        write!(
+            formatter,
+            "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/{OFFICIAL_REPOSITORY}/releases/latest/download/install.sh | sh"
+        )
     }
 }
 impl std::error::Error for Unsupported {
@@ -240,7 +242,8 @@ pub fn install_version(
                 pin,
                 expected: Some(
                     Uuid::parse_str(&request.expected_current).map_err(io::Error::other)?,
-                ),
+                )
+                .into(),
                 provenance: Some(provenance),
                 verifier: None,
                 explicit_channel,

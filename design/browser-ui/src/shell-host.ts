@@ -23,6 +23,8 @@ import { createBusyMark } from './static.js';
 
 /** What a route module receives: its part of the one shell. */
 export interface ShellSlot {
+  /** True while this route is current and the root has installed common controls. */
+  topBarReady(): boolean;
   /** Adopt the root's common bar; only this route's action slot is exposed. */
   setTopBar(): ShellTopBar;
   /** The content area; the module owns its children until it unmounts. */
@@ -214,6 +216,7 @@ export function startShellHost(
     main,
     bar,
     tools: controls.tools,
+    topBarReady: () => !disposed && current?.generation === mine && controls.topBarReady(),
     setTopBar: () =>
       current?.generation === mine
         ? controls.setTopBar()

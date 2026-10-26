@@ -74,9 +74,22 @@ pub struct Input {
     pub context_tokens_at_arrival: Option<u64>,
     pub context_observed_at_ms: Option<u64>,
 }
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind")]
+pub enum Projection {
+    #[serde(rename = "incoming_summary")]
+    IncomingSummary {
+        #[serde(rename = "incomingCount")]
+        incoming_count: u64,
+        #[serde(rename = "urgentCount")]
+        urgent_count: u64,
+    },
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChecklistSettlement {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projection: Option<Projection>,
     pub checklist_id: String,
     pub settlement_sequence: u64,
     pub claimed_at_ms: u64,
@@ -91,6 +104,17 @@ pub struct ChecklistSettlement {
 }
 impl ChecklistSettlement {
     pub fn validate(&self) -> Result<(), Error> {
+        if let Some(Projection::IncomingSummary {
+            incoming_count,
+            urgent_count,
+        }) = self.projection
+            && (incoming_count == 0
+                || incoming_count > MAX
+                || urgent_count > incoming_count
+                || self.sealed_count != Some(incoming_count))
+        {
+            return Err(invalid("Invalid summary projection"));
+        }
         if !crate::settings::canonical_uuid(&self.checklist_id)
             || self.settlement_sequence == 0
             || [
@@ -137,6 +161,13 @@ impl ChecklistSettlement {
         Ok(())
     }
     pub fn estimate(&self) -> Estimate {
+        if self.projection.is_some() {
+            return Estimate {
+                tokens: None,
+                avoided: None,
+                gap: Some("incoming_summary"),
+            };
+        }
         if self.outcome != "delivered" {
             return Estimate {
                 tokens: Some(0),

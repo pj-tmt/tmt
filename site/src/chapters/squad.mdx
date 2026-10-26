@@ -437,7 +437,7 @@ enabled = true
 stale_after = "30m"
 `}</Code>
 
-With Ops' extension hooks enabled (`tmt extension hooks enable ops`) and the provider hook installed through `tmt setup`, Ops can add one short, informational line to the lead's next turn, including when a session starts. It names stale notes, or stale member rows that have shown relevant activity since. Run `tmt ops sq ls` or open the board to start the observations: until something has been observed, nothing is said. The [Ops skill](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) lists the limits.
+With Ops' extension hooks enabled (`tmt extension hooks enable ops`) and the provider hook installed through `tmt setup`, Ops can add one short, informational line to the lead's next turn, including when a session starts. It names stale notes, or stale member rows that have shown relevant activity since. Run `tmt ops sq ls` or open the board to start the observations: until something has been observed, nothing is said. The [Ops skill](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age) lists the limits.
 
 Turning on these keys installs no provider hooks. Reminder settings in the board are <Tag kind="planned" />.
 
@@ -494,7 +494,7 @@ $ tmt ops sq rm auth-fix              # leaves the squad; the agent keeps runnin
 
 ### Reference: tabs, refresh and bindings
 
-The full configuration contract is in the Ops skill, which `tmt ops skill show` prints and which lives [in the repository](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md). These are the settings people reach for most.
+The full configuration contract is in the Ops skill, which `tmt ops skill show` prints and which lives [in the repository](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md). These are the settings people reach for most.
 
 **Tabs.** Beyond `order` and `hide`, `pin` and `colors` shape the tab line:
 

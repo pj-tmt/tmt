@@ -166,25 +166,17 @@ async function fixture(mode = 'success') {
     'machine-id',
     'protocol-address',
     'trust-pin',
-    'steps-missing',
-    'steps-different',
-    'steps-refused',
-    'steps-unconfirmed',
-    'steps-unreadable',
-    'pairing-note',
-    'command-location',
-    'copy-feedback-missing-pair',
-    'copy-feedback-different-pair',
-    'copy-feedback-refused-devices',
-    'copy-feedback-refused-pair',
-    'copy-feedback-unconfirmed-status',
-    'copy-feedback-unreadable-pair',
-    'copy-missing-pair',
-    'copy-different-pair',
-    'copy-refused-devices',
-    'copy-refused-pair',
-    'copy-unconfirmed-status',
-    'copy-unreadable-pair',
+    'remote-guidance',
+    'remote-guidance-heading',
+    'remote-guide-pair',
+    'remote-guide-devices',
+    'remote-guide-status',
+    'copy-guide-pair',
+    'copy-guide-devices',
+    'copy-guide-status',
+    'copy-feedback-guide-pair',
+    'copy-feedback-guide-devices',
+    'copy-feedback-guide-status',
   ])
     nodes.set(id, { textContent: '', hidden: false, dataset: {}, addEventListener: () => {} });
   const statusChildren: { textContent: string; tagName?: string; className?: string }[] = [];
@@ -401,9 +393,9 @@ test('not-paired steps precede the muted privacy note without duplicate status c
     assert.equal(f.nodes.get('state-label')!.textContent, 'Not paired');
     assert.equal(f.nodes.get('status')!.hidden, true);
     assert.equal(f.nodes.get('status')!.textContent, '');
-    assert.equal(f.nodes.get('pairing-note')!.hidden, false);
-    assert.equal(f.nodes.get('steps-missing')!.hidden, false);
-    assert.equal(f.nodes.get('command-location')!.hidden, false);
+    assert.equal(f.nodes.get('remote-guide-pair')!.hidden, false);
+    assert.equal(f.nodes.get('remote-guidance')!.hidden, false);
+    assert.equal(f.nodes.get('remote-guide-devices')!.hidden, true);
     assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
   } finally {
     vi.unstubAllGlobals();
@@ -660,24 +652,17 @@ test('Command block Copy actions have command-specific names and no trailing act
     new URL('../../../rust/tmt-remote/assets/landing.html', import.meta.url),
     'utf8',
   );
-  for (const [state, command] of [
-    ['missing', 'pair'],
-    ['different', 'pair'],
-    ['refused', 'devices'],
-    ['refused', 'pair'],
-    ['unconfirmed', 'status'],
-    ['unreadable', 'pair'],
-  ]) {
+  for (const command of ['pair', 'devices', 'status']) {
     const action = html.match(
-      new RegExp(`<button\\s+id="copy-${state}-${command}"([\\s\\S]*?)>\\s*Copy\\s*</button\\s*>`),
+      new RegExp(`<button\\s+id="copy-guide-${command}"([\\s\\S]*?)>\\s*Copy\\s*</button\\s*>`),
     );
     assert.ok(action);
     assert.ok(action[1]!.includes(`aria-label="Copy tmt remote ${command}"`));
   }
-  // Six for the connection states, one for the Connect view's `tmt remote pair`.
-  assert.equal(html.match(/class="entry-command tmt-ui-command"/g)!.length, 7);
+  assert.equal(html.match(/id="copy-guide-pair"/g)!.length, 1);
+  assert.equal(html.match(/class="entry-command tmt-ui-command"/g)!.length, 3);
   assert.ok(!/<\/span\s*>\s*\./.test(html));
-  assert.ok(html.includes('run this on it:'));
+  assert.ok(html.includes('Run commands on the machine that runs this Remote.'));
 });
 
 for (const ownsFocus of [true, false]) {
@@ -757,7 +742,7 @@ for (const mode of ['revoked-proof', 'expired-proof', 'ended-proof', 'signed-ref
       await landingPage();
       assert.equal(f.nodes.get('state-label')!.textContent, 'Not accepted');
       const authorityEnded = mode === 'revoked-proof' || mode === 'expired-proof';
-      assert.equal(f.nodes.get('steps-refused')!.hidden, !authorityEnded);
+      assert.equal(f.nodes.get('remote-guide-devices')!.hidden, !authorityEnded);
       assert.equal(
         f.nodes.get('status')!.textContent,
         authorityEnded
@@ -833,7 +818,7 @@ for (const mode of [
       if (mode === 'success') {
         assert.equal(f.nodes.get('status')!.textContent, 'This browser is already paired.');
         assert.equal(form.hidden, true);
-        assert.equal(destination, '/remote/');
+        assert.equal(destination, '/remote/overview');
       } else if (['revoked-proof', 'expired-proof', 'mismatch'].includes(mode)) {
         assert.equal(form.hidden, false);
         assert.equal(button.disabled, false);

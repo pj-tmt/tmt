@@ -21,6 +21,8 @@ pub enum Rule {
     Off,
     /// An interval member's deadline had not been reached.
     NotDue,
+    /// Core receiving allows only urgent requests at this opportunity.
+    Urgent,
 }
 impl Rule {
     pub fn text(self) -> &'static str {
@@ -32,6 +34,7 @@ impl Rule {
             Self::AutoCap => "auto_cap",
             Self::Off => "off",
             Self::NotDue => "not_due",
+            Self::Urgent => "urgent",
         }
     }
     pub fn parse(text: &str) -> Option<Self> {
@@ -43,6 +46,7 @@ impl Rule {
             Self::AutoCap,
             Self::Off,
             Self::NotDue,
+            Self::Urgent,
         ]
         .into_iter()
         .find(|rule| rule.text() == text)
@@ -51,6 +55,7 @@ impl Rule {
         match self {
             Self::AutoIdlePoint | Self::AutoHold | Self::AutoCap => "auto",
             Self::Off => "off",
+            Self::Urgent => "urgent",
             _ => "interval",
         }
     }

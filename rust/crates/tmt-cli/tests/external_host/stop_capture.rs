@@ -28,7 +28,30 @@ fn a_blocking_digest_keeps_both_codex_finals_in_causal_order_for_both_hook_order
 }
 
 #[test]
+fn a_blocking_digest_keeps_the_agy_final_before_its_held_input_for_both_hook_orders() {
+    blocking_digest(
+        "agy",
+        true,
+        &[(false, false), (true, true)],
+        CaptureScenario::Normal,
+    );
+}
+
+#[test]
+fn canceled_and_subagent_agy_stops_grant_no_final_or_digest_input() {
+    for scenario in [CaptureScenario::Canceled, CaptureScenario::Subagent] {
+        blocking_digest("agy", true, &[(false, false), (true, true)], scenario);
+    }
+}
+
+#[test]
 fn digest_does_not_enable_provider_capture_when_answer_hooks_are_not_installed() {
+    blocking_digest(
+        "agy",
+        false,
+        &[(false, false), (true, false), (true, true)],
+        CaptureScenario::Normal,
+    );
     blocking_digest(
         "claude",
         false,
@@ -45,7 +68,7 @@ fn digest_does_not_enable_provider_capture_when_answer_hooks_are_not_installed()
 
 #[test]
 fn an_unbound_capture_still_hands_off_a_verified_digest_launch() {
-    for driver in ["claude", "codex"] {
+    for driver in ["agy", "claude", "codex"] {
         blocking_digest(
             driver,
             true,
@@ -57,14 +80,14 @@ fn an_unbound_capture_still_hands_off_a_verified_digest_launch() {
 
 #[test]
 fn a_duplicate_stop_captured_by_the_observer_still_hands_off_digest() {
-    for driver in ["claude", "codex"] {
+    for driver in ["agy", "claude", "codex"] {
         blocking_digest(driver, true, &[(true, false)], CaptureScenario::Normal);
     }
 }
 
 #[test]
 fn a_current_capture_failure_holds_digest_before_publishing_its_input() {
-    for driver in ["claude", "codex"] {
+    for driver in ["agy", "claude", "codex"] {
         blocking_digest(
             driver,
             true,
@@ -149,7 +172,12 @@ fn a_stop_without_a_new_activity_transition_still_records_consented_usage() {
     }
 }
 
-fn observer(provider: &mut SteppedProvider, payload: Value, capture: bool) {
+fn observer(
+    provider: &mut SteppedProvider,
+    payload: Value,
+    capture: bool,
+    scenario: CaptureScenario,
+) {
     if !capture {
         fs::write(
             provider
@@ -160,12 +188,25 @@ fn observer(provider: &mut SteppedProvider, payload: Value, capture: bool) {
         )
         .unwrap();
     }
-    ok(provider.hook(payload));
+    let output = provider.hook(payload);
+    if scenario == CaptureScenario::Subagent {
+        assert_eq!(output.0, 0, "{output:?}");
+        assert_eq!(output.1.trim(), "{}", "{output:?}");
+        assert_eq!(
+            output.2.trim(),
+            "tmt: lifecycle context unavailable; continuing without context.",
+            "{output:?}"
+        );
+    } else {
+        ok(output);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CaptureScenario {
     Normal,
+    Canceled,
+    Subagent,
     UnboundOnce,
     StorageFailure,
 }
@@ -177,13 +218,27 @@ fn blocking_digest(
     scenario: CaptureScenario,
 ) {
     register();
+    // Agy's continuation lifecycle still needs provider evidence (#5166). Its
+    // one-Stop rows prove the retained final before Digest; never invent B's authority.
+    let continued_final = driver != "agy";
     let unbound_once = scenario == CaptureScenario::UnboundOnce;
-    let event = |name| {
-        if driver == "claude" {
-            claude_event(name)
-        } else {
-            codex_event(name, (name != "SessionStart").then_some("capture-turn"))
-        }
+    let event = |name| match driver {
+        "claude" => claude_event(name),
+        "codex" => codex_event(name, (name != "SessionStart").then_some("capture-turn")),
+        "agy" => match name {
+            "SessionStart" => serde_json::json!({"conversationId":"s-1"}),
+            "UserPromptSubmit" => serde_json::json!({"conversationId":"s-1","invocationNum":1}),
+            "Stop" => {
+                serde_json::json!({"conversationId":"s-1","terminationReason":"NO_TOOL_CALL","executionNum":1,"fullyIdle":true})
+            }
+            _ => panic!("unsupported agy fixture event {name}"),
+        },
+        _ => panic!("unsupported capture fixture driver {driver}"),
+    };
+    let final_field = if driver == "agy" {
+        "finalModelOutput"
+    } else {
+        "last_assistant_message"
     };
     for &(observer_first, activity_only) in orders {
         let fixture = Fixture::delivering(&format!(
@@ -227,18 +282,23 @@ fn blocking_digest(
         ]);
         fixture.json(&["identity", "create", "core-1", "--json"]);
         if capture {
-            fs::create_dir_all(fixture.root.join(format!("home/.{driver}"))).unwrap();
-            let observer =
-                tmt_adapters::runtime::hook_protocol::command_entry(driver, "/stable/tmt");
-            fs::write(
-                fixture.root.join(if driver == "claude" {
-                    "home/.claude/settings.json"
-                } else {
-                    "home/.codex/hooks.json"
-                }),
-                serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
-            )
-            .unwrap();
+            let settings = fixture.root.join(match driver {
+                "claude" => "home/.claude/settings.json",
+                "codex" => "home/.codex/hooks.json",
+                "agy" => "home/.gemini/config/hooks.json",
+                _ => unreachable!(),
+            });
+            fs::create_dir_all(settings.parent().unwrap()).unwrap();
+            let hooks = if driver == "agy" {
+                let observer =
+                    tmt_adapters::runtime::hook_protocol::flat_command_entry(driver, "/stable/tmt");
+                serde_json::json!({"tmt":{"Stop":[observer]}})
+            } else {
+                let observer =
+                    tmt_adapters::runtime::hook_protocol::command_entry(driver, "/stable/tmt");
+                serde_json::json!({"hooks":{"Stop":[observer]}})
+            };
+            fs::write(settings, hooks.to_string()).unwrap();
         }
         let mut provider = SteppedProvider::start(&fixture, driver, "capture-steps");
         ok(provider.hook(event("SessionStart")));
@@ -285,7 +345,11 @@ fn blocking_digest(
         ]);
         let request = sent["requestId"].as_str().unwrap();
         let mut prompt = event("UserPromptSubmit");
-        prompt["prompt"] = "Ben question".into();
+        prompt[if driver == "agy" {
+            "lastUserInput"
+        } else {
+            "prompt"
+        }] = "Ben question".into();
         ok(provider.hook(prompt));
         let held = fixture.json(&[
             "talk",
@@ -298,8 +362,21 @@ fn blocking_digest(
         ]);
         assert_eq!(held["digest"], true, "{held:#}");
         let mut first = event("Stop");
-        first["stop_hook_active"] = false.into();
-        first["last_assistant_message"] = "A: answer to Ben".into();
+        if driver != "agy" {
+            first["stop_hook_active"] = false.into();
+        }
+        first[final_field] = "A: answer to Ben".into();
+        match scenario {
+            CaptureScenario::Canceled => first["terminationReason"] = "USER_CANCELED".into(),
+            CaptureScenario::Subagent => first["parentConversationId"] = "parent-session".into(),
+            _ => (),
+        }
+        let before_stop = passthrough::api(
+            &fixture,
+            "ok",
+            "responses.timeline",
+            serde_json::json!({"identityId":agent}),
+        );
         if observer_first {
             if activity_only {
                 fs::write(
@@ -311,7 +388,7 @@ fn blocking_digest(
                 )
                 .unwrap();
             }
-            observer(&mut provider, first.clone(), capture);
+            observer(&mut provider, first.clone(), capture, scenario);
         }
         if unbound_once {
             fs::write(fixture.root.join("driver/capture-unbound-once"), "").unwrap();
@@ -321,9 +398,69 @@ fn blocking_digest(
             db.execute_batch("CREATE TRIGGER refuse_final BEFORE INSERT ON recent_responses BEGIN SELECT RAISE(ABORT, 'capture fixture failure'); END;").unwrap();
         }
         let feedback = ok(provider.digest_hook(first.clone()));
+        if matches!(
+            scenario,
+            CaptureScenario::Canceled | CaptureScenario::Subagent
+        ) {
+            assert_eq!(
+                feedback.trim(),
+                "{}",
+                "no Digest continuation for {scenario:?}"
+            );
+            if !observer_first || activity_only {
+                observer(&mut provider, first.clone(), capture, scenario);
+            }
+            let after = passthrough::api(
+                &fixture,
+                "ok",
+                "responses.timeline",
+                serde_json::json!({"identityId":agent}),
+            );
+            assert_eq!(after["responses"], serde_json::json!([]), "{after:#}");
+            assert_eq!(
+                after["entries"], before_stop["entries"],
+                "no final or invented Digest input: {after:#}"
+            );
+            let shown = passthrough::api(
+                &fixture,
+                "ok",
+                "requests.show",
+                serde_json::json!({"requestId":request}),
+            );
+            assert_eq!(
+                shown["passthrough"]["state"],
+                if scenario == CaptureScenario::Canceled {
+                    "no_answer"
+                } else {
+                    "bound"
+                },
+                "{shown:#}"
+            );
+            let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+            let (batches, open): (i64, i64) = db
+                .query_row(
+                    "SELECT count(*),sum(closed_ms IS NULL) FROM capture_batches",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(
+                (batches, open),
+                (
+                    1,
+                    if scenario == CaptureScenario::Canceled {
+                        0
+                    } else {
+                        1
+                    }
+                ),
+                "{scenario:?}"
+            );
+            continue;
+        }
         if scenario == CaptureScenario::StorageFailure {
             assert!(
-                feedback.is_empty(),
+                (feedback.is_empty() || (driver == "agy" && feedback.trim() == "{}")),
                 "failed capture must precede Digest publication"
             );
             let timeline = passthrough::api(
@@ -347,11 +484,15 @@ fn blocking_digest(
             continue;
         }
         assert!(
-            !feedback.is_empty(),
+            !(feedback.is_empty() || (driver == "agy" && feedback.trim() == "{}")),
             "a verified Digest launch must still hand off the held item"
         );
         let feedback: Value = serde_json::from_str(&feedback).unwrap();
-        assert_eq!(feedback["decision"], "block", "{feedback:#}");
+        assert_eq!(
+            feedback["decision"],
+            if driver == "agy" { "continue" } else { "block" },
+            "{feedback:#}"
+        );
         assert!(
             feedback["reason"]
                 .as_str()
@@ -378,24 +519,26 @@ fn blocking_digest(
             continue;
         }
         if !observer_first {
-            observer(&mut provider, first.clone(), capture);
+            observer(&mut provider, first.clone(), capture, scenario);
         }
-        let mut second = event("Stop");
-        second["stop_hook_active"] = true.into();
-        second["last_assistant_message"] = "B: answer to core-1".into();
-        ok(provider.digest_hook(second.clone()));
-        if activity_only {
-            fs::write(
-                provider
-                    .steps
-                    .join(provider.next.to_string())
-                    .with_extension("activity"),
-                "",
-            )
-            .unwrap();
-            observer(&mut provider, second.clone(), capture);
+        if continued_final {
+            let mut second = event("Stop");
+            second["stop_hook_active"] = true.into();
+            second[final_field] = "B: answer to core-1".into();
+            ok(provider.digest_hook(second.clone()));
+            if activity_only {
+                fs::write(
+                    provider
+                        .steps
+                        .join(provider.next.to_string())
+                        .with_extension("activity"),
+                    "",
+                )
+                .unwrap();
+                observer(&mut provider, second.clone(), capture, scenario);
+            }
+            observer(&mut provider, second, capture, scenario);
         }
-        observer(&mut provider, second, capture);
         let timeline = passthrough::api(
             &fixture,
             "ok",
@@ -422,7 +565,11 @@ fn blocking_digest(
                 .iter()
                 .map(|e| e["kind"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            ["input", "final", "input", "final"],
+            if continued_final {
+                vec!["input", "final", "input", "final"]
+            } else {
+                vec!["input", "final", "input"]
+            },
             "{timeline:#}"
         );
         assert_eq!(entries[0]["requestId"], request);
@@ -434,15 +581,23 @@ fn blocking_digest(
                 .all(|e| e["inputBatchId"] == entries[0]["inputBatchId"])
         );
         let responses = timeline["responses"].as_array().unwrap();
-        assert_eq!(responses.len(), 2, "{timeline:#}");
+        assert_eq!(
+            responses.len(),
+            if continued_final { 2 } else { 1 },
+            "{timeline:#}"
+        );
+        assert_eq!(responses[0]["provider"], driver);
         assert_eq!(responses[0]["text"], "A: answer to Ben");
-        assert_eq!(responses[1]["text"], "B: answer to core-1");
-        assert_ne!(responses[0]["responseId"], responses[1]["responseId"]);
         assert_eq!(responses[0]["requestId"], request);
-        assert!(responses[1].get("requestId").is_none());
+        if continued_final {
+            assert_eq!(responses[1]["provider"], driver);
+            assert_eq!(responses[1]["text"], "B: answer to core-1");
+            assert_ne!(responses[0]["responseId"], responses[1]["responseId"]);
+            assert!(responses[1].get("requestId").is_none());
+            assert_eq!(entries[3]["acknowledgements"], serde_json::json!([]));
+        }
         assert_eq!(entries[1]["acknowledgements"][0]["identityId"], person);
         assert_eq!(entries[1]["acknowledgements"][0]["requestId"], request);
-        assert_eq!(entries[3]["acknowledgements"], serde_json::json!([]));
         let shown = passthrough::api(
             &fixture,
             "ok",
@@ -457,7 +612,7 @@ fn blocking_digest(
             shown["passthrough"]["inputBatchId"],
             entries[0]["inputBatchId"]
         );
-        observer(&mut provider, first, capture);
+        observer(&mut provider, first, capture, scenario);
         let after = passthrough::api(
             &fixture,
             "ok",

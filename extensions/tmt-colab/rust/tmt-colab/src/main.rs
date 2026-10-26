@@ -1,15 +1,18 @@
 mod cli_attachments;
 mod cli_compact;
 mod cli_dashboard;
+mod cli_edit_hint;
 mod cli_grammar;
 mod cli_layout;
 mod cli_management;
+mod cli_metadata;
 mod cli_page_check;
 mod cli_patch;
 mod cli_pins;
 mod cli_projects;
 mod cli_proposal;
 mod cli_read;
+mod cli_replace;
 mod cli_template;
 mod cli_threads;
 mod cli_work;
@@ -49,6 +52,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/page-style.md"),
     ),
     (
+        "projects",
+        include_str!("../../../skills/tmt-colab/references/projects.md"),
+    ),
+    (
         "questions",
         include_str!("../../../skills/tmt-colab/references/questions.md"),
     ),
@@ -63,6 +70,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
     (
         "runtime",
         include_str!("../../../skills/tmt-colab/references/runtime.md"),
+    ),
+    (
+        "templates",
+        include_str!("../../../skills/tmt-colab/references/templates.md"),
     ),
     (
         "dashboard",
@@ -276,7 +287,7 @@ fn grammar() -> Command {
             note: "Replace the page source",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written. The result's update:{count,bytes,minimal} reports what the write cost. Write the whole source when most of the page changes; for a small change read only the lines you need (page read --lines or --grep) and use page patch, which moves only that part and merges concurrent edits elsewhere. Never answer a patch conflict (COLAB_PATCH_CONFLICT) with a whole-source write built from an earlier copy: it would discard the concurrent edit.",
+        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written. The result's update:{count,bytes,minimal} reports what the write cost. When the result has warnings, is not minimal or replaces most of a page of 2 KiB or more, read names the editing reference. A write that replaces more than half of a page of 2 KiB or more is refused with COLAB_REWRITE_REQUIRES_REPLACE, naming the rerun command, unless you pass --replace; page patch, page layout and page create are not gated. Write the whole source when most of the page changes; for a small change read only the lines you need (page read --lines or --grep) and use page patch, which moves only that part and merges concurrent edits elsewhere. Never answer a patch conflict (COLAB_PATCH_CONFLICT) with a whole-source write built from an earlier copy: it would discard the concurrent edit.",
     };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
@@ -376,6 +387,7 @@ fn grammar() -> Command {
             .subcommand(cli_dashboard::command())
             .subcommand(cli_work::task_command())
             .subcommand(cli_work::summary_command())
+            .subcommand(cli_metadata::question_command())
             .subcommand(cli_template::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
@@ -385,6 +397,7 @@ fn grammar() -> Command {
                             cli_template::create_arg(cli_layout::create_args(
                                 tmt_cli_style::command(&CREATE)
                                     .arg(cli_page_check::strict())
+                                    .arg(Arg::new("creator").long("creator").value_name("NAME|UUID").help("Creator for new drafts; uses the invoking identity when known, otherwise leaves no creator"))
                                     .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
                                     .arg(Arg::new("file").long("file").value_name("path|-")
                                         .value_parser(clap::value_parser!(std::path::PathBuf))),
@@ -407,6 +420,12 @@ fn grammar() -> Command {
                                     .help("The complete new source (UTF-8; - reads stdin)"),
                             )
                             .arg(
+                                Arg::new("replace")
+                                    .long("replace")
+                                    .action(ArgAction::SetTrue)
+                                    .help("Replace most of a large page on purpose"),
+                            )
+                            .arg(
                                 Arg::new("expected-revision")
                                     .long("expected-revision")
                                     .value_name("revision")
@@ -415,7 +434,8 @@ fn grammar() -> Command {
                             ),
                     )
                     .subcommand(cli_patch::command())
-                    .subcommand(cli_layout::command()),
+                    .subcommand(cli_layout::command())
+                    .subcommand(cli_metadata::creator_command()),
             )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
@@ -507,6 +527,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "task" || command == "summary" {
         return cli_work::run(&root, command, args);
+    }
+    if command == "question" {
+        return cli_metadata::run(&root, command, args);
     }
     let json_output = args.get_flag("json");
     if command == "spaces" {
@@ -698,7 +721,9 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
 /// from `store`'s snapshot, closes `store`, and publishes the frozen batch. `page write` and
 /// `page patch` both end here, so size limits, the retained revision, the no-op and the
 /// lost-reply behaviour are one path. `base_source_sha256` refuses a page whose source is no
-/// longer the one the caller evaluated its edit against.
+/// longer the one the caller evaluated its edit against. `gate` is `page write` without
+/// `--replace`: a write that replaces most of a large page is refused after preparation, before
+/// anything is published.
 #[allow(clippy::too_many_arguments)]
 fn commit_source(
     layout: &Layout,
@@ -709,6 +734,7 @@ fn commit_source(
     expected_revision: Option<&str>,
     base_source_sha256: Option<[u8; 32]>,
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    gate: Option<&cli_replace::Gate<'_>>,
     decoder: &mut tmt_colab::decoder::Decoder,
 ) -> Result<tmt_colab::page::Receipt> {
     use tmt_colab::page::{self, PublishOptions};
@@ -797,6 +823,11 @@ fn commit_source(
             memory_limit,
         ),
         page::PublicationPreparation::Write(frozen) => {
+            if let Some(gate) = gate
+                && frozen.scale().is_large_rewrite()
+            {
+                return Err(gate.refusal(frozen.scale()));
+            }
             let published = publish_write_owned(
                 layout,
                 key,
@@ -807,6 +838,7 @@ fn commit_source(
                 write_lock.as_ref(),
             )?;
             let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
+            receipt.scale = frozen.scale();
             // A write's combine can move the revision after its outcome was retained. The
             // revision read by the writer that excluded every other writer is the one a next
             // `--expected-revision` must carry; a lost reply leaves the committed one.
@@ -833,9 +865,14 @@ fn print_receipt(
     written: &str,
 ) -> Result<()> {
     let mut output = tmt_cli_style::stream::stdout(json_output);
+    // A normal edit stays quiet; the reference is named only when the edit went off-guidance.
+    let off_guidance = cli_edit_hint::reason(warnings.len(), &receipt.update, receipt.scale);
     if json_output {
         let mut value = serde_json::to_value(&receipt)?;
         value["warnings"] = cli_page_check::warnings_json(warnings);
+        if off_guidance.is_some() {
+            value["read"] = json!([cli_edit_hint::EDITING]);
+        }
         writeln!(output, "{value}")?;
     } else {
         let terminal = output.terminal();
@@ -860,31 +897,58 @@ fn print_receipt(
             &rows,
         )?;
         cli_page_check::print_warnings(warnings)?;
+        if let Some(reason) = off_guidance {
+            let mut err = tmt_cli_style::stream::stderr();
+            let terminal = err.terminal();
+            tmt_cli_style::message::hint(&mut err, terminal, &reason.hint())?;
+        }
     }
     Ok(())
 }
 fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     use tmt_colab::{decoder::Decoder, page::Fault};
     let (command, args) = args.subcommand().expect("required page command");
+    if command == "creator" {
+        return cli_metadata::run(root, "creator", args);
+    }
     if command == "create" {
         // The layout is chosen before any state is initialized or any source is read. A template
-        // brings its own layout and source (clap keeps it apart from --layout, --reason, --file).
-        let template = cli_template::chosen(args);
-        let page_layout = match template {
-            Some(template) => template.layout(),
+        // brings its own layout and source (clap keeps it apart from --layout, --reason, --file); a
+        // create that names none of the three starts from the space's default template.
+        let start = cli_template::start(root, args)?;
+        let page_layout = match &start {
+            Some(start) => start.layout.clone(),
             None => cli_layout::choice(args)?,
         };
-        let source = match template {
-            Some(template) => template.source()?,
+        let mut metadata =
+            cli_metadata::creation(args, start.as_ref().map(|start| start.name.as_str()))?;
+        if let Some(start) = &start {
+            metadata.template_page = start.page.clone();
+            metadata.template_default = start.by_default;
+        }
+        let source = match &start {
+            Some(start) => start.source(&metadata)?,
             None => args
                 .get_one::<std::path::PathBuf>("file")
                 .map(|path| page_source(path))
                 .transpose()?
                 .unwrap_or_default(),
         };
+        if start.is_none() {
+            cli_metadata::admit_create_file(&source, args, &metadata)?;
+        }
         // A new page has no attachments: every reference in its first source is unresolved.
-        let warnings = cli_page_check::gate(&source, args, cli_page_check::Attachments::NewPage)?;
-        return cli_management::create_page(root, args, source, &page_layout, &warnings);
+        let (warnings, hints) =
+            cli_page_check::gate_with_hints(&source, args, cli_page_check::Attachments::NewPage)?;
+        return cli_management::create_page(
+            root,
+            args,
+            source,
+            &page_layout,
+            &warnings,
+            &hints,
+            metadata,
+        );
     }
     if command == "patch" {
         return cli_patch::run(root, args);
@@ -939,16 +1003,26 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     };
     let json_output = args.get_flag("json");
     let source = source.expect("write is the remaining page command");
+    let expected_revision = args
+        .get_one::<String>("expected-revision")
+        .map(String::as_str);
+    let gate = cli_replace::Gate {
+        page: &id,
+        file: args
+            .get_one::<std::path::PathBuf>("file")
+            .expect("required file"),
+        expected_revision,
+    };
     let receipt = commit_source(
         &layout,
         &key,
         store,
         &id,
         &source,
-        args.get_one::<String>("expected-revision")
-            .map(String::as_str),
+        expected_revision,
         None,
         None,
+        (!args.get_flag("replace")).then_some(&gate),
         &mut decoder,
     )?;
     print_receipt(receipt, &warnings, json_output, "PAGE WRITTEN")?;
@@ -981,6 +1055,45 @@ fn write_owner(layout: &Layout) -> Result<Option<nix::fcntl::Flock<std::fs::File
         Err(error) => Err(error),
     }
 }
+/// Finish a closed structured action through the same publication/no-op owner for every CLI
+/// caller. The caller has closed its read snapshot before entering the write owner.
+fn publish_structured_owned(
+    layout: &Layout,
+    key: &Keyring,
+    page_id: &str,
+    prepared: tmt_colab::page::PublicationPreparation,
+    decoder: &mut tmt_colab::decoder::Decoder,
+    clock: fn() -> Result<u64>,
+    write_lock: Option<&nix::fcntl::Flock<std::fs::File>>,
+) -> Result<tmt_colab::page::Receipt> {
+    use tmt_colab::page;
+    Ok(match prepared {
+        page::PublicationPreparation::Noop {
+            epoch,
+            membership_head,
+            base_revision,
+            memory_limit,
+        } => page::Receipt::unchanged(
+            key,
+            page_id,
+            "",
+            epoch,
+            membership_head,
+            base_revision,
+            memory_limit,
+        ),
+        page::PublicationPreparation::Write(frozen) => {
+            let published =
+                publish_write_owned(layout, key, page_id, &frozen, decoder, clock()?, write_lock)?;
+            let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
+            if let Some(revision) = published.revision {
+                receipt.revision = revision;
+            }
+            receipt
+        }
+    })
+}
+
 fn publish_write_owned(
     layout: &Layout,
     key: &Keyring,
@@ -1187,6 +1300,12 @@ fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'static str {
+    if let Some(refused) = error.downcast_ref::<tmt_colab::question_registry::Refused>() {
+        return refused.code();
+    }
+    if let Some(refusal) = error.downcast_ref::<tmt_colab::template_catalog::Refusal>() {
+        return refusal.code();
+    }
     if error.is::<supervisor::CleanupUnconfirmed>() {
         return "COLAB_OUTCOME_UNKNOWN";
     }
@@ -1316,6 +1435,11 @@ fn main() -> ExitCode {
             let next = schema.and_then(tmt_colab::store::Fault::next);
             let hint = start
                 .and_then(|fault| fault.hint.as_deref())
+                .or_else(|| {
+                    error
+                        .downcast_ref::<tmt_colab::template_catalog::Refusal>()
+                        .and_then(tmt_colab::template_catalog::Refusal::hint)
+                })
                 .or_else(|| schema.and_then(tmt_colab::store::Fault::hint));
             if json_output {
                 let mut value = cli_failure
@@ -1325,6 +1449,13 @@ fn main() -> ExitCode {
                     value = recovery.correlation.clone();
                 }
                 value["error"] = json!({"code":code,"message":error.to_string()});
+                if let Some(hint) = hint {
+                    value["error"]["hint"] = json!(hint);
+                }
+                if let Some(refused) = error.downcast_ref::<tmt_colab::question_registry::Refused>()
+                {
+                    value["findings"] = cli_page_check::findings_json(&refused.findings);
+                }
                 if let Some(usage) = error
                     .downcast_ref::<tmt_colab::page::ipc::WriteError>()
                     .and_then(|error| error.usage())

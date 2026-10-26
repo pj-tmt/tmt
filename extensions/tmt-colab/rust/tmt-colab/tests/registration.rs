@@ -496,7 +496,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
     )
     .unwrap();
@@ -1023,6 +1023,9 @@ fn create_page(
                 operation_id: operation,
                 expected_revision: expected,
                 action: tmt_colab::transitions::OwnerAction::Create {
+                    creator: None,
+                    template: None,
+                    template_page: None,
                     layout: None,
                     creation_recipient: None,
                     page,
@@ -1263,6 +1266,60 @@ fn create_first_registration_and_saved_head_certificate_retry_use_the_genesis_an
     );
 }
 #[test]
+fn a_creation_from_a_user_template_needs_a_creator_a_name_and_a_template_page_that_is_one() {
+    use tmt_colab::transitions::{Code, OwnerAction, OwnerRequest};
+    const PAGE: &str = "50000000-0000-4000-8000-000000000005";
+    const TEMPLATE_PAGE: &str = "50000000-0000-4000-8000-000000000006";
+    let creator =
+        serde_json::json!({"agent":{"id":"50000000-0000-1000-8000-000000000001","name":"agent"}});
+    let mut f = Fixture::new();
+    let mut apply = |creator: Option<&serde_json::Value>,
+                     template: Option<&str>,
+                     template_page: Option<&str>| {
+        f.service().apply_owner(
+            OwnerRequest {
+                operation_id: PAGE,
+                expected_revision: 0,
+                action: OwnerAction::Create {
+                    creator,
+                    template,
+                    template_page,
+                    layout: None,
+                    creation_recipient: None,
+                    page: PAGE,
+                    title: "Copy",
+                    source: "<p>Copy</p>",
+                    publisher_agent: None,
+                },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+    };
+    // No creator, no name, or a page that is no template at all: nothing is created.
+    for (creator, template, template_page) in [
+        (None, Some("weekly-review"), Some(TEMPLATE_PAGE)),
+        (Some(&creator), None, Some(TEMPLATE_PAGE)),
+        (Some(&creator), Some("weekly-review"), Some(TEMPLATE_PAGE)),
+        (Some(&creator), Some("weekly-review"), Some("not-a-page-id")),
+    ] {
+        assert!(
+            apply(creator, template, template_page).is_err(),
+            "{template:?} {template_page:?}"
+        );
+    }
+    assert_eq!(
+        apply(Some(&creator), None, Some(TEMPLATE_PAGE))
+            .unwrap_err()
+            .code,
+        Code::Invalid
+    );
+    for table in ["pages", "membership_log", "owner_operations"] {
+        assert_eq!(f.rows(table), 0, "{table} was partially committed");
+    }
+}
+#[test]
 fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_another_page() {
     use tmt_colab::transitions::{OwnerAction, OwnerRequest};
     const PAGE: &str = "50000000-0000-4000-8000-000000000004";
@@ -1279,6 +1336,9 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
                     operation_id: PAGE,
                     expected_revision: 0,
                     action: OwnerAction::Create {
+                        creator: None,
+                        template: None,
+                        template_page: None,
                         layout: None,
                         creation_recipient: hint,
                         page: PAGE,

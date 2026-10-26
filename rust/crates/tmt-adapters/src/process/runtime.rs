@@ -36,7 +36,8 @@ impl ProcessObservation {
     }
 }
 
-/// Uses the same child deadline/output/cleanup owner as other native probes.
+/// Uses native runner evidence, with bounded ps fallback when unavailable.
+/// Fallback probes retain the shared child deadline/output/cleanup owner.
 /// ps start identities have second resolution; they are not cryptographic tokens.
 /// Callers must also establish that this process belongs to the target interface.
 pub fn observe_runtime_process<R: CommandRunner>(
@@ -218,11 +219,21 @@ fn observe_process<R: CommandRunner>(
     pid: u64,
     deadline: Instant,
 ) -> Result<ProcessObservation, CommandError> {
+    if Instant::now() >= deadline {
+        return Ok(ProcessObservation::Unknown);
+    }
     let Ok(raw_pid) = i32::try_from(pid) else {
         return Ok(ProcessObservation::Unknown);
     };
     if raw_pid <= 0 {
         return Ok(ProcessObservation::Unknown);
+    }
+    if let Some(observation) = runner.process_observation(pid, deadline) {
+        return Ok(if Instant::now() < deadline {
+            observation
+        } else {
+            ProcessObservation::Unknown
+        });
     }
     let args: Vec<OsString> = ["-p", &pid.to_string(), "-o", "lstart=", "-o", "stat="]
         .into_iter()
@@ -376,6 +387,109 @@ mod tests {
     use super::*;
     use crate::process::{CommandFailure, CommandOutput, CommandRequest, UnixCommandRunner};
     use std::time::Duration;
+
+    struct NativeOnly(ProcessObservation);
+
+    impl CommandRunner for NativeOnly {
+        fn process_observation(&self, pid: u64, deadline: Instant) -> Option<ProcessObservation> {
+            assert_eq!(pid, 42);
+            assert!(Instant::now() < deadline, "expired before acquisition");
+            Some(self.0.clone())
+        }
+
+        fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            panic!("available native evidence must not launch ps");
+        }
+    }
+
+    #[test]
+    fn single_native_observations_preserve_states_without_launching_ps() {
+        let key = ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap();
+        for observation in [
+            ProcessObservation::Live(key.clone()),
+            ProcessObservation::Stopped(key.clone()),
+            ProcessObservation::UnreapedZombie(key),
+            ProcessObservation::Gone,
+            ProcessObservation::Unknown,
+        ] {
+            let runner = NativeOnly(observation.clone());
+            let deadline = Instant::now() + Duration::from_secs(5);
+            assert_eq!(
+                observe_process(&runner, 42, deadline).unwrap(),
+                observation,
+                "owned-child acquisition must retain zombie identity"
+            );
+            let expected = match observation {
+                ProcessObservation::UnreapedZombie(_) => ProcessObservation::Gone,
+                other => other,
+            };
+            assert_eq!(
+                observe_runtime_process(&runner, 42, deadline).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn single_observation_refuses_expired_budgets_and_invalid_pids_before_acquisition() {
+        let runner = NativeOnly(ProcessObservation::Unknown);
+        for pid in [0, i32::MAX as u64 + 1, u64::MAX] {
+            assert_eq!(
+                observe_runtime_process(&runner, pid, Instant::now() + Duration::from_secs(5))
+                    .unwrap(),
+                ProcessObservation::Unknown
+            );
+        }
+        assert_eq!(
+            observe_runtime_process(&runner, 42, Instant::now()).unwrap(),
+            ProcessObservation::Unknown
+        );
+    }
+
+    #[test]
+    fn late_native_evidence_is_unknown_without_a_second_probe() {
+        struct Late;
+        impl CommandRunner for Late {
+            fn process_observation(&self, _: u64, deadline: Instant) -> Option<ProcessObservation> {
+                // Model an acquisition consuming its budget, not a readiness wait.
+                std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                Some(ProcessObservation::Gone)
+            }
+            fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                panic!("late native evidence must not start another probe");
+            }
+        }
+        assert_eq!(
+            observe_runtime_process(&Late, 42, Instant::now() + Duration::from_millis(1)).unwrap(),
+            ProcessObservation::Unknown
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn native_runners_identify_the_worker_without_executable_ps() {
+        struct NoPs<R>(R);
+        impl<R: CommandRunner> CommandRunner for NoPs<R> {
+            fn process_observation(
+                &self,
+                pid: u64,
+                deadline: Instant,
+            ) -> Option<ProcessObservation> {
+                self.0.process_observation(pid, deadline)
+            }
+            fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                panic!("worker identification must work when ps execution is denied");
+            }
+        }
+        let pid = u64::from(std::process::id());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let ordinary = observe_runtime_process(&NoPs(UnixCommandRunner), pid, deadline).unwrap();
+        let worker =
+            observe_runtime_process(&NoPs(super::super::SupervisedProbeRunner), pid, deadline)
+                .unwrap();
+        assert!(matches!(worker, ProcessObservation::Live(_)));
+        assert_eq!(ordinary, worker);
+    }
 
     #[test]
     fn strict_observations_distinguish_reused_pid_zombie_and_uncertainty() {

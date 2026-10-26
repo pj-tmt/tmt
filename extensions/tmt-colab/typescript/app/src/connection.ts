@@ -42,6 +42,7 @@ import {
   workResult,
   type SaveResult,
   type WorkAction,
+  type MetadataAction,
   type WorkResult,
 } from './save.js';
 import type { SaveHunk } from './save-hunks.js';
@@ -513,7 +514,11 @@ export class Connection {
       this.#objectReplies.delete(frame.requestId);
       clearTimeout(pending.timer);
       pending.resolve(result);
-    } else if (frame.type === 'saveresult' || frame.type === 'workresult') {
+    } else if (
+      frame.type === 'saveresult' ||
+      frame.type === 'workresult' ||
+      frame.type === 'metadataresult'
+    ) {
       const pending = this.#reply;
       requireValue(pending !== null);
       const result =
@@ -632,6 +637,18 @@ export class Connection {
     return (await this.#request(operationId, async () =>
       this.send('work', { operationId, action, body }),
     )) as WorkResult;
+  }
+  async metadata(
+    operationId: string,
+    action: MetadataAction,
+    body: Record<string, unknown>,
+    expectedRevision: string,
+  ): Promise<SaveResult> {
+    await this.ready;
+    this.admission.validatePage(this.sharing);
+    return this.#request(operationId, async () =>
+      this.send('metadata', { operationId, action, body, expectedRevision }),
+    );
   }
   /** What the page recorded for an operation ID; the one request that settles a lost reply. */
   async saveStatus(operationId: string): Promise<SaveResult> {

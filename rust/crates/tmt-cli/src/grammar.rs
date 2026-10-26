@@ -148,6 +148,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(installation::install(names))
     .subcommand(installation::setup(hooked.clone()))
     .subcommand(installation::digest_hook(hooked.clone()))
+    .subcommand(installation::allowance_intake(hooked.clone()))
     .subcommand(installation::hook(hooked))
     .subcommand(
         internal(
@@ -190,9 +191,11 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     )
     .subcommand(installation::upgrade())
     .subcommand(installation::uninstall())
+    .subcommand(installation::storage_report())
     .subcommand(installation::refresh_skills())
     .subcommand(installation::refresh_integrations())
     .subcommand(installation::rename_database())
+    .subcommand(installation::compact_database())
     .subcommand(installation::upgrade_extensions())
     .subcommand(installation::native_install())
     .subcommand(installation::native_schema())

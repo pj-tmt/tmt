@@ -331,6 +331,7 @@ fn capture_and_exchange_integers_accept_exact_boundaries() {
             target: "peer".into(),
             lines: Some(0),
             capture_only: false,
+            expect_name: None,
         }
     );
     assert_eq!(
@@ -339,6 +340,7 @@ fn capture_and_exchange_integers_accept_exact_boundaries() {
             target: "peer".into(),
             lines: Some(2_147_483_647),
             capture_only: false,
+            expect_name: None,
         }
     );
     assert_eq!(
@@ -382,6 +384,7 @@ fn capture_and_exchange_integers_accept_exact_boundaries() {
             target: "peer".into(),
             lines: Some(0),
             capture_only: false,
+            expect_name: None,
         }
     );
 }
@@ -398,6 +401,7 @@ fn capture_only_is_an_opt_in_flag_that_composes_with_the_line_count() {
                 target: "peer".into(),
                 lines: None,
                 capture_only: true,
+                expect_name: None,
             },
             "arguments: {argv:?}"
         );
@@ -408,6 +412,7 @@ fn capture_only_is_an_opt_in_flag_that_composes_with_the_line_count() {
             target: "peer".into(),
             lines: Some(40),
             capture_only: true,
+            expect_name: None,
         }
     );
     // Only `check` owns the flag; it is not a global option.
@@ -417,6 +422,79 @@ fn capture_only_is_an_opt_in_flag_that_composes_with_the_line_count() {
         &["check", "peer", "--capture-only=1"][..],
     ] {
         assert_eq!(parse_error(argv).code, "USAGE_ERROR", "arguments: {argv:?}");
+    }
+}
+
+#[test]
+fn capture_name_pins_require_capture_only_and_a_canonical_identity_uuid() {
+    let id = "7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f";
+    let remote = parsed(&[
+        "check",
+        "--capture-only",
+        "--json",
+        "--expect-name=Reviewer",
+        "--",
+        id,
+    ]);
+    assert!(remote.mode.json);
+    assert_eq!(
+        remote.invocation,
+        Invocation::Check {
+            target: id.into(),
+            lines: None,
+            capture_only: true,
+            expect_name: Some("Reviewer".into()),
+        }
+    );
+    for command in ["check", "read"] {
+        assert_eq!(
+            parsed(&[
+                command,
+                id,
+                "--capture-only",
+                "--expect-name=Reviewer",
+                "--lines=0"
+            ])
+            .invocation,
+            Invocation::Check {
+                target: id.into(),
+                lines: Some(0),
+                capture_only: true,
+                expect_name: Some("Reviewer".into()),
+            }
+        );
+    }
+    for argv in [
+        vec!["check", id, "--expect-name", "Reviewer"],
+        vec![
+            "check",
+            "reviewer",
+            "--capture-only",
+            "--expect-name",
+            "Reviewer",
+        ],
+        vec!["check", "%1", "--capture-only", "--expect-name", "Reviewer"],
+        vec![
+            "check",
+            "7F0C2F2E-2B1A-4C1E-9D2A-0A1B2C3D4E5F",
+            "--capture-only",
+            "--expect-name",
+            "Reviewer",
+        ],
+        vec![
+            "check",
+            "7f0c2f2e-2b1a-1c1e-9d2a-0a1b2c3d4e5f",
+            "--capture-only",
+            "--expect-name",
+            "Reviewer",
+        ],
+    ] {
+        let error = parse_error(&argv);
+        assert_eq!(error.code, "USAGE_ERROR");
+        assert!(
+            error.message.contains("--expect-name needs --capture-only"),
+            "{error:?}"
+        );
     }
 }
 

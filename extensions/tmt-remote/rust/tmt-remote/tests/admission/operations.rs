@@ -1283,12 +1283,31 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
     );
     let observations = core.calls();
     assert_eq!(
+        observations[observations.len() - 3]["argv"],
+        json!(["identity", "show", "--json", "--", permitted])
+    );
+    assert_eq!(
         observations[observations.len() - 2]["argv"],
-        json!(["identity", "list", "--json"])
+        json!([
+            "identity",
+            "show",
+            "--json",
+            "--expect-name=Allowed",
+            "--",
+            permitted
+        ])
     );
     assert_eq!(
         observations.last().unwrap()["argv"],
-        json!(["check", "Allowed", "--json", "--lines", "5"])
+        json!([
+            "check",
+            "--capture-only",
+            "--json",
+            "--lines",
+            "5",
+            "--",
+            "Allowed"
+        ])
     );
     let calls = observations.len();
     for (op, input) in [

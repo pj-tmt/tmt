@@ -4,6 +4,8 @@ use tmt_core::limits::MAX_JS_SAFE_INTEGER;
 use super::errors::{StorageError, StorageErrorCode, classify, incompatible};
 
 #[cfg(test)]
+mod agy_capture_tests;
+#[cfg(test)]
 mod announcement_tests;
 #[cfg(test)]
 mod auto_name_tests;
@@ -29,6 +31,10 @@ mod identity_lifetime_tests;
 mod local_block_tests;
 #[cfg(test)]
 mod notification_tests;
+#[cfg(test)]
+mod orchestration_receiving_tests;
+#[cfg(test)]
+mod orchestration_wake_tests;
 #[cfg(test)]
 mod pane_incarnation_tests;
 #[cfg(test)]
@@ -375,6 +381,22 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "let a session-learning diagnostic name why a decoded hook admitted nothing",
         "schema/077.sql"
+    ),
+    migration!(
+        "publish typed configured Digest receiving",
+        "schema/078.sql"
+    ),
+    migration!(
+        "admit every full runtime in retained finals",
+        "schema/079.sql"
+    ),
+    migration!(
+        "let a session-learning diagnostic name why a Digest Stop refused",
+        "schema/080.sql"
+    ),
+    migration!(
+        "record pending orchestration wakes and summary projection",
+        "schema/081.sql"
     ),
 ];
 

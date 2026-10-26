@@ -37,10 +37,13 @@ the same-origin `/settings` link. Hosted/detached adapters and missing Sessions 
 `remote-presence.ts` owns the finite snapshot and replacement/close fences. Replacement
 starts one read after any stale read settles; close prevents that successor. `mounted.ts`
 uses its already-admitted Session without reopening. `remote-header.tsx` owns only presentation
-and the three refresh triggers. The space home header uses the shared Tooltip chip on desktop and,
-through 640px, a Remote submenu in its More menu with the same details and settings link. The page
-header keeps no Remote chip: its More menu holds that Remote entry, after Share…, and the header shows
-`△ Remote offline` (a mark and a word) only while the count cannot be confirmed. No shared header
+and the three refresh triggers. In Colab's own shell the shared top bar draws the Remote link:
+`useShellRemoteStatus` projects the snapshot (a confirmed count as the badge, linking to the
+settings link; unconfirmed or no source as the glyph alone, linking to the rail's Remote), so the
+chip's device-details tooltip and More's Remote entry are not drawn there. The hosted mount, which has
+no common controls yet (#5239, #5227), keeps the space home's Tooltip chip and, through 640px, a
+Remote submenu in More; its page header keeps no chip. Either mount shows `△ Remote offline` (a mark
+and a word) in the page's status only while the count cannot be confirmed. No shared header
 API, presence stream, periodic polling or new Remote operation is introduced.
 
 Native pairing/app-unavailable guidance stays static. `chrome.rs` compile-time embeds the same checked
@@ -60,7 +63,7 @@ that switch. Only explicit Preview/Download reads bytes, and only confirmation
 writes a file-reference removal; decorative type marks are inert.
 
 `page-header-actions.tsx` owns the page header's base entry points at every
-width: Search, Discussion (combined pending count; opens Chat or Comments), and More.
+width: Search and More. Comments and Chat are the page dock's (below), not the header's.
 More lists, top to bottom: Share… (the page's sharing and connection words as secondary text; it
 opens the Manage dialog), Remote (the submenu above), Projects… (when the viewer writes
 projects; opens the picker below), Pin to top / Unpin (below 640px, once the owner list confirms a
@@ -89,11 +92,17 @@ words. In the shell it joins the header slot, pushing the phone sub-bar and page
 leaving the page or Close clears it; at 480px and wider the existing header alert is unchanged.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
-The floating Chat action and the selection control are one capsule, the dock, in the page's corner (one
-border, radius and the design system's overlay shadow, a hairline between the actions); Chat opens the same
-retained drawer in one press, out of the dock and back into it on close (`chat-dock-motion.ts`: the dialog
-clipped to the dock's rectangle, no animation under reduced motion), and hides during selection mode or an
-annotation. The dock sits unseen under the drawer while Chat is open.
+The Comments action, the Chat action and the selection control are one capsule, the dock, in the page's
+corner (one border, radius and the design system's overlay shadow, a hairline between the actions), in
+that order. Chat opens the retained drawer in one press, out of the dock and back into it on close
+(`dock-motion.ts`: the dialog clipped to the dock's rectangle, no animation under reduced motion), and
+Comments and Chat hide during selection mode or an annotation. The dock sits unseen under the drawer while
+Chat is open. Comments shows the open-thread count (`.dock-count`, its slot held while the threads are
+verified), in the needs-you colour with a bullet while a thread has news, and presses open the
+Comments panel out of the dock with the same motion: a column leaves the dock in place with Comments
+pressed (the panel opens with the motion and leaves the grid at once on close; one already open when
+the page mounts is there at once, without it), a card or a sheet hides it
+in its place and the clip runs back into it. It has no shortcut. The three-action capsule fits at 320 px.
 Its mark plus `Unread` (also on the Chat menu entry) is device-local reply attention,
 not the unresolved/Unseen count. Only visible Chat history at its end clears it;
 toast dismissal/expiry, closing and reload do not. Close/Escape restores the opener.
@@ -115,15 +124,22 @@ from whichever route draws it and draws the title alone, then muted original aut
 or module crumb, because the rail's head carries the brand and the rail names the module (a scoped
 page keeps its project crumb before the title). The display-only `local · <backendName>` identity
 (`local` when absent) is not a visible element: it is in the header's accessible name
-(`Colab · local · <backendName> · <title>`). The shell bar's cluster holds Search (an icon and a
-quiet `⌘K` hint, hidden on coarse pointers) and the Remote presence chip (`Remote · N`, hidden
-below 640px where the count stays in More); both are portaled into the shell's `tools` slot, and
-the header leaves the room the shell measures for them. A standalone header (reader, mounted and
+(`Colab · local · <backendName> · <title>`). In Colab's own shell (`SharedTopBar`, #5237) Colab is the
+root of the shared top bar's common controls: Search opens the route's quick switcher (the bar owns
+the one ⌘K listener), Theme is the bar's menu, and the page's status (needs-you, attention marks) and
+actions, with More (no Theme or Remote entries), go into the bar's action slot through
+`BrowserTopBar`. The bar draws no title: the title row (title, crumb, project menu, caption) is
+content under it, static, on the content background, and a route whose content names itself has none;
+`barRef` hands the page the sticky bar to measure its clearances from, and `rowRef` the title row, which
+the renderer takes as the content between the bar and the frame (`frameLead`). The
+hosted mount still portals the header into the shell's `bar` and `tools` slots (Search and the
+Remote chip) until it adopts the bar. A standalone header (reader, mounted and
 native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the
 brand link `Colab · local · <backendName>` (an unlinked brand is a named group with the same title);
 below 480px it shows the mark only, the wordmark visually hidden and kept in that name. The shell's
 module menu holds All pages,
-each project with its counts, New project… and Manage projects…; the space home shows its scope as
+each pinned project with its counts (the five most recent until the space pins its own), All projects… and
+New project…; the space home shows its scope as
 plain text after the title. Author hides below 900px; the title truncates without
 changing its DOM copy. The page header's status slot holds, in order, the needs-you entry
 (only while something waits) and the attention marks, each shown only while its state holds, as
@@ -134,6 +150,18 @@ hidden, never removed from the accessible name. The connection words (`Private �
 secondary text; trouble surfaces in the notice below the header. The base actions and status names stay accessible at every
 width; the pin moves into More below 640px as described above, and CSS owns fitting. Header, body and
 update-notice offsets use shared heights, including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
+
+More places Questions… and Creator… after Pin to top and before Agent status. The header has no
+creator action at any width. Creator display remains in About beside the immutable original author.
+The creator dialog uses the existing directory/Listbox and shared modal, with an explicit selection,
+Retry on unavailable discovery and no guessed identities. The Questions dialog includes source-removed
+registrations and verified Open / Answered / Handled state; only the owner device gets Mark handled
+and Reopen. Link editors see “Only the page owner can change this here”, never CLI guidance for the
+owner's store. Both editors capture one verified revision and retain choices on refusal. Source keeps
+its own draft/save lifetime; metadata neither subscribes to keystrokes nor replaces its save owner. The
+shared-link reader keeps its existing Info surface: creator attribution and the same read-only registry
+rows, with no metadata write callback or owner-store CLI guidance. Native and hosted readers derive
+those rows from their already-admitted own records; no extra read, pairing or Ask is introduced.
 
 Home keeps one vertical list viewport. After its full controls boundary passes the top,
 a 58px sticky row retains project scopes, the same mounted search editor and New page;
@@ -263,15 +291,26 @@ the renderer handle's `select(id | null)`, which `router.tsx` calls with the ope
 posts `colab.render.select` (the frame accepts only the current request and an ID it holds); the
 frame paints that passage in `::highlight(colab-selected)` above the hover look, or on its overlay
 marks without the Highlight API, and rings that thread's lane marker (`data-colab-selected`).
-`router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
-frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. The About drawer is four sections (Author and publisher, Layout, Page size, Page scripts), each a heading over a rule, in `about-drawer.css` scoped to that drawer; the reader's Page information keeps its own rows. An inline `style`
+`router.tsx` binds the renderer from the live view; `use-page-renderer.ts` mounts a fresh frame
+only when its frame key changes (the page, `layout`, page type, and `sourceFrameKey` in
+`renderer.ts`: a source that may hold a script, an inline handler or the runtime marker is keyed by
+its whole text), so a metadata-only change remounts the frame. Any other source change goes to the
+open frame as `handle.update(source)` (#5022, protocol in colab-v1): the bootstrap's `PAGE MORPH`
+region in `renderer.html` changes the body in place, skipping what the frame owns (`frameNodes`,
+`data-colab-*`, `frameHidden`, drawn `tmt-icon` children) and keeping reader state, and its table of
+node cases is `e2e/page-morph.spec.ts`. On success the router's `contentRevision` counter re-runs
+the highlight, select, question and slot effects without a `loading` state; the question pass sets
+the question, review and reading marks on the blocks the parent admits and clears them (and the
+`hidden` it put on a question's choices) from any element it no longer admits (#5213); a refusal, the 2 s
+deadline or a port error remounts. The reader view (`reader-app.tsx`) still remounts on every
+source. The About drawer's `PageLayoutSection` names the layout and a canvas's reason. The About drawer is four sections (Creator, original author and publisher; Layout; Page size; Page scripts), each a heading over a rule, in `about-drawer.css` scoped to that drawer; the reader's Page information keeps its own rows. An inline `style`
 with `!important` is the one author declaration the frame cannot override.
 
-Source revisions replace only the author renderer, not parent chrome. `router.tsx`
+Source revisions replace or update only the author renderer, not parent chrome. `router.tsx`
 keeps the mounted annotation input and frozen quote/rectangle during loading;
 page-ID changes reset page-local selection, panels and in-memory drafts; saved drafts
 return with their own page. Existing
-thread highlights are projected again when the new render is ready. A plain click or tap
+thread highlights are projected again when the new render is ready or the source was applied in place. A plain click or tap
 on a resolved highlight opens its existing discussion, including in selection mode; native
 drag selection stays available. The bounded resolver chooses the shortest quote with a
 stable ID tie-break, and the parent admits only current known-thread view actions. `renderer.ts`
@@ -365,10 +404,19 @@ drawer: no scrim, focus trap or page inertness, so the page stays readable and k
 beside or under it, and it shares the single panel slot with the drawers. `src/panel-mode.ts` picks
 its mode from one width pair (column from 1180 px, card from 761 px, sheet below; `e2e/panel-mode.spec.ts`
 holds the mode on both sides of each). A column is a track of the page grid:
-the page narrows by the panel width (286 px, 310 px from 1600 px), the gap (34 px, 42 px) and a 24 px
-right margin, and the panel sticks 20 px under the header with its own scroll and a 1 px left rule. A
+the page narrows by the panel width (286 px, 310 px from 1600 px), the gap (23 px, 28 px) and a 24 px
+right margin, and the panel sticks 20 px under the header with its own scroll. The page's own edge is
+the one edge between them: the column draws no rule, and its content starts one gap from that edge.
+A thread's composer sits on the column's surface (the page's paper; the sheet's in a card or sheet)
+with no rule above it, and the last turn ends the thread without one. A
 card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and a sheet (7 px insets, up to
-75dvh) float over the page; the floating page controls move left of a card and above a sheet. Escape
+75dvh) float over the page and cover the dock, which hides in its place for the panel to open out of and
+close back into (a column leaves it, pressed). The panel lists and walks the open threads: `Show resolved`,
+a pressed icon toggle in its header (`use-show-resolved.ts`, kept on this device in browser storage, off
+by default, never page data), adds the resolved ones, marked resolved; the position `n / m` and the
+previous and next arrows follow the listed threads, and the dock's count is always the open ones. Resolving
+the thread being viewed with resolved threads hidden moves to the next open thread, or to the list's
+`No open threads` state. Escape
 closes the panel only from inside it (a Discussion view steps back to the list first); on the page it
 falls through to the annotation window and selection mode. `Show in the page` scrolls to the passage
 and leaves the panel open. The Discussion view's header holds the position (`n / m`, a text button named
@@ -437,7 +485,7 @@ a light, a dark and an unpainted page in both themes at 1440 and 390 px.
 published the document; the threads, asks and presentations follow when `#publishViews` has
 verified them. Until then `PageView.discussionPending` is set and those three fields are absent,
 never empty, so nothing unverified reads as verified: the router shows no comment count (the
-Discussion button and its Comments row carry no number), no `Needs you` entry (not `✓ Nothing waits`),
+dock's Comments action carries no number), no `Needs you` entry (not `✓ Nothing waits`),
 no inline question, review, reading or proposal layer, and no thread highlights. The Comments panel and the
 Chat drawer show one quiet `Loading comments…` status instead of a list or composer. The document
 frame does not move when verification arrives; the layers and the count then appear. `ThreadStore`

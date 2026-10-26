@@ -19,7 +19,9 @@ named below; explicitly labelled design targets remain unshipped.
    fills, `radius-l` for cards and overlays, `radius-pill` for pills and counts.
    Surfaces are opaque charcoal (or light) steps with thin rules. Only an overlay
    (menu, dialog, drawer, tooltip) takes the one overlay shadow; cards and rows
-   stay shadow-free.
+   stay shadow-free. A filled or framed box with no radius is a leftover unless it
+   is a row of a ruled list, a bar, a divider or an action inside a clipping
+   capsule; the Colab app's tests pin the radius of the boxes a sweep rounded.
    **No one-sided border on a rounded box.** A rounded element (radius above 0)
    never takes `border-top`, `-right`, `-bottom` or `-left` alone: the lone edge
    curls at the corner into a hook. Use a border on all four sides, a fill or
@@ -56,6 +58,9 @@ explicit theme overrides use the same tokens. State marks retain their words;
 the matching Lucide icon, followed by the state word.
 
 ## Icons
+
+The shared framework-free `createIcon('link' | 'info')` uses pinned Lucide nodes, inherits
+text colour at 1em and is decorative. It does not expand the module icon contract.
 
 Lucide (`lucide-react`), with square line caps and miter joins, 18 px at a
 1.75 stroke in the header and 16 px inline, colored with `currentColor`. An icon
@@ -110,8 +115,8 @@ list) draws no title in the header: the header keeps its accessible name, and th
   `by <name>` (original author only) replace the default left group. Attribution is display-only, with no
   switcher or menu; full labels remain accessible. Hide author below 900 px, then
   attribution text below 640 px; keep the Remote mark, title and state chip. At
-  every width, Discussion (count) and More remain; Agent status, Files (count),
-  Source and Export live in More with their current authority and disabled
+  every width, More remains (Comments and Chat are the page dock's actions, not the header's); Agent
+  status, Files (count), Source and Export live in More with their current authority and disabled
   states. Agent status is writer-only; its secondary Recheck uses a decorative refresh icon that yields to the busy mark. The title truncates within the shared-height row. Reader and native
   guidance headers retain the default mark and caption layout.
 - Primitive: shared Header; host-owned optional attribution and title-prefix slots.
@@ -123,8 +128,10 @@ The one TMT web UI frame (#3937): one header row, then a global rail, an optiona
 module menu and the host's content. Every Colab and Remote page except the refusal
 page renders in it.
 
-The opt-in shared top bar keeps module actions followed by common Theme, Search with its
-platform shortcut hint, and a Remote icon/count. Search opens the host's one switcher; the
+The opt-in shared top bar places Search first in its left group, after the phone navigation
+button and before host content (Ben’s approved deviation from the website). Its icon and platform
+shortcut hint share one hit, hover and focus box; the hint is hidden below 640px. The right group
+keeps module actions followed by Theme and a Remote icon/count. Search opens the host's one switcher; the
 leaf reads no product data. Remote counts live sessions; zero and unknown omit the badge
 but keep distinct accessible names. The bar draws no title or avatar: the rail names the
 module and the content supplies its real h1. Root-only bindings and the actions-only module
@@ -152,6 +159,8 @@ product bars stay unchanged until their owning adoption.
   counts only when every module reports one.
 - **Wide rail:** always the full 232 px, with the selected nested page visible. Older
   collapse preferences are ignored; there is no collapse toggle or collapse shortcut.
+  The rail scrolls as one column, with only the brand sticky above a rule while scrolled.
+  Settings follows navigation in normal flow, pushed to the bottom when content fits.
 - **Module menu:** the active module's own menu (Colab: All pages, then each project
   with its page count and needs-you count, then New project and Manage projects; Remote:
   each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a
@@ -163,12 +172,17 @@ product bars stay unchanged until their owning adoption.
   module crumb and no brand in the bar: the rail's head carries the brand and the current
   rail item names the module. The header keeps the module in its accessible name
   (`Colab · <page>`), and the document title keeps it too. While a route loads the bar
-  shows the module's name as its title and keeps its height and rule.
+  shows the module's name as its title and keeps its height and rule. A module that adopts the
+  shared top bar (Colab in its own shell, #5237) moves its actions there and draws its title row as
+  content: on the content background with no band or rule of its own, at the content column's
+  left edge, scrolling with the page, so only the bar and a phone's module tabs stay fixed. A
+  route whose content names itself (the list, settings, a shell page) has no title row.
 - **Bar cluster:** the shell owns the right end of the bar. A module fills the **search**
   slot (Colab: Search pages, an icon with a quiet `⌘K` key hint that a touch screen and a
   bar under 640 px do not draw; ⌘K opens it from anywhere in the module) and the **chip**
-  slot (Colab: the Remote presence chip, `Remote · N`, not drawn under 640 px, where its
-  count is in the page More menu). Search comes first. An empty slot takes no room, and the
+  slot (Colab, until its mount adopts the shared top bar: the Remote presence chip, `Remote · N`,
+  not drawn under 640 px, where its count is in the page More menu). Colab's own shell fills
+  neither slot: the shared top bar's Search, Theme and Remote link replace them. Search comes first. An empty slot takes no room, and the
   header leaves the room the shell measures for the cluster. The four-state connection chip
   of the [Remote switcher](#remote-switcher) is a design target and not shipped; the bar has
   no avatar slot until who the avatar is has been decided.
@@ -306,7 +320,8 @@ presentation stay in the browser leaf; products do not override its internals.
 
 ### Quick switcher
 
-Colab's **Search pages** header action and Cmd/Ctrl+K open a modal
+Colab's **Search TMT** control (the shared top bar's Search in Colab's own shell; a header action in
+the hosted mount until it adopts the bar) and Cmd/Ctrl+K open a modal
 [BrowserDialog](browser-ui/README.md#dialog) over the current page. It uses the
 same search editor and label/author filters as the page list; collections are not
 part of v1. The website `/#/colab/pages` Search surface (concept38 fallback) supplies the
@@ -316,6 +331,14 @@ shared footer. Results preserve native page links and show only real metadata, w
 mark-plus-word Needs-you chip at the right. The current page is excluded. Project choices
 write the same search edit as the query chips; plural memberships wrap inside a result.
 The shared dialog owns its header rule, width and scrim.
+
+As the global search (#4841) the same dialog is titled Search TMT, lists labelled groups in one
+scrollable list (Navigation, then Colab, then each module's own, such as Ops and Remote) with a
+quiet heading each, and grows to about six rows before it scrolls, capped by the viewport. The
+project picker is labelled Colab: it and the author filter scope only the Colab group. A group with
+no admitted data shows no heading and no row, and one active option moves across the groups. The
+field's placeholder names only the groups that are ready (Search navigation, pages or agents…) and
+reads Search TMT… until one is.
 
 - Keep the query and project rows above a scrollable, single-column result list, with no
   loading flash when a cached list is available. The input keeps focus while
@@ -478,7 +501,7 @@ Chat, Source, Share and settings panels (Comments is the non-modal panel below).
 - Opens over the page without moving it, closes with its own `×`, Esc or a backdrop press. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
 - Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native HTML dialog containment at every width.
-- Source uses the shared header action slot for primary Save before Close, with a truthful draft explanation, paper-toned bordered monospace editor and lower draft-equality metadata. The owner and editor-link save contracts and real notice states remain unchanged. No equality state claims a confirmed save.
+- Source uses the shared header action slot for primary Save before Close (11px/620 type, 7px/10px padding and canonical 8px radius), with a truthful draft explanation, paper-toned bordered monospace editor and lower draft-equality metadata. The owner and editor-link save contracts and real notice states remain unchanged. No equality state claims a confirmed save.
 - Colab shared page drawers (Chat, Source, Agents, Files, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; regular drawers are at most 430 px (viewport minus 18 px), and use viewport minus 12 px through 640 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width. The modal scrim dims and blurs the page using the shared scrim role and 3 px overlay blur.
 
 ### Non-modal side panel
@@ -695,9 +718,9 @@ focus. Drop alone never uploads or sends.
 Raster images use aspect-preserving thumbnails capped at 200 × 120 px. Two or
 more images use a three-column square grid: up to six show in full; larger groups
 show five thumbnails and a `+N` tile, where N is total minus five. The tile opens
-image six. Non-images use compact filename/type/size chips with Download.
+image six. Thumbnails take `radius-s`. Non-images use compact filename/type/size chips with Download.
 
-A modal viewer shows one image with Previous/Next (no wrapping), Download and
+A modal viewer (`radius-l`) shows one image with Previous/Next (no wrapping), Download and
 Close; arrows navigate, Escape closes, and closing restores the opening tile's
 focus. Thumbnails, grids and cards share the message text's left edge without
 an extra inset, in both Chat and anchored threads. Basis: own.
@@ -787,7 +810,8 @@ proposing agent and Approve / Decline / Follow up / Resolve actions. Approve is
 the emphasized decision; Resolve is muted. Follow up opens a composer inside
 the card. Resolved proposals fold to a plain one-line row with a resolved mark,
 retained-history disclosure and Reopen. Comments lists the page's threads in
-views `Open`, `Needs you` and `Resolved` (and `Proposals` when the page has one),
+views `Open` and `Needs you` (and `Proposals` when the page has one; resolved threads join `Open`
+only while `Show resolved` is on),
 a 1px rule under the view strip, as rows of number, title, quoted passage and
 `N comments · state`, each closed by a 1px rule with 18px of vertical padding; the title stays at
 14px (the compact body token) and the quote and meta take the caption size; the selected view tab uses the shared

@@ -60,13 +60,37 @@ const { isComponentRetired } = (await import(
   new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
 )) as { isComponentRetired: (name: string) => boolean };
 
+it('keeps rehearsal proofs runnable after a skipped declaration without bypassing direct dependencies', () => {
+  const prepare = readFileSync(
+    new URL('../../../.github/workflows/native-release-prepare.yml', import.meta.url),
+    'utf8'
+  );
+  for (const [name, needs, condition] of [
+    [
+      'gates-dry',
+      'assemble',
+      "!cancelled() && needs.assemble.result == 'success' && inputs.upgrade",
+    ],
+    [
+      'upgrade-fetch',
+      '[assemble, verify]',
+      "!cancelled() && needs.assemble.result == 'success' && needs.verify.result == 'success' && inputs.upgrade",
+    ],
+  ]) {
+    const section = prepare.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+    expect(section).toContain(`    needs: ${needs}\n`);
+    expect(section).toContain(`    if: \${{ ${condition} }}\n`);
+  }
+  expect(prepare).toContain("if: inputs.product != 'cli' && inputs.product != 'driver-herdr'");
+});
+
 it('keeps the adapter environment runner on full native verification', () => {
   expect(selectNativeScope(['typescript/scripts/e2e-adapter-tests.mjs'])).toBe('full');
 });
 
 describe('complete trusted-main verification', () => {
   const context = {
-    repository: 'pj-tmt/tmt',
+    repository: 'tmt-ninja/tmt',
     eventName: 'push',
     ref: 'refs/heads/main',
     sha: 'a'.repeat(40),
@@ -271,7 +295,7 @@ describe('complete trusted-main verification', () => {
     const post = calls[2];
     expect(post.method).toBe('POST');
     expect(post.body).toContain(`failed at ${context.sha}, attempt 1`);
-    expect(post.body).toContain('[job 7](https://github.com/pj-tmt/tmt/actions/runs/42/job/7)');
+    expect(post.body).toContain('[job 7](https://github.com/tmt-ninja/tmt/actions/runs/42/job/7)');
     expect(post.body).not.toContain('job 8');
     let writes = 0;
     const uncertain = new Error('POST response lost');
@@ -375,7 +399,7 @@ describe('complete trusted-main verification', () => {
     expect(notify).toContain(
       "needs.changes.result == 'failure' || needs.complete-main.result == 'failure'"
     );
-    expect(notify).toContain("github.repository == 'pj-tmt/tmt'");
+    expect(notify).toContain("github.repository == 'tmt-ninja/tmt'");
     expect(notify).toContain("github.event_name == 'push'");
     expect(notify).toContain("github.ref == 'refs/heads/main'");
     expect(notify).toContain('issues: write');
@@ -1174,6 +1198,7 @@ describe('component map', () => {
         'ops.test.ts',
         'extension-install.test.ts',
         'extension-upgrade-proof.test.ts',
+        'native-installation.test.ts',
         'uninstall.test.ts',
       ],
       e2eFiles: ['ops.e2e.test.ts', 'ops-reminder.e2e.test.ts', 'claude-channel.e2e.test.ts'],
@@ -1974,7 +1999,7 @@ describe('CI diff and command integration', () => {
         colab_firestore: 'false',
         native_sync_emulator: 'false',
         scoped_native_tests:
-          'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts uninstall.test.ts',
+          'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts native-installation.test.ts uninstall.test.ts',
         e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts claude-channel.e2e.test.ts',
         e2e_shard_2: '',
       });
@@ -3446,9 +3471,8 @@ describe('required CI gate', () => {
       const debugBuilds = [...(fixtures?.body.matchAll(/cargo build ([^\n]+)/g) ?? [])]
         .map((match) => match[1])
         .filter((args) => !args.includes('--release'));
-      // Guided setup is full-scope only and prepares the Digest archive too (#5081).
-      const products = ['tmt-ops', 'tmt-remote', 'tmt-colab'];
-      if (scope === 'full') products.push('tmt-digest');
+      // Both scopes prepare all official extension archives, including Digest (#5182).
+      const products = ['tmt-ops', 'tmt-remote', 'tmt-colab', 'tmt-digest'];
       for (const product of products) {
         expect(
           debugBuilds.some((args) => new RegExp(`(?:^|\\s)-p\\s+${product}(?=\\s|$)`).test(args)),
@@ -3574,9 +3598,9 @@ describe('required CI gate', () => {
     expect(app).not.toContain('--with-deps');
     // Whole-file shards retain separate concurrency groups and evidence; none cancels another.
     expect(app).toContain('fail-fast: false');
-    expect(app).toContain('shard: [1, 2, 3, 4, 5, 6, 7]');
+    expect(app).toContain('shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]');
     expect(app).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 7 component)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 11 component)"'
     );
     expect(app).not.toContain('--shard=');
     expect(app).toContain('--reporter=dot,json');
@@ -3938,6 +3962,19 @@ it('enforces current PR Agent attribution for PRs and merge groups in Code quali
   expect(feedback).toContain('contents: read');
   expect(feedback).toContain('pull-requests: read');
   expect(ci).not.toContain('pull-requests: write');
+});
+
+it('rejects hostname commit addresses on pull requests first in Code quality', () => {
+  const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const quality = ci.split('\n  code-quality:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+  const step = quality.split('      - name: Check PR commit author and committer emails\n')[1];
+  expect(step.split('\n      - name:')[0]).toBe(
+    "        if: github.event_name == 'pull_request'\n        run: node typescript/scripts/pr-commit-email-check.mjs"
+  );
+  expect(quality.indexOf('Check PR commit author and committer emails')).toBeLessThan(
+    quality.indexOf('Install dependencies')
+  );
+  expect(quality).toContain('test/tooling/pr-commit-email-check.test.ts');
 });
 
 describe('native Auth+Firestore emulator selection', () => {

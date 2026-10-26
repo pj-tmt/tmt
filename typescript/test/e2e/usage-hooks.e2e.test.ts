@@ -129,7 +129,8 @@ async function runScenario(fixture: E2EFixture, provider: Provider, historyBasel
       list,
       stop(transcript),
       list,
-      // A compacted context drops usage and consumption; the model stays.
+      // A compacted context drops usage; the model stays, and so does consumption:
+      // the provider goes on appending to the same transcript (#5122).
       hook({ hook_event_name: 'SessionStart', source: 'compact', model: 'model-a' }),
       list,
     ])
@@ -173,9 +174,13 @@ async function runScenario(fixture: E2EFixture, provider: Provider, historyBasel
     `${provider.name} append checkpoint`
   );
   if (historyBaseline) {
+    // The seed read is caught up after the earlier gap, so it is a complete zero
+    // observation of the same counter (#5122).
     expect(JSON.parse(historySeed().latest!).consumption).toMatchObject({
       ...provider.consumption,
-      sequence: 1,
+      sequence: 2,
+      complete: true,
+      gap: false,
     });
   }
   fs.appendFileSync(transcript, provider.appended);
@@ -252,7 +257,7 @@ describe(
             const compacted = resumeOf(results[14].stdout);
             expect(compacted).toMatchObject({ model: 'model-a' });
             expect(compacted).not.toHaveProperty('usage');
-            expect(compacted).not.toHaveProperty('consumption');
+            expect(compacted?.consumption).toEqual(updated);
 
             const identity = JSON.parse(results[0].stdout);
             const db = new Database(path.join(fixture.globalDir, 'tmt.db'), {
@@ -267,7 +272,8 @@ describe(
                 )
                 .get(identity.id) as { driver_state_version: number; driver_state: string };
               expect(state.driver_state_version).toBe(5);
-              const document = JSON.parse(state.driver_state);
+              const { consumption, ...document } = JSON.parse(state.driver_state);
+              expect(consumption).toBeDefined();
               expect(document).toEqual({
                 model: 'model-a',
                 observed: { model: 'model-a', observedAtMs: expect.any(Number) },
@@ -645,7 +651,7 @@ describe('consumption cache-write and turn model attribution', { concurrent: fal
               cacheWriteTokens: base.name === 'claude' ? 9 : 30,
               modelId: 'billing-c',
               deltaByModel: rows,
-              sequence: 2,
+              sequence: 3,
             },
           });
           expect(resumeOf(results[13].stdout)?.consumption).toEqual(updated?.consumption);

@@ -35,10 +35,10 @@ impl OrchReadFailure {
         }
     }
     pub fn exit(&self) -> u8 {
-        if matches!(self, Self::Policy(OrchError::NotFound)) {
-            3
-        } else {
-            1
+        match self {
+            Self::Policy(OrchError::NotFound | OrchError::MemberNotFound) => 3,
+            Self::Policy(OrchError::Conflict) => 5,
+            _ => 1,
         }
     }
 }
@@ -56,7 +56,7 @@ impl std::error::Error for OrchReadFailure {
     }
 }
 
-fn selected_plan(
+pub(crate) fn selected_plan(
     snapshot: &OrchSnapshot,
     selector: Option<&str>,
 ) -> Result<Option<String>, OrchError> {
@@ -100,7 +100,7 @@ fn validate(snapshot: &OrchSnapshot) -> Result<(), OrchError> {
     }
     Ok(())
 }
-fn overview(
+pub(crate) fn overview(
     snapshot: &OrchSnapshot,
     zone: &OrchZone,
     at: u64,
@@ -118,7 +118,14 @@ fn overview(
     let timeline = orch_timeline(&display, range, zone)?;
     let members=snapshot.identities.iter().map(|i|{
         let p=effective(snapshot,&i.id,at,zone)?;
-        Ok(json!({"identityId":i.id,"name":i.name,"effective":wire::effective_value(&p),"activePlans":p.active_plans,"nextChangeAtMs":p.next_change_at_ms,"jobs":null}))
+        let mut resolved=wire::effective_value(&p);
+        if snapshot.digest_revision==0 {
+            resolved["receiving"]["proposedValue"]=resolved["receiving"]["value"].take();
+            resolved["receiving"]["available"]=json!(false);
+        } else {
+            resolved["receiving"]["available"]=json!(true);
+        }
+        Ok(json!({"identityId":i.id,"name":i.name,"effective":resolved,"activePlans":p.active_plans,"nextChangeAtMs":p.next_change_at_ms,"jobs":null}))
     }).collect::<Result<Vec<_>,OrchError>>()?;
     let plans = snapshot
         .plans
@@ -130,7 +137,7 @@ fn overview(
         .map(|t| json!({"startMs":t.start_ms,"endMs":t.end_ms,"planIds":t.plan_ids}))
         .collect();
     Ok(
-        json!({"schemaVersion":1,"configurationRevision":snapshot.revision,"observedAtMs":observed,"atMs":at,"timeZone":zone.name(),"range":{"startMs":range.start_ms,"endMs":range.end_ms},"selectedPlanId":selected,"plans":plans,"members":members,"timeline":timeline,"emptyState":if snapshot.plans.is_empty(){Some("Base only. Plan creation/editing and personal focus controls arrive in orchestration slice 2.")}else{None}}),
+        json!({"schemaVersion":1,"configurationRevision":snapshot.revision,"receivingRevision":snapshot.digest_revision,"observedAtMs":observed,"atMs":at,"timeZone":zone.name(),"range":{"startMs":range.start_ms,"endMs":range.end_ms},"selectedPlanId":selected,"plans":plans,"members":members,"timeline":timeline,"emptyState":if snapshot.plans.is_empty(){Some("Base only. Create a plan with tmt orch plan add --help; personal focus: tmt orch focus --help.")}else{None}}),
     )
 }
 
@@ -159,7 +166,7 @@ pub fn orchestration_read_with_time(
         } => {
             let page =
                 storage.orchestration_journal(&subject, before, limit.unwrap_or(50), observed)?;
-            json!({"schemaVersion":1,"observedAtMs":observed,"subject":subject,"items":page.items,"nextBefore":page.next_before,"coverage":{"retentionMs":ORCH_JOURNAL_RETENTION_MS,"retainedAfterMs":page.retained_after_ms,"liveProducers":false,"historyComplete":false}})
+            json!({"schemaVersion":1,"observedAtMs":observed,"subject":subject,"items":page.items,"nextBefore":page.next_before,"coverage":{"retentionMs":ORCH_JOURNAL_RETENTION_MS,"retainedAfterMs":page.retained_after_ms,"liveProducers":true,"producers":["receiving_hold","digest_claim","digest_settlement"],"historyComplete":false}})
         }
         OrchReadQuery::Plans { plan } => {
             let stored = storage.orchestration_snapshot(None)?;
@@ -232,20 +239,7 @@ pub fn orchestration_read_with_time(
             let days = range_days.unwrap_or(1);
             let before = overview(&snapshot, &zone, at, days, plan.as_deref(), observed)?;
             let after = overview(&after, &zone, at, days, plan.as_deref(), observed)?;
-            let changes: Vec<_> = before["members"]
-                .as_array()
-                .expect("overview members")
-                .iter()
-                .zip(after["members"].as_array().expect("overview members"))
-                .filter_map(|(b, a)| {
-                    let fields: Vec<_> = ["state", "receiving", "sending", "routine", "talkLimit"]
-                        .into_iter()
-                        .filter(|f| b["effective"][*f] != a["effective"][*f])
-                        .collect();
-                    (!fields.is_empty())
-                        .then(|| json!({"identityId":b["identityId"],"fields":fields}))
-                })
-                .collect();
+            let changes = changed_members(&before, &after)?;
             json!({"schemaVersion":1,"observedAtMs":observed,"configurationRevision":snapshot.revision,"before":before,"after":after,"changes":changes})
         }
     };
@@ -254,4 +248,27 @@ pub fn orchestration_read_with_time(
         return Err(OrchError::Limit.into());
     }
     Ok(bytes)
+}
+
+pub(crate) fn changed_members(before: &Value, after: &Value) -> Result<Vec<Value>, OrchError> {
+    let before = before["members"].as_array().ok_or(OrchError::Invalid)?;
+    let after = after["members"].as_array().ok_or(OrchError::Invalid)?;
+    if before.len() != after.len() {
+        return Err(OrchError::Invalid);
+    }
+    before
+        .iter()
+        .zip(after)
+        .map(|(b, a)| {
+            if b["identityId"] != a["identityId"] {
+                return Err(OrchError::Invalid);
+            }
+            let fields: Vec<_> = ["state", "receiving", "sending", "routine", "talkLimit"]
+                .into_iter()
+                .filter(|f| b["effective"][*f] != a["effective"][*f])
+                .collect();
+            Ok((!fields.is_empty()).then(|| json!({"identityId":b["identityId"],"fields":fields})))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(|rows| rows.into_iter().flatten().collect())
 }

@@ -322,7 +322,7 @@ export function updateReleaseIndex({ api, recordBytes, bootstrap = false, sleep 
 
 /** Fixed-repository Git API; no ref initialization, force update or deletion operation exists. */
 export function ghIndexApi({ repository, env = process.env, spawn = spawnSync }) {
-  assert.equal(repository, 'pj-tmt/tmt', 'Release index repository mismatch');
+  assert.equal(repository, 'tmt-ninja/tmt', 'Release index repository mismatch');
   const base = `repos/${repository}`;
   function request(endpoint, method = 'GET', body) {
     const result = spawn(

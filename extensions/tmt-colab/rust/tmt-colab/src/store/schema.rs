@@ -148,10 +148,20 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE page_pins(page TEXT PRIMARY KEY, seq INTEGER NOT NULL,
         FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 18: the owner's pinned projects (#5073), the sidebar's list in the owner's order.
+    // `project_pins` holds one row per pinned project, `seq` its place; `project_pin_choice` has its
+    // one row once the owner has written the list, so an empty chosen list differs from the
+    // automatic default of a space that never chose. Display-only like projects: never a log
+    // statement. Deleting a project removes its pin; renaming moves it.
+    r#"
+    CREATE TABLE project_pins(name TEXT PRIMARY KEY, seq INTEGER NOT NULL,
+        FOREIGN KEY(name) REFERENCES projects(name)) WITHOUT ROWID;
+    CREATE TABLE project_pin_choice(chosen INTEGER PRIMARY KEY CHECK(chosen=1));
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
-/// How many pre-update copies stay: the newest by the schema they were taken at, so two upgrades in
-/// a row still leave a way back past the first.
+/// How many pre-update copies stay: the one just taken and the newest other by the schema it was
+/// taken at, so two upgrades in a row still leave a way back past the first.
 const COPIES_KEPT: usize = 2;
 
 pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {
@@ -197,18 +207,23 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     let copied = match &path {
         Some(store) if version > 0 && version < CURRENT_VERSION => {
             backup(store, version)?;
-            true
+            Some(version)
         }
-        _ => false,
+        _ => None,
     };
     for (index, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", (index + 1) as u32)?;
     }
     tx.commit()?;
-    if let (true, Some(store)) = (copied, &path) {
-        // The migration is committed: failing to tidy an old copy must not fail the open.
-        for (_, old) in copies(store).into_iter().skip(COPIES_KEPT) {
+    if let (Some(taken), Some(store)) = (copied, &path) {
+        // The migration is committed: failing to tidy an old copy must not fail the open. The copy
+        // just taken is the way back from this update, so it stays whatever schemas the others
+        // are at (a newer Colab's copies outrank it by number); the newest other one stays with it.
+        let others = copies(store)
+            .into_iter()
+            .filter(|(schema, _)| *schema != taken);
+        for (_, old) in others.skip(COPIES_KEPT - 1) {
             let _ = std::fs::remove_file(old);
         }
     }

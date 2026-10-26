@@ -1644,6 +1644,45 @@ mod tests {
     use super::{cli_style_allowlist, grammar, open::Outcome, open_row};
 
     #[test]
+    fn service_copy_commands_round_trip_without_deployment_authorization() {
+        // The UI and this proof share product assets already present in isolated Rust builds.
+        let references: std::collections::BTreeMap<&str, &str> =
+            serde_json::from_str(include_str!("../assets/service-commands.json")).unwrap();
+        assert_eq!(
+            references.keys().copied().collect::<Vec<_>>(),
+            ["preview", "status"]
+        );
+        let status = references["status"];
+        let preview = references["preview"];
+        for (printed, action) in [(status, "status"), (preview, "deploy")] {
+            let argv = tmt_cli_style::Example {
+                command: printed,
+                note: "Service copy-only reference",
+            }
+            .argv()
+            .unwrap();
+            assert_eq!(&argv[..2], ["tmt", "remote"]);
+            let parsed = grammar()
+                .try_get_matches_from(argv.into_iter().skip(1))
+                .unwrap();
+            let selected = parsed.subcommand_matches(action).unwrap();
+            if action == "status" {
+                assert!(selected.get_flag("layers"));
+                assert!(!selected.get_flag("machine"));
+                assert!(!selected.get_flag("objects"));
+            } else {
+                let selected = selected.subcommand_matches("firestore").unwrap();
+                let input = tmt_remote::deploy_cli::arguments(selected).unwrap();
+                assert!(input.json);
+                assert!(input.defaults);
+                assert_eq!(input.authorize, None);
+                assert_eq!(input.project, "<project-id>");
+                assert_eq!(input.region, "<region>");
+            }
+        }
+    }
+
+    #[test]
     fn anonymous_connect_help_separates_reference_sign_in_and_browser_page_access() {
         for (words, expected) in [
             (

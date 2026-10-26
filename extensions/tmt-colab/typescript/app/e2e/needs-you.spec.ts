@@ -18,20 +18,20 @@ async function mount(page: Page, options = {}) {
   await expect(page.locator('[data-inline-review]').first()).not.toHaveAttribute('data-detached');
 }
 
-test('one unanswered group counts once and menu navigation only scrolls and focuses', async ({
+test('registered questions count separately and menu navigation only scrolls and focuses', async ({
   page,
 }) => {
   await mount(page, { sections: 2, group: true });
-  const trigger = page.getByRole('button', { name: 'Needs you: 3', exact: true });
+  const trigger = page.getByRole('button', { name: 'Needs you: 4', exact: true });
   await expect(trigger).toBeVisible();
   const before = await run(page, 'proof');
   const threads = await run(page, 'discussionProof');
   await trigger.click();
   const menu = page.getByRole('menu');
-  await expect(menu.getByText('Please answer · 1')).toBeVisible();
+  await expect(menu.getByText('Please answer · 2')).toBeVisible();
   await expect(menu.getByText('Please confirm · 2')).toBeVisible();
   await expect(menu.getByText('Please read · 0')).toHaveCount(0);
-  await menu.getByRole('menuitem', { name: 'Two questions · Agent 1' }).click();
+  await menu.getByRole('menuitem', { name: 'First heading? · Agent 1' }).click();
   await expect(menu).toHaveCount(0);
   await expect(
     page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
@@ -86,7 +86,7 @@ for (const via of ['keyboard', 'pointer'] as const)
     if (via === 'keyboard') await trigger.press('Enter');
     else await trigger.click();
     await expect(page.getByRole('menu')).toBeVisible();
-    await run(page, 'change', '<h1>Project notes</h1><p>Nothing is left to answer.</p>');
+    await run(page, 'handleQuestions');
     const zero = page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true });
     await expect(zero).toBeFocused();
     await expect(page.getByRole('menu')).toHaveCount(0);
@@ -101,7 +101,7 @@ test('the list emptying with the menu closed does not take focus', async ({ page
   await run(page, 'mount');
   await run(page, 'chipPage', { count: 1 });
   await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
-  await run(page, 'change', '<h1>Project notes</h1><p>Nothing is left to answer.</p>');
+  await run(page, 'handleQuestions');
   const zero = page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true });
   await expect(zero).toBeVisible();
   await expect(zero).not.toBeFocused();
@@ -113,13 +113,14 @@ test('the header opens the next unanswered question without changing its retaine
   await page.goto('/');
   await run(page, 'mount');
   await run(page, 'chipPage');
-  const trigger = page.getByRole('button', { name: 'Needs you: 1', exact: true });
+  const trigger = page.getByRole('button', { name: /^Needs you:/ });
+  await expect(trigger).toHaveAccessibleName('Needs you: 2');
   await expect(trigger).toBeVisible();
   // Synthetic activation cannot open the menu.
   await trigger.evaluate((node) => (node as HTMLButtonElement).click());
   await expect(page.getByRole('menu')).toHaveCount(0);
   await trigger.press('Enter');
-  await page.getByRole('menuitem', { name: 'Two list decisions · Agent 1' }).click();
+  await page.getByRole('menuitem', { name: 'Which list version? · Agent 1' }).click();
   const panel = page.locator('[data-question-group]');
   await expect(panel.locator('.question-compact-block')).toBeVisible();
   await expect(panel.locator('.question-card:visible').getByRole('radio').first()).toBeFocused();
@@ -136,7 +137,7 @@ test('the header opens the next unanswered question without changing its retaine
   const before = await run(page, 'proof');
   const records = await run(page, 'discussionProof');
   await trigger.click();
-  await page.getByRole('menuitem', { name: 'Two list decisions · Agent 1' }).click();
+  await page.getByRole('menuitem', { name: 'Hide read pages? · Agent 1' }).click();
   await expect(panel.locator('.question-line').nth(1)).toHaveAttribute('aria-expanded', 'true');
   await expect(panel.getByLabel('Your answer', { exact: true })).toHaveValue(
     'Keep this unsent draft.',
@@ -283,7 +284,7 @@ for (const width of [1440, 390])
       await expect(avatars.first()).toHaveCSS('width', '24px');
       await expect(menu.locator('.needs-you-header-title')).toHaveText([
         'Read the summary',
-        'Choose the layout',
+        'Which layout should ship?',
         'Confirm the scope',
       ]);
       await expect(menu.locator('.needs-you-header-agent').first()).toContainText('Agent 1');
@@ -309,7 +310,7 @@ for (const width of [1440, 390])
       await expect(root.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
       widths.push((await root.locator('.needs-you-header').boundingBox())!.width);
       await root.getByRole('button', { name: 'Needs you: 2', exact: true }).click();
-      await page.getByRole('menuitem', { name: 'Choose the layout · Agent 1' }).click();
+      await page.getByRole('menuitem', { name: 'Which layout should ship? · Agent 1' }).click();
       const panel = root.locator('[data-question-group]');
       await expect(
         panel.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
@@ -495,9 +496,9 @@ test('Needs-you entries are links and modified activation leaves this page uncha
   await mount(page, { sections: 2, group: true });
   const before = await run(page, 'proof');
   const threads = await run(page, 'discussionProof');
-  await page.getByRole('button', { name: 'Needs you: 3', exact: true }).click();
+  await page.getByRole('button', { name: 'Needs you: 4', exact: true }).click();
   const menu = page.getByRole('menu');
-  const link = menu.getByRole('menuitem', { name: 'Two questions · Agent 1' });
+  const link = menu.getByRole('menuitem', { name: 'First heading? · Agent 1' });
   await expect(link).toHaveJSProperty('tagName', 'A');
   const href = await link.getAttribute('href');
   expect(href).toContain('/pages/');
@@ -561,16 +562,17 @@ test('Needs-you entries are links and modified activation leaves this page uncha
   expect(await run(page, 'proof')).toEqual(before);
 });
 
-test('separate placements count as one pending group and the menu names its remaining questions', async ({
+test('separate placements count each registered question and name the remaining target', async ({
   page,
 }) => {
   await page.goto('/');
   await run(page, 'mount');
   await run(page, 'questionGroup', { split: true });
-  const trigger = page.getByRole('button', { name: 'Needs you: 1', exact: true });
+  const trigger = page.getByRole('button', { name: /^Needs you:/ });
+  await expect(trigger).toHaveAccessibleName('Needs you: 2');
   await expect(trigger).toBeVisible();
   await trigger.click();
-  const item = page.getByRole('menuitem', { name: /2 of 2 questions waiting/ });
+  const item = page.getByRole('menuitem', { name: 'Which heading should we use? · Agent 1' });
   await expect(item).toHaveCount(1);
   await item.click();
   const rows = page.locator('.question-line');
@@ -578,11 +580,13 @@ test('separate placements count as one pending group and the menu names its rema
   await page.getByLabel('Keep it', { exact: true }).check();
   await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
   await expectAnswered(rows.first(), 'Keep it');
-  await expect(trigger).toBeVisible();
+  await expect(trigger).toHaveAccessibleName('Needs you: 1');
   const records = await run(page, 'discussionProof');
   await trigger.click();
-  await expect(page.getByRole('menuitem', { name: /1 of 2 questions waiting/ })).toHaveCount(1);
-  await page.getByRole('menuitem', { name: /1 of 2 questions waiting/ }).click();
+  await expect(
+    page.getByRole('menuitem', { name: 'What should the introduction say? · Agent 1' }),
+  ).toHaveCount(1);
+  await page.getByRole('menuitem', { name: 'What should the introduction say? · Agent 1' }).click();
   await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'true');
   await expect(
     page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),

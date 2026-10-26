@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { commentsAction, pageAction, showResolvedOn } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { rgb, tokens } from './tokens.js';
 const fixture = '/test/ask-page-browser.tsx';
@@ -355,54 +355,56 @@ for (const [width, theme] of [
     await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
     if (theme === 'dark')
       await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
-    const header = page
-      .locator('.page-header-actions')
-      .getByRole('button', { name: /^Discussion \(/ });
-    await expect(header).toHaveAccessibleName('Discussion (2)');
+    const header = commentsAction(page);
+    await expect(header).toHaveAccessibleName('Comments (2)');
     if (captureDir) {
       mkdirSync(captureDir, { recursive: true });
       await page.screenshot({ path: `${captureDir}/header-count-${width}-${theme}.png` });
     }
     await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
     const panel = commentsRegion(page);
-    // The Open view lists the three unresolved threads; the folded proposal is in Resolved.
+    // The Open view lists the three unresolved threads; the folded proposal waits for Show resolved.
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     await expect(panel).toContainText('Review the supporting notes.');
     await expect(
-      panel.getByRole('tab').filter({ hasText: /^(Open|Needs you|Resolved|Proposals)$/ }),
-    ).toHaveCount(4);
+      panel.getByRole('tab').filter({ hasText: /^(Open|Needs you|Proposals)$/ }),
+    ).toHaveCount(3);
     await expect(
       panel.getByTestId('thread-row-status').filter({ hasText: 'Approved' }),
     ).toHaveCount(1);
     await expect(
       panel.getByTestId('annotation-row').filter({ hasText: 'Proposal · Deterministic agent' }),
     ).toHaveCount(2);
-    await panel.getByRole('tab', { name: 'Resolved', exact: true }).click();
+    await expect(panel.locator('.annotation-list-item[data-resolved]')).toHaveCount(0);
+    const showResolved = panel.getByRole('button', { name: 'Show resolved', exact: true });
+    await showResolved.click();
     const folded = panel.locator('.annotation-list-item[data-resolved]');
-    await expect(panel.getByTestId('annotation-row')).toHaveCount(1);
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(4);
+    await expect(folded).toHaveCount(1);
     await expect(folded).toContainText('Confirm the page audience');
     await expect(folded.locator('.proposal-author, .proposal-body, .proposal-actions')).toHaveCount(
       0,
     );
     if (captureDir)
       await page.screenshot({ path: `${captureDir}/mixed-comments-${width}-${theme}.png` });
+    await showResolved.click();
     // The Proposals view lists every proposal, resolved or not, and no ordinary thread.
     await panel.getByRole('tab', { name: 'Proposals', exact: true }).click();
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     await expect(panel).not.toContainText('Review the supporting notes.');
-    await expect(header).toHaveAccessibleName('Discussion (2)');
+    await expect(header).toHaveAccessibleName('Comments (2)');
     if (captureDir)
       await page.screenshot({ path: `${captureDir}/proposals-filter-${width}-${theme}.png` });
     // Opening the folded row shows its retained history in the Discussion view; All comments returns.
     await folded.getByTestId('annotation-row').click();
     await expect(panel.getByTestId('discussion-state')).toHaveText(/^Resolved/);
     await expect(panel.locator('.proposal-body')).toBeVisible();
-    await expect(header).toHaveAccessibleName('Discussion (2)');
+    await expect(header).toHaveAccessibleName('Comments (2)');
     await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
     await expect(panel.locator('.proposal-body')).toHaveCount(0);
     // Reopening opens the proposal's Discussion view, where it can be decided again.
     await folded.getByRole('button', { name: 'Reopen', exact: true }).click();
-    await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(header).toHaveAccessibleName('Comments (3)');
     await expect(panel.getByTestId('discussion-state')).toContainText('Needs you');
     await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
@@ -415,7 +417,7 @@ for (const [width, theme] of [
       .filter({ hasText: 'Keep the supporting notes' });
     await expect(approved.locator('.proposal-state')).toHaveText('Approved');
     await approved.getByRole('button', { name: 'Resolve', exact: true }).click();
-    await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(header).toHaveAccessibleName('Comments (3)');
     // Resolve folds the proposal: the panel is back on the list, with a folded row.
     await expect(row).toHaveAttribute('data-resolved', 'true');
     await row
@@ -424,13 +426,14 @@ for (const [width, theme] of [
       .getByRole('button', { name: 'Reopen', exact: true })
       .click();
     await expect(approved.locator('.proposal-state')).toHaveText('Approved');
-    await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(header).toHaveAccessibleName('Comments (3)');
     expect((await run(page, 'proof')).sends).toHaveLength(0);
   });
 
 test('folded proposal keeps agent resolution unseen until its history is opened', async ({
   page,
 }) => {
+  await showResolvedOn(page);
   await page.goto('/');
   await run(page, 'mount');
   await run(page, 'proposal', 'detached');
@@ -439,8 +442,7 @@ test('folded proposal keeps agent resolution unseen until its history is opened'
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   const panel = commentsRegion(page);
   const folded = panel.locator('.annotation-list-item[data-resolved]');
-  // The resolved proposal is not in the Open view; its tab carries the news.
-  await panel.getByRole('tab', { name: '● Resolved · New', exact: true }).click();
+  // With Show resolved on, the Open view lists the resolved proposal with the news on its row.
   await expect(folded.getByTestId('thread-row-status')).toHaveText('Resolved by Atlas · New');
   expect(await run(page, 'seenProof')).toBe(0);
   await panel.getByRole('tab', { name: 'Proposals', exact: true }).click();

@@ -71,6 +71,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::NativeRefreshSkills { .. }
                 | Invocation::NativeRefreshIntegrations
                 | Invocation::NativeRenameDatabase
+                | Invocation::NativeCompactDatabase
                 | Invocation::NativeUpgradeExtensions { .. }
                 | Invocation::Identity(_)
                 | Invocation::Bind { .. }
@@ -117,6 +118,7 @@ pub fn works_with_hosts(invocation: &Invocation) -> bool {
             | Invocation::NativeRefreshSkills { .. }
             | Invocation::NativeRefreshIntegrations
             | Invocation::NativeRenameDatabase
+            | Invocation::NativeCompactDatabase
             | Invocation::NativeUpgradeExtensions { .. }
     )
 }
@@ -371,7 +373,9 @@ mod tests {
             },
             Invocation::NativeRefreshSkills { managed: false },
             Invocation::NativeRenameDatabase,
+            Invocation::NativeCompactDatabase,
             Invocation::NativeUpgradeExtensions {
+                complete: false,
                 plan: true,
                 progress: false,
             },
@@ -420,6 +424,7 @@ mod tests {
             Invocation::Complete(Vec::new()),
             Invocation::NativeRefreshSkills { managed: false },
             Invocation::NativeRenameDatabase,
+            Invocation::NativeCompactDatabase,
         ] {
             parsed.invocation = invocation;
             assert!(!eligible_for_driver_hint(&parsed));

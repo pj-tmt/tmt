@@ -205,10 +205,11 @@ launches per binding; expired rows are removed on the next launch). It never
 stores a transcript, context body or a second copy of preferences.
 
 `tmt ls --json` rows expose additive `session.learning`: `null` without an
-unresolved launch observation, otherwise `{step,reason,nextStep}` plus `detail`
-when the step recorded what it stopped on.
+unresolved launch observation or an admitted launch's `digest_stop:` detail,
+otherwise `{step,reason,nextStep}` plus `detail` when the step recorded what it
+stopped on.
 `tmt identity show --json` and named `tmt ls <name> --json` add `session` only
-when that observation exists. Steps are `input`, `decode`, `driver_admission`,
+when such an observation or detail exists. Steps are `input`, `decode`, `driver_admission`,
 `host_discovery`, `pane_snapshot`, `provider_verification`, `storage`, `context`.
 Reasons are `in_progress`, `not_admitted`, `worker_error`, `budget_timeout`,
 `spawn_failed`, `launch_ended`, `conflict`. `detail` is one fixed token, never a
@@ -223,13 +224,36 @@ admitted nothing, with `<reason>` one of `activity_missing` (an activity-only ev
 no activity), `not_waiting` (a finished tool call with no activity waiting),
 `observer_owns_stop` (an installed answer observer owns the turn end), `unbound_session`
 (no bound launch is waiting for the provider session) or `not_current` (the bound
-session or process is not the one the payload names), or `host_unsupported` when the
-driver found no provider process among the hook's ancestors. A later step of the same
+session or process is not the one the payload names), `host_unsupported` when the
+driver found no provider process among the hook's ancestors, or `digest_stop:<reason>`
+when a Digest Stop hook on an admitted launch ended with no output because a check
+refused (#4871). Its `<reason>` is one of `worker_spawn`, `worker_timeout`,
+`worker_error`, `worker_stderr`, `capture_failed` (step `storage`), `launch:argument`,
+`launch:host`, `launch:caller` (the caller is not a verified bound pane),
+`launch:caller_probe` (its verification gave no answer), `launch:binding`,
+`launch:process`, `launch:session`, `launch:remembered`, `launch:endpoint`,
+`launch:owner` (the owner is live with a start identity other than the recorded one),
+`launch:owner_probe` (the owner's process probe gave no answer), `launch:owner_not_live`
+or `launch:deadline` (the hook deadline passed, including during a probe) (the launch
+check that refused; step `provider_verification`), `notice_unavailable` (the restart
+notice's private directory is unusable), `handoff_invalid` or `checklist_changed`; other
+reasons use step `context`. Its `reason` is `spawn_failed` for `worker_spawn`,
+`budget_timeout` for `worker_timeout` and `launch:deadline`, `conflict` for
+`notice_unavailable` and `checklist_changed`, and `worker_error` otherwise. A Stop with no
+Digest due, a claim that finds nothing, or a restart notice an earlier Stop already
+showed is not a refusal and stores nothing. A later step of the same
 run drops it. A run that cannot bind (a turn, prompt or activity event, or a payload of
 no known event) never replaces the step, reason or detail an earlier run stored for a
 launch that is not admitted yet; it names its own reason only when no detail is stored.
 A lifecycle event (`SessionStart`, `SessionEnd`) is the launch's own run and replaces
-them. An admitted session suppresses an older failure. These reads are stored-only; human listing/show gives the same
+them. An admitted session suppresses an older failure, except a `digest_stop:` detail:
+it stays visible on the admitted launch until the next Digest Stop of that launch
+delivers, a later refusal replaces it, or a later launch starts its own row. No other
+hook run replaces or clears it, and it never projects `session.unbound=true`; its
+`nextStep` says that the next turn end tries the Digest again. The Digest Stop stores it
+best effort within its own budget, selecting only the pre-existing admitted row its
+launch coordinates name, and never changes its own output for it. These reads are
+stored-only; human listing/show gives the same
 recovery step. An unresolved observation projects `session.unbound=true` and
 the existing message-state `session_not_bound` reason without authorizing or
 blocking delivery itself. `nextStep` never suggests resume without remembered

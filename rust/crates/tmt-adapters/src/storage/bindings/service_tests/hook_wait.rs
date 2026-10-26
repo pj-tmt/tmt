@@ -155,6 +155,19 @@ impl<F: FnOnce()> BindingEndpoint for HeldHost<F> {
     }
 }
 
+// The hook opened with the full production writer wait. Admission then
+// waits under a 10 s safety bound instead, because a loaded runner can
+// delay the writer's commit past that wait (#5136).
+fn wait_for_commit(connection: &rusqlite::Connection, wait_ms: i64) {
+    // Pins the designed 500 ms writer wait (#1759), not HOOK_WRITER_WAIT:
+    // a deliberate change of that bound must also change this test.
+    assert_eq!(
+        Duration::from_millis(wait_ms.try_into().unwrap()),
+        Duration::from_millis(500)
+    );
+    connection.busy_timeout(Duration::from_secs(10)).unwrap();
+}
+
 fn launched_hook(storage: &mut Storage, endpoint: &mut FakeEndpoint, pane: &str) -> Binding {
     let mut bound = binding::bind_identity(storage, endpoint, pane, "Hook agent", true)
         .unwrap()
@@ -258,17 +271,14 @@ fn mutation_admits_hook(mutation: Mutation) {
             let wait_ms = connection
                 .query_row("PRAGMA busy_timeout", [], |r| r.get::<_, i64>(0))
                 .unwrap();
-            // Prove this actual hook connection encountered the held writer,
-            // then restore the production-configured bound for admission.
+            // Prove this actual hook connection encountered the held writer.
             connection.busy_timeout(Duration::ZERO).unwrap();
             let error = connection.execute_batch("BEGIN IMMEDIATE").unwrap_err();
             assert_eq!(
                 error.sqlite_error_code(),
                 Some(rusqlite::ErrorCode::DatabaseBusy)
             );
-            connection
-                .busy_timeout(Duration::from_millis(wait_ms.try_into().unwrap()))
-                .unwrap();
+            wait_for_commit(connection, wait_ms);
             busy_tx.send(()).unwrap();
             let result = resumed_hook(&mut hook, hook_binding);
             hook.close().unwrap();
@@ -280,9 +290,8 @@ fn mutation_admits_hook(mutation: Mutation) {
             gate: Some(|| {
                 start_tx.send(()).unwrap();
                 busy_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-                // Wait for a bounded result event, not a sleep: the old 50 ms
-                // admission returns Busy here. The new writer must remain
-                // pending until this host call returns and SQL commits.
+                // Wait for a bounded result event, not a sleep: the hook must
+                // remain pending until this host call returns and SQL commits.
                 assert!(
                     matches!(
                         result_rx.recv_timeout(Duration::from_millis(100)),
@@ -369,8 +378,7 @@ fn a_hook_waiting_for_unbind_cannot_restore_the_detached_binding() {
                     .sqlite_error_code(),
                 Some(rusqlite::ErrorCode::DatabaseBusy)
             );
-            c.busy_timeout(Duration::from_millis(wait_ms.try_into().unwrap()))
-                .unwrap();
+            wait_for_commit(c, wait_ms);
             busy_tx.send(()).unwrap();
             let result = resumed_hook(&mut hook, old);
             hook.close().unwrap();

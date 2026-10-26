@@ -1,5 +1,5 @@
 import { commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, commentsAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
@@ -150,7 +150,7 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
       await expect(thread.locator('.thread-state')).toHaveAttribute('title', quote);
       await expect(thread).toContainText(message);
     }
-    await expect(a.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
+    await expect(commentsAction(a)).toBeVisible();
     await (await pageAction(a, 'Comments')).click();
     await expect(a.getByTestId('annotation-row')).toContainText('Quote A.');
     await expect(a.getByTestId('annotation-row')).toHaveCount(1);

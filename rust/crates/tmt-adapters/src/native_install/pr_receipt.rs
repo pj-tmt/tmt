@@ -1,7 +1,7 @@
 //! Durable PR provenance and the single acquisition admission observation.
 
 use super::{
-    OFFICIAL_REPOSITORY, Product, artifact, invalid,
+    Product, artifact, current_or_previous_repository, invalid,
     pr_catalog::{
         ApplicationSchema, Candidate, DatabaseSchema, Eligibility, Producer, git_sha, positive,
     },
@@ -77,7 +77,7 @@ impl PrProvenance {
     ) -> io::Result<()> {
         let identity = self.identity()?;
         self.eligibility.validate()?;
-        if self.repository != OFFICIAL_REPOSITORY
+        if !current_or_previous_repository(&self.repository)
             || !positive(self.repository_id)
             || !positive(self.catalog_artifact_id)
             || !is_sha256(&self.catalog_zip_sha256)

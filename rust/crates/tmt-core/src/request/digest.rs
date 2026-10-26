@@ -177,6 +177,18 @@ impl DigestSource {
     }
 }
 
+/// Membership admitted by the resolved receiving policy. Filtering does not
+/// change the canonical request or its acknowledgment state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DigestSelection {
+    All,
+    /// Source narrowing only; request eligibility remains with the request service.
+    Incoming,
+    UrgentIncoming,
+    Notices,
+    None,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigestState {
     Claimed,
@@ -209,6 +221,31 @@ impl DigestState {
 /// settle it (#4871).
 pub const STALE_HOOK_CLAIM_MS: u64 = 10_000;
 
+/// A summary is terminal notification evidence, never a request-ID reoffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DigestProjection {
+    #[default]
+    Full,
+    IncomingSummary {
+        incoming_count: u64,
+        urgent_count: u64,
+    },
+}
+
+/// Class bits: ordinary = 1, urgent = 2. Membership is never copied here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DigestPendingWake {
+    pub classes: u8,
+    pub held_at_ms: u64,
+    pub checklist_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DigestWakeClock {
+    pub next_admission_ms: u64,
+    pub scan_after_identity_id: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DigestChecklist {
     pub id: String,
@@ -217,6 +254,7 @@ pub struct DigestChecklist {
     pub through_sequence: u64,
     pub state: DigestState,
     pub created_at_ms: u64,
+    pub projection: DigestProjection,
 }
 
 /// Content-free evidence over existing retained checklist records, not an archive.

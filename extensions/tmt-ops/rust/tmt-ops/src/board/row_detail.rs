@@ -1125,6 +1125,8 @@ pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
     };
     let areas = modal.areas(body, [body.width, body.height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+    app.peek_areas
+        .set_dialog(super::app::Overlay::ReplyReader, Some(areas.outer));
     reader.source_area.set(Some(areas.content));
     let mut scroll = reader.scroll.borrow_mut();
     if let Some(selection) = &reader.selection {

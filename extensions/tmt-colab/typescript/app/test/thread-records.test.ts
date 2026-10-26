@@ -1026,3 +1026,50 @@ it("lists a live comment's files in the conversation export by name only and lea
     `- Attachment: ${listed.attachments![0].id} `,
   );
 });
+
+it('keeps a question binding immutable across comment revisions', () => {
+  const own: OwnState = {};
+  put(own, fixture.thread as ThreadRecord);
+  const first = {
+    ...fixture.comment,
+    questionId: '00000000-0000-0000-0000-000000000001',
+  } as CommentRecord;
+  put(own, first);
+  const read = () =>
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    )[0].comments;
+  expect(read()).toHaveLength(1);
+  put(own, { ...first, revision: '2', body: 'Changed answer' });
+  expect(read()[0]).toMatchObject({ body: 'Changed answer', questionId: first.questionId });
+  put(own, { ...first, revision: '2', questionId: '00000000-0000-0000-0000-000000000002' });
+  expect(read()).toEqual([]);
+});
+
+it('question answers bind the ID before publication and preserve it through edits and deletion', async () => {
+  const f = storeFixture();
+  const question = '10000000-0000-4000-8000-000000000001';
+  const first = await f.store.create('First answer', fixture.thread.anchor, undefined, question);
+  const read = () =>
+    readThreads(
+      f.own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
+  expect(read()[0].comments[0].questionId).toBe(question);
+  await f.store.edit(first.message, '1', 'Changed answer');
+  expect(read()[0].comments[0]).toMatchObject({ questionId: question, body: 'Changed answer' });
+  await f.store.reply(first.thread, 'New answer', first.threadRevision, undefined, question);
+  expect(read()[0].comments.map((comment) => comment.questionId)).toEqual([question, question]);
+  await f.store.deleteComment(first.message, '2');
+  expect(read()[0].comments[0]).toMatchObject({ questionId: question, deleted: true });
+  const before = structuredClone(f.own);
+  await expect(
+    f.store.create('Invalid binding', fixture.thread.anchor, undefined, 'bad'),
+  ).rejects.toThrow();
+  expect(f.own).toEqual(before);
+});

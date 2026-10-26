@@ -19,6 +19,8 @@ pub struct ProviderEnvironment {
     path: Vec<PathBuf>,
     /// The non-empty environment variables the registered drivers read.
     vars: BTreeMap<String, PathBuf>,
+    /// Core's data directory, when the invocation boundary resolved it.
+    data_root: Option<PathBuf>,
 }
 
 impl ProviderEnvironment {
@@ -58,7 +60,20 @@ impl ProviderEnvironment {
                 .filter(|(_, value)| !value.as_os_str().is_empty())
                 .map(|(name, value)| (name.to_owned(), value))
                 .collect(),
+            data_root: None,
         }
+    }
+
+    /// Name Core's data directory for readers that keep state of their own. Without it they fall
+    /// back to their provider source alone.
+    #[must_use]
+    pub fn with_data_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.data_root = Some(root.into());
+        self
+    }
+
+    pub fn data_root(&self) -> Option<&Path> {
+        self.data_root.as_deref()
     }
 
     pub fn home(&self) -> &Path {

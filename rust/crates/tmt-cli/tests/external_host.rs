@@ -7,6 +7,8 @@
 // This fixture uses only the shared private command environment.
 #[path = "external_host/caller_session.rs"]
 mod caller_session;
+#[path = "external_host/digest_refusal.rs"]
+mod digest_refusal;
 #[path = "external_host/discovery.rs"]
 mod discovery;
 #[path = "external_host/driver_switch.rs"]
@@ -842,7 +844,7 @@ fn focus_into_is_unsupported_on_external_hosts_without_a_focus_effect() {
 }
 
 #[test]
-fn focus_uuid_survives_rename_and_name_reuse_without_changing_check_routing() {
+fn focus_uuid_survives_rename_and_name_reuse_without_changing_ordinary_check_routing() {
     register();
     let fixture = Fixture::delivering("focus-uuid-rename");
     fixture.approve();
@@ -864,8 +866,16 @@ fn focus_uuid_survives_rename_and_name_reuse_without_changing_check_routing() {
     assert!(fixture.requests("typed").is_empty());
     assert!(fixture.requests("prompted").is_empty());
 
-    // Check retains name routing: this UUID-shaped display name is offline.
-    let checked = fixture.tmt_in(Some("f1"), &["check", id, "--capture-only", "--json"]);
+    // Capture-only selects the recorded UUID despite the colliding display name.
+    let captured = fixture.tmt_in(Some("f1"), &["check", id, "--capture-only", "--json"]);
+    assert!(captured.status.success(), "{captured:?}");
+    let result: Value = serde_json::from_slice(&captured.stdout).unwrap();
+    assert_eq!(result["target"], id);
+    assert_eq!(result["identity"]["name"], "reviewer");
+    assert_eq!(result["pane"], "fake-1");
+
+    // Ordinary check retains name routing: this UUID-shaped display name is offline.
+    let checked = fixture.tmt_in(Some("f1"), &["check", id, "--json"]);
     assert_eq!(checked.status.code(), Some(3), "{checked:?}");
     let failure: Value = serde_json::from_slice(&checked.stdout).unwrap();
     assert_eq!(failure["error"]["code"], "NAME_NOT_FOUND");

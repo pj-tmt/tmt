@@ -226,13 +226,13 @@ export const routes: readonly ShellRoute[] = [
             slot.bar,
             () => sheets.load!(),
             async () => ({
-              landing: async (lifetime, registry) => {
+              landing: async (lifetime, registry, connected) => {
                 const { landingPage } = await import('./browser.js');
-                await landingPage(lifetime, registry);
+                await landingPage(lifetime, registry, connected);
               },
-              settings: async (shell, registry) => {
+              settings: async (shell, registry, initial) => {
                 const { settingsPage } = await import(/* @vite-ignore */ settingsEntry);
-                await settingsPage(shell, registry);
+                return settingsPage(shell, registry, initial);
               },
             }),
           ),

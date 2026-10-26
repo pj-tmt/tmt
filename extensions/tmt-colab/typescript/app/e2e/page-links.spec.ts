@@ -330,7 +330,9 @@ for (const width of [1440, 390])
         await mkdir(directory, { recursive: true });
         await page.screenshot({ path: `${directory}/link-${width}-${theme}.png` });
       }
-      await page.getByRole('heading', { name: 'First page', exact: true }).click();
+      // A press outside the confirmation dismisses it; the bar's empty middle is outside (the page's
+      // title row sits right under the bar, where the confirmation is drawn).
+      await page.locator('.tmt-ui-topbar:visible').click({ position: { x: 190, y: 28 } });
       await expect(bar(page)).toHaveCount(0);
       await forge(page, 'data:text/html,private');
       await expect(bar(page)).toHaveAccessibleName(

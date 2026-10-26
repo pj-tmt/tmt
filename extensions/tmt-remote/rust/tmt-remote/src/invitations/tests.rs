@@ -158,3 +158,37 @@ fn native_possession_does_not_replace_the_original_invitation_code() {
         "native possession cannot substitute for the original invitation MAC key"
     );
 }
+
+#[test]
+fn scoped_firestore_tokens_keep_existing_direction_framing_without_key_export() {
+    let (mut context, candidate, _) = fixture();
+    context.binding.backend = "firestore".into();
+    context.binding.reference = b"demo-invitation-v2".to_vec();
+    context.binding.owner_principal = b"owner-uid".to_vec();
+    let transcript = enrollment(&context, &candidate).unwrap();
+    let response = crypto::response_key(&[4; 16], &transcript).unwrap();
+    let scoped = port::ReceiptKey(response);
+    let (forward, reverse) =
+        crate::cloud_pairing::wire::v2::reroute_tokens(&context, &candidate, &scoped).unwrap();
+    let project = std::str::from_utf8(&context.binding.reference).unwrap();
+    // Independent LP inputs also pin that only the direction part/order differ.
+    let forward_input = canonical::framed(&[
+        b"tmt-cloud-reroute-token-v1",
+        project.as_bytes(),
+        context.owner.as_bytes(),
+        candidate.machine.as_bytes(),
+    ])
+    .unwrap();
+    let reverse_input = canonical::framed(&[
+        b"tmt-cloud-reroute-token-v1",
+        b"reverse",
+        project.as_bytes(),
+        candidate.machine.as_bytes(),
+        context.owner.as_bytes(),
+    ])
+    .unwrap();
+    assert_eq!(forward, crypto::mac(&response, &forward_input));
+    assert_eq!(reverse, crypto::mac(&response, &reverse_input));
+    assert_ne!(forward, reverse);
+    assert_ne!(forward, response);
+}

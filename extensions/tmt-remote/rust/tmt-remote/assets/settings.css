@@ -160,5 +160,12 @@
 .remote-forget { color: var(--tmt-ui-color-blocked); }
 @media (max-width: 650px) {
   .remote-head { flex-direction: column; gap: var(--tmt-ui-space-m); }
-  .remote-head-actions { align-self: flex-end; flex-wrap: wrap; }
+  .remote-head-actions { align-self: flex-start; flex-wrap: wrap; }
 }
+
+/* Domain layout only; tab behavior and visual roles remain the shared static contract. */
+.remote-context { margin-bottom: var(--tmt-ui-space-m); }
+.remote-context > p { margin-bottom: var(--tmt-ui-space-m); }
+#remote-head a[data-variant='primary'] { text-decoration: none; }
+
+.remote-tab-content > .tmt-page { margin-top: 0; }

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 9ba671867c13e45d145e8eac9ed316ef74e283db
+sourceRevision: f26bbb6aeae4289cf558edf386abc524258d836a
 title: Ops：lead、成員與一個 board
 ---
 
@@ -438,7 +438,7 @@ enabled = true
 stale_after = "30m"
 `}</Code>
 
-啟用 Ops 的擴充套件 hook（`tmt extension hooks enable ops`），並透過 `tmt setup` 安裝 provider hook 後，Ops 可以在 lead 下一輪，包括 session 開始時，加入一行簡短的參考資訊。它會指出久未更新的筆記，或久未更新、但之後有相關活動的成員列。先執行 `tmt ops sq ls` 或開啟 board，讓它開始觀察：尚未觀察到任何內容時，不會提醒。[Ops skill](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age)列出了限制。
+啟用 Ops 的擴充套件 hook（`tmt extension hooks enable ops`），並透過 `tmt setup` 安裝 provider hook 後，Ops 可以在 lead 下一輪，包括 session 開始時，加入一行簡短的參考資訊。它會指出久未更新的筆記，或久未更新、但之後有相關活動的成員列。先執行 `tmt ops sq ls` 或開啟 board，讓它開始觀察：尚未觀察到任何內容時，不會提醒。[Ops skill](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md#optional-observed-age)列出了限制。
 
 啟用這些設定不會安裝 provider hook。board 裡的提醒設定是 <Tag kind="planned" />。
 
@@ -494,7 +494,7 @@ $ tmt ops sq rm auth-fix              # 離開 squad；agent 繼續執行
 
 <Mdx.h3 id="reference-tabs-refresh-and-bindings">參考：頁籤、更新與按鍵設定</Mdx.h3>
 
-完整的設定規範在 Ops skill 裡，可以用 `tmt ops skill show` 印出，也可以[在 repository 裡閱讀](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md)。下面是最常用的設定。
+完整的設定規範在 Ops skill 裡，可以用 `tmt ops skill show` 印出，也可以[在 repository 裡閱讀](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md)。下面是最常用的設定。
 
 **頁籤。** 除了 `order` 與 `hide`，`pin` 與 `colors` 也會影響頁籤列：
 

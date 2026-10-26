@@ -9,9 +9,28 @@ const STATUSES: [&str; 5] = ["absent", "current", "renamed", "in-use", "refused"
 /// Runs the phase and returns the document the upgrade reports as
 /// `databaseRename`: a `status`, plus a `reason` when there is one to give.
 pub(super) fn run(executable: &Path, runner: &impl CommandRunner) -> Value {
+    run_step(executable, runner, "__native-rename-database", |value| {
+        let status = value["status"].as_str().unwrap_or_default();
+        let reason = value.get("reason").and_then(Value::as_str);
+        let expected_keys = 1 + usize::from(reason.is_some());
+        STATUSES.contains(&status)
+            && value.as_object().map(|object| object.len()) == Some(expected_keys)
+            && reason.is_some() == (status == "refused")
+    })
+}
+
+/// Runs one internal database step (`command --json`) in the activated
+/// executable and returns its report when `valid` accepts it, else a `failed`
+/// document with the reason. Nothing here fails the upgrade.
+pub(super) fn run_step(
+    executable: &Path,
+    runner: &impl CommandRunner,
+    command: &str,
+    valid: impl FnOnce(&Value) -> bool,
+) -> Value {
     let result = runner.execute(CommandRequest {
         program: executable.as_os_str(),
-        args: &["__native-rename-database".into(), "--json".into()],
+        args: &[command.into(), "--json".into()],
         input: &[],
         deadline: Instant::now() + Duration::from_secs(60),
         max_output_bytes: 16 * 1024,
@@ -42,13 +61,7 @@ pub(super) fn run(executable: &Path, runner: &impl CommandRunner) -> Value {
         let message = value["error"]["message"].as_str().unwrap_or("it failed");
         return failed_document(message);
     }
-    let status = value["status"].as_str().unwrap_or_default();
-    let reason = value.get("reason").and_then(Value::as_str);
-    let expected_keys = 1 + usize::from(reason.is_some());
-    if !STATUSES.contains(&status)
-        || value.as_object().map(|object| object.len()) != Some(expected_keys)
-        || reason.is_some() != (status == "refused")
-    {
+    if !valid(&value) {
         return failed_document("the new executable returned an invalid report");
     }
     value

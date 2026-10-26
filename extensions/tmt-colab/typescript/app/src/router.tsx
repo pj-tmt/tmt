@@ -6,7 +6,6 @@ import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PagePinNotice, PageProjects } from './page-projects.js';
 import type { PagePinRequest, PagePinState } from './pins.js';
-import { SourceEditor } from './source-editor.js';
 import { OwnPublicationTimeout } from './own-publication.js';
 import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
 import {
@@ -33,15 +32,17 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  Eye,
   MessageCircle,
   MessageSquarePlus,
+  MessagesSquare,
   Moon,
   MousePointer2,
   Sun,
 } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
-import { PageAttribution } from './page-attribution.js';
+import { creatorName, PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
 import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
@@ -78,6 +79,7 @@ import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
 import { ColabShell, ShellHostSlot } from './colab-shell.js';
+import { SharedTopBar } from './shared-top-bar.js';
 import {
   embeddedPageEnvironment,
   PageEnvironmentProvider,
@@ -94,6 +96,8 @@ import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
+import { afterResolving, listedThreads, threadKey } from './comments-listing.js';
+import { useShowResolved } from './use-show-resolved.js';
 import type { QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
@@ -116,20 +120,22 @@ import { BrowserDrawer, BrowserPanel } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
-import { useChatDockMotion } from './chat-dock-motion.js';
+import { dockPanel, useDockMotion } from './dock-motion.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import { FilesSurface } from './files-panel.js';
-import { CreatorDefaultProvider } from './creator-default.js';
+import { MetadataDialogs } from './metadata-dialogs.js';
+import { verifiedQuestionStates } from './question-registry.js';
+import { CreatorDefaultProvider, creatorTarget } from './creator-default.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
-import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
-import { usePageEditor } from './use-page-editor.js';
+import { PageSizeSection, usePageSize } from './page-size.js';
+import { SourceDraft } from './use-page-editor.js';
+import { PageSource } from './page-source.js';
 import { usePagePanels } from './use-page-panels.js';
-import { usePanelMode } from './panel-mode.js';
+import { usePanelMode, type PanelMode } from './panel-mode.js';
 import './panel-layout.css';
 import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
-import { SaveNotice } from './save-notice.js';
 
 /** Controls in the page and above it that the floating actions move above, never over: the cards'
  * footers, and the open work band's controls and add-task row, which can fill a phone's viewport. */
@@ -147,6 +153,11 @@ function PageFloatingActions({
   chatUnread,
   chatButton,
   toggleChat,
+  comments,
+  unseen,
+  commentsButton,
+  toggleComments,
+  panelMode,
   canSelect,
   selectPending,
   slots,
@@ -160,6 +171,13 @@ function PageFloatingActions({
   chatUnread: boolean;
   chatButton: Ref<HTMLButtonElement>;
   toggleChat(): void;
+  /** The open threads; absent while the page's threads are still being verified: a place held, not a false 0. */
+  comments?: number;
+  /** Some thread has news for the viewer. */
+  unseen: boolean;
+  commentsButton: Ref<HTMLButtonElement>;
+  toggleComments(): void;
+  panelMode: PanelMode;
   canSelect: boolean;
   /** The button's place while the threads are unverified: fenced, not greyed. */
   selectPending: boolean;
@@ -174,7 +192,8 @@ function PageFloatingActions({
     const workspace = host?.closest('.workspace');
     const place = () => {
       const box = host?.getBoundingClientRect();
-      if (!box) return;
+      // An open panel the dock hides for keeps the place it opens out of and closes back into.
+      if (!box || element.current?.hasAttribute('data-panel-open')) return;
       const margin = innerWidth <= 640 ? 16 : 24;
       // These parent-owned overlays sit outside the renderer host's layout box.
       // Their actual bounds keep the control clear without altering author geometry.
@@ -266,12 +285,39 @@ function PageFloatingActions({
       ref={element}
       className="selection-mode"
       style={placement}
-      data-chat-open={panel === 'chat' ? '' : undefined}
+      data-panel-open={
+        panel === 'chat' || (panel === 'comments' && panelMode !== 'column') ? '' : undefined
+      }
     >
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
       <div className="page-floating-actions">
+        {!enabled && !discussionOpen && (
+          <BrowserIconAction
+            type="button"
+            variant="secondary"
+            label={`${text.comments}${comments === undefined ? '' : ` (${comments})`}${unseen ? ` · ${text.threadUnseen}` : ''}`}
+            buttonRef={commentsButton}
+            expanded={panel === 'comments'}
+            icon={
+              <>
+                <MessagesSquare />
+                {comments !== undefined ? (
+                  <span className="dock-count" data-unseen={unseen || undefined}>
+                    {comments}
+                    {unseen && <span aria-hidden="true">•</span>}
+                  </span>
+                ) : (
+                  <span className="dock-count" data-pending aria-hidden="true" />
+                )}
+              </>
+            }
+            onActivate={(event) => {
+              if (event.isTrusted) toggleComments();
+            }}
+          />
+        )}
         {!enabled && !discussionOpen && (
           <BrowserIconAction
             type="button"
@@ -820,7 +866,7 @@ async function loadSpaceHome({ context }: { context: AppContext }) {
     home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
   );
   // A quick switcher opened later shows this list at once and refreshes it.
-  rememberPages(context.transport, context.space, home.pages, home.projects);
+  rememberPages(context.transport, context.space, home.pages, home.projects, home.projectPins);
   return home;
 }
 const home = createRoute({
@@ -1029,6 +1075,7 @@ export function AppHeader({
   remote,
   headerRef,
   headingSuffix,
+  namedByContent = false,
 }: {
   linked?: boolean;
   title?: string;
@@ -1036,11 +1083,14 @@ export function AppHeader({
   remote?: { deviceName?: string };
   headerRef?: Ref<HTMLElement>;
   headingSuffix?: ReactNode;
+  /** The page's own content carries its heading: the shared bar's title row would repeat it. */
+  namedByContent?: boolean;
 }) {
+  const sharedBar = useContext(SharedTopBar);
   return (
     <ColabHeader
       title={title}
-      titleVisible={titleVisible}
+      titleVisible={titleVisible && !(namedByContent && sharedBar)}
       headerRef={headerRef}
       remote={remote}
       headingSuffix={headingSuffix}
@@ -1053,7 +1103,7 @@ export function AppHeader({
             )
           : undefined
       }
-      actions={<ThemeButton />}
+      actions={sharedBar ? undefined : <ThemeButton />}
     />
   );
 }
@@ -1079,6 +1129,8 @@ function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
+  // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
+  const ownShell = useContext(ShellHostSlot) === null;
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -1086,7 +1138,8 @@ function Shell() {
         space={space}
         pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
         routeKey={pathname}
-        allowed={isPage || isHome}
+        allowed={ownShell || isPage || isHome}
+        shortcut={!ownShell}
         navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
         pageHref={(pageId) =>
           router.history.createHref(
@@ -1268,6 +1321,7 @@ function OpenPage({
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
+  const titleRow = useRef<HTMLDivElement>(null);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -1300,13 +1354,15 @@ function OpenPage({
     setActiveThread,
   } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
-  useChatDockMotion(panel === 'chat');
+  const floatingComments = useRef<HTMLButtonElement>(null);
+  useDockMotion(dockPanel(panel), panelMode);
   const activateChat = useRef<() => boolean>(() => false);
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
   const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
   const openProjects = (from?: DOMRect) =>
     setProjects((previous) => ({ request: previous.request + 1, from }));
+  const [metadataDialog, setMetadataDialog] = useState<'creator' | 'questions' | null>(null);
   const [pin, setPin] = useState<PagePinState>();
   const [pinRequest, setPinRequest] = useState<PagePinRequest>();
   const requestPin = (action: PagePinRequest['action']) =>
@@ -1320,6 +1376,9 @@ function OpenPage({
     source: snapshot.source,
     title: snapshot.title,
     originalAuthor: snapshot.originalAuthor,
+    creator: snapshot.creator,
+    questions: snapshot.questions,
+    creationRecipient: snapshot.creationRecipient,
     layout: snapshot.layout,
     layoutReason: snapshot.layoutReason,
     publisherAgent: snapshot.publisherAgent,
@@ -1340,22 +1399,8 @@ function OpenPage({
   }, [space, snapshot.id]);
   const latest = useRef(view);
   const size = usePageSize(snapshot.binding);
-  const {
-    draft,
-    changed: draftChanged,
-    saving,
-    error: editError,
-    merged,
-    copied,
-    sourceArea,
-    saveSettled,
-    adoptSnapshot,
-    adoptUpdate,
-    save,
-    copyDraft,
-    compactFromRefusal,
-    type: typeSource,
-  } = usePageEditor({ snapshot, latest, size });
+  // The Source draft lives outside the route's state: only the Source drawer renders as it changes.
+  const [sourceDraft] = useState(() => new SourceDraft(snapshot));
   const { state: connection, controller: connectionOwner } = useConnection({
     loaded,
     binding: () => snapshot.binding,
@@ -1387,7 +1432,7 @@ function OpenPage({
     wasArchived.current = archived;
   }, [archived]);
   useEffect(() => {
-    adoptSnapshot(snapshot);
+    sourceDraft.adoptSnapshot(snapshot);
     setView({
       discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
@@ -1397,6 +1442,9 @@ function OpenPage({
       source: snapshot.source,
       title: snapshot.title,
       originalAuthor: snapshot.originalAuthor,
+      creator: snapshot.creator,
+      questions: snapshot.questions,
+      creationRecipient: snapshot.creationRecipient,
       layout: snapshot.layout,
       layoutReason: snapshot.layoutReason,
       publisherAgent: snapshot.publisherAgent,
@@ -1422,14 +1470,14 @@ function OpenPage({
         }
         latest.current = next;
         setView(next);
-        adoptUpdate(value.source);
+        sourceDraft.adoptUpdate(value.source);
       },
       (error) => connectionOwner.report(error),
     );
     return () => {
       unsubscribe?.();
     };
-  }, [snapshot, loaded, transport, connectionOwner, replyObserver, adoptSnapshot, adoptUpdate]);
+  }, [snapshot, loaded, transport, connectionOwner, replyObserver, sourceDraft]);
   const refreshSize = size.refresh;
   useEffect(() => {
     if (panel === 'about' || panel === 'source') void refreshSize();
@@ -1503,14 +1551,22 @@ function OpenPage({
   // The Discussion header's arrows walk the threads in the order of their numbers, the order of the
   // position it shows.
   const [resolveSlot, setResolveSlot] = useState<HTMLElement | null>(null);
-  const neighbour = (offset: -1 | 1) => {
-    if (activeThread === null) return undefined;
-    const ordered = [...numbers.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
-    const next = ordered[ordered.indexOf(activeThread) + offset];
-    return next === undefined
-      ? undefined
-      : (view.threads ?? []).find((thread) => `${thread.ref.writer}:${thread.threadId}` === next);
-  };
+  // The panel lists and walks the open threads; Show resolved (kept on this device) adds the rest.
+  const [showResolved, setShowResolved] = useShowResolved();
+  const listed = useMemo(
+    () => listedThreads(view.threads ?? [], numbers, showResolved, activeThread),
+    [view.threads, numbers, showResolved, activeThread],
+  );
+  const [advanceFrom, setAdvanceFrom] = useState<string | null>(null);
+  useEffect(() => {
+    if (advanceFrom === null || changingStatus) return;
+    setAdvanceFrom(null);
+    if (activeThread === advanceFrom)
+      openThread(afterResolving(view.threads ?? [], numbers, advanceFrom)?.ref ?? null);
+  }, [advanceFrom, changingStatus, activeThread, view.threads, numbers, openThread]);
+  const position =
+    activeThread === null ? -1 : listed.findIndex((t) => threadKey(t) === activeThread);
+  const neighbour = (offset: -1 | 1) => (position < 0 ? undefined : listed[position + offset]);
   const openNeighbour = (offset: -1 | 1) => {
     const thread = neighbour(offset);
     if (thread) openThread(thread.ref);
@@ -1521,6 +1577,9 @@ function OpenPage({
   const statusCoordinator =
     archived || liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // Counts sources the open frame applied in place (#5022): what the page draws over the frame is
+  // placed again for each, as it is when a fresh frame becomes ready.
+  const [contentRevision, setContentRevision] = useState(0);
   const accessLabel = archived
     ? text.archiveReadOnly
     : recoveryRequired
@@ -1629,6 +1688,7 @@ function OpenPage({
     renderer,
     host,
     state,
+    contentRevision,
     discussionBlocked,
     statusCoordinator,
     connectionPresentation,
@@ -1658,6 +1718,7 @@ function OpenPage({
     renderer,
     setState,
     toolbar,
+    titleRow,
     anchor,
     layers: {
       onSlots: inlineSlots.onSlots,
@@ -1666,6 +1727,7 @@ function OpenPage({
     },
     resetPageLinks,
     requestPageLink,
+    onContentApplied: () => setContentRevision((count) => count + 1),
     handlers: {
       onSelection,
       onAnnotate: annotate,
@@ -1737,7 +1799,7 @@ function OpenPage({
       threadTotal,
       quietThread,
     );
-  }, [state, anchoredThreads, annotation, threadTotal, quietThread]);
+  }, [state, contentRevision, anchoredThreads, annotation, threadTotal, quietThread]);
   // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.
@@ -1749,7 +1811,7 @@ function OpenPage({
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.select(openThreadId);
-  }, [state, anchoredThreads, openThreadId]);
+  }, [state, contentRevision, anchoredThreads, openThreadId]);
   // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
   // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
   const endedNotice = endedError && (
@@ -1810,6 +1872,18 @@ function OpenPage({
       return true;
     },
   });
+  const showResolvedToggle = (
+    <BrowserIconAction
+      type="button"
+      variant="text"
+      label={text.showResolved}
+      icon={<Eye />}
+      pressed={showResolved}
+      onActivate={(event) => {
+        if (event.isTrusted) setShowResolved(!showResolved);
+      }}
+    />
+  );
   const content = (
     <section className="page">
       <BrowserNotifications
@@ -1843,7 +1917,8 @@ function OpenPage({
           />
         }
         crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
-        headerRef={toolbar}
+        barRef={toolbar}
+        rowRef={titleRow}
         title={view.title || snapshot.title || text.unknownPageTitle}
         remote={{ deviceName: transport.backendName }}
         caption={
@@ -1864,20 +1939,35 @@ function OpenPage({
                       item.kind === 'reading' ? { read: item.id } : undefined,
                     )
                   }
-                  items={pendingNeedsYou([
-                    ...proposalLayer.navigation,
-                    ...readingLayer.items
-                      .filter((item) => inlineSlots.readingIds.has(item.id))
-                      .map((item) => ({
-                        ...item,
-                        kind: 'reading' as const,
-                        agents: [
-                          readings.find((reading) => reading.id === item.id)?.agent ?? '',
-                        ].filter(Boolean),
-                      })),
-                    ...questionLayer.navigation,
-                    ...reviewLayer.navigation,
-                  ])}
+                  items={pendingNeedsYou(
+                    [
+                      ...proposalLayer.navigation,
+                      ...readingLayer.items
+                        .filter((item) => inlineSlots.readingIds.has(item.id))
+                        .map((item) => ({
+                          ...item,
+                          kind: 'reading' as const,
+                          agents: [
+                            readings.find((reading) => reading.id === item.id)?.agent ?? '',
+                          ].filter(Boolean),
+                        })),
+                      ...(view.questions === undefined
+                        ? questionLayer.navigation
+                        : (verifiedQuestionStates(view) ?? [])
+                            .filter((question) => question.state === 'open')
+                            .map((question) => ({
+                              kind: 'answer' as const,
+                              state: 'unanswered' as const,
+                              id: question.id,
+                              title: question.title ?? question.id,
+                              agents: [
+                                question.agent?.name ?? view.creator?.agent.name ?? '',
+                              ].filter(Boolean),
+                            }))),
+                      ...reviewLayer.navigation,
+                    ],
+                    view.questions !== undefined,
+                  )}
                   onPick={(item) => {
                     if (item.kind === 'proposal') {
                       if (!proposalLayer.jump(item.id)) {
@@ -1885,8 +1975,10 @@ function OpenPage({
                         if (ref) openThread(ref);
                       }
                     } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
-                    else if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
-                    else if (item.kind === 'review') reviewLayer.jump(item.id);
+                    else if (item.kind === 'answer') {
+                      if (!questionLayer.open(item.targetId ?? item.id))
+                        setMetadataDialog('questions');
+                    } else if (item.kind === 'review') reviewLayer.jump(item.id);
                   }}
                 />
               )}
@@ -1920,10 +2012,7 @@ function OpenPage({
         }
         actions={
           <PageHeaderActions
-            comments={openThreads}
             files={fileCount}
-            unseen={unseenThreads}
-            chatUnread={notifications.chatUnread}
             readOnly={archived}
             access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
             canExport={!!snapshot.binding && !liveError && !archived}
@@ -1931,13 +2020,24 @@ function OpenPage({
             canFiles={!!snapshot.binding?.files}
             canProjects={!!transport.management}
             pin={pin}
+            creatorLabel={creatorName(view)}
             onSelect={(action) => {
-              if (action === 'projects') openProjects(moreButtonRect());
+              if (action === 'creator' || action === 'questions') {
+                close();
+                setMetadataDialog(action);
+              } else if (action === 'projects') openProjects(moreButtonRect());
               else if (action === 'pin') requestPin('toggle');
               else toggle(action);
             }}
           />
         }
+      />
+      <MetadataDialogs
+        key={snapshot.id}
+        kind={metadataDialog}
+        view={view}
+        binding={snapshot.binding}
+        onDismiss={() => setMetadataDialog(null)}
       />
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
       <p role="status" className="archive-announcement tmt-ui-visually-hidden">
@@ -1975,6 +2075,8 @@ function OpenPage({
         <section aria-labelledby="about-author-heading">
           <h3 id="about-author-heading">{text.aboutAuthor}</h3>
           <PageAttribution
+            creator={view.creator}
+            creationRecipient={view.creationRecipient}
             originalAuthor={view.originalAuthor}
             publisherAgent={view.publisherAgent}
           />
@@ -2064,7 +2166,7 @@ function OpenPage({
                   if (event.isTrusted) openThread(null);
                 }}
               >
-                {text.discussionPosition(numbers.get(activeThread!)!, numbers.size)}
+                {text.discussionPosition(position + 1, listed.length)}
               </button>
             ) : undefined
           }
@@ -2091,9 +2193,12 @@ function OpenPage({
                     if (event.isTrusted) openNeighbour(1);
                   }}
                 />
+                {showResolvedToggle}
                 <span className="discussion-header-slot" ref={setResolveSlot} />
               </>
-            ) : undefined
+            ) : (
+              showResolvedToggle
+            )
           }
           data-panel="comments"
           data-discussion={discussedThread || undefined}
@@ -2123,12 +2228,13 @@ function OpenPage({
               connectionPresentation={connectionPresentation}
               archived={archived}
               reopenProposal={proposalLayer.reopenProposal}
-              creationRecipient={view.creationRecipient}
+              creationRecipient={creatorTarget(view)}
               hideHeader
               numbers={numbers}
               renderProposal={proposalLayer.renderProposal}
               key={`discussion:${snapshot.id}:${draftsReady}`}
               threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
+              showResolved={showResolved}
               resolved={resolved}
               anchorsChecked={anchorsChecked}
               selection={selector}
@@ -2148,7 +2254,14 @@ function OpenPage({
               presentations={view.threadPresentations}
               onStatusChange={
                 statusCoordinator
-                  ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+                  ? async (thread, resolved) => {
+                      const outcome = await statusCoordinator.change(thread, resolved);
+                      // With resolved threads hidden, resolving the one being viewed moves on to the
+                      // next open thread, or to the list's empty state, once the change has settled.
+                      if (outcome.changed && resolved && !showResolved)
+                        setAdvanceFrom(threadKey(thread));
+                      return outcome;
+                    }
                   : undefined
               }
               onBusy={(busy) => {
@@ -2173,6 +2286,11 @@ function OpenPage({
           chatUnread={notifications.chatUnread}
           chatButton={floatingChat}
           toggleChat={() => toggle('chat')}
+          comments={openThreads}
+          unseen={unseenThreads}
+          commentsButton={floatingComments}
+          toggleComments={() => toggle('comments')}
+          panelMode={panelMode}
           canSelect={canSelect}
           selectPending={selectPending}
         />
@@ -2274,7 +2392,7 @@ function OpenPage({
                         connectionPresentation={connectionPresentation}
                         archived={archived}
                         creationRecipient={
-                          annotationThread?.proposal?.proposer ?? view.creationRecipient
+                          annotationThread?.proposal?.proposer ?? creatorTarget(view)
                         }
                         binding={snapshot.binding.ask}
                         discussion={snapshot.binding.discussion}
@@ -2319,91 +2437,22 @@ function OpenPage({
           files={snapshot.binding.files}
           readOnly={archived}
           disabled={!!liveError}
-          afterSave={() => saveSettled.current ?? Promise.resolve(true)}
+          afterSave={() => sourceDraft.saveSettled ?? Promise.resolve(true)}
         />
       )}
-      <BrowserDrawer
+      <PageSource
+        draft={sourceDraft}
+        binding={snapshot.binding}
+        latest={latest}
+        size={size}
+        open={panel === 'source'}
         notice={endedNotice}
         focusFallback={environment.focusFallback}
-        open={panel === 'source'}
-        title={text.source}
-        panel="source"
-        width="wide"
-        headerActions={
-          snapshot.binding &&
-          !archived && (
-            <BrowserAction
-              type="button"
-              variant="primary"
-              label={text.save}
-              visibleLabel={text.sourceSave}
-              busy={saving}
-              busyMark={<BusyMark />}
-              disabled={!!liveError || !draftChanged}
-              onActivate={() => void save()}
-            />
-          )
-        }
+        archived={archived}
+        disabled={!!liveError}
         onDismiss={() => close()}
-      >
-        <SourceEditor
-          changed={draftChanged}
-          editor={{
-            ref: sourceArea,
-            readOnly: archived || !snapshot.binding || saving || !!liveError,
-            value: draft,
-            onChange: (event) => typeSource(event.target.value),
-          }}
-        >
-          {/* Save problems take priority over routine usage in this one notice slot. */}
-          {editError ? (
-            <SaveNotice
-              problem={editError}
-              actions={
-                editError.full === 'compact' ? (
-                  <BrowserAction
-                    type="button"
-                    label={text.pageSize.compact}
-                    variant="text"
-                    disabled={size.compacting}
-                    onActivate={() => void compactFromRefusal()}
-                  />
-                ) : editError.full === 'export' ? (
-                  <BrowserAction
-                    type="button"
-                    label={text.pageSize.export}
-                    variant="text"
-                    onActivate={() => show('export')}
-                  />
-                ) : editError.conflict ? (
-                  <>
-                    <BrowserAction
-                      type="button"
-                      label={text.saveCopyDraft}
-                      variant="text"
-                      onActivate={(event) => {
-                        if (event.isTrusted) copyDraft();
-                      }}
-                    />
-                    {copied && (
-                      <span role="status">
-                        {copied === 'copied' ? text.saveDraftCopied : text.saveDraftNotCopied}
-                      </span>
-                    )}
-                  </>
-                ) : undefined
-              }
-            />
-          ) : (
-            <PageSizeNotice size={size} exportPage={() => show('export')} />
-          )}
-          {merged && !editError && (
-            <div className="source-notice">
-              <p role="status">{text.saveMerged}</p>
-            </div>
-          )}
-        </SourceEditor>
-      </BrowserDrawer>
+        exportPage={() => show('export')}
+      />
       <BrowserDrawer
         notice={endedNotice}
         focusFallback={environment.focusFallback}
@@ -2441,7 +2490,7 @@ function OpenPage({
             <ChatPanel
               connectionPresentation={connectionPresentation}
               archived={archived}
-              creationRecipient={view.creationRecipient}
+              creationRecipient={creatorTarget(view)}
               key={`chat:${snapshot.id}:${draftsReady}`}
               initialEdit={drafts.current.get(CHAT_DRAFT)}
               activation={
@@ -2514,6 +2563,7 @@ function OpenPage({
                 <AppHeader
                   title={view.title || snapshot.title}
                   remote={{ deviceName: transport.backendName }}
+                  namedByContent
                 />
                 <main className="canvas">
                   {(view.shell || !endedError) && (

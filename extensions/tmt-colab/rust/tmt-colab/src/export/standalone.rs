@@ -19,11 +19,6 @@ pub const DERIVED_FROM: &str = "page.html";
 /// runtime is one bundle, so either loads all of it); unknown tokens are ignored.
 const TOKENS: [&str; 2] = ["react", "tailwind"];
 const MARKER: &str = "tmt-colab-runtime";
-/// A source that contains any of these, ignoring ASCII case, uses the design system. A plain text
-/// test with no parsing: the renderer frame makes the same one to paint the page, and
-/// `vectors/design-marker-v1.json` pins the frame's, the browser export's and this one.
-const DESIGN_MARKERS: [&str; 3] = ["tmt-ui-", "<tmt-icon", "tmt-starter"];
-
 /// The theme follows `data-theme` only, so the copy sets it from the system colour scheme and
 /// follows changes, the way Colab's own pages follow the app theme. The browser build holds the
 /// same text.
@@ -100,14 +95,7 @@ pub fn wants_runtime(source: &str) -> Result<bool, page_check::TooDeep> {
     }))
 }
 
-/// Whether `source` uses the design system: it contains `tmt-ui-`, `<tmt-icon` or `tmt-starter`,
-/// ignoring ASCII case. The same cases run in the app and the renderer frame
-/// (`vectors/design-marker-v1.json`).
-#[must_use]
-pub fn uses_design(source: &str) -> bool {
-    let lower = source.to_ascii_lowercase();
-    DESIGN_MARKERS.iter().any(|marker| lower.contains(marker))
-}
+pub use crate::page_check::uses_design;
 
 /// The renderer frame's policy without its `sandbox` directive, the one a `<meta>` cannot carry:
 /// the copy gains no network when it is opened from disk, but it is not sandboxed.

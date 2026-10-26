@@ -43,7 +43,10 @@ if args[:3]==['identity','show','--json'] and args[3].startswith('--expect-name=
         print(json.dumps({'error':{'code':'IDENTITY_CHANGED','message':'changed'}}));sys.exit(5)
     print(json.dumps({'identity':dict(row,presence='offline')}));sys.exit(0)
 if args[:4]==['identity','show','--json','--']:
-    rows=[r for r in json.loads((root/'identities').read_text())['identities'] if r['name']==args[4] and not r.get('retired',False)]
+    selector=args[4]
+    try: by_id=str(uuid.UUID(selector))==selector
+    except ValueError: by_id=False
+    rows=[r for r in json.loads((root/'identities').read_text())['identities'] if r['id' if by_id else 'name']==selector and not r.get('retired',False)]
     if len(rows)!=1:
         code='NAME_NOT_FOUND' if not rows else 'NAME_AMBIGUOUS'
         print(json.dumps({'error':{'code':code,'message':'name refused'}}));sys.exit(1)
@@ -51,7 +54,10 @@ if args[:4]==['identity','show','--json','--']:
 if args==['identity','list','--json']:
     print((root/'identities').read_text());sys.exit(0)
 if args[0]=='check':
-    print(json.dumps({'target':args[1],'pane':'%fixture','lines':int(args[-1]),'output':'bounded capture'}));sys.exit(0)
+    assert args[1:3]==['--capture-only','--json']
+    separator=args.index('--');assert separator==len(args)-2
+    lines=int(args[args.index('--lines')+1]) if '--lines' in args[:separator] else 20
+    print(json.dumps({'target':args[-1],'pane':'%fixture','lines':lines,'output':'bounded capture'}));sys.exit(0)
 wire=json.load(sys.stdin)
 receipt_file=root/('receipt-'+wire.get('input',{}).get('operationId','') if (root/'multi').exists() else 'receipt')
 with (root/'calls').open('a') as f: f.write(json.dumps(wire)+'\n')

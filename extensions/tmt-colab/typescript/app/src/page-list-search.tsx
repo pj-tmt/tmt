@@ -287,6 +287,8 @@ export interface PageListSearchProps {
   /** Suggestions retain first refusal; consuming this original event skips list defaults. */
   onUnhandledKeyDown?(event: KeyboardEvent<HTMLDivElement>): void;
   placeholder?: string;
+  /** The field's accessible name; the page list's own by default. */
+  label?: string;
 }
 
 /** The shared rich input with `project:` and `by:` tokens; the page list owns what the draft means. */
@@ -300,7 +302,7 @@ export function PageListSearch(props: PageListSearchProps) {
         document={searchDocument}
         extension={extension}
         disabled={false}
-        label={text.pageList.searchLabel}
+        label={props.label ?? text.pageList.searchLabel}
       >
         <SearchField {...props} />
       </RichInput>
@@ -389,7 +391,7 @@ function SearchField(props: PageListSearchProps) {
   }
   return (
     <Listbox
-      label={text.pageList.searchLabel}
+      label={props.label ?? text.pageList.searchLabel}
       options={options}
       value=""
       onChange={choose}
@@ -398,7 +400,7 @@ function SearchField(props: PageListSearchProps) {
         onOpenChange: setOpen,
         render: (trigger) => (
           <SearchControl
-            label={text.pageList.searchLabel}
+            label={props.label ?? text.pageList.searchLabel}
             placeholder={props.placeholder ?? text.pageList.searchPlaceholder}
             disabled={false}
             className="page-list-search-field"

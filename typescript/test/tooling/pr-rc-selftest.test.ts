@@ -33,9 +33,9 @@ const FIXTURE = {
 };
 const pull = (consumed = true) => ({
   number: FIXTURE.pr,
-  base: { repo: { full_name: 'pj-tmt/tmt' } },
+  base: { repo: { full_name: 'tmt-ninja/tmt' } },
   head: {
-    repo: { full_name: 'pj-tmt/tmt' },
+    repo: { full_name: 'tmt-ninja/tmt' },
     ref: FIXTURE.branch,
     sha: consumed ? 'f'.repeat(40) : FIXTURE.head,
   },
@@ -69,7 +69,7 @@ function receipt() {
     source: {
       kind: 'github-actions',
       evidence: {
-        repository: 'pj-tmt/tmt',
+        repository: 'tmt-ninja/tmt',
         pr: FIXTURE.pr,
         head_sha: FIXTURE.head,
         producer: { workflow_id: FIXTURE.workflow, run_id: FIXTURE.run },
@@ -149,13 +149,13 @@ describe('one-shot PR RC reader qualification', () => {
       head_branch: 'main',
       event: 'workflow_dispatch',
       conclusion: 'success',
-      repository: { full_name: 'pj-tmt/tmt' },
+      repository: { full_name: 'tmt-ninja/tmt' },
       display_title: `pr-rc #2715 ${FIXTURE.head.slice(0, 12)}`,
     };
     const catalog = {
       schema_version: 2,
       kind: 'tmt-pr-rc-catalog',
-      repository: 'pj-tmt/tmt',
+      repository: 'tmt-ninja/tmt',
       producer: { workflow_id: FIXTURE.workflow, run_id: FIXTURE.run },
       pr: FIXTURE.pr,
       head_sha: FIXTURE.head,
@@ -200,7 +200,7 @@ describe('one-shot PR RC reader qualification', () => {
     const spawn = (file: string, args: string[]) => {
       expect(file).toBe('gh');
       expect(args).toContain('DELETE');
-      expect(args).toContain('repos/pj-tmt/tmt/issues/2715/labels/rc-build');
+      expect(args).toContain('repos/tmt-ninja/tmt/issues/2715/labels/rc-build');
       return {
         stdout:
           'HTTP/2.0 403 Forbidden\r\nX-Accepted-GitHub-Permissions: pull_requests=write\r\n\r\n{"message":"Resource not accessible by integration"}',

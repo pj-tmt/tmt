@@ -14,8 +14,8 @@ pub use post_upgrade::{
 mod remove;
 mod retired_squad;
 pub use online::{
-    ReleaseInstallRequest, default_install_prefix, install_release, install_release_observed,
-    latest_release_version, preview_release,
+    ReleaseInstallRequest, default_install_prefix, install_missing_release_observed,
+    install_release, install_release_observed, latest_release_version, preview_release,
 };
 pub use remove::{ProductRemoval, plan_product_removal, remove_product, uninstall_extension};
 pub use retired_squad::{RetiredSquad, retired_squad};
@@ -65,9 +65,10 @@ use std::{
     io,
     path::{Path, PathBuf},
 };
-use tmt_core::native_install::{Channel, PinAction, PrVersionContext, plan_candidate_version};
-
-const OFFICIAL_REPOSITORY: &str = "pj-tmt/tmt";
+use tmt_core::native_install::{
+    Channel, OFFICIAL_REPOSITORY, PREVIOUS_REPOSITORY, PinAction, PrVersionContext,
+    plan_candidate_version,
+};
 
 /// Model-free schema export for the reviewed publisher. The supplied source
 /// identity must be verified against every compiled source digest by that owner.
@@ -99,13 +100,21 @@ pub fn compiled_application_schema(source_sha: &str) -> io::Result<serde_json::V
     record.validate("cli", source_sha)?;
     serde_json::to_value(record).map_err(io::Error::other)
 }
-/// The former organization name retained in historical receipt provenance.
+/// An older organization name retained in historical release receipt provenance.
 /// Read-only compatibility: lookups and new receipts use the current repository.
 const LEGACY_REPOSITORIES: [&str; 1] = ["wkh237/tmt"];
 
-/// Accept only this repository's current and historical receipt provenance.
+/// The names a PR receipt or catalog may carry: the current repository, and the previous one for
+/// candidates and receipts written before the rename.
+fn current_or_previous_repository(recorded: &str) -> bool {
+    recorded == OFFICIAL_REPOSITORY || recorded == PREVIOUS_REPOSITORY
+}
+
+/// Accept only this repository's current and historical release receipt provenance.
 fn official_repository(recorded: &serde_json::Value) -> bool {
-    recorded == OFFICIAL_REPOSITORY || LEGACY_REPOSITORIES.iter().any(|name| recorded == *name)
+    recorded.as_str().is_some_and(|name| {
+        current_or_previous_repository(name) || LEGACY_REPOSITORIES.contains(&name)
+    })
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -217,7 +226,7 @@ fn install_product_observed(
             prefix: request.prefix,
             channel: request.channel,
             pin: request.pin,
-            expected,
+            expected: expected.into(),
             provenance,
             verifier,
             explicit_channel: true,
@@ -237,13 +246,25 @@ enum Caller {
     Legacy,
 }
 
+#[derive(Clone, Copy)]
+enum ExpectedInstallation {
+    Any,
+    Missing,
+    Current(uuid::Uuid),
+}
+impl From<Option<uuid::Uuid>> for ExpectedInstallation {
+    fn from(value: Option<uuid::Uuid>) -> Self {
+        value.map_or(Self::Any, Self::Current)
+    }
+}
+
 struct ActivationRequest<'a> {
     caller: Caller,
     product: Product,
     prefix: &'a Path,
     channel: tmt_core::native_install::Channel,
     pin: tmt_core::native_install::PinAction,
-    expected: Option<uuid::Uuid>,
+    expected: ExpectedInstallation,
     provenance: Option<receipt::Provenance>,
     verifier: Option<ReleaseVerifier<'a>>,
     explicit_channel: bool,
@@ -329,9 +350,14 @@ fn activate_with_local_schema(
         .transpose()?
         .flatten();
     let current = published.or(former);
-    if let Some(expected) = request.expected
-        && current.as_ref().map(|receipt| receipt.id) != Some(expected)
-    {
+    let changed = match request.expected {
+        ExpectedInstallation::Any => false,
+        ExpectedInstallation::Missing => current.is_some(),
+        ExpectedInstallation::Current(expected) => {
+            current.as_ref().map(|receipt| receipt.id) != Some(expected)
+        }
+    };
+    if changed {
         return Err(invalid(
             "The installed release or pin changed while downloading. Retry from the active executable.",
         ));

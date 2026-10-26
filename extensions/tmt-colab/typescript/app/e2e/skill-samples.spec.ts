@@ -70,13 +70,14 @@ test('the references carry their samples', () => {
   expect(references.length).toBeGreaterThanOrEqual(11);
 });
 
-test('the templates are the five documented starting pages', () => {
+test('the templates are the six documented starting pages', () => {
   expect(templates.map((t) => [t.capture, t.layout])).toEqual([
     ['board', 'full'],
     ['compare', 'column'],
     ['gallery', 'column'],
     ['report', 'column'],
     ['review', 'column'],
+    ['starter', 'column'],
   ]);
   for (const { source } of templates) expect(source).not.toContain('{{');
 });

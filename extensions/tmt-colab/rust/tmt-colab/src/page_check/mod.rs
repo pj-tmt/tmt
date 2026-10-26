@@ -9,6 +9,7 @@
 
 mod anchors;
 mod group;
+mod hints;
 mod image;
 pub(crate) use anchors::SummaryAnchors;
 mod question;
@@ -17,13 +18,21 @@ mod review;
 mod tree;
 mod ui;
 
+pub use hints::{Hint, uses_design};
 pub(crate) use image::repair_references;
+
+/// The existing markup UUID grammar, also used by editor-owned registration.
+pub fn valid_question_id(value: &str) -> bool {
+    question::is_uuid(value)
+}
 
 use crate::decoder::BASELINE_BYTES;
 
 /// What a finding means for the block it names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
+    /// Publication is refused regardless of `--strict`; rendering alone does not admit it.
+    Blocking,
     /// The browser drops the block today.
     Ignored,
     /// The block is admitted, but something is off.
@@ -34,6 +43,7 @@ impl Severity {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Severity::Blocking => "blocking",
             Severity::Ignored => "ignored",
             Severity::Warning => "warning",
         }
@@ -43,6 +53,8 @@ impl Severity {
 /// One thing wrong with one element, with a stable reason code.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
+    /// A command repair when the finding depends on the current page's registered metadata.
+    pub fix: Option<String>,
     /// Lowercase tag name, and the 1-based index among elements with that tag in document order.
     pub element: String,
     pub ordinal: usize,
@@ -79,6 +91,16 @@ pub struct Question {
     /// The group report label (authored `data-label`, else `Q<n>` by admitted order); `None` for
     /// a lone question.
     pub label: Option<String>,
+}
+
+/// Every authored question block, including blocks ignored by markup admission. Registry checks
+/// reuse the same parsed tree and never lose a mismatch just because another shape rule failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuestionBlock {
+    pub id: String,
+    pub agent: String,
+    pub line: u64,
+    pub ordinal: usize,
 }
 
 /// What the page shows as one set of controls: a `tmt-questions` group, or a lone question as an
@@ -125,6 +147,7 @@ pub struct Reference {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {
+    pub question_sources: Vec<QuestionBlock>,
     /// The questions the page shows.
     pub questions: Vec<Question>,
     /// The groups the page shows, in document order, lone questions as internal groups.
@@ -140,11 +163,24 @@ pub struct Report {
     /// How many `tmt-review` blocks the source holds, shown or not.
     pub review_blocks: usize,
     pub findings: Vec<Finding>,
+    /// Advice that blocks nothing (see `hints`).
+    pub hints: Vec<Hint>,
     /// Each distinct well-formed reference once, in document order.
     pub references: Vec<Reference>,
 }
 
 impl Report {
+    /// Page-backed comparison is explicit: the ordinary offline checker reads no registry.
+    pub fn check_registry(
+        &mut self,
+        meta: &serde_json::Value,
+        page: &str,
+        identities: Option<&crate::question_registry::Identities>,
+    ) {
+        let findings = crate::question_registry::findings(self, meta, page, identities);
+        self.findings.extend(findings);
+        self.sort();
+    }
     /// Findings in a stable order: by line, then element, ordinal and code.
     fn sort(&mut self) {
         self.findings.sort_by(|a, b| {
@@ -163,6 +199,7 @@ impl Report {
                 _ => "attachment-ref-ambiguous",
             };
             self.findings.push(Finding {
+                fix: None,
                 element: "img".to_owned(),
                 ordinal: reference.ordinal,
                 id: None,
@@ -194,6 +231,7 @@ pub fn check(source: &str) -> Result<Report, SourceTooLarge> {
         Err(deep) => {
             return Ok(Report {
                 findings: vec![Finding {
+                    fix: None,
                     element: deep.name,
                     ordinal: deep.ordinal,
                     id: deep.id,
@@ -206,7 +244,9 @@ pub fn check(source: &str) -> Result<Report, SourceTooLarge> {
             });
         }
     };
-    Ok(inspect(&tree))
+    let mut report = inspect(&tree);
+    report.hints = hints::of(source, &tree);
+    Ok(report)
 }
 
 /// A source nested past the depth where a browser's parse and ours stop agreeing.
@@ -254,7 +294,19 @@ fn inspect(tree: &tree::Tree) -> Report {
             (*id, *count)
         })
         .collect();
-    let mut report = Report::default();
+    let mut report = Report {
+        question_sources: ordinals
+            .iter()
+            .filter(|(id, _)| tree.name(*id) == "tmt-question")
+            .map(|(id, ordinal)| QuestionBlock {
+                id: tree.attr(*id, "data-id").unwrap_or_default().to_owned(),
+                agent: tree.attr(*id, "data-agent").unwrap_or_default().to_owned(),
+                line: tree.line(*id),
+                ordinal: *ordinal,
+            })
+            .collect(),
+        ..Report::default()
+    };
     question::check(tree, &ordinals, &mut report);
     let images: Vec<(tree::Id, usize)> = ordinals
         .iter()

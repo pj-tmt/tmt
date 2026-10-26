@@ -207,3 +207,31 @@ test('a delayed document read stays alt-only until a definite host response', as
   await expect(frame.locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
   await expect(frame.locator('[data-colab-image]')).toHaveCount(0);
 });
+
+test('an in-place update draws the page images again from the same image request', async ({
+  page,
+}) => {
+  const source = `<p id="before">Before</p><img id="resolved" src="colab-attachment:11111111" alt="Verified image" width="240" height="120"><img id="pdf" src="colab-attachment:22222222" alt="A PDF is not an image" width="240" height="90">`;
+  await mount(page, source);
+  const frame = page.frameLocator('#image-probe iframe');
+  await expect(frame.locator('#resolved')).toHaveAttribute('src', /^data:image\/png;base64,/);
+  await expect(frame.getByRole('img', { name: /^A PDF is not an image/ })).toContainText(
+    'Not shown: unsupported image type',
+  );
+  const result = await page.evaluate(
+    (next) => (window as unknown as { imageProbe: Probe }).imageProbe.handle.update(next),
+    source.replace('Before', 'Before, edited'),
+  );
+  expect(result).toBe('applied');
+  await expect(frame.locator('#before')).toHaveText('Before, edited');
+  // Each image is drawn once, in its place, from the resolver the render already holds.
+  await expect(frame.locator('#resolved')).toHaveAttribute('src', /^data:image\/png;base64,/);
+  await expect(frame.locator('img, [data-colab-image]')).toHaveCount(2);
+  await expect(frame.getByRole('img', { name: /^A PDF is not an image/ })).toContainText(
+    'Not shown: unsupported image type',
+  );
+  expect(
+    (await page.evaluate(() => (window as unknown as { imageProbe: Probe }).imageProbe.reads))
+      .length,
+  ).toBe(1);
+});

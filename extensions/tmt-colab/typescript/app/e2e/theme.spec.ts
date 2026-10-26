@@ -53,12 +53,12 @@ async function palette(page: Page, theme: 'light' | 'dark') {
 
 async function choose(page: Page, theme: 'light' | 'dark') {
   if ((await page.evaluate(() => document.documentElement.dataset.theme)) === theme) return;
-  await page.getByRole('button', { name: 'More', exact: true }).click();
   await page
-    .getByRole('menuitemradio', {
-      name: `Theme: ${theme === 'dark' ? 'Dark' : 'Light'}`,
-      exact: true,
-    })
+    .locator('.tmt-ui-topbar-common:visible')
+    .getByRole('button', { name: /^Theme:/ })
+    .click();
+  await page
+    .getByRole('menuitemradio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
     .click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 }

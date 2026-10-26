@@ -215,6 +215,12 @@ describe('event-driven workspace recovery snapshots', () => {
           });
       const before = recovery();
       const samples = 12;
+      // An attempt that fails before it reads the topology still reports attempted:1, published:0
+      // and consumes its interval; its report names why in `reasons`. The meter re-measures such
+      // an attempt a bounded number of times and prints the reasons it saw; every measured sample
+      // is held to exactly one read, and an attempt that reports `unchanged` must have read.
+      const maxUnread = 2;
+      const trace = installTmuxTrace(fixture);
       const script = path.join(fixture.root, 'capture-cost.py');
       const result = path.join(fixture.root, 'capture-cost.json');
       const status = path.join(fixture.root, 'capture-cost.status');
@@ -231,6 +237,7 @@ describe('event-driven workspace recovery snapshots', () => {
 import json, os, pathlib, resource, subprocess, sys, time
 root=pathlib.Path(${JSON.stringify(directory)})
 result=pathlib.Path(${JSON.stringify(result)})
+trace=pathlib.Path(${JSON.stringify(trace.path)})
 env=dict(os.environ)
 env.pop('TMUX',None);env.pop('TMUX_PANE',None)
 env['TMT_HOME']=${JSON.stringify(fixture.globalDir)}
@@ -244,24 +251,35 @@ if len(sys.argv)>1 and sys.argv[1]=='changed':
     positive=pathlib.Path(str(result)+'.positive')
     stage=pathlib.Path(str(positive)+'.tmp');stage.write_text(completed.stdout);stage.replace(positive)
     raise SystemExit(0)
-samples=[]
-for index in range(${samples}):
+def topology_reads():
+    # The wrapper logs before it execs tmux, so a finished attempt's reads are already here.
+    return sum(1 for line in trace.read_text().splitlines() if line.startswith('list-panes\t'))
+samples=[];unread=[]
+while len(samples)<${samples}:
     stamp=root/'capture-attempt.json'
     if stamp.exists():
         value=json.loads(stamp.read_text());value['attemptedAtMs']=0
         stamp.write_text(json.dumps(value))
+    reads=topology_reads()
     before=resource.getrusage(resource.RUSAGE_CHILDREN);start=time.monotonic()
     completed=subprocess.run(command,input=request,text=True,capture_output=True,env=env,timeout=3)
     elapsed=time.monotonic()-start;after=resource.getrusage(resource.RUSAGE_CHILDREN)
     assert completed.returncode==0,(completed.returncode,completed.stdout,completed.stderr)
     assert completed.stderr=='',completed.stderr
-    assert json.loads(completed.stdout)=={'attempted':1,'published':0,'skipped':0},completed.stdout
-    samples.append({'cpuMs':1000*((after.ru_utime+after.ru_stime)-(before.ru_utime+before.ru_stime)),'wallMs':1000*elapsed})
-value={'panes':32,'agents':8,'periodMs':30000,'samples':samples}
+    report=json.loads(completed.stdout)
+    reasons=report.pop('reasons',{})
+    assert report=={'attempted':1,'published':0,'skipped':0},completed.stdout
+    taken=topology_reads()-reads
+    if taken==0 and len(unread)<${maxUnread}:
+        assert reasons and 'unchanged' not in reasons,(len(samples),reasons)
+        unread.append(reasons)
+        continue
+    assert taken==1,(len(samples),taken,unread,reasons,1000*elapsed)
+    samples.append({'cpuMs':1000*((after.ru_utime+after.ru_stime)-(before.ru_utime+before.ru_stime)),'wallMs':1000*elapsed,'reasons':reasons})
+value={'panes':32,'agents':8,'periodMs':30000,'samples':samples,'unreadAttempts':len(unread),'unreadReasons':unread}
 stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage.replace(result)
 `
       );
-      const trace = installTmuxTrace(fixture);
       trace.clear();
       const command = ['env', `TMT_HOME=${fixture.globalDir}`, 'python3', script]
         .map(quote)
@@ -281,7 +299,9 @@ stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage
         })
       ).toBe('0');
       const measured = JSON.parse(fs.readFileSync(result, 'utf8')) as {
-        samples: Array<{ cpuMs: number; wallMs: number }>;
+        samples: Array<{ cpuMs: number; wallMs: number; reasons: Record<string, number> }>;
+        unreadAttempts: number;
+        unreadReasons: Array<Record<string, number>>;
       };
       expect(measured.samples).toHaveLength(samples);
       const cpu = measured.samples.map((sample) => sample.cpuMs);
@@ -292,6 +312,9 @@ stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage
           panes: 32,
           agents: 8,
           samples,
+          unreadAttempts: measured.unreadAttempts,
+          unreadReasons: measured.unreadReasons,
+          sampleReasons: measured.samples.map((sample) => sample.reasons),
           meanCpuMs: mean,
           maxCpuMs: Math.max(...cpu),
           cpuPercentAt30s: mean / 300,

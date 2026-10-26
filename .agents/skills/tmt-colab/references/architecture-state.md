@@ -129,6 +129,19 @@ tables (`group.rs` also decides which groups are skipped and which IDs are held,
 vectors in the same PR. `html5ever` is a `tmt-colab`-only dependency (exact pin, no default
 features, listed in the architecture guard); `tmt-colab-model` stays dependency-free.
 
+`question_registry.rs` owns the closed creator/registration values and editor actions;
+`cli_metadata.rs` resolves stable identity selections and adapts the existing conditional
+publisher. Source admission reuses the checker's bounded question-source projection at the
+final publication owner; offline file checks remain markup-only. `templates.rs` owns the
+first-party catalog and exact-source creation admission. The verified own-record projection
+in `question_registry/answers.rs` derives effective answers, without commenter content writes
+or an Ask-success dependency. The [question metadata contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#question-metadata-5052)
+owns fields, bounds and CLI repairs. `page/metadata.rs` adapts the closed owner-browser commands
+through the same conditional publisher and operation/status store. The browser's
+`metadata-dialogs.tsx` owns only its selection/refusal lifetime; verified registry/answer projections
+supply its state and creator defaults. `question-registry-view.tsx` shares read-only rows with Reader
+Info; the native/hosted readers reuse admitted own records and existing writer-provenance checks. See [page chrome](page-chrome.md) for controls and role limits.
+
 ## App build entries
 
 The app build emits its main entry plus two public standalone entries (`vp build`, then
@@ -313,13 +326,17 @@ or an unverified read failure. An opaque socket disconnect, or a native fetch
 re-admitted with `reopenSession(previous, {retry:'bounded', signal})`) waits when the reason
 may pass (`unreachable`, `unconfirmed`, `transient`) and ends the page otherwise.
 An admitted update reaches the page as a fresh detached copy of the whole projection (`Live` clones
-it for each listener). The page route passes it through `shareView` (`share-view.ts`) against the
-view it holds, so every part equal by value keeps its object and a reply to one thread changes
+it for each listener). The page route passes it through
+`shareView` (`share-view.ts`) against the view it holds, so every part equal by value keeps its object and a reply to one thread changes
 only that thread's path. Sections keyed on a part, such as the document highlights and the question
 layers, do not run again for a change elsewhere, and the document frame is sent nothing for an
 update that does not touch it (`e2e/large-page-update.spec.ts` counts what the frame receives).
 The view itself is still a new object for every publication: the binding (its Ask facade, its
 files) can change without the data changing, and the page must render to read it.
+The owner's Source draft is not route state: the route holds a `SourceDraft` store
+(`use-page-editor.ts`) and feeds it each replaced snapshot and live update, and only the Source
+drawer (`page-source.tsx`) subscribes to it and owns its Save, so a keystroke renders that drawer
+and not the route, its thread panel or its other drawers (`e2e/source-typing-renders.spec.ts`).
 
 One owner per open page decides what happens next: `useConnection` (`use-connection.ts`) wraps
 `ConnectionController` (`connection-controller.ts`), whose state (`connection-model.ts`) is
@@ -478,8 +495,9 @@ is added.
   `$TMT_EXECUTABLE` (`core.rs`, the only core access). A missing or invalid root fails
   before any state is created; `spaces` creates nothing.
 - State is `<dataRoot>/colab/` (owned 0700, no symlink) holding `owner.key`, `serve.lock`,
-  `keyring.lock`, `space.db`, `settings.json`, `work-index.json` (a rebuildable page-work cache,
-  under `work-index.lock`) and the socket `door.sock` (0600 files). The layout is the
+  `keyring.lock`, `space.db`, `settings.json`, `work-index.json` and `template-index.json`
+  (rebuildable per-page caches, each under its own `.lock`, kept through `page_index.rs`) and the
+  socket `door.sock` (0600 files). The layout is the
   `tmt-extension-state` leaf behind `keyring::Layout`; Colab adds only its file names and
   error codes. A settings change is one `tmt_extension_state::Document` update (the shared lock
   in `<dataRoot>/document-locks/`, an atomic rename, a five-second wait whose refusal names the
@@ -498,8 +516,10 @@ is added.
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates, first copying an existing store (`schema::backup`:
-  `space.db.pre-v<N>.bak`, 0600, partial file synced and renamed, the two newest schemas kept; a failed copy
-  refuses to migrate with `COLAB_STORE_BACKUP_FAILED`) and, for a newer store, naming the newest copy this
+  `space.db.pre-v<N>.bak`, 0600, partial file synced and renamed; once the migration commits, the copy just
+  taken and the newest other stay and the rest go, and a failed migration prunes nothing; a failed copy
+  refuses to migrate with `COLAB_STORE_BACKUP_FAILED`; the plain file copy relies on journal mode DELETE,
+  which keeps the store one complete file, so the journal stays DELETE with `synchronous=FULL`) and, for a newer store, naming the newest copy this
   build can open in the `COLAB_STORE_NEWER` message (`schema::copies`; contract: Copy before a migration).
   `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
@@ -603,7 +623,7 @@ is added.
 - Projects (`projects.rs`, `projects` and `page_projects` in schema 13) are display-only owner-store
   state; a project exists on its own, so one may hold no page. Schema 13 turned every earlier page
   label into a project of the same name. The two writes, `page.projects` (whole-set replacements for
-  up to 64 pages) and `project.manage` (create, rename, delete; the signed frame names the space scope
+  up to 64 pages) and `project.manage` (create, rename, delete, and `pins`, the whole ordered sidebar list; the signed frame names the space scope
   page `SPACE_SCOPE_PAGE`), are management requests that bypass the engine's statement path
   (`Engine::set_projects` / `manage_project` -> `Store::project_transaction`, no head change, no
   receipt, last writer wins, all-or-none per request), and `page_list()` serves them as `projects`
@@ -666,6 +686,18 @@ is added.
   re-evaluates on the page as it is, at most 3 more times, unless `--expected-revision` fences.
   The browser Save's merge uses the same evaluator (`apply_hunks`, `conflicting_hunks`), so a
   hunk places by the same rules in both front doors.
+- `edit_scale.rs` owns the regions a source edit replaces: `content_hunks` (a bounded Myers line
+  diff, each region trimmed to the characters that differ; an edit past 400 changed lines or the
+  step budget is one region over the differing span). The isolated decoder child emits one delta
+  per region, last to first, so text between far-apart edits is not rewritten and the source is
+  byte-identical after apply. `EditScale::of` and `is_large_rewrite` (more than half of a source
+  of at least 2 KiB) measure the same regions. `Decoder::prepare_mutation` sets the scale on
+  `PreparedContent`, `FrozenPublication::scale` carries it to the receipt (not serialized), and
+  `cli_edit_hint.rs` turns a warning, a non-minimal update or a large rewrite into the one `read`
+  command a write or patch receipt names; a normal edit names nothing. `cli_replace.rs` is the
+  `page write` gate: after preparation and before publication `commit_source` refuses a large
+  rewrite without `--replace` (`COLAB_REWRITE_REQUIRES_REPLACE`, naming the rerun); patch, layout
+  and create pass no gate.
 - `PageUsage` (`page.rs`) is the page's usage: the tail count and bytes the write path refuses
   at, the checkpoints, and the whole state with its gzipped size from 256 KiB. `fold.rs` counts
   them once (`UsageCounts::add`, `MaterializationInput::usage`) for the refusal and for the
@@ -688,11 +720,13 @@ The home route `/` is the page list (`home.tsx`); there is no Today view. `/all`
 route, redirects to `/` with its search (`beforeLoad`), so an old link or history entry still lands
 on it. The list reads the loader's `spaceHome()` pages through `useHomeSpace` (`home-space.ts`),
 which fills a missing title by the bounded hint read; the ⌘K search is the header's control.
-`summary_pending.rs` derives the shared pending target IDs (proposals first, readings, answer
-groups, reviews) from the admitted owner fold and `page_check::summary`'s static-source quote
-associations (200 ms projection bound), without executing authored code or trusting device labels.
-The shared needs-you vectors pin native/browser parity. A missing summary is unknown, never a false
-zero. Returning through the existing Home loader or reloading reads again; while a non-archived
+`summary_pending.rs` derives pending target IDs from the admitted owner fold and
+`page_check::summary`'s static-source quote associations (200 ms projection bound), without
+executing authored code or trusting device labels. Native questions count each registered open
+entry from the verified answer projection, including one whose markup was removed; proposals,
+readings and reviews retain their existing deduplication. Shared vectors pin these states and
+other pending kinds. Browser question-count adoption follows #5146. A missing summary is unknown,
+never a false zero. Returning through the existing Home loader or reloading reads again; while a non-archived
 page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`;
 `rereadInPlace` puts the window back, since the router scrolls to the top when a load renders).
 
@@ -718,7 +752,7 @@ store's), counts (`projectCounts` also lists the space's projects that no page i
 sorting, and the whole-set `withProject` change. `applyProjectChanges` sends `PROJECT_REQUEST_PAGES`
 (64) pages per request in ascending order, sequentially: each request is atomic on the owner,
 the batch is not, and a failed batch reports "Updated N of M" so a retry converges. Creating,
-renaming and deleting a project are one `project.manage` request each, whatever the number of
+renaming, deleting and pinning projects are one `project.manage` request each, whatever the number of
 pages: the dialogs call `ManagementPort.manageProject`, so there is no batch to resume. `ManagementClient`
 signs `page.projects` and `project.manage` requests with an empty `expectedRevision` (no view, head or
 verification: projects are display-only and the reply is only checked for shape); a `project.manage`
@@ -742,7 +776,7 @@ then view tabs, project-scope pills, search and Sort, then the list. `page-list-
 owns display-only pinned cards and rows; Home retains filtering, selection and all write lifetimes.
 Pins wrap after three on a wide screen and stack on compact screens; no pins means no card block.
 Project membership remains plural; `projectTone` maps exact names deterministically to existing role tints for header, pin and row tags; missing summaries never become a fabricated stage.
-Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact task-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent. The shared
+Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact task-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent; a long creator is one ellipsized line with the full label as its tooltip, and a project name used as the heading wraps in at most two lines with the full name as its tooltip, so neither moves `New page` or the row height. The shared
 flat tabs show separate numeric counts and wrap on compact screens, without a horizontal scroller. The `New page` action (`new-page-dialog.tsx`) still gives the
 `tmt colab page create` command with `CopyCommand`; the browser creates no page.
 The list fills the shell content pane using the shared `tmt-ui-page` insets. Home is its one vertical viewport: hero, pins, controls, rows and footer scroll together; `.page-list-scroll` adds no nested scroller. Successful action feedback stays in a visually hidden live region; refusals remain visible.
@@ -810,8 +844,10 @@ The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `Brow
 the whole list. `scope` in the route search is the base
 filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the tab counts, the
 `project:` suggestions and the free-text and creator filters, and a `project:` token narrows inside it
-(intersection). The menu lists All pages and every project of the space (empty ones too, with the
-pages shown and how many wait on the viewer), then `New project…` and `Manage projects…`, which
+(intersection). The menu lists All pages and the projects the space pins, in the pinned order (`SpaceHome.projectPins`,
+schema 18; `menuProjects` in `project-pins.ts`), or its five most recently updated while nothing was
+chosen (labelled "Recent projects"), each with the pages shown and how many wait on the viewer. A scope
+that is not pinned shows as a temporary row. Then come `All projects…` (the manager) and `New project…`, which
 `Home` offers through `ProjectMenuActionsSlot` (`project-menu-actions.ts`) while it can manage
 projects, so the dialogs keep the list's data. The menu reads the list through `spaceHome` when the
 list opens. The default scope is device-local: `readScope`/`writeScope` keep it per space in
@@ -819,8 +855,9 @@ list opens. The default scope is device-local: `readScope`/`writeScope` keep it 
 with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
 a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.
 The home hero names the current scope; `AppHeader` passes `titleVisible=false` through
-`ColabHeader` to the shared header, retaining its accessible name and tools without another
-visible heading. Other routes keep the default header title. A page
+`ColabHeader`: in Colab's own shell (the shared top bar, #5237) the list then has no title row, and in the
+hosted mount the shared header keeps its accessible name and tools without another visible heading.
+Other routes keep the default header title. A page
 opened from a scoped list carries the scope in history state only, and its own header shows
 `<project> / <title>` with the project linking back to `/?scope=<project>` (the shell bar draws no
 module crumb); a copied or reloaded page link has no crumb. A heading narrower than 200px (a
@@ -871,6 +908,29 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
 source and ranking owners. Its project menu edits the same `SearchEdit` as query chips;
 there is no separate filter state. The result list keeps native links, plural memberships
 and real author/waiting metadata, with a shared-dialog footer for keyboard hints.
+
+The same host is the global search (#4841) when it is given a `SwitcherSearch`: a
+`@tmt/browser-ui/search` registry whose groups list beside Colab's, and the host's own `go(href)`
+for everything that is not a Colab page. `quick-switcher-groups.ts` composes the list: the
+`navigation` group first, then Colab's (the pages as ranked, with the project and author filter
+already applied, and the projects the text names, when `projectHref` is given), then each other
+provider in registration order, matched on the text alone and capped. Colab's `Listbox` takes an
+optional `group` per option and draws consecutive options of one group under a quiet heading in a
+`role="group"`; the list stays one combobox with one active descendant, and a list where no option
+has a group keeps its flat markup. A provider item is chosen as `registry.find` has it at that
+moment, so a withdrawn or replaced item cannot open. `search-entry.tsx` mounts the host off the
+Colab route as `mount(container, { transport, registry, navigate, pageHref, go, projectHref })`
+returning `open(opener)` and `dispose()`, with the bar's one Command/Ctrl+K listener left to the
+shell; the module exports it as `mountSearch`, which links the module's stylesheet for as long as
+it lives. Without a `search` the host is the page switcher it always was.
+
+In Colab's own shell the router's host is opened by the shared top bar (#5237): `OwnShell` in
+`colab-shell.tsx` installs the common controls (`openSearch` takes the opener into the host's
+`control` and calls `activate`; `remote` is `useShellRemoteStatus`, the presence this page already
+reads), the host takes `shortcut={false}` so the bar's one listener is the only one, and it is
+`allowed` on every route of that shell. That dialog is still the page switcher (no registry yet).
+`SharedTopBar` (`shared-top-bar.ts`) tells `ColabHeader`, `AppHeader` and the page More menu that
+Search, Theme and Remote are the bar's; the hosted mount leaves it false until `useTopBarReady` (#5239).
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match
@@ -1052,6 +1112,16 @@ summary and no task offers the owner the add-task field directly.
 - `Live#publishViews` passes accepted folded titles and their exact admission
   registration to `mounted.ts`. Mounted tab ownership/current registration fences
   the best-effort cache write. Rejected folds and replaced sessions cannot supply hints.
+  `TitleCache.remember` reads the stored hint first and seals and writes only a changed title
+  (or a record that no longer opens), so a reconnect or another tab folding an unchanged page
+  writes nothing.
+- `mounted.ts` runs one Home read at a time per transport (`spaceHome`): readers that arrive
+  while it runs share its result, each keeps its own signal, and the load is cancelled only when
+  the last reader leaves before it finishes. A finished load is never reused. The load folds the
+  owner chain once for every listed page (`projectPolicies`, which `project` agrees with page by
+  page); `admission.ts::applyLifecycle` is the one archive/restore/delete transition.
+- `Live#publishViews` reuses an Ask intent's verification (`VerifiedAsks`) only while its
+  signed record and the writer's signing key are byte-identical; any change verifies again.
 - Home reads hints only after verified discovery/policy. `home-titles.tsx` admits visible
   uncached rows through a one-page queue (24 attempts and 16 MiB of incoming sync frames
   per Home generation). `mounted.ts::readTitle` uses the existing Admission/Connection/Fold

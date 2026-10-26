@@ -15,6 +15,7 @@ use crate::{
 use ratatui::crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
+use ratatui::layout::Rect;
 use std::{cell::RefCell, time::Instant};
 use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput};
 
@@ -67,6 +68,20 @@ impl Controller {
     /// An unsent form takes every key, digits and letters included, until it is sent.
     pub(in crate::board) fn owns_typing(&self, notes: &State) -> bool {
         notes.draft(&self.key).is_some_and(|draft| !draft.sent())
+    }
+
+    /// Drops the form that has not been sent. Esc keeps it for the next open; a press outside
+    /// the sheet does not.
+    pub(in crate::board) fn discard_unsent(&self, notes: &mut State) {
+        if !self.owns_typing(notes) {
+            return;
+        }
+        notes.drop_draft(&self.key);
+    }
+
+    /// Where the sheet was last painted.
+    pub(in crate::board) fn modal_outer(&self) -> Option<Rect> {
+        self.ui.borrow().outer()
     }
 
     pub fn invalidate(&self) {

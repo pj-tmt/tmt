@@ -888,3 +888,13 @@ fn flat_token_click_follows_the_painted_cell_when_session_is_admitted_or_dropped
         assert_eq!(rest, expected, "only the unit changes");
     }
 }
+
+#[test]
+fn an_outside_press_closes_the_session_window() {
+    let mut app = remembered();
+    app.open_member_session();
+    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+        &mut app,
+        crate::board::app::Overlay::MemberSession,
+    );
+}

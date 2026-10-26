@@ -45,9 +45,9 @@
 .tmt-ui-notice-eyebrow {
   margin-bottom: var(--tmt-ui-eyebrow-gap);
   color: var(--tmt-ui-color-secondary);
-  font: var(--tmt-ui-eyebrow-weight)
-    var(--tmt-ui-eyebrow-size)/var(--tmt-ui-host-eyebrow-line-height) var(--tmt-ui-font-mono);
-  letter-spacing: var(--tmt-ui-eyebrow-tracking);
+  font: 400 10px/var(--tmt-ui-host-eyebrow-line-height) var(--tmt-ui-font-body);
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
 }
 /* Captions and state words need AA on soft surfaces; decorative marks retain their tone. */
 .tmt-ui-notice[data-tinted] :is(.tmt-ui-notice-eyebrow, .tmt-ui-notice-mark > :last-child) {

@@ -50,6 +50,49 @@ fn identity(s: &mut Storage, name: &str) -> String {
         .id
 }
 #[test]
+fn a_published_receiving_policy_is_observable_without_granting_an_unleased_hold() {
+    use crate::orchestration::{DigestReceiving, DigestReceivingSettings};
+    let d = TestDirectory::new();
+    let mut s = Storage::open(d.path.join("state.db")).unwrap();
+    let id = identity(&mut s, "Release Target");
+    let calendar = ReceivingCalendar::load(s.connection().unwrap()).unwrap();
+    assert!(
+        calendar
+            .resolved_receiving(s.connection().unwrap(), &id, NOW, None)
+            .unwrap()
+            .is_none(),
+        "no publication remains unavailable, not implicitly direct"
+    );
+    s.sync_digest_receiving(
+        0,
+        DigestReceivingSettings {
+            enabled: true,
+            default_receiving: DigestReceiving::Batch { interval_ms: 1501 },
+            members: vec![],
+        },
+    )
+    .unwrap();
+    s.connection()
+        .unwrap()
+        .execute("INSERT INTO orchestration_settings VALUES(1,1,'UTC')", [])
+        .unwrap();
+    let calendar = ReceivingCalendar::load(s.connection().unwrap()).unwrap();
+    let policy = calendar
+        .resolved_receiving(s.connection().unwrap(), &id, NOW, None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(policy.receiving.value, OrchReceiving::Batch(1501));
+    assert_eq!(policy.held_until(None, false, NOW).unwrap(), None);
+    assert!(
+        calendar
+            .policy(s.connection().unwrap(), &id, NOW)
+            .unwrap()
+            .is_none(),
+        "ordinary admission still requires its live finite lease"
+    );
+}
+
+#[test]
 fn canonical_filter_is_case_insensitive_prefix_first_and_snapshot_does_not_write() {
     let d = TestDirectory::new();
     let mut s = Storage::open(d.path.join("state.db")).unwrap();
@@ -214,9 +257,14 @@ fn preview_uses_real_store_and_has_no_policy_journal_or_cursor_effect() {
         "awake"
     );
     assert_eq!(
-        report["after"]["members"][0]["effective"]["receiving"]["value"]["mode"],
+        report["after"]["members"][0]["effective"]["receiving"]["proposedValue"]["mode"],
         "hold"
     );
+    assert_eq!(
+        report["after"]["members"][0]["effective"]["receiving"]["available"],
+        false
+    );
+    assert!(report["after"]["members"][0]["effective"]["receiving"]["value"].is_null());
     assert_eq!(report["changes"][0]["identityId"], id);
     assert!(
         s.orchestration_snapshot(None)
@@ -277,7 +325,7 @@ fn a_writer_commit_cannot_mix_plan_and_settings_in_the_pinned_read() {
         )
         .unwrap();
     write.commit().unwrap();
-    let before = read_snapshot(&tx, None).unwrap();
+    let before = read_snapshot(&tx, None, None).unwrap();
     assert_eq!(before.snapshot.revision, 1);
     assert_eq!(
         before.snapshot.plans[0].fields.state,

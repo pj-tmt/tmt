@@ -15,6 +15,292 @@ use tmt_core::{
 };
 
 #[test]
+fn incoming_selection_excludes_result_and_timeout_references_from_its_count_and_items() {
+    use tmt_core::request::digest::{DigestSelection, DigestSource};
+    let (mut f, target, _, sender) = start();
+    for id in ["incoming", "result", "timeout"] {
+        held(&mut f, &target, &sender, id);
+    }
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    // The same recipient/kind/retention must not make other source references Incoming.
+    for source in ["result", "timeout"] {
+        db.execute(
+            "UPDATE focus_items SET source=?1 WHERE request_id=?1",
+            [source],
+        )
+        .unwrap();
+    }
+    let inventory = |selection| {
+        super::super::digest::selected_inventory(
+            &db,
+            &target,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+            selection,
+            NOW_MS,
+        )
+        .unwrap()
+        .0
+    };
+    assert_eq!(inventory(DigestSelection::All), 3);
+    assert_eq!(inventory(DigestSelection::Incoming), 1);
+    assert_eq!(inventory(DigestSelection::UrgentIncoming), 0);
+    let items =
+        super::super::digest::selected_items(&db, &target, 128, DigestSelection::Incoming, NOW_MS)
+            .unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].request_id, "incoming");
+    assert_eq!(items[0].source, DigestSource::Incoming);
+}
+
+#[test]
+fn published_digest_base_is_journaled_and_global_off_masks_receiving() {
+    use crate::orchestration::{DigestReceiving, DigestReceivingSettings};
+    let (mut f, target, _, sender) = start();
+    let settings = DigestReceivingSettings {
+        enabled: true,
+        default_receiving: DigestReceiving::Auto {},
+        members: vec![],
+    };
+    f.storage
+        .sync_digest_receiving(0, settings.clone())
+        .unwrap();
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    db.execute("INSERT INTO orchestration_settings VALUES(1,1,'UTC')", [])
+        .unwrap();
+    let id = format!("req_{}", new_operation_id());
+    assert!(
+        held(&mut f, &target, &sender, &id)
+            .digest_until_ms
+            .is_some()
+    );
+    let (revision, sources): (i64, String) = db
+        .query_row(
+            "SELECT configuration_revision,sources FROM orchestration_decisions WHERE subject_id=?",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(revision, 1);
+    let sources: serde_json::Value = serde_json::from_str(&sources).unwrap();
+    assert_eq!(sources[0]["source"]["kind"], "base");
+    assert_eq!(sources[0]["source"]["revision"], 1);
+    f.storage
+        .sync_digest_receiving(
+            1,
+            DigestReceivingSettings {
+                enabled: false,
+                ..settings
+            },
+        )
+        .unwrap();
+    let next = format!("req_{}", new_operation_id());
+    assert_eq!(held(&mut f, &target, &sender, &next).digest_until_ms, None);
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM orchestration_decisions", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn orchestration_sleep_and_focus_gate_every_claim_and_seal_only_urgent_members() {
+    use crate::orchestration::{DigestReceiving, DigestReceivingSettings};
+    let (mut f, target, owner, _) = start();
+    f.storage
+        .sync_digest_receiving(
+            0,
+            DigestReceivingSettings {
+                enabled: true,
+                default_receiving: DigestReceiving::Auto {},
+                members: vec![],
+            },
+        )
+        .unwrap();
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let plan = new_operation_id();
+    db.execute(
+        "UPDATE focus_policies SET max_hold_ms=300000 WHERE identity_id=?",
+        [&target],
+    )
+    .unwrap();
+    db.execute("INSERT INTO orchestration_settings VALUES(1,1,'UTC')", [])
+        .unwrap();
+    db.execute("INSERT INTO orchestration_plans(id,name,revision,priority,enabled,schedule,fields) VALUES(?1,'Quiet',1,1,1,'{\"kind\":\"always\"}','{\"state\":\"sleep\"}')",[&plan]).unwrap();
+    db.execute(
+        "INSERT INTO orchestration_plan_targets VALUES(?1,0,'{\"kind\":\"all\"}')",
+        [&plan],
+    )
+    .unwrap();
+    let ordinary = format!("req_{}", new_operation_id());
+    let urgent = format!("req_{}", new_operation_id());
+    for (id, is_urgent) in [(&ordinary, false), (&urgent, true)] {
+        let prepared = service(&mut f)
+            .prepare_delivery(
+                request(&target, Some(&owner), id),
+                new_operation_id(),
+                7,
+                DeliveryPolicy {
+                    urgent: is_urgent,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            prepared.digest_until_ms,
+            Some(NOW_MS + 1000),
+            "Sleep also holds owner and urgent traffic"
+        );
+        let cap = tmt_core::request::RequestRepository::with_request_observation(
+            &mut f.storage,
+            |rows| -> Result<Option<u64>, crate::storage::StorageError> {
+                let attempt = rows.find_request(id)?.unwrap();
+                Ok(rows.delivery_facts(&attempt, NOW_MS)?.max_hold_ms)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            cap, None,
+            "an old auto cap cannot promise release through Sleep"
+        );
+    }
+    let journal_count = || {
+        db.query_row("SELECT COUNT(*) FROM orchestration_decisions", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .unwrap()
+    };
+    assert_eq!(journal_count(), 2);
+    assert!(!service(&mut f).claim_wake(&ordinary).unwrap().claimed);
+    assert_eq!(
+        journal_count(),
+        2,
+        "reading an existing hold cannot invent another decision"
+    );
+    service(&mut f).make_digest_due(&target).unwrap();
+    assert_eq!(
+        service(&mut f)
+            .digest_stats(std::slice::from_ref(&target))
+            .unwrap()[0]
+            .due_count,
+        0
+    );
+    for opportunity in [DigestOpportunity::Idle, DigestOpportunity::TurnBoundary] {
+        assert!(
+            service(&mut f)
+                .digest_claimable_items(&target, opportunity, 128)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            service(&mut f)
+                .claim_digest_checklist(
+                    &target,
+                    new_operation_id(),
+                    new_operation_id(),
+                    opportunity,
+                    None
+                )
+                .unwrap()
+                .is_none()
+        );
+    }
+    db.execute(
+        "UPDATE orchestration_plans SET fields='{\"state\":\"focus\"}',revision=2 WHERE id=?",
+        [&plan],
+    )
+    .unwrap();
+    let items = service(&mut f)
+        .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
+        .unwrap();
+    assert!(
+        items.is_empty(),
+        "pending summary membership is frozen only at claim"
+    );
+    let batch = service(&mut f)
+        .claim_digest_summary(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::TurnBoundary,
+            || true,
+        )
+        .unwrap()
+        .unwrap();
+    let members: Vec<String> = db
+        .prepare("SELECT request_id FROM focus_items WHERE checklist_id=? ORDER BY sequence")
+        .unwrap()
+        .query_map([&batch.id], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(members, vec![urgent]);
+    db.execute(
+        "UPDATE orchestration_plans SET fields='{\"state\":\"awake\"}',revision=3 WHERE id=?",
+        [&plan],
+    )
+    .unwrap();
+    service(&mut f)
+        .settle_digest_checklist(
+            &target,
+            &batch.id,
+            &batch.attempt_token,
+            DigestState::Uncertain,
+        )
+        .unwrap();
+    let sources: String = db
+        .query_row(
+            "SELECT sources FROM orchestration_decisions WHERE reason='digest_uncertain'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let frozen: serde_json::Value = serde_json::from_str(&sources).unwrap();
+    assert_eq!(
+        frozen[0]["source"]["revision"], 2,
+        "settlement explains its original admitted claim"
+    );
+    assert!(
+        !service(&mut f)
+            .settle_digest_checklist(
+                &target,
+                &batch.id,
+                &batch.attempt_token,
+                DigestState::Uncertain
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        journal_count(),
+        4,
+        "idempotent settlement is not another decision"
+    );
+    f.set_now(NOW_MS + 1000); // Every admitted summary shares the persistent spacing clock.
+    let restored = service(&mut f)
+        .claim_digest_summary(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::Idle,
+            || true,
+        )
+        .unwrap()
+        .unwrap();
+    let remaining: String = db
+        .query_row(
+            "SELECT request_id FROM focus_items WHERE checklist_id=?",
+            [restored.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        remaining, ordinary,
+        "Awake restores direct even before an old Digest lease is cleared"
+    );
+}
+
+#[test]
 fn notice_admission_errors_never_report_a_claimed_wake() {
     let mut f = Fixture::new();
     let hint = tmt_core::request::notification::OriginatorHint {

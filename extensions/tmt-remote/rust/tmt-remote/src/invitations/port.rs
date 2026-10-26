@@ -3,6 +3,13 @@
 use super::{BackendBinding, Candidate, Context};
 use crate::{error::RemoteError, objects::IoBudget, store::Grant};
 
+/// Native possession signing without exposing private key material. The shared
+/// proof owner constructs the bytes and verifies the returned signature.
+pub trait NativeSigner {
+    fn public_key(&self) -> [u8; 32];
+    fn sign_possession(&self, message: &[u8]) -> [u8; 64];
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Part {
     Offer,
@@ -65,13 +72,15 @@ pub enum WriteOutcome {
     Unconfirmed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum BackendFailure {
     Refused,
     Unavailable,
     InvalidEvidence,
     Cancelled,
     Deadline,
+    /// Sanitized adapter refusal/uncertainty with its shipped error identity.
+    Provider(RemoteError),
 }
 
 /// Each operation obeys the supplied absolute budget. Providers store immutable
@@ -154,7 +163,15 @@ pub struct Confirmation<'a> {
     pub actor: &'a OwnerActor,
     pub grant: &'a Grant,
     pub receipt_key: &'a ReceiptKey,
+    /// Separate admitted owner choice, never a candidate policy option.
+    pub sending: bool,
     pub io: &'a IoBudget<'a>,
+}
+
+/// Constructed by the admitted owner interaction, without a provider/JSON codec.
+pub struct OwnerDecision {
+    pub matched: bool,
+    pub enable_sending: bool,
 }
 
 /// Scoped MAC capability. It is never persisted, formatted or sent to a backend.
@@ -162,6 +179,9 @@ pub struct ReceiptKey(pub(super) [u8; 32]);
 impl ReceiptKey {
     pub fn prove(&self, receipt: &[u8]) -> Result<[u8; 32], RemoteError> {
         crate::crypto::server_proof(&self.0, receipt).map_err(|_| super::invalid())
+    }
+    pub(crate) fn capability(&self, framed_context: &[u8]) -> [u8; 32] {
+        crate::crypto::mac(&self.0, framed_context)
     }
 }
 impl Drop for ReceiptKey {
@@ -189,13 +209,21 @@ pub enum Claim {
     Stale,
 }
 
+/// Only a proven absence of commit is a definite refusal. An uncertain commit
+/// retains its original identity and can be settled only by journal observation.
+#[derive(Debug)]
+pub enum ConfirmationFailure {
+    Refused(RemoteError),
+    CommitUnknown(RemoteError),
+}
+
 /// The concrete implementation belongs on the existing Store. Confirmation
 /// rechecks owner/expiry/candidate and inserts member, grant, original receipt
 /// and policy in ONE IMMEDIATE transaction. Publication claims also persist
 /// before I/O; an ambiguous attempt can only be observed, never repeated.
 pub trait ConfirmationSink: Send + Sync {
     fn authorize(&self, context: &Context, actor: &OwnerActor) -> Result<(), RemoteError>;
-    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, RemoteError>;
+    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, ConfirmationFailure>;
     fn original(&self, snapshot: &Snapshot) -> Result<Option<Committed>, RemoteError>;
     fn claim(&self, committed: &Committed, part: Part) -> Result<Claim, RemoteError>;
     fn acknowledge(&self, committed: &Committed, part: Part) -> Result<bool, RemoteError>;

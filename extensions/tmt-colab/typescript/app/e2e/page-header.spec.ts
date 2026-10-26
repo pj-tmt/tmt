@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
 /**
- * The lean page header: Search and Chat (Discussion) stay; a needs-you count and an
- * attention mark show only while their state holds; everything else is in More.
+ * The lean page actions in the shared top bar: Search (the bar's own) and the Discussion dock stay; a
+ * needs-you count and an attention mark show only while their state holds; everything else is in More.
  */
 const fixture = '/test/ask-page-browser.tsx';
 const run = (page: Page, method: string, argument?: unknown) =>
@@ -29,16 +29,16 @@ async function open(
     await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
   }
 }
-/** The header's entries from left to right, by accessible name. */
+/** The bar's page entries from left to right, by accessible name. */
 const names = (page: Page) =>
   page.evaluate(() => {
     // The fixture keeps a hidden earlier router beside the live one.
-    const header = [...document.querySelectorAll('.tmt-ui-header')].find(
+    const bar = [...document.querySelectorAll('.tmt-ui-topbar')].find(
       (node) => node.getBoundingClientRect().width > 0,
     )!;
     const entries = [
-      ...header.querySelectorAll<HTMLElement>(
-        '.needs-you-header-trigger, .page-attention, .quick-switcher-control button, .page-header-actions button',
+      ...bar.querySelectorAll<HTMLElement>(
+        '.needs-you-header-trigger, .page-attention, .page-header-actions button',
       ),
     ];
     return entries
@@ -53,18 +53,18 @@ for (const width of [1440, 390])
       page,
     }) => {
       await open(page, width, theme);
-      const header = page.locator('.tmt-ui-header:visible');
+      const header = page.locator('.tmt-ui-topbar:visible');
       await expect(header.locator('.page-attention')).toHaveCount(0);
       await expect(header.locator('.needs-you-header-trigger')).toHaveCount(0);
       // Nothing waits and nothing shows; no Remote chip and no access chip.
       await expect(header.getByText('Nothing waits')).toBeHidden();
       await expect(header.locator('.remote-header-chip')).toHaveCount(0);
-      // Search sits in the shell bar's cluster, to the right of the page's own actions.
-      expect(await names(page)).toEqual(['Discussion (0)', 'More']);
+      // Search is the bar's own control, first at the left, before the page's actions.
+      expect(await names(page)).toEqual(['More']);
       await expect(
-        page
-          .locator('.tmt-ui-shell-tools')
-          .getByRole('button', { name: 'Search pages', exact: true }),
+        header
+          .locator('.tmt-ui-topbar-navigation')
+          .getByRole('button', { name: 'Search TMT', exact: true }),
       ).toBeVisible();
       await expect(header.locator('.page-connection')).toHaveText('Private · Live');
       if (process.env.COLAB_CAPTURE_DIR)
@@ -75,7 +75,7 @@ for (const width of [1440, 390])
       page,
     }) => {
       await open(page, width, theme, { shared: true, remoteOffline: true, waiting: true });
-      const header = page.locator('.tmt-ui-header:visible');
+      const header = page.locator('.tmt-ui-topbar:visible');
       await expect(header.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
       const offline = header.locator('.page-attention[data-attention="remote"]');
       const shared = header.locator('.page-attention[data-attention="shared"]');
@@ -95,7 +95,7 @@ for (const width of [1440, 390])
       const order = await names(page);
       expect(order[0]).toBe('Needs you: 2');
       expect(order.slice(1, 3).join(' ')).toMatch(/^△.*◉/s);
-      expect(order.slice(-2)).toEqual(['Discussion (0)', 'More']);
+      expect(order.slice(-1)).toEqual(['More']);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -103,7 +103,7 @@ for (const width of [1440, 390])
         await page.screenshot({ path: capturePath(`header-waiting-${width}-${theme}.png`) });
     });
 
-    test(`More holds Share…, Remote, Source and Export, then the existing items at ${width} ${theme}`, async ({
+    test(`More holds Share…, Source and Export, then the existing items, and no Theme or Remote at ${width} ${theme}`, async ({
       page,
     }) => {
       await open(page, width, theme, { shared: true, remoteOffline: true });
@@ -116,14 +116,12 @@ for (const width of [1440, 390])
         .allInnerTexts();
       expect(rows.map((row) => row.replace(/\s+/g, ' ').trim())).toEqual([
         'Share… Link · Live',
-        'Remote · offline',
+        'Questions…',
+        'Set creator…',
         'Agent status',
         'Source',
         'Export page',
         'Manage page',
-        'Theme: Light',
-        'Theme: Dark',
-        'Theme: System',
         'About this page',
       ]);
       await expect(page.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
@@ -133,14 +131,14 @@ for (const width of [1440, 390])
   }
 
 /**
- * The shell's bar (#4558): the page's title with no module crumb, then the shell's own cluster, the
- * search and the Remote presence chip. The rail names the module; the bar's accessible name keeps it.
+ * The shared top bar (#4841, #5237): Search first at the left, then the page's actions, then Theme and
+ * the Remote link. The bar draws no title; the page's title row is content under it.
  */
 test.describe('the shell bar', () => {
   async function mountPage(page: Page) {
     await page.goto('/');
     await run(page, 'mount');
-    await expect(page.locator('.tmt-ui-shell-bar:visible header')).toBeVisible();
+    await expect(page.locator('.tmt-ui-shell-bar:visible .tmt-ui-topbar')).toBeVisible();
   }
   async function mountHome(page: Page, count = 3) {
     await page.goto('/');
@@ -148,7 +146,7 @@ test.describe('the shell bar', () => {
       const path = '/test/remote-header-browser.tsx';
       await (await import(path)).mount({ home: true, count });
     }, count);
-    await expect(page.locator('.tmt-ui-shell-bar:visible header')).toBeVisible();
+    await expect(page.locator('.tmt-ui-shell-bar:visible .tmt-ui-topbar')).toBeVisible();
   }
   // The quick-switcher fixture mounts the header with a search that is allowed to open.
   async function mountSwitcher(page: Page) {
@@ -160,13 +158,15 @@ test.describe('the shell bar', () => {
       const path = '/test/quick-switcher-browser.tsx';
       await (await import(path)).mount('page');
     });
-    await expect(page.locator('.tmt-ui-shell-bar:visible header')).toBeVisible();
+    await expect(page.locator('.tmt-ui-shell-bar:visible .tmt-ui-topbar')).toBeVisible();
   }
   // The ask-page fixture keeps a hidden earlier router beside the live one.
   const bar = (page: Page) => page.locator('.tmt-ui-shell-bar:visible');
-  const cluster = (page: Page) => page.locator('.tmt-ui-shell-tools:visible');
   const search = (page: Page) =>
-    cluster(page).getByRole('button', { name: 'Search pages', exact: true });
+    bar(page)
+      .locator('.tmt-ui-topbar-navigation')
+      .getByRole('button', { name: 'Search TMT', exact: true });
+  const common = (page: Page) => bar(page).locator('.tmt-ui-topbar-common');
   const dialog = (page: Page) => page.getByRole('dialog', { name: 'Search pages', exact: true });
   const views = [
     { width: 1440, scheme: 'light' },
@@ -179,20 +179,45 @@ test.describe('the shell bar', () => {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     };
 
-    test(`the bar is the page title with no module crumb at ${width} ${scheme}`, async ({
+    test(`the bar draws no title; the page's title row is content on the content background at ${width} ${scheme}`, async ({
       page,
     }) => {
       await look(page);
       await mountPage(page);
-      const header = bar(page).locator('header');
-      await expect(header.getByRole('heading', { level: 1 })).toHaveText('Live shared page');
+      await expect(bar(page).getByRole('heading')).toHaveCount(0);
       await expect(bar(page).locator('.tmt-ui-brand, .tmt-ui-wordmark, .tmt-ui-mark')).toHaveCount(
         0,
       );
-      // The rail's head carries the brand at a wide screen; the module is named by the rail and by
-      // the header's accessible name, not drawn before the title.
+      // The title row is content: outside the bar, with no band surface or rule of its own, at the
+      // content column's left edge, and it scrolls with the page rather than staying under the bar.
+      const row = page.locator('.colab-title-row:visible');
+      const header = row.locator('header');
+      await expect(bar(page).locator('.colab-title-row')).toHaveCount(0);
+      await expect(header.getByRole('heading', { level: 1 })).toHaveText('Live shared page');
       await expect(header).toHaveAttribute('aria-label', /^Colab · (.+ · )?Live shared page$/);
-      expect((await bar(page).innerText()).trim().split('\n')[0]).toBe('Live shared page');
+      await expect(header).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(header).toHaveCSS('border-bottom-width', '0px');
+      await expect(row).toHaveCSS('position', 'static');
+      const edges = await page.evaluate(() => {
+        const title = [...document.querySelectorAll('.colab-title-row h1')].find(
+          (node) => node.getBoundingClientRect().width > 0,
+        )!;
+        const main = title.closest('.tmt-ui-shell-main')!;
+        const padding = parseFloat(getComputedStyle(title.closest('header')!).paddingInlineStart);
+        return {
+          title: Math.round(title.getBoundingClientRect().left),
+          column: Math.round(main.getBoundingClientRect().left + padding),
+        };
+      });
+      expect(edges.title).toBe(edges.column);
+      const before = (await row.boundingBox())!;
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
+          '3000px';
+        window.scrollTo(0, 400);
+      });
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(400);
+      expect((await row.boundingBox())!.y).toBeLessThan(before.y);
     });
 
     test(`the search opens from the shortcut once, with its key hint, and Escape returns focus at ${width} ${scheme}`, async ({
@@ -202,6 +227,8 @@ test.describe('the shell bar', () => {
       await mountSwitcher(page);
       const control = search(page);
       await expect(control).toBeVisible();
+      // The bar owns the one shortcut and the one Search control.
+      await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toHaveCount(1);
       await expect(control).toHaveAttribute('aria-keyshortcuts', /^(Meta|Control)\+K$/);
       const hint = control.locator('kbd');
       if (width === 1440) await expect(hint).toHaveText(/^(⌘K|Ctrl K)$/);
@@ -214,7 +241,6 @@ test.describe('the shell bar', () => {
       await page.keyboard.press(shortcut);
       await expect(dialog(page)).toHaveCount(1);
       await expect(dialog(page)).toBeVisible();
-      await expect(control).toHaveAttribute('aria-expanded', 'true');
       await page.keyboard.press('Escape');
       await expect(dialog(page)).toHaveCount(0);
       // Opened from the control, Escape returns focus to it.
@@ -227,32 +253,27 @@ test.describe('the shell bar', () => {
     });
   }
 
-  test('the search leads the cluster and the presence chip follows it, clear of the page actions at 1440', async ({
+  test('Search leads the bar, the Remote link closes it, and the page actions sit between them at 1440', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await mountHome(page);
     const control = search(page);
-    const chip = cluster(page).getByRole('link', { name: 'Remote: 3 live sessions' });
+    const remote = common(page).getByRole('link', { name: 'Remote: 3 live sessions' });
     await expect(control).toBeVisible();
-    await expect(chip).toBeVisible();
-    const [box, chipBox, barBox] = await Promise.all([
+    await expect(remote).toBeVisible();
+    const [box, remoteBox, barBox, actionsBox] = await Promise.all([
       control.boundingBox(),
-      chip.boundingBox(),
+      remote.boundingBox(),
       bar(page).boundingBox(),
+      bar(page).locator('.tmt-ui-topbar-actions').boundingBox(),
     ]);
-    expect(box!.x).toBeLessThan(chipBox!.x);
-    expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(barBox!.x + barBox!.width);
-    // The header leaves the cluster's room: none of its controls reaches under it.
-    const clusterLeft = (await cluster(page).boundingBox())!.x;
-    const reach = await bar(page).evaluate((node) =>
-      Math.max(
-        ...Array.from(node.querySelectorAll('header button, header a')).map(
-          (item) => item.getBoundingClientRect().right,
-        ),
-      ),
-    );
-    expect(reach).toBeLessThanOrEqual(clusterLeft);
+    expect(box!.x).toBeLessThan(actionsBox!.x);
+    expect(actionsBox!.x + actionsBox!.width).toBeLessThanOrEqual(remoteBox!.x);
+    expect(remoteBox!.x + remoteBox!.width).toBeLessThanOrEqual(barBox!.x + barBox!.width);
+    // Colab draws no Remote chip or Theme button of its own beside the bar's.
+    await expect(page.locator('.remote-header-chip:visible')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /^Remote:/ })).toHaveCount(1);
   });
 
   test('the rail mark paints from its own paint servers while a hidden shell shares the document', async ({
@@ -280,15 +301,18 @@ test.describe('the shell bar', () => {
     expect(result.shared).toEqual([]);
   });
 
-  test('at 390 the presence chip is not drawn and the search stays in the bar', async ({
-    page,
-  }) => {
+  test('at 390 the Remote link and Search both stay in the bar', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await mountHome(page);
-    await expect(cluster(page).getByRole('link', { name: 'Remote: 3 live sessions' })).toBeHidden();
+    const remote = common(page).getByRole('link', { name: 'Remote: 3 live sessions' });
+    await expect(remote).toBeVisible();
     const box = (await search(page).boundingBox())!;
     expect(box.x).toBeGreaterThan(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
+    const remoteBox = (await remote.boundingBox())!;
+    expect(remoteBox.x + remoteBox.width).toBeLessThanOrEqual(390);
+    // No search hint on a phone: the control is its icon alone.
+    await expect(search(page).locator('kbd')).toBeHidden();
   });
 
   for (const mount of [mountPage, mountHome])

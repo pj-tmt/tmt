@@ -285,7 +285,7 @@ describe('native installation process contract', () => {
         expect(currentReleaseId(prefix)).not.toBe(oldId);
         expect(receipt(prefix).source).toEqual({
           kind: 'github-release',
-          repository: 'pj-tmt/tmt',
+          repository: 'tmt-ninja/tmt',
           release_id: 1454,
           manifest_sha256: request.manifest_sha256,
         });
@@ -465,6 +465,16 @@ describe('native installation process contract', () => {
           channel: 'alpha',
           pinned_version: fixture.version,
         });
+        // Keep this CLI pin-transition proof independent of live missing-extension offers.
+        for (const product of ['ops', 'remote', 'colab', 'digest'] as const) {
+          const artifact = await createArtifact(
+            sandbox,
+            '0.1.0-alpha.1',
+            new Uint8Array(),
+            product
+          );
+          await install(sandbox, artifact, prefix, ['--product', product, '--pin']);
+        }
         const managed = {
           ...sandbox,
           cli: { executable: pinned.executable, args: [] },
@@ -486,6 +496,10 @@ describe('native installation process contract', () => {
             skippedPinned: true,
             products: [
               { product: 'cli', status: 'skippedPinned', version: fixture.version, error: null },
+              { product: 'ops', status: 'skippedPinned' },
+              { product: 'remote', status: 'skippedPinned' },
+              { product: 'colab', status: 'skippedPinned' },
+              { product: 'digest', status: 'skippedPinned' },
             ],
             skills: null,
             pathWarning: null,

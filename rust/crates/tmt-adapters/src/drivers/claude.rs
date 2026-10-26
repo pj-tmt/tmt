@@ -596,6 +596,22 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             .state
     }
 
+    fn provider_mod(&self) -> Option<&'static crate::setup::provider_mod::ProviderMod> {
+        Some(&allowance::MOD)
+    }
+
+    /// Keep the rate-limit windows the first-party Claude mod pushed, for the account of the
+    /// environment's Claude root; the reader keeps the newest observation per account.
+    fn accept_allowance(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        data_root: &std::path::Path,
+        input: &[u8],
+        now_ms: u64,
+    ) -> std::io::Result<bool> {
+        allowance::push(environment, data_root, input, now_ms)
+    }
+
     fn turn_observation(
         &self,
         turn: &crate::runtime::lifecycle::TurnEnd,
@@ -728,6 +744,13 @@ impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
         previous: Option<&tmt_core::binding::session::DriverState>,
         now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
+        if self.transition == SessionTransition::Compacted {
+            return crate::runtime::driver_state::after_compaction(
+                self.model.as_deref(),
+                previous,
+                now_ms,
+            );
+        }
         // Only a continued conversation keeps usage, and only as reported.
         let usage = matches!(
             self.transition,

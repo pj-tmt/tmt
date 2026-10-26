@@ -137,13 +137,15 @@ pub struct ContentEdit<'a> {
     /// A typed change to `meta.attachments`, bound to `source`; `None` keeps the list as it is.
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentChange>,
 }
-/// The closed structured value an edit acts on: a dashboard's value, or the work an ordinary
-/// page carries beside its HTML.
+/// A closed editor-owned value beside page HTML, or the structured dashboard value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StructuredKind {
     Shell,
     Work,
+    Questions,
+    Creator,
+    Template,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -151,6 +153,9 @@ impl StructuredKind {
         match self {
             Self::Shell => "shell",
             Self::Work => "work",
+            Self::Questions => "questions",
+            Self::Creator => "creator",
+            Self::Template => "template",
         }
     }
 }
@@ -207,6 +212,12 @@ pub fn valid_publisher_agent(value: &str) -> bool {
 /// Exact current view supplied by the owner's authenticated fold. This seam
 /// does not establish log, page or epoch authority.
 pub struct BaselineInput<'a> {
+    pub creator: Option<&'a Value>,
+    pub questions: Option<&'a Value>,
+    /// `meta.template`, the mark that makes the page a template; a new epoch keeps it.
+    pub template: Option<&'a Value>,
+    /// `meta.fromTemplate`, what the page was created from; a new epoch keeps it.
+    pub from_template: Option<&'a Value>,
     pub original_author: Option<&'a str>,
     pub layout: Option<&'a PageLayout>,
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
@@ -279,6 +290,8 @@ pub struct PreparedContent {
     pub projection: Value,
     pub memory_limit: MemoryLimit,
     pub child_pid: u32,
+    /// How much of the existing source the edit replaces; empty for a structured action.
+    pub scale: crate::edit_scale::EditScale,
 }
 #[derive(Clone, Copy)]
 enum ChildCommand {
@@ -629,7 +642,15 @@ impl Decoder {
         }
         let reply: WirePreparedContent =
             serde_json::from_slice(&output.stdout).map_err(|_| DecodeFault::InvalidOutput)?;
-        admit_prepared_content(reply, &hash, &expected, expected == *expected_base)
+        let mut prepared =
+            admit_prepared_content(reply, &hash, &expected, expected == *expected_base)?;
+        if structured.is_none() {
+            prepared.scale = crate::edit_scale::EditScale::of(
+                expected_base["html"].as_str().unwrap_or_default(),
+                edit.source,
+            );
+        }
+        Ok(prepared)
     }
     /// Produces once from a fresh document and checks materialization in the child.
     pub fn produce_baseline(
@@ -760,6 +781,21 @@ impl Decoder {
         if view.work.is_some_and(|v| crate::work::validate(v).is_err()) {
             return Err(DecodeFault::InvalidInput);
         }
+        if view
+            .creator
+            .is_some_and(|v| crate::question_registry::validate_creator(v).is_err())
+            || view
+                .questions
+                .is_some_and(|v| crate::question_registry::validate(v).is_err())
+            || view
+                .template
+                .is_some_and(|v| crate::template_marks::validate_template(v).is_err())
+            || view
+                .from_template
+                .is_some_and(|v| crate::template_marks::validate_from(v).is_err())
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view.layout.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
@@ -792,6 +828,10 @@ impl Decoder {
             BaselineAction::Verify { .. } => ChildCommand::BaselineVerify,
         };
         let input = serde_json::to_vec(&WireBaseline {
+            creator: view.creator.cloned(),
+            questions: view.questions.cloned(),
+            template: view.template.cloned(),
+            from_template: view.from_template.cloned(),
             attachments: view.attachments.cloned(),
             version: 1,
             source: if matches!(action, BaselineAction::Produce { .. }) {
@@ -1115,6 +1155,33 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
                 expected["meta"]["work"] = next;
             }
         }
+        StructuredKind::Questions if !shell => {
+            expected["meta"]["questions"] = crate::question_registry::apply_to_page(
+                &base["meta"],
+                &edit.action,
+                &edit.body,
+                &edit.attribution,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?;
+        }
+        StructuredKind::Creator if !shell && edit.action == "creator.set" => {
+            expected["meta"]["creator"] =
+                crate::question_registry::set_creator(&edit.body, &edit.attribution)
+                    .map_err(|_| DecodeFault::InvalidInput)?;
+        }
+        StructuredKind::Template if !shell => {
+            match crate::template_marks::apply(&edit.action, &edit.body)
+                .map_err(|_| DecodeFault::InvalidInput)?
+            {
+                Some(mark) => expected["meta"]["template"] = mark,
+                None => {
+                    expected["meta"]
+                        .as_object_mut()
+                        .ok_or(DecodeFault::InvalidInput)?
+                        .remove("template");
+                }
+            }
+        }
         _ => return Err(DecodeFault::InvalidInput),
     }
     Ok(expected)
@@ -1136,6 +1203,12 @@ struct WirePreparedContent<B = String> {
     pid: u32,
 }
 fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Result<Value, DecodeFault> {
+    crate::question_registry::admit_edit(
+        edit.source,
+        base["html"].as_str().ok_or(DecodeFault::InvalidInput)?,
+        &base["meta"],
+    )
+    .map_err(|_| DecodeFault::InvalidInput)?;
     // A source replacement never converts structured content into HTML.
     if base["meta"].get("pageType").is_some() {
         return Err(DecodeFault::InvalidInput);
@@ -1223,6 +1296,7 @@ fn admit_prepared_content(
         projection: reply.projection,
         memory_limit: reply.memory_limit,
         child_pid: reply.pid,
+        scale: crate::edit_scale::EditScale::NONE,
     })
 }
 // A full baseline is not a 256 KiB stream update. Allow source, title and
@@ -1232,6 +1306,14 @@ pub const BASELINE_UPDATE_BYTES: usize = STATE_BYTES + BASELINE_TITLE_BYTES + 10
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireBaseline {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    creator: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    questions: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    template: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from_template: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     original_author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1329,6 +1411,10 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "creationRecipient" => {
                     !serde_json::from_value::<CreationRecipient>(v.clone()).is_ok_and(|v| v.valid())
                 }
+                "creator" => crate::question_registry::validate_creator(v).is_err(),
+                "questions" => crate::question_registry::validate(v).is_err(),
+                "template" => crate::template_marks::validate_template(v).is_err(),
+                "fromTemplate" => crate::template_marks::validate_from(v).is_err(),
                 "attachments" => !serde_json::from_value::<
                     tmt_colab_model::attachment::DocumentAttachments,
                 >(v.clone())
@@ -1358,7 +1444,10 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             }
             // Work belongs to an ordinary page; a shell keeps its own summary.
             if meta.contains_key("pageType") != meta.contains_key("shell")
-                || (meta.contains_key("work") && meta.contains_key("pageType"))
+                || (meta.contains_key("pageType")
+                    && ["work", "creator", "questions", "template", "fromTemplate"]
+                        .iter()
+                        .any(|key| meta.contains_key(*key)))
                 || (meta.contains_key("shell")
                     && (roots["html"].as_str() != Some("") || meta.contains_key("attachments")))
             {

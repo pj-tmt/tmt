@@ -376,7 +376,7 @@ describe('native installation process contract', () => {
 
   describe('Claude Code picker plugin hint', () => {
     const hint =
-      'Claude Code is installed without the tmt-picker plugin. Add it: claude plugin marketplace add pj-tmt/tmt && claude plugin install tmt-picker@tmt';
+      'Claude Code is installed without the tmt-picker plugin. Add it: claude plugin marketplace add tmt-ninja/tmt && claude plugin install tmt-picker@tmt';
 
     // A stand-in `claude` first on PATH: it records its arguments and prints
     // the given plugin list, or fails when `exitCode` is set. PATH holds no

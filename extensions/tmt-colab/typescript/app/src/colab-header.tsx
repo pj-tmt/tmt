@@ -1,10 +1,28 @@
 import { RemoteHeaderChip, RemoteMoreMenu, useRemoteHeaderAvailable } from './remote-header.js';
-import type { ReactNode, Ref } from 'react';
-import { BrowserHeader, useShellBar, useShellTools } from '@tmt/browser-ui/react';
+import { useContext, useLayoutEffect, type ReactNode, type Ref, type RefCallback } from 'react';
+import { BrowserHeader, BrowserTopBar, useShellBar, useShellTools } from '@tmt/browser-ui/react';
 import { createPortal } from 'react-dom';
 import { text } from './strings.js';
 import './colab-header.css';
 import { QuickSwitcherControl } from './quick-switcher-control.js';
+import { SharedTopBar } from './shared-top-bar.js';
+
+function assign<T>(ref: Ref<T> | undefined, value: T | null) {
+  if (typeof ref === 'function') ref(value);
+  else if (ref) ref.current = value;
+}
+/** One element for two refs: the header is both the title's container and, outside the shared bar,
+ * the sticky chrome. */
+function both<T>(
+  first: Ref<T> | undefined,
+  second: Ref<T> | undefined,
+): RefCallback<T> | undefined {
+  if (!first && !second) return undefined;
+  return (node) => {
+    assign(first, node);
+    assign(second, node);
+  };
+}
 
 /** The mark and the wordmark as one flex row; under 480px the wordmark is visually hidden (the brand's
  * accessible name still carries the product). */
@@ -21,6 +39,8 @@ export function ColabHeader({
   actions,
   home,
   headerRef,
+  barRef,
+  rowRef,
   status,
   remote,
   remoteMenu = true,
@@ -36,6 +56,10 @@ export function ColabHeader({
   /** Wraps the brand in the page's home link; `name` is its accessible name and tooltip. */
   home?: (brand: ReactNode, name: string) => ReactNode;
   headerRef?: Ref<HTMLElement>;
+  /** The sticky chrome the page measures from (the header; in the shared bar, the bar itself). */
+  barRef?: Ref<HTMLElement>;
+  /** The title row, when the shared bar draws no title and the row is content under it. */
+  rowRef?: Ref<HTMLDivElement>;
   status?: ReactNode;
   remote?: { deviceName?: string };
   remoteMenu?: boolean;
@@ -58,6 +82,7 @@ export function ColabHeader({
       : text.brandIdentity(deviceName ? `local · ${deviceName}` : 'local');
   const bar = useShellBar();
   const tools = useShellTools();
+  const shared = useContext(SharedTopBar) && bar !== null;
   if (embedded)
     return (
       <header className="colab-embedded-bar" ref={headerRef} aria-label={title}>
@@ -67,7 +92,12 @@ export function ColabHeader({
     );
   // In the shell the rail names the module and the search and the presence chip sit in the bar's
   // own cluster; the header keeps the page's title, status and actions.
-  const clustered = bar !== null && tools !== null;
+  const clustered = !shared && bar !== null && tools !== null;
+  useLayoutEffect(() => {
+    if (!shared) return;
+    assign(barRef, bar);
+    return () => assign(barRef, null);
+  }, [shared, barRef, bar]);
   const chip = remoteChip && remoteAvailable ? <RemoteHeaderChip /> : null;
   const header = (
     <BrowserHeader
@@ -104,28 +134,52 @@ export function ColabHeader({
               )
       }
       actions={
-        <>
-          {!clustered && <QuickSwitcherControl />}
-          {actions}
-          {remoteMenu && (
-            <span className="remote-home-more">
-              <RemoteMoreMenu />
-            </span>
-          )}
-        </>
+        shared ? undefined : (
+          <>
+            {!clustered && <QuickSwitcherControl />}
+            {actions}
+            {remoteMenu && (
+              <span className="remote-home-more">
+                <RemoteMoreMenu />
+              </span>
+            )}
+          </>
+        )
       }
       status={
-        (!clustered && chip) || status !== undefined ? (
+        shared ? undefined : (!clustered && chip) || status !== undefined ? (
           <>
             {!clustered && chip}
             {status}
           </>
         ) : undefined
       }
-      headerRef={headerRef}
+      headerRef={shared ? headerRef : both(headerRef, barRef)}
     />
   );
   if (!bar) return header;
+  if (shared) {
+    // The bar draws no title: the page's own row (title, crumb, project menu, caption) is content that
+    // scrolls with it, and only its actions and status belong to the shared bar.
+    const row = titleVisible || headingSuffix !== undefined || caption !== undefined;
+    return (
+      <>
+        <BrowserTopBar
+          actions={
+            <>
+              {status}
+              {actions}
+            </>
+          }
+        />
+        {row && (
+          <div className="colab-title-row" ref={rowRef}>
+            {header}
+          </div>
+        )}
+      </>
+    );
+  }
   return (
     <>
       {createPortal(header, bar)}

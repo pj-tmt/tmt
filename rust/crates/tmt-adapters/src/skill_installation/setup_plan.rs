@@ -40,6 +40,54 @@ pub struct SkillTarget {
     pub state: SkillState,
 }
 
+/// Recorded publication scopes, read-only. An intent is not overwrite authority.
+pub fn recorded_targets(global: &Path) -> io::Result<Vec<PathBuf>> {
+    Ok(registry::read(&files::resolved(global)?)?
+        .into_iter()
+        .collect())
+}
+
+/// Publish an approved new scope only while every planned target is still absent.
+/// The installer lock fences admission and publication; occupied entries are preserved.
+pub fn publish_missing_core(global: &Path, planned: &[SkillTarget]) -> io::Result<CorePublication> {
+    let global = files::resolved(global)?;
+    let assets = SkillAssets::new(&global);
+    for item in planned {
+        if item.state != SkillState::Missing
+            || !catalog::Catalog::bundled()
+                .names(catalog::Group::Core)
+                .contains(&item.name.as_str())
+            || item.target.file_name() != Some(std::ffi::OsStr::new(&item.name))
+        {
+            return Err(io::Error::other(
+                "New skill scope is not an absent bundled target.",
+            ));
+        }
+        files::safe_target(assets.root(), &item.target)?;
+    }
+    files::with_lock(&global, || {
+        registry::read(&global)?;
+        for item in planned {
+            if core_state(&item.target, &item.name, &assets)? != SkillState::Missing {
+                return Err(io::Error::other(
+                    "A new provider skill target changed after approval; run setup again.",
+                ));
+            }
+        }
+        let sources = assets.materialize_bundle()?;
+        registry::remember(&global, planned.iter().map(|item| item.target.clone()))?;
+        let mut done = CorePublication::default();
+        for item in planned {
+            files::link(
+                &item.target,
+                sources.get(&item.name).expect("bundled skill"),
+            )?;
+            done.linked.push(item.target.clone());
+        }
+        Ok(done)
+    })
+}
+
 /// Core's skills in this driver's skill root.
 pub fn plan_core(
     env: &ProviderEnvironment,
