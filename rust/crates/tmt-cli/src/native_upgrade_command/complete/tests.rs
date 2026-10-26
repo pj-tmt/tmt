@@ -78,6 +78,7 @@ fn no_consent_never_invokes_the_activated_executable() {
         false,
         OutputMode { json: true },
         &runner,
+        None,
     );
     assert!(runner.calls.borrow().is_empty());
     assert_eq!(outcome.products[1]["status"], "consentRequired");
@@ -100,6 +101,7 @@ fn negotiated_apply_receives_the_exact_selection_once_and_reports_missing_provid
         true,
         OutputMode { json: true },
         &runner,
+        None,
     );
     assert_eq!(outcome.products[1]["status"], "changed");
     assert_eq!(outcome.providers[0]["status"], "consentRequired");
@@ -128,6 +130,7 @@ fn scope_drift_refuses_before_apply_and_malformed_apply_never_replays() {
         true,
         OutputMode { json: true },
         &runner,
+        None,
     );
     assert_eq!(runner.calls.borrow().len(), 1);
     assert_eq!(outcome.products[1]["status"], "failed");
@@ -145,6 +148,7 @@ fn scope_drift_refuses_before_apply_and_malformed_apply_never_replays() {
         true,
         OutputMode { json: true },
         &runner,
+        None,
     );
     assert_eq!(runner.calls.borrow().len(), 2);
     assert_eq!(outcome.products[1]["status"], "failed");
@@ -166,6 +170,7 @@ fn an_old_target_gets_only_legacy_planning_and_no_missing_item_apply() {
         true,
         OutputMode { json: true },
         &runner,
+        None,
     );
     assert_eq!(outcome.products[0]["status"], "skippedPinned");
     assert_eq!(outcome.products[1]["status"], "consentRequired");
@@ -205,6 +210,7 @@ fn yes_with_only_pinned_products_and_unselected_provider_scopes_needs_no_child()
         true,
         OutputMode { json: true },
         &runner,
+        None,
     );
     assert!(runner.calls.borrow().is_empty());
     assert_eq!(outcome.products[0]["status"], "skippedPinned");

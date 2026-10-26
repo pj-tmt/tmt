@@ -1222,9 +1222,9 @@ applications or arbitrary drivers are installed; existing host-driver approval
 and removal rules remain. Agents must not use upgrade to obtain new setup authority.
 
 Completed items stay installed after an independent failure. Rerunning retries
-unfinished work. Within one apply process, interruption is honoured between items
-and returns 130. Root upgrade does not yet forward terminal Ctrl-C to its separate
-apply child; [#5180](https://github.com/tmt-ninja/tmt/issues/5180) tracks that limitation.
+unfinished work. Ctrl-C reaches the apply child, which stops at checkpoints,
+keeps completed outcomes and returns 130. A second Ctrl-C shortens the wait;
+forced cleanup or a deadline leaves an unconfirmed outcome. Inspect before retrying.
 JSON adds
 `providerSetup` outcomes (`changed`, `consentRequired`, `needsApproval`, `skipped`
 or `failed`) beside existing `integrations` and per-product results. A target

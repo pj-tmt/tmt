@@ -44,7 +44,7 @@ pub fn execute_with_schema_consent(
             "Warning: allowing a PR application schema ahead of latest alpha. Local data is never downgraded; returning to alpha may be unavailable until alpha catches up."
         )?;
     }
-    let interrupt = match tmt_adapters::interrupt::Interrupt::install() {
+    let mut interrupt = match tmt_adapters::interrupt::Interrupt::install() {
         Ok(interrupt) => interrupt,
         Err(error) => {
             return publish(
@@ -156,14 +156,17 @@ pub fn execute_with_schema_consent(
         extensions,
     };
     if report.skipped_pinned {
-        drop(interrupt);
         return finish(
             &report,
             None,
             None,
             extension_consent,
             &prior,
-            DatabaseSteps::default(),
+            FinishContext {
+                database: DatabaseSteps::default(),
+                interrupt: Some(&mut interrupt),
+                runner: &UnixCommandRunner,
+            },
             mode,
         );
     }
@@ -204,7 +207,6 @@ pub fn execute_with_schema_consent(
             presentation.borrow_mut().settled(warning);
         }
     }
-    drop(interrupt);
     // The activated executable renames the Core database (#2292), on every
     // completed unpinned upgrade; whatever happens there never fails the upgrade.
     let database = failure
@@ -221,9 +223,13 @@ pub fn execute_with_schema_consent(
         failure,
         extension_consent,
         &prior,
-        DatabaseSteps {
-            rename: database,
-            compaction,
+        FinishContext {
+            database: DatabaseSteps {
+                rename: database,
+                compaction,
+            },
+            interrupt: Some(&mut interrupt),
+            runner: &UnixCommandRunner,
         },
         mode,
     )
@@ -297,29 +303,41 @@ struct DatabaseSteps {
     compaction: Option<Value>,
 }
 
+struct FinishContext<'a, R> {
+    database: DatabaseSteps,
+    interrupt: Option<&'a mut tmt_adapters::interrupt::Interrupt>,
+    runner: &'a R,
+}
+
 fn finish(
     report: &UpgradeReport,
     skills: Option<Value>,
     failure: Option<Failure>,
     yes: bool,
     prior: &Prior,
-    database: DatabaseSteps,
+    context: FinishContext<'_, impl CommandRunner>,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    let FinishContext {
+        database,
+        interrupt,
+        runner,
+    } = context;
     let integration_report = (failure.is_none() && !report.skipped_pinned)
-        .then(|| integrations::run(&report.installation.active_executable, &UnixCommandRunner));
+        .then(|| integrations::run(&report.installation.active_executable, runner));
     let phase = if failure.is_none() {
         complete::run(
             &report.installation.active_executable,
             &prior.extensions,
             yes,
             mode,
-            &UnixCommandRunner,
+            runner,
+            interrupt,
         )
     } else {
         complete::Outcome::default()
     };
-    let after_upgrade = failure.is_none() && !report.skipped_pinned;
+    let after_upgrade = failure.is_none() && !report.skipped_pinned && !phase.interrupted;
     let rename_hints = if after_upgrade {
         rename::hints()
     } else {

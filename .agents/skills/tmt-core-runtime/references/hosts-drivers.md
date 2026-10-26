@@ -20,7 +20,11 @@ channels and the driver protocol. The owner map is in
   `snapshot` (all panes, or one).
 
 - A running-command handle separates launch from wait but keeps the original deadline and
-  cleanup; an abandoned handle stops and reaps its child. There is no second runner.
+  cleanup; an abandoned handle stops and reaps its child. Cancellable waits forward one SIGINT
+  to their private group while retaining the unreaped leader and bounded checkpoint report.
+  A repeat expires the wait; timeout/forced cleanup never confirms partial bytes. The resumable
+  communicator uses bounded blocking slices against the original absolute deadline, including
+  after pipe EOF. There is no second runner or signal/reader thread.
 - `process::runtime` uses the runner's native process evidence before bounded `ps` fallback.
   Native Unknown or late evidence grants nothing and never triggers a second acquisition;
   only unavailable native acquisition falls back. Owned unreaped children retain zombie

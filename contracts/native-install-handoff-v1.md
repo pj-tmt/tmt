@@ -193,10 +193,13 @@ its installer lock. Missing products reuse the verified installer in the managed
 select exact approved release bytes without a pin, and require continued absence under the
 activation lock. Skills-only retry uses its captured verified release. No services or provider
 applications are started. Remote is installed before Colab; unavailable Remote blocks Colab only.
-Ordinary independent failures keep successful work and continue. Within one apply process,
-interruption is honoured between items and retains completed outcomes. Root upgrade does not yet
-forward terminal Ctrl-C to its separate apply child; [#5180](https://github.com/tmt-ninja/tmt/issues/5180)
-owns that process-seam fix. This contract does not promise that root Ctrl-C stops later items.
+Ordinary independent failures keep successful work and continue. Root upgrade keeps its
+invocation interrupt guard through apply and forwards the first Ctrl-C as SIGINT to the owned
+child group. The child stops at its checkpoints, skips later items and reports completed outcomes.
+The parent keeps collecting that report within the original absolute deadline. A second Ctrl-C
+expires the wait early; the existing process owner cleans up and reaps the group. Deadline or
+forced cleanup is an unconfirmed outcome, never success, rollback or permission to replay apply.
+Older installed-only targets retain their existing checkpoint/report capabilities.
 
 The final document has exactly `products`, `providers` and Boolean `interrupted`. Product rows
 retain the existing statuses and add selection/action/details for missing-item outcomes; provider
