@@ -25,6 +25,7 @@ describe('native Digest held delivery and checklist seam', () => {
     await withSandbox(async (sandbox) => {
       const suffixes = [
         'receiving.sync',
+        'wake.step',
         'policy.set',
         'policy.clear',
         'policy.show',
@@ -147,10 +148,14 @@ describe('native Digest held delivery and checklist seam', () => {
       });
       expect(claimed.status).toBe(0);
       expect(claimed.body.claimed).toBe(true);
-      expect(claimed.body.page.items.map((item: { requestId: string }) => item.requestId)).toEqual([
-        urgentId,
-      ]);
-      expect(claimed.body.text).toContain('Urgent survives Sleep');
+      expect(claimed.body.page).toMatchObject({
+        projection: 'incoming_summary',
+        incomingCount: 1,
+        urgentCount: 1,
+        items: [],
+      });
+      expect(claimed.body.text).toBe('you have 1 messages, 1 urgent: tmt inbox');
+      expect(claimed.body.text).not.toContain(urgentId);
       expect(claimed.body.text).not.toContain('Ordinary stays held');
       const checklist = claimed.body.checklist;
       plan.revision = 2;
@@ -165,9 +170,14 @@ describe('native Digest held delivery and checklist seam', () => {
       expect(settled.status, settled.stdout).toBe(0);
       expect(settled.body.changed).toBe(true);
       const stats = await api(sandbox, 'digest.stats.show', { identities: [target] });
-      expect(stats.body.stats[0].dueCount).toBe(1);
+      expect(stats.body.stats[0]).toMatchObject({ heldCount: 1, dueCount: 0 });
       const oracle = new Database(sandbox.database, { readonly: true });
       try {
+        expect(
+          oracle
+            .prepare('SELECT request_id FROM focus_items WHERE checklist_id=? ORDER BY sequence')
+            .all(checklist.checklistId)
+        ).toEqual([{ request_id: urgentId }]);
         expect(
           oracle.prepare('SELECT checklist_id FROM focus_items WHERE request_id=?').get(ordinaryId)
         ).toEqual({ checklist_id: null });

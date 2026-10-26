@@ -38,6 +38,9 @@ case "$*" in
     *'"operation":"digest.receiving.sync"'*)
       if test -f sync-fails; then printf '%s\n' '{"error":{"code":"ORCH_CONFLICT","message":"changed"}}'; exit 5; fi
       cat receiving.json ;;
+    *'"operation":"digest.wake.step"'*)
+      if test -f wake-fails; then printf '%s\n' '{"error":{"code":"WAKE_FAILED","message":"inspect claim"}}'; exit 1; fi
+      cat wake.json ;;
     *'"operation":"digest.checklist.history"'*) cat history.json ;;
     *'"operation":"digest.policy.show"'*) cat policies.json ;;
     *'"operation":"digest.stats.show"'*) cat stats.json ;;
@@ -61,6 +64,7 @@ esac
             "capabilities.json",
             json!({"operations":["digest.receiving.sync"]}),
         );
+        fixture.write("wake.json", json!({"schemaVersion":1,"state":"nothing_due","identityId":null,"projection":"incoming_summary","nextAtMs":null}));
         fixture.policy(0, false);
         fixture.stats(10, 0);
         fixture.settings("20s", None);
@@ -1095,4 +1099,42 @@ fn the_switch_off_sends_one_by_one_despite_a_member_setting_and_on_holds_again()
             .any(|row| row["operation"] == "digest.policy.set"),
         "the member's own auto holds again"
     );
+}
+
+#[test]
+fn wake_capability_uses_the_existing_once_per_run_read_and_explicit_absence_makes_no_step() {
+    for supported in [false, true] {
+        let f = Fixture::new();
+        f.stats(0, 0);
+        let operations = if supported {
+            vec!["digest.receiving.sync", "digest.wake.step"]
+        } else {
+            vec!["digest.receiving.sync"]
+        };
+        f.write("capabilities.json", json!({"operations":operations}));
+        let mut port = f.port();
+        port.observe().unwrap();
+        port.observe().unwrap();
+        assert_eq!(offers(&f, "capabilities"), 1);
+        assert_eq!(
+            offers(&f, "digest.wake.step"),
+            if supported { 2 } else { 0 }
+        );
+    }
+}
+#[test]
+fn an_advertised_wake_error_ends_the_observation_without_legacy_fallback() {
+    let f = Fixture::new();
+    f.stats(0, 0);
+    f.write(
+        "capabilities.json",
+        json!({"operations":["digest.receiving.sync","digest.wake.step"]}),
+    );
+    fs::write(f.0.join("wake-fails"), "").unwrap();
+    let mut port = f.port();
+    let error = port.observe().err().expect("advertised wake fails");
+    assert_eq!(error.code, "WAKE_FAILED");
+    assert_eq!(offers(&f, "digest.wake.step"), 1);
+    assert_eq!(offers(&f, "digest.checklist.flush"), 0);
+    assert!(f.calls().last().unwrap().contains("digest.wake.step"));
 }

@@ -1355,18 +1355,19 @@ Squad owns user/lead authorization and duration syntax; it passes the recorded
 owner UUID. Provider adapters must admit their exact launch's turn boundary before
 claiming. Core never reads Squad configuration or installs provider-global hooks.
 
-| Operation                  | Input                                                                                                 | Result                                                         |
-| -------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `digest.policy.set`        | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`, `maxHoldMs`       | policy view                                                    |
-| `digest.policy.clear`      | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
-| `digest.policy.show`       | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
-| `digest.checklist.dueNow`  | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                   |
-| `digest.checklist.flush`   | `identityId`, optional `whenBusy` (boolean)                                                           | `identityId`, `state`                                          |
-| `digest.stats.show`        | `identities`: 1–256 active UUIDs                                                                      | `stats`: views in input order                                  |
-| `digest.checklist.read`    | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
-| `digest.checklist.history` | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | content-free settled checklist evidence                        |
-| `digest.checklist.claim`   | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text` |
-| `digest.checklist.settle`  | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                             |
+| Operation                  | Input                                                                                                 | Result                                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `digest.policy.set`        | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`, `maxHoldMs`       | policy view                                                                                              |
+| `digest.policy.clear`      | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                                                                      |
+| `digest.policy.show`       | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                                                                         |
+| `digest.wake.step`         | `budgetMs` (1–60,000), `limit` (1–256), whole integers                                                | `state`, nullable `identityId` / `nextAtMs`, `projection:"incoming_summary"`, frozen counts when claimed |
+| `digest.checklist.dueNow`  | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                                                             |
+| `digest.checklist.flush`   | `identityId`, optional `whenBusy` (boolean)                                                           | `identityId`, `state`                                                                                    |
+| `digest.stats.show`        | `identities`: 1–256 active UUIDs                                                                      | `stats`: views in input order                                                                            |
+| `digest.checklist.read`    | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                                                                     |
+| `digest.checklist.history` | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | content-free settled checklist evidence                                                                  |
+| `digest.checklist.claim`   | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text`                                           |
+| `digest.checklist.settle`  | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                                                                       |
 
 UUIDs must be canonical and active; revision/expiry/cursors are nonnegative JS-safe
 integers, a set expiry is strictly future, absent revision is 0. A clear advances
@@ -1417,6 +1418,14 @@ admits no items and Focus seals only urgent Incoming membership. Direct receivin
 restores ordinary eligibility even before an old lease is cleared. A due-now or
 `whenBusy` flag never bypasses these gates. Due-now grants no transport permission and starts no worker. No core scheduler exists.
 
+[`digest.wake.step`](orchestration-v1.md#incoming-summaries-and-wake-spacing)
+admits at most one Incoming summary through the existing Digest claim/transport/
+settlement owner. Pending summary flushes and provider hooks stay UUID-pinned,
+share its persistent admission clock, and may defer. Summaries carry counts only,
+never request bodies, member IDs, receipts or captured input, and terminal
+notification evidence never authorizes reoffer. Ordinary checklists retain the
+existing full projection.
+
 `digest.checklist.flush` offers one existing idle-delivery opportunity for the exact
 active identity UUID, without name or pane resolution. Core reuses its ordinary
 live-session, readiness, claim, transport and settlement checks; it is not a
@@ -1459,7 +1468,10 @@ See the [delivery contract](request-response-v1.md#digest-delivery-windows).
 `digest.checklist.history` v1 is a content-free, storage-only observation over
 existing retained checklist records, not a complete archive. It never claims,
 delivers, acknowledges, refreshes provider evidence, prunes or renews retention.
-The normative [history vectors](digest-checklist-history-v1.json) pin its shape.
+The normative [history vectors](digest-checklist-history-v1.json) pin full rows.
+Summary rows additionally carry optional
+`projection:{kind:"incoming_summary",incomingCount:N,urgentCount:K}` metadata;
+counts are frozen at claim and do not assert that member bodies were delivered.
 
 Input is a canonical active `identityId`, optional canonical `checklistId`,
 `after` (default 0, nonnegative JS-safe integer) and `limit` (default 32, 1–128).

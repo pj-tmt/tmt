@@ -58,6 +58,18 @@ impl ReceivingCalendar {
         else {
             return Ok(None);
         };
+        self.resolved_receiving(db, identity, now, Some(window))
+    }
+    /// Resolve the published policy independently of a live hold lease. Release
+    /// admission needs this view after the lease ends; `held_until` still owns
+    /// the finite-window rule and grants no hold without that lease.
+    pub(super) fn resolved_receiving(
+        &self,
+        db: &Connection,
+        identity: &str,
+        now: u64,
+        window: Option<tmt_core::request::digest::DigestPolicy>,
+    ) -> Result<Option<OrchReceivingPolicy>, StorageError> {
         let stored = read_snapshot(db, None, Some(identity))?;
         if stored.snapshot.digest_revision == 0 {
             return Ok(None);
@@ -78,7 +90,7 @@ impl ReceivingCalendar {
             configuration_revision: stored.snapshot.revision,
             time_zone: zone.name().into(),
             next_change_at_ms: resolved.next_change_at_ms,
-            legacy_window: Some(window),
+            legacy_window: window,
         }))
     }
 }

@@ -357,6 +357,31 @@ pub trait RequestRecords {
     ) -> Result<Option<crate::orchestration::receiving::OrchReceivingPolicy>, Self::Error> {
         Ok(None)
     }
+    /// Published policy for release, even after the finite hold lease expires.
+    fn resolved_receiving_policy(
+        &self,
+        identity: &str,
+        now_ms: u64,
+    ) -> Result<Option<crate::orchestration::receiving::OrchReceivingPolicy>, Self::Error>;
+    fn digest_pending_wake(
+        &self,
+        identity: &str,
+    ) -> Result<Option<digest::DigestPendingWake>, Self::Error>;
+    fn write_digest_pending_wake(
+        &mut self,
+        identity: &str,
+        marker: Option<&digest::DigestPendingWake>,
+    ) -> Result<(), Self::Error>;
+    fn digest_wake_clock(&self) -> Result<digest::DigestWakeClock, Self::Error>;
+    fn write_digest_wake_clock(
+        &mut self,
+        clock: &digest::DigestWakeClock,
+    ) -> Result<(), Self::Error>;
+    fn digest_wake_candidates(
+        &self,
+        after: Option<&str>,
+        limit: u64,
+    ) -> Result<Vec<String>, Self::Error>;
     fn increment_flow(&mut self, row: &flow::FlowRow) -> Result<(), Self::Error>;
     fn flow_rows(&self, since_ms: u64, now_ms: u64) -> Result<Vec<flow::FlowRow>, Self::Error>;
     fn prune_flow(&mut self, through_bucket_ms: u64, limit: u64) -> Result<(), Self::Error>;
@@ -525,6 +550,7 @@ pub trait RequestRecords {
         opportunity: digest::DigestOpportunity,
         sealed_count: u64,
         selection: digest::DigestSelection,
+        members: Option<&[u64]>,
     ) -> Result<(), Self::Error>;
     fn settle_digest_checklist(
         &mut self,

@@ -15,6 +15,44 @@ use tmt_core::{
 };
 
 #[test]
+fn incoming_selection_excludes_result_and_timeout_references_from_its_count_and_items() {
+    use tmt_core::request::digest::{DigestSelection, DigestSource};
+    let (mut f, target, _, sender) = start();
+    for id in ["incoming", "result", "timeout"] {
+        held(&mut f, &target, &sender, id);
+    }
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    // The same recipient/kind/retention must not make other source references Incoming.
+    for source in ["result", "timeout"] {
+        db.execute(
+            "UPDATE focus_items SET source=?1 WHERE request_id=?1",
+            [source],
+        )
+        .unwrap();
+    }
+    let inventory = |selection| {
+        super::super::digest::selected_inventory(
+            &db,
+            &target,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+            selection,
+            NOW_MS,
+        )
+        .unwrap()
+        .0
+    };
+    assert_eq!(inventory(DigestSelection::All), 3);
+    assert_eq!(inventory(DigestSelection::Incoming), 1);
+    assert_eq!(inventory(DigestSelection::UrgentIncoming), 0);
+    let items =
+        super::super::digest::selected_items(&db, &target, 128, DigestSelection::Incoming, NOW_MS)
+            .unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].request_id, "incoming");
+    assert_eq!(items[0].source, DigestSource::Incoming);
+}
+
+#[test]
 fn published_digest_base_is_journaled_and_global_off_masks_receiving() {
     use crate::orchestration::{DigestReceiving, DigestReceivingSettings};
     let (mut f, target, _, sender) = start();
@@ -176,20 +214,17 @@ fn orchestration_sleep_and_focus_gate_every_claim_and_seal_only_urgent_members()
     let items = service(&mut f)
         .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
         .unwrap();
-    assert_eq!(
-        items
-            .iter()
-            .map(|i| i.request_id.as_str())
-            .collect::<Vec<_>>(),
-        vec![urgent.as_str()]
+    assert!(
+        items.is_empty(),
+        "pending summary membership is frozen only at claim"
     );
     let batch = service(&mut f)
-        .claim_digest_checklist(
+        .claim_digest_summary(
             &target,
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::TurnBoundary,
-            None,
+            || true,
         )
         .unwrap()
         .unwrap();
@@ -241,13 +276,14 @@ fn orchestration_sleep_and_focus_gate_every_claim_and_seal_only_urgent_members()
         4,
         "idempotent settlement is not another decision"
     );
+    f.set_now(NOW_MS + 1000); // Every admitted summary shares the persistent spacing clock.
     let restored = service(&mut f)
-        .claim_digest_checklist(
+        .claim_digest_summary(
             &target,
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::Idle,
-            None,
+            || true,
         )
         .unwrap()
         .unwrap();

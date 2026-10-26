@@ -38,6 +38,7 @@ const OPS: &[&str] = &[
     "orchestration.read",
     "orchestration.write",
     "digest.receiving.sync",
+    "digest.wake.step",
     "digest.policy.set",
     "digest.policy.clear",
     "digest.policy.show",

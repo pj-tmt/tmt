@@ -26,6 +26,7 @@ pub struct TickProcess {
     synchronized: BTreeMap<String, Receiving>,
     receiving_revision: Option<u64>,
     receiving_supported: Option<bool>,
+    wake_supported: bool,
     failed: BTreeSet<String>,
     /// The newest recorded `(rule, outcome, oldest held arrival)` per member, so
     /// the once-a-second loop records a change of decision and not each repeat.
@@ -46,6 +47,7 @@ impl TickProcess {
             synchronized: BTreeMap::new(),
             receiving_revision: None,
             receiving_supported: None,
+            wake_supported: false,
             failed: BTreeSet::new(),
             decided: BTreeMap::new(),
             offered: BTreeMap::new(),
@@ -69,7 +71,9 @@ impl TickProcess {
             let capabilities = self.core.api("capabilities", json!({}))?;
             let mut supported = false;
             for operation in capabilities["operations"].as_array().ok_or_else(invalid)? {
-                supported |= operation.as_str().ok_or_else(invalid)? == "digest.receiving.sync";
+                let name = operation.as_str().ok_or_else(invalid)?;
+                supported |= name == "digest.receiving.sync";
+                self.wake_supported |= name == "digest.wake.step";
             }
             self.receiving_supported = Some(supported);
         }
@@ -494,6 +498,31 @@ impl TickPort for TickProcess {
                     Receiving::Batch { .. } | Receiving::Hold => {}
                 }
                 observations.push(row);
+            }
+        }
+        if self.wake_supported && self.within_minute()? {
+            // The existing observation loop is finite; an advertised error ends this run,
+            // never a fallback or retry after a possibly effective claim.
+            let remaining = self
+                .boundary
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+                .min(1000) as u64;
+            if remaining > 0 {
+                let wake = self.core.api(
+                    "digest.wake.step",
+                    json!({"budgetMs":remaining,"limit":256}),
+                )?;
+                match wake["state"].as_str() {
+                    Some("delivered" | "nothing_due" | "unavailable") => {}
+                    Some("uncertain") => {
+                        return Err(Error::new(
+                            "DIGEST_DELIVERY_UNCERTAIN",
+                            "Core retained an uncertain summary; inspect it before any retry",
+                        ));
+                    }
+                    _ => return Err(invalid()),
+                }
             }
         }
         Ok(observations)

@@ -855,3 +855,37 @@ fn decision_and_settlement_reads_never_take_the_write_lock() {
     }
     held.rollback().unwrap();
 }
+
+#[test]
+fn summary_projection_has_unknown_savings_while_ordinary_full_evidence_keeps_its_estimate() {
+    let full = event(1, 1000, &[Some(1000), Some(1200)]);
+    assert_eq!(full.estimate().tokens, Some(1200));
+    assert_eq!(full.estimate().avoided, Some(1));
+    let mut summary = full.clone();
+    summary.projection = Some(model::Projection::IncomingSummary {
+        incoming_count: 2,
+        urgent_count: 1,
+    });
+    summary.validate().unwrap();
+    assert_eq!(summary.estimate().tokens, None);
+    assert_eq!(summary.estimate().avoided, None);
+    assert_eq!(summary.estimate().gap, Some("incoming_summary"));
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    store.baseline(ID, 900, 0, 0).unwrap();
+    store.record(ID, &summary, 1100).unwrap();
+    store.checkpoint(ID, 1100, 1, 1).unwrap();
+    let report = store
+        .status_built_in(ID, Window::Lifetime, 1100, Some(1))
+        .unwrap();
+    assert!(report["estimatedInputTokensAvoided"].is_null());
+    assert!(report["avoidedSeparateDeliveries"].is_null());
+    assert_eq!(report["gap"], "incoming_summary");
+    let observed: i64 = store
+        .read(|tx| {
+            tx.query_row("SELECT delivered FROM events", [], |row| row.get(0))
+                .map_err(io)
+        })
+        .unwrap();
+    assert_eq!(observed, 1, "observed delivery evidence is retained");
+}
