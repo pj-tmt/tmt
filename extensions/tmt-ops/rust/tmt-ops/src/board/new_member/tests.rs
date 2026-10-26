@@ -332,3 +332,12 @@ fn dialogs_use_compact_content_and_the_approved_copy() {
         }
     }
 }
+
+#[test]
+fn an_outside_press_closes_the_new_member_form() {
+    let mut app = form();
+    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+        &mut app,
+        crate::board::app::Overlay::NewMember,
+    );
+}

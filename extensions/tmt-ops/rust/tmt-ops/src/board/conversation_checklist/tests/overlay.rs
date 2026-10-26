@@ -1094,3 +1094,23 @@ fn a_sheet_that_was_not_painted_never_dismisses() {
     click_at(&mut app, 0, 0);
     assert!(app.notes_overlay.is_some());
 }
+
+#[test]
+fn an_outside_press_on_a_dialog_above_the_list_keeps_the_lists_unsent_form() {
+    let (mut app, key) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('a'));
+    type_text(&mut app, "half typed");
+    app.checklist = Some(crate::board::checklist::Controller::new(1, None));
+    assert_eq!(app.overlay(), Some(crate::board::app::Overlay::Checklist));
+    paint(&app);
+    click_at(&mut app, 0, 0);
+    assert!(
+        app.checklist.is_none() || !app.checklist_shown(),
+        "the upper dialog closed"
+    );
+    assert!(
+        app.notes_overlay.is_some(),
+        "the list is still open under it"
+    );
+    assert!(app.notes.draft(&key).is_some(), "its unsent form survives");
+}

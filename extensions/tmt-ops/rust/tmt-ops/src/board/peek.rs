@@ -43,6 +43,11 @@ impl PeekAreas {
         self.1.set(areas);
     }
 
+    #[cfg(test)]
+    pub fn dialog(&self, overlay: Overlay) -> Option<Rect> {
+        self.1.get()[overlay as usize]
+    }
+
     fn dialog_outside(&self, overlay: Overlay, event: MouseEvent) -> bool {
         self.1.get()[overlay as usize]
             .is_some_and(|area| !area.contains((event.column, event.row).into()))
@@ -119,7 +124,9 @@ impl App {
         {
             return None;
         }
-        if let Some(notes) = &self.notes_overlay {
+        if overlay == Overlay::Notes
+            && let Some(notes) = &self.notes_overlay
+        {
             notes.discard_unsent(&mut self.notes);
         }
         let esc = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));

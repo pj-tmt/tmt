@@ -1226,37 +1226,41 @@ pub(in crate::board) mod tests {
     use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyModifiers};
 
     #[test]
-    fn an_outside_press_closes_the_settings_sheet_and_drops_an_open_edit() {
-        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    fn an_outside_press_closes_the_settings_sheet() {
         let mut f = fixture("outside-press", "");
-        let click = |app: &mut crate::board::app::App, column, row| {
-            app.mouse(
-                MouseEvent {
-                    kind: MouseEventKind::Down(MouseButton::Left),
-                    column,
-                    row,
-                    modifiers: KeyModifiers::NONE,
-                },
-                std::time::Instant::now(),
-            )
-        };
-        let paint = |app: &crate::board::app::App| {
-            Terminal::new(TestBackend::new(120, 40))
-                .unwrap()
-                .draw(|frame| crate::board::view::render(frame, app))
-                .unwrap();
-        };
-        paint(&f.app);
-        let outer = modal_outer(f.app.settings.as_ref().unwrap()).expect("painted");
-        click(&mut f.app, outer.x + 1, outer.y + 1);
-        assert!(f.app.settings.is_some(), "a press inside keeps the sheet");
-        assert!(outer.y > 0, "the header row is outside the sheet");
-        click(&mut f.app, 0, 0);
-        assert!(f.app.settings.is_none());
+        crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+            &mut f.app,
+            crate::board::app::Overlay::Settings,
+        );
         assert_eq!(
             std::fs::read_to_string(&f.path).unwrap(),
             f.original,
             "closing writes nothing"
+        );
+    }
+
+    #[test]
+    fn an_outside_press_drops_an_open_edit_prompt_with_the_sheet_and_writes_nothing() {
+        let mut f = fixture("outside-press-edit", "");
+        let overlay = f.app.settings.as_mut().unwrap();
+        overlay.surface.borrow_mut().select("board.refresh");
+        assert_eq!(
+            press(&mut f.app, KeyCode::Enter),
+            crate::board::app::Effect::None
+        );
+        assert!(
+            f.app.settings.as_ref().unwrap().editing(),
+            "an edit is open"
+        );
+        crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+            &mut f.app,
+            crate::board::app::Overlay::Settings,
+        );
+        assert!(f.app.settings.is_none(), "the sheet closes with the prompt");
+        assert_eq!(
+            std::fs::read_to_string(&f.path).unwrap(),
+            f.original,
+            "nothing is written"
         );
     }
 

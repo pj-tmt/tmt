@@ -297,3 +297,13 @@ fn pending_save_keeps_mouse_cancel_reachable_and_other_controls_disabled() {
 }
 
 mod capture;
+
+#[test]
+fn an_outside_press_closes_the_panels_picker() {
+    let mut app = board();
+    app.open_panels();
+    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+        &mut app,
+        crate::board::app::Overlay::Panels,
+    );
+}

@@ -897,3 +897,13 @@ fn capture_fitted_discovery_review() {
         }
     });
 }
+
+#[test]
+fn an_outside_press_closes_the_discovery_window() {
+    let mut app = crate::board::app::workspace::tests::board();
+    app.discovery = Some(controller());
+    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+        &mut app,
+        crate::board::app::Overlay::Discovery,
+    );
+}

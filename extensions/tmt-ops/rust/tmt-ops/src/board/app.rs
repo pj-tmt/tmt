@@ -589,6 +589,7 @@ pub(super) use crate::requests::message::MESSAGE_LIMIT;
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 /// Shared routing identifies the active surface; its controller owns effects.
+/// `PastePreview` stays the last variant: `peek.rs` sizes its per-overlay slot table from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Overlay {
     Workspace,

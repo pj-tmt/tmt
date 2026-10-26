@@ -511,6 +511,19 @@ mod tests {
         );
     }
     #[test]
+    fn an_outside_press_closes_the_cron_review() {
+        let mut app = crate::board::app::workspace::tests::board();
+        let Effect::Act(Request::CronPreview(task)) = app.cron_review_request(request()) else {
+            panic!("preview");
+        };
+        let (task, result) = run(*task, 0);
+        app.cron_review_ready(task, result);
+        crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+            &mut app,
+            crate::board::app::Overlay::CronReview,
+        );
+    }
+    #[test]
     fn apply_uses_the_frozen_request_after_preview_and_failed_preview_cannot_apply() {
         let mut app = crate::board::app::workspace::tests::board();
         let frozen = request();

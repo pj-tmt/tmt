@@ -270,3 +270,12 @@ fn modal_revision_hide_hint_uses_the_effective_switch_binding() {
         "z reopens this switch or its result."
     );
 }
+
+#[test]
+fn an_outside_press_closes_the_switch_tool_form() {
+    let mut app = form();
+    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+        &mut app,
+        crate::board::app::Overlay::SwitchTool,
+    );
+}
