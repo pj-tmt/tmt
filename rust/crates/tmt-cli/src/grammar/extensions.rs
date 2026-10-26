@@ -53,6 +53,7 @@ pub fn candidate(definition: &Command, argv: &[OsString]) -> Option<Result<Parse
         (name.to_owned(), args, false, argv[..offset].to_vec())
     };
     Some(Ok(Parsed {
+        start_here: false,
         legacy_hook: false,
         invocation: Invocation::Extension {
             name: selection.0,

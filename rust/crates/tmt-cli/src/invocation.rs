@@ -518,6 +518,8 @@ pub use tmt_command_output::OutputMode;
 
 #[derive(Debug, PartialEq)]
 pub struct Parsed {
+    /// Bare root invocation: show local getting-started guidance before help.
+    pub start_here: bool,
     /// The launch-baked legacy root spelling; never changes the invocation.
     pub legacy_hook: bool,
     pub invocation: Invocation,

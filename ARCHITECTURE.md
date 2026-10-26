@@ -380,7 +380,9 @@ current release. CLI self-upgrade delegates to the verified candidate under the
 [handoff contract](contracts/native-install-handoff-v1.md); PR channel trust,
 compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer. Upgrade shares setup's missing inventory and provider publisher; only interactive approval can add a provider scope.
-`tmt extension` owns consented install/upgrade (`--to`)/removal. Its setup planner owns the read-only official inventory (installed/version/missing/dependencies), shared by guided setup and `extension ls --json`; PATH discovery remains separate.
+`install_guidance` projects setup's verified inventory as public
+[`guidance.actions`](contracts/extension-api.md#installation-guidance-through-the-ordinary-cli);
+PATH only resolves commands.
 Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-uses) gate activation; listing compares locally.
 [Installer architecture](.agents/skills/tmt-core-runtime/references/install-architecture.md) owns retention,
 discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.

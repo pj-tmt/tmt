@@ -83,6 +83,7 @@ pub fn parse_core(argv: &[OsString]) -> Result<Parsed, ParseError> {
     }
     let invocation = translate(&path, leaf).map_err(fail)?;
     let mut parsed = finish_parse(invocation, mode)?;
+    parsed.start_here = path.is_empty();
     // Launch settings bake the root name first. Global-option variants still
     // forward identically, but need no advisory based on guessed argv positions.
     parsed.legacy_hook = matches!(parsed.invocation, Invocation::DigestHook { .. })
@@ -115,6 +116,7 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
     Ok(Parsed {
         invocation,
         mode,
+        start_here: false,
         legacy_hook: false,
     })
 }

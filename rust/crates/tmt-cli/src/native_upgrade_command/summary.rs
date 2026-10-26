@@ -143,6 +143,7 @@ impl Next {
 /// What the upgrade tells the reader beyond its products. Required notices need an action to
 /// finish the upgrade; optional ones only help.
 pub(super) struct Followups<'a> {
+    pub guidance: Option<&'a crate::install_guidance::Guidance>,
     /// Pane option cutover and database notices: unfinished work.
     pub required: &'a [String],
     /// The missing prompt picker, the retained former prefix and the retired Squad.
@@ -250,6 +251,40 @@ pub(super) fn write(
         && skills_changed(account.skills)
     {
         next.optional(hint);
+    }
+    if let Some(guidance) = account.followups.guidance {
+        for action in &guidance.actions {
+            if action.kind == crate::install_guidance::Kind::Install
+                && account.products.iter().skip(1).any(|row| {
+                    action
+                        .argv
+                        .get(3)
+                        .is_some_and(|name| row["product"] == *name)
+                        && row["hint"].is_string()
+                })
+            {
+                // Preserve the operation owner's exact retry/consent command, including its prefix.
+                continue;
+            }
+            if action.id == "upgrade" && retry.is_some() {
+                continue;
+            }
+            let command = crate::install_guidance::command(&action.argv);
+            // Required recovery may already name this exact command; do not say it twice.
+            if next
+                .required
+                .iter()
+                .chain(&next.optional)
+                .any(|line| line == &command || line.ends_with(&format!(": {command}")))
+            {
+                continue;
+            }
+            if action.kind == crate::install_guidance::Kind::Repair {
+                next.required(action.line());
+            } else {
+                next.optional(action.line());
+            }
+        }
     }
     next.write(output, terminal)
 }

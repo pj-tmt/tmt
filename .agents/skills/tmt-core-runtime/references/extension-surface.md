@@ -44,7 +44,9 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   Help remains read-only. Other callers receive `EXTENSION_NOT_INSTALLED` (exit 3), with
   an exact consented install command. Accepted installation prints the shell-quoted
   original invocation and never dispatches it. Installed extension tails stay opaque.
-  Root help includes informational missing-official rows; completion lists installed commands only.
+  Root help's missing-official rows and bare-root Start here use the shared receipt-based
+  inventory projection, not PATH presence as readiness. PATH still owns external resolution;
+  explicit/nested help keeps its existing grammar. Completion lists installed commands only.
 - Installed-extension prefix refusals recover presentation mode only from the stored
   Core prefix using the diagnostic scanner, and never inspect or execute the extension tail.
 - Direct extension dispatch, completion and Remote message delivery share the child-only

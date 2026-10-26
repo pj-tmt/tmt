@@ -240,6 +240,12 @@ the move is a bootstrap reinstall.
 
 ## Extensions through `tmt extension`
 
+- `tmt-cli::extension_install_command::setup::inventory` is the one official
+  installed/missing/dependency read. Listing adds existing verification, shadowing and
+  compatibility diagnostics; `install_guidance` projects it for listing, bare-root help,
+  setup and root upgrade. The [public guidance contract](../../../../contracts/extension-api.md#installation-guidance-through-the-ordinary-cli)
+  owns action JSON, limits and version evidence. No onboarding state or capability probe.
+
 - The facade `extension_install_command` keeps dispatch, consent, errors, interruption, rendering
   and uninstall; private modules own install, repair, list/upgrade and skills settlement. Names
   come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation;

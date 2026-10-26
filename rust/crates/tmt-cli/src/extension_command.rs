@@ -111,7 +111,10 @@ impl Discovered {
     }
 
     /// Root help's `Extensions` section; none when nothing was discovered.
-    pub fn sections(&self) -> Vec<tmt_cli_style::HelpSection> {
+    pub(crate) fn sections_with_inventory(
+        &self,
+        guidance: Option<&crate::install_guidance::Guidance>,
+    ) -> Vec<tmt_cli_style::HelpSection> {
         let home = std::env::home_dir();
         let path = |path: &std::path::Path| {
             tmt_cli_style::table::escape(&tmt_cli_style::value::home_path(path, home.as_deref()))
@@ -136,7 +139,10 @@ impl Discovered {
             )
         }));
         for product in crate::extension_install_command::INSTALLABLE_EXTENSIONS {
-            if !self.has(product.as_str()) {
+            if guidance.map_or_else(
+                || !self.has(product.as_str()),
+                |guidance| guidance.missing(product.as_str()),
+            ) {
                 entries.push((
                     product.as_str().into(),
                     format!(
