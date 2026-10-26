@@ -594,7 +594,8 @@ receives `Event`s (a connection notice, a `Screen` at most every 33 ms, `Exited`
 dropped by its epoch. A lost connection or a `TooSlow` eviction reconnects with a fresh `Hello` and
 `Snapshot` after a bounded backoff; `TakenOver`, `Exited` and a refusal do not. A viewer never sends
 `TakeSole`, never sends `Resize` unless the caller asks (typing starts or the typing area changes),
-sends a window it last had again after a reconnect, drops input while not attached, and never
+sends that window again after a reconnect only while typing (`stop_typing` forgets it, so a
+viewer that only watches never takes the size back), drops input while not attached, and never
 sends or reads Core's control frames. The screen model and key encoder are `tmt-tui`'s
 `components::terminal`; this module depends on `tmt-pty-protocol` for frames only.
 

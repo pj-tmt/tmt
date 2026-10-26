@@ -45,6 +45,8 @@ pub(in crate::board) enum StreamEvent {
 enum Command {
     Input(Vec<u8>),
     Resize(Size),
+    /// Typing ended: the window is no longer this viewer's to keep.
+    StopTyping,
 }
 
 /// How long the thread waits, polls and backs off.
@@ -113,6 +115,13 @@ impl Stream {
     /// The window this viewer types in. A viewer that only watches never calls it.
     pub fn resize(&self, size: Size) {
         let _ = self.commands.send(Command::Resize(size));
+    }
+
+    /// Typing ended. The window is forgotten, so a reconnect from here on sends no `Resize`
+    /// and a viewer that only watches never takes the size back from another client; nothing
+    /// is resized back now either.
+    pub fn stop_typing(&self) {
+        let _ = self.commands.send(Command::StopTyping);
     }
 }
 
@@ -275,6 +284,7 @@ fn session(
                         };
                     }
                 }
+                Ok(Command::StopTyping) => *window = None,
                 Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
             }
         }
@@ -383,7 +393,7 @@ fn apply(
                 return Step::End(End::Over(StreamEvent::Refused(Refusal::Version)));
             }
             *phase = Phase::Asked;
-            // The window this viewer last typed in, if it ever did, is still its window.
+            // While the viewer is typing, the window it typed in is still its window.
             let sent = window
                 .map_or(Ok(()), |size| send(socket, &ClientMessage::Resize(size)))
                 .and_then(|()| send(socket, &ClientMessage::Snapshot));

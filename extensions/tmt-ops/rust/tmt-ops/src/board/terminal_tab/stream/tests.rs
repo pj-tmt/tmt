@@ -316,7 +316,7 @@ fn a_lost_connection_reconnects_with_a_new_hello_and_a_new_snapshot() {
 }
 
 #[test]
-fn a_reconnect_after_typing_asks_for_the_window_it_last_had_before_the_snapshot() {
+fn a_reconnect_while_typing_asks_for_the_window_it_had_before_the_snapshot() {
     let fake = Fake::new();
     let (stream, events) = fake.viewer(quick());
     let mut first = fake.accept();
@@ -333,6 +333,42 @@ fn a_reconnect_after_typing_asks_for_the_window_it_last_had_before_the_snapshot(
     });
     assert_eq!(second.expect(), ClientMessage::Resize(size(50, 9)));
     assert_eq!(second.expect(), ClientMessage::Snapshot);
+}
+
+#[test]
+fn a_reconnect_after_typing_ended_sends_no_resize_and_takes_no_size_back() {
+    let fake = Fake::new();
+    let (stream, events) = fake.viewer(quick());
+    let mut first = fake.accept();
+    first.attach(size(10, 2), b"x");
+    screen(&events);
+    stream.resize(size(50, 9));
+    assert_eq!(first.expect(), ClientMessage::Resize(size(50, 9)));
+    stream.stop_typing();
+    // The command is applied before the next read; give the thread a poll or two.
+    thread::sleep(Duration::from_millis(50));
+    drop(first);
+    let mut second = fake.accept();
+    assert_eq!(second.expect(), ClientMessage::Hello { version: VERSION });
+    second.send(ServerMessage::Welcome {
+        version: VERSION,
+        size: size(10, 2),
+    });
+    assert_eq!(
+        second.expect(),
+        ClientMessage::Snapshot,
+        "the watching viewer asks for the screen and nothing else"
+    );
+    second.send(ServerMessage::SnapshotStart);
+    second.send(ServerMessage::SnapshotData(b"x".to_vec()));
+    second.send(ServerMessage::SnapshotEnd(size(10, 2)));
+    screen(&events);
+    drop(stream);
+    let mut rest = Vec::new();
+    while let Some(message) = second.receive() {
+        rest.push(message);
+    }
+    assert_eq!(rest, vec![ClientMessage::Detach], "no Resize at any point");
 }
 
 #[test]
