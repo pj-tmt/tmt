@@ -161,7 +161,10 @@ and `./react` entries. The root installs `ShellControls.setCommonControls({ open
 `ShellHost` delegates that setter, and `BrowserShell` accepts `commonControls`. These bindings
 belong to the root, never a route module. A route calls `ShellSlot.setTopBar()` and receives
 only `readonly actions: HTMLElement`; React's `BrowserTopBar({ actions })` portals into that
-same renderer. Common controls follow module actions in the order Theme, Search, Remote.
+same renderer. Search is the first control in the left group, after the phone navigation
+button and before any host content. Its one hit, hover and focus box contains the icon and
+platform shortcut hint; the hint is hidden below 640px. Module actions stay in the right group,
+followed by Theme and Remote. This far-left placement is Ben’s approved deviation from the website.
 No title or avatar is drawn in this bar; the host's content supplies its real `h1`.
 
 `openSearch(opener)` connects the one existing product switcher and its focus return. The
