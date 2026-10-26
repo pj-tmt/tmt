@@ -158,10 +158,13 @@ Completion v1 is optional, bounded and falls back to file completion on any fail
 
 `tmt api` is the public, same-user process port for machine-shaped gaps in the
 ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
-stdout. It is neither an authentication boundary nor a daemon, batch or stream.
-`tmt-adapters::api` owns envelope admission and composition; the CLI owns bounded
-stdin, publication and exit status. Protocol major 1 accepts additive operations and
-fields; incompatible changes need a new major.
+stdout. Explicit `--session` uses ordered JSON lines and a lazy resource connection;
+workspace capture retains its bounded read-only snapshot.
+Request admission stays fresh and a schema change ends it with a reopen code.
+`tmt-adapters::api` owns composition/storage; shared `framed_stdio` bounds API/MCP
+frames. The CLI owns publication, request boundaries and cleanup, with no listener
+or daemon. Protocol major 1 accepts additive operations and fields; incompatible
+changes need a new major.
 [Optional extension uses](contracts/extension-api.md#optional-cross-extension-uses) follow the receipt-only query contract.
 Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The

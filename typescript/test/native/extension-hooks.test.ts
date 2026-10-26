@@ -81,6 +81,46 @@ describe('consented extension hooks', () => {
     });
   });
 
+  it('delivers each session mutation once at its request boundary', async () => {
+    await withSandbox(async (sandbox) => {
+      const fixture = install(sandbox);
+      const identity = (
+        (await cli(sandbox, ['identity', 'create', 'Session Ada'])).identity as { id: string }
+      ).id;
+      await cli(sandbox, ['extension', 'hooks', 'enable', 'fixture']);
+      const rename = (expectedName: string, name: string) =>
+        JSON.stringify({
+          version: 1,
+          operation: 'identity.rename',
+          input: { identityId: identity, expectedName, name },
+        });
+      const result = await runCli(sandbox, ['api', '--session'], {
+        stdin:
+          [
+            rename('Session Ada', 'Session Grace'),
+            rename('Session Ada', 'Must not commit'),
+            rename('Session Grace', 'Session Lin'),
+          ].join('\n') + '\n',
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const frames = result.stdout
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(frames).toHaveLength(3);
+      expect(frames[1].outcome).toBe('conflict');
+      const evidence = {
+        version: 1,
+        events: [
+          { kind: 'identity.renamed', identityId: identity, lifetime: 'saved', retired: false },
+        ],
+      };
+      // Two separate deliveries, no event for the failed CAS and no replay on EOF.
+      expect(observed(fixture)).toEqual([evidence, evidence]);
+      expect(readFileSync(`${fixture.log}.marker`, 'utf8').trim().split('\n')).toEqual(['1', '1']);
+    });
+  });
+
   it('refuses unsafe or incompatible executables at enable time', async () => {
     await withSandbox(async (sandbox) => {
       const fixture = install(sandbox);

@@ -14,6 +14,8 @@ mod references;
 mod requests;
 mod responses;
 mod rooms;
+#[cfg(test)]
+mod session_tests;
 mod skills;
 mod terminal;
 mod timeline;
@@ -412,7 +414,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
 }
 
 pub fn capabilities() -> Vec<u8> {
-    serde_json::to_vec(&json!({"version":1,"supported":{"min":1,"max":1},"operations":OPS,"limits":{"inputBytes":INPUT_LIMIT,"outputBytes":OUTPUT_LIMIT},"commands":["identity","list","room","x","reply","result","notes"]})).expect("constant capabilities")
+    serde_json::to_vec(&json!({"version":1,"supported":{"min":1,"max":1},"operations":OPS,"limits":{"inputBytes":INPUT_LIMIT,"outputBytes":OUTPUT_LIMIT},"commands":["identity","list","room","x","reply","result","notes"],"session":{"framing":"ndjson"}})).expect("constant capabilities")
 }
 
 fn identity(storage: &mut Storage, selector: &str) -> Result<String, Fault> {
@@ -431,168 +433,229 @@ fn identity_entry(storage: &mut Storage, selector: &str) -> Result<Identity, Fau
     })
 }
 
-pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> {
-    if matches!(request, Request::Capabilities) {
-        return Ok(capabilities());
+pub const SESSION_STALE: &str = "API_SESSION_STALE";
+
+/// One invocation owns this connection. Request admission and settings are never cached.
+pub struct Session {
+    paths: ConfigPaths,
+    storage: Option<Storage>,
+}
+impl Session {
+    pub fn new(paths: ConfigPaths) -> Self {
+        Self {
+            paths,
+            storage: None,
+        }
     }
-    if matches!(request, Request::StorageRoot) {
-        let root = crate::config::normalize(
-            &std::path::absolute(&paths.global_dir).map_err(|_| Fault::unavailable())?,
-        );
-        let root = root.to_str().ok_or_else(Fault::unavailable)?;
-        return serde_json::to_vec(&json!({"dataRoot": root})).map_err(|_| Fault::unavailable());
+    pub fn paths(&self) -> &ConfigPaths {
+        &self.paths
     }
-    if matches!(request, Request::WorkspaceCapture) {
-        let report = crate::workspace::capture_recorded(paths).map_err(|_| Fault::unavailable())?;
-        return serde_json::to_vec(&report).map_err(|_| Fault::unavailable());
-    }
-    if let Request::SkillsInstall {
-        owner,
-        skills,
-        force,
-    } = request
-    {
-        return skills::install(&paths.global_dir, &owner, &skills, force);
-    }
-    if let Request::SkillsRemove { owner, skills } = request {
-        return skills::remove(&paths.global_dir, &owner, skills);
-    }
-    if let Request::Notes(id) = request {
-        return notes::read(paths, id);
-    }
-    if let Request::ExtensionUse { extension, feature } = request {
-        let prefix =
-            crate::native_install::default_install_prefix().map_err(|_| Fault::unavailable())?;
-        return extensions::uses(&prefix, &extension, &feature);
-    }
-    // Delivery uses configured input delay and the user identity the `user.name` setting; reads
-    // do not depend on unrelated config.
-    let settings = if matches!(
-        request,
-        Request::Dispatch { .. } | Request::SendNow { .. } | Request::UserIdentity
-    ) || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
-    {
-        Some(
-            ConfigFiles {
-                paths: paths.clone(),
+    pub fn validate_schema(&self) -> Result<(), Fault> {
+        if let Some(storage) = &self.storage {
+            let version = storage.schema_version().map_err(|_| Fault::unavailable())?;
+            if version != Storage::compiled_schema_version() {
+                return Err(Fault::new(
+                    SESSION_STALE,
+                    "Core storage changed schema; reopen the API session with the current executable.",
+                ));
             }
-            .load()
-            .map_err(|_| Fault::new("CONFIG_ERROR", "Could not load delivery settings."))?
-            .settings,
-        )
-    } else {
-        None
-    };
-    let mut storage = Storage::open(&paths.database)
-        .map_err(|error| Fault::unavailable().with_storage_open(error))?;
-    let pending = match request {
-        Request::Capabilities
-        | Request::StorageRoot
-        | Request::WorkspaceCapture
-        | Request::Notes(_)
-        | Request::ExtensionUse { .. }
-        | Request::SkillsInstall { .. }
-        | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
-        Request::ConversationTimeline {
-            identity_id,
-            limit,
-            before,
-        } => timeline::read(&mut storage, &identity_id, limit, before),
-        Request::RecentResponses {
-            identity_id,
-            limit,
-            before,
-        } => responses::recent(&mut storage, &identity_id, limit, before),
-        Request::PaneScreen { identity_id } => pane::screen(&mut storage, &identity_id),
-        Request::TerminalStream { identity_id } => terminal::stream(&mut storage, &identity_id),
-        Request::ConsumptionHistory {
-            identities,
-            windows,
-            max_buckets,
-            include_retired,
-            through_ms,
-        } => consumption::history(
-            &mut storage,
-            identities,
-            windows,
-            max_buckets,
-            include_retired,
-            through_ms,
-        ),
-        Request::Digest(operation) => digest::execute(
-            &mut storage,
-            *operation,
-            std::time::Duration::from_secs_f64(
-                settings
-                    .as_ref()
-                    .map_or(0.0, |settings| settings.paste_enter_delay_ms / 1000.0),
-            ),
-        ),
-        Request::ChangeCursor => changes::cursor(&storage),
-        Request::Orchestration(query) => orchestration::read(&storage, *query),
-        Request::OrchestrationWrite(query) => orchestration::write(&mut storage, *query),
-        Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
-        Request::References { identities, rooms } => {
-            references::resolve(&mut storage, identities, rooms)
         }
-        Request::IdentityStatuses { identities } => identities::status(&storage, identities),
-        Request::IdentityRename {
-            identity_id,
-            expected_name,
-            name,
-        } => identities::rename(&mut storage, &identity_id, &expected_name, &name),
-        Request::MetadataApply {
-            identity_id,
-            changes,
-        } => identities::apply_metadata(&mut storage, &identity_id, &changes),
-        Request::UserIdentity => user::identity(
-            &mut storage,
-            settings.as_ref().expect("user identity settings"),
-            crate::user::login_name().as_deref(),
-        ),
-        Request::HookRegister(hook) => identity_hooks::register(&mut storage, hook),
-        Request::HookPending { consumer, limit } => {
-            identity_hooks::pending(&storage, consumer, limit)
-        }
-        Request::HookAttempt(hook) => identity_hooks::attempt(&mut storage, hook),
-        Request::HookAck(hook) => identity_hooks::ack(&mut storage, hook),
-        Request::History(query) => requests::list_history(&mut storage, query),
-        Request::Detail(id) => requests::show_request(&mut storage, id),
-        Request::SendNow {
-            identity: selector,
-            request_id,
-        } => requests::send_now(&mut storage, selector, &request_id, settings),
-        Request::Acknowledge {
-            identity: selector,
-            items,
-        } => requests::acknowledge(&mut storage, selector, items),
-        Request::Receipt(id) => dispatch::show_receipt(&storage, id),
-        Request::Room {
-            identity: selector,
-            id,
-            input,
-        } => rooms::write(&mut storage, selector, id, input),
-        Request::RoomRetire {
-            identity: selector,
-            id,
-            expected_revision,
-        } => rooms::retire(&mut storage, selector, id, expected_revision),
-        Request::Dispatch {
-            identity: selector,
-            input,
-        } => dispatch::create_dispatch(&mut storage, selector, input, settings),
-    };
-    let closed = storage.close();
-    let body = pending?;
-    closed.map_err(|_| Fault::unavailable())?;
-    if body.len() > OUTPUT_LIMIT {
-        return Err(Fault::new(
-            "API_OUTPUT_TOO_LARGE",
-            "Response exceeds the API bound; request a smaller page.",
-        ));
+        Ok(())
     }
+    pub fn execute(&mut self, request: Request) -> Result<Vec<u8>, Fault> {
+        self.validate_schema()?;
+        let pending = self.run(request);
+        if let Some(storage) = &self.storage {
+            storage.flush_observations();
+        }
+        let body = pending?;
+        if body.len() > OUTPUT_LIMIT {
+            return Err(Fault::new(
+                "API_OUTPUT_TOO_LARGE",
+                "Response exceeds the API bound; request a smaller page.",
+            ));
+        }
+        Ok(body)
+    }
+    pub fn close(mut self) -> Result<(), Fault> {
+        if let Some(mut storage) = self.storage.take() {
+            storage.close().map_err(|_| Fault::unavailable())?;
+        }
+        Ok(())
+    }
+    fn run(&mut self, request: Request) -> Result<Vec<u8>, Fault> {
+        let paths = &self.paths;
+        if matches!(request, Request::Capabilities) {
+            return Ok(capabilities());
+        }
+        if matches!(request, Request::StorageRoot) {
+            let root = crate::config::normalize(
+                &std::path::absolute(&paths.global_dir).map_err(|_| Fault::unavailable())?,
+            );
+            let root = root.to_str().ok_or_else(Fault::unavailable)?;
+            return serde_json::to_vec(&json!({"dataRoot": root}))
+                .map_err(|_| Fault::unavailable());
+        }
+        if matches!(request, Request::WorkspaceCapture) {
+            let report =
+                crate::workspace::capture_recorded(paths).map_err(|_| Fault::unavailable())?;
+            return serde_json::to_vec(&report).map_err(|_| Fault::unavailable());
+        }
+        if let Request::SkillsInstall {
+            owner,
+            skills,
+            force,
+        } = request
+        {
+            return skills::install(&paths.global_dir, &owner, &skills, force);
+        }
+        if let Request::SkillsRemove { owner, skills } = request {
+            return skills::remove(&paths.global_dir, &owner, skills);
+        }
+        if let Request::ExtensionUse { extension, feature } = request {
+            let prefix = crate::native_install::default_install_prefix()
+                .map_err(|_| Fault::unavailable())?;
+            return extensions::uses(&prefix, &extension, &feature);
+        }
+        // Delivery uses configured input delay and the user identity the `user.name` setting; reads
+        // do not depend on unrelated config.
+        let settings = if matches!(
+            request,
+            Request::Dispatch { .. } | Request::SendNow { .. } | Request::UserIdentity
+        ) || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
+        {
+            Some(
+                ConfigFiles {
+                    paths: paths.clone(),
+                }
+                .load()
+                .map_err(|_| Fault::new("CONFIG_ERROR", "Could not load delivery settings."))?
+                .settings,
+            )
+        } else {
+            None
+        };
+        if self.storage.is_none() {
+            let storage = Storage::open(&paths.database).map_err(|error| {
+                if matches!(&request, Request::Notes(_)) {
+                    notes::open_fault(error)
+                } else {
+                    Fault::unavailable().with_storage_open(error)
+                }
+            })?;
+            self.storage = Some(storage);
+            self.validate_schema()?;
+        }
+        let storage = self.storage.as_mut().expect("opened storage");
+        match request {
+            Request::Notes(id) => notes::read(paths, storage, id),
+            Request::Capabilities
+            | Request::StorageRoot
+            | Request::WorkspaceCapture
+            | Request::ExtensionUse { .. }
+            | Request::SkillsInstall { .. }
+            | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
+            Request::ConversationTimeline {
+                identity_id,
+                limit,
+                before,
+            } => timeline::read(storage, &identity_id, limit, before),
+            Request::RecentResponses {
+                identity_id,
+                limit,
+                before,
+            } => responses::recent(storage, &identity_id, limit, before),
+            Request::PaneScreen { identity_id } => pane::screen(storage, &identity_id),
+            Request::TerminalStream { identity_id } => terminal::stream(storage, &identity_id),
+            Request::ConsumptionHistory {
+                identities,
+                windows,
+                max_buckets,
+                include_retired,
+                through_ms,
+            } => consumption::history(
+                storage,
+                identities,
+                windows,
+                max_buckets,
+                include_retired,
+                through_ms,
+            ),
+            Request::Digest(operation) => digest::execute(
+                storage,
+                *operation,
+                std::time::Duration::from_secs_f64(
+                    settings
+                        .as_ref()
+                        .map_or(0.0, |settings| settings.paste_enter_delay_ms / 1000.0),
+                ),
+            ),
+            Request::ChangeCursor => changes::cursor(storage),
+            Request::Orchestration(query) => orchestration::read(storage, *query),
+            Request::OrchestrationWrite(query) => orchestration::write(storage, *query),
+            Request::Roster { room, prefix } => rooms::roster(storage, room, prefix),
+            Request::References { identities, rooms } => {
+                references::resolve(storage, identities, rooms)
+            }
+            Request::IdentityStatuses { identities } => identities::status(storage, identities),
+            Request::IdentityRename {
+                identity_id,
+                expected_name,
+                name,
+            } => identities::rename(storage, &identity_id, &expected_name, &name),
+            Request::MetadataApply {
+                identity_id,
+                changes,
+            } => identities::apply_metadata(storage, &identity_id, &changes),
+            Request::UserIdentity => user::identity(
+                storage,
+                settings.as_ref().expect("user identity settings"),
+                crate::user::login_name().as_deref(),
+            ),
+            Request::HookRegister(hook) => identity_hooks::register(storage, hook),
+            Request::HookPending { consumer, limit } => {
+                identity_hooks::pending(storage, consumer, limit)
+            }
+            Request::HookAttempt(hook) => identity_hooks::attempt(storage, hook),
+            Request::HookAck(hook) => identity_hooks::ack(storage, hook),
+            Request::History(query) => requests::list_history(storage, query),
+            Request::Detail(id) => requests::show_request(storage, id),
+            Request::SendNow {
+                identity: selector,
+                request_id,
+            } => requests::send_now(storage, selector, &request_id, settings),
+            Request::Acknowledge {
+                identity: selector,
+                items,
+            } => requests::acknowledge(storage, selector, items),
+            Request::Receipt(id) => dispatch::show_receipt(storage, id),
+            Request::Room {
+                identity: selector,
+                id,
+                input,
+            } => rooms::write(storage, selector, id, input),
+            Request::RoomRetire {
+                identity: selector,
+                id,
+                expected_revision,
+            } => rooms::retire(storage, selector, id, expected_revision),
+            Request::Dispatch {
+                identity: selector,
+                input,
+            } => dispatch::create_dispatch(storage, selector, input, settings),
+        }
+    }
+}
+
+pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> {
+    let mut session = Session::new(paths.clone());
+    let pending = session.execute(request);
+    let closed = session.close();
+    let body = pending?;
+    closed?;
     Ok(body)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

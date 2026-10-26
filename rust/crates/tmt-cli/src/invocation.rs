@@ -30,6 +30,7 @@ pub enum Invocation {
     Help(Vec<String>),
     Version,
     Api,
+    ApiSession,
     ConsumptionSample,
     /// The first-party Claude mod hands over the rate-limit windows it measured (#5187).
     AllowancePush {

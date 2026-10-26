@@ -181,6 +181,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
             | Invocation::RequestObserver { .. }
             | Invocation::Mcp { .. }
             | Invocation::Api
+            | Invocation::ApiSession
     );
     let code = dispatch(parsed);
     tmt_adapters::extension_hooks::deliver_pending();
@@ -217,6 +218,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Mcp { identity } => return mcp_command::execute(&identity),
         Invocation::Api => {
             return api_command::execute();
+        }
+        Invocation::ApiSession => {
+            return api_command::execute_session();
         }
         Invocation::Extension {
             name,
