@@ -113,6 +113,13 @@ Its positional count or `--lines` accepts integers from 0 through 2147483647;
 zero captures the visible pane. Invalid counts are rejected, not clamped.
 Invalid configured capture counts also fail before target lookup or capture.
 
+Use `tmt check <canonical-uuid> --capture-only --expect-name <name>` to pin a
+capture to the identity and name you last saw; `read` accepts the same options.
+A renamed or retired identity refuses with `IDENTITY_CHANGED` (exit 5) before
+capture; an unknown UUID is `NAME_NOT_FOUND` (exit 3). Capture-only never delivers
+a retained Digest checklist. Without `--expect-name`, a capture-only UUID still
+selects that identity directly, without falling back to a UUID-shaped name.
+
 Live `talk` can cause external input in another agent's host pane. Only use
 it when the user has requested that communication or the surrounding task
 clearly authorizes it; do not infer permission for unrelated changes. For a

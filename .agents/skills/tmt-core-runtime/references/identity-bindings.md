@@ -16,6 +16,8 @@ caller/target and CLI `target` selects recorded servers.
   A new name (create, add, `name`/`this`, rename) is at most 64 Unicode scalar values after
   that trim and NFKC, else `INVALID_NAME` naming the limit; an identity that already holds a
   longer name keeps it and stays listable and addressable (`validate_existing_name`).
+- `tmt-core::identity::canonical_identity_id` owns the lowercase RFC 4122 UUIDv4
+  predicate shared by UUID target admission and identity-owned note paths.
 - Metadata and self-reported status are descriptive, untrusted data with no permission,
   availability or prompt authority. Expired status stays inspectable but is not current.
 - `identity_metadata` owns validation and conditional expectation evaluation; storage
@@ -170,11 +172,16 @@ delivery. They install and launch nothing.
   and CLI config/profile overrides refuse rather than guess across homes.
 - `focus` needs present evidence but no running agent and switches only the invoker's own
   client (never a bare "current client"); it sends no input. Its target may be a name,
-  pane or canonical lowercase UUIDv4. Only Focus treats a UUID as an identity before
-  name/pane parsing: a missing, retired or inactive UUID refuses without falling back
-  to a UUID-shaped name. UUID and name lookup select the recorded recipient
+  pane or canonical lowercase UUIDv4. Focus and capture-only check treat a UUID as an
+  identity before name/pane parsing: a missing, retired or inactive UUID refuses without
+  falling back to a UUID-shaped name. UUID and name lookup select the recorded recipient
   host/server and reuse strict binding/incarnation verification. Tmux focus still
   requires the invoker's client on that server; external drivers own their views.
+- `identity_context` owns the shared expected-name/retirement guard for identity show
+  and capture-only check. Check's optional `--expect-name` requires a canonical UUIDv4
+  and `--capture-only`; it rechecks the pin after presence reconciliation and refuses
+  before host capture. Ordinary check keeps name/pane routing; capture-only never flushes
+  Digest. Capture limits, result shape and host wire operations stay unchanged.
 - Named delivery and diagnostics select the stored UUID and recorded server before
   the existing current-presence reconciliation. Preparation refreshes that same
   endpoint again; no ambient-host fallback, new approval or listing authority is added.

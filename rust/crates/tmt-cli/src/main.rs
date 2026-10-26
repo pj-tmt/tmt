@@ -442,8 +442,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             target,
             lines,
             capture_only,
+            expect_name,
         } => {
-            return check_command::execute(target, lines, capture_only, parsed.mode);
+            return check_command::execute(target, lines, capture_only, expect_name, parsed.mode);
         }
         Invocation::Stop { name, close } => {
             return stop_command::execute(name, close, parsed.mode);
