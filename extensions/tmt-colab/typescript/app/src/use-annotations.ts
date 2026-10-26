@@ -131,6 +131,7 @@ export function useAnnotations({
     )
       return;
     closeRef.current(false);
+    setSelectionMode(false);
     setAnnotation({
       key: crypto.randomUUID(),
       selector: structuredClone(currentSelector.current),

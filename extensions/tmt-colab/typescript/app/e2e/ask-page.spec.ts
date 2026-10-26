@@ -584,6 +584,16 @@ for (const width of [1440, 390])
       await expect(mode).toHaveAttribute('aria-pressed', 'true');
       expect(await mode.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
       await expect(mode.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeHidden();
+      expect(
+        await mode.evaluate((node) => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--tmt-ui-color-accent)';
+          node.append(probe);
+          const accent = getComputedStyle(probe).color;
+          probe.remove();
+          return getComputedStyle(node).color === accent;
+        }),
+      ).toBe(true);
       await page.screenshot({ path: capturePath(`1923-on-${width}-${theme}.png`) });
       const frame = page.frameLocator('#ask-page-fixture iframe');
       await frame.locator('#selected').hover();
@@ -592,6 +602,7 @@ for (const width of [1440, 390])
       await frame.locator('#selected').click();
       const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
       await expect(input).toBeFocused();
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
       await expect(page.locator('.annotation-popover .thread-state')).toHaveAttribute(
         'title',
         'Exact selected text',
@@ -599,7 +610,7 @@ for (const width of [1440, 390])
       await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
       await input.fill('Retain this selection draft');
       await input.press('c');
-      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
       const modeBox = (await mode.boundingBox())!;
       const windowBox = (await page.locator('.annotation-popover').boundingBox())!;
       const headerBox = (await page.locator('#ask-page-fixture .tmt-ui-header').boundingBox())!;
@@ -613,10 +624,12 @@ for (const width of [1440, 390])
       await page.screenshot({ path: capturePath(`1923-discussion-${width}-${theme}.png`) });
       const originalDraft = await input.textContent();
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+      await mode.click();
       await frame.locator('#selected').click();
       await expect(input).toHaveText(originalDraft!);
       expect((await run(page, 'proof')).sends).toEqual([]);
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+      await mode.click();
       if (width === 1440) {
         await (await pageAction(page, 'Source')).click();
         await expect(openPanel(page)).toHaveCount(1);
@@ -648,6 +661,35 @@ for (const width of [1440, 390])
       await expect(input).toHaveText(originalDraft!);
     });
   }
+
+for (const gesture of ['drag', 'completed selection C'] as const)
+  test(`selection mode exits after ${gesture} opens a comment`, async ({ page }) => {
+    await page.goto('/');
+    await run(page, 'mount');
+    const mode = page.locator('.selection-mode').getByRole('button', {
+      name: 'Selection mode',
+      exact: true,
+    });
+    const target = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+    await expect(target).toBeVisible();
+    if (gesture === 'drag') await mode.click();
+    const box = (await target.boundingBox())!;
+    await page.mouse.move(box.x + 1, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    if (gesture === 'completed selection C') await page.keyboard.press('c');
+    const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
+    await expect(input).toBeFocused();
+    await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
+    await input.press('Escape');
+    await expect(page.locator('.annotation-popover')).toHaveCount(0);
+    await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    await target.click();
+    await expect(page.locator('.annotation-popover')).toHaveCount(0);
+    expect((await run(page, 'proof')).sends).toEqual([]);
+  });
 
 test('selection uses admitted comment authority without Ask; a read-only page has no mode or C action', async ({
   page,
