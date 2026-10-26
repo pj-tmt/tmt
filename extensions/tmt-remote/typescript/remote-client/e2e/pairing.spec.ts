@@ -5259,7 +5259,7 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
   seed(1, 60);
   await gotoSettings(page, { tab: 'members' });
   await expect(page.locator('#designation-code')).toHaveText(
-    `tmt remote devices designate ${keeper}`,
+    `tmt remote members designate ${keeper}`,
   );
   await expect(page.locator('#read-only')).toHaveText(
     'Read-only in this browser. To remove devices here, run this on the machine:',

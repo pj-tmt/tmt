@@ -33,7 +33,15 @@ impl Intent {
     /// Authorization precedes intent adoption and repeats under the effect fence.
     /// Target revisions are checked only at effect time so original replay remains read-only.
     pub fn authorize(&self, c: &Connection, grant: &Grant, now: u64) -> Result<(), RemoteError> {
-        let scope = service::scope(c, Caller::Browser(grant), now)?;
+        self.authorize_for(c, Caller::Browser(grant), now)
+    }
+    fn authorize_for(
+        &self,
+        c: &Connection,
+        caller: Caller<'_>,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        let scope = service::scope(c, caller, now)?;
         if self.target().remote_id != scope.remote {
             return Err(service::denied());
         }
@@ -49,7 +57,15 @@ impl Intent {
         grant: &Grant,
         now: u64,
     ) -> Result<PreparedMemberPolicy<'a>, RemoteError> {
-        self.authorize(c, grant, now)?;
+        self.prepare_for(c, Caller::Browser(grant), now)
+    }
+    pub(crate) fn prepare_for<'a>(
+        &'a self,
+        c: &'a Connection,
+        caller: Caller<'_>,
+        now: u64,
+    ) -> Result<PreparedMemberPolicy<'a>, RemoteError> {
+        self.authorize_for(c, caller, now)?;
         let target = self.target();
         let member = sql::check_member(c, &target.member_id, target.member_revision)?;
         Ok(PreparedMemberPolicy {

@@ -657,7 +657,7 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
         // Hand ownership to the child; a fresh lease must be acquired after death.
         f.store.connection = Connection::open_in_memory().unwrap();
         f.serving.take();
-        let child = Command::new(std::env::current_exe().unwrap())
+        let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", TEST, "--nocapture"])
             .env("TMT_MANAGEMENT_CRASH_PHASE", phase)
             .env("TMT_MANAGEMENT_CRASH_ROOT", &f.root)
@@ -667,6 +667,9 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
+        // Child::wait closes Child.stdin before waiting. Retain it separately so
+        // EOF cannot unwind the paused effect before verified SIGKILL and reap.
+        let _held_input = child.stdin.take().unwrap();
         let mut interrupted = Interrupted {
             child,
             reader: None,

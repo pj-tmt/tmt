@@ -3,8 +3,11 @@ pub mod observations;
 pub(crate) mod policy;
 mod projection;
 pub mod reads;
+pub mod selectors;
 pub mod service;
 mod store;
+pub mod terminal;
+pub mod terminal_machines;
 #[cfg(test)]
 mod tests;
 

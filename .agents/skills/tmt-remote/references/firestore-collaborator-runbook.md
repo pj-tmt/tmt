@@ -53,7 +53,7 @@ This single ceremony sets up both mailboxes; a reply uses the same connection.
 
 If confirmation was saved locally but its receipt could not arrive before the code
 expired, Remote reports that outcome without claiming rollback. The receiving owner can
-revoke that member with `tmt remote devices revoke <person-or-exact-client-id>`, then
+revoke that member with `tmt remote members revoke <member-id-or-unique-name>`, then
 send a new invite. Do not keep trying
 an expired code or erase private state to reconnect. If the original outcome is unknown,
 check member status before starting another invitation.
@@ -62,11 +62,12 @@ Keep the remote reference printed on each terminal. Sending can be enabled later
 the person who owns the receiving machine:
 
 ```sh
-tmt remote devices
-tmt remote devices talk <person-or-exact-client-id> on
+tmt remote members
+tmt remote members sending <member-id-or-unique-name> on
 ```
 
-An ambiguous person name needs the exact client ID. Each receiver controls its own
+An ambiguous person name needs the stable member ID. Use `members machines <member-id>`
+for machine IDs; `members remove-machine <client-id>` removes only that machine. Each receiver controls its own
 agent allowlist, hold policy and revoke; permission on one machine grants nothing on the other.
 
 ## Send and read replies in either direction

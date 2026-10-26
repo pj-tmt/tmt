@@ -1,4 +1,5 @@
 mod activation_cli;
+mod members_cli;
 mod message_cli;
 mod open_cli;
 mod pairing_cli;
@@ -235,6 +236,7 @@ fn grammar() -> Command {
         .subcommand(open_cli::command(true))
         .arg(Arg::new("remote").long("remote").global(true).help("Remote name, owned project id, or local"))
         .subcommand(sync_cli::command())
+        .subcommand(members_cli::command())
         .subcommand(
             tmt_cli_style::command(&SERVE)
                 .arg(
@@ -489,6 +491,9 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     }
     if name == "devices" {
         return devices(arguments);
+    }
+    if name == "members" {
+        return members_cli::run(arguments);
     }
     serve::run(arguments)
 }
@@ -1099,7 +1104,6 @@ fn pair(
     let mut output = tmt_cli_style::stream::stdout(json_output);
     let mut paired = Err(RemoteError::new("REMOTE_PAIRING_ENDED", "Pairing ended."));
     let (selected, choice) = std::sync::mpsc::channel();
-    let mut paired_device = String::new();
     let mut paired_name = String::new();
     loop {
         let mut line = String::new();
@@ -1202,7 +1206,6 @@ fn pair(
             Some("ended") => {
                 let reason = event["reason"].as_str().unwrap_or("ended");
                 paired = if reason == "paired" {
-                    paired_device = event["clientId"].as_str().unwrap_or("").to_owned();
                     Ok(())
                 } else {
                     Err(RemoteError::new(
@@ -1219,7 +1222,6 @@ fn pair(
         let terminal = output.terminal();
         let message = pairing_result(
             &paired_name,
-            &paired_device,
             choice.try_recv().unwrap_or(policy.talk),
             policy.hold,
         );
@@ -1229,7 +1231,7 @@ fn pair(
 }
 const PAIR_TRUST_PROMPT: &str = "Trust this device if the words match? [y/N] ";
 const PAIR_TALK_PROMPT: &str = "Also allow this device to send to agents? [y/N] ";
-fn pairing_result(name: &str, client_id: &str, talk: bool, hold: bool) -> String {
+fn pairing_result(name: &str, talk: bool, hold: bool) -> String {
     if talk {
         format!(
             "Paired {name}. It can send to agents{}.",
@@ -1237,7 +1239,7 @@ fn pairing_result(name: &str, client_id: &str, talk: bool, hold: bool) -> String
         )
     } else {
         format!(
-            "Paired {name} as read only. To allow sending later: tmt remote devices talk {client_id} on"
+            "Paired {name} as read only. Run tmt remote members to find its member ID, then tmt remote members sending <member-id> on."
         )
     }
 }
@@ -1644,6 +1646,77 @@ mod tests {
     use super::{cli_style_allowlist, grammar, open::Outcome, open_row};
 
     #[test]
+    fn members_cli_registers_the_people_command() {
+        let parsed = grammar().try_get_matches_from(["tmt-remote", "members", "--json"]);
+        assert!(
+            parsed.is_ok(),
+            "members must be a registered public command: {parsed:?}"
+        );
+    }
+
+    #[test]
+    fn members_cli_person_and_exact_machine_actions_parse_separately() {
+        for words in [
+            vec![
+                "tmt-remote",
+                "members",
+                "rename",
+                "person",
+                "New person",
+                "--json",
+            ],
+            vec![
+                "tmt-remote",
+                "members",
+                "sending",
+                "person",
+                "on",
+                "--member-revision",
+                "2",
+                "--json",
+            ],
+            vec!["tmt-remote", "members", "revoke", "person", "--json"],
+            vec![
+                "tmt-remote",
+                "members",
+                "rename-machine",
+                "client-id",
+                "Laptop",
+                "--json",
+            ],
+            vec![
+                "tmt-remote",
+                "members",
+                "remove-machine",
+                "client-id",
+                "--grant-revision",
+                "2",
+                "--json",
+            ],
+            vec!["tmt-remote", "members", "designate", "client-id", "--json"],
+            vec!["tmt-remote", "members", "undesignate", "--json"],
+        ] {
+            assert!(grammar().try_get_matches_from(words).is_ok());
+        }
+        assert!(
+            grammar()
+                .try_get_matches_from(["tmt-remote", "members", "remove-machine"])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn members_cli_keeps_legacy_devices_available_for_the_colab_cutover() {
+        for words in [
+            vec!["tmt-remote", "devices", "--json"],
+            vec!["tmt-remote", "devices", "talk", "client-id", "on", "--json"],
+            vec!["tmt-remote", "devices", "designate", "client-id", "--json"],
+        ] {
+            assert!(grammar().try_get_matches_from(words).is_ok());
+        }
+    }
+
+    #[test]
     fn service_copy_commands_round_trip_without_deployment_authorization() {
         // The UI and this proof share product assets already present in isolated Rust builds.
         let references: std::collections::BTreeMap<&str, &str> =
@@ -1772,7 +1845,7 @@ mod tests {
             .unwrap();
         let help = String::from_utf8(help).unwrap();
         assert!(help.contains("active sign-in is reused"));
-        assert!(help.contains("tmt remote devices revoke"));
+        assert!(help.contains("tmt remote members remove-machine"));
     }
 
     #[test]
@@ -1843,7 +1916,7 @@ mod tests {
             (
                 false,
                 false,
-                "Paired Fixture device as read only. To allow sending later: tmt remote devices talk 11111111-1111-4111-8111-111111111111 on",
+                "Paired Fixture device as read only. Run tmt remote members to find its member ID, then tmt remote members sending <member-id> on.",
             ),
             (true, false, "Paired Fixture device. It can send to agents."),
             (
@@ -1853,12 +1926,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                super::pairing_result(
-                    "Fixture device",
-                    "11111111-1111-4111-8111-111111111111",
-                    talk,
-                    hold
-                ),
+                super::pairing_result("Fixture device", talk, hold),
                 expected
             );
         }

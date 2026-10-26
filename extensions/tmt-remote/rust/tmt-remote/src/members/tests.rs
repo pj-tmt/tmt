@@ -807,3 +807,12 @@ mod roster;
 
 #[path = "tests/policy.rs"]
 mod policy;
+
+#[path = "tests/selectors.rs"]
+mod selectors;
+
+#[path = "tests/terminal.rs"]
+mod terminal;
+
+#[path = "tests/terminal_machines.rs"]
+mod terminal_machines;

@@ -43,7 +43,8 @@ The native opener connects a new browser with read-only access, without terminal
 except for the [manual-offer plain-open rule](../../../../contracts/remote-channel-v1.md#native-automatic-opens).
 Printed/shared links stay short and code-free. `--no-open` and `--json` print only the short result
 and create no pairing offer. Manual `tmt remote pair` remains the advanced path, including explicit
-sending policy. Inspect new device IDs, issue times and origins with `tmt remote devices --json`;
+sending policy. Inspect people with `tmt remote members --json` and their machine IDs/policy with
+`members machines <member-id> --json`;
 serve also logs each automatic enrollment without its code. If the browser refuses a used or
 expired open, reopen the page from the machine for a new link; `tmt remote pair` remains the
 fallback if connection still fails. The
@@ -134,9 +135,20 @@ semantics and the explicit talk-scope toggle.
 ## Management implementation
 
 Local pairing survives session end and restart. Opening the pairing page with a valid stored
-pairing reopens it without adding a device. The owner lists last use with `tmt remote devices --json`,
-removes one with `tmt remote devices revoke <client-id> --json`, or keeps one with
-`tmt remote devices remove-others --keep <client-id> --json`. Settings-browser authority and
+pairing reopens it without adding a device. The owner reads `tmt remote members --json`, then
+`tmt remote members machines <member-id> --json` for exact machine IDs and last use.
+`members rename <member-id|unique-name> <name>` changes the person name;
+`members rename-machine <client-id> <name>` changes only the machine name.
+`members sending <member-id|unique-name> on|off` changes the person's sending choice;
+`members revoke <member-id|unique-name>` revokes their machines, while
+`members remove-machine <client-id>` targets just one. Add `--member-revision` and, for
+machine actions, `--grant-revision` to require the values just read. All support `--json`.
+`members designate <client-id>` / `members undesignate` preserve local browser recovery,
+including while stopped. The [contract](../../../../contracts/remote-channel-v1.md#local-members-commands)
+owns revision fences, no-change results and interrupted-answer recovery: re-read, then explicitly
+rerun; no terminal journal or automatic resend. Route removal may remain pending after local
+revocation; offline activity/cleanup is unknown. Legacy `devices` (including JSON/talk/designate)
+remains unchanged until the Colab consumer cutover. Settings-browser authority and
 bulk confirmation follow the [management contract](../../../../contracts/remote-channel-v1.md#remote-management-protocol).
 
 The [fixed management protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
@@ -149,7 +161,7 @@ never reapplied by receipt lookup. Live grant admission is required for all read
 preserves its Session, cookie and held work, then reads the original operation. Lost self-revoke
 acknowledgment gets one fresh read-only admission attempt; refusal shows access loss plus unknown
 outcome and
-`tmt remote devices`, never a resend or a committed-revoke inference. No old-key exception exists.
+`tmt remote members`, never a resend or a committed-revoke inference. No old-key exception exists.
 The shared-presentation `/remote/settings` page uses the served SDK and this management owner;
 [browser-pages.md](browser-pages.md#settings-page) owns controls and captures. The
 [management contract](../../../../contracts/remote-channel-v1.md#remote-management-protocol) owns retained-identity
@@ -171,7 +183,7 @@ New pairings are read only. After the word-match confirmation, the terminal asks
 to allow sending, defaulting to no. Owner-side `--talk` preselects sending and skips that second
 prompt; bare JSON confirmation remains read only. `--agents <uuid,...>` and `--hold` require `--talk`
 and narrow the issued policy, not enrollment. Existing grants are unchanged; no migration ships.
-`tmt remote devices talk <clientId> on|off` changes only sending, preserving every other grant
+The retained `tmt remote devices talk <clientId> on|off` compatibility command changes only sending, preserving every other grant
 field, and works through the current serve or under the stopped serve lease. It commits sanitized
 audit metadata with the scope change; designated settings browsers use the existing immutable
 management receipt/effect owner. Changed revisions end previous Sessions; revoked grants stay revoked.
@@ -210,7 +222,7 @@ credential diagnostic line; both preserve door status and a normal exit. Explici
 selection errors still refuse. Expiring human copy
 names the ISO UTC end date, warns that signing in after it creates a new identity, and states the machine-page-access limitation only for an imported remote.
 Command JSON uses the full uid; human output abbreviates it to eight characters. Paired
-device revocation remains `tmt remote devices revoke`, with cross-pointing help. A host
+machine revocation uses `tmt remote members remove-machine`, with cross-pointing help. A host
 without a published Firestore configuration still reports its ordinary door status; an
 explicit or configured-default selection failure never silently chooses another remote.
 The production `UreqHttp` adapter uses fixed Google endpoints, one attempt with a global

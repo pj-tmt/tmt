@@ -323,7 +323,7 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         3
     );
     assert_eq!(guidance.matches("class=\"tmt-ui-command-copy\"").count(), 3);
-    for command in ["pair", "devices", "status"] {
+    for command in ["pair", "members", "status"] {
         assert_eq!(
             guidance
                 .matches(&format!(

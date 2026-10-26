@@ -147,13 +147,14 @@ async function fixture(mode = 'success') {
   });
   let click: () => void | Promise<void> = () => {};
   const lifetime = new AbortController();
+  const commandClicks = new Map<string, () => void | Promise<void>>();
   const nodes = new Map<
     string,
     {
       textContent: string;
       hidden: boolean;
       dataset: Record<string, string>;
-      addEventListener: () => void;
+      addEventListener: (event: string, listener: () => void | Promise<void>) => void;
     }
   >();
   for (const id of [
@@ -169,16 +170,23 @@ async function fixture(mode = 'success') {
     'remote-guidance',
     'remote-guidance-heading',
     'remote-guide-pair',
-    'remote-guide-devices',
+    'remote-guide-members',
     'remote-guide-status',
     'copy-guide-pair',
-    'copy-guide-devices',
+    'copy-guide-members',
     'copy-guide-status',
     'copy-feedback-guide-pair',
-    'copy-feedback-guide-devices',
+    'copy-feedback-guide-members',
     'copy-feedback-guide-status',
   ])
-    nodes.set(id, { textContent: '', hidden: false, dataset: {}, addEventListener: () => {} });
+    nodes.set(id, {
+      textContent: '',
+      hidden: false,
+      dataset: {},
+      addEventListener: (_event, listener) => {
+        commandClicks.set(id, listener);
+      },
+    });
   const statusChildren: { textContent: string; tagName?: string; className?: string }[] = [];
   const status = nodes.get('status')!;
   let statusText = '';
@@ -304,6 +312,7 @@ async function fixture(mode = 'success') {
   }
   return {
     reached,
+    commandClicks,
     statusChildren,
     device,
     nodes,
@@ -395,7 +404,7 @@ test('not-paired steps precede the muted privacy note without duplicate status c
     assert.equal(f.nodes.get('status')!.textContent, '');
     assert.equal(f.nodes.get('remote-guide-pair')!.hidden, false);
     assert.equal(f.nodes.get('remote-guidance')!.hidden, false);
-    assert.equal(f.nodes.get('remote-guide-devices')!.hidden, true);
+    assert.equal(f.nodes.get('remote-guide-members')!.hidden, true);
     assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
   } finally {
     vi.unstubAllGlobals();
@@ -652,7 +661,7 @@ test('Command block Copy actions have command-specific names and no trailing act
     new URL('../../../rust/tmt-remote/assets/landing.html', import.meta.url),
     'utf8',
   );
-  for (const command of ['pair', 'devices', 'status']) {
+  for (const command of ['pair', 'members', 'status']) {
     const action = html.match(
       new RegExp(`<button\\s+id="copy-guide-${command}"([\\s\\S]*?)>\\s*Copy\\s*</button\\s*>`),
     );
@@ -742,7 +751,7 @@ for (const mode of ['revoked-proof', 'expired-proof', 'ended-proof', 'signed-ref
       await landingPage();
       assert.equal(f.nodes.get('state-label')!.textContent, 'Not accepted');
       const authorityEnded = mode === 'revoked-proof' || mode === 'expired-proof';
-      assert.equal(f.nodes.get('remote-guide-devices')!.hidden, !authorityEnded);
+      assert.equal(f.nodes.get('remote-guide-members')!.hidden, !authorityEnded);
       assert.equal(
         f.nodes.get('status')!.textContent,
         authorityEnded
@@ -882,6 +891,28 @@ test('automatic pairing with a mismatched stored device stops for manual termina
     );
   } finally {
     generate.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+test('authority recovery copies the current members command without another request', async () => {
+  const f = await fixture('revoked-proof');
+  const copied: string[] = [];
+  vi.stubGlobal('navigator', {
+    clipboard: {
+      writeText: async (text: string) => {
+        copied.push(text);
+      },
+    },
+  });
+  try {
+    await landingPage();
+    const before = f.counts();
+    await f.commandClicks.get('copy-guide-members')!();
+    assert.deepEqual(copied, ['tmt remote members']);
+    assert.deepEqual(f.counts(), before);
+    assert.equal(f.nodes.get('copy-feedback-guide-members')!.textContent, 'Copied.');
+  } finally {
     vi.unstubAllGlobals();
   }
 });

@@ -1420,6 +1420,13 @@ fn pair_with_reciprocal_choice(
                         .send(event["code"].as_str().unwrap().to_owned())
                         .unwrap();
                 }
+                if event["event"] == "connected" {
+                    let member = owner_copy
+                        .store()?
+                        .member_for_client(&collaborator.machine)?
+                        .expect("confirmed member");
+                    assert_eq!(event["memberId"], member.member_id);
+                }
                 Ok((event["event"] == "candidate").then_some((true, true)))
             })
         });

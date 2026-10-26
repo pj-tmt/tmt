@@ -520,7 +520,7 @@ test('refused recovery keeps the unknown original and its write lock', async () 
     assert.equal(f.page.canRecover, false);
     assert.equal(
       f.page.notice,
-      'The saved value is still unconfirmed. Check with tmt remote settings or tmt remote devices.',
+      'The saved value is still unconfirmed. Check with tmt remote settings or tmt remote members.',
     );
     assert.deepEqual(f.counts(), {
       effectCalls: 1,
