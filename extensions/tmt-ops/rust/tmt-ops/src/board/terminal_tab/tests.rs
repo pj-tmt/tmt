@@ -414,7 +414,11 @@ fn the_key_is_a_keycap_right_before_terminal_and_its_hit_covers_both() {
         .find(|(_, choice)| matches!(choice, Choice::TerminalView(true)))
         .expect("the Terminal chip");
     assert_eq!(usize::from(area.x), chat + 6, "from the keycap");
-    assert_eq!(usize::from(area.right()), chat + 19, "to the end of the label");
+    assert_eq!(
+        usize::from(area.right()),
+        chat + 19,
+        "to the end of the label"
+    );
     let (chat_area, _) = hits
         .iter()
         .find(|(_, choice)| matches!(choice, Choice::TerminalView(false)))
