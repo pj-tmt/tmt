@@ -1021,3 +1021,96 @@ fn an_oversize_prefill_is_refused_without_truncating_a_selection_into_a_differen
     assert!(app.notes.draft(&key).is_none());
     assert!(app.notes_overlay.is_none());
 }
+
+fn click_at(app: &mut App, column: u16, row: u16) -> Effect {
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        },
+        Instant::now(),
+    )
+}
+
+/// A cell on the board that the painted sheet does not cover.
+fn outside(app: &App) -> (u16, u16) {
+    let outer = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
+    assert!(outer.x > 0, "the sheet leaves a margin to click in");
+    (0, 0)
+}
+
+#[test]
+fn an_outside_press_closes_the_list_and_does_not_land_on_the_board() {
+    let (mut app, _) = opened(vec![link(1), todo(2)]);
+    paint(&app);
+    let (x, y) = outside(&app);
+    let selected = app.selected;
+    assert_eq!(click_at(&mut app, x, y), Effect::None);
+    assert!(app.notes_overlay.is_none());
+    assert_eq!(app.selected, selected, "the press is taken by the close");
+}
+
+#[test]
+fn a_press_inside_the_sheet_keeps_the_list_open() {
+    let (mut app, _) = opened(vec![link(1), todo(2)]);
+    paint(&app);
+    let outer = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
+    click_at(&mut app, outer.x + 2, outer.y + 1);
+    assert!(app.notes_overlay.is_some());
+}
+
+#[test]
+fn an_outside_press_drops_an_unsent_form_with_the_list() {
+    let (mut app, key) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('a'));
+    type_text(&mut app, "half typed");
+    assert!(app.notes.draft(&key).is_some());
+    paint(&app);
+    let (x, y) = outside(&app);
+    click_at(&mut app, x, y);
+    assert!(app.notes_overlay.is_none());
+    assert!(app.notes.draft(&key).is_none(), "the draft is discarded");
+}
+
+#[test]
+fn an_outside_press_while_asked_to_delete_leaves_the_item_in_place() {
+    let (mut app, key) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('d'));
+    paint(&app);
+    let (x, y) = outside(&app);
+    let effect = click_at(&mut app, x, y);
+    assert_eq!(effect, Effect::None, "no delete write was sent");
+    assert!(app.notes_overlay.is_none());
+    assert!(app.notes.preview(&key).is_some());
+}
+
+#[test]
+fn a_sheet_that_was_not_painted_never_dismisses() {
+    let (mut app, _) = opened(vec![todo(1)]);
+    paint(&app);
+    app.peek_areas.clear();
+    click_at(&mut app, 0, 0);
+    assert!(app.notes_overlay.is_some());
+}
+
+#[test]
+fn an_outside_press_on_a_dialog_above_the_list_keeps_the_lists_unsent_form() {
+    let (mut app, key) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('a'));
+    type_text(&mut app, "half typed");
+    app.checklist = Some(crate::board::checklist::Controller::new(1, None));
+    assert_eq!(app.overlay(), Some(crate::board::app::Overlay::Checklist));
+    paint(&app);
+    click_at(&mut app, 0, 0);
+    assert!(
+        app.checklist.is_none() || !app.checklist_shown(),
+        "the upper dialog closed"
+    );
+    assert!(
+        app.notes_overlay.is_some(),
+        "the list is still open under it"
+    );
+    assert!(app.notes.draft(&key).is_some(), "its unsent form survives");
+}

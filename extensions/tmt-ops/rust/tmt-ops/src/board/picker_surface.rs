@@ -92,6 +92,10 @@ impl State {
     pub fn invalidate(&mut self) {
         self.frame = None;
     }
+    /// Where the sheet was last painted.
+    pub fn outer(&self) -> Option<Rect> {
+        self.frame.as_ref().map(|frame| frame.areas.outer)
+    }
     /// Re-materialize changed embedded markup without resetting the picker or scroll position.
     pub fn template_changed(&mut self) {
         self.invalidate();

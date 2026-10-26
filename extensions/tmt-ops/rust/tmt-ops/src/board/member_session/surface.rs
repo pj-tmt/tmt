@@ -125,6 +125,11 @@ impl Controller {
         }
         lines
     }
+    /// Where the sheet was last painted.
+    pub fn modal_outer(&self) -> Option<Rect> {
+        self.ui.borrow().outer()
+    }
+
     pub fn render(&self, frame: &mut Frame, app: &App, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<tmt_tui::components::surface::Template<()>> = OnceLock::new();
         static UNBOUND_TEMPLATE: OnceLock<tmt_tui::components::surface::Template<()>> =

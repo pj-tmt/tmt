@@ -1,10 +1,11 @@
 //! Shared overlay dispatch; each current controller owns its surface.
 
-use crate::board::app::App;
+use crate::board::app::{App, Overlay};
 use ratatui::{Frame, layout::Rect};
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
     app.peek_areas.clear();
+    let set = |overlay, outer| app.peek_areas.set_dialog(overlay, outer);
     if let Some(switch) = &app.switch_tool
         && app.switch_tool_shown()
     {
@@ -18,24 +19,29 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     }
     if let Some(session) = &app.member_session {
         session.render(frame, app, look, body);
+        set(Overlay::MemberSession, session.modal_outer());
     }
     if let Some(notes) = &app.notes_overlay {
         notes.render(frame, app, look, body);
+        set(Overlay::Notes, notes.modal_outer());
     }
     if let Some(recovery) = &app.recovery
         && recovery.active
     {
         recovery.render(frame, look, body);
+        set(Overlay::Recovery, recovery.modal_outer());
     }
     if let Some(discovery) = &app.discovery
         && discovery.active
     {
         discovery.render(frame, look, body);
+        set(Overlay::Discovery, discovery.modal_outer());
     }
     if let Some(checklist) = &app.checklist
         && checklist.active
     {
         checklist.render(frame, look, body);
+        set(Overlay::Checklist, checklist.modal_outer());
     }
     if app.usage_controls {
         crate::board::overview::chart::host::render_controls(frame, app, body);
@@ -102,12 +108,21 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     }
     if let Some(picker) = &app.theme_picker {
         crate::board::theme_picker::render(frame, picker, look, body);
+        set(Overlay::Theme, picker.surface.borrow().outer());
     }
     if let Some(picker) = &app.panels_picker {
         crate::board::panels_picker::render(frame, picker, look, body);
+        set(
+            Overlay::Panels,
+            crate::board::panels_picker::modal_outer(picker),
+        );
     }
     if let Some(overlay) = &app.settings {
         crate::board::settings::render(frame, overlay, look, body);
+        set(
+            Overlay::Settings,
+            crate::board::settings::modal_outer(overlay),
+        );
     }
     crate::board::row_detail::render_reader(frame, app, body);
     if let Some(details) = &app.monitor_details {

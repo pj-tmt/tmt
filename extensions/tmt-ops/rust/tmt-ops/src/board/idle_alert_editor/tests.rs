@@ -527,3 +527,12 @@ fn invalid_save_keeps_shared_disabled_style_even_when_focused() {
         }
     }
 }
+
+#[test]
+fn an_outside_press_closes_the_idle_alert_form() {
+    let mut app = form();
+    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+        &mut app,
+        crate::board::app::Overlay::IdleAlert,
+    );
+}

@@ -277,6 +277,18 @@ mod tests {
     }
 
     #[test]
+    fn an_outside_press_closes_the_theme_picker() {
+        let (path, config) = fixture("outside-press", "[board.theme]\nbase = \"tmt\"\n");
+        let mut app = crate::board::app::workspace::tests::board();
+        app.theme_picker = Some(Picker::open(config, None).unwrap());
+        crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+            &mut app,
+            crate::board::app::Overlay::Theme,
+        );
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn preview_scope_mask_and_cancel_follow_the_actual_layers_without_writes() {
         let original = "[board.theme]\nbase = \"tmt\"\n[squad.product.theme]\nbase = \"mono\"\n";
         let original = format!("[bind]\nT = \"theme\"\n{original}");
