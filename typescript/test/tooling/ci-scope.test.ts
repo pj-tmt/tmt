@@ -60,6 +60,30 @@ const { isComponentRetired } = (await import(
   new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
 )) as { isComponentRetired: (name: string) => boolean };
 
+it('keeps rehearsal proofs runnable after a skipped declaration without bypassing direct dependencies', () => {
+  const prepare = readFileSync(
+    new URL('../../../.github/workflows/native-release-prepare.yml', import.meta.url),
+    'utf8'
+  );
+  for (const [name, needs, condition] of [
+    [
+      'gates-dry',
+      'assemble',
+      "!cancelled() && needs.assemble.result == 'success' && inputs.upgrade",
+    ],
+    [
+      'upgrade-fetch',
+      '[assemble, verify]',
+      "!cancelled() && needs.assemble.result == 'success' && needs.verify.result == 'success' && inputs.upgrade",
+    ],
+  ]) {
+    const section = prepare.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+    expect(section).toContain(`    needs: ${needs}\n`);
+    expect(section).toContain(`    if: \${{ ${condition} }}\n`);
+  }
+  expect(prepare).toContain("if: inputs.product != 'cli' && inputs.product != 'driver-herdr'");
+});
+
 it('keeps the adapter environment runner on full native verification', () => {
   expect(selectNativeScope(['typescript/scripts/e2e-adapter-tests.mjs'])).toBe('full');
 });

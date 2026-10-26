@@ -1113,7 +1113,9 @@ describe('shared prepare pipeline and release rehearsal', () => {
   });
   it('dry-runs the publication gates only for rehearsals, read-only, with the commit gate on main only', () => {
     const dry = job(prepare, 'gates-dry');
-    expect(dry).toContain('if: inputs.upgrade');
+    expect(dry).toContain(
+      "if: ${{ !cancelled() && needs.assemble.result == 'success' && inputs.upgrade }}"
+    );
     expect(dry).toContain('contents: read');
     expect(dry).toContain('publication-gates.mjs dry');
     expect(dry).toContain("ON_MAIN: ${{ github.ref == 'refs/heads/main' }}");
@@ -1190,7 +1192,9 @@ describe('rehearsal upgrade proof and the publishing upgrade call', () => {
       expect(text, name).not.toContain('uses: ./.github/workflows/native-release-upgrade.yml');
     }
     const local = job(prepare, 'upgrade-fetch');
-    expect(local).toContain('if: inputs.upgrade');
+    expect(local).toContain(
+      "if: ${{ !cancelled() && needs.assemble.result == 'success' && needs.verify.result == 'success' && inputs.upgrade }}"
+    );
     expect(local).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
     expect(local).toContain('--candidate-directory "$RUNNER_TEMP/candidate"');
     expect(local).toContain(
