@@ -1,4 +1,5 @@
 import {
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -11,7 +12,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
 
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import { writeDeclaration } from '../../scripts/release-declaration.mjs';
@@ -27,6 +28,27 @@ function tool(directory: string, name: string, source: string) {
   const target = path.join(directory, name);
   writeExecutable(target, `#!/bin/sh\nset -eu\n${source}\n`, 0o700);
 }
+
+// Only closed, immutable executable inputs are shared. Every case still owns its
+// mutable repository and output tree; writeExecutable overrides replace its link.
+let templates: string;
+beforeAll(() => {
+  templates = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'tmt-native-stdout-templates-')));
+  writeExecutable(
+    path.join(templates, 'build-native-artifact.sh'),
+    readFileSync(path.resolve('../scripts/build-native-artifact.sh')),
+    statSync(path.resolve('../scripts/build-native-artifact.sh')).mode & 0o777
+  );
+  tool(templates, 'rustup', `printf '1.97.0-aarch64-apple-darwin (default)\\n'`);
+  tool(
+    templates,
+    'dist',
+    `if [ "\${1:-}" = build ]; then printf '{"artifacts":{}}\\n'; else printf 'dist diagnostics\\n'; fi`
+  );
+});
+afterAll(() => {
+  if (templates) rmSync(templates, { recursive: true, force: true });
+});
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -59,11 +81,7 @@ function artifactFixture(product: string, omitted = '') {
   mkdirSync(path.dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, '# Selected package fixture\n');
   const script = path.join(root, 'scripts/build-native-artifact.sh');
-  writeExecutable(
-    script,
-    readFileSync(path.resolve('../scripts/build-native-artifact.sh')),
-    statSync(path.resolve('../scripts/build-native-artifact.sh')).mode & 0o777
-  );
+  linkSync(path.join(templates, 'build-native-artifact.sh'), script);
   tool(
     bin,
     'corepack',
@@ -100,7 +118,7 @@ if [ '${omitted}' = notices ]; then : > "$app/THIRD-PARTY-NOTICES.txt"; fi
 if [ '${omitted}' = build ]; then exit 9; fi
 printf 'vite diagnostics\\n'`
   );
-  tool(bin, 'rustup', `printf '1.97.0-aarch64-apple-darwin (default)\\n'`);
+  linkSync(path.join(templates, 'rustup'), path.join(bin, 'rustup'));
   tool(
     bin,
     'cargo-about',
@@ -132,11 +150,7 @@ chmod +x target/aarch64-apple-darwin/dist/tmt-driver-herdr
 printf 'companion build diagnostics\\n'
 fi`
   );
-  tool(
-    bin,
-    'dist',
-    `if [ "\${1:-}" = build ]; then printf '{"artifacts":{}}\\n'; else printf 'dist diagnostics\\n'; fi`
-  );
+  linkSync(path.join(templates, 'dist'), path.join(bin, 'dist'));
   const snapshot = path.join(root, 'release-version-state.json');
   if (['ops', 'digest', 'remote', 'colab'].includes(product)) {
     mkdirSync(path.join(root, '.github'));
@@ -308,4 +322,24 @@ describe('native artifact stdout', () => {
       expect(result.stderr).not.toContain('dist diagnostics');
     }
   );
+  it('keeps another private fixture usable after a tool override', () => {
+    const replaced = artifactFixture('cli');
+    const independent = artifactFixture('cli');
+    tool(replaced.bin, 'dist', 'exit 97');
+    const invoke = (fixture: ReturnType<typeof artifactFixture>) =>
+      spawnSync(fixture.script, ['aarch64-apple-darwin', 'cli'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ...fixture.releaseEnv,
+          PATH: `${fixture.bin}:${process.env.PATH}`,
+        },
+      });
+    const refused = invoke(replaced);
+    expect(refused.status, refused.stderr).toBe(97);
+    const accepted = invoke(independent);
+    expect(accepted.status, accepted.stderr).toBe(0);
+    expect(JSON.parse(accepted.stdout)).toEqual({ artifacts: {} });
+    expect(accepted.stderr).toContain('notice diagnostics');
+  });
 });
