@@ -1758,7 +1758,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         await fixture.waitForCapture(
           (screen) =>
-            screen.includes('turn output') && screen.includes('Captured answer from this turn'),
+            screen.includes('in turn') && screen.includes('Captured answer from this turn'),
           board.pane
         );
         expect(sends()).toHaveLength(1);
@@ -2058,18 +2058,22 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         `#!/bin/sh\nif [ "$1" = api ]; then\ncall=$(mktemp ${quote(path.join(calls, 'call.XXXXXX'))}) || exit 1\ncat > "$call"\n${core} "$@" < "$call" > "$call.response.stage"\nstatus=$?\nmv "$call.response.stage" "$call.response.json"\nmv "$call" "$call.request.json"\ncat "$call.response.json"\nexit "$status"\nfi\nexec ${core} "$@"\n`
       );
       const pageInputs = () =>
-        recorded<{ operation: string; input: { before?: number } }>('.request.json').filter(
-          (value) => value.operation === 'responses.recent'
+        recorded<{ operation: string; input: { before?: string } }>('.request.json').filter(
+          (value) => value.operation === 'responses.timeline'
         );
       const pages = () =>
         recorded<{
           identityId: string;
-          items: unknown[];
-          nextBefore?: number;
+          entries: unknown[];
+          responses: unknown[];
+          nextBefore?: string;
           coverage: { olderDropped: boolean };
           capture?: { enabled: boolean };
         }>('.response.json').filter(
-          (value) => value.identityId === identityId && Array.isArray(value.items)
+          (value) =>
+            value.identityId === identityId &&
+            Array.isArray(value.entries) &&
+            Array.isArray(value.responses)
         );
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('answer-pages-board');
@@ -2095,7 +2099,9 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       );
       expect(pageInputs().every((value) => value.input.before === undefined)).toBe(true);
       const first = pages()[0]!;
-      expect(first.items).toHaveLength(50);
+      expect(first.entries).toHaveLength(50);
+      expect(first.responses).toHaveLength(50);
+      expect(first.nextBefore).toEqual(expect.any(String));
       expect(first.capture).toEqual({ enabled: false });
       expect(first.coverage.olderDropped).toBe(true);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Home']);
@@ -2112,7 +2118,12 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expect(top).toContain('answers are not captured for this agent: run tmt setup');
       expect(top).toContain('Retained answer 000');
       expect(
-        pages().some((page) => page.nextBefore === undefined && page.items.length === 21)
+        pages().some(
+          (page) =>
+            page.nextBefore === undefined &&
+            page.entries.length === 21 &&
+            page.responses.length === 21
+        )
       ).toBe(true);
       const after = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
