@@ -1506,14 +1506,29 @@ describe('one-pass hourly PR volume through the real CLI', () => {
       clockHook,
       `import {readFileSync} from 'node:fs'; Date.now=()=>${Date.parse(options.until)}+Number(readFileSync(process.env.CLOCK_FILE,'utf8'));\n`
     );
-    writeExecutable(
-      path.join(directory, 'gh'),
-      `#!${process.execPath}
-const args=process.argv.slice(2), mode=process.env.VOLUME_MODE, count=Number(process.env.VOLUME_COUNT);
+    // Run details are immutable in this fixture. Serialize them once instead of starting
+    // Node for each of the 32 tracked-run reads; dynamic listings still use the fake API.
+    const failedCount = mode === 'sampled-logs' ? 10 : mode === 'failed-job-budget' ? 90 : 0;
+    const runs = Array.from({ length: failedCount || 32 }, (_, i) => ({
+      id: i + 1,
+      head_sha: SHA,
+      run_attempt: 1,
+      created_at: '2026-10-18T00:30:00Z',
+      name: 'CI',
+      event: 'pull_request',
+      status: 'completed',
+      conclusion: failedCount ? 'failure' : 'success',
+      pull_requests: [{ number: i + 1 }],
+    }));
+    for (const row of runs)
+      writeFileSync(path.join(directory, `run-${row.id}.json`), `${JSON.stringify(row)}\n`);
+    writeFileSync(
+      path.join(directory, 'gh-fixture.cjs'),
+      `const args=process.argv.slice(2), mode=process.env.VOLUME_MODE, count=Number(process.env.VOLUME_COUNT);
 const sha=${JSON.stringify(SHA)}, until=${JSON.stringify(options.until)};
 const endpoint=args.find(arg=>arg.startsWith('repos/'));
-const failedCount=mode==='sampled-logs'?10:mode==='failed-job-budget'?90:0;
-const run=id=>({id,head_sha:sha,run_attempt:1,created_at:'2026-10-18T00:30:00Z',name:'CI',event:'pull_request',status:'completed',conclusion:failedCount?'failure':'success',pull_requests:[{number:id}]});
+const failedCount=${failedCount}, runs=${JSON.stringify(runs)};
+const run=id=>runs[id-1];
 const files=pr=>Array.from({length:mode==='overflow'||(mode==='pagination'&&pr===1)?101:1},(_,i)=>({filename:'.github/file-'+i+'.yml'}));
 const comment=pr=>({id:pr,body:'Observed '+sha+'\\nAgent: tmt-lead codex-sol-high',html_url:'https://github.com/pj-tmt/tmt/pull/'+pr+'#issuecomment-'+pr});
 if(args[1]==='graphql'){
@@ -1548,7 +1563,6 @@ else if(endpoint.includes('/actions/runs?')){
  const jobs=Array.from({length:n+1},(_,i)=>({id:id*100+10+i,run_id:id,run_attempt:1,head_sha:sha,name:i?'Partition '+i:'Docker E2E',status:'completed',conclusion:'failure',completed_at:until,html_url:'https://github.com/pj-tmt/tmt/actions/runs/'+id+'/job/'+(id*100+10+i),steps:[{name:'Run tests',conclusion:'failure'}]}));
  console.log(JSON.stringify({total_count:jobs.length,jobs}));
 } else if(endpoint.includes('/actions/jobs/')&&endpoint.endsWith('/logs'))console.log('test sampled_failure ... FAILED');
-else if(endpoint.startsWith('repos/pj-tmt/tmt/actions/runs/'))console.log(JSON.stringify(run(Number(endpoint.split('/').at(-1)))));
 else if(endpoint.includes('/issues?state=closed'))console.log(JSON.stringify(mode==='hydration-budget'?Array.from({length:30},(_,i)=>({id:1000+i,number:1000+i,node_id:'PR_'+(1000+i),updated_at:until,pull_request:{url:'https://api.github.com/repos/pj-tmt/tmt/pulls/'+(1000+i)}})):[]));
 else if(endpoint.includes('/pulls?')){
  const q=new URL('https://api.github.com/'+endpoint).searchParams, page=Number(q.get('page'));
@@ -1561,6 +1575,24 @@ else if(endpoint.includes('/pulls?')){
  else if(endpoint.includes('/comments?'))console.log(JSON.stringify([comment(number)]));
  else console.log(JSON.stringify({number,head:{sha},changed_files:files(number).length}));
 } else throw Error('Unexpected REST review read: '+endpoint);
+`
+    );
+    writeExecutable(
+      path.join(directory, 'gh'),
+      `#!/bin/sh
+fixture="\${0%/*}"
+for arg do
+  case "$arg" in
+    repos/pj-tmt/tmt/actions/runs/*)
+      id=\${arg#repos/pj-tmt/tmt/actions/runs/}
+      case "$id" in
+        ''|*[!0-9]*) ;;
+        *) exec cat "$fixture/run-$id.json" ;;
+      esac
+      ;;
+  esac
+done
+exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
 `,
       0o700
     );
@@ -1589,6 +1621,7 @@ else if(endpoint.includes('/pulls?')){
               ...process.env,
               PATH: `${directory}${path.delimiter}${process.env.PATH}`,
               TMT_CI_WATCH_STATE: freshWatcherState(directory, new Date().toISOString()),
+              TICK_FIXTURE_NODE: process.execPath,
               VOLUME_COUNT: String(count),
               VOLUME_MODE: mode,
               CLOCK_FILE: clockFile,
