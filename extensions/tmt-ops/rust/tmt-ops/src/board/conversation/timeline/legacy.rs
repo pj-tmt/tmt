@@ -313,6 +313,7 @@ impl<'a> History<'a> {
                     text,
                     truncated,
                     settled_ms,
+                    ended_ms,
                     ..
                 } = capture
                 else {
@@ -321,7 +322,7 @@ impl<'a> History<'a> {
                 paint.header(
                     exchange_view::Sender::Agent(&context.name),
                     &context.reader,
-                    "in turn",
+                    &entry_stamp("in turn", Some(*ended_ms)),
                     false,
                     format!("captured request {request}"),
                 );
@@ -359,7 +360,7 @@ impl<'a> History<'a> {
                     } else {
                         &context.reader
                     },
-                    &exchange::age_stamp(&reply.age_at(crate::status::now_ms())),
+                    &entry_stamp("", reply.at_ms),
                     false,
                     reply.key.as_ref().map_or_else(
                         || "unlinked message".into(),
@@ -398,14 +399,10 @@ impl<'a> History<'a> {
                 index,
             } => {
                 paint.pane_start.get_or_insert(paint.lines.len());
-                let age = exchange::age_stamp(&crate::requests::age(
-                    crate::status::now_ms(),
-                    item.ended_ms,
-                ));
                 paint.header(
                     exchange_view::Sender::Agent(&context.name),
                     &context.reader,
-                    &format!("in turn · {age}"),
+                    &entry_stamp("in turn", (item.ended_ms > 0).then_some(item.ended_ms)),
                     false,
                     anchor,
                 );

@@ -423,3 +423,92 @@ pub(in crate::board) fn capture_case(scene: &str, look: Look) -> App {
     }
     app
 }
+
+#[test]
+fn every_known_entry_age_follows_its_label_at_the_right_edge() {
+    crate::status::with_now_ms(NOW, || {
+        for width in [160, 80] {
+            for live in [false, true] {
+                let app = setup(incident(), live);
+                let screen = draw(&app, width);
+                let headers: Vec<_> = screen.lines().filter(|line| line.contains('→')).collect();
+                assert!(headers[0].trim_end().ends_with("10s ago"), "{screen}");
+                assert!(
+                    headers[1].trim_end().ends_with("in turn · 1s ago"),
+                    "{screen}"
+                );
+                assert!(
+                    !headers[2].contains("ago"),
+                    "no published input clock: {screen}"
+                );
+                assert!(
+                    headers[3]
+                        .trim_end()
+                        .ends_with("in turn · from core-1 · 5s ago"),
+                    "{screen}"
+                );
+            }
+            for scene in ["chat-answered", "chat-distinct-identical"] {
+                let app = crate::board::conversation::outgoing::tests::captures::fixture(
+                    scene,
+                    Look::default(),
+                    NOW,
+                );
+                let screen = draw(&app, width);
+                let headers: Vec<_> = screen.lines().filter(|line| line.contains('→')).collect();
+                assert!(
+                    headers[0].trim_end().ends_with("42s ago"),
+                    "{scene}: {screen}"
+                );
+                assert!(
+                    headers[1..]
+                        .iter()
+                        .all(|line| line.trim_end().ends_with("in turn · 1s ago")),
+                    "{scene}: {screen}"
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn known_entry_ages_advance_from_the_clock_without_another_read() {
+    let app = crate::status::with_now_ms(NOW, || setup(incident(), false));
+    crate::status::with_now_ms(NOW, || {
+        let screen = draw(&app, 160);
+        assert!(screen.contains("in turn · 1s ago"));
+    });
+    crate::status::with_now_ms(NOW + 1000, || {
+        let screen = draw(&app, 160);
+        assert!(screen.contains("in turn · 2s ago"), "{screen}");
+        assert!(
+            screen.contains("in turn · from core-1 · 6s ago"),
+            "{screen}"
+        );
+        assert_eq!(screen.matches(A).count(), 1);
+        assert_eq!(screen.matches(B).count(), 1);
+    });
+}
+
+#[test]
+fn a_folded_header_uses_the_first_known_input_clock() {
+    crate::status::with_now_ms(NOW, || {
+        let mut document = incident();
+        document["entries"].as_array_mut().unwrap().insert(
+            0,
+            input(
+                "older-no-clock",
+                VIEWER,
+                "Ben",
+                "Older folded text without a public clock",
+            ),
+        );
+        let app = setup(document, false);
+        let screen = draw(&app, 160);
+        let headers: Vec<_> = screen.lines().filter(|line| line.contains('→')).collect();
+        assert_eq!(headers.len(), 4, "{screen}");
+        assert!(headers[0].trim_end().ends_with("10s ago"), "{screen}");
+        assert!(screen.contains("Older folded text without a public clock"));
+        assert!(screen.contains(QUESTION));
+    });
+}

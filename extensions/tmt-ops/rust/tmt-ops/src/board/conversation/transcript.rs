@@ -177,19 +177,31 @@ impl Session {
         let enabled =
             app.pane_output_enabled() && crate::board::recent_responses::canonical_identity(id);
         let output_ages = match &self.pane_output {
-            Observation::Observed(items) => items
-                .iter()
-                .map(|item| {
-                    if item.ended_ms == 0 {
-                        "—".into()
-                    } else {
-                        super::exchange::age_stamp(&crate::requests::age(
-                            crate::status::now_ms(),
-                            item.ended_ms,
-                        ))
-                    }
-                })
-                .collect(),
+            Observation::Observed(page) => {
+                let mut items = page.items.iter().collect::<Vec<_>>();
+                if let Some(timeline) = &page.timeline {
+                    items.extend(timeline.entries.iter().filter_map(|entry| {
+                        if let super::super::recent_responses::timeline::Kind::Final {
+                            response_id,
+                            ..
+                        } = &entry.kind
+                        {
+                            timeline.responses.get(response_id)
+                        } else {
+                            None
+                        }
+                    }));
+                }
+                items
+                    .into_iter()
+                    .map(|item| {
+                        super::timeline::entry_stamp(
+                            "",
+                            (item.ended_ms > 0).then_some(item.ended_ms),
+                        )
+                    })
+                    .collect()
+            }
             _ => vec![],
         };
         let activity =
@@ -231,11 +243,22 @@ impl Session {
                 .sent
                 .iter()
                 .map(|send| {
-                    super::exchange::age_stamp(&crate::requests::age(
-                        crate::status::now_ms(),
-                        send.at_ms,
-                    ))
+                    let capture = match &send.capture {
+                        Some(crate::board::row_detail::Capture::Answered { ended_ms, .. }) => {
+                            super::timeline::entry_stamp("", Some(*ended_ms))
+                        }
+                        _ => String::new(),
+                    };
+                    format!(
+                        "{} / {capture}",
+                        super::timeline::entry_stamp("", Some(send.at_ms))
+                    )
                 })
+                .chain(
+                    self.outgoing
+                        .iter()
+                        .map(|entry| super::timeline::entry_stamp("", Some(entry.started_ms))),
+                )
                 .collect(),
             viewer: app.view.as_ref().and_then(|view| view.me_id.clone()),
             reader: app

@@ -7,6 +7,19 @@ use std::{collections::HashSet, ops::Range};
 
 mod legacy;
 
+/// A known source clock is presentation only; it never orders committed entries.
+pub(super) fn entry_stamp(label: &str, at_ms: Option<u64>) -> String {
+    let Some(at_ms) = at_ms else {
+        return label.to_owned();
+    };
+    let age = exchange::age_stamp(&crate::requests::age(crate::status::now_ms(), at_ms));
+    if label.is_empty() {
+        age
+    } else {
+        format!("{label} · {age}")
+    }
+}
+
 pub(super) struct BodySpan {
     pub range: Range<usize>,
     /// None is a legacy source, resolved by the existing source-bound reader.
@@ -363,7 +376,7 @@ impl Session {
                     inputs = &page.entries[range.clone()];
                     let mut previous_sender: Option<&model::Sender> = None;
                     let mut previous_body: Option<&str> = None;
-                    for entry in inputs {
+                    for (input_index, entry) in inputs.iter().enumerate() {
                         let model::Kind::Input(input) = &entry.kind else {
                             unreachable!()
                         };
@@ -409,7 +422,12 @@ impl Session {
                             paint.header(
                                 who,
                                 &context.name,
-                                "",
+                                &entry_stamp("", inputs[input_index..].iter().take_while(|entry| {
+                                    matches!(&entry.kind, model::Kind::Input(next) if
+                                        entry.id == inputs[input_index].id || input.sender.identity.is_some() && next.sender.identity == input.sender.identity)
+                                }).find_map(|entry| match &entry.kind {
+                                    model::Kind::Input(input) => self.input_time(&input.request), _ => None,
+                                })),
                                 !own,
                                 format!("input {}", entry.id),
                             );
@@ -479,13 +497,6 @@ impl Session {
                         || "in turn".to_owned(),
                         |sender| format!("in turn · {sender}"),
                     );
-                    paint.header(
-                        exchange_view::Sender::Agent(&context.name),
-                        &context.reader,
-                        &stamp,
-                        muted,
-                        format!("reply {}", entry.id),
-                    );
                     let (text, truncated, at_ms, kind, request) = match &entry.kind {
                         model::Kind::Final {
                             response_id,
@@ -525,12 +536,27 @@ impl Session {
                         model::Kind::Reply { request, body } => (
                             body.as_ref().map(|body| body.text.as_str()),
                             body.as_ref().is_some_and(|body| body.truncated),
-                            None,
+                            self.finals
+                                .iter()
+                                .find(|reply| {
+                                    reply
+                                        .key
+                                        .as_ref()
+                                        .is_some_and(|key| key.request == *request)
+                                })
+                                .and_then(|reply| reply.at_ms),
                             BodyKind::Final,
                             Some(request),
                         ),
                         _ => unreachable!(),
                     };
+                    paint.header(
+                        exchange_view::Sender::Agent(&context.name),
+                        &context.reader,
+                        &entry_stamp(&stamp, at_ms),
+                        muted,
+                        format!("reply {}", entry.id),
+                    );
                     if let Some(text) = text {
                         let source = request.filter(|_| !truncated).and_then(|request| {
                             self.finals
@@ -616,6 +642,18 @@ impl Session {
         }
         paint.finish()
     }
+    fn input_time(&self, request: &str) -> Option<u64> {
+        self.sent
+            .iter()
+            .find(|send| send.request == request)
+            .map(|send| send.at_ms)
+            .or_else(|| {
+                self.outgoing
+                    .iter()
+                    .find(|send| send.request() == Some(request))
+                    .map(|send| send.started_ms)
+            })
+    }
     fn committed_time(&self, block: &committed::Block, page: &model::Page) -> Option<u64> {
         match block {
             committed::Block::Inputs(range) => {
@@ -623,16 +661,7 @@ impl Session {
                     let model::Kind::Input(input) = &entry.kind else {
                         return None;
                     };
-                    self.sent
-                        .iter()
-                        .find(|send| send.request == input.request)
-                        .map(|send| send.at_ms)
-                        .or_else(|| {
-                            self.outgoing
-                                .iter()
-                                .find(|send| send.request() == Some(input.request.as_str()))
-                                .map(|send| send.started_ms)
-                        })
+                    self.input_time(&input.request)
                 })
             }
             committed::Block::Final(index) => match &page.entries[*index].kind {
@@ -662,7 +691,7 @@ impl Session {
         paint.header(
             exchange_view::Sender::You(&context.reader),
             &context.name,
-            "",
+            &entry_stamp("", Some(entry.started_ms)),
             false,
             format!("local send {}", entry.sequence()),
         );
