@@ -121,7 +121,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   an explicit no-op or ordered causal update batch. The child replays the batch from the supplied
   admitted base and verifies the expected content projection; the parent checks input/output
   correlation, strict shape, bounds and expected metadata without parsing Yjs. The batch is
-  preparation only; `tmt colab page write` publishes it through `page::prepare_publication`.
+  preparation only; `tmt colab page patch` publishes it through `page::prepare_publication`.
 
 ## Page source and export
 
@@ -168,7 +168,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   materialization input owner for exact base/full metadata/own projections and causal decoder inputs.
   It returns Noop before ID/sequence/seal/certificate work, or a frozen signed content packet and
   chain through the existing local Keyring writer. Batch gzip admission includes
-  all own bytes in the checked raw fastpath. `page write` and the browser Save (`page/save.rs`) are its callers.
+  all own bytes in the checked raw fastpath. `page patch` and the browser Save (`page/save.rs`) are its callers.
 - `page/compact.rs` combines the local device's own stream after a write (best effort, repeatable):
   it opens only that stream's objects through `Snapshot::open_object`, merges them in the decoder
   child (`Decoder::merge`, no projection, since one device's stream can depend on another's structs),
@@ -179,7 +179,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   `compact::request` runs it on demand for `page compact` and reports the page's `PageUsage`
   before and after. A browser device combines only its own stream (`writer.ts` `OwnCompaction`);
   its updates on other devices' streams stay in the tail (`otherDeviceUpdates`).
-- CLI create/write obtains an optional caller display label from the fixed public
+- CLI create/patch obtains an optional caller display label from the fixed public
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source and may carry a typed
   `DocumentChange` (model `attachment.rs`; set/remove by attachment ID, bound to the written source),
@@ -218,11 +218,11 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   state, HTTP or Session lookup. The [Colab contract](../../../../extensions/tmt-colab/contracts/colab-v1.md)
   owns the complete-pair grammar and strict-reader compatibility rules; this native/non-UI
   boundary does not integrate the browser's creator-default toggle.
-- Routing: source/shell actions, attributed creator/question metadata, thread status and proposals
-  publish through the content-publication path (offline, or the local `page-publish` route when `serve`
-  holds the lock); browser Save and closed creator/handled/reopen metadata commands use the owner
-  sync socket, signed by the root-local writer.
-- `page write` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle
+- Routing: anchored CLI page patches and shell actions, attributed creator/question metadata,
+  thread status and proposals publish through the content-publication path (offline, or the local
+  `page-publish` route when `serve` holds the lock); browser Save and closed creator/handled/reopen
+  metadata commands use the owner sync socket, signed by the root-local writer.
+- `page patch` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle
   lock from preparation through commit, using `Store::write_existing` and `commit_publication`.
   On a tail-capacity refusal, it makes one bounded combine attempt only if existing
   `owner_operations` and the matching content receipt prove an own-stream committed write
@@ -249,7 +249,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   `sync.rs`: `process` assembles and authorizes the request under the sync lock and hands back a
   `SaveJob`; `page::save::prepare` then opens its own read-only store, keyring and decoder through the
   `SourceOpener` that `serve` supplies (`Registration::with_save_source`) and prepares with the sync
-  lock released (`prepare_publication_with_clock`, shared with `page write`, reads the clock once after
+  lock released (`prepare_publication_with_clock`, shared with `page patch`, reads the clock once after
   its page snapshot is taken, so a certificate another writer issued before that snapshot is never in
   the preparation's future), so a large save never stalls other peers; `finish_save` re-takes the lock only for
   `commit_publication` (through `Admission::commit_save` and the same combine as a CLI write), the one

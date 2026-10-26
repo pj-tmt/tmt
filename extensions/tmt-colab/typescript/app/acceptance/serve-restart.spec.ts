@@ -6,6 +6,7 @@ import path from 'node:path';
 import { READMIT_DELAYS_MS } from '../src/readmit.js';
 import { pairBrowser, startRemoteOnly } from './harness/browser.js';
 import {
+  patchArgs,
   clientId,
   composeChat,
   createPage,
@@ -133,7 +134,7 @@ test('an open owner page waits out a serve upgrade that outlasts the readmission
     run(
       world,
       world.binaries.colab,
-      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
       '<h1 id="h">After</h1>',
     );
     await expect(page.frameLocator('iframe').locator('#h')).toHaveText('After', {

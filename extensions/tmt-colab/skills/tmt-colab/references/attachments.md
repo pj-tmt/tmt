@@ -7,7 +7,7 @@ tmt colab attachment attach PAGE ./image.png --json
 ```
 
 Read the returned attachment ID; write `<img src="colab-attachment:FULL-ID" alt="Description">`
-through the normal page write. A unique eight-character ID prefix also works. Prefer the full ID
+through an anchored page patch. A unique eight-character ID prefix also works. Prefer the full ID
 for durable references. Add width/height for stable layout and meaningful alt text; `alt=""` marks
 a decorative image. Byte-derived PNG, JPEG and WebP display; other files remain downloads.
 

@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
+  patchArgs,
   annotationInput as inputFor,
   composerText,
   composerTrace,
@@ -304,16 +305,13 @@ test('paired writers retain anchored annotation conversations, direct exact send
       run(
         world,
         world.binaries.colab,
-        [
-          'page',
-          'write',
-          created.pageId,
+        patchArgs(world, created.pageId, [
           '--file',
           '-',
           '--expected-revision',
           read.revision,
           '--json',
-        ],
+        ]),
         source,
         agent.pane,
       );

@@ -4,7 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { composeChat, createPage, freePort, openPage, run, sendChat } from './harness/ask.js';
+import {
+  patchArgs,
+  composeChat,
+  createPage,
+  freePort,
+  openPage,
+  run,
+  sendChat,
+} from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { text } from '../src/strings.js';
 
@@ -71,7 +79,7 @@ test('a document file still downloads and previews after the serve combined its 
     let source = '<h1>Revision parity</h1>';
     for (let i = 0; i < 4; i++) {
       source += `<p>${i}</p>`;
-      run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], source);
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), source);
     }
     const page = await openPage(door, author, created);
     await expect(

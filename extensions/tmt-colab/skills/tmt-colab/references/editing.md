@@ -24,14 +24,15 @@ file (never overwrites); delete it when done.
 Give exactly one form to `tmt colab page patch PAGE ... --json`:
 
 - `--find 'exact text' --replace 'new text'` (or `--find-file`, `--replace-file`, `-` for stdin): the
-  find text must occur exactly once on the page.
+  find text must occur exactly once on the page. Repeat the pair for several changes in one revision.
+  Each pair matches the original source; pairs must not overlap and all apply or none do.
 - `--lines A:B --range-sha256 HASH --file new.txt`: replaces those lines only while they still
   hash to the `rangeSha256` you read. Whole lines end with an LF.
 - `--diff change.diff`: a unified diff; context and removed lines match exactly, with no fuzz,
   and all hunks apply or none do.
 
-A patch keeps everything `page write` promises: one atomic batch, size limits, the markup
-check (`--strict` refuses findings), `changed:false` when nothing differs. An edit elsewhere on
+A patch commits one atomic batch, obeys size limits and the markup check
+(`--strict` refuses markup findings), and reports `changed:false` when nothing differs. An edit elsewhere on
 the page does not stop a patch whose anchor still holds; if the page moves while it commits, the
 patch is evaluated again on the new page. A `--lines` anchor is the line numbers themselves
 ([line semantics](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#ranged-read-and-anchored-patch-2836)),
@@ -42,27 +43,22 @@ so an edit that shifts those lines conflicts; read the range again.
 
 `COLAB_PATCH_CONFLICT` means the text you addressed is missing, ambiguous or changed;
 nothing was written. Read the range or search again, rebuild the patch from what the page holds
-now, and patch again. Never answer a conflict with a whole-page `page write` built from your
-earlier copy: it would discard the concurrent edit. After a timeout or `COLAB_OUTCOME_UNKNOWN`, read back and
+now, and patch again. After a timeout or `COLAB_OUTCOME_UNKNOWN`, read back and
 compare before trying again; never resend blindly.
 
-## Whole-page write
+## Existing pages use patch
 
-Only when most of the page changes. Never round-trip the whole source for a small edit. A write
-that replaces more than half of a page of 2 KiB or more is refused with
-`COLAB_REWRITE_REQUIRES_REPLACE`; its message names the exact rerun command. Pass `--replace` only
-when replacing the page is what you mean; otherwise patch.
+`page write` refuses existing pages and directs you to `page patch`. Use
+`page create --file` for a new page. Even a large change must carry current anchors;
+prefer several small find/replace pairs or diff hunks in one patch.
 
-```sh
-tmt colab page read PAGE --json
-tmt colab page write PAGE --file page.html --expected-revision REVISION --json
-```
-
-On `COLAB_STALE_BASE`, read again, merge the edits and use the new revision.
+A patch replacing more than half the current source applies and reports a `large-patch`
+warning recommending smaller anchored patches. This advice also appears in human output.
+It does not refuse under `--strict`, which checks markup findings.
 
 ## Measure the cost
 
-A write or patch result reports `update:{count,bytes}` (the signed updates it committed, with
+A patch result reports `update:{count,bytes}` (the signed updates it committed, with
 `minimal:true` when it changed anything; zero for a no-op) and `usage`, how full the page is
 (see `page compact` when it nears its limit). Compare `update.bytes` with the size of the
 change: if it is near the size of the page, the edit was not small.
@@ -70,7 +66,7 @@ change: if it is near the size of the page, the edit was not small.
 ## When the page is full
 
 On `COLAB_CAPACITY`, read the limit it names. If it offers `tmt colab page compact PAGE`, run
-it and write again. If the page is still full, export it and create a fresh one:
+it and retry the anchored patch. If the page is still full, export it and create a fresh one:
 
 ```sh
 tmt colab export PAGE --dir EXISTING_DIRECTORY --json

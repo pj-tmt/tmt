@@ -1,7 +1,7 @@
 import { expect, test, type Locator } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, freePort, openPage, run } from './harness/ask.js';
 import { distinct, openSource, save } from './harness/page-source.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -52,7 +52,7 @@ test('a 1.5 MiB page takes a browser save, a CLI write and 80 small browser edit
 
     // A CLI write of another 1.5 MiB reaches the open browser, which then saves on top of it.
     const c = distinct(big, 'c');
-    run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], c);
+    run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), c);
     await expectFieldText(box, c, 60_000);
     const d = c + '<p>browser after CLI</p>';
     await box.fill(d);

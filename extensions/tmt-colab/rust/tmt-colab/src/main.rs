@@ -12,7 +12,6 @@ mod cli_pins;
 mod cli_projects;
 mod cli_proposal;
 mod cli_read;
-mod cli_replace;
 mod cli_template;
 mod cli_threads;
 mod cli_work;
@@ -281,13 +280,13 @@ fn grammar() -> Command {
     };
     const WRITE: CommandSpec = CommandSpec {
         name: "write",
-        summary: "Write page source against a verified base",
+        summary: "Existing pages must use anchored patches",
         examples: &[Example {
             command: "tmt colab page write 10000000-0000-4000-8000-000000000001 --file page.html --json",
-            note: "Replace the page source",
+            note: "Refused: use page patch for existing pages",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written. The result's update:{count,bytes,minimal} reports what the write cost. When the result has warnings, is not minimal or replaces most of a page of 2 KiB or more, read names the editing reference. A write that replaces more than half of a page of 2 KiB or more is refused with COLAB_REWRITE_REQUIRES_REPLACE, naming the rerun command, unless you pass --replace; page patch, page layout and page create are not gated. Write the whole source when most of the page changes; for a small change read only the lines you need (page read --lines or --grep) and use page patch, which moves only that part and merges concurrent edits elsewhere. Never answer a patch conflict (COLAB_PATCH_CONFLICT) with a whole-source write built from an earlier copy: it would discard the concurrent edit.",
+        details: "Refuses existing pages without reading a source file or stdin. Use page patch for anchored edits and page create --file for a new page. Repeat --find/--replace pairs to make several changes in one revision.",
     };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
@@ -417,13 +416,7 @@ fn grammar() -> Command {
                                     .required(true)
                                     .value_name("path|-")
                                     .value_parser(clap::value_parser!(std::path::PathBuf))
-                                    .help("The complete new source (UTF-8; - reads stdin)"),
-                            )
-                            .arg(
-                                Arg::new("replace")
-                                    .long("replace")
-                                    .action(ArgAction::SetTrue)
-                                    .help("Replace most of a large page on purpose"),
+                                    .help("Not read; existing pages must use page patch"),
                             )
                             .arg(
                                 Arg::new("expected-revision")
@@ -718,12 +711,9 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     Ok(())
 }
 /// One whole-source commit against the page's current state: prepares the minimal text diff
-/// from `store`'s snapshot, closes `store`, and publishes the frozen batch. `page write` and
-/// `page patch` both end here, so size limits, the retained revision, the no-op and the
-/// lost-reply behaviour are one path. `base_source_sha256` refuses a page whose source is no
-/// longer the one the caller evaluated its edit against. `gate` is `page write` without
-/// `--replace`: a write that replaces most of a large page is refused after preparation, before
-/// anything is published.
+/// from `store`'s snapshot, closes `store`, and publishes the frozen batch. Patch and layout
+/// edits share size limits, revision fences, no-op and lost-reply behavior here.
+/// `base_source_sha256` refuses a source that changed after evaluating the patch.
 #[allow(clippy::too_many_arguments)]
 fn commit_source(
     layout: &Layout,
@@ -734,7 +724,6 @@ fn commit_source(
     expected_revision: Option<&str>,
     base_source_sha256: Option<[u8; 32]>,
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
-    gate: Option<&cli_replace::Gate<'_>>,
     decoder: &mut tmt_colab::decoder::Decoder,
 ) -> Result<tmt_colab::page::Receipt> {
     use tmt_colab::page::{self, PublishOptions};
@@ -823,11 +812,6 @@ fn commit_source(
             memory_limit,
         ),
         page::PublicationPreparation::Write(frozen) => {
-            if let Some(gate) = gate
-                && frozen.scale().is_large_rewrite()
-            {
-                return Err(gate.refusal(frozen.scale()));
-            }
             let published = publish_write_owned(
                 layout,
                 key,
@@ -866,10 +850,21 @@ fn print_receipt(
 ) -> Result<()> {
     let mut output = tmt_cli_style::stream::stdout(json_output);
     // A normal edit stays quiet; the reference is named only when the edit went off-guidance.
+    let large_patch = (receipt.changed && receipt.scale.is_large_rewrite())
+        .then(|| format!(
+            "This patch replaced {} of {} source bytes (more than half). Prefer smaller anchored patches; use several unique ranges in one commit.",
+            receipt.scale.replaced_bytes, receipt.scale.base_bytes
+        ));
     let off_guidance = cli_edit_hint::reason(warnings.len(), &receipt.update, receipt.scale);
     if json_output {
         let mut value = serde_json::to_value(&receipt)?;
         value["warnings"] = cli_page_check::warnings_json(warnings);
+        if let Some(message) = &large_patch {
+            value["warnings"]
+                .as_array_mut()
+                .expect("warnings array")
+                .push(json!({"code":"large-patch", "message":message}));
+        }
         if off_guidance.is_some() {
             value["read"] = json!([cli_edit_hint::EDITING]);
         }
@@ -897,6 +892,11 @@ fn print_receipt(
             &rows,
         )?;
         cli_page_check::print_warnings(warnings)?;
+        if let Some(message) = &large_patch {
+            let mut err = tmt_cli_style::stream::stderr();
+            let terminal = err.terminal();
+            tmt_cli_style::message::warning(&mut err, terminal, message, None)?;
+        }
         if let Some(reason) = off_guidance {
             let mut err = tmt_cli_style::stream::stderr();
             let terminal = err.terminal();
@@ -971,62 +971,19 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         &key,
         args.get_one::<String>("page").expect("required page"),
     )?;
-    let source = if command == "write" {
-        Some(page_source(
-            args.get_one::<std::path::PathBuf>("file")
-                .expect("required file"),
-        )?)
-    } else {
-        None
-    };
-    let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    if command == "check" {
-        let result = cli_page_check::run(Some((&store, &key, &id, &mut decoder)), args);
-        let closed = store.close();
-        result?;
-        return closed;
+
+    if command == "write" {
+        store.close()?;
+        return Err(cli_management::fail(
+            "COLAB_INPUT_INVALID",
+            "Existing pages must use `tmt colab page patch`. Read `tmt colab skill editing` for anchored edits; create a new page with `page create --file`. Nothing was written.",
+        ));
     }
-    // The check reads the page's attachments before the write takes its snapshot, and refuses a
-    // --strict write before any state changes.
-    let warnings = match &source {
-        Some(source) => cli_page_check::gate(
-            source,
-            args,
-            cli_page_check::Attachments::Page {
-                store: &store,
-                key: &key,
-                page: &id,
-                decoder: &mut decoder,
-            },
-        )?,
-        None => Vec::new(),
-    };
-    let json_output = args.get_flag("json");
-    let source = source.expect("write is the remaining page command");
-    let expected_revision = args
-        .get_one::<String>("expected-revision")
-        .map(String::as_str);
-    let gate = cli_replace::Gate {
-        page: &id,
-        file: args
-            .get_one::<std::path::PathBuf>("file")
-            .expect("required file"),
-        expected_revision,
-    };
-    let receipt = commit_source(
-        &layout,
-        &key,
-        store,
-        &id,
-        &source,
-        expected_revision,
-        None,
-        None,
-        (!args.get_flag("replace")).then_some(&gate),
-        &mut decoder,
-    )?;
-    print_receipt(receipt, &warnings, json_output, "PAGE WRITTEN")?;
-    Ok(())
+    let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    let result = cli_page_check::run(Some((&store, &key, &id, &mut decoder)), args);
+    let closed = store.close();
+    result?;
+    closed
 }
 /// One frozen publication reaches exactly one writer: the serve process when it holds the
 /// lifecycle lock, otherwise this process under that lock. Doubt about a serving exchange is

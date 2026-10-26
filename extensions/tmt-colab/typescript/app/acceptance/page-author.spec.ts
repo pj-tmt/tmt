@@ -2,7 +2,7 @@ import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { pairBrowser, startDoor, openReaderLink } from './harness/browser.js';
-import { createPage, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -33,16 +33,13 @@ test('original author survives later publishing and owner reload and reads to a 
     run(
       world,
       world.binaries.colab,
-      [
-        'page',
-        'write',
-        created.pageId,
+      patchArgs(world, created.pageId, [
         '--file',
         '-',
         '--expected-revision',
         read.revision,
         '--json',
-      ],
+      ]),
       '<h1>Later source</h1>',
       publisher.pane,
     );

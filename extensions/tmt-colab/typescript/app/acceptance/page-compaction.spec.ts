@@ -1,7 +1,7 @@
 import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 // #1627 slice B: the CLI combines its own tail into a checkpoint, so a page takes far more than
@@ -28,7 +28,7 @@ test('260 CLI changes with a browser edit in the middle read back exact in the C
     let source = '<p>start</p>';
     const append = (i: number) => {
       source += `<i>${String(i).padStart(4, '0')}</i>`;
-      run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], source);
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), source);
     };
     for (let i = 0; i < 100; i++) append(i);
     // The browser edits in the middle of the run, on top of the CLI's changes.
@@ -66,7 +66,7 @@ test('a 2 MiB page keeps taking changes and reads back exact', async () => {
     const created = createPage(world, 'Big and busy', source);
     for (let i = 0; i < 300; i++) {
       source = source.slice(0, -4) + `<i>${i}</i>` + source.slice(-4);
-      run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], source);
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), source);
     }
     const read = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
       source: string;

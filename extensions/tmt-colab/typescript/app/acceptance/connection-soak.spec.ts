@@ -17,6 +17,7 @@ import {
   type PairedBrowser,
 } from './harness/browser.js';
 import {
+  patchArgs,
   annotationInput,
   askEntry,
   clientId,
@@ -94,7 +95,7 @@ async function readSendReceive(s: OpenOwner, label: string) {
   run(
     s.world,
     s.world.binaries.colab,
-    ['page', 'write', s.created.pageId, '--file', '-', '--json'],
+    patchArgs(s.world, s.created.pageId, ['--file', '-', '--json']),
     `<h1 id="source">${source}</h1>`,
   );
   await expect(s.page.frameLocator('iframe').locator('#source')).toHaveText(source, {
@@ -132,7 +133,7 @@ const triggers: Array<{ name: string; apply(s: OpenOwner): Promise<void> }> = [
       run(
         s.world,
         s.world.binaries.colab,
-        ['page', 'write', s.created.pageId, '--file', '-', '--json'],
+        patchArgs(s.world, s.created.pageId, ['--file', '-', '--json']),
         '<h1 id="source">Trigger write</h1>',
       );
       await expect(s.page.frameLocator('iframe').locator('#source')).toHaveText('Trigger write');

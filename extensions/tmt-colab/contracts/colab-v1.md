@@ -1616,7 +1616,7 @@ reopen <page> <thread>` publish an agent-labelled status action through the loca
 writer as one native publication job of `kind:"own"` (see Content publication), using its
 shared content/own sequence and the same fenced ciphertext commit, offline or through
 the running serve's `page-publish` route. Preparation edits only the writer's admitted
-own structs in the isolated child. Its outcome handling is the page write's: an
+own structs in the isolated child. Its outcome handling is the page patch's: an
 uncertain result reports `COLAB_OUTCOME_UNKNOWN` with the original operation ID after
 one read-only `publication_status`, and never falls back to an offline writer or
 retries. JSON adds `operationId` when the action was published. Repeating
@@ -2002,7 +2002,7 @@ encoding byte order; declare all schema root types before projection.
 | Rust decoder batch deadline                  | 2 seconds                                     |
 | Browser decoder time budget, per command     | 2 seconds, plus 1 second per MiB of input     |
 | Updates after checkpoints a write accepts    | 200 updates, 4 MiB                            |
-| CLI page write, whole source                 | 2 MiB; within the tail above                  |
+| CLI page patch, whole source                 | 2 MiB; within the tail above                  |
 | Browser Save, whole source                   | 2 MiB; the same tail and page budget          |
 | Browser Save upload window                   | 10 s from the `save` frame, at most 64 chunks |
 | Native compaction trigger, per device stream | 50 updates or 1 MiB                           |
@@ -2028,7 +2028,7 @@ or the deadline fails alone with `COLAB_CAPACITY`, naming the page, the limit an
 step; `ls` and `show` list the other pages. Reads accept these caps, but a write refuses
 once one more update would take the updates after the devices' checkpoints past the
 200-update/4 MiB write budget, or the whole page past the read caps or past 5,000,000 bytes
-gzipped as one stream: `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
+gzipped as one stream: `page patch` fails with `COLAB_CAPACITY` naming the page, the limit and
 the way out (`tmt colab export`, then `tmt colab page create --file`), and the page stays
 readable. Browser read admission matches the native read caps.
 
@@ -4212,7 +4212,7 @@ applies the same change and both preparers consume
 [`attachment-change-v1.json`](vectors/attachment-change-v1.json) (oracle
 `attachment-change-reference.py`).
 
-The serve verifies the digest, then prepares natively exactly as `tmt colab page write` does
+The serve verifies the digest, then prepares natively exactly as `tmt colab page patch` does
 (`page::prepare_publication` in the isolated decoder) from its own fresh read-only snapshot,
 outside the sync lock, with the base-source digest as a precondition. It then re-takes the lock
 only to commit through `commit_publication` with the same fences, so a page that moved while the
@@ -5162,7 +5162,7 @@ retain their existing boundaries.
 
 `tmt colab stop [--json]` asks the serving process of this data root to shut down. It never
 signals a pid. The request is `POST /.tmt/colab/local/stop` on the owner-only
-`door.sock`, a root-local route like page write: a request carrying a forwarded device
+`door.sock`, a root-local route like page patch: a request carrying a forwarded device
 context, a non-POST or an upgrade is refused (403/400), and the mount never forwards the
 reserved `/.tmt/` subtree from a browser, so no new network surface exists. The reply
 `{stopping:true,door:"attached"|"started"|"unavailable"}` is written before the accept loop
@@ -5608,7 +5608,7 @@ map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
 CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`, `COLAB_CONFIRMATION_CHANGED`,
 `COLAB_PAGE_NOT_FOUND`, `COLAB_PAGE_AMBIGUOUS`, `COLAB_PAGE_DELETED`,
-`COLAB_PROJECT_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`, `COLAB_REWRITE_REQUIRES_REPLACE`; existing state failures keep
+`COLAB_PROJECT_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
 their codes. An older schema with a
 known migration path returns `COLAB_STORE_OUTDATED`: "The running Colab service is
 older than this CLI." Its next action is "Run tmt colab stop, then tmt colab serve --background."
@@ -5740,7 +5740,7 @@ the last writer wins, like `page.projects`. A client that changes one pin sends 
 shows, so the first change turns the automatic list it shows into the owner's and then applies the
 change. Deleting a project removes it from the list in the same transaction; renaming moves it,
 and a rename onto a pinned name keeps the earlier of the two places; `create`, `page.projects` and
-page writes never pin.
+page patches never pin.
 
 The CLI adds `project pin <name> [--position N]` and `project unpin <name>`. Each reads the
 effective list, writes the whole list and reports `changed:false` without writing when the list is
@@ -5950,7 +5950,7 @@ empty database initialization may remain. Deleted page IDs cannot be reused.
 
 `tmt colab page layout <page> column|full|canvas [--reason <text>] [--expected-revision <revision>] [--json]`
 changes only the page's layout: the source, title and attribution are the page's own, and
-the change publishes through the same atomic content batch as `page write`, through serve when
+the change publishes through the same atomic content batch as `page patch`, through serve when
 running or under its lifecycle lock when stopped. The kind and reason follow the same rules as
 creation; moving to `column` or `full` removes the reason. Setting the layout the page already
 has publishes nothing and reports `changed: false`. `--expected-revision` refuses a page that
@@ -6065,7 +6065,13 @@ revision and lowercase hex hash. Reads never initialize or migrate state.
 Archived reads retain the fold's current inactive-page restriction; deleted
 operands fail through the shared CLI resolver described above.
 
-`tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--replace] [--json]`
+`tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
+refuses an existing page with exit 1 and `COLAB_INPUT_INVALID`, naming
+`tmt colab page patch` and `tmt colab skill editing`. It reads no source file or stdin,
+prepares no publication and changes nothing. `--replace` is unsupported. Create a new page with
+`page create --file`; existing pages use anchored patches, even for large changes.
+
+The shared source-publication owner used by `page patch` and browser Save
 retains the title and prepares the replacement as an ordered batch of text deltas in the
 isolated child against admitted Yjs structs (`page::prepare_publication`). It does not
 recreate the shared document, execute HTML, advance membership or restore
@@ -6080,20 +6086,8 @@ replacement fits also depends on the retained tail. A fully different 1.5 MiB so
 a page of that size repeatedly, while a fully different 2 MiB replacement of a freshly created
 2 MiB page is refused for the 4 MiB tail. A source equal to the page's current source publishes
 nothing: it exits 0 with `changed:false` and the captured revision. Stdin has a
-five-second EOF deadline. Invalid UTF-8, capacity, stale-base and inactive-page writes
+five-second EOF deadline. Invalid UTF-8, capacity, stale-base and inactive-page patches
 reject without mutating page content. The browser Save below is the same preparation and commit with a different front door.
-
-**Rewrite gate (#5025).** After preparation and before anything is published, `page write` refuses a
-write that replaces more than half of the existing source's bytes when that source is at least
-2 KiB, unless the caller passes `--replace`: exit 1 with `COLAB_REWRITE_REQUIRES_REPLACE`, a message
-that gives the percentage and byte counts, points to `page patch` and `tmt colab skill editing`, and
-names the exact rerun command (`tmt colab page write <page> --file <path> [--expected-revision
-<token>] --replace`), and nothing written. The replaced bytes are those of the existing source between the
-first and last difference from the new one, region by region (the same measure as the editing hint
-below), so an append or an edit in a few places replaces little. A page under 2 KiB, a write that
-replaces exactly half or less, and a write with `--replace` are not refused; `--replace` on any other
-write changes nothing. Only `page write` is gated: `page patch`, `page layout`, `page create`
-(including templates), the browser Save and an export restore never go through it.
 
 The opaque `revision` is `v1:` plus lowercase hex SHA-256 of framed domain
 `tmt-colab-page-revision-v1`, space, page, decimal membership revision, head hash,
@@ -6134,12 +6128,11 @@ the text diff, which every write does today; it stays so a future whole-replace 
 `false`. `changed:false` reports `update:{count:0,bytes:0}` with no `minimal`, since no batch
 exists. The numbers come from the frozen job, so a reply lost to doubt and answered from the
 retained outcome reports the original batch. The human output adds one `update` line
-(`1 update, 214 bytes`, or `none`). A normal edit says nothing more. When a write or patch published
+(`1 update, 214 bytes`, or `none`). A normal edit says nothing more. When a patch published
 something and went off-guidance, the JSON result adds `read: ["tmt colab skill editing"]` and the
 human result one `hint:` line on stderr naming that command: the markup check left a warning,
-`update.minimal` is `false`, or the write replaced more than half of an existing source of at
-least 2 KiB (the replaced bytes are the existing source between the first and last difference
-from the new one; an append replaces none). `revision` is the
+`update.minimal` is `false`, or the patch replaced more than half of the existing source
+(the removed bytes of all changed regions are summed; an append replaces none). `revision` is the
 page revision read, after the write and its best-effort combine, by the writer while no
 other writer can run (the serve under its sync lock, or this process under the serve
 lifecycle lock): the token a next `--expected-revision` carries. The retained outcome's
@@ -6251,7 +6244,10 @@ the text the caller expects, so the change is anchored to that text and not to t
 
 - `--find TEXT --replace TEXT` (or `--find-file PATH`, `--replace-file PATH`, `-` for stdin): the
   find text must occur exactly once, anywhere on the page, overlapping occurrences included; the
-  replacement may be empty. Files are read byte for byte.
+  replacement may be empty. Files are read byte for byte; only one input may read stdin. Repeat the pair to change several
+  passages in one revision. Finds and replacements pair by occurrence order, with equal counts.
+  All finds match the original source, must be nonempty and unique, and must not overlap;
+  replacements cannot create anchors for later pairs. All pairs apply or none does.
 - `--lines A:B --range-sha256 HASH --file PATH`: lines `A` through `B` (1-based, split on LF only,
   a CR is content, a final LF ends the last line instead of starting another, an empty page is one
   empty line) are replaced by the file's exact bytes, only while their `rangeSha256` is `HASH`. The
@@ -6269,11 +6265,18 @@ the text the caller expects, so the change is anchored to that text and not to t
 
 The patch is evaluated, as a pure function of the source, against the exact source the page folds
 to when the command reads it, and its result is written through the whole-source write
-(`page write`'s preparation, commit and receipt), which commits the minimal text diff of old to
-new source. Everything `page write` guarantees therefore holds unchanged: one atomic batch, the
+(the shared preparation, commit and receipt), which commits the minimal text diff of old to
+new source. The publication guarantees hold unchanged: one atomic batch, the
 source, tail and page limits (`COLAB_CAPACITY`), the markup check on the result (`--strict` refuses
 findings in the result before anything is written), `changed:false` when the result equals the
 source, the retained revision and the lost-reply behaviour, and the `update` field of the result.
+
+A patch replacing more than half of the current source's UTF-8 bytes applies and adds a
+`warnings` entry `{code:"large-patch",message}` recommending smaller anchored patches,
+including the replaced and base byte counts. Human output prints the same advice as a
+warning on stderr. This uses the changed regions of the minimal content diff, sums their
+removed bytes and has no minimum page size. It is separate from markup findings and never
+refuses under `--strict`. A no-op and a pure append have no large-patch warning.
 
 A missing, ambiguous or changed anchor refuses with `COLAB_PATCH_CONFLICT`, naming the find text,
 line range or hunk and, for an ambiguous match, how many there were; nothing is written. A
@@ -6301,7 +6304,7 @@ to the page since that revision, anywhere, is `COLAB_STALE_BASE`, and nothing is
 | `limiting`                         | Which of the three `percent` is: `changes`, `recent-data` (the tail's bytes) or `stored-size` (the gzipped state); the first of the fullest wins a tie. Combining changes makes room only for the first two. |
 | `percent`                          | The fullest of `updates`/`updateLimit`, `tailBytes`/`tailBytesLimit` and (`gzipBytes`, else `stateBytes`)/`gzipLimit`, rounded down; above 100 for a reader that holds more than a write accepts.            |
 
-`page write` and `page patch` report the same `usage` in their JSON receipt, and their human output
+`page patch` reports `usage` in its JSON receipt, and its human output
 adds a `usage` line only from 80%, saying how full the page is and, when this device has changes of
 its own to combine, naming `tmt colab page compact`.
 
@@ -6395,7 +6398,7 @@ For an own job `nativeEvidence.sourceSha256` is the digest of the page's current
 preparation: evidence only, since the job carries no source edit; `memoryLimit` is the
 decoder profile of the own preparation and `chainHash` binds the writer chain as for content.
 Both native single-edit and batch preparation include all own bytes in the checked whole-state
-raw fastpath and use one gzip stream at the unchanged 5,000,000-byte budget. `tmt colab page write`
+raw fastpath and use one gzip stream at the unchanged 5,000,000-byte budget. `tmt colab page patch`
 and the serving route above are its production callers. Browser Save still publishes through
 its single-update path and does not use these types; `tmt colab threads resolve|reopen`
 publish an own-kind job; there is no durable caller recovery.
@@ -6493,7 +6496,7 @@ reviews:{admitted,ignored},readings:{admitted,ignored},findings,hints}`. With no
 `COLAB_PAGE_CHECK`, and `--json` prints the same report with `ok:false` and the usual
 `{error:{code,message}}` attached; human output lists each finding with its line first.
 
-`page create` and `page write` run the same check on the source before any state changes. The
+`page create` and `page patch` run the same check on the source before any state changes. The
 ordinary markup findings are warnings: on stderr in human mode and a `warnings` array (the finding objects,
 `[]` when clean) in the JSON result, also for a write that changes nothing. A page being
 created has no attachments, so every well-formed reference in its first source is
@@ -6564,7 +6567,7 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `image-data-total`                                                | warning  | all `data:image/` sources together over 256 KiB; one finding, on the image that crosses it                                                                                                |
 | `attachment-ref-invalid`                                          | warning  | an `<img>` `src` starting `colab-attachment:` that is not the scheme plus 8 lowercase hex digits or a full lowercase UUID                                                                 |
 | `attachment-ref-too-many`                                         | warning  | more than 128 distinct well-formed references; one finding, on the 129th                                                                                                                  |
-| `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page write` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
+| `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page patch` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
 | `unknown-ui-class`                                                | warning  | an element whose `class` holds a `tmt-ui-*` token the page frame's design system does not define (it styles nothing); one finding per element                                             |
 | `unknown-icon`                                                    | warning  | a `<tmt-icon>` whose `name` is missing, not lowercase kebab-case or not in the frame's icon set (it draws nothing)                                                                        |
 

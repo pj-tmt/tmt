@@ -254,6 +254,32 @@ exec {core} "$@"
         assert!(!output.stdout.contains(&0x1b));
         serde_json::from_slice(&output.stdout).unwrap()
     }
+    /// Read a fresh anchored range for publication scenarios that replace fixture source.
+    /// Scenario assertions still exercise the real patch, decoder, commit and receipt.
+    fn patch_args(&self, page: &str, flags: &[&str]) -> Vec<String> {
+        let read = self.call(&["page", "read", page, "--json"]);
+        let source = read["source"].as_str().unwrap();
+        let lines = source.split_inclusive('\n').count().max(1);
+        let mut args = vec![
+            "page".into(),
+            "patch".into(),
+            page.into(),
+            "--lines".into(),
+            format!("1:{lines}"),
+            "--range-sha256".into(),
+            sha256_hex(source),
+        ];
+        args.extend(flags.iter().map(|value| (*value).to_owned()));
+        args
+    }
+    fn patch_command(&self, page: &str) -> Command {
+        let mut command = self.command();
+        command.args(self.patch_args(page, &[]));
+        command
+    }
+    fn patch_call(&self, page: &str, flags: &[&str]) -> Value {
+        self.call(&borrowed(&self.patch_args(page, flags)))
+    }
     fn start(&mut self) -> Value {
         self.child = Some(
             self.command()
@@ -2758,16 +2784,16 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
         assert_eq!(read["title"], "Fresh 🐈");
         assert_eq!(read["epoch"], "1");
         fs::write(&file, "<p>Edited</p>").unwrap();
-        pilot.call(&[
-            "page",
-            "write",
+        pilot.patch_call(
             id,
-            "--file",
-            file.to_str().unwrap(),
-            "--expected-revision",
-            read["revision"].as_str().unwrap(),
-            "--json",
-        ]);
+            &[
+                "--file",
+                file.to_str().unwrap(),
+                "--expected-revision",
+                read["revision"].as_str().unwrap(),
+                "--json",
+            ],
+        );
         let edited = pilot.call(&["page", "read", id, "--json"]);
         assert_eq!(edited["source"], "<p>Edited</p>");
         assert_eq!(edited["title"], "Fresh 🐈");
@@ -2834,7 +2860,7 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
         .unwrap()
         .replace("Row 8 of", "Row eight of");
     fs::write(&file, &source).unwrap();
-    quiet(&pilot.call(&["page", "write", &id, "--file", path, "--json"]));
+    quiet(&pilot.patch_call(&id, &["--file", path, "--json"]));
 
     // A lint warning in the result names the reference, on a patch...
     let warned = pilot.call(&[
@@ -2861,27 +2887,20 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
             "Row nine of",
         );
     fs::write(&file, format!("{current}{}", rows.repeat(2))).unwrap();
-    quiet(&pilot.call(&["page", "write", &id, "--file", path, "--json"]));
+    quiet(&pilot.patch_call(&id, &["--file", path, "--json"]));
     // ...and a rewrite of most of a page of 2 KiB or more does too, with nothing to lint.
     fs::write(&file, varied_source(7, 4096)).unwrap();
-    let rewritten = pilot.call(&["page", "write", &id, "--file", path, "--replace", "--json"]);
-    assert_eq!(rewritten["warnings"], json!([]), "{rewritten}");
+    let rewritten = pilot.patch_call(&id, &["--file", path, "--json"]);
+    assert_eq!(
+        rewritten["warnings"][0]["code"], "large-patch",
+        "{rewritten}"
+    );
     assert_eq!(rewritten["read"], json!([EDITING_READ]), "{rewritten}");
-    // A page under 2 KiB is rewritten whole without comment.
-    let small = pilot.call(&[
-        "page", "create", "--title", "Small", "--layout", "column", "--json",
-    ]);
-    let small = small["pageId"].as_str().unwrap().to_owned();
-    fs::write(&file, varied_source(1, 1000)).unwrap();
-    quiet(&pilot.call(&["page", "write", &small, "--file", path, "--json"]));
-    fs::write(&file, varied_source(2, 1000)).unwrap();
-    quiet(&pilot.call(&["page", "write", &small, "--file", path, "--json"]));
-
     // The human result says so on stderr, once; a normal edit prints nothing there.
     fs::write(&file, varied_source(9, 4096)).unwrap();
     let human = pilot
-        .command()
-        .args(["page", "write", &id, "--file", path, "--replace"])
+        .patch_command(&id)
+        .args(["--file", path])
         .output()
         .unwrap();
     let stderr = String::from_utf8(human.stderr).unwrap();
@@ -2894,136 +2913,216 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
     );
 }
 #[test]
-fn a_write_that_replaces_most_of_a_large_page_needs_replace() {
-    let pilot = Pilot::new(None);
-    let file = pilot.root.join("page.html");
-    let path = file.to_str().unwrap();
-    // One line of 4 KiB: the bytes a write replaces are the ones that differ.
-    let old = "a".repeat(4096);
-    fs::write(&file, &old).unwrap();
-    let created = pilot.call(&[
-        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
-    ]);
-    let id = created["pageId"].as_str().unwrap().to_owned();
-    let write = |source: &str, flags: &[&str]| {
-        fs::write(&file, source).unwrap();
-        let mut command = vec!["page", "write", id.as_str(), "--file", path];
-        command.extend(flags);
-        command.push("--json");
-        command.into_iter().map(str::to_owned).collect::<Vec<_>>()
-    };
-    let call = |command: &[String]| {
-        let refs: Vec<&str> = command.iter().map(String::as_str).collect();
-        pilot.call(&refs)
-    };
-    // Exactly half is not more than half: accepted without the flag.
-    let half = format!("{}{}", "b".repeat(2048), "a".repeat(2048));
-    let written = call(&write(&half, &[]));
-    assert_eq!(written["changed"], true, "{written}");
-    assert!(written.get("read").is_none(), "{written}");
-    // One byte more is refused, names the exact rerun command and the way to change part of a
-    // page, and writes nothing.
-    let rewrite = "c".repeat(4096);
-    let refused = failure(
-        &pilot,
-        &write(&rewrite, &[])
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        "COLAB_REWRITE_REQUIRES_REPLACE",
-    );
-    let message = refused["error"]["message"].as_str().unwrap();
-    assert!(
-        message.contains(&format!(
-            "tmt colab page write {id} --file {path} --replace"
-        )),
-        "{message}"
-    );
-    assert!(message.contains("tmt colab page patch"), "{message}");
-    assert!(message.contains("Nothing was written"), "{message}");
-    let current = pilot.call(&["page", "read", &id, "--json"]);
-    assert_eq!(current["source"], half, "{current}");
-    // A fence the caller gave is part of the rerun command.
-    let revision = current["revision"].as_str().unwrap().to_owned();
-    let fenced = failure(
-        &pilot,
-        &[
+fn existing_page_writes_are_refused_without_reading_the_source_or_changing_state() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("initial.html");
+        fs::write(&file, "<p>original</p>").unwrap();
+        let created = pilot.call(&[
             "page",
-            "write",
-            &id,
+            "create",
+            "--title",
+            "Patch only",
+            "--layout",
+            "column",
             "--file",
-            path,
-            "--expected-revision",
-            &revision,
+            file.to_str().unwrap(),
             "--json",
-        ],
-        "COLAB_REWRITE_REQUIRES_REPLACE",
-    );
-    assert!(
-        fenced["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains(&format!(
-                "tmt colab page write {id} --file {path} --expected-revision {revision} --replace"
-            )),
-        "{fenced}"
-    );
-    // The human refusal says the same on stderr.
-    let human = pilot
-        .command()
-        .args(["page", "write", &id, "--file", path])
-        .output()
-        .unwrap();
-    assert_eq!(human.status.code(), Some(1));
-    let stderr = String::from_utf8(human.stderr).unwrap();
-    assert!(stderr.contains("--replace"), "{stderr}");
-    // With the flag the rewrite is published.
-    let replaced = call(&write(&rewrite, &["--replace"]));
-    assert_eq!(replaced["changed"], true, "{replaced}");
-    assert_eq!(
-        pilot.call(&["page", "read", &id, "--json"])["source"],
-        rewrite
-    );
-    // The flag on a write that needs none changes nothing about it.
-    let small = format!("{}{}", "d".repeat(10), &rewrite[10..]);
-    assert_eq!(call(&write(&small, &["--replace"]))["changed"], true);
-
-    // A page under 2 KiB is rewritten whole without the flag.
-    let short = pilot.call(&[
-        "page", "create", "--title", "Short", "--layout", "column", "--json",
-    ]);
-    let short = short["pageId"].as_str().unwrap().to_owned();
-    for source in [varied_source(1, 2047), varied_source(2, 2047)] {
-        fs::write(&file, &source).unwrap();
-        let written = pilot.call(&["page", "write", &short, "--file", path, "--json"]);
-        assert_eq!(written["changed"], true, "{written}");
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        let before = pilot.call(&["page", "read", id, "--json"]);
+        let refused = failure(
+            &pilot,
+            &[
+                "page",
+                "write",
+                id,
+                "--file",
+                "/does-not-exist.html",
+                "--json",
+            ],
+            "COLAB_INPUT_INVALID",
+        );
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("page patch")
+        );
+        let after = pilot.call(&["page", "read", id, "--json"]);
+        assert_eq!(after["source"], before["source"]);
+        assert_eq!(after["revision"], before["revision"]);
+        assert_eq!(after["usage"], before["usage"]);
     }
-    // A patch is already anchored to the text it changes: it keeps working on a large rewrite.
-    let (old_file, new_file) = (pilot.root.join("old.txt"), pilot.root.join("new.txt"));
-    fs::write(&old_file, &small).unwrap();
-    let all_new = "e".repeat(4096);
-    fs::write(&new_file, &all_new).unwrap();
+}
+
+#[test]
+fn multiple_find_replace_pairs_commit_together_and_large_patches_warn() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("initial.html");
+    fs::write(&file, "<p>alpha</p>\n<p>beta</p>\n").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Atomic pairs",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let before = pilot.call(&["page", "read", id, "--json"]);
     let patched = pilot.call(&[
         "page",
         "patch",
-        &id,
-        "--find-file",
-        old_file.to_str().unwrap(),
-        "--replace-file",
-        new_file.to_str().unwrap(),
+        id,
+        "--find",
+        "alpha",
+        "--replace",
+        "ALPHA",
+        "--find",
+        "beta",
+        "--replace",
+        "BETA",
         "--json",
     ]);
-    assert_eq!(patched["changed"], true, "{patched}");
-    // So do the commands that never replace existing source: layout and a new page.
-    let layout = pilot.call(&["page", "layout", &id, "full", "--json"]);
-    assert_eq!(layout["changed"], true, "{layout}");
-    fs::write(&file, &old).unwrap();
-    pilot.call(&[
-        "page", "create", "--title", "Big", "--layout", "column", "--file", path, "--json",
+    assert_eq!(patched["changed"], true);
+    assert_eq!(patched["count"], 1);
+    let after = pilot.call(&["page", "read", id, "--json"]);
+    assert_eq!(after["source"], "<p>ALPHA</p>\n<p>BETA</p>\n");
+    assert_ne!(after["revision"], before["revision"]);
+    failure(
+        &pilot,
+        &[
+            "page",
+            "patch",
+            id,
+            "--find",
+            "ALPHA",
+            "--replace",
+            "changed",
+            "--find",
+            "missing",
+            "--replace",
+            "x",
+            "--json",
+        ],
+        "COLAB_PATCH_CONFLICT",
+    );
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["revision"],
+        after["revision"]
+    );
+    let warned = pilot.call(&[
+        "page",
+        "patch",
+        id,
+        "--find",
+        after["source"].as_str().unwrap(),
+        "--replace",
+        "completely different",
+        "--json",
     ]);
+    assert_eq!(warned["changed"], true);
+    assert!(
+        warned["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning["code"] == "large-patch"),
+        "{warned}"
+    );
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        "completely different"
+    );
+    let human = pilot
+        .command()
+        .args([
+            "page",
+            "patch",
+            id,
+            "--find",
+            "completely different",
+            "--replace",
+            "another revision",
+        ])
+        .output()
+        .unwrap();
+    assert!(human.status.success(), "{human:?}");
+    let warning = String::from_utf8(human.stderr).unwrap();
+    assert!(
+        warning.contains("warning") && warning.contains("smaller anchored patches"),
+        "{warning}"
+    );
 }
+
 #[test]
-fn a_write_of_two_far_apart_edits_costs_the_edits_and_not_the_text_between_them() {
+fn patch_warning_counts_removed_bytes_and_keeps_half_appends_and_noops_quiet() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("initial.html");
+    fs::write(&file, "abcdefgh").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Warning boundary",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    for (find, replace) in [
+        ("abcd", "ABCD"),
+        ("ABCD", "ABCD"),
+        ("ABCD", "ABCD more appended"),
+    ] {
+        let receipt = pilot.call(&[
+            "page",
+            "patch",
+            id,
+            "--find",
+            find,
+            "--replace",
+            replace,
+            "--json",
+        ]);
+        assert_eq!(receipt["warnings"], json!([]), "{receipt}");
+    }
+    let current = pilot.call(&["page", "read", id, "--json"]);
+    let changed = pilot.call(&[
+        "page",
+        "patch",
+        id,
+        "--find",
+        current["source"].as_str().unwrap(),
+        "--replace",
+        "another passage",
+        "--strict",
+        "--json",
+    ]);
+    assert_eq!(changed["changed"], true);
+    assert_eq!(changed["warnings"][0]["code"], "large-patch");
+    for flags in [
+        vec!["--find", "another", "--replace", "x", "--find", "passage"],
+        vec!["--find-file", "-", "--replace-file", "-"],
+    ] {
+        let mut args = vec!["page", "patch", id];
+        args.extend(flags);
+        args.push("--json");
+        failure(&pilot, &args, "COLAB_INPUT_INVALID");
+    }
+}
+
+#[test]
+fn a_patch_of_two_far_apart_pairs_costs_the_edits_and_not_the_text_between_them() {
     let pilot = Pilot::new(None);
     let page: String = (0..400)
         .map(|n| format!("<p>第{n}行 🐈 row {n} 漢字 ✓</p>\n"))
@@ -3039,7 +3138,20 @@ fn a_write_of_two_far_apart_edits_costs_the_edits_and_not_the_text_between_them(
         page.replacen("row 5 ", "ROW FIVE 🐕 ", 1)
             .replacen("row 395 ", "ROW 395 🐕🐕 ", 1);
     fs::write(&file, &edited).unwrap();
-    let written = pilot.call(&["page", "write", &id, "--file", path, "--json"]);
+    let written = pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find",
+        "row 5 ",
+        "--replace",
+        "ROW FIVE 🐕 ",
+        "--find",
+        "row 395 ",
+        "--replace",
+        "ROW 395 🐕🐕 ",
+        "--json",
+    ]);
     assert_eq!(written["changed"], true, "{written}");
     assert_eq!(written["update"]["count"], 1, "{written}");
     // The two changed regions, not the ~16 KB between them.
@@ -3106,14 +3218,7 @@ fn page_compact_combines_this_devices_changes_and_reports_usage_offline_and_serv
         let mut written = Value::Null;
         for i in 0..6 {
             fs::write(&file, format!("<p>first</p><p>{i}</p>")).unwrap();
-            written = pilot.call(&[
-                "page",
-                "write",
-                id,
-                "--file",
-                file.to_str().unwrap(),
-                "--json",
-            ]);
+            written = pilot.patch_call(id, &["--file", file.to_str().unwrap(), "--json"]);
         }
         let read = pilot.call(&["page", "read", id, "--json"]);
         let usage = &read["usage"];
@@ -3166,14 +3271,7 @@ fn page_compact_combines_this_devices_changes_and_reports_usage_offline_and_serv
 
         // Human output names the outcome and both usages.
         fs::write(&file, "<p>first</p><p>again</p>").unwrap();
-        pilot.call(&[
-            "page",
-            "write",
-            id,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ]);
+        pilot.patch_call(id, &["--file", file.to_str().unwrap(), "--json"]);
         let human = pilot
             .command()
             .args(["page", "compact", id])
@@ -3213,9 +3311,12 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         ]);
         let id = created["pageId"].as_str().unwrap();
         let write = |args: &[&str]| {
-            let mut command = vec!["page", "write", id, "--file", file.to_str().unwrap()];
-            command.extend_from_slice(args);
-            pilot.command().args(command).output().unwrap()
+            pilot
+                .patch_command(id)
+                .args(["--file", file.to_str().unwrap()])
+                .args(args)
+                .output()
+                .unwrap()
         };
         let json = |args: &[&str]| -> Value {
             let output = write(&[args, &["--json"]].concat());
@@ -3241,7 +3342,7 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         // A full rewrite reports what it really carried, so the number is a measurement.
         let rewritten = varied_source(2, SIZE / 3);
         fs::write(&file, &rewritten).unwrap();
-        let large = json(&["--replace"]);
+        let large = json(&[]);
         assert!(
             large["update"]["bytes"].as_u64().unwrap() >= (SIZE / 3) as u64,
             "{large}"
@@ -3254,10 +3355,10 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         assert_eq!(none["update"], json!({"count": 0, "bytes": 0}));
         // Human output adds one line, and it is the same measurement.
         fs::write(&file, &edited).unwrap();
-        let human = write(&["--replace"]);
+        let human = write(&[]);
         assert!(human.status.success(), "{human:?}");
         let shown = String::from_utf8(human.stdout).unwrap();
-        assert!(shown.contains("PAGE WRITTEN"), "{shown}");
+        assert!(shown.contains("PAGE PATCHED"), "{shown}");
         assert!(
             shown
                 .lines()
@@ -3328,14 +3429,7 @@ fn a_patch_changes_only_the_addressed_text_and_refuses_when_its_anchor_moved() {
         };
         let write = |text: &str| {
             fs::write(&file, text).unwrap();
-            pilot.call(&[
-                "page",
-                "write",
-                &id,
-                "--file",
-                file.to_str().unwrap(),
-                "--json",
-            ]);
+            pilot.patch_call(&id, &["--file", file.to_str().unwrap(), "--json"]);
         };
 
         // One exact find: only that passage changes, as one small update.
@@ -3568,14 +3662,7 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
     assert!(retained > 3 * 1024 * 1024, "{before}");
     assert_eq!(before["usage"]["checkpointBytes"], 0);
     fs::write(&file, &second).unwrap();
-    let noop = pilot.call(&[
-        "page",
-        "write",
-        id,
-        "--file",
-        file.to_str().unwrap(),
-        "--json",
-    ]);
+    let noop = pilot.patch_call(id, &["--file", file.to_str().unwrap(), "--json"]);
     assert_eq!(noop["changed"], false);
     assert_eq!(noop["revision"], before["revision"]);
     assert_eq!(noop["usage"]["tailBytes"], retained);
@@ -3583,33 +3670,32 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
     let stale = format!("v1:{}", "0".repeat(64));
     failure(
         &pilot,
-        &[
-            "page",
-            "write",
+        &borrowed(&pilot.patch_args(
             id,
-            "--file",
-            file.to_str().unwrap(),
-            "--expected-revision",
-            &stale,
-            "--json",
-        ],
+            &[
+                "--file",
+                file.to_str().unwrap(),
+                "--expected-revision",
+                &stale,
+                "--json",
+            ],
+        )),
         "COLAB_STALE_BASE",
     );
     assert_eq!(
         pilot.call(&["page", "read", id, "--json"])["revision"],
         before["revision"]
     );
-    let written = pilot.call(&[
-        "page",
-        "write",
+    let written = pilot.patch_call(
         id,
-        "--file",
-        file.to_str().unwrap(),
-        "--expected-revision",
-        before["revision"].as_str().unwrap(),
-        "--replace",
-        "--json",
-    ]);
+        &[
+            "--file",
+            file.to_str().unwrap(),
+            "--expected-revision",
+            before["revision"].as_str().unwrap(),
+            "--json",
+        ],
+    );
     assert_eq!(written["changed"], true);
     let after = pilot.call(&["page", "read", id, "--json"]);
     assert_eq!(after["source"], varied_source(3, SIZE));
@@ -3618,17 +3704,16 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
     assert!(after["usage"]["tailBytes"].as_u64().unwrap() < retained);
     // The following write fences on the committed checkpoint-inclusive revision.
     fs::write(&file, varied_source(4, SIZE)).unwrap();
-    pilot.call(&[
-        "page",
-        "write",
+    pilot.patch_call(
         id,
-        "--file",
-        file.to_str().unwrap(),
-        "--expected-revision",
-        after["revision"].as_str().unwrap(),
-        "--replace",
-        "--json",
-    ]);
+        &[
+            "--file",
+            file.to_str().unwrap(),
+            "--expected-revision",
+            after["revision"].as_str().unwrap(),
+            "--json",
+        ],
+    );
     assert_eq!(
         pilot.call(&["page", "read", id, "--json"])["source"],
         varied_source(4, SIZE)
@@ -3669,16 +3754,8 @@ fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_servin
             let source = varied_source(seed, SIZE);
             fs::write(&file, &source).unwrap();
             let output = pilot
-                .command()
-                .args([
-                    "page",
-                    "write",
-                    id,
-                    "--file",
-                    file.to_str().unwrap(),
-                    "--replace",
-                    "--json",
-                ])
+                .patch_command(id)
+                .args(["--file", file.to_str().unwrap(), "--json"])
                 .output()
                 .unwrap();
             assert!(
@@ -3743,14 +3820,7 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
         fs::write(&file, "x".repeat(limit + 1)).unwrap();
         let refused = failure(
             &pilot,
-            &[
-                "page",
-                "write",
-                id,
-                "--file",
-                file.to_str().unwrap(),
-                "--json",
-            ],
+            &borrowed(&pilot.patch_args(id, &["--file", file.to_str().unwrap(), "--json"])),
             "COLAB_CAPACITY",
         );
         let message = refused["error"]["message"].as_str().unwrap();
@@ -3780,14 +3850,7 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
         fs::write(&full, varied_source(8, limit)).unwrap();
         let refused = failure(
             &pilot,
-            &[
-                "page",
-                "write",
-                full_id,
-                "--file",
-                full.to_str().unwrap(),
-                "--json",
-            ],
+            &borrowed(&pilot.patch_args(full_id, &["--file", full.to_str().unwrap(), "--json"])),
             "COLAB_CAPACITY",
         );
         let message = refused["error"]["message"].as_str().unwrap();
@@ -3803,27 +3866,20 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
         );
         // A base the page has moved past is refused before anything is sealed or published.
         fs::write(&file, "<p>Second</p>").unwrap();
-        pilot.call(&[
-            "page",
-            "write",
-            id,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ]);
+        pilot.patch_call(id, &["--file", file.to_str().unwrap(), "--json"]);
         fs::write(&file, "<p>Third</p>").unwrap();
         failure(
             &pilot,
-            &[
-                "page",
-                "write",
+            &borrowed(&pilot.patch_args(
                 id,
-                "--file",
-                file.to_str().unwrap(),
-                "--expected-revision",
-                before["revision"].as_str().unwrap(),
-                "--json",
-            ],
+                &[
+                    "--file",
+                    file.to_str().unwrap(),
+                    "--expected-revision",
+                    before["revision"].as_str().unwrap(),
+                    "--json",
+                ],
+            )),
             "COLAB_STALE_BASE",
         );
         let after = pilot.call(&["page", "read", id, "--json"]);
@@ -3858,9 +3914,11 @@ fn writing_an_archived_page_is_refused_before_anything_is_recorded() {
         &pilot,
         &[
             "page",
-            "write",
+            "patch",
             id,
-            "--file",
+            "--find",
+            "<p>Kept</p>",
+            "--replace-file",
             file.to_str().unwrap(),
             "--json",
         ],
@@ -4262,14 +4320,7 @@ fn writing_the_source_a_page_already_has_publishes_nothing_offline_and_serving()
         ]);
         let id = created["pageId"].as_str().unwrap();
         let before = pilot.call(&["page", "read", id, "--json"]);
-        let written = pilot.call(&[
-            "page",
-            "write",
-            id,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ]);
+        let written = pilot.patch_call(id, &["--file", file.to_str().unwrap(), "--json"]);
         assert_eq!(written["changed"], false);
         assert_eq!(written["revision"], before["revision"]);
         assert!(written.get("operationId").is_none());
@@ -4619,18 +4670,11 @@ fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_oper
         "--json",
     ]);
     let id = created["pageId"].as_str().unwrap();
-    let args = [
-        "page",
-        "write",
-        id,
-        "--file",
-        file.to_str().unwrap(),
-        "--json",
-    ];
+    let args = || pilot.patch_args(id, &["--file", file.to_str().unwrap(), "--json"]);
     // The server commits, the reply is lost: the status check finds the original outcome.
     fs::write(&file, "<p>Committed behind a lost reply</p>").unwrap();
     let interposer = Interposer::start(&pilot, true);
-    let resolved = pilot.call(&args);
+    let resolved = pilot.call(&borrowed(&args()));
     interposer.finish();
     assert_eq!(resolved["changed"], true);
     let operation = resolved["operationId"].as_str().unwrap().to_owned();
@@ -4639,13 +4683,13 @@ fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_oper
         "<p>Committed behind a lost reply</p>"
     );
     // The same command again finds nothing to publish: the lost reply cannot double-publish.
-    let again = pilot.call(&args);
+    let again = pilot.call(&borrowed(&args()));
     assert_eq!(again["changed"], false);
     // The request is lost before the server sees it: nothing exists to resolve, so the result is
     // unknown, names the original operation, and nothing was written or resent.
     fs::write(&file, "<p>Never reached the server</p>").unwrap();
     let interposer = Interposer::start(&pilot, false);
-    let unknown = failure(&pilot, &args, "COLAB_OUTCOME_UNKNOWN");
+    let unknown = failure(&pilot, &borrowed(&args()), "COLAB_OUTCOME_UNKNOWN");
     interposer.finish();
     let message = unknown["error"]["message"].as_str().unwrap();
     assert!(message.contains("operation "), "{message}");
@@ -4655,7 +4699,7 @@ fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_oper
         "<p>Committed behind a lost reply</p>"
     );
     // A plain retry is a fresh preparation and publishes exactly once.
-    let retried = pilot.call(&args);
+    let retried = pilot.call(&borrowed(&args()));
     assert_eq!(retried["changed"], true);
     assert_eq!(
         pilot.call(&["page", "read", id, "--json"])["source"],
@@ -4742,14 +4786,20 @@ fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome
         "--json",
     ]);
     let id = created["pageId"].as_str().unwrap();
-    let args = [
-        "page",
-        "write",
-        id,
-        "--file",
-        file.to_str().unwrap(),
-        "--json",
-    ];
+    // This scenario checks the server's named refusal, without patch's stale-base retries.
+    let base = pilot.call(&["page", "read", id, "--json"]);
+    let args = || {
+        pilot.patch_args(
+            id,
+            &[
+                "--file",
+                file.to_str().unwrap(),
+                "--expected-revision",
+                base["revision"].as_str().unwrap(),
+                "--json",
+            ],
+        )
+    };
     let typed =
         |code: &str| format!(r#"{{"error":{{"code":"{code}","message":"Fixture refusal."}}}}"#);
     // A serve built before CLI batches has no such route (an untyped 404), refuses a body over
@@ -4771,7 +4821,7 @@ fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome
     ];
     for (name, reply, read_body) in mismatched {
         let scripted = Scripted::start(&pilot, reply, read_body);
-        let refused = failure(&pilot, &args, "COLAB_SERVER_MISMATCH");
+        let refused = failure(&pilot, &borrowed(&args()), "COLAB_SERVER_MISMATCH");
         let head = scripted.finish();
         assert!(
             head.starts_with("POST /.tmt/colab/local/page-publish HTTP/1.1"),
@@ -4791,7 +4841,7 @@ fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome
         .collect();
     fs::write(&file, format!("<p>{big}</p>")).unwrap();
     let scripted = Scripted::start(&pilot, http("413 Payload Too Large", "TOO LARGE"), false);
-    failure(&pilot, &args, "COLAB_SERVER_MISMATCH");
+    failure(&pilot, &borrowed(&args()), "COLAB_SERVER_MISMATCH");
     scripted.finish();
     // Typed refusals keep their own codes, even a typed 404.
     fs::write(&file, "<p>Typed refusals are unchanged</p>").unwrap();
@@ -4800,7 +4850,7 @@ fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome
         ("409 Conflict", "COLAB_STALE_BASE"),
     ] {
         let scripted = Scripted::start(&pilot, http(status, &typed(code)), true);
-        failure(&pilot, &args, code);
+        failure(&pilot, &borrowed(&args()), code);
         scripted.finish();
     }
     // Anything else after the request was sent stays in doubt, naming its operation.
@@ -4810,7 +4860,7 @@ fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome
         http("404 Not Found", &typed("COLAB_SOMETHING_NEW")),
     ] {
         let scripted = Scripted::start(&pilot, reply, true);
-        let unknown = failure(&pilot, &args, "COLAB_OUTCOME_UNKNOWN");
+        let unknown = failure(&pilot, &borrowed(&args()), "COLAB_OUTCOME_UNKNOWN");
         scripted.finish();
         assert!(
             unknown["error"]["message"]
@@ -4825,7 +4875,7 @@ fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome
         pilot.call(&["page", "read", id, "--json"])["source"],
         "<p>Start</p>"
     );
-    let written = pilot.call(&args);
+    let written = pilot.call(&borrowed(&args()));
     assert_eq!(written["changed"], true);
     pilot.stop();
 }
@@ -5321,14 +5371,7 @@ fn page_layout_changes_only_the_layout_and_later_writes_keep_it() {
         let id = created["pageId"].as_str().unwrap().to_owned();
         let file = pilot.root.join("page.html");
         fs::write(&file, "<p>First source</p>").unwrap();
-        pilot.call(&[
-            "page",
-            "write",
-            &id,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ]);
+        pilot.patch_call(&id, &["--file", file.to_str().unwrap(), "--json"]);
         if serving {
             pilot.start();
         }
@@ -5372,14 +5415,7 @@ fn page_layout_changes_only_the_layout_and_later_writes_keep_it() {
         assert_eq!(source(&pilot)["revision"], after["revision"]);
         // A source write and a patch keep the layout and its reason.
         fs::write(&file, "<p>Second source</p>").unwrap();
-        pilot.call(&[
-            "page",
-            "write",
-            &id,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ]);
+        pilot.patch_call(&id, &["--file", file.to_str().unwrap(), "--json"]);
         pilot.call(&[
             "page",
             "patch",
@@ -5728,15 +5764,15 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
     );
     let revision = pilot.call(&["page", "read", page, "--json"]);
     assert!(revision["memoryLimit"].is_string());
-    let (written, _) = human(&[
-        "page",
-        "write",
+    let (written, _) = human(&borrowed(&pilot.patch_args(
         page,
-        "--expected-revision",
-        revision["revision"].as_str().unwrap(),
-        "--file",
-        "-",
-    ]);
+        &[
+            "--expected-revision",
+            revision["revision"].as_str().unwrap(),
+            "--file",
+            "-",
+        ],
+    )));
     // (stdin is empty here, so the write is the same empty source and publishes nothing)
     assert!(
         written.contains("PAGE UNCHANGED") && !written.contains("decoder"),
@@ -6944,14 +6980,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     }
     let source = pilot.root.join("upgraded.html");
     fs::write(&source, "<p>Written after the Colab upgrade</p>").unwrap();
-    let written = pilot.call(&[
-        "page",
-        "write",
-        PAGE,
-        "--file",
-        source.to_str().unwrap(),
-        "--json",
-    ]);
+    let written = pilot.patch_call(PAGE, &["--file", source.to_str().unwrap(), "--json"]);
     assert_eq!(written["pageId"], PAGE);
     assert_eq!(
         pilot.call(&["page", "read", PAGE, "--json"])["source"],
@@ -7392,14 +7421,7 @@ fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
         } else {
             fs::remove_file(&publisher).unwrap();
         }
-        pilot.call(&[
-            "page",
-            "write",
-            page,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ]);
+        pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
         let read = pilot.call(&["page", "read", page, "--json"]);
         assert_eq!(read["source"], "<p>New content</p>");
         assert_eq!(
@@ -8782,16 +8804,16 @@ fn page_prefix_reads_writes_exports_and_confirmations_use_the_resolved_full_id()
     assert_eq!(read["pageId"], PAGE);
     let source = pilot.root.join("edit.html");
     fs::write(&source, "<h1>Edited source</h1>").unwrap();
-    let written = pilot.call(&[
-        "page",
-        "write",
+    let written = pilot.patch_call(
         prefix,
-        "--file",
-        source.to_str().unwrap(),
-        "--expected-revision",
-        read["revision"].as_str().unwrap(),
-        "--json",
-    ]);
+        &[
+            "--file",
+            source.to_str().unwrap(),
+            "--expected-revision",
+            read["revision"].as_str().unwrap(),
+            "--json",
+        ],
+    );
     assert_eq!(written["pageId"], PAGE);
     assert_eq!(
         pilot.call(&["page", "read", prefix, "--json"])["source"],
@@ -9591,16 +9613,16 @@ fn the_starters_question_and_reading_examples_pass_the_check_and_publish_as_writ
         "--json",
     ]);
     let empty = pilot.call(&["page", "read", id, "--json"]);
-    let written = pilot.call(&[
-        "page",
-        "write",
+    let written = pilot.patch_call(
         id,
-        "--file",
-        path,
-        "--expected-revision",
-        empty["revision"].as_str().unwrap(),
-        "--json",
-    ]);
+        &[
+            "--file",
+            path,
+            "--expected-revision",
+            empty["revision"].as_str().unwrap(),
+            "--json",
+        ],
+    );
     assert_eq!(written["warnings"], json!([]), "{written}");
     assert_eq!(pilot.call(&["page", "read", id, "--json"])["source"], page);
 }
@@ -10624,7 +10646,7 @@ fn page_check_refuses_input_it_cannot_read_and_pages_it_cannot_find() {
     assert!(!pilot.root.join("selected/colab").exists());
 }
 #[test]
-fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
+fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
     let pilot = Pilot::new(None);
     let dirty = pilot.root.join("dirty.html");
     let source = format!(
@@ -10692,41 +10714,31 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
 
     // A write reports the same findings, also when it changes nothing.
     fs::write(&clean_file, "<p>Edited</p>").unwrap();
-    let written = pilot.call(&[
-        "page",
-        "write",
-        id,
-        "--file",
-        clean_file.to_str().unwrap(),
-        "--json",
-    ]);
+    let written = pilot.patch_call(id, &["--file", clean_file.to_str().unwrap(), "--json"]);
     assert_eq!(written["changed"], true);
-    assert_eq!(written["warnings"], json!([]));
-    let again = pilot.call(&["page", "write", id, "--file", dirty, "--json"]);
+    assert_eq!(written["warnings"][0]["code"], "large-patch");
+    let again = pilot.patch_call(id, &["--file", dirty, "--json"]);
     assert_eq!(again["changed"], true);
-    assert_eq!(finding_codes(&again["warnings"]), expected);
-    let unchanged = pilot.call(&["page", "write", id, "--file", dirty, "--json"]);
+    let (large, markup) = again["warnings"].as_array().unwrap().split_last().unwrap();
+    assert_eq!(large["code"], "large-patch");
+    assert_eq!(finding_codes(&Value::Array(markup.to_vec())), expected);
+    let unchanged = pilot.patch_call(id, &["--file", dirty, "--json"]);
     assert_eq!(unchanged["changed"], false);
     assert_eq!(finding_codes(&unchanged["warnings"]), expected);
 
     // --strict refuses before the write prepares anything: the page stays as it was.
     let stable = pilot.call(&["page", "read", id, "--json"]);
     fs::write(&clean_file, "<p>Strict edit</p>").unwrap();
-    let ok = pilot.call(&[
-        "page",
-        "write",
+    let ok = pilot.patch_call(
         id,
-        "--file",
-        clean_file.to_str().unwrap(),
-        "--strict",
-        "--json",
-    ]);
-    assert_eq!(ok["warnings"], json!([]));
+        &["--file", clean_file.to_str().unwrap(), "--strict", "--json"],
+    );
+    assert_eq!(ok["warnings"][0]["code"], "large-patch");
     let after_ok = pilot.call(&["page", "read", id, "--json"]);
     assert_eq!(after_ok["source"], "<p>Strict edit</p>");
     let refused = failure_args(
         &pilot,
-        &["page", "write", id, "--file", dirty, "--strict", "--json"],
+        &borrowed(&pilot.patch_args(id, &["--file", dirty, "--strict", "--json"])),
     );
     assert_eq!(refused["error"]["code"], "COLAB_PAGE_CHECK");
     assert_eq!(pilot.call(&["page", "read", id, "--json"]), after_ok);
@@ -10758,7 +10770,7 @@ fn a_new_page_has_no_attachments_so_every_reference_in_it_is_unresolved() {
     );
     // On an existing page with no document attachments the same reference stays unresolved.
     let id = created["pageId"].as_str().unwrap();
-    let written = pilot.call(&["page", "write", id, "--file", path, "--json"]);
+    let written = pilot.patch_call(id, &["--file", path, "--json"]);
     let mut codes = finding_codes(&written["warnings"]);
     codes.sort();
     assert_eq!(

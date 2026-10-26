@@ -20,7 +20,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { openReaderLink, startDoor } from './harness/browser.js';
 import { text as copy } from '../src/strings.js';
-import { createPage, freePort, run } from './harness/ask.js';
+import { patchArgs, createPage, freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import type { AcceptanceWorld } from './harness/world.js';
 
@@ -178,15 +178,12 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     const read = colab(world, ['page', 'read', created.pageId]);
     colab(
       world,
-      [
-        'page',
-        'write',
-        created.pageId,
+      patchArgs(world, created.pageId, [
         '--file',
         '-',
         '--expected-revision',
         read.revision as string,
-      ],
+      ]),
       '<h1 id="text">Second text</h1>',
     );
     await expect(frame.locator('#text')).toHaveText('Second text', { timeout: 30_000 });

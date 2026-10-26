@@ -1,9 +1,9 @@
 //! `tmt colab page patch`: an anchored change to a page's source (contract: Ranged read and
 //! anchored patch). The patch carries the text it expects, is evaluated against the exact source
-//! the page folds to, and then goes through the same whole-source write as `page write`, which
-//! commits only the minimal text diff. A concurrent edit elsewhere on the page does not stand in
+//! the page folds to, and then goes through shared source publication, which commits only the
+//! minimal text diff. A concurrent edit elsewhere on the page does not stand in
 //! its way; a change to the addressed text refuses it, and nothing is written.
-use clap::{Arg, ArgGroup, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgGroup, ArgMatches, Command};
 use std::path::{Path, PathBuf};
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
 use tmt_colab::{
@@ -38,7 +38,7 @@ const PATCH: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::HumanAndJson,
-    details: "Changes only the addressed text and writes the minimal change, through serve when running or under its lifecycle lock when stopped, with the same atomic batch, size limits, markup check (--strict refuses findings in the result), changed:false no-op and lost-reply behaviour as page write. Give exactly one form. --find TEXT --replace TEXT (or --find-file/--replace-file): the find text must occur exactly once, anywhere on the page. --lines A:B --range-sha256 HASH --file PATH: lines A..B (1-based, LF-separated; a CR is content) are replaced by the file's exact bytes, only while they still hash to the rangeSha256 page read reported. --diff PATH: a unified diff; each hunk's context and removed lines must match exactly once (or once at the stated line) with no fuzz, and all hunks apply or none do. A missing, ambiguous or changed anchor fails with COLAB_PATCH_CONFLICT naming it and writes nothing; read the page again and patch what it holds now. A concurrent edit elsewhere is merged: when the page moves between reading and committing, the patch is evaluated again on the new page, up to 3 more times. --expected-revision additionally refuses any change to the page since that revision, anywhere, and disables the retries. The result is page write's, including update:{count,bytes,minimal}.",
+    details: "Changes only the addressed text and writes the minimal change, through serve when running or under its lifecycle lock when stopped, with atomic publication, size limits, markup check (--strict refuses findings in the result), changed:false no-op and lost-reply behavior. Give exactly one form. --find TEXT --replace TEXT (or --find-file/--replace-file): each find must occur exactly once on the original source. Repeat pairs for several changes in one revision; equal counts pair in order, ranges must not overlap and all pairs apply or none do. A patch replacing more than half of the source applies with a warning recommending smaller anchored patches. --lines A:B --range-sha256 HASH --file PATH: lines A..B (1-based, LF-separated; a CR is content) are replaced by the file's exact bytes, only while they still hash to the rangeSha256 page read reported. --diff PATH: a unified diff; each hunk's context and removed lines must match exactly once (or once at the stated line) with no fuzz, and all hunks apply or none do. A missing, ambiguous or changed anchor fails with COLAB_PATCH_CONFLICT naming it and writes nothing; read the page again and patch what it holds now. A concurrent edit elsewhere is merged: when the page moves between reading and committing, the patch is evaluated again on the new page, up to 3 more times. --expected-revision additionally refuses any change to the page since that revision, anywhere, and disables the retries. The result includes update:{count,bytes,minimal}.",
 };
 
 pub fn command() -> Command {
@@ -48,6 +48,7 @@ pub fn command() -> Command {
         .arg(
             Arg::new("find")
                 .long("find")
+                .action(ArgAction::Append)
                 .value_name("TEXT")
                 .conflicts_with("find-file")
                 .help("Exact text that occurs once on the page"),
@@ -55,6 +56,7 @@ pub fn command() -> Command {
         .arg(
             Arg::new("find-file")
                 .long("find-file")
+                .action(ArgAction::Append)
                 .value_name("path|-")
                 .value_parser(clap::value_parser!(PathBuf))
                 .help("Read the find text from a file, byte for byte"),
@@ -62,6 +64,8 @@ pub fn command() -> Command {
         .arg(
             Arg::new("replace")
                 .long("replace")
+                .conflicts_with_all(["lines", "diff"])
+                .action(ArgAction::Append)
                 .value_name("TEXT")
                 .conflicts_with("replace-file")
                 .help("Text that takes its place (empty deletes)"),
@@ -69,6 +73,8 @@ pub fn command() -> Command {
         .arg(
             Arg::new("replace-file")
                 .long("replace-file")
+                .conflicts_with_all(["lines", "diff"])
+                .action(ArgAction::Append)
                 .value_name("path|-")
                 .value_parser(clap::value_parser!(PathBuf))
                 .help("Read the replacement from a file, byte for byte"),
@@ -148,16 +154,28 @@ fn range_hash(value: &str) -> std::result::Result<[u8; 32], &'static str> {
 
 /// The patch the arguments describe, reading each named file once and exactly.
 fn build(args: &ArgMatches) -> Result<Patch> {
+    let stdin_inputs = ["find-file", "replace-file", "file", "diff"]
+        .into_iter()
+        .filter_map(|name| args.get_many::<PathBuf>(name))
+        .flatten()
+        .filter(|path| path.as_os_str() == "-")
+        .count();
+    if stdin_inputs > 1 {
+        return Err(fail(
+            "COLAB_INPUT_INVALID",
+            "Only one patch input may read stdin; put the other inputs in files.",
+        ));
+    }
     let read = |path: &Path| crate::page_source(path);
-    let text = |inline: &str, file: &str| -> Result<Option<String>> {
-        match (
-            args.get_one::<String>(inline),
-            args.get_one::<PathBuf>(file),
-        ) {
-            (Some(text), _) => Ok(Some(text.clone())),
-            (None, Some(path)) => Ok(Some(read(path)?)),
-            (None, None) => Ok(None),
+    let texts = |inline: &str, file: &str| -> Result<Vec<String>> {
+        if let Some(values) = args.get_many::<String>(inline) {
+            return Ok(values.cloned().collect());
         }
+        args.get_many::<PathBuf>(file)
+            .into_iter()
+            .flatten()
+            .map(|path| read(path))
+            .collect()
     };
     if let Some((start, end)) = args.get_one::<(usize, usize)>("lines") {
         return Ok(Patch::Lines {
@@ -175,14 +193,17 @@ fn build(args: &ArgMatches) -> Result<Patch> {
     if let Some(path) = args.get_one::<PathBuf>("diff") {
         return parse_diff(&read(path)?).map(Patch::Diff).map_err(coded);
     }
-    let find = text("find", "find-file")?.expect("one form is required");
-    let replace = text("replace", "replace-file")?.ok_or_else(|| {
-        fail(
+    let finds = texts("find", "find-file")?;
+    let replacements = texts("replace", "replace-file")?;
+    if finds.len() != replacements.len() {
+        return Err(fail(
             "COLAB_INPUT_INVALID",
-            "--find needs --replace (or --replace-file); an empty --replace deletes the text.",
-        )
-    })?;
-    Ok(Patch::Replace { find, replace })
+            "Give one --replace (or --replace-file) for each --find (or --find-file), in the same order; an empty replacement deletes text.",
+        ));
+    }
+    Ok(Patch::Replace(
+        finds.into_iter().zip(replacements).collect(),
+    ))
 }
 fn coded(fault: PatchFault) -> Box<dyn std::error::Error + Send + Sync> {
     fail(fault.code(), &fault.to_string())
@@ -237,7 +258,6 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             &edited,
             expected,
             Some(crypto::digest(base.source.as_bytes())),
-            None,
             None,
             &mut decoder,
         ) {

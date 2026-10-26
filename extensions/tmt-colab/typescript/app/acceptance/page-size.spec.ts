@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 // #1627: browser saves and native CLI compaction allow more than 200 subsequent
@@ -46,7 +46,7 @@ test('native compaction keeps 260 CLI appends after browser edits readable every
     let source = text(100 * 1024, 'b');
     for (let i = 0; i < 260; i++) {
       const next = source + `<i>${String(i).padStart(4, '0')}</i>`;
-      run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], next);
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), next);
       source = next;
     }
 

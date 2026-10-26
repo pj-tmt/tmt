@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { expect, test, type BrowserContext, type Page, type Response } from '@playwright/test';
 import { pairBrowser, restartColab, restartRemote, startDoor } from './harness/browser.js';
 import {
+  patchArgs,
   annotationInput,
   selectInRenderer,
   askEntry,
@@ -679,7 +680,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           run(
             world,
             world.binaries.colab,
-            ['page', 'write', s.page.pageId, '--file', '-', '--json'],
+            patchArgs(world, s.page.pageId, ['--file', '-', '--json']),
             '<h1>Updated page</h1><p id="quote">Updated passage for the agent.</p>',
           );
           await expect(s.askerPage.frameLocator('iframe').locator('#quote')).toHaveText(

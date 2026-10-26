@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
+  patchArgs,
   composeChat,
   createPage,
   freePort,
@@ -50,7 +51,7 @@ test('an open owner page survives an epoch advance: it stays live, reads and sen
     );
 
     // It reads: a write after the advance reaches the open tab.
-    colab(['page', 'write', created.pageId, '--file', '-'], '<h1 id="h">After</h1>');
+    colab(patchArgs(world, created.pageId, ['--file', '-']), '<h1 id="h">After</h1>');
     await expect(page.frameLocator('iframe').locator('#h')).toHaveText('After', {
       timeout: 60_000,
     });

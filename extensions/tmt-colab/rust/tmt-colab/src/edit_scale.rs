@@ -1,12 +1,8 @@
 //! The regions of a page's source an edit replaces (#5024), and how much of the source that is
 //! (#5029). The isolated decoder child builds one delta per region from [`content_hunks`], and the
-//! editing hint and the `--replace` gate measure the same regions, so they read the number the
+//! editing hint and the large-patch warning measure the same regions, so they read the number the
 //! write really spends.
 use std::collections::HashMap;
-
-/// A source smaller than this is rewritten without comment: replacing a short page whole is the
-/// normal way to edit it.
-pub const LARGE_BASE_BYTES: usize = 2 * 1024;
 
 /// The bytes both sources share at their start and at their end, as `(start, end)`: what an edit
 /// from `old` to `source` leaves untouched. Everything between is replaced.
@@ -228,9 +224,9 @@ impl EditScale {
         }
     }
 
-    /// An edit that replaces more than half of a source of at least [`LARGE_BASE_BYTES`].
+    /// An edit that replaces more than half of the existing source, regardless of page size.
     pub fn is_large_rewrite(self) -> bool {
-        self.base_bytes >= LARGE_BASE_BYTES && self.replaced_bytes * 2 > self.base_bytes
+        self.replaced_bytes > self.base_bytes / 2
     }
 }
 
@@ -254,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn the_line_is_more_than_half_of_a_source_of_at_least_two_kib() {
+    fn the_line_is_more_than_half_of_the_source_at_any_size() {
         let old = page(4096);
         // Exactly half is not more than half; one byte over is.
         let half = format!("{}{}", "b".repeat(2048), page(2048));
@@ -262,11 +258,9 @@ mod tests {
         assert!(!EditScale::of(&old, &half).is_large_rewrite());
         let over = format!("{}{}", "b".repeat(2049), page(2047));
         assert!(EditScale::of(&old, &over).is_large_rewrite());
-        // A full replacement of a page just under 2 KiB is exempt; at 2 KiB it counts.
-        let small = page(LARGE_BASE_BYTES - 1);
-        assert!(!EditScale::of(&small, &"b".repeat(100)).is_large_rewrite());
-        let edge = page(LARGE_BASE_BYTES);
-        assert!(EditScale::of(&edge, &"b".repeat(100)).is_large_rewrite());
+        for bytes in [1, 17, 2047, 2048] {
+            assert!(EditScale::of(&page(bytes), "different").is_large_rewrite());
+        }
     }
 
     #[test]

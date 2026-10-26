@@ -451,6 +451,26 @@ impl Fixture {
     fn sql(&self) -> rusqlite::Connection {
         rusqlite::Connection::open(self.layout.directory.join("space.db")).unwrap()
     }
+    fn patch_command(&self) -> Command {
+        use sha2::{Digest, Sha256};
+        let source = self.read().source;
+        let lines = source.split_inclusive('\n').count().max(1);
+        let hash: String = Sha256::digest(source.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let mut command = self.command();
+        command.args([
+            "page",
+            "patch",
+            PAGE,
+            "--lines",
+            &format!("1:{lines}"),
+            "--range-sha256",
+            &hash,
+        ]);
+        command
+    }
     fn command(&self) -> Command {
         let core = core_fixture::link(&self.root, "core", core_fixture::Program::DataRoot);
         let mut c = Command::new(BINARY);
@@ -719,10 +739,7 @@ fn a_patch_is_evaluated_on_the_base_it_commits_against_and_merges_a_concurrent_e
     use tmt_colab_model::crypto;
     let mut f = Fixture::new();
     f.write("alpha\nbeta\ngamma\n");
-    let patch = Patch::Replace {
-        find: "beta".into(),
-        replace: "BETA".into(),
-    };
+    let patch = Patch::Replace(vec![("beta".into(), "BETA".into())]);
     // The patch is evaluated against the page as read...
     let base = f.read();
     let edited = patch.apply(&base.source).unwrap();
@@ -894,11 +911,8 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
     let read: Value = serde_json::from_slice(&read.stdout).unwrap();
     assert_eq!(read["membershipHead"]["revision"], "2");
     let mut child = f
-        .command()
+        .patch_command()
         .args([
-            "page",
-            "write",
-            PAGE,
             "--file",
             "-",
             "--expected-revision",
@@ -932,15 +946,8 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
         fs::write(&input, bytes).unwrap();
         let before = f.bytes();
         let out = f
-            .command()
-            .args([
-                "page",
-                "write",
-                PAGE,
-                "--file",
-                input.to_str().unwrap(),
-                "--json",
-            ])
+            .patch_command()
+            .args(["--file", input.to_str().unwrap(), "--json"])
             .output()
             .unwrap();
         assert_eq!(out.status.code(), Some(1));
@@ -950,11 +957,8 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
     }
     fs::write(&input, b"new").unwrap();
     let out = f
-        .command()
+        .patch_command()
         .args([
-            "page",
-            "write",
-            PAGE,
             "--file",
             input.to_str().unwrap(),
             "--expected-revision",
@@ -970,18 +974,9 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
     );
     let _lock = f.layout.serve_lock().unwrap();
     let before = f.bytes();
-    // `--replace`: the refusal under test is the missing serve, not the rewrite gate.
     let out = f
-        .command()
-        .args([
-            "page",
-            "write",
-            PAGE,
-            "--file",
-            input.to_str().unwrap(),
-            "--replace",
-            "--json",
-        ])
+        .patch_command()
+        .args(["--file", input.to_str().unwrap(), "--json"])
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
@@ -4552,15 +4547,8 @@ mod native_preparation {
         let file = f.root.join("replace.html");
         fs::write(&file, &replacement).unwrap();
         let output = f
-            .command()
-            .args([
-                "page",
-                "write",
-                PAGE,
-                "--file",
-                file.to_str().unwrap(),
-                "--json",
-            ])
+            .patch_command()
+            .args(["--file", file.to_str().unwrap(), "--json"])
             .output()
             .unwrap();
         assert!(!output.status.success());

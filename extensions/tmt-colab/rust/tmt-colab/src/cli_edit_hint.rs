@@ -20,7 +20,7 @@ impl Reason {
         let what = match self {
             Self::Warnings => "The page check found problems in the result.",
             Self::NotMinimal => "The write was not the minimal change.",
-            Self::LargeRewrite => "The write replaced most of the page.",
+            Self::LargeRewrite => "The patch replaced most of the page.",
         };
         format!("{what} Read `{EDITING}` for the small-change workflow.")
     }

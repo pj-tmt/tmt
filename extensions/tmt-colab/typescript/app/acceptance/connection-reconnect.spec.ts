@@ -2,6 +2,7 @@ import { text } from '../src/strings.js';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, restartRemote, startDoor } from './harness/browser.js';
 import {
+  patchArgs,
   clientId,
   composeChat,
   createPage,
@@ -54,7 +55,7 @@ test('an open owner page survives a Remote restart without a click or a reload',
     run(
       world,
       world.binaries.colab,
-      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
       '<h1 id="h">After</h1>',
     );
     await expect(page.frameLocator('iframe').locator('#h')).toHaveText('After', {
