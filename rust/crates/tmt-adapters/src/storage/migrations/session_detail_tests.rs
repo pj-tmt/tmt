@@ -43,7 +43,7 @@ fn the_widened_detail_list_keeps_every_stored_detail_and_accepts_the_new_tokens(
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 80);
+    assert_eq!(storage.health().unwrap().schema_version, 81);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -132,7 +132,7 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 80);
+    assert_eq!(storage.health().unwrap().schema_version, 81);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();

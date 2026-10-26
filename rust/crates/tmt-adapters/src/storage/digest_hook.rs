@@ -47,6 +47,18 @@ impl Storage {
                 return Ok(None);
             }
             let mut requests = TransactionRequests(transaction, &calendar);
+            if let Some(summary) =
+                RequestService::new(&mut requests, crate::request_runtime::wall_time_ms)
+                    .claim_digest_summary(
+                        identity,
+                        id.clone(),
+                        token.clone(),
+                        DigestOpportunity::TurnBoundary,
+                        || true,
+                    )?
+            {
+                return Ok(Some(summary));
+            }
             let claimed = RequestService::new(&mut requests, crate::request_runtime::wall_time_ms)
                 .claim_digest_checklist(
                     identity,

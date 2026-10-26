@@ -510,6 +510,11 @@ Each identity's first successful collection atomically records the observed
 sequence/counter as its baseline and start time; prior settlements are excluded.
 This avoids presenting pre-collection activity as lifetime savings.
 
+Incoming summary history carries optional projection/count metadata. Its token,
+context and avoided separate-delivery savings are unavailable (`incoming_summary`),
+while observed successful-delivery counts remain recorded. Full checklist
+estimation is unchanged.
+
 Subsequent terminal events and their cursor/lifetime totals commit in one
 transaction, deduplicated by checklist ID and monotonic settlement sequence.
 Counter reconciliation at the end of enumeration detects missing delivered
