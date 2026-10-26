@@ -4,7 +4,10 @@ use super::{
     discovery::Located,
     paint,
     stream::StreamEvent,
-    tab::tests::{address, tab},
+    tab::{
+        Condition, View,
+        tests::{address, tab},
+    },
 };
 use crate::board::{
     app::{
@@ -349,4 +352,38 @@ fn the_legend_names_the_other_view() {
     assert!(text(&app).contains("chat view"), "t leads back to the chat");
     press_t(&mut app);
     assert!(text(&app).contains("terminal"));
+}
+
+#[test]
+fn the_cursor_is_one_reversed_cell_in_the_live_state_only() {
+    let app = reader();
+    let reversed = |bytes: &str, condition: Condition| {
+        let mut screen = Screen::new(10, 2);
+        screen.feed(bytes.as_bytes());
+        let view = View {
+            condition,
+            screen: Some(Arc::new(screen.frame())),
+        };
+        let mut drawn = buffer(12, 4);
+        paint::render(&mut drawn, &app, Rect::new(0, 0, 12, 4), Some(&view), "worker");
+        (0..4)
+            .flat_map(|y| (0..12).map(move |x| (x, y)))
+            .filter(|position| drawn[*position].modifier.contains(Modifier::REVERSED))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(reversed("ab", Condition::Live), [(2, 0)], "after the text");
+    assert_eq!(reversed("ab\r\ncd", Condition::Live), [(2, 1)]);
+    assert!(
+        reversed("ab\x1b[?25l", Condition::Live).is_empty(),
+        "hidden when the program hides it"
+    );
+    for condition in [
+        Condition::Connecting { attempt: 2 },
+        Condition::Exited(Exit::Code(0)),
+        Condition::Lost("gone".into()),
+    ] {
+        assert!(reversed("ab", condition.clone()).is_empty(), "{condition:?}");
+    }
+    // A cell the program reversed itself shows as the plain cell under the cursor.
+    assert!(reversed("\x1b[7ma\x1b[0m\x1b[1D", Condition::Live).is_empty());
 }

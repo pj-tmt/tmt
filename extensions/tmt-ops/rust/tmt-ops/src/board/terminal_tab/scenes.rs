@@ -22,14 +22,14 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "terminal-ended",
 ];
 
-/// A build with colours, a bold word, a wide character and a cursor on the last line.
+/// A build with colours, a bold word, a wide character and the cursor on the sixth and last row
+/// that fits the pane at 100x36.
 fn program() -> Arc<tmt_tui::components::terminal::Frame> {
     let mut screen = Screen::new(48, 8);
     screen.feed(
         "\u{1b}[1m$ cargo test\u{1b}[0m\r\n\
          \u{1b}[32m   Compiling\u{1b}[0m tmt-ops v0.1.0\r\n\
-         \u{1b}[33mwarning\u{1b}[0m: 你好 unused variable\r\n\
-         \u{1b}[31merror[E0308]\u{1b}[0m: mismatched types\r\n\
+         \u{1b}[33mwarning\u{1b}[0m: 你好 \u{1b}[31merror[E0308]\u{1b}[0m\r\n\
          \u{1b}[7m running 3 tests \u{1b}[0m\r\n\
          test a ... \u{1b}[32mok\u{1b}[0m\r\n\
          $ "

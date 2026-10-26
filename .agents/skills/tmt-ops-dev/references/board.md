@@ -616,7 +616,8 @@ The tab exists only for the selected member that has a stream; the catalog actio
 Actions menu otherwise. `paint` lays the cells on the pane with the program's own colours
 (`foreign::style`): a bigger screen is cut at the edge (a wide character that would straddle it is
 left out), a smaller one leaves the rest blank, and the screen is dimmed while the stream is not
-live. The view only watches; typing is a separate slice.
+live. The program's cursor shows as one reversed cell (not the terminal cursor) in the live state only,
+hidden when the program hides it. The view only watches; typing is a separate slice.
 
 ## Checklist controller
 

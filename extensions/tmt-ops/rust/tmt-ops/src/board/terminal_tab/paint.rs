@@ -117,8 +117,11 @@ pub(in crate::board) fn render(
     };
     match &view.screen {
         Some(screen) => {
-            let dim = view.condition != Condition::Live;
-            cells(buffer, screen_area, screen, dim, look);
+            let live = view.condition == Condition::Live;
+            cells(buffer, screen_area, screen, !live, look);
+            if live {
+                cursor(buffer, screen_area, screen);
+            }
         }
         None if matches!(view.condition, Condition::Connecting { .. }) => {
             say(
@@ -184,6 +187,20 @@ fn note(condition: &Condition, screen: bool, name: &str) -> String {
             }
         ),
         Condition::Lost(reason) => format!(" The terminal could not be reached: {reason}."),
+    }
+}
+
+/// Where the program's cursor is, as one reversed cell (not the terminal's own cursor), when the
+/// program shows it and the cell is inside `area`. On a cell the program already reversed it
+/// shows as the plain cell.
+fn cursor(buffer: &mut Buffer, area: Rect, screen: &Screenful) {
+    let Some((column, row)) = screen.cursor else {
+        return;
+    };
+    if column < area.width && row < area.height {
+        buffer[(area.x + column, area.y + row)]
+            .modifier
+            .toggle(Modifier::REVERSED);
     }
 }
 
