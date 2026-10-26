@@ -1,11 +1,11 @@
 //! One background loader: the board paints from what it has and never waits
-//! on core. Queued requests collapse to the newest, and each load re-reads
+//! on core. Queued snapshot requests collapse to the newest, and each snapshot re-reads
 //! ops.toml, so configuration edits appear on the next refresh. Between
 //! requests it reloads early when core's records or ops.toml changed.
 
 use super::{
     ALL, LEADS,
-    app::{Snapshot, View},
+    app::{App, Snapshot, View},
     changes::{Changes, Stamp},
     tabs, timing,
 };
@@ -353,6 +353,12 @@ impl Worker {
             demand,
         }));
     }
+    pub fn history(&self, job: HistoryJob) {
+        let _ = self.requests.send(Work::History {
+            job,
+            generation: self.generation.number.load(Ordering::Acquire),
+        });
+    }
     pub fn checklist(&self, task: super::checklist::load::Task) {
         let _ = self.requests.send(Work::Checklist(task));
     }
@@ -388,6 +394,7 @@ impl Drop for Worker {
 }
 
 enum Work {
+    History { job: HistoryJob, generation: u64 },
     Checklist(super::checklist::load::Task),
     Reload(Reload),
 }
@@ -430,8 +437,8 @@ impl Loaded {
     }
 }
 
-/// History belongs to the opening snapshot, never to a later tab with the same label.
-struct HistoryJob {
+/// History carries its published workspace inputs, never a later tab with the same label.
+pub(super) struct HistoryJob {
     owner: String,
     cursor: Option<u64>,
     targets: BTreeMap<String, (crate::config::TokenRate, super::rate::Input)>,
@@ -451,6 +458,23 @@ pub(crate) struct HistoryRead {
 }
 
 impl HistoryJob {
+    #[cfg(test)]
+    pub(super) fn test_owner_and_demand(&self) -> (&str, Option<super::rate::history::Demand>) {
+        (&self.owner, self.demand)
+    }
+
+    pub(super) fn requested(
+        app: &App,
+        demand: Option<super::rate::history::Demand>,
+    ) -> Option<Self> {
+        if app.loading() {
+            return None;
+        }
+        let mut job = Self::new(app.current.as_deref()?, app.view.as_ref()?)?;
+        job.demand = demand;
+        Some(job)
+    }
+
     fn new(owner: &str, view: &View) -> Option<Self> {
         let targets: BTreeMap<_, _> = view
             .home_rate
@@ -784,8 +808,10 @@ fn serve(
         };
         let mut wanted = None;
         let mut checklist = Vec::new();
+        let mut requested_history = None;
         for work in std::iter::once(received).chain(pending.try_iter()) {
             match work {
+                Work::History { job, generation } => requested_history = Some((job, generation)),
                 Work::Checklist(task) => checklist.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
             }
@@ -796,6 +822,29 @@ fn serve(
                 generation.load(Ordering::Acquire),
             ) {
                 return;
+            }
+        }
+        wanted = wanted.filter(|reload| generation.load(Ordering::Acquire) == reload.generation);
+        if let Some((mut job, expected)) = requested_history
+            && generation.load(Ordering::Acquire) == expected
+        {
+            if let Some(reload) = &mut wanted {
+                // An already requested full load still comes first and uses
+                // the newest demand with its freshly acquired workspace inputs.
+                reload.demand = job.demand;
+            } else {
+                if let Some((reload, _, _)) = &mut last
+                    && reload.generation == expected
+                    && reload.squad.as_deref() == Some(job.owner.as_str())
+                {
+                    reload.demand = job.demand;
+                }
+                job.cursor = stamp(expected, true).history_cursor();
+                if generation.load(Ordering::Acquire) == expected
+                    && !deferred(Deferred::History(job), expected)
+                {
+                    return;
+                }
             }
         }
         let Some(wanted) = wanted else {
@@ -818,7 +867,9 @@ fn serve(
             wanted.generation,
             wanted.preview_panes,
             last.as_ref().is_none_or(|(previous, _, _)| {
-                previous.squad != wanted.squad || previous.generation != wanted.generation
+                previous.squad != wanted.squad
+                    || previous.generation != wanted.generation
+                    || previous.demand != wanted.demand
             }),
         );
         if generation.load(Ordering::Acquire) != wanted.generation {
@@ -2902,6 +2953,115 @@ printf '%s\n' '{{}}'
             },
         );
         assert_eq!(*steps.borrow(), ["shown", "cron", "attention"]);
+    }
+
+    #[test]
+    fn queued_full_reload_uses_latest_history_demand_with_fresh_inputs() {
+        use std::cell::RefCell;
+        let generation = AtomicU64::new(3);
+        let (send, pending) = mpsc::channel();
+        let demand = super::super::rate::history::Demand {
+            chart: super::super::rate::history::rollup::Request::new(900_000, 21_600_000),
+            quota: false,
+        };
+        send.send(Work::Reload(Reload {
+            preview_panes: false,
+            squad: Some("product".into()),
+            generation: 3,
+            demand: None,
+        }))
+        .unwrap();
+        send.send(Work::History {
+            generation: 3,
+            job: HistoryJob {
+                owner: "old inputs".into(),
+                cursor: None,
+                targets: BTreeMap::new(),
+                demand: Some(demand),
+            },
+        })
+        .unwrap();
+        drop(send);
+        let stages = RefCell::new(Vec::new());
+        serve(
+            &pending,
+            |_, _| {
+                stages.borrow_mut().push("snapshot");
+                true
+            },
+            CHECK_EVERY,
+            &generation,
+            |_, _| Stamp::cursor(99),
+            |_, _, _, opening| {
+                assert!(opening);
+                let mut loaded =
+                    Loaded::only(super::super::app::tests::snapshot("product", json!([])));
+                loaded.history = Some(HistoryJob {
+                    owner: "fresh inputs".into(),
+                    cursor: None,
+                    targets: BTreeMap::new(),
+                    demand: None,
+                });
+                loaded
+            },
+            |job, _| {
+                let Deferred::History(job) = job else {
+                    panic!("only history follows the snapshot")
+                };
+                assert_eq!(job.owner, "fresh inputs");
+                assert_eq!(job.demand, Some(demand));
+                stages.borrow_mut().push("history");
+                false
+            },
+        );
+        assert_eq!(*stages.borrow(), ["snapshot", "history"]);
+    }
+
+    #[test]
+    fn history_demand_coalesces_without_reloading_and_rejects_an_old_generation() {
+        use std::cell::Cell;
+        for stale in [false, true] {
+            let generation = AtomicU64::new(3);
+            let (send, pending) = mpsc::channel();
+            for owner in ["superseded", "current"] {
+                send.send(Work::History {
+                    generation: if stale { 2 } else { 3 },
+                    job: HistoryJob {
+                        owner: owner.into(),
+                        cursor: None,
+                        targets: BTreeMap::new(),
+                        demand: None,
+                    },
+                })
+                .unwrap();
+            }
+            drop(send);
+            let reads = Cell::new(0);
+            serve(
+                &pending,
+                |_, _| panic!("a history demand never publishes a base snapshot"),
+                CHECK_EVERY,
+                &generation,
+                |expected, automatic| {
+                    assert!(!stale);
+                    assert_eq!(expected, 3);
+                    assert!(automatic);
+                    Stamp::cursor(99)
+                },
+                |_, _, _, _| panic!("a history demand never loads roster/config"),
+                |job, expected| {
+                    let Deferred::History(job) = job else {
+                        panic!("only history was requested")
+                    };
+                    assert_eq!(expected, 3);
+                    assert_eq!(job.owner, "current");
+                    assert_eq!(job.cursor, Some(99));
+                    reads.set(reads.get() + 1);
+                    true
+                },
+            );
+            assert_eq!(reads.get(), usize::from(!stale));
+        }
     }
 
     #[test]

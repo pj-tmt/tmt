@@ -1016,6 +1016,24 @@ fn captures() -> Value {
             }
         }
         for (look_name, look) in looks() {
+            for scene in crate::board::conversation::timeline::tests::SCENES {
+                for width in [160, 80] {
+                    for height in [50, 8] {
+                        let app =
+                            crate::board::conversation::timeline::tests::capture_case(scene, look);
+                        frames.push(capture_frame(
+                            &app,
+                            scene,
+                            look_name,
+                            width,
+                            height,
+                            &mut styles,
+                        ));
+                    }
+                }
+            }
+        }
+        for (look_name, look) in looks() {
             for scene in [
                 "snapshots-generations",
                 "snapshots-generation-preview",

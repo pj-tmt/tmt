@@ -605,7 +605,10 @@ fn a_held_reply_shows_its_true_age_instead_of_the_one_it_was_built_with() {
     crate::board::conversation::tests::set_built_age(&app, "1m");
     let buffer = draw(&app, 148, 51);
     let screen = text(&buffer);
-    assert!(screen.contains("OLD body") && screen.contains("new output"));
+    assert!(
+        screen.contains("OLD body") && screen.contains("new output"),
+        "{screen}"
+    );
     assert!(screen.contains("25m ago"), "the true age of the held text");
     let rows: Vec<_> = buffer
         .content
@@ -935,7 +938,7 @@ fn a_restored_send_whose_record_is_gone_says_it_is_truncated_and_how_to_open_it(
     let screen = text(&draw(&app, 148, 51));
     assert!(screen.contains("A long message cut to its"), "{screen}");
     assert!(
-        screen.contains("truncated · tmt x show req_gone"),
+        screen.contains("◌ input truncated · source not fully retained"),
         "{screen}"
     );
 }
@@ -1060,15 +1063,25 @@ fn capture_states_are_core_owned_and_never_regular_replies() {
             "answer":{"text":"Full **answer**\n", "truncated":true,"provider":"codex","endedMs":100}}});
         let capture = Capture::read(&send);
         match state {
-            "pending" | "bound" => assert_eq!(capture.unwrap().markdown(), "⠹ working…"),
-            "answered" => assert_eq!(
-                capture.unwrap().markdown(),
-                "turn output · truncated\n\nFull **answer**"
-            ),
-            "no_answer" => assert_eq!(
-                capture.unwrap().markdown(),
-                "No turn output was captured for this message."
-            ),
+            "pending" => assert!(matches!(capture, Some(Capture::Pending))),
+            "bound" => assert!(matches!(capture, Some(Capture::Bound))),
+            "answered" => {
+                let Some(Capture::Answered {
+                    text,
+                    truncated,
+                    provider,
+                    ended_ms,
+                    ..
+                }) = capture
+                else {
+                    panic!("retained captured answer")
+                };
+                assert_eq!(text, "Full **answer**\n");
+                assert!(truncated);
+                assert_eq!(provider, "codex");
+                assert_eq!(ended_ms, 100);
+            }
+            "no_answer" => assert!(matches!(capture, Some(Capture::NoAnswer))),
             _ => assert!(capture.is_none()),
         }
         let mut request = send;
@@ -1117,16 +1130,16 @@ fn bound_capture_remains_working_beyond_ten_minutes() {
     assert!(!screen.contains("No turn output was captured"));
 }
 #[test]
-fn answered_capture_survives_restart_as_turn_output_with_truncation() {
+fn answered_capture_survives_restart_as_reply_block_with_truncation() {
     let screen = captured_history_screen("answered");
     let prompt = screen.find("Check the scheduler").expect("own prompt");
-    let label = screen
-        .find("turn output · truncated")
-        .unwrap_or_else(|| panic!("{screen}"));
+    let label = screen.find("in turn").unwrap_or_else(|| panic!("{screen}"));
     let answer = screen
         .find("The scheduler is ready.")
         .unwrap_or_else(|| panic!("{screen}"));
     assert!(prompt < label && label < answer);
+    assert!(screen.contains("◌ answer truncated · full text in the agent's pane"));
+    assert!(!screen.contains("turn output"));
 }
 #[test]
 fn no_answer_is_not_a_reply_or_a_reason_to_resend() {
