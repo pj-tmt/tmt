@@ -48,7 +48,7 @@ test('the shared window awaits one admitted status action without replacing its 
     (node as HTMLDivElement).dataset.retained = 'yes';
   });
   await window.getByRole('button', { name: 'Resolve', exact: true }).click();
-  await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toBeDisabled();
+  await expect(window.getByRole('button', { name: 'Resolving…', exact: true })).toBeDisabled();
   await expect(window.getByRole('button', { name: 'Close thread', exact: true })).toBeDisabled();
   // The resolved thread shows in the click frame: the draft is folded away but stays mounted.
   await expect(window.locator('.resolved-summary')).toBeVisible();

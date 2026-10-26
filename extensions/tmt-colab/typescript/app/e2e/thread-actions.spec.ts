@@ -174,9 +174,7 @@ for (const width of [1440, 390])
         await capture(`focus-${label === 'Resolve thread' ? 'resolve' : 'close'}`);
       }
       await window.getByRole('button', { name: 'Resolve thread', exact: true }).click();
-      await expect(
-        window.getByRole('button', { name: 'Resolve thread', exact: true }),
-      ).toBeDisabled();
+      await expect(window.getByRole('button', { name: 'Resolving…', exact: true })).toBeDisabled();
       await expect(
         window.getByRole('button', { name: 'Collapse thread', exact: true }),
       ).toBeDisabled();
@@ -185,7 +183,7 @@ for (const width of [1440, 390])
       );
       if (!before)
         await expect(
-          window.getByRole('button', { name: 'Resolve thread', exact: true }),
+          window.getByRole('button', { name: 'Resolving…', exact: true }),
         ).toHaveAttribute('aria-busy', 'true');
       await capture('busy');
       expect(await run(page, 'windowProof')).toEqual({ statusCalls: 1, closes: 0 });
