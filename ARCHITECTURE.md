@@ -417,7 +417,7 @@ own module/drawing boundaries and verification.
   No Ops data enters `config.json` or Core's database.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
-  `board::unread`, `board::selected_conversation` and `board::buttons` project Core answers off-thread and acknowledge only through public `requests.ack`; their lifecycles and module rules are in the [Ops references](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
+  `board::unread` and `board::selected_conversation` project Core answers off-thread and acknowledge only through public `requests.ack`; `board::buttons` owns chip paint and hover. Their lifecycles and module rules are in the [Ops references](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
   The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.
   Savings and usage figures come from `labels::Reader`/`labels::digest` (supplier estimates, never provider history) and `usage_report::Reader`; `usage_report::valuation` is the one reader of TOK and input price, for the Digest table and the Agents TOK figures alike. [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns ranges and lifecycles.
