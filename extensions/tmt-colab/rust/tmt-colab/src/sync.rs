@@ -574,6 +574,8 @@ fn delivery(
 struct State<A> {
     store: Store,
     admission: A,
+    admission_generation: u64,
+    checked_admission: Option<(u64, Instant)>,
     peers: HashMap<u64, Peer>,
     next: u64,
     /// Saves between `save_job` and `finish_save`, by (page, operation ID) with a count: while
@@ -854,6 +856,8 @@ impl<A: Admission> Server<A> {
         Self(Arc::new(Mutex::new(State {
             store,
             admission,
+            admission_generation: 0,
+            checked_admission: None,
             peers: HashMap::new(),
             next: 0,
             saving: HashMap::new(),
@@ -969,7 +973,7 @@ impl<A: Admission> Server<A> {
     pub fn update_admission(&self, change: impl FnOnce(&mut A)) -> Result<(), Code> {
         let mut state = self.0.lock().map_err(|_| Code::Denied)?;
         change(&mut state.admission);
-        state.recheck();
+        state.admission_changed();
         Ok(())
     }
     /// Commit management and invalidate only its newly archived/restored page under the same
@@ -986,7 +990,7 @@ impl<A: Admission> Server<A> {
             .lock()
             .map_err(|_| crate::management::Code::Unavailable)?;
         let mut applied = change(&mut state.admission)?;
-        state.recheck();
+        state.admission_changed();
         if let Some(page) = applied.resync_page.take() {
             for peer in state.peers.values_mut() {
                 if peer.scope.as_ref().is_some_and(|scope| scope.page == page) {
@@ -1012,6 +1016,8 @@ impl<A: Admission> Server<A> {
         let id = state.next;
         state.next = id.checked_add(1).ok_or(Code::Capacity)?;
         state.peers.insert(id, Peer::new(principal));
+        // This peer was not included in the retained sweep. Check it before its first flush.
+        state.checked_admission = None;
         let config = WebSocketConfig::default()
             .read_buffer_size(4096)
             .write_buffer_size(0)
@@ -1048,6 +1054,8 @@ impl<A: Admission> DetachedCatchup<A> {
         let mut state = State {
             store,
             admission,
+            admission_generation: 0,
+            checked_admission: None,
             peers: HashMap::new(),
             next: 1,
             saving: HashMap::new(),
@@ -1108,7 +1116,25 @@ impl<A: Admission> DetachedCatchup<A> {
     }
 }
 impl<A: Admission> State<A> {
+    fn admission_changed(&mut self) {
+        self.admission_generation = self.admission_generation.wrapping_add(1);
+        self.recheck();
+    }
     fn recheck(&mut self) {
+        self.recheck_at(Instant::now());
+    }
+    fn recheck_at(&mut self, now: Instant) {
+        // Backend work can outlast a poll's supplied instant. Never let that turn
+        // retain an expired sweep before flushing or disclosing queued bytes.
+        let now = now.max(Instant::now());
+        if self.checked_admission.is_some_and(|(generation, checked)| {
+            generation == self.admission_generation
+                && now.saturating_duration_since(checked) < limits::ADMISSION_RECHECK
+        }) {
+            return;
+        }
+        // Record the start, so a slow sweep cannot extend the admission window.
+        self.checked_admission = Some((self.admission_generation, now));
         for peer in self.peers.values_mut() {
             let result = self
                 .admission
@@ -2347,7 +2373,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
     ) -> Result<(), Code> {
         {
             let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
-            state.recheck();
+            state.recheck_at(now);
             let peer = state.peers.get(&self.id).ok_or(Code::Denied)?;
             if !peer.hello || peer.scope.as_ref() != Some(scope) || peer.terminal.is_some() {
                 return Err(Code::Denied);
@@ -2435,7 +2461,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         }
         let terminal = match self.server.0.lock() {
             Ok(mut state) => {
-                state.recheck();
+                state.recheck_at(now);
                 state.peers.get(&self.id).and_then(|p| {
                     p.terminal.or_else(|| {
                         p.incoming
@@ -2460,7 +2486,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         }
         let flushed = (|| -> Result<bool, Code> {
             let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
-            state.recheck();
+            state.recheck_at(now);
             let peer = state.peers.get_mut(&self.id).ok_or(Code::Denied)?;
             if let Some(code) = peer.terminal {
                 return Err(code);
@@ -2562,7 +2588,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         if let Ok(objects) = &self.objects {
             while let Some(reply) = objects.take_reply() {
                 if let Ok(mut state) = self.server.0.lock() {
-                    state.recheck();
+                    state.recheck_at(now);
                     if let Some(peer) = state.peers.get_mut(&self.id) {
                         peer.object_pending = peer.object_pending.saturating_sub(1);
                     }
@@ -2609,7 +2635,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         // cannot interleave between dequeue and disclosure to the socket.
         let outgoing = (|| -> Result<bool, Code> {
             let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
-            state.recheck();
+            state.recheck_at(now);
             if let Err(code) = state.catchup_page(self.id) {
                 let peer = state.peers.get_mut(&self.id).ok_or(Code::Denied)?;
                 peer.catchup = None;
