@@ -86,6 +86,14 @@ impl Config {
             out.push(key, json!(action.text), source);
             out.entries.last_mut().unwrap().description = Some(description);
         }
+        for row in self.key_rows()? {
+            out.push(
+                format!("{}{}", super::rebind::KEYS_PREFIX, row.action),
+                json!(row.keys),
+                row.source,
+            );
+            out.entries.last_mut().unwrap().description = Some(row.description);
+        }
         let scope = context.filter(|key| !tabs::aggregate(key));
         for entry in &mut out.entries {
             entry.editable = self.can_edit_setting(&entry.key, scope);

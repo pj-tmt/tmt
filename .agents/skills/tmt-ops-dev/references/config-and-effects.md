@@ -341,6 +341,15 @@ scoped override semantics; CLI configuration remains available for explicit edit
   removes the key's default wherever `[bind]` is read: `workspace_keys` drops the key and its
   source (a notice when no scope binds it by default), the other readers use `drop_unbound`. One parser/dispatcher owns
   `toggle <pane>...`.
+- `config/rebind.rs` owns changing the key of one workspace action: `keys.<action>` settings
+  entries (value = the keys the action holds in any scope, source `workspace default`, `bind.K`
+  or `several`), editable only for an action with exactly one key that no scope shares with
+  another action. `preview_rebind` refuses a malformed, mouse, unchanged or taken key (any scope),
+  then drafts `[bind] NEW = "<action>"` and, for the old key, `unbound` when a scope binds it by
+  default or no entry when it was authored; `set_setting` writes it as one CAS write, so the page
+  and `config set keys.<action>` share it. `reset_rebind` (`r`) removes the action's authored
+  keys and any `unbound` of its defaults. Keys are global: the page keeps them out of the squad
+  override count.
 - `effects` holds the row actions behind plain `jump`, `open` and `copy` and the board.
   `template` fills `{field}` placeholders into one value and refuses empty values. Built-in
   names win over a squad field of the same name; `{host}`, `{session}` and `{window}` come

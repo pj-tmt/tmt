@@ -38,6 +38,9 @@ impl Config {
     }
 
     pub fn can_edit_setting(&self, key: &str, squad: Option<&str>) -> bool {
+        if let Some(action) = key.strip_prefix(super::rebind::KEYS_PREFIX) {
+            return self.rebind_old(action).is_ok();
+        }
         if !Self::setting_key_in_scope(key, squad) {
             return false;
         }
@@ -208,6 +211,9 @@ impl Config {
         key: &str,
         text: &str,
     ) -> Result<Self, SquadError> {
+        if let Some(action) = key.strip_prefix(super::rebind::KEYS_PREFIX) {
+            return self.preview_rebind(action, text);
+        }
         let path = Self::setting_path(squad, key)?;
         if !self.can_edit_setting(key, squad) {
             return Err(invalid(

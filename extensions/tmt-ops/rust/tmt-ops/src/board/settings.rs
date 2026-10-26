@@ -156,6 +156,8 @@ pub(super) struct Overlay {
     pub staleness: Option<crate::staleness::Snapshot>,
     pub picks: Vec<Pick>,
     overrides: BTreeSet<String>,
+    /// `keys.*` rows whose key is not the default; keys are global, so they are not squad overrides.
+    rebound: BTreeSet<String>,
     host_action: Option<host_action::HostAction>,
     /// Opened for one squad from the Workspace settings menu: Esc returns there, and a
     /// refresh does not close it for showing another tab.
@@ -193,6 +195,7 @@ impl Overlay {
             staleness: None,
             picks: Vec::new(),
             overrides: BTreeSet::new(),
+            rebound: BTreeSet::new(),
             host_action: None,
             from_menu: false,
             reveal_idle: Cell::new(false),
@@ -339,7 +342,7 @@ impl Overlay {
     }
     fn selected_override(&self) -> bool {
         self.selected_key()
-            .is_some_and(|key| self.overrides.contains(key))
+            .is_some_and(|key| self.overrides.contains(key) || self.rebound.contains(key))
     }
     fn refresh(&mut self) {
         let config = self.config.as_ref().expect("config-backed overlay");
@@ -382,6 +385,13 @@ impl Overlay {
                     .collect()
             })
             .unwrap_or_default();
+        self.rebound = self
+            .settings
+            .entries
+            .iter()
+            .filter(|entry| entry.key.starts_with("keys.") && entry.source != "workspace default")
+            .map(|entry| entry.key.clone())
+            .collect();
         let picks = config_picks(&self.settings);
         for pick in picks {
             self.set_pick(pick.id, pick.value);
@@ -432,6 +442,22 @@ impl Overlay {
                     self.notice = Some(SettingNotice {
                         mark: Mark::Done,
                         message: "Override removed; using inherited binding".into(),
+                    });
+                    true
+                }
+                Err(error) => {
+                    self.notice = Some(SettingNotice::error(error.message, &key, None));
+                    false
+                }
+            };
+        }
+        if let Some(action) = key.strip_prefix("keys.") {
+            return match self.config.as_mut().unwrap().reset_rebind(action) {
+                Ok(_) => {
+                    self.refresh();
+                    self.notice = Some(SettingNotice {
+                        mark: Mark::Done,
+                        message: "Default key restored".into(),
                     });
                     true
                 }
@@ -1105,13 +1131,16 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             setting_name(&entry.key).1,
             if entry.editable { "" } else { "*" }
         );
-        let overridden = overlay.overrides.contains(&entry.key);
-        let source = if overridden && overlay.host_action.is_none() {
-            "this squad · r reset"
+        let rebound = overlay.rebound.contains(&entry.key);
+        let overridden = rebound || overlay.overrides.contains(&entry.key);
+        let source = if rebound {
+            format!("{} · r reset", entry.source)
+        } else if overridden && overlay.host_action.is_none() {
+            "this squad · r reset".into()
         } else {
-            entry.source.as_str()
+            entry.source.clone()
         };
-        let lines: Vec<_> = value_lines(&escape(&value), value_width, entry.value.is_array() || entry.value.is_object()).into_iter().enumerate().map(|(index,value)| json!({"id":format!("line:{index}"), "cursor":if selected.as_deref() == Some(&entry.key) {"›"} else {""}, "mark":if index == 0 && overridden {"≠"} else {""}, "name":if index == 0 {name.as_str()} else {""}, "value":value, "source":if index == 0 {source} else {""}})).collect();
+        let lines: Vec<_> = value_lines(&escape(&value), value_width, entry.value.is_array() || entry.value.is_object()).into_iter().enumerate().map(|(index,value)| json!({"id":format!("line:{index}"), "cursor":if selected.as_deref() == Some(&entry.key) {"›"} else {""}, "mark":if index == 0 && overridden {"≠"} else {""}, "name":if index == 0 {name.as_str()} else {""}, "value":value, "source":if index == 0 {source.as_str()} else {""}})).collect();
         rows.push(json!({"id":entry.key, "disabled":false, "lines":lines, "description":entry.description.as_ref().map(|text| vec![json!({"text":text})]).unwrap_or_default(), "heading":[]}));
     }
     let key = ReferenceStyle {
@@ -1197,7 +1226,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
                 .strip_prefix("pick:")
                 .and_then(Overlay::pick_key)
                 .unwrap_or(id);
-            let overridden = overlay.overrides.contains(key);
+            let overridden = overlay.overrides.contains(key) || overlay.rebound.contains(key);
             let role = match hit.id.last().map(String::as_str) {
                 Some("mark") if overridden => Role::Waiting,
                 Some("name") if entry.is_some_and(|entry| !entry.editable) => Role::Muted,
@@ -1223,6 +1252,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
 #[cfg(test)]
 pub(in crate::board) mod tests {
     pub(in crate::board) mod host_action;
+    mod keys;
 
     use super::*;
     use crate::config::Pane;
