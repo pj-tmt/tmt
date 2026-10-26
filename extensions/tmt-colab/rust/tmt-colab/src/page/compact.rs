@@ -2,7 +2,8 @@
 //! verified updates into one checkpoint per namespace at the stream's current head, so a page
 //! edited many times by this device keeps a short tail. Other devices' streams are never touched,
 //! and the shared document is never re-encoded: the merge is `merge_updates_v1` of this stream's
-//! updates inside the isolated decoder.
+//! updates inside the isolated decoder. Eligible current-history content may instead GC-encode
+//! that writer's self-contained document, preserving its client clocks; never the shared document.
 use super::{
     Fault, PageUsage, hex,
     owner_fold::{self, Folded, Left},
@@ -10,7 +11,7 @@ use super::{
 };
 use crate::{
     Result,
-    decoder::{Decoder, Namespace as DecoderNamespace},
+    decoder::Decoder,
     keyring::Keyring,
     store::{Envelope, Fault as StoreFault, Namespace, Store, StreamScope},
 };
@@ -22,6 +23,44 @@ use tmt_colab_model::{crypto, object};
 pub const TRIGGER_UPDATES: usize = 50;
 /// ...or once their plaintext adds up to this many bytes.
 pub const TRIGGER_BYTES: usize = 1024 * 1024;
+
+/// Whether a page has enough retained content tail for an automatic history pass. Own records
+/// alone never trigger history GC, and the existing admission snapshot supplies the policy.
+pub(crate) fn history_due(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    trigger: Trigger,
+) -> Result<bool> {
+    let s = snapshot(store, key, page, true)?;
+    if !s.authority.policy.history_current || s.authority.policy.public_mode {
+        return Ok(false);
+    }
+    let mut count = 0;
+    let mut bytes = 0;
+    for (index, object) in &s.objects {
+        if s.cuts[*index].namespace == "content" && !object.checkpoint {
+            count += 1;
+            bytes += object.bytes.len() / 4 * 3;
+        }
+    }
+    Ok(count > 0 && (count >= trigger.updates || bytes >= trigger.bytes))
+}
+
+/// One namespace of one original writer, under the page's authenticated retention policy.
+/// Own records retain ordinary merge semantics; shared-history and public content is not rebuilt.
+pub(super) fn checkpoint_updates(
+    decoder: &mut Decoder,
+    namespace: Namespace,
+    updates: &[&[u8]],
+    policy: &crate::fold::PagePolicy,
+) -> Result<Vec<u8>> {
+    if namespace == Namespace::Content && policy.history_current && !policy.public_mode {
+        Ok(decoder.rebuild_content(updates, None)?)
+    } else {
+        Ok(decoder.merge(namespace, updates, None)?)
+    }
+}
 
 /// When a device's own tail is long enough to combine, and until when it may still publish.
 #[derive(Clone, Copy)]
@@ -161,14 +200,7 @@ pub fn compact(
             plaintexts.push(s.open_object(key, page, *index, stored)?.plaintext);
         }
         let refs = plaintexts.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let merged = decoder.merge(
-            match namespace {
-                Namespace::Content => DecoderNamespace::Content,
-                Namespace::Own => DecoderNamespace::Own,
-            },
-            &refs,
-            None,
-        )?;
+        let merged = checkpoint_updates(decoder, namespace, &refs, &s.authority.policy)?;
         if merged.len() > object::MAX_PLAINTEXT {
             // Too large to carry as one object; leave the stream as it is.
             return Ok(None);

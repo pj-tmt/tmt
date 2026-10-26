@@ -608,6 +608,7 @@ fn borrowed_binary_wire_matches_fixed_own_content_read_and_merge_bytes() {
             updates: vec![EncodedBytes(&first), EncodedBytes(&[])],
             records: None,
             merge_only: merge,
+            rebuild: false,
         };
         let (bytes, hash) = SerializedInput::serialize(&wire).unwrap().finish();
         assert_eq!(bytes, expected.as_bytes());
@@ -1012,6 +1013,42 @@ fn observation_records_are_finite_private_and_do_not_replace_algorithm_errors() 
 }
 
 #[test]
+fn history_rebuild_accepts_only_content_without_a_baseline_or_own_edit() {
+    use yrs::{Doc, ReadTxn, StateVector, Text, Transact};
+    let doc = Doc::new();
+    doc.get_or_insert_text("html")
+        .insert(&mut doc.transact_mut(), 0, "kept");
+    doc.get_or_insert_map("meta");
+    let update = URL_SAFE_NO_PAD.encode(
+        doc.transact()
+            .encode_state_as_update_v1(&StateVector::default()),
+    );
+    let valid = serde_json::json!({"version":1,"namespace":"content","baseline":"", "updates":[update], "merge_only":true,"rebuild":true});
+    let run = |value: &Value| {
+        let input = serde_json::to_vec(value).unwrap();
+        let mut output = Vec::new();
+        let result =
+            child::request_for_test(input.as_slice(), None, &mut output, &mut |_, _, _| {});
+        (result, output)
+    };
+    let (result, output) = run(&valid);
+    result.unwrap();
+    assert!(!output.is_empty());
+    for (field, value) in [
+        ("baseline", Value::String(update)),
+        ("namespace", Value::String("own".into())),
+        ("merge_only", Value::Bool(false)),
+        ("records", serde_json::json!([])),
+    ] {
+        let mut invalid = valid.clone();
+        invalid[field] = value;
+        let (result, output) = run(&invalid);
+        assert!(matches!(result, Err(DecodeFault::InvalidInput)), "{field}");
+        assert!(output.is_empty());
+    }
+}
+
+#[test]
 fn observation_reader_reply_preserves_deterministic_read_merge_and_failure_order() {
     use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact};
     for namespace in [Namespace::Own, Namespace::Content] {
@@ -1044,6 +1081,7 @@ fn observation_reader_reply_preserves_deterministic_read_merge_and_failure_order
                 updates: vec![URL_SAFE_NO_PAD.encode(&update)],
                 records: None,
                 merge_only,
+                rebuild: false,
             };
             let input = serde_json::to_vec(&wire).unwrap();
             let mut plain = Vec::new();
@@ -1742,6 +1780,7 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
                 updates: vec![URL_SAFE_NO_PAD.encode(&update)],
                 records: None,
                 merge_only,
+                rebuild: false,
             })
             .unwrap();
             let mut output = Vec::new();

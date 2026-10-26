@@ -800,6 +800,148 @@ fn work_actions_prepare_replayable_updates_and_leave_the_page_alone() {
     );
 }
 #[test]
+fn content_history_rebuild_drops_deleted_text_and_preserves_clocks_and_in_flight_edits() {
+    let doc = Doc::with_client_id(53482);
+    let html = doc.get_or_insert_text("html");
+    let meta = doc.get_or_insert_map("meta");
+    let original = {
+        let mut tx = doc.transact_mut();
+        html.insert(&mut tx, 0, &"discarded history ".repeat(4_000));
+        meta.insert(&mut tx, "title", "Kept title");
+        tx.encode_update_v1()
+    };
+    // An offline peer inserts inside the text that this writer is about to delete.
+    let concurrent = Doc::with_client_id(53483);
+    let concurrent_html = concurrent.get_or_insert_text("html");
+    concurrent.get_or_insert_map("meta");
+    concurrent
+        .transact_mut()
+        .apply_update(Update::decode_v1(&original).unwrap())
+        .unwrap();
+    let concurrent_edit = {
+        let mut tx = concurrent.transact_mut();
+        concurrent_html.insert(&mut tx, 5, "offline peer edit");
+        tx.encode_update_v1()
+    };
+    let deletion = {
+        let mut tx = doc.transact_mut();
+        let length = html.len(&tx);
+        html.remove_range(&mut tx, 0, length);
+        html.insert(&mut tx, 0, "Current source");
+        tx.encode_update_v1()
+    };
+    let vector = doc.transact().state_vector();
+    let updates = [original.as_slice(), deletion.as_slice()];
+    let mut decoder = owner();
+    let merged = decoder.merge(Namespace::Content, &updates, None).unwrap();
+    let rebuilt = decoder.rebuild_content(&updates, None).unwrap();
+    assert!(rebuilt.len() < merged.len() / 4);
+    let peer = Doc::new();
+    let peer_html = peer.get_or_insert_text("html");
+    peer.get_or_insert_map("meta");
+    peer.transact_mut()
+        .apply_update(Update::decode_v1(&rebuilt).unwrap())
+        .unwrap();
+    assert_eq!(peer.transact().state_vector(), vector);
+    assert_eq!(peer_html.get_string(&peer.transact()), "Current source");
+    // An edit prepared against the old identities still applies after the rebuild.
+    let in_flight = {
+        let mut tx = doc.transact_mut();
+        html.push(&mut tx, " plus an edit");
+        tx.encode_update_v1()
+    };
+    peer.transact_mut()
+        .apply_update(Update::decode_v1(&in_flight).unwrap())
+        .unwrap();
+    assert_eq!(
+        peer_html.get_string(&peer.transact()),
+        html.get_string(&doc.transact())
+    );
+    let projection = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &rebuilt,
+                updates: &[&in_flight],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(projection.projection["meta"]["title"], "Kept title");
+    gone(projection.child_pid);
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&concurrent_edit).unwrap())
+        .unwrap();
+    peer.transact_mut()
+        .apply_update(Update::decode_v1(&concurrent_edit).unwrap())
+        .unwrap();
+    assert_eq!(
+        peer_html.get_string(&peer.transact()),
+        html.get_string(&doc.transact())
+    );
+    assert!(
+        peer_html
+            .get_string(&peer.transact())
+            .contains("offline peer edit")
+    );
+}
+
+#[test]
+fn content_history_rebuild_keeps_pending_foreign_structs_and_delete_sets_merge_only() {
+    let (baseline, updates) = source();
+    let mut decoder = owner();
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let merged = decoder.merge(Namespace::Content, &refs, None).unwrap();
+    assert_eq!(decoder.rebuild_content(&refs, None).unwrap(), merged);
+    let decoded = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline,
+                updates: &[&merged],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(decoded.projection["html"], "ello! world");
+    gone(decoded.child_pid);
+
+    let doc = Doc::new();
+    let html = doc.get_or_insert_text("html");
+    doc.get_or_insert_map("meta");
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&baseline).unwrap())
+        .unwrap();
+    let delete_only = {
+        let mut tx = doc.transact_mut();
+        html.remove_range(&mut tx, 0, 1);
+        tx.encode_update_v1()
+    };
+    let merged = decoder
+        .merge(Namespace::Content, &[&delete_only], None)
+        .unwrap();
+    assert_eq!(
+        decoder.rebuild_content(&[&delete_only], None).unwrap(),
+        merged
+    );
+    let decoded = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline,
+                updates: &[&merged],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(decoded.projection["html"], "ello");
+    gone(decoded.child_pid);
+}
+
+#[test]
 fn child_materializes_and_merges_only_author_updates_preserving_dependencies_and_deletes() {
     let (baseline, updates) = source();
     let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();

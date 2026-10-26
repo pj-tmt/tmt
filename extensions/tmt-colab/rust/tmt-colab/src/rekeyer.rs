@@ -134,6 +134,8 @@ fn work(
     let mut retry_at: Option<Instant> = None;
     let mut backoff = Backoff::new();
     let mut deletion_after = None;
+    let mut history_after = None;
+    let mut history_at = Instant::now();
     while !shared.stop.load(Ordering::Acquire) {
         {
             let mut flag = locked(&shared.due);
@@ -157,6 +159,23 @@ fn work(
             backoff.reset();
         }
         due |= retry_at.is_some_and(|at| Instant::now() >= at);
+        // Local history maintenance needs no object channel. Reuse this worker's bounded wake
+        // and visit one eligible page per minute, rotating so a failing page cannot starve others.
+        if Instant::now() >= history_at && !shared.stop.load(Ordering::Acquire) {
+            history_at = Instant::now() + RETRY;
+            shared.active.store(true, Ordering::Release);
+            let active = ActivePass(&shared.active);
+            let source = locked(registration).save_source();
+            if let Some(source) = source {
+                let _ = history_pass(
+                    &source,
+                    sync,
+                    &mut history_after,
+                    crate::page::compact::Trigger::default(),
+                );
+            }
+            drop(active);
+        }
         // Without a channel there is nothing to upload through: stay due until one is established.
         if !due || shared.stop.load(Ordering::Acquire) || objects.client().is_none() {
             continue;
@@ -179,6 +198,48 @@ fn work(
             backoff.reset();
         }
     }
+}
+
+fn history_pass(
+    source: &SourceOpener,
+    sync: &Server<OwnerAdmission>,
+    after: &mut Option<String>,
+    trigger: crate::page::compact::Trigger,
+) -> Result<Option<crate::page::compact::Report>> {
+    let view = source()?;
+    let pages =
+        view.store
+            .owner_read(&view.keyring.space_id, &view.keyring.owner_public(), |tx| {
+                let revision = tx.head().ok_or(crate::page::Fault::Invalid)?.revision;
+                let mut eligible = Vec::new();
+                for page in tx.pages()? {
+                    // A malformed page policy cannot authorize work or starve independent pages.
+                    let Ok(policy) = tx.page_policy_at(&page, revision) else {
+                        continue;
+                    };
+                    if policy.writable() && policy.history_current && !policy.public_mode {
+                        eligible.push(page);
+                    }
+                }
+                Ok(eligible)
+            })?;
+    let Some(page) = pages
+        .iter()
+        .find(|page| after.as_ref().is_none_or(|last| *page > last))
+        .or_else(|| pages.first())
+        .cloned()
+    else {
+        *after = None;
+        return Ok(None);
+    };
+    *after = Some(page.clone());
+    let due = crate::page::compact::history_due(&view.store, &view.keyring, &page, trigger)?;
+    drop(view);
+    if !due {
+        return Ok(None);
+    }
+    // Reuse the serving writer's lock, equality checks, publication fence and notifications.
+    Ok(Some(sync.compact_page(&page, Instant::now())?))
 }
 /// One round over every page whose epoch has advanced; whether anything is still waiting.
 fn pass(
@@ -242,6 +303,128 @@ fn pass(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_history_maintenance_commits_without_an_object_channel_and_stops_cleanly() {
+        use crate::{
+            keyring::{Keyring, Layout},
+            page::{self, PublicationPreparation},
+            readers::test_support::{Fixture, PAGE, decoder_config},
+            store::{Store, owner::Mutation},
+        };
+        let mut fixture = Fixture::new();
+        let binary = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("tmt-colab");
+        let config = decoder_config(binary);
+        let mut decoder = crate::decoder::Decoder::with_config(config.clone()).unwrap();
+        for index in 0..crate::page::compact::TRIGGER_UPDATES {
+            let source = format!("<p>Retained source {index}</p>");
+            let PublicationPreparation::Write(frozen) = page::prepare_publication(
+                &fixture.store,
+                &fixture.key,
+                PAGE,
+                crate::decoder::ContentEdit {
+                    source: &source,
+                    layout: None,
+                    publisher_agent: None,
+                    attachments: None,
+                },
+                None,
+                &mut decoder,
+                1000,
+            )
+            .unwrap() else {
+                panic!("changed source must publish")
+            };
+            page::commit_publication(
+                &mut fixture.store,
+                &fixture.key,
+                frozen.job(),
+                frozen.packet(),
+                frozen.chain(),
+                1000,
+            )
+            .unwrap();
+        }
+        let head = fixture
+            .store
+            .owner_head(&fixture.key.space_id, &fixture.key.owner_public())
+            .unwrap()
+            .unwrap();
+        fixture
+            .store
+            .owner_transaction(
+                &fixture.key.space_id,
+                &fixture.key.owner_public(),
+                Mutation {
+                    operation_id: "40000000-0000-4000-8000-000000000093",
+                    digest: [93; 32],
+                    expected_revision: head.revision,
+                },
+                |tx| {
+                    tx.append_statement(&fixture.key.sign_statement(
+                        tx.head(),
+                        "page.history",
+                        &serde_json::to_vec(
+                            &serde_json::json!({"pageId": PAGE, "mode": "current"}),
+                        )?,
+                    )?)?;
+                    Ok(Vec::new())
+                },
+            )
+            .unwrap();
+        let root = fixture.root.clone();
+        let (started, observed) = std::sync::mpsc::channel();
+        let source: SourceOpener = Arc::new(move || {
+            let view = crate::page::save::open_source(&root, config.clone())?;
+            let _ = started.send(());
+            Ok(view)
+        });
+        let layout = Layout::existing(&fixture.root).unwrap().unwrap();
+        let registration = Arc::new(Mutex::new(
+            Registration::with_decoder_config(
+                Store::open(&layout).unwrap(),
+                Keyring::read(&layout).unwrap(),
+                decoder_config(
+                    std::env::current_exe()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .join("tmt-colab"),
+                ),
+            )
+            .unwrap()
+            .with_save_source(source),
+        ));
+        let server = Server::new(
+            Store::open(&layout).unwrap(),
+            OwnerAdmission(registration.clone()),
+        );
+        let objects = Arc::new(ChannelOwner::new(Arc::new(|| None)));
+        assert!(objects.client().is_none());
+        let slots = Arc::new(StagingSlots::open(&layout).unwrap());
+        let worker = Rekeyer::start(objects, slots, registration, server).unwrap();
+        let started = observed.recv_timeout(Duration::from_secs(10));
+        worker.stop();
+        assert!(started.is_ok(), "local maintenance never started");
+        let after = page::read(&fixture.store, &fixture.key, PAGE, &mut decoder).unwrap();
+        assert_eq!(
+            after.source,
+            format!(
+                "<p>Retained source {}</p>",
+                crate::page::compact::TRIGGER_UPDATES - 1
+            )
+        );
+        assert_eq!(after.usage.updates, 0);
+        assert!(after.usage.checkpoint_bytes > 0);
+    }
 
     #[test]
     fn a_failing_pass_backs_off_to_the_cap_and_starts_over_when_something_new_happens() {

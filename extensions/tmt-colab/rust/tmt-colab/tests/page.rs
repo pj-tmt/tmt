@@ -1866,6 +1866,237 @@ fn request_compaction(f: &mut Fixture) -> page::compact::Report {
     page::compact::request(&mut f.store, &f.key, PAGE, &mut decoder, None).unwrap()
 }
 
+fn deleted_owner_history(history: &str, public: bool) -> (Fixture, usize) {
+    let mut f = Fixture::new();
+    // Register the local signer before it publishes a fold of the other owner device.
+    f.write("old 🐈\r\n<p>Retained source</p>");
+    let mut device = f.owner_device("30000000-0000-4000-8000-000000000091", 91);
+    let head = f
+        .store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap();
+    f.store.owner_transaction(
+        &f.key.space_id, &f.key.owner_public(),
+        Mutation { operation_id: "40000000-0000-4000-8000-000000000092", digest: [92; 32], expected_revision: head.revision },
+        |tx| {
+            tx.append_statement(&f.key.sign_statement(tx.head(), "page.history",
+                &serde_json::to_vec(&json!({"pageId": PAGE, "mode": history}))?)?)?;
+            if public {
+                tx.append_statement(&f.key.sign_statement(tx.head(), "page.share",
+                    &serde_json::to_vec(&json!({"pageId": PAGE, "epoch": "1", "mode": "public", "publishedKeys": [{"epoch": "1", "key": values::encode_binary(&[11; 32])}]}))?)?)?;
+            }
+            Ok(Vec::new())
+        },
+    ).unwrap();
+    let removed = "Deleted private draft ".repeat(3_000);
+    let (seq, previous) = device.type_text(&mut f, &removed);
+    let html = device.doc.get_or_insert_text("html");
+    let deletion = {
+        let mut tx = device.doc.transact_mut();
+        html.remove_range(&mut tx, 0, removed.len() as u32);
+        tx.encode_update_v1()
+    };
+    let envelope = object::seal(
+        &object::Context {
+            space: f.key.space_id.clone(),
+            page: PAGE.into(),
+            epoch: "1".into(),
+            kind: "update".into(),
+            namespace: "content".into(),
+            author_device: device.id.into(),
+            membership_revision: "2".into(),
+            stream_seq: (seq + 1).to_string(),
+            prev_hash: previous,
+        },
+        &[11; 32],
+        &device.signing,
+        &deletion,
+    )
+    .unwrap();
+    f.store
+        .append(&Envelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream: device.id,
+            },
+            namespace: Namespace::Content,
+            seq: seq + 1,
+            hash: envelope.hash().unwrap(),
+            previous,
+            bytes: &envelope.to_json().unwrap(),
+        })
+        .unwrap();
+    (f, removed.len())
+}
+
+#[test]
+fn history_rebuild_drops_deleted_content_without_changing_the_page_projection() {
+    let (mut f, removed) = deleted_owner_history("current", false);
+    seed_member_thread_with(
+        &mut f,
+        &[
+            (
+                "60000000-0000-4000-8000-000000000091",
+                "1",
+                false,
+                "Original comment",
+            ),
+            (
+                "60000000-0000-4000-8000-000000000091",
+                "2",
+                false,
+                "Revised comment",
+            ),
+        ],
+    );
+    let conversations = |f: &Fixture| {
+        serde_json::to_value(
+            tmt_colab::discussion::read(&f.store, &f.key, PAGE, &mut f.decoder())
+                .unwrap()
+                .conversations,
+        )
+        .unwrap()
+    };
+    let own_payloads = |f: &Fixture| {
+        f.sql()
+            .prepare("SELECT payload FROM receipts WHERE namespace='own' ORDER BY stream, seq")
+            .unwrap()
+            .query_map([], |row| row.get::<_, Vec<u8>>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    let own_before = own_payloads(&f);
+    let discussion_before = conversations(&f);
+    let before = f.read();
+    let (_, tail, checkpoints) = stored_usage(&f);
+    assert!(tail + checkpoints > removed);
+    let report = request_compaction(&mut f);
+    assert!(report.compacted, "{report:?}");
+    let after = f.read();
+    assert_eq!(after.source, before.source);
+    assert_eq!(after.title, before.title);
+    assert_eq!(conversations(&f), discussion_before);
+    assert_eq!(
+        own_payloads(&f),
+        own_before,
+        "own revisions were rewritten or pruned"
+    );
+    assert_eq!(exported_source(&f), before.source.as_bytes());
+    let (_, tail, checkpoints) = stored_usage(&f);
+    assert!(
+        tail + checkpoints < removed / 4,
+        "rebuild retained deleted content: {} bytes",
+        tail + checkpoints
+    );
+    let paired = f.bytes();
+    assert!(!request_compaction(&mut f).compacted);
+    assert_eq!(
+        f.bytes(),
+        paired,
+        "an immutable paired head was rewritten without a new edit"
+    );
+}
+
+#[test]
+fn history_rebuild_rejects_a_changed_candidate_before_pruning_the_writer() {
+    let (mut f, _) = deleted_owner_history("current", false);
+    let before = f.read().source;
+    let program = f.root.join("changed-history-rebuild");
+    let script = format!(
+        r#"#!/usr/bin/python3
+import json, subprocess, sys
+wire = sys.stdin.buffer.read()
+child = subprocess.run([{binary}, "__decoder"], input=wire, capture_output=True)
+if child.returncode:
+    sys.stderr.buffer.write(child.stderr)
+    sys.exit(child.returncode)
+reply = json.loads(child.stdout)
+request = json.loads(wire)
+if request.get("rebuild"):
+    reply["merged"] = request["updates"][0]
+sys.stdout.write(json.dumps(reply))
+"#,
+        binary = serde_json::to_string(BINARY).unwrap()
+    );
+    tmt_test_support::write_executable(&program, script.as_bytes(), 0o700).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(program)).unwrap();
+    let report = page::compact::request(&mut f.store, &f.key, PAGE, &mut decoder, None).unwrap();
+    assert!(report.folded.is_empty());
+    assert!(
+        report
+            .left
+            .iter()
+            .any(|left| left.stream == "30000000-0000-4000-8000-000000000091"
+                && left.why == page::owner_fold::Why::Refused)
+    );
+    assert!(fold_rows(&f, "30000000-0000-4000-8000-000000000091").is_empty());
+    assert_eq!(
+        retained(&f, "30000000-0000-4000-8000-000000000091"),
+        [(1, true), (2, true)]
+    );
+    assert_eq!(f.read().source, before);
+    // Positive control: the real child rebuilds the same stream and can publish its fold.
+    assert_eq!(request_compaction(&mut f).folded.len(), 1);
+}
+
+#[test]
+fn history_rebuild_keeps_signed_old_epoch_payloads_after_a_new_current_checkpoint() {
+    let (mut f, _) = deleted_owner_history("current", false);
+    // The epoch seal commits this uncombined tail, so its large draft stays retained.
+    let head = f
+        .store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap();
+    Engine::with_decoder_config(support::decoder_config(BINARY.into()))
+        .unwrap()
+        .advance_epoch(
+            &mut f.store,
+            &f.key,
+            EpochAdvance {
+                operation_id: "40000000-0000-4000-8000-000000000094",
+                expected_revision: head.revision,
+                page: PAGE,
+            },
+            NOW,
+        )
+        .unwrap();
+    let old_payloads = |f: &Fixture| {
+        f.sql().prepare("SELECT payload FROM receipts WHERE epoch='1' AND payload IS NOT NULL ORDER BY stream, seq")
+            .unwrap().query_map([], |row| row.get::<_, Vec<u8>>(0)).unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>().unwrap()
+    };
+    let retained = old_payloads(&f);
+    assert!(retained.iter().map(Vec::len).sum::<usize>() > 66_000);
+    f.write("<p>Current epoch after a new edit</p>");
+    assert!(request_compaction(&mut f).compacted);
+    assert_eq!(
+        old_payloads(&f),
+        retained,
+        "a new pair erased a signed old cut"
+    );
+    assert_eq!(f.read().source, "<p>Current epoch after a new edit</p>");
+}
+
+#[test]
+fn history_rebuild_keeps_shared_history_and_public_payloads_merge_only() {
+    for (history, public) in [("shared", false), ("current", true)] {
+        let (mut f, removed) = deleted_owner_history(history, public);
+        let before = f.read();
+        assert!(request_compaction(&mut f).compacted);
+        let (_, tail, checkpoints) = stored_usage(&f);
+        assert!(
+            tail + checkpoints > removed,
+            "protected history was GC-rebuilt"
+        );
+        assert_eq!(f.read().source, before.source);
+        assert_eq!(f.read().title, before.title);
+    }
+}
+
 #[test]
 fn usage_counts_what_the_page_stores_and_a_request_reports_it_before_and_after() {
     let mut f = Fixture::new();

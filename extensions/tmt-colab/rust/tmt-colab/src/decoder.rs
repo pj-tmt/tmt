@@ -294,10 +294,17 @@ pub struct PreparedContent {
     pub scale: crate::edit_scale::EditScale,
 }
 #[derive(Clone, Copy)]
+enum DecodeMode {
+    Project,
+    Merge,
+    RebuildContent,
+}
+#[derive(Clone, Copy)]
 enum ChildCommand {
     ContentDecode,
     OwnDecode,
     ContentMerge,
+    ContentRebuild,
     OwnMerge,
     OwnEdit,
     BaselineProduce,
@@ -320,6 +327,7 @@ impl ChildCommand {
             Self::ContentDecode => "content.decode",
             Self::OwnDecode => "own.decode",
             Self::ContentMerge => "content.merge",
+            Self::ContentRebuild => "content.rebuild",
             Self::OwnMerge => "own.merge",
             Self::OwnEdit => "own.edit",
             Self::BaselineProduce => "baseline.produce",
@@ -399,7 +407,7 @@ impl Decoder {
             batch,
             role,
             None,
-            false,
+            DecodeMode::Project,
             stop,
             deadline.min(Instant::now() + self.config.deadline),
         )
@@ -424,7 +432,30 @@ impl Decoder {
             updates,
         };
         Ok(self
-            .decode_request(batch, role, None, true, stop, deadline)?
+            .decode_request(batch, role, None, DecodeMode::Merge, stop, deadline)?
+            .merged)
+    }
+    /// GC-encode one original writer's complete content document, preserving its client clocks.
+    /// Incomplete foreign dependencies keep their ordinary merged bytes rather than losing structs.
+    pub fn rebuild_content(
+        &mut self,
+        updates: &[&[u8]],
+        stop: Option<&AtomicBool>,
+    ) -> Result<Vec<u8>, DecodeFault> {
+        let batch = UpdateBatch {
+            namespace: Namespace::Content,
+            baseline: &[],
+            updates,
+        };
+        Ok(self
+            .decode_request(
+                batch,
+                Role::Editor,
+                None,
+                DecodeMode::RebuildContent,
+                stop,
+                Instant::now() + self.config.deadline,
+            )?
             .merged)
     }
     fn decode_request(
@@ -432,7 +463,7 @@ impl Decoder {
         batch: UpdateBatch<'_>,
         role: Role,
         records: Option<&[OwnRecord]>,
-        merge_only: bool,
+        mode: DecodeMode,
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
@@ -453,6 +484,8 @@ impl Decoder {
         {
             return Err(DecodeFault::InvalidInput);
         }
+        let merge_only = !matches!(mode, DecodeMode::Project);
+        let rebuild = matches!(mode, DecodeMode::RebuildContent);
         let before_wire = Instant::now();
         let wire = WireBatch {
             version: 1,
@@ -461,6 +494,7 @@ impl Decoder {
             baseline: EncodedBytes(batch.baseline),
             updates: batch.updates.iter().map(|v| EncodedBytes(v)).collect(),
             merge_only,
+            rebuild,
         };
         let after_wire = Instant::now();
         let input = SerializedInput::serialize(&wire)?;
@@ -472,7 +506,11 @@ impl Decoder {
         let after_hash = Instant::now();
         let output = self.invoke(
             &input,
-            ChildCommand::decode(batch.namespace, records.is_some(), merge_only),
+            if rebuild {
+                ChildCommand::ContentRebuild
+            } else {
+                ChildCommand::decode(batch.namespace, records.is_some(), merge_only)
+            },
             stop,
             deadline,
             Some(ParentTiming::from_samples([
@@ -543,7 +581,7 @@ impl Decoder {
             batch,
             Role::Commenter,
             Some(records),
-            false,
+            DecodeMode::Project,
             stop,
             Instant::now() + self.config.deadline,
         )
@@ -907,6 +945,7 @@ impl Decoder {
             ChildCommand::ContentDecode
             | ChildCommand::OwnDecode
             | ChildCommand::ContentMerge
+            | ChildCommand::ContentRebuild
             | ChildCommand::OwnMerge
             | ChildCommand::OwnEdit => {}
             ChildCommand::BaselineProduce
@@ -1095,6 +1134,9 @@ struct WireBatch<B = String> {
     /// stream may depend on structs another device wrote, so alone it is not a complete page.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     merge_only: bool,
+    /// Re-encode only a self-contained original writer content stream; never a shared document.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    rebuild: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

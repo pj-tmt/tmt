@@ -10,7 +10,7 @@
 use super::{compact::Trigger, snapshot};
 use crate::{
     Result,
-    decoder::{Decoder, Namespace as DecoderNamespace},
+    decoder::Decoder,
     keyring::Keyring,
     store::{
         Envelope, Fault as StoreFault, Namespace, Store, StreamScope, owner::epoch::StoredObject,
@@ -251,14 +251,8 @@ pub fn fold_others(
             }
             let refs = plaintexts.iter().map(Vec::as_slice).collect::<Vec<_>>();
             merges += 1;
-            let merged = decoder.merge(
-                match namespace {
-                    Namespace::Content => DecoderNamespace::Content,
-                    Namespace::Own => DecoderNamespace::Own,
-                },
-                &refs,
-                None,
-            );
+            let merged =
+                super::compact::checkpoint_updates(decoder, *namespace, &refs, &s.authority.policy);
             match merged {
                 Ok(merged) if merged.len() <= object::MAX_PLAINTEXT => {
                     merged_stream.push(Pending {
