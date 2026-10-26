@@ -19,6 +19,29 @@ An annotation's quote is the natural search text: find it, read around it.
 `--out FILE` writes exact whole-page or range bytes to a new private, unencrypted
 file (never overwrites); delete it when done.
 
+## Lock a multi-step agent edit
+
+Before working on a passage, publish an advisory lock:
+
+```sh
+tmt colab page lock PAGE --find 'unique exact passage' --json
+tmt colab page lock PAGE --whole --json
+tmt colab page unlock PAGE --json
+```
+
+Choose one target; a new lock replaces this identity's previous lock on the page.
+Locks belong to the identity UUID, including after restart. They never block people
+and have no timer. A successful overlapping `page patch` releases the captured lock
+in a separate publication after saving the source. Check `lockRelease.confirmed`:
+if false, the source is saved; follow the exact unlock command in its warning and
+never repeat the patch. An unrelated or failed patch keeps the lock.
+
+Offline or ended presence hides a lock; unknown presence keeps it. To clear a
+forgotten lock whose holder is no longer active, use
+`tmt colab page unlock PAGE LOCK --stale --json` (omit LOCK to clear eligible locks).
+A failed presence observation clears nothing. This phase publishes and reads locks;
+browser overlays and agent overlap refusal are separate follow-up work.
+
 ## Change only that part
 
 Give exactly one form to `tmt colab page patch PAGE ... --json`:

@@ -248,6 +248,14 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 decoder: &mut decoder,
             },
         )?;
+        let locks = crate::cli_edit_locks::patch_locks(
+            &store,
+            &key,
+            &id,
+            &base.source,
+            &edited,
+            &mut decoder,
+        )?;
         // The edit was evaluated against `base.source`: the preparation refuses a page whose
         // source is anything else, and the commit refuses a page that moved after it.
         match crate::commit_source(
@@ -261,12 +269,21 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             None,
             &mut decoder,
         ) {
-            Ok(receipt) => {
+            Ok(mut receipt) => {
+                let released = crate::cli_edit_locks::release_patch(
+                    &layout,
+                    &key,
+                    &id,
+                    &locks,
+                    &mut decoder,
+                    &mut receipt,
+                );
                 return crate::print_receipt(
                     receipt,
                     &warnings,
                     args.get_flag("json"),
                     "PAGE PATCHED",
+                    released.as_ref(),
                 );
             }
             Err(error)

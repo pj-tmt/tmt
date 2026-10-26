@@ -1,3 +1,4 @@
+import { validateEditLockLimits } from './edit-locks.js';
 import { metadataRequest } from '@tmt/colab-client';
 import { validateDiscussionRecord } from './thread-records.js';
 import { validateShell, type Shell } from './shell.js';
@@ -224,6 +225,7 @@ export function validateOwn(value: unknown): asserts value is OwnState {
   }
   requireValue(threads <= 1000);
   requireValue(proposals.size <= 200);
+  validateEditLockLimits(value as OwnState);
 }
 export interface FoldResult extends Projection {
   own: OwnState;

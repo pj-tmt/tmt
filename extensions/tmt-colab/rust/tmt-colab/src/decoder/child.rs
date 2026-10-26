@@ -190,7 +190,8 @@ fn execute_with(
             doc.get_or_insert_map(*name);
         }
     }
-    let mut discussion = std::collections::BTreeMap::new();
+    let mut discussion: std::collections::BTreeMap<(String, String), Value> =
+        std::collections::BTreeMap::new();
     for (index, bytes) in std::iter::once(&baseline)
         .filter(|v| !v.is_empty())
         .chain(updates.iter())
@@ -206,11 +207,13 @@ fn execute_with(
         checkpoint(Stage::Apply, CheckpointBoundary::Leave, index + 1);
         if wire.namespace == Namespace::Own {
             checkpoint(Stage::OwnValidation, CheckpointBoundary::Enter, index);
-            let next = immutable_own_records(&doc)?;
-            if discussion
-                .iter()
-                .any(|(key, value)| next.get(key) != Some(value))
-            {
+            let next = protected_own_records(&doc)?;
+            if discussion.iter().any(|((root, key), value)| {
+                next.get(&(root.clone(), key.clone())) != Some(value)
+                    && !next
+                        .get(&(root.clone(), key.clone()))
+                        .is_some_and(|next| crate::edit_lock::advances(value, next, root, key))
+            }) {
                 return Err(DecodeFault::Rejected);
             }
             discussion = next;
@@ -225,9 +228,12 @@ fn execute_with(
         };
         let merged = if wire.rebuild && !incomplete {
             rebuild_content(&doc)?
+        } else if wire.namespace == Namespace::Own && !incomplete {
+            project(&doc, Namespace::Own)?;
+            doc.transact()
+                .encode_state_as_update_v1(&StateVector::default())
         } else {
-            // A writer can depend on another writer's structs. GC must never discard those
-            // pending structs or delete sets; keep the existing merge-only representation.
+            // Content streams and incomplete own steps retain all raw structs/delete sets.
             yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
                 .map_err(|_| DecodeFault::Rejected)?
         };
@@ -261,10 +267,12 @@ fn execute_with(
                 .get(&record.root)
                 .and_then(|root| root.get(&record.key))
             {
-                if existing != &record.value {
+                if existing == &record.value {
+                    continue;
+                }
+                if !crate::edit_lock::advances(existing, &record.value, &record.root, &record.key) {
                     return Err(DecodeFault::Rejected);
                 }
-                continue;
             }
             let map = Root::<MapRef>::new(record.root.as_str())
                 .get(&tx)
@@ -588,8 +596,8 @@ fn prepare_content(
     write_reply_with(&reply, writer, checkpoint)
 }
 // Capture only materialized typed records, allowing existing checkpoint steps
-// with pending dependencies. A later update cannot replace or remove a record.
-fn immutable_own_records(
+// with pending dependencies. Records cannot disappear; only a typed lock cell may advance.
+fn protected_own_records(
     doc: &Doc,
 ) -> Result<std::collections::BTreeMap<(String, String), Value>, DecodeFault> {
     let txn = doc.transact();
@@ -600,7 +608,7 @@ fn immutable_own_records(
             .ok_or(DecodeFault::Rejected)?;
         for (key, value) in map.iter(&txn) {
             if let Out::Any(Any::Map(fields)) = value
-                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "proposal-decision" | "attachment-publication" | "edit-request" | "edit-result"))
+                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "proposal-decision" | "attachment-publication" | "edit-request" | "edit-result" | "edit-lock"))
             {
                 records.insert(
                     (root.into(), key.into()),

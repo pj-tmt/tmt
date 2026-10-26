@@ -192,15 +192,25 @@ fn real_child_admits_status_actions_and_failures_and_refuses_their_mutation() {
         env!("CARGO_BIN_EXE_tmt-colab").into(),
     ))
     .unwrap();
-    for value in [&f["statusCases"][2]["actions"][0], &f["notification"]] {
+    let locks: Value =
+        serde_json::from_str(include_str!("../../../contracts/vectors/edit-lock-v1.json")).unwrap();
+    for value in [
+        &f["statusCases"][2]["actions"][0],
+        &f["notification"],
+        &locks["record"],
+    ] {
         let kind = value["kind"].as_str().unwrap();
-        let id = value[if kind == "thread-status" {
-            "actionId"
+        let id = if kind == "edit-lock" {
+            value["holder"]["id"].as_str().unwrap()
         } else {
-            "operationId"
-        }]
-        .as_str()
-        .unwrap();
+            value[if kind == "thread-status" {
+                "actionId"
+            } else {
+                "operationId"
+            }]
+            .as_str()
+            .unwrap()
+        };
         let key = format!("{id}:{kind}");
         let valid = update("messages", &key, value);
         let mut decode = |baseline: &[u8], updates: &[&[u8]]| {
@@ -219,7 +229,14 @@ fn real_child_admits_status_actions_and_failures_and_refuses_their_mutation() {
             *value
         );
         for (field, bad) in [
-            ("revision", json!("2")),
+            (
+                "revision",
+                if kind == "edit-lock" {
+                    json!("0")
+                } else {
+                    json!("2")
+                },
+            ),
             ("deleted", json!(true)),
             ("at", json!("01")),
             ("unexpected", json!(true)),
@@ -233,7 +250,10 @@ fn real_child_admits_status_actions_and_failures_and_refuses_their_mutation() {
         }
         assert!(decode(&[], &[&update("threads", &key, value)]).is_err());
         assert!(decode(&[], &[&update("messages", "wrong-key", value)]).is_err());
-        for remove in [false, true] {
+        for mode in ["replace", "remove", "advance"] {
+            if mode == "advance" && kind != "edit-lock" {
+                continue;
+            }
             let doc = Doc::new();
             for root in ["threads", "messages", "intents", "replies"] {
                 doc.get_or_insert_map(root);
@@ -248,11 +268,18 @@ fn real_child_admits_status_actions_and_failures_and_refuses_their_mutation() {
                 .transact()
                 .encode_state_as_update_v1(&StateVector::default());
             let vector = doc.transact().state_vector();
-            if remove {
+            if mode == "remove" {
                 map.remove(&mut doc.transact_mut(), &key);
             } else {
                 let mut changed = value.clone();
-                changed["deviceName"] = json!("Changed label");
+                if kind == "edit-lock" {
+                    changed["holder"]["name"] = json!("Changed label");
+                    if mode == "advance" {
+                        changed["revision"] = json!("2");
+                    }
+                } else {
+                    changed["deviceName"] = json!("Changed label");
+                }
                 map.insert(
                     &mut doc.transact_mut(),
                     key.as_str(),
@@ -261,8 +288,8 @@ fn real_child_admits_status_actions_and_failures_and_refuses_their_mutation() {
             }
             let tail = doc.transact().encode_state_as_update_v1(&vector);
             assert!(
-                decode(&baseline, &[&tail]).is_err(),
-                "{kind}/remove={remove}"
+                decode(&baseline, &[&tail]).is_err() == (mode != "advance"),
+                "{kind}/{mode}"
             );
             assert_eq!(
                 decode(&baseline, &[]).unwrap().projection["messages"][&key],

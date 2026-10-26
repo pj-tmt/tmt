@@ -629,3 +629,103 @@ test('real Worker preserves attributed registry metadata through source edits an
   );
   expect(result).toEqual({ creator, questions, source: '<p>Changed source</p>', rejected: true });
 });
+
+test('real Worker prepares edit locks without committing and admits increasing revisions and refuses stale replacement or removal', async ({
+  page,
+}) => {
+  const fixture = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/edit-lock-v1.json', import.meta.url), 'utf8'),
+  );
+  const Y = await import('yjs');
+  const records = ['advance', 'replace', 'remove'].map((mode) => {
+    const doc = new Y.Doc();
+    for (const root of ['threads', 'messages', 'intents', 'replies']) doc.getMap(root);
+    const key = `${fixture.record.holder.id}:edit-lock`;
+    doc.getMap('messages').set(key, fixture.record);
+    const baseline = Y.encodeStateAsUpdate(doc);
+    const vector = Y.encodeStateVector(doc);
+    if (mode === 'remove') doc.getMap('messages').delete(key);
+    else
+      doc.getMap('messages').set(key, {
+        ...fixture.record,
+        holder: { ...fixture.record.holder, name: 'Changed label' },
+        revision: mode === 'advance' ? '2' : fixture.record.revision,
+      });
+    const tail = Y.encodeStateAsUpdate(doc, vector);
+    doc.destroy();
+    return { baseline: [...baseline], tail: [...tail] };
+  });
+  await page.goto('/');
+  const result = await page.evaluate(
+    async ({ fixture, records }) => {
+      const path = '/src/fold.ts';
+      const { Fold } = await import(path);
+      const writer = fixture.record.senderDevice;
+      const key = `${fixture.record.holder.id}:edit-lock`;
+      const prepared = new Fold();
+      let proposal;
+      let committed;
+      try {
+        proposal = (
+          await prepared.run({
+            type: 'prepare-own',
+            writer,
+            records: [{ root: 'messages', key, value: fixture.record }],
+          })
+        ).own[writer].messages[key];
+        committed = (await prepared.run({ type: 'apply', updates: [] })).own;
+      } finally {
+        prepared.close();
+      }
+      const refused = [];
+      let preparedRevision;
+      for (const bytes of records) {
+        const fold = new Fold();
+        try {
+          const base = await fold.run({
+            type: 'apply',
+            updates: [],
+            own: [{ writer, update: new Uint8Array(bytes.baseline) }],
+          });
+          if (JSON.stringify(base.own[writer].messages[key]) !== JSON.stringify(fixture.record))
+            throw new Error('Missing initial record');
+          const replacement = await fold.run({
+            type: 'prepare-own',
+            writer,
+            records: [
+              {
+                root: 'messages',
+                key,
+                value: { ...fixture.record, revision: '2', released: true },
+              },
+            ],
+          });
+          preparedRevision = replacement.own[writer].messages[key].revision;
+          const unchanged = await fold.run({ type: 'apply', updates: [] });
+          if (unchanged.own[writer].messages[key].revision !== fixture.record.revision)
+            throw new Error('Prepared revision leaked before commit');
+          refused.push(
+            await fold
+              .run({
+                type: 'apply',
+                updates: [],
+                own: [{ writer, update: new Uint8Array(bytes.tail) }],
+              })
+              .then(
+                () => false,
+                () => true,
+              ),
+          );
+        } finally {
+          fold.close();
+        }
+      }
+      return { proposal, committed, refused, preparedRevision };
+    },
+    { fixture, records },
+  );
+  expect(result.proposal).toEqual(fixture.record);
+  expect(result.committed).toEqual({});
+  expect(result.refused).toEqual([false, true, true]);
+  expect(result.preparedRevision).toBe('2');
+});

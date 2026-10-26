@@ -45,6 +45,13 @@ fi
 cat publisher
 exit 0
 fi
+if [ "$1 $2" = 'ls --json' ]; then
+printf '%s\n' "$*" >> presence-calls
+[ -f presence ] || exit 9
+cat presence
+if [ -f presence-status ]; then exit "$(cat presence-status)"; fi
+exit 0
+fi
 [ "$#" = 1 ] && [ "$1" = api ] || exit 9
 printf '%s\n' "$*" >> calls
 cat > input

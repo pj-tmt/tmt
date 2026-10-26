@@ -1,3 +1,4 @@
+import { advancesEditLock } from './edit-locks.js';
 import * as Y from 'yjs';
 import { attachment, digest, equal, frame, text } from '@tmt/colab-client';
 import { sortedJson } from './sorted-json.js';
@@ -79,7 +80,7 @@ function projectOwn(doc: Y.Doc, complete: boolean) {
   );
 }
 /** Whether `update` sets an own key that the writer's admitted document already holds with a
- * different value. Own records are immutable, but two tabs are two Yjs clients, so a write
+ * different value. Own records are immutable except increasing lock revisions, but two tabs are two Yjs clients, so a write
  * prepared by a tab whose view lags could merge in and silently replace the admitted value (the
  * client with the higher ID wins, not the later write). The structs are read without integrating
  * them, so a key is judged against what the stream already holds. A byte-identical value is
@@ -99,7 +100,12 @@ function ownConflict(doc: Y.Doc | undefined, update: Uint8Array) {
     const held = doc.getMap(struct.parent).get(struct.parentSub);
     if (held === undefined) continue;
     const content = struct.content.getContent();
-    if (content.length !== 1 || JSON.stringify(content[0]) !== JSON.stringify(held)) return true;
+    if (
+      content.length !== 1 ||
+      (JSON.stringify(content[0]) !== JSON.stringify(held) &&
+        !advancesEditLock(held, content[0], struct.parent, struct.parentSub))
+    )
+      return true;
   }
   return false;
 }
@@ -294,9 +300,14 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
           throw new Error('Invalid own root');
         const map = doc.getMap(record.root);
         const previous = map.get(record.key);
-        if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(record.value))
-          throw new Error('Own record is immutable');
-        if (previous === undefined) map.set(record.key, record.value);
+        if (
+          previous !== undefined &&
+          JSON.stringify(previous) !== JSON.stringify(record.value) &&
+          !advancesEditLock(previous, record.value, record.root, record.key)
+        )
+          throw new Error('Own record is immutable or its lock revision is stale');
+        if (previous === undefined || JSON.stringify(previous) !== JSON.stringify(record.value))
+          map.set(record.key, record.value);
       }
       update = new Uint8Array(Y.encodeStateAsUpdate(doc, vector));
       if (update.length > UPDATE_BYTES) throw new Error('Own record exceeds update capacity');
@@ -404,11 +415,15 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
               'attachment-publication',
               'edit-request',
               'edit-result',
+              'edit-lock',
             ].includes(value?.kind)
           )
             continue;
-          if (JSON.stringify(value) !== JSON.stringify(ownProjection[writer][root][key]))
-            throw new Error('Own record is immutable');
+          if (
+            JSON.stringify(value) !== JSON.stringify(ownProjection[writer][root][key]) &&
+            !advancesEditLock(value, ownProjection[writer][root][key], root, key)
+          )
+            throw new Error('Own record is immutable or its lock revision is stale');
         }
     }
 

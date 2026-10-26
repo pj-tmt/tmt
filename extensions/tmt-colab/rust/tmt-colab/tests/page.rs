@@ -6719,3 +6719,91 @@ fn a_summary_refresh_never_labels_a_new_fold_with_a_stale_scheduled_fingerprint(
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
+
+#[test]
+fn edit_locks_publish_in_own_stream_replace_and_release_without_changing_content() {
+    use tmt_colab::{
+        edit_lock::{Holder, Target, Whole},
+        edit_locks::{self, Change},
+    };
+    let mut f = Fixture::new();
+    let holder = Holder {
+        id: "50000000-0000-7000-8000-000000000001".into(),
+        name: "Lock holder".into(),
+    };
+    let source = f.read().source;
+    let initial = edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    let acquire = [Change::Acquire {
+        holder: holder.clone(),
+        target: Target::Whole(Whole { whole: true }),
+    }];
+    let (first, actions) = edit_locks::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        &initial.revision,
+        &acquire,
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(
+        edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder())
+            .unwrap()
+            .locks
+            .is_empty()
+    );
+    f.commit(&first, NOW).unwrap();
+    assert_eq!(f.read().source, source);
+    assert_eq!(f.read().edit_locks[0].lock_id, actions[0].lock_id);
+    let before = edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert!(
+        edit_locks::prepare(
+            &f.store,
+            &f.key,
+            PAGE,
+            &initial.revision,
+            &acquire,
+            &mut f.decoder(),
+            NOW
+        )
+        .is_err()
+    );
+    let (replace, new) = edit_locks::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        &before.revision,
+        &acquire,
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    f.commit(&replace, NOW).unwrap();
+    let current = edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert_eq!(current.locks.len(), 1);
+    assert_eq!(current.locks[0].revision, "2");
+    assert_ne!(actions[0].lock_id, new[0].lock_id);
+    let release = [Change::Release {
+        holder_id: holder.id,
+        lock_id: new[0].lock_id.clone(),
+    }];
+    let (release, _) = edit_locks::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        &current.revision,
+        &release,
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    f.commit(&release, NOW).unwrap();
+    let ended = edit_locks::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert!(ended.locks[0].released);
+    assert!(f.read().edit_locks.is_empty());
+    assert_eq!(f.read().source, source);
+}

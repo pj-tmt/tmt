@@ -1,3 +1,4 @@
+import type { EditLockRecord } from './edit-locks.js';
 import type { ActivityObservation } from './agent-activity.js';
 import type { MessageStates } from './message-state.js';
 import type { RemotePresence } from './remote-presence.js';
@@ -23,6 +24,8 @@ export interface PageView extends Projection {
   readonly own?: OwnState;
   readonly asks?: readonly PageAsk[];
   readonly threads?: readonly ThreadView[];
+  /** Latest authenticated identity lock actions; current presence remains a separate observation. */
+  readonly editLocks?: readonly EditLockRecord[];
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
   readonly agentActivity?: ActivityObservation;
@@ -69,6 +72,8 @@ export interface PageSnapshot extends PageSummary {
   readonly own?: OwnState;
   readonly asks?: readonly PageAsk[];
   readonly threads?: readonly ThreadView[];
+  /** Latest authenticated identity lock actions; current presence remains a separate observation. */
+  readonly editLocks?: readonly EditLockRecord[];
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
   readonly agentActivity?: ActivityObservation;

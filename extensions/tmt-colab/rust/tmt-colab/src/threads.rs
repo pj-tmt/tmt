@@ -41,15 +41,15 @@ impl Proposal {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct QuoteSelector {
-    exact: String,
-    prefix: String,
-    suffix: String,
+pub struct QuoteSelector {
+    pub exact: String,
+    pub prefix: String,
+    pub suffix: String,
 }
 impl QuoteSelector {
-    fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         require(!self.exact.is_empty() && self.exact.len() <= COMMENT_BODY_BYTES)?;
         for context in [&self.prefix, &self.suffix] {
             require(
