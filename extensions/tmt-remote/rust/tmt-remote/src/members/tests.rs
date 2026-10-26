@@ -52,6 +52,19 @@ impl Fixture {
         self.store.insert_grant(&g).unwrap();
         g
     }
+    fn browser(&mut self, name: &str) -> Grant {
+        let mut grant = self.grant(name, false);
+        grant.kind = "browser".into();
+        grant.origin = "http://127.0.0.1:1234".into();
+        self.store
+            .connection
+            .execute(
+                "UPDATE grants SET kind=?2,origin=?3 WHERE client_id=?1",
+                params![grant.client_id, grant.kind, grant.origin],
+            )
+            .unwrap();
+        grant
+    }
     fn request(&self, target: &Grant, candidate: &Grant) -> Association {
         let m = self
             .store
@@ -788,3 +801,9 @@ fn transaction_local_confirmation_composes_original_receipt_without_nested_or_pa
         .unwrap();
     assert_eq!(outcome, "original");
 }
+
+#[path = "tests/roster.rs"]
+mod roster;
+
+#[path = "tests/policy.rs"]
+mod policy;

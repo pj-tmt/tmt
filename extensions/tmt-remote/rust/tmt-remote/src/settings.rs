@@ -22,12 +22,16 @@ pub struct RemoteSettings {
     /// `None` when the file does not say: the default applies.
     open: Option<bool>,
     default_remote: Option<Value>,
+    remote_name: Option<String>,
     sessions_per_device: Option<usize>,
     sessions_configured: bool,
     /// The file exists but could not be read; defaults apply.
     pub malformed: bool,
 }
 impl RemoteSettings {
+    pub fn remote_name(&self) -> Option<&str> {
+        self.remote_name.as_deref()
+    }
     pub fn default_remote(&self) -> Option<&str> {
         self.default_remote.as_ref().and_then(Value::as_str)
     }
@@ -74,6 +78,11 @@ impl RemoteSettings {
             Ok(value) if value.is_object() => Self {
                 open: value["open"].as_bool(),
                 default_remote: value.get("defaultRemote").cloned(),
+                remote_name: value
+                    .get("remoteName")
+                    .and_then(Value::as_str)
+                    .filter(|name| crate::canonical::device_name(name))
+                    .map(str::to_owned),
                 sessions_configured: value
                     .as_object()
                     .expect("object")
@@ -91,6 +100,7 @@ impl RemoteSettings {
             _ => Self {
                 open: None,
                 default_remote: None,
+                remote_name: None,
                 sessions_per_device: None,
                 sessions_configured: false,
                 malformed: true,
@@ -114,6 +124,7 @@ pub fn read_or_default(root: &Path) -> RemoteSettings {
         .unwrap_or(RemoteSettings {
             open: None,
             default_remote: None,
+            remote_name: None,
             sessions_per_device: None,
             sessions_configured: false,
             malformed: true,

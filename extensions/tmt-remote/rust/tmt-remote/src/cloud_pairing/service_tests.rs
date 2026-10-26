@@ -2418,3 +2418,39 @@ fn denied_invite_cleanup_does_not_block_enrolled_reconciliation_or_receipt_pruni
         "the next tick within the hour does not retry the gate query"
     );
 }
+
+#[test]
+fn member_observation_link_does_not_keep_cloud_or_its_operations_alive() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::member_observation_link_does_not_keep_cloud_or_its_operations_alive",
+    ) {
+        return;
+    }
+    use crate::members::observations::{MemberInvitationView, MemberObservationSource};
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire,
+        clock: SystemClock::default(),
+    });
+    let (owner, _lease) = service(
+        &core.root.join("observer"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports,
+        },
+    );
+    let link = super::MemberObservationLink::default();
+    assert_eq!(link.invitation(), MemberInvitationView::Unavailable);
+    let before = Arc::strong_count(&owner);
+    link.attach(&owner).unwrap();
+    assert_eq!(Arc::strong_count(&owner), before);
+    assert_eq!(link.invitation(), MemberInvitationView::NoCurrentOffer);
+    assert!(link.attach(&owner).is_err());
+    let weak = Arc::downgrade(&owner);
+    drop(owner);
+    assert!(weak.upgrade().is_none());
+    assert_eq!(link.invitation(), MemberInvitationView::Unavailable);
+}

@@ -318,7 +318,8 @@ fn two_valid_paired_browsers_share_origin_but_not_management_designation() {
         "remote.devices.list",
         json!({"cursor":null,"limit":50}),
     );
-    assert_eq!(page["devices"].as_array().unwrap().len(), 2);
+    assert_eq!(page["devices"].as_array().unwrap().len(), 1);
+    assert_eq!(page["devices"][0]["clientId"], second.client_id);
     for (sequence, operation, input) in [
         (
             3,
@@ -454,10 +455,16 @@ fn response_sequence_publication_failure_preserves_committed_settings_receipt() 
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(
-        serde_json::from_str::<Value>(&outcome).unwrap()["state"],
-        "committed"
-    );
+    let stored: Value = serde_json::from_str(&outcome).unwrap();
+    let actor: String = oracle
+        .query_row(
+            "SELECT member_id FROM member_machines WHERE client_id=?1",
+            [&owner.grant.client_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored["actorMemberId"], actor);
+    assert_eq!(stored["outcome"]["state"], "committed");
     oracle
         .execute_batch("DROP TRIGGER fail_management_publication")
         .unwrap();
@@ -469,7 +476,7 @@ fn response_sequence_publication_failure_preserves_committed_settings_receipt() 
         "remote.management.operation",
         json!({"operationId":id}),
     );
-    assert_eq!(read["state"], "committed");
+    assert_eq!(read, stored["outcome"]);
     assert_eq!(
         oracle
             .query_row("SELECT COUNT(*) FROM management_receipts", [], |r| r
@@ -689,3 +696,6 @@ fn signed_remove_others_is_designated_atomic_and_has_only_original_result_recove
     assert_eq!(original, outcome);
     assert!(core.calls().is_empty());
 }
+
+#[path = "management_members.rs"]
+mod members;

@@ -577,7 +577,8 @@ payloads. The signed batch payload binds their exact bytes/order. Set nextCursor
 returned entry cursor, or to the input cursor on timeout; initially an empty stream returns its
 beginning cursor. The fixed observational operations (`capabilities`, `agents.list`, `identities.status`,
 `check`, `requests.show`, `result`, `dispatch.show`, `operation.show`, `remote.settings.show`,
-`remote.devices.list`, `remote.management.operation`) return live signed results without adopting
+`remote.devices.list`, `remote.members.list`, `remote.members.machines`,
+`remote.management.operation`) return live signed results without adopting
 the read ID, observed-read metadata or new ownership rows. `operation.show` is recovery observation:
 stable or still-unresolved originals are pure reads; a definitive outcome learned for an unresolved
 caller-owned original settles that original once, with its notification attributed to the observing
@@ -816,9 +817,10 @@ uncertain/dispatching outcomes remain recorded unchanged and cannot be released,
 observed or re-adopted by that new member. Cloud final selection and mapped result
 reads use the same ownership fence.
 
-The existing devices facade is the first consumer; this change adds no new public
-members command or invitation transport. Member-wide sending changes reuse its
-post-commit session cleanup; machine-specific removal retains its grant semantics.
+The shared member roster/policy service and the retained devices facade consume these
+Store identities and writers; the signed management protocol is specified below. This adds
+no CLI vocabulary or invitation transport. Member-wide sending changes reuse post-commit
+session cleanup; machine-specific removal retains its grant semantics.
 
 ### Trust grants and remote lifecycle
 
@@ -916,14 +918,14 @@ separate per-tab administrator role.
 
 Browser management uses the existing signed-envelope admission: pinned machine/key/origin,
 live Session and grant revision, timestamp, sequence/replay checks and bounded input. A cookie
-admits only the page/transport. Every mutation rechecks the current designation and grant at the
+admits only the page/transport. Every administrative mutation rechecks the current designation and grant at the
 effect fence; a cached capability or earlier authenticated read grants no authority. Local
 designation removal, grant authority loss and browser effects share the ordering fence: if removal
 wins, no later effect commits; if an effect already committed, report that outcome accurately.
 
-The initial non-designated-device disposition is **read-only, not held**. Live paired devices may
-read the bounded Remote settings/device projection; attempted settings writes, rename or revoke
-receive a signed refusal before effects, with zero writes and zero held intents. Unpaired, revoked,
+Non-designated browsers may read Remote settings and their own member/machines, and
+rename their own person. Other settings, device or member mutations require the current
+designated owner browser and otherwise refuse before effects, with zero writes or held intents. Unpaired, revoked,
 expired and extension-only principals receive no management inventory. The UI explains read-only
 access and the local CLI path; it cannot promise pending approval. The local CLI remains usable
 when no browser is designated. Existing default agent scopes, `direct`/`hold` modes, pairing expiry
@@ -943,12 +945,12 @@ resend or a replacement operation ID.
 Browser management never changes core settings, provider settings, drivers, extension installs or
 argv, and never approves, rejects, cancels or releases held operations. `tmt remote approve` and
 held-operation cancellation remain terminal-only. There is no generic config/command endpoint,
-and designation alone cannot widen agent or extension authority; the explicit device talk toggle
-is the sole scope-widening exception above. Typed wire/SDK payloads, refusals and mutation recovery
+and designation alone cannot widen agent or extension authority; explicit device talk or
+member sending changes use the existing member-policy writer. Typed wire/SDK payloads, refusals and mutation recovery
 must be specified with the implementation before any such operation is advertised as supported.
 
 Implementation acceptance must prove same-loopback browsers with different keys cannot impersonate
-the designated browser, designation is local-only and never automatic, non-designated writes cause
+the designated browser, designation is local-only and never automatic, non-designated administrative writes cause
 no effects or holds, and revoke/re-pair/key change, expiry, restart, rename and concurrent removal
 obey the lifecycle and effect fence above. The actual settings/device page separately requires
 product native/browser acceptance, UX review and publication evidence; a shared presentation
@@ -978,6 +980,72 @@ requests use a fresh envelope ID; original-operation lookup never adopts or exec
 | `remote.devices.remove-others`         | `{operationId,fingerprint}`                                                                                      | Management outcome; keeper is the authenticated caller                 |
 | `remote.devices.revoke`                | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
 | `remote.management.operation`          | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
+
+The member operations use the same channel, input bound, journal and exact-door browser
+admission; they add no agent scope. The local owner and the exact currently designated owner
+browser receive the full roster. Other admitted browsers receive only their current member
+and its machines; an owner role label on another machine is insufficient for administration.
+The retained `remote.devices.list` follows the same administrator/self visibility rule.
+
+| Operation                 | Exact input                                                      | Result                                             |
+| ------------------------- | ---------------------------------------------------------------- | -------------------------------------------------- |
+| `remote.members.list`     | `{cursor:null\|string,limit:integer}`                            | Member roster; limit 1–50                          |
+| `remote.members.machines` | `{memberId,cursor:null\|string,limit:integer}`                   | Machine page; limit 1–50                           |
+| `remote.members.rename`   | `{operationId,remoteId,memberId,memberRevision,name}`            | Member outcome; Admin any member, Member self only |
+| `remote.members.sending`  | `{operationId,remoteId,memberId,memberRevision,enabled:boolean}` | Member outcome; Admin only                         |
+| `remote.members.revoke`   | `{operationId,remoteId,memberId,memberRevision}`                 | Member outcome; Admin only                         |
+| `remote.name.set`         | `{operationId,remoteId,name}`                                    | Remote-name outcome; Admin only                    |
+
+`remoteId` is the current Remote UUID; existing member/client IDs remain opaque, including
+legacy IDs. `memberRevision` is a positive JSON-safe integer and must match the target at the
+effect fence. Names use the existing 1–64-byte nonblank/control-free rule. Person, machine,
+Remote-wide and browser-local catalog names are separate: renaming one never renames another.
+
+A member roster is exactly `{remoteId,administrator:boolean,displayName:null|string,
+members:[person],nextCursor:null|string,invitation:null|invitationView,routes:routeView}`.
+A person is exactly `{remoteId,memberId,role:"owner"|"user",displayName,sendingEnabled:boolean,
+revision,createdAtMs,revokedAtMs:null|integer}`. The administrator can inspect revoked members;
+a user must still have a live current member. A machine page is exactly
+`{remoteId,memberId,machines:[machine],nextCursor:null|string}`. A machine is exactly
+`{clientId,name,kind:"browser"|"addon"|"cli",revision,revoked:boolean,expiresAtMs:null|integer,
+sendingScope:boolean,delivery:"direct"|"hold",recipientAccess:"all"|"restricted",grantLive:boolean,
+lastUsedAtMs:null|integer,thisBrowser:boolean,liveSessionCount:null|integer,lastActivityAtMs:null|integer}`.
+Sending, delivery and recipient policy are independent of role. `grantLive` is local grant
+eligibility, never network reachability. Activity is a disposable Session observation; when
+that owner is unavailable, both activity fields are null, not an invented zero/online verdict.
+Durable `lastUsedAtMs` retains its existing meaning. No keys, origins, agents, Session identifiers
+or provider identifiers are exposed.
+
+Member and machine pages apply SQL limit plus one lookahead before materialization, without
+nested unbounded arrays. Their 54-character base64url cursor contains SHA-256 of the Remote,
+caller, visibility scope, view and target, followed by the row position; it grants no authority
+or snapshot lease. Authority and current machine association/revision are rechecked before
+returning observations. The private owner-only control socket accepts `members.list` and
+`members.machines` with the same inputs/projections, using the serving Store; terminal mutation
+and mutation-journal adapters are deferred and are not control operations.
+
+`invitation` is null for non-administrators. For administrators, `invitationView` is exactly
+`{state:"unavailable"}`, `{state:"no-current-offer"}`, or `{state:"current",expiresAtMs:null|integer,
+phase:"open"|"awaiting-owner"|"confirmed"|"refused"|"cancelled"|"expired"|"unconfirmed",
+localConfirmationKnown:boolean,cleanup:"not-requested"|"acknowledged"|"unconfirmed"}`.
+No current in-memory offer does not prove absence of provider state. `routeView` is exactly
+`{state:"unavailable"}`, `{state:"not-recorded"}`, or
+`{state:"recorded",publicationPending:boolean,removalPending:boolean}`. It aggregates the
+existing desired-route/publication-ACK queue, restricted to the user's member where applicable;
+no recorded row does not prove provider cleanup. Invitation capture occurs before the Store
+guard. These optional observations introduce no provider call, worker, retry or ledger and
+cannot authorize a mutation.
+
+Member effects return the ordinary outcome union with committed `result:{member:person}`;
+Remote name returns `result:{remote:{remoteId,displayName}}`. Both retain `sessionEnded`.
+Member rename preserves machine identity and Sessions. Sending/revoke reuse the M1 policy
+writer and post-commit Session/device cleanup. Each effect checks current actor key, origin,
+grant, designation/role and target revision in the same immediate transaction as the effect
+and immutable receipt. Only validation before writes can settle a refusal; a writer or receipt
+failure rolls back SQL authority and leaves the original unknown. Remote-name file publication
+uses the settings first-touch boundary below. `REMOTE_MEMBER_OWNER_REQUIRED` refuses insufficient
+administrative/self-service authority; `REMOTE_MEMBER_CONFLICT` refuses a stale or revoked target.
+These are typed pre-effect refusals, never permission to automatically retry a mutation.
 
 A settings value is exactly `{open:boolean,source:"default"|"settings.json",
 sessionsPerDevice:string|null,sessionsPerDeviceSource:"default"|"settings.json",warning:string|null}`.
@@ -1027,7 +1095,7 @@ Changed inventory yields `REMOTE_DEVICE_LIST_CHANGED` without mutation; above th
 `REMOTE_DEVICE_REMOVAL_LIMIT`, never a partial batch. Keeper authority is unchanged; target
 sessions end after commit. Local owner `tmt remote devices remove-others --keep <client-id>` uses
 the same atomic inventory/revocation owner, with an explicit live keeper. A non-designated browser
-can read inventory and sees its exact local `tmt remote devices designate <client-id>` command;
+can read its own inventory and sees its exact local `tmt remote devices designate <client-id>` command;
 it cannot designate itself or execute removal. Re-pair short-circuit preserves the existing
 designation because the device identity stays unchanged.
 
@@ -1035,7 +1103,7 @@ Browser device rows contain no keys, key fingerprints, cookies, Session identifi
 
 A management outcome is one of:
 
-- `{operationId,state:"committed",result:{settings}|{device:summary}|{removed:integer},sessionEnded:boolean}`;
+- `{operationId,state:"committed",result:{settings}|{device:summary}|{removed:integer}|{member:person}|{remote:{remoteId,displayName}},sessionEnded:boolean}`;
 - `{operationId,state:"refused",reason:<typed Remote refusal code>}`;
 - `{operationId,state:"unknown",reason:"effect_outcome_unconfirmed"}`.
 
@@ -1053,10 +1121,10 @@ failure cannot remove that receipt or turn committed work into no effect.
 Typed signed errors retain `{error:{code,message,limit?,retryAfterMs?,settingsUrl?,scope?}}` admission
 conventions. A missing sending scope returns signed `REMOTE_SCOPE_DENIED` with `scope:"talk"`
 and an optional same-origin `settingsUrl`, unlike a recipient allowlist refusal.
-`REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated effects before management intent adoption,
+`REMOTE_MANAGEMENT_READ_ONLY` refuses non-designated legacy administrative effects before intent adoption,
 with no setting/device effects or management holds; ordinary sequence/budget/audit accounting remains.
 `REMOTE_MANAGEMENT_UNAVAILABLE` means an original receipt is missing,
-other-device or outside its deadline, never proof of no effect. `REMOTE_SETTINGS_UNAVAILABLE` is
+other-device, member-fenced or outside its deadline, never proof of no effect. `REMOTE_SETTINGS_UNAVAILABLE` is
 used only for a proved failure before the settings-file first-touch boundary. Existing input,
 rate, live-session, intent-conflict, device-not-found/revoked and state-unavailable codes retain
 relevant meanings. Read refusals are SDK `RefusalError`; mutation signed refusals are refused
@@ -1066,12 +1134,16 @@ phase-ambiguous after publication: the SDK raises `ClientError("outcome_unconfir
 that original ID and unknown outcome. `REMOTE_STATE_UNAVAILABLE`, `REMOTE_MANAGEMENT_UNAVAILABLE`,
 and generic closed/ended/core failures cannot prove that the mutation had no effect. Ordinary
 reads retain `RefusalError`; agent operation behavior is unchanged. Only explicit input, scope,
-rate, intent conflict, management read-only/capacity, device-list-changed/removal-limit, device not-found/revoked and proved
+rate, intent conflict, management read-only/capacity, member owner-required/conflict,
+device-list-changed/removal-limit, device not-found/revoked and proved
 settings-before-touch refusal codes establish a pre-effect management refusal. A post-publication HTTP 404 alone is unknown, not a signed zero-effect
 refusal. A prior ended Session that prevented publication is a refused unsent attempt.
 
 Store persists exact intent digest, original caller UUID, grant revision, immutable adoption time,
-30-day deadline and outcome. Management and agent operation IDs cannot collide. Identical
+30-day deadline and outcome. Every newly adopted management row binds `actorMemberId` inside its
+existing JSON wrapper, while unchanged historical rows are readable only when the current
+member ID equals their legacy client ID; otherwise reads return `REMOTE_MANAGEMENT_UNAVAILABLE`.
+Management and agent operation IDs cannot collide. Identical
 retained intent returns only its existing outcome; changed operation/input/caller conflicts.
 No lookup renews the deadline. Expired identity rows remain replay tombstones; capacity is bounded
 at 1000 per caller and 4000 installation-wide, refusing new adoption rather than evicting an

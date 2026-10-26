@@ -834,3 +834,56 @@ fn person_management_requires_a_unique_name_and_accepts_an_exact_client_id() {
     drop(serving);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn member_route_observation_uses_existing_queue_and_ack_without_provider_identifiers() {
+    use crate::members::observations::MemberRouteView;
+    let (root, serving, candidate) = world();
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let _cleanup = Cleanup(root);
+    let mut store = Store::open(&serving).unwrap();
+    assert_eq!(
+        store.member_route_view(None).unwrap(),
+        MemberRouteView::NotRecorded
+    );
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
+        .unwrap();
+    let peer = &candidate.candidate.peer;
+    let member = store.member_for_client(peer).unwrap().unwrap().member_id;
+    let pending = MemberRouteView::Recorded {
+        publication_pending: true,
+        removal_pending: false,
+    };
+    assert_eq!(store.member_route_view(Some(&member)).unwrap(), pending);
+    assert_eq!(
+        store.member_route_view(Some(&uuid_v4().unwrap())).unwrap(),
+        MemberRouteView::NotRecorded
+    );
+    let row = store.cloud_route_changes().unwrap().remove(0);
+    store.cloud_route_published(&row).unwrap();
+    assert_eq!(
+        store.member_route_view(Some(&member)).unwrap(),
+        MemberRouteView::Recorded {
+            publication_pending: false,
+            removal_pending: false
+        }
+    );
+    store.revoke(peer).unwrap();
+    assert_eq!(
+        store.member_route_view(None).unwrap(),
+        MemberRouteView::Recorded {
+            publication_pending: false,
+            removal_pending: true
+        }
+    );
+    let encoded = serde_json::to_value(store.member_route_view(None).unwrap()).unwrap();
+    for key in ["uid", "project", "token", "generation"] {
+        assert!(encoded.get(key).is_none());
+    }
+}

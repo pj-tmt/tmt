@@ -1,13 +1,10 @@
+import { managementMutation } from './management-mutation.js';
+import { valid, input, object, exact, integer } from './management-codec.js';
 import { parseFirestoreLayers, type FirestoreLayerView } from './firestore.js';
 import { parsePublishedLimits, type FirestoreBudgetView } from './budget.js';
 import type { Session } from './device.js';
 import { channelFor } from './session-channel.js';
-import {
-  ClientError,
-  RefusalError,
-  verifiedSessionRequest,
-  type RemoteRefusalCode,
-} from './operations.js';
+import { verifiedSessionRequest, type RemoteRefusalCode } from './operations.js';
 
 export interface RemoteSettings {
   open: boolean;
@@ -84,22 +81,6 @@ export interface RemoteManagement {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const decimal = (value: unknown): value is string =>
   typeof value === 'string' && /^[1-9][0-9]{0,19}$/.test(value);
-function valid(condition: unknown): asserts condition {
-  if (!condition) throw new Error('Invalid management response.');
-}
-function input(condition: unknown): asserts condition {
-  if (!condition) throw new TypeError('Invalid management input.');
-}
-function object(value: unknown): Record<string, unknown> {
-  valid(typeof value === 'object' && value !== null && !Array.isArray(value));
-  return value as Record<string, unknown>;
-}
-function exact(value: Record<string, unknown>, keys: string[]): void {
-  valid(
-    Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)),
-  );
-}
-const integer = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0;
 function settings(value: unknown): RemoteSettings {
   const row = object(value);
   exact(row, ['open', 'source', 'sessionsPerDevice', 'sessionsPerDeviceSource', 'warning']);
@@ -166,8 +147,10 @@ const refusalCodes = new Set<string>([
   'REMOTE_MANAGEMENT_CAPACITY',
   'REMOTE_DEVICE_LIST_CHANGED',
   'REMOTE_DEVICE_REMOVAL_LIMIT',
+  'REMOTE_MEMBER_OWNER_REQUIRED',
+  'REMOTE_MEMBER_CONFLICT',
 ]);
-function outcome(value: unknown, operationId: string): ManagementOutcome {
+export function parseManagementOutcome(value: unknown, operationId: string): ManagementOutcome {
   const row = object(value);
   valid(row.operationId === operationId);
   if (row.state === 'committed') {
@@ -213,38 +196,25 @@ export function management(
   ): Promise<ManagementOutcome> {
     const { operationId } = value;
     input(UUID.test(operationId));
-    try {
-      return await call(
-        operation,
-        operationId,
-        value,
-        (reply) => {
-          const parsed = outcome(reply, operationId);
-          if (parsed.state === 'committed') {
-            if (operation === 'remote.settings.set') valid('settings' in parsed.result);
-            else if (operation === 'remote.devices.remove-others')
-              valid('removed' in parsed.result && parsed.sessionEnded === false);
-            else {
-              valid('device' in parsed.result && parsed.result.device.clientId === value.clientId);
-              if (operation === 'remote.devices.rename')
-                valid(parsed.result.device.name === value.name);
-              if (operation === 'remote.devices.revoke') valid(parsed.result.device.revoked);
-              if (operation === 'remote.devices.talk')
-                valid(parsed.result.device.talkEnabled === value.enabled);
-            }
-          }
-          return parsed;
-        },
-        true,
-      );
-    } catch (error) {
-      if (error instanceof ClientError)
-        throw new ClientError(error.code, error.message, operationId);
-      if (error instanceof RefusalError)
-        return { state: 'refused', operationId, reason: error.code };
-      throw error;
-    }
+    return managementMutation(call, operation, value, (reply) => {
+      const parsed = parseManagementOutcome(reply, operationId);
+      if (parsed.state === 'committed') {
+        if (operation === 'remote.settings.set') valid('settings' in parsed.result);
+        else if (operation === 'remote.devices.remove-others')
+          valid('removed' in parsed.result && parsed.sessionEnded === false);
+        else {
+          valid('device' in parsed.result && parsed.result.device.clientId === value.clientId);
+          if (operation === 'remote.devices.rename')
+            valid(parsed.result.device.name === value.name);
+          if (operation === 'remote.devices.revoke') valid(parsed.result.device.revoked);
+          if (operation === 'remote.devices.talk')
+            valid(parsed.result.device.talkEnabled === value.enabled);
+        }
+      }
+      return parsed;
+    });
   }
+
   return {
     clientId,
     previewRemoveOthers: () =>
@@ -344,7 +314,7 @@ export function management(
     operation: (operationId) => {
       input(UUID.test(operationId));
       return call('remote.management.operation', crypto.randomUUID(), { operationId }, (value) =>
-        outcome(value, operationId),
+        parseManagementOutcome(value, operationId),
       );
     },
   };

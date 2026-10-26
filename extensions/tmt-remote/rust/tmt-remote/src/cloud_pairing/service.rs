@@ -3,6 +3,9 @@
 mod ceremony;
 mod join;
 
+mod member_observations;
+pub use member_observations::MemberObservationLink;
+
 use super::{
     Candidate, Connection, RouteChange,
     wire::{self, Invite, Submission},

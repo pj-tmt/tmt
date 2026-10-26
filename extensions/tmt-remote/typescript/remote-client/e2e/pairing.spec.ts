@@ -1043,6 +1043,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'firebaseRemote',
     'landingPage',
     'management',
+    'members',
     'operations',
     'pairingPage',
     'remoteRegistry',
@@ -1097,11 +1098,30 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   await context.clearCookies();
   await app.reload();
   await expect(app.locator('#context')).toHaveText('none');
-  await app.evaluate(async () => {
-    const sdk = (await import('/sdk/remote-v1.js' as string)) as {
-      reopenSession(): Promise<unknown>;
-    };
-    await sdk.reopenSession();
+  const memberView = await app.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
+    const session = await sdk.reopenSession();
+    const client = sdk.members(session);
+    const roster = await client.list({ cursor: null, limit: 1 });
+    if (!roster.members[0]) throw new Error('The paired browser has no member.');
+    const machines = await client.machines({
+      memberId: roster.members[0].memberId,
+      cursor: null,
+      limit: 1,
+    });
+    return { roster, machines };
+  });
+  // A sending grant and native mount context still confer no administration.
+  expect(memberView.roster.administrator).toBe(false);
+  expect(memberView.roster.invitation).toBeNull();
+  expect(memberView.roster.members).toHaveLength(1);
+  expect(memberView.roster.members[0]).toMatchObject({ memberId: device.deviceId, role: 'user' });
+  expect(memberView.machines.machines).toHaveLength(1);
+  expect(memberView.machines.machines[0]).toMatchObject({
+    clientId: device.deviceId,
+    name: 'E2E browser',
+    thisBrowser: true,
+    grantLive: true,
   });
   // Two pages of one context share the device cookie but retain independent transports/lanes.
   const otherTab = await context.newPage();
@@ -3224,22 +3244,23 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
       // This real effect+settlement and native response is the deterministic
       // milestone. The browser still has not received its acknowledgement.
       const response = await reply.json();
-      expect(JSON.parse(Buffer.from(response.payload, 'base64url').toString('utf8')).state).toBe(
-        'committed',
-      );
+      const publicOutcome = JSON.parse(Buffer.from(response.payload, 'base64url').toString('utf8'));
+      expect(publicOutcome.state).toBe('committed');
       durable = JSON.parse(
         execFileSync(
           'python3',
           [
             '-c',
-            "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome'],row)))); db.close()",
+            "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome,(SELECT member_id FROM member_machines WHERE client_id=management_receipts.client_id) FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome','actorMemberId'],row)))); db.close()",
             join(root, 'state/remote/remote.db'),
             originalId,
           ],
           { encoding: 'utf8' },
         ),
       );
-      expect(JSON.parse(durable.outcome as string).state).toBe('committed');
+      const stored = JSON.parse(durable.outcome as string);
+      expect(stored.actorMemberId).toBe(durable.actorMemberId);
+      expect(stored.outcome).toEqual(publicOutcome);
       expect(serve.kill('SIGKILL')).toBe(true);
       await exited(serve);
       expect(serve.signalCode).toBe('SIGKILL');
@@ -3281,7 +3302,7 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
       'python3',
       [
         '-c',
-        "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome'],row)))); db.close()",
+        "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome,(SELECT member_id FROM member_machines WHERE client_id=management_receipts.client_id) FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome','actorMemberId'],row)))); db.close()",
         join(root, 'state/remote/remote.db'),
         originalId,
       ],

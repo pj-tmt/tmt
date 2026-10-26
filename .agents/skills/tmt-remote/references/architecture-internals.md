@@ -150,8 +150,8 @@ The public contract owns exact paths and locked-tab behavior.
 `members` keeps the per-Remote person mapping and owner/user policy in the existing
 Store, without another database or network owner. Migration preserves grant fields
 and creates one member per grant; only the exact existing key-bound browser
-designation establishes an owner role. The existing device facade consumes member
-names and sends through the common member policy writer. Grant-specific revocation
+designation establishes an owner role. Person and machine names remain separate;
+the device facade sends through the common member policy writer. Grant-specific revocation
 and cleanup retain their existing device meaning.
 
 `Store::confirm_member_grant` is the small trusted confirmation sink: only a caller
@@ -176,6 +176,32 @@ are checked there. A matching display/provider name never associates machines.
 Member policy reuses grant scope/revocation writers, persists old-session fences,
 and returns all changed clients for the existing post-commit session owner.
 The contract owns the schema, policy and outcome semantics.
+
+`members::service` owns bounded person and machine projections over that same
+Store. Administrator views require the local owner or the exact current designated
+owner browser; other admitted browsers see only their current member. Role labels
+on another associated machine grant no additional access. SQL limits precede
+materialization; view/caller/Remote-bound row-position cursors preserve legacy IDs
+without treating a cursor as authority. Machine names and person names are distinct.
+`members::policy` shares transaction-local M1 writers for person rename, sending
+and member revoke; self-service is limited to renaming the caller's own person.
+`PreparedMemberPolicy` validates before any writer runs in the held management
+transaction: only preparation can settle a refusal, while an application error
+aborts all authority changes and retains the original unknown outcome. Remote-wide
+name uses the existing settings writer and its first-touch uncertainty boundary.
+All new management outcomes bind their actor member inside the existing receipt
+JSON. Historical unbound bytes stay exact and are readable only by the legacy
+client/member identity; no journal migration or second ledger is introduced.
+
+`members::reads` adapts signed reads and the private control socket to one Store
+projection. Session activity is gathered outside the Store guard, then authority,
+association and revision are rechecked before disclosure. Without a Session owner,
+activity remains unknown. Terminal mutations remain outside this adapter.
+`members::observations` captures the existing invitation coordinator before acquiring
+live/Store locks, and aggregates existing desired-route/ACK rows under the same Store.
+The Cloud composition attaches a weak link once, avoiding a Cloud/Operations cycle.
+These reads do no provider I/O, retry or polling; the contract owns their neutral
+shapes and privacy limits.
 
 ## Shared extension state
 
