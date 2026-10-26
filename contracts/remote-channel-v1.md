@@ -2154,7 +2154,8 @@ ID), an optional `account` (`{key,label}` as Core names it in `rateLimits.accoun
 Core named; a client groups by `key`, never shows it, and ignores an entry whose `account` is malformed),
 `windowMinutes` (10080) and `points`, oldest first, each `[observedAtMs, percentLeft, resetsAtMs]` with the
 percentage rounded to two decimals; the reset time rides with every point because the kept 8 days can span two
-windows. The cache has at most 8 providers and 10-minute buckets, and the board samples only while it is open, so
+windows. The cache has at most 8 drivers, at most 8 entries per driver (an account is an entry; the plain driver
+counts as one) and 10-minute buckets, and the board samples only while it is open, so
 history has gaps and a machine whose board never ran has none: that answer is `not_sampled`, never an empty list.
 The short window is not served.
 
