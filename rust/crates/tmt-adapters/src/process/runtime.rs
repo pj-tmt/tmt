@@ -366,6 +366,9 @@ pub(super) fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObserv
             .map(ProcessObservation::UnreapedZombie)
             .unwrap_or(ProcessObservation::Unknown);
     }
+    if matches!(fields[5].as_bytes().first(), Some(b'X' | b'x')) {
+        return ProcessObservation::Gone;
+    }
     if matches!(fields[5].as_bytes().first(), Some(b'T' | b't')) {
         return ProcessIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
             .map(ProcessObservation::Stopped)
@@ -501,6 +504,11 @@ mod tests {
         assert_eq!(
             parse_process_observation(42, b"Sun Sep 27 10:00:00 2026 T+\n"),
             ProcessObservation::Stopped(key.clone())
+        );
+        assert_eq!(
+            parse_process_observation(42, b"Sun Sep 27 10:00:00 2026 X\n").matches(key),
+            RuntimeLiveness::Gone,
+            "a process being reaped has ended"
         );
         assert_eq!(
             parse_process_observation(42, b"Sun Sep 27 10:00:01 2026 S+\n").matches(key),
@@ -917,5 +925,44 @@ mod tests {
             Err(StopRuntimeError::TimedOut)
         ));
         assert!(runner.signals.borrow().is_empty());
+    }
+
+    /// The pane shell reaps an agent right after its TERM, and a poll can land
+    /// while the kernel reports it as dead (`X`): that is an exit, not doubt.
+    #[test]
+    fn a_stop_whose_agent_is_seen_being_reaped_has_exited() {
+        use std::cell::RefCell;
+        use std::collections::VecDeque;
+        struct Runner(RefCell<VecDeque<&'static str>>);
+        impl CommandRunner for Runner {
+            fn execute(
+                &self,
+                request: CommandRequest<'_>,
+            ) -> Result<super::super::CommandOutput, CommandError> {
+                let stdout = if request.program == OsStr::new("/usr/bin/env") {
+                    self.0.borrow_mut().pop_front().expect("unexpected probe")
+                } else {
+                    assert_eq!(request.program, OsStr::new("/bin/kill"));
+                    ""
+                };
+                Ok(super::super::CommandOutput {
+                    stdout: stdout.as_bytes().to_vec(),
+                    stderr: vec![],
+                })
+            }
+        }
+        let expected = ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap();
+        let runner = Runner(RefCell::new(
+            [
+                "Sun Sep 27 10:00:00 2026 S+\n",
+                "Sun Sep 27 10:00:00 2026 R+\n",
+                "Sun Sep 27 10:00:00 2026 X\n",
+            ]
+            .into(),
+        ));
+        request_runtime_stop(&runner, &expected, Instant::now() + Duration::from_secs(2))
+            .and_then(RuntimeStop::wait)
+            .unwrap();
+        assert!(runner.0.borrow().is_empty());
     }
 }

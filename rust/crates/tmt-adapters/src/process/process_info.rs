@@ -83,6 +83,9 @@ fn observation(pid: u64, seconds: u64, state: u8) -> Option<ProcessObservation> 
         b'Z' => ProcessObservation::UnreapedZombie(incarnation),
         b'T' | b't' => ProcessObservation::Stopped(incarnation),
         b'R' | b'S' | b'I' | b'D' | b'U' => ProcessObservation::Live(incarnation),
+        // Reaped: the parent is collecting it, so it has ended. A stop's wait
+        // sees this state when the pane shell reaps the agent it just TERMed.
+        b'X' | b'x' => ProcessObservation::Gone,
         _ => ProcessObservation::Unknown,
     })
 }
@@ -315,6 +318,13 @@ mod tests {
             observation(42, 946684800, b'Z'),
             Some(ProcessObservation::UnreapedZombie(key))
         );
+        for reaped in [b'X', b'x'] {
+            assert_eq!(
+                observation(42, 946684800, reaped),
+                Some(ProcessObservation::Gone),
+                "a process being reaped has ended"
+            );
+        }
         assert_eq!(
             observation(42, 946684800, b'?'),
             Some(ProcessObservation::Unknown)

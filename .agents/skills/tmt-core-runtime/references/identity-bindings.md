@@ -93,8 +93,8 @@ delivery. They install and launch nothing.
 - `ProcessIncarnation` (PID plus core's start token, `ps-v1` UTC seconds; on Linux boot seconds
   plus clock ticks) compares runtimes, launch owners, notification waiters and external host
   servers. Native reads (`tmt-sys::bsd_info`, `/proc/<pid>/stat`) fall back to bounded `ps` for
-  the whole batch when any one fails. Vanished, zombie or changed start is ended; stopped,
-  traced or inconclusive is unknown and never permits legacy unobserved delivery. For a
+  the whole batch when any one fails. Vanished, zombie, reaped (`X`) or changed start is ended;
+  stopped, traced or inconclusive is unknown and never permits legacy unobserved delivery. For a
   wrapper-launched runtime a surviving child also needs a live matching launch owner, else the
   runtime is unknown (child death is still ended). Owner fields take part in the same
   full-observation compare-and-set.
