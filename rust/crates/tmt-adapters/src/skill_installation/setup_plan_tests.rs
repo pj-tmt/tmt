@@ -108,3 +108,39 @@ fn publication_replaces_planned_names_even_if_their_entries_changed() {
         Vec::<PathBuf>::new()
     );
 }
+
+#[test]
+fn approved_new_scope_refuses_a_target_that_appeared_and_does_not_publish_its_peer() {
+    let (_directory, env, global, root) = fixture();
+    let driver = Registry::builtin().find("claude").unwrap();
+    let plan = plan_core(&env, &global, driver).unwrap();
+    fs::create_dir(root.join("tmt-inbox")).unwrap();
+    fs::write(root.join("tmt-inbox/SKILL.md"), b"user skill").unwrap();
+    assert!(super::publish_missing_core(&global, &plan).is_err());
+    assert_eq!(
+        fs::read(root.join("tmt-inbox/SKILL.md")).unwrap(),
+        b"user skill"
+    );
+    assert!(!root.join("tmt").exists());
+    assert!(super::recorded_targets(&global).unwrap().is_empty());
+}
+
+#[test]
+fn approved_new_scope_publishes_only_absent_planned_targets_and_records_them() {
+    let (_directory, env, global, root) = fixture();
+    let driver = Registry::builtin().find("claude").unwrap();
+    let plan = plan_core(&env, &global, driver).unwrap();
+    let report = super::publish_missing_core(&global, &plan).unwrap();
+    assert_eq!(report.linked.len(), 2);
+    for name in ["tmt", "tmt-inbox"] {
+        assert_eq!(
+            fs::read(root.join(name).join("SKILL.md")).unwrap(),
+            super::bundled_skill_named(name).unwrap()
+        );
+        assert!(
+            super::recorded_targets(&global)
+                .unwrap()
+                .contains(&root.join(name))
+        );
+    }
+}

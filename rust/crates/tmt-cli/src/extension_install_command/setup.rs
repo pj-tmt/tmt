@@ -15,13 +15,20 @@ pub(crate) struct SetupState {
     pub(crate) version: Option<String>,
 }
 
-/// One fixed order for setup's selection and dependency settlement.
-pub(crate) const PRODUCTS: [Product; 4] = [
-    Product::Ops,
-    Product::Digest,
-    Product::Remote,
-    Product::Colab,
-];
+/// The official inventory has one product owner; dependencies determine apply order.
+pub(crate) const PRODUCTS: [Product; Product::ALL.len() - 1] = {
+    let mut products = [Product::Cli; Product::ALL.len() - 1];
+    let mut source = 0;
+    let mut target = 0;
+    while source < Product::ALL.len() {
+        if !matches!(Product::ALL[source], Product::Cli) {
+            products[target] = Product::ALL[source];
+            target += 1;
+        }
+        source += 1;
+    }
+    products
+};
 
 pub(crate) fn dependencies(product: Product) -> &'static [Product] {
     match product {
@@ -152,17 +159,37 @@ pub(crate) fn apply(
     product: Product,
     progress: native_install::ProgressObserver<'_>,
 ) -> Result<Value, Failure> {
-    let state = Entry::read(product, &prefix(None)?).plan()?;
+    apply_at(product, &prefix(None)?, None, progress)
+}
+
+pub(crate) fn apply_at(
+    product: Product,
+    prefix: &Path,
+    selected: Option<&str>,
+    progress: native_install::ProgressObserver<'_>,
+) -> Result<Value, Failure> {
+    let entry = Entry::read(product, prefix);
+    let state = entry.plan()?;
     if !state.installed {
-        return super::install_offered(product, progress).map(|(document, _)| document);
+        return super::install_offered_at(product, Some(prefix), selected, progress)
+            .map(|(document, _)| document);
     }
-    let executable = prefix(None)?.join("bin").join(product.executable());
+    let executable = prefix.join("bin").join(product.executable());
     let mut document = json!({"extension": product.as_str(), "installed": true, "changed": false,
         "version": state.version, "executable": executable,
         "skills": {"status": "current"}});
     if !state.skills_current {
         let mut human = Human::plain(String::new());
-        skills::settle_skills(product, &executable, &[], &mut document, &mut human)?;
+        let Installation::Managed(current) = &entry.installation else {
+            unreachable!("verified installed release");
+        };
+        skills::settle_skills(
+            product,
+            &current.active_executable,
+            &[],
+            &mut document,
+            &mut human,
+        )?;
     }
     Ok(document)
 }

@@ -108,11 +108,7 @@ fn interactive(cancel: bool) {
             // Space on Remote unchecks Colab. The next Down/space checks Colab and Remote.
             write(
                 &pty.master,
-                if cancel {
-                    b"\x03"
-                } else {
-                    b"\x1b[B\x1b[B \x1b[B \r"
-                },
+                if cancel { b"\x03" } else { b"\x1b[B \x1b[B \r" },
             )
             .unwrap();
         }

@@ -242,7 +242,8 @@ pub fn install_version(
                 pin,
                 expected: Some(
                     Uuid::parse_str(&request.expected_current).map_err(io::Error::other)?,
-                ),
+                )
+                .into(),
                 provenance: Some(provenance),
                 verifier: None,
                 explicit_channel,

@@ -192,19 +192,13 @@ pub(super) fn listing(
     let inventory = super::setup::inventory(prefix);
     let mut rows = Vec::new();
     let mut lines = Vec::new();
-    for product in Product::ALL
-        .into_iter()
-        .filter(|product| *product != Product::Cli)
-    {
+    for entry in &inventory {
+        let product = entry.product;
         let name = product.as_str();
         let mut cli = None;
         let mut state = None;
         let mut partial = false;
         let mut issue = None;
-        let entry = inventory
-            .iter()
-            .find(|entry| entry.product == product)
-            .expect("every official product belongs to the setup inventory");
         match &entry.installation {
             super::setup::Installation::Missing => {}
             super::setup::Installation::PartiallyRemoved => partial = true,

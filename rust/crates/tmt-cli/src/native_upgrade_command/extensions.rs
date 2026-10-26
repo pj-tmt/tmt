@@ -145,7 +145,7 @@ fn upgrade_with_observations(
 
 /// The new executable retains inventory authority. Presentation/error wording
 /// may change across versions; consent covers product, state and exact target.
-pub(super) fn targets(plan: &Plan) -> BTreeMap<String, (String, Value, Value)> {
+pub(crate) fn targets(plan: &Plan) -> BTreeMap<String, (String, Value, Value)> {
     plan.products
         .iter()
         .map(|row| {
@@ -289,6 +289,36 @@ fn invoke(
     budget: Duration,
     observer: &mut dyn FnMut(&[u8]),
 ) -> Result<tmt_adapters::process::CommandOutput, tmt_adapters::process::CommandError> {
+    invoke_mode(
+        executable, runner, planning, progress, false, input, budget, observer,
+    )
+}
+
+pub(super) fn invoke_complete(
+    executable: &Path,
+    runner: &impl CommandRunner,
+    planning: bool,
+    progress: bool,
+    input: &[u8],
+    budget: Duration,
+    observer: &mut dyn FnMut(&[u8]),
+) -> Result<tmt_adapters::process::CommandOutput, tmt_adapters::process::CommandError> {
+    invoke_mode(
+        executable, runner, planning, progress, true, input, budget, observer,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn invoke_mode(
+    executable: &Path,
+    runner: &impl CommandRunner,
+    planning: bool,
+    progress: bool,
+    complete: bool,
+    input: &[u8],
+    budget: Duration,
+    observer: &mut dyn FnMut(&[u8]),
+) -> Result<tmt_adapters::process::CommandOutput, tmt_adapters::process::CommandError> {
     let mut args = vec![
         "__native-upgrade-extensions".into(),
         "--json".into(),
@@ -296,6 +326,9 @@ fn invoke(
     ];
     if progress {
         args.push("--progress".into());
+    }
+    if complete {
+        args.push("--complete".into());
     }
     let request = CommandRequest {
         program: executable.as_os_str(),

@@ -1210,14 +1210,14 @@ describe('tmt extension install surface', () => {
 
 describe('aggregate official upgrades', () => {
   it(
-    'keeps independent CLI/Ops/Remote/Colab pins and leaves retired Office bytes untouched',
+    'keeps independent official product pins and leaves retired Office bytes untouched',
     { timeout: 60000 },
     async () => {
       await withReleaseSandbox(async (sandbox) => {
         const prefix = path.join(sandbox.root, 'native install prefix with spaces');
         const install = async (
           artifact: ArtifactFixture,
-          product: 'cli' | 'ops' | 'remote' | 'colab'
+          product: 'cli' | 'ops' | 'remote' | 'colab' | 'digest'
         ) => {
           const result = await runCli(
             sandbox,
@@ -1246,7 +1246,7 @@ describe('aggregate official upgrades', () => {
         const cliArtifact = await createArtifact(sandbox, version);
         const cli = await install(cliArtifact, 'cli');
         const extensionReceipts = new Map<string, Buffer>();
-        for (const product of ['ops', 'remote', 'colab'] as const) {
+        for (const product of ['ops', 'remote', 'colab', 'digest'] as const) {
           const artifact = await createArtifact(
             sandbox,
             '0.1.0-alpha.1',
@@ -1279,6 +1279,11 @@ describe('aggregate official upgrades', () => {
             status: 'skippedPinned',
             hint: 'tmt extension upgrade colab --unpin',
           },
+          {
+            product: 'digest',
+            status: 'skippedPinned',
+            hint: 'tmt extension upgrade digest --unpin',
+          },
         ]);
         const retiredOffice = path.join(prefix, 'bin/tmt-office');
         writeFileSync(retiredOffice, 'not a managed installation');
@@ -1294,6 +1299,7 @@ describe('aggregate official upgrades', () => {
           { product: 'ops', status: 'skippedPinned' },
           { product: 'remote', status: 'skippedPinned' },
           { product: 'colab', status: 'skippedPinned' },
+          { product: 'digest', status: 'skippedPinned' },
         ]);
         expect(readFileSync(retiredOffice, 'utf8')).toBe('not a managed installation');
         expect(parseWholeStdout(skipped).retiredSquadHint).toContain(
@@ -1422,5 +1428,196 @@ describe('a missing official extension in a private human terminal', () => {
       );
     },
     20_000
+  );
+});
+
+// The existing private sandbox owns ancestry and descendants; this helper owns its PTY and child.
+const upgradeTerminal = String.raw`
+import json, os, pty, select, struct, subprocess, sys, termios, fcntl, time
+executable, mode = sys.argv[1:3]
+environment = dict(os.environ)
+environment.pop('TMT_AGENT', None)
+environment['TERM'] = 'xterm-256color'
+environment['NO_COLOR'] = '1'
+master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
+before = termios.tcgetattr(slave)
+child = subprocess.Popen([executable, 'upgrade'] + (['--yes'] if mode == 'yes' else []), stdin=slave, stdout=slave, stderr=slave, env=environment)
+screen = b''
+reviewed = False
+answered = False
+deadline = time.monotonic() + 10
+try:
+    while True:
+        if time.monotonic() >= deadline:
+            raise RuntimeError('upgrade terminal deadline: ' + screen.decode('utf-8', 'replace'))
+        ready, _, _ = select.select([master], [], [], 0.1)
+        if ready:
+            screen += os.read(master, 65536)
+        if not reviewed and b'Ctrl-C cancel' in screen:
+            reviewed = True
+            os.write(master, b'\r')
+        if not answered and b'Upgrade?' in screen:
+            answered = True
+            os.write(master, b'n\n' if mode == 'decline' else b'y\n')
+        status = child.poll()
+        if status is not None:
+            while select.select([master], [], [], 0)[0]:
+                screen += os.read(master, 65536)
+            after = termios.tcgetattr(slave)
+            mask = termios.ECHO | termios.ICANON | termios.ISIG | termios.IEXTEN
+            print(json.dumps({'status':status, 'reviewed':reviewed, 'questions':screen.count(b'Upgrade?'), 'restored':before[3] & mask == after[3] & mask, 'screen':screen.decode('utf-8')}))
+            break
+finally:
+    if child.poll() is None:
+        child.terminate()
+        try: child.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+    os.close(master)
+    os.close(slave)
+`;
+
+describe('upgrade new-provider consent', () => {
+  it(
+    'requires interactive approval even for --yes at a human TTY, preserves decline, and applies only the reviewed scopes',
+    { timeout: 60_000 },
+    async () => {
+      await withReleaseSandbox(async (sandbox) => {
+        const prefix = path.join(sandbox.root, 'custom upgrade prefix');
+        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        for (const product of ['cli', 'ops', 'remote', 'colab', 'digest'] as const) {
+          const artifact = await createArtifact(
+            sandbox,
+            product === 'cli' ? version : '0.1.0-alpha.1',
+            new Uint8Array(),
+            product
+          );
+          const installed = await runCli(
+            sandbox,
+            [
+              '__native-install',
+              '--archive',
+              artifact.archive,
+              '--manifest',
+              artifact.manifest,
+              '--prefix',
+              prefix,
+              '--channel',
+              'alpha',
+              '--product',
+              product,
+              '--pin',
+              '--json',
+            ],
+            { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+          );
+          expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+        }
+        const receipts = new Map(
+          ['cli', 'ops', 'remote', 'colab', 'digest'].map((product) => {
+            const file = path.join(
+              prefix,
+              'lib',
+              product === 'cli' ? 'tmt' : `tmt-${product}`,
+              'current',
+              'receipt.json'
+            );
+            return [file, readFileSync(file)] as const;
+          })
+        );
+        const bin = path.join(sandbox.root, 'provider-bin');
+        mkdirSync(bin);
+        writeExecutable(
+          path.join(bin, 'claude'),
+          '#!/bin/sh\nprintf ran > "$HOME/provider-ran"\n',
+          0o755
+        );
+        mkdirSync(path.join(sandbox.home, '.claude'));
+        const settings = path.join(sandbox.home, '.claude', 'settings.json');
+        const original = '{"userOwned" : {"opaque": 1e999}}\n';
+        writeFileSync(settings, original);
+        mkdirSync(path.join(sandbox.home, '.gemini'));
+        const executable = path.join(prefix, 'bin', 'tmt');
+        const managed = {
+          ...sandbox,
+          cli: { executable, args: [] },
+          env: {
+            ...sandbox.env,
+            PATH: `${bin}${path.delimiter}${path.join(prefix, 'bin')}${path.delimiter}/usr/bin${path.delimiter}/bin`,
+          },
+        };
+        const untouched = () => {
+          expect(readFileSync(settings, 'utf8')).toBe(original);
+          expect(existsSync(path.join(sandbox.home, '.claude', 'skills'))).toBe(false);
+          expect(existsSync(path.join(sandbox.home, '.agents'))).toBe(false);
+          expect(existsSync(path.join(sandbox.globalDir, 'setup-record.json'))).toBe(false);
+          expect(existsSync(path.join(sandbox.home, 'provider-ran'))).toBe(false);
+        };
+        for (const flags of [['--yes', '--json'], ['--json']]) {
+          const result = await runCli(managed, ['upgrade', ...flags], {
+            deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+          });
+          expect(result.status, result.stdout + result.stderr).toBe(0);
+          expect(result.stderr).toBe('');
+          expect(parseWholeStdout(result).providerSetup).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                provider: 'claude',
+                status: 'consentRequired',
+                hint: 'tmt setup claude',
+              }),
+              expect.objectContaining({
+                provider: 'gemini',
+                status: 'consentRequired',
+                hint: 'tmt setup',
+              }),
+            ])
+          );
+          untouched();
+        }
+        for (const mode of ['yes', 'decline', 'accept']) {
+          const terminal = await runCli(
+            {
+              ...managed,
+              cli: {
+                executable: '/usr/bin/python3',
+                args: ['-c', upgradeTerminal, executable, mode],
+              },
+            },
+            [],
+            { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+          );
+          expect(terminal.status, terminal.stdout + terminal.stderr).toBe(0);
+          const observed = JSON.parse(terminal.stdout) as {
+            status: number;
+            reviewed: boolean;
+            questions: number;
+            restored: boolean;
+            screen: string;
+          };
+          expect(observed.status, observed.screen).toBe(0);
+          expect(observed.restored).toBe(true);
+          expect(observed.questions).toBe(mode === 'yes' ? 0 : 1);
+          expect(observed.reviewed).toBe(mode !== 'yes');
+          if (mode !== 'accept') untouched();
+        }
+        expect(readFileSync(settings, 'utf8')).toContain('"userOwned" : {"opaque": 1e999}');
+        expect(readFileSync(settings, 'utf8')).toContain('SessionStart');
+        for (const root of ['.claude/skills', '.agents/skills']) {
+          expect(readFileSync(path.join(sandbox.home, root, 'tmt', 'SKILL.md'), 'utf8')).toContain(
+            'name: tmt'
+          );
+          expect(
+            readFileSync(path.join(sandbox.home, root, 'tmt-inbox', 'SKILL.md'), 'utf8')
+          ).toContain('name: tmt-inbox');
+        }
+        for (const [file, before] of receipts) expect(readFileSync(file)).toEqual(before);
+        expect(existsSync(path.join(sandbox.home, 'provider-ran'))).toBe(false);
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(existsSync(path.join(sandbox.home, '.local'))).toBe(false);
+      });
+    }
   );
 });

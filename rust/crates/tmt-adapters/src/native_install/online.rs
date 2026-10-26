@@ -50,6 +50,53 @@ pub fn install_release_observed(
     checkpoint: impl FnMut() -> io::Result<()>,
     progress: super::ProgressObserver<'_>,
 ) -> io::Result<InstallReport> {
+    install_online(
+        product,
+        request,
+        verifier,
+        checkpoint,
+        progress,
+        InstallPurpose::Explicit,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum InstallPurpose {
+    Explicit,
+    ApprovedMissing,
+}
+
+/// Select exact approved bytes without creating a pin. Publication requires continued absence.
+pub fn install_missing_release_observed(
+    product: Product,
+    request: ReleaseInstallRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    progress: super::ProgressObserver<'_>,
+) -> io::Result<InstallReport> {
+    if request.exact.is_none() {
+        return Err(io::Error::other(
+            "Missing-item installation requires an approved exact release.",
+        ));
+    }
+    install_online(
+        product,
+        request,
+        verifier,
+        checkpoint,
+        progress,
+        InstallPurpose::ApprovedMissing,
+    )
+}
+
+fn install_online(
+    product: Product,
+    request: ReleaseInstallRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    progress: super::ProgressObserver<'_>,
+    purpose: InstallPurpose,
+) -> io::Result<InstallReport> {
     let channel = request.channel;
     let deadline = Instant::now() + Duration::from_secs(60);
     let client = if matches!(channel, Channel::Pr(_)) {
@@ -57,7 +104,7 @@ pub fn install_release_observed(
     } else {
         crate::release_http::Https::new()
     };
-    install_release_with_observer(
+    install_release_with_purpose(
         product,
         request,
         verifier,
@@ -84,6 +131,7 @@ pub fn install_release_observed(
             }
         },
         progress,
+        purpose,
     )
 }
 
@@ -116,13 +164,34 @@ fn install_release_with(
     install_release_with_observer(product, request, verifier, checkpoint, get, &|_| {})
 }
 
+#[cfg(test)]
 fn install_release_with_observer(
+    product: Product,
+    request: ReleaseInstallRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+    progress: super::ProgressObserver<'_>,
+) -> io::Result<InstallReport> {
+    install_release_with_purpose(
+        product,
+        request,
+        verifier,
+        checkpoint,
+        get,
+        progress,
+        InstallPurpose::Explicit,
+    )
+}
+
+fn install_release_with_purpose(
     product: Product,
     request: ReleaseInstallRequest<'_>,
     verifier: Option<ReleaseVerifier<'_>>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
     progress: super::ProgressObserver<'_>,
+    purpose: InstallPurpose,
 ) -> io::Result<InstallReport> {
     let ReleaseInstallRequest {
         prefix,
@@ -185,12 +254,15 @@ fn install_release_with_observer(
             product,
             prefix,
             channel,
-            pin: if exact.is_some() {
+            pin: if exact.is_some() && matches!(purpose, InstallPurpose::Explicit) {
                 PinAction::PinCandidate
             } else {
                 PinAction::Preserve
             },
-            expected: None,
+            expected: match purpose {
+                InstallPurpose::Explicit => super::ExpectedInstallation::Any,
+                InstallPurpose::ApprovedMissing => super::ExpectedInstallation::Missing,
+            },
             provenance: Some(downloaded.provenance),
             verifier,
             explicit_channel: true,
@@ -207,6 +279,75 @@ fn install_release_with_observer(
 mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
+
+    #[test]
+    fn approved_missing_exact_selection_does_not_pin_and_refuses_a_concurrent_install() {
+        for concurrent in [false, true] {
+            let directory = TestDirectory::new();
+            let prefix = directory.path.join("custom prefix");
+            let product = Product::Ops;
+            let version = "0.1.0-alpha.2";
+            let (release, manifest, archive, _) =
+                release::product_fixture(product, version, "aarch64-apple-darwin", 42);
+            let routes = release::indexed_routes(&release, &manifest, &archive);
+            let mut observed_id = None;
+            let result = install_release_with_purpose(
+                product,
+                ReleaseInstallRequest {
+                    prefix: &prefix,
+                    target: "aarch64-apple-darwin",
+                    channel: Channel::Alpha,
+                    exact: Some(version),
+                },
+                None,
+                || Ok(()),
+                |url, _, _, _| {
+                    if concurrent && observed_id.is_none() {
+                        let other = install_release_with(
+                            product,
+                            ReleaseInstallRequest {
+                                prefix: &prefix,
+                                target: "aarch64-apple-darwin",
+                                channel: Channel::Alpha,
+                                exact: None,
+                            },
+                            None,
+                            || Ok(()),
+                            |url, _, _, _| Ok(routes.get(url).unwrap().clone().into()),
+                        )?;
+                        assert!(other.changed);
+                        observed_id =
+                            Some(super::super::inspect_product_prefix(product, &prefix)?.id);
+                    }
+                    assert!(
+                        !url.contains("/channels/"),
+                        "approval freezes the exact release"
+                    );
+                    Ok(routes.get(url).unwrap().clone().into())
+                },
+                &|_| {},
+                InstallPurpose::ApprovedMissing,
+            );
+            let installed = super::super::inspect_product_prefix(product, &prefix).unwrap();
+            assert!(installed.state.pinned_version.is_none());
+            assert_eq!(installed.state.version.to_string(), version);
+            if concurrent {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("changed while downloading")
+                );
+                assert_eq!(
+                    Some(installed.id),
+                    observed_id,
+                    "the concurrent release remains current"
+                );
+            } else {
+                assert!(result.unwrap().changed);
+            }
+        }
+    }
 
     #[test]
     fn observed_install_reports_only_verified_transitions_and_retains_a_verified_receipt() {

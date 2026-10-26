@@ -1185,15 +1185,40 @@ directories remain available for recovery, not automatic cache deletion.
 
 Publication across providers is not all-or-nothing; a warning retains completed
 skill targets. Custom target intents are recorded in `skill-installations.json`
-for future refresh at those published names. Missing integrations stay missing.
+for future refresh at those published names. Refresh alone creates no new provider scope.
 Native passive reminders cover known defaults only during interactive human
 commands; JSON and piped automation do not perform that scan.
 
 For a managed native installation, `tmt upgrade` (alias `tmt update`) retains the
 receipt's channel (`--channel`, `--to` and `--unpin` are in `tmt upgrade --help`);
-do not combine `--to` and `--unpin`. Downgrades are rejected. An ordinary pinned invocation is
-a no-network no-op. Package-manager or unmanaged binaries refuse native updates;
+do not combine `--to` and `--unpin`. Downgrades are rejected. Pinned products stay
+pinned while upgrade can offer other components. Package-manager or unmanaged binaries refuse native updates;
 use their original manager, not an overwrite workaround.
+
+Upgrade also offers missing ops, digest, remote and colab with their bundled skills,
+using setup's inventory and the upgrading CLI's prefix. Colab visibly needs Remote.
+A human terminal can select missing items and approve the complete plan once;
+decline/EOF changes nothing, and deselections are not remembered. User-authorized
+`--yes` installs missing official extensions and bundled skills even with JSON or
+no terminal. Without it, machine runs report missing items and exact commands.
+New extensions use the displayed alpha release without a pin; installed channels
+and pins are retained. Damaged or unmanaged entries require their recovery command.
+
+Detected providers' new TMT hooks/Core skill scopes require the interactive
+whole-plan approval. **`upgrade --yes` never creates a new provider scope**, even
+at a human terminal; it reports the exact supported `tmt setup` command instead.
+Existing recorded refresh keeps its approved paths and usage choices. No provider
+applications or arbitrary drivers are installed; existing host-driver approval
+and removal rules remain. Agents must not use upgrade to obtain new setup authority.
+
+Completed items stay installed after an independent failure. Rerunning retries
+unfinished work. Within one apply process, interruption is honoured between items
+and returns 130. Root upgrade does not yet forward terminal Ctrl-C to its separate
+apply child; [#5180](https://github.com/tmt-ninja/tmt/issues/5180) tracks that limitation.
+JSON adds
+`providerSetup` outcomes (`changed`, `consentRequired`, `needsApproval`, `skipped`
+or `failed`) beside existing `integrations` and per-product results. A target
+that cannot apply the new plan reports its exact follow-up; no apply is replayed.
 
 Successful native updates use the new executable to refresh existing recorded
 skill targets, replacing entries at the published names. With `--json`, inspect

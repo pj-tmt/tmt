@@ -14,8 +14,8 @@ pub use post_upgrade::{
 mod remove;
 mod retired_squad;
 pub use online::{
-    ReleaseInstallRequest, default_install_prefix, install_release, install_release_observed,
-    latest_release_version, preview_release,
+    ReleaseInstallRequest, default_install_prefix, install_missing_release_observed,
+    install_release, install_release_observed, latest_release_version, preview_release,
 };
 pub use remove::{ProductRemoval, plan_product_removal, remove_product, uninstall_extension};
 pub use retired_squad::{RetiredSquad, retired_squad};
@@ -226,7 +226,7 @@ fn install_product_observed(
             prefix: request.prefix,
             channel: request.channel,
             pin: request.pin,
-            expected,
+            expected: expected.into(),
             provenance,
             verifier,
             explicit_channel: true,
@@ -246,13 +246,25 @@ enum Caller {
     Legacy,
 }
 
+#[derive(Clone, Copy)]
+enum ExpectedInstallation {
+    Any,
+    Missing,
+    Current(uuid::Uuid),
+}
+impl From<Option<uuid::Uuid>> for ExpectedInstallation {
+    fn from(value: Option<uuid::Uuid>) -> Self {
+        value.map_or(Self::Any, Self::Current)
+    }
+}
+
 struct ActivationRequest<'a> {
     caller: Caller,
     product: Product,
     prefix: &'a Path,
     channel: tmt_core::native_install::Channel,
     pin: tmt_core::native_install::PinAction,
-    expected: Option<uuid::Uuid>,
+    expected: ExpectedInstallation,
     provenance: Option<receipt::Provenance>,
     verifier: Option<ReleaseVerifier<'a>>,
     explicit_channel: bool,
@@ -338,9 +350,14 @@ fn activate_with_local_schema(
         .transpose()?
         .flatten();
     let current = published.or(former);
-    if let Some(expected) = request.expected
-        && current.as_ref().map(|receipt| receipt.id) != Some(expected)
-    {
+    let changed = match request.expected {
+        ExpectedInstallation::Any => false,
+        ExpectedInstallation::Missing => current.is_some(),
+        ExpectedInstallation::Current(expected) => {
+            current.as_ref().map(|receipt| receipt.id) != Some(expected)
+        }
+    };
+    if changed {
         return Err(invalid(
             "The installed release or pin changed while downloading. Retry from the active executable.",
         ));

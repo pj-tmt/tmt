@@ -489,6 +489,13 @@ delivery. They install and launch nothing.
   settings are preserved with a setup next step. A legacy lifecycle-only record gains an
   explicit usage opt-out before adding its answer hook. The setup-record lock fences consent
   through publication; refresh failures are advisory and never undo binary activation.
+- Upgrade's interactive whole-plan consent can add detected provider scopes through guided
+  setup's planner/publisher. Recorded hook paths and managed skill targets define existing scopes;
+  shared skill roots are planned once. ConfigOnly providers get skills only. `--yes` never selects
+  these new scopes. Their public outcomes are separate `providerSetup` rows, not recorded-refresh
+  authority. Skill publication admits only still-absent planned targets under the installer lock;
+  provider input bytes, collection choices and scope are rechecked before publication. Unrelated
+  settings, unsafe files and user-owned targets are preserved with an exact supported setup command.
 - Guided `tmt setup` plans agents from filesystem-only detection and offers ops, digest,
   remote and colab selected by default, with visible Colab→Remote dependency toggles.
   Selection is read-only; one approval covers the complete plan (`SETUP_CONSENT_REQUIRED`

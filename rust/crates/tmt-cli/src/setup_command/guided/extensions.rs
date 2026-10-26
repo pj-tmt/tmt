@@ -17,11 +17,11 @@ use setup::PRODUCTS;
 
 /// Colab's dependency is visible in the selection; it is never an extra install.
 #[derive(Clone, Debug)]
-pub(super) struct Selection([bool; 4]);
+pub(super) struct Selection([bool; PRODUCTS.len()]);
 
 impl Default for Selection {
     fn default() -> Self {
-        Self([true; 4])
+        Self([true; PRODUCTS.len()])
     }
 }
 
@@ -36,12 +36,14 @@ impl Selection {
     pub(super) fn toggle(&mut self, product: Product) -> Option<&'static str> {
         let index = PRODUCTS.iter().position(|item| *item == product)?;
         self.0[index] = !self.0[index];
-        if product == Product::Remote && !self.0[index] && self.0[3] {
-            self.0[3] = false;
+        let remote = PRODUCTS.iter().position(|p| *p == Product::Remote)?;
+        let colab = PRODUCTS.iter().position(|p| *p == Product::Colab)?;
+        if product == Product::Remote && !self.0[remote] && self.0[colab] {
+            self.0[colab] = false;
             return Some("Colab was unchecked because it needs Remote.");
         }
-        if product == Product::Colab && self.0[index] && !self.0[2] {
-            self.0[2] = true;
+        if product == Product::Colab && self.0[colab] && !self.0[remote] {
+            self.0[remote] = true;
             return Some("Remote was checked because Colab needs it.");
         }
         None
@@ -157,45 +159,25 @@ impl Plan {
         if yes || interaction.view() != tmt_cli_style::interaction::Mode::Interactive {
             return self.rows(output, None).map(|()| true);
         }
-        let _raw = RawMode::enter()?;
-        let mut cursor = 0;
-        let mut reason = "↑/↓ move · space select · Enter review · Ctrl-C cancel";
-        let mut input = io::stdin().lock();
-        let mut keys = Keys::default();
-        loop {
-            let mut screen = Vec::new();
-            self.rows(&mut screen, Some(cursor))?;
-            writeln!(screen, "{}", fitted(reason))?;
-            let screen = String::from_utf8(screen).map_err(io::Error::other)?;
-            write!(output, "{}", screen.replace('\n', "\r\n"))?;
-            output.flush()?;
-            let key = loop {
-                let mut byte = [0];
-                if input.read(&mut byte)? == 0 {
-                    return Ok(false);
-                }
-                if let Some(key) = keys.feed(byte[0]) {
-                    break key;
-                }
-            };
-            match key {
-                Key::Review => return Ok(true),
-                Key::Cancel => return Ok(false),
-                Key::Up => cursor = (cursor + PRODUCTS.len() - 1) % PRODUCTS.len(),
-                Key::Down => cursor = (cursor + 1) % PRODUCTS.len(),
-                Key::Toggle => {
-                    reason = self
-                        .selection
-                        .toggle(PRODUCTS[cursor])
-                        .unwrap_or("↑/↓ move · space select · Enter review · Ctrl-C cancel")
-                }
+        let mut labels = Vec::new();
+        self.rows(&mut labels, None)?;
+        let labels = String::from_utf8(labels)
+            .map_err(io::Error::other)?
+            .lines()
+            .map(|line| line.get(6..).unwrap_or(line).to_owned())
+            .collect::<Vec<_>>();
+        let mut selected = PRODUCTS
+            .iter()
+            .map(|p| self.selection.contains(*p))
+            .collect::<Vec<_>>();
+        let accepted = choose(output, &labels, &mut selected, |index, selected| {
+            let reason = self.selection.toggle(PRODUCTS[index]);
+            for (index, product) in PRODUCTS.iter().enumerate() {
+                selected[index] = self.selection.contains(*product);
             }
-            crossterm::queue!(
-                output,
-                crossterm::cursor::MoveUp(5),
-                crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown)
-            )?;
-        }
+            reason.map(str::to_owned)
+        })?;
+        Ok(accepted)
     }
 
     pub(super) fn current_document(&self) -> Vec<Value> {
@@ -310,6 +292,64 @@ impl Plan {
     }
 }
 
+/// Shared read-only selection screen. Raw mode is restored before the consent question.
+pub(crate) fn choose(
+    output: &mut Stream<impl Write>,
+    labels: &[String],
+    selected: &mut [bool],
+    mut toggle: impl FnMut(usize, &mut [bool]) -> Option<String>,
+) -> io::Result<bool> {
+    if labels.is_empty() {
+        return Ok(true);
+    }
+    let _raw = RawMode::enter()?;
+    let mut cursor = 0;
+    let mut reason = "↑/↓ move · space select · Enter review · Ctrl-C cancel".to_owned();
+    let mut input = io::stdin().lock();
+    let mut keys = Keys::default();
+    loop {
+        for (index, label) in labels.iter().enumerate() {
+            write!(
+                output,
+                "{}\r\n",
+                fitted(&format!(
+                    "{} [{}] {}",
+                    if cursor == index { ">" } else { " " },
+                    if selected[index] { "x" } else { " " },
+                    label
+                ))
+            )?;
+        }
+        write!(output, "{}\r\n", fitted(&reason))?;
+        output.flush()?;
+        let key = loop {
+            let mut byte = [0];
+            if input.read(&mut byte)? == 0 {
+                return Ok(false);
+            }
+            if let Some(key) = keys.feed(byte[0]) {
+                break key;
+            }
+        };
+        match key {
+            Key::Review => return Ok(true),
+            Key::Cancel => return Ok(false),
+            Key::Up => cursor = (cursor + labels.len() - 1) % labels.len(),
+            Key::Down => cursor = (cursor + 1) % labels.len(),
+            Key::Toggle => {
+                reason = toggle(cursor, selected).unwrap_or_else(|| {
+                    "↑/↓ move · space select · Enter review · Ctrl-C cancel".into()
+                })
+            }
+        }
+        crossterm::queue!(
+            output,
+            crossterm::cursor::MoveUp((labels.len() + 1) as u16),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown)
+        )?;
+    }
+}
+
 /// Leave one display cell spare so the terminal does not soft-wrap our fixed rows.
 fn fitted(text: &str) -> String {
     let width = crossterm::terminal::size().map_or(80, |(width, _)| usize::from(width));
@@ -412,7 +452,7 @@ mod tests {
         let selection = Selection::default();
         assert_eq!(
             PRODUCTS.map(Product::as_str),
-            ["ops", "digest", "remote", "colab"]
+            ["ops", "remote", "colab", "digest"]
         );
         assert!(
             PRODUCTS
@@ -451,7 +491,7 @@ mod tests {
     fn a_remote_failure_blocks_only_colab_and_healthy_remote_satisfies_it() {
         assert!(!dependency_ready(Product::Colab, false));
         assert!(dependency_ready(Product::Colab, true));
-        for product in [Product::Ops, Product::Digest, Product::Remote] {
+        for product in [Product::Ops, Product::Remote, Product::Digest] {
             assert!(dependency_ready(product, false));
         }
     }
@@ -485,12 +525,12 @@ mod tests {
             if product == Product::Remote { return Err(Failure::new("EXTENSION_INSTALL_FAILED", "fixture refuses before activation", 1)); }
             Ok(json!({"extension":product.as_str(),"installed":true,"changed":true,"skills":{"status":"current"}}))
         }).unwrap();
-        assert_eq!(called, [Product::Ops, Product::Digest, Product::Remote]);
+        assert_eq!(called, [Product::Ops, Product::Remote, Product::Digest]);
         assert_eq!(
             rows.iter()
                 .map(|row| row["status"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            ["installed", "installed", "failed", "skipped"]
+            ["installed", "failed", "skipped", "installed"]
         );
         assert!(failed(&rows));
         assert!(
@@ -523,12 +563,12 @@ mod tests {
         let mut output = Vec::new();
         let rows = plan.apply_with(&mut output, Terminal::PLAIN, OutputMode { json:true }, |product, _| {
             called.push(product);
-            if product == Product::Digest {
+            if product == Product::Remote {
                 return Err(Failure::new("EXTENSION_INSTALL_FAILED", "interrupted before activation", 130));
             }
             Ok(json!({"extension":product.as_str(),"installed":true,"changed":true,"skills":{"status":"current"}}))
         }).unwrap();
-        assert_eq!(called, [Product::Ops, Product::Digest]);
+        assert_eq!(called, [Product::Ops, Product::Remote]);
         assert_eq!(rows[0]["status"], "installed");
         assert_eq!(rows[1]["status"], "interrupted");
         for row in &rows[2..] {
@@ -554,8 +594,8 @@ mod tests {
             Ok(json!({"extension":product.as_str(),"installed":true,"changed":true,"skills":{"status":"current"}}))
         }).unwrap();
         assert_eq!(called, [Product::Ops, Product::Digest]);
+        assert_eq!(rows[1]["status"], "not_selected");
         assert_eq!(rows[2]["status"], "not_selected");
-        assert_eq!(rows[3]["status"], "not_selected");
         assert!(!failed(&rows));
     }
 

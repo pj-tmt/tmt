@@ -277,6 +277,7 @@ fn extension_details(
                     .unwrap_or("EXTENSION_UPGRADE_FAILED"),
                 row["error"]["message"]
                     .as_str()
+                    .or_else(|| row["message"].as_str())
                     .unwrap_or("Extension update failed")
             ),
             None,

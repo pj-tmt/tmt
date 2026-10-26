@@ -3,7 +3,8 @@
 //! or configured; session hooks only to agents whose executable is here. It
 //! plans only what is missing, asks once, then applies skills before hooks.
 
-mod extensions;
+pub(crate) mod extensions;
+pub(crate) mod upgrade;
 
 use super::{USAGE_NOTE, failure};
 use crate::{invocation::OutputMode, output::Failure};
@@ -61,8 +62,23 @@ fn plan(
     global: &std::path::Path,
     usage: UsageHook,
 ) -> Result<Plan, Failure> {
+    plan_for(drivers, environment, env, global, usage, None)
+}
+
+fn plan_for(
+    drivers: &Registry,
+    environment: &SetupEnvironment,
+    env: &ProviderEnvironment,
+    global: &std::path::Path,
+    usage: UsageHook,
+    provider: Option<&str>,
+) -> Result<Plan, Failure> {
     let recorded = record::read(global).map_err(failure)?;
-    let detections = drivers.detect(env);
+    let detections = drivers
+        .detect(env)
+        .into_iter()
+        .filter(|(driver, _)| provider.is_none_or(|name| name == driver.name()))
+        .collect::<Vec<_>>();
     let mut core: Vec<(&'static DriverDefinition, SkillTarget)> = Vec::new();
     let mut roots: Vec<PathBuf> = Vec::new();
     for (driver, detection) in &detections {
@@ -407,6 +423,17 @@ fn apply(
     terminal: Terminal,
     mode: OutputMode,
 ) -> Result<AgentReport, Failure> {
+    apply_with_policy(plan, global, output, terminal, mode, false)
+}
+
+fn apply_with_policy(
+    plan: &Plan,
+    global: &std::path::Path,
+    output: &mut impl Write,
+    terminal: Terminal,
+    mode: OutputMode,
+    new_scope: bool,
+) -> Result<AgentReport, Failure> {
     let mut done = |text: String| -> Result<(), Failure> {
         if mode.json {
             Ok(())
@@ -422,7 +449,11 @@ fn apply(
     let mut skipped = Vec::new();
     let mut failures = Vec::new();
     if !planned.is_empty() {
-        match skill_installation::publish_core(global, &planned) {
+        match if new_scope {
+            skill_installation::publish_missing_core(global, &planned)
+        } else {
+            skill_installation::publish_core(global, &planned)
+        } {
             Ok(published) => {
                 done(format!("Installed {} skill(s)", published.linked.len()))?;
                 skipped = published.skipped;
@@ -527,13 +558,13 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 pub(crate) use extensions::PRINTED_HINTS as EXTENSION_HINTS;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    struct Directory {
-        path: PathBuf,
+    pub(crate) struct Directory {
+        pub(crate) path: PathBuf,
     }
     impl Directory {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
                 "tmt-setup-independent-{}-{}",
                 std::process::id(),

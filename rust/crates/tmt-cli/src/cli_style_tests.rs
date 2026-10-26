@@ -276,6 +276,18 @@ pub(crate) use hints::HintSpec;
 fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
     vec![
         (
+            "native_upgrade_command/complete.rs",
+            crate::native_upgrade_command::COMPLETE_HINTS,
+        ),
+        (
+            "extension_install_command/upgrade_all/complete.rs",
+            crate::extension_install_command::upgrade_all::complete::PRINTED_HINTS,
+        ),
+        (
+            "setup_command/guided/upgrade.rs",
+            crate::setup_command::guided::upgrade::PRINTED_HINTS,
+        ),
+        (
             "workspace_restore_command.rs",
             crate::workspace_restore_command::PRINTED_HINTS,
         ),

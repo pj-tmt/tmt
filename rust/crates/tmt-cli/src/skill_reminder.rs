@@ -375,6 +375,7 @@ mod tests {
             Invocation::NativeRenameDatabase,
             Invocation::NativeCompactDatabase,
             Invocation::NativeUpgradeExtensions {
+                complete: false,
                 plan: true,
                 progress: false,
             },
