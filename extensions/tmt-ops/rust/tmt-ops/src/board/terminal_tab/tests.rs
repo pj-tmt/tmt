@@ -25,7 +25,7 @@ use ratatui::{
     style::Modifier,
 };
 use std::{sync::Arc, time::Duration};
-use tmt_pty_protocol::{Eviction, Exit, Refusal};
+use tmt_pty_protocol::{ClientMessage, Eviction, Exit, Refusal};
 use tmt_tui::components::terminal::Screen;
 use unicode_width::UnicodeWidthStr;
 
@@ -397,6 +397,361 @@ fn the_cursor_is_one_reversed_cell_in_the_live_state_only() {
     assert!(reversed("\x1b[7ma\x1b[0m\x1b[1D", Condition::Live).is_empty());
 }
 
+fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+    KeyEvent::new(code, modifiers)
+}
+
+fn draw_at(app: &App, width: u16, height: u16) {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+}
+
+/// The screen's size in cells, as the program is asked to take it.
+fn window(app: &App) -> tmt_pty_protocol::Size {
+    let area = app.terminal.area().expect("the screen was drawn");
+    super::stream::tests::size(area.width, area.height)
+}
+
+/// A shown terminal attached to a fake supervisor, with the first screen applied.
+struct Attached {
+    app: App,
+    peer: super::stream::tests::Peer,
+    events: std::sync::mpsc::Receiver<(u64, StreamEvent)>,
+    _fake: super::stream::tests::Fake,
+}
+
+impl Attached {
+    fn new(snapshot: &[u8]) -> Self {
+        let fake = super::stream::tests::Fake::new();
+        let (sender, events) = std::sync::mpsc::channel();
+        let mut tab = super::tab::Tab::default();
+        tab.set_connect(Box::new(move |epoch, address| {
+            let sender = sender.clone();
+            super::stream::Stream::open_with(address, super::stream::tests::quick(), move |event| {
+                let _ = sender.send((epoch, event));
+            })
+        }));
+        let mut app = reader();
+        app.terminal = tab;
+        app.apply_terminal_located(MEMBER, Located::Stream(fake.address.clone()));
+        press_t(&mut app);
+        assert!(app.terminal_sync());
+        let mut peer = fake.accept();
+        peer.attach(super::stream::tests::size(40, 6), snapshot);
+        let mut attached = Self {
+            app,
+            peer,
+            events,
+            _fake: fake,
+        };
+        attached.screen();
+        attached
+    }
+
+    /// Applies events until the next screen.
+    fn screen(&mut self) {
+        loop {
+            let (epoch, event) = self
+                .events
+                .recv_timeout(Duration::from_secs(5))
+                .expect("an event from the stream");
+            let screen = matches!(event, StreamEvent::Screen(_));
+            self.app.apply_terminal(epoch, event);
+            if screen {
+                return;
+            }
+        }
+    }
+
+    /// `⏎`, a frame to learn the area, and the pass that asks for the window.
+    fn start_typing(&mut self) {
+        self.app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(self.app.terminal.typing());
+        text(&self.app);
+        self.app.terminal_sync();
+        assert_eq!(
+            self.peer.expect(),
+            ClientMessage::Resize(window(&self.app)),
+            "the window is asked for when typing starts"
+        );
+    }
+
+    fn typed(&mut self, code: KeyCode, modifiers: KeyModifiers) -> Vec<u8> {
+        self.app.key(key(code, modifiers));
+        match self.peer.expect() {
+            ClientMessage::Input(bytes) => bytes,
+            other => panic!("expected input, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn typing_sends_every_key_to_the_program_and_ctrl_backslash_leaves() {
+    let mut attached = Attached::new(b"hi");
+    attached.start_typing();
+    assert_eq!(attached.typed(KeyCode::Char('a'), KeyModifiers::NONE), b"a");
+    assert_eq!(attached.typed(KeyCode::Esc, KeyModifiers::NONE), b"\x1b");
+    assert_eq!(
+        attached.typed(KeyCode::PageUp, KeyModifiers::NONE),
+        b"\x1b[5~"
+    );
+    assert_eq!(attached.typed(KeyCode::Up, KeyModifiers::NONE), b"\x1b[A");
+    assert_eq!(
+        attached.typed(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        b"\x03",
+        "Ctrl-C is the program's, not the board's quit"
+    );
+    assert!(text(&attached.app).contains("Typing into worker's terminal"));
+    // Ctrl-\ leaves and is not sent; the board has its keys again.
+    assert!(matches!(
+        attached
+            .app
+            .key(key(KeyCode::Char('\\'), KeyModifiers::CONTROL)),
+        crate::board::app::Effect::None
+    ));
+    assert!(!attached.app.terminal.typing());
+    assert!(attached.peer.quiet(), "Ctrl-\\ never reaches the program");
+    attached
+        .app
+        .key(key(KeyCode::Char('x'), KeyModifiers::NONE));
+    assert!(attached.peer.quiet(), "after leaving, keys are the board's");
+}
+
+#[test]
+fn the_window_is_asked_for_only_when_typing_starts_and_when_its_area_changes() {
+    let mut attached = Attached::new(b"hi");
+    text(&attached.app);
+    attached.app.terminal_sync();
+    assert!(
+        attached.peer.quiet(),
+        "a view that only watches never resizes"
+    );
+    attached.start_typing();
+    attached.app.terminal_sync();
+    assert!(
+        attached.peer.quiet(),
+        "the same area asks for nothing again"
+    );
+    draw_at(&attached.app, 140, 30);
+    attached.app.terminal_sync();
+    assert_eq!(
+        attached.peer.expect(),
+        ClientMessage::Resize(window(&attached.app))
+    );
+    attached
+        .app
+        .key(key(KeyCode::Char('\\'), KeyModifiers::CONTROL));
+    draw_at(&attached.app, 120, 28);
+    attached.app.terminal_sync();
+    assert!(
+        attached.peer.quiet(),
+        "leaving typing resizes nothing back and a later area change asks for nothing"
+    );
+}
+
+#[test]
+fn a_paste_and_the_wheel_go_to_the_program_while_typing() {
+    let mut attached = Attached::new(b"\x1b[?1049h");
+    attached.start_typing();
+    attached.app.paste("ls\n");
+    assert_eq!(
+        attached.peer.expect(),
+        ClientMessage::Input(b"ls\r".to_vec())
+    );
+    let area = attached.app.terminal.area().unwrap();
+    let wheel = |column, row| ratatui::crossterm::event::MouseEvent {
+        kind: ratatui::crossterm::event::MouseEventKind::ScrollUp,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    attached
+        .app
+        .mouse(wheel(area.x + 1, area.y + 1), std::time::Instant::now());
+    assert_eq!(
+        attached.peer.expect(),
+        ClientMessage::Input(b"\x1b[A\x1b[A\x1b[A".to_vec()),
+        "the alternate screen scrolls with arrows"
+    );
+    attached.app.mouse(wheel(0, 0), std::time::Instant::now());
+    assert!(attached.peer.quiet(), "a wheel elsewhere is the board's");
+    assert!(
+        attached.app.terminal.typing(),
+        "and a wheel does not end typing"
+    );
+    attached.app.mouse(
+        ratatui::crossterm::event::MouseEvent {
+            kind: ratatui::crossterm::event::MouseEventKind::Down(
+                ratatui::crossterm::event::MouseButton::Left,
+            ),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    );
+    assert!(
+        !attached.app.terminal.typing(),
+        "a press elsewhere ends typing"
+    );
+    assert!(attached.peer.quiet(), "and the press itself sends no bytes");
+}
+
+#[test]
+fn a_paste_with_ctrl_backslash_bytes_is_text_for_the_program_and_does_not_leave() {
+    let mut attached = Attached::new(b"hi");
+    attached.start_typing();
+    attached.app.paste("a\u{1c}b");
+    assert_eq!(
+        attached.peer.expect(),
+        ClientMessage::Input(b"a\x1cb".to_vec()),
+        "pasted bytes are sent as pasted"
+    );
+    assert!(attached.app.terminal.typing(), "only a key press leaves");
+}
+
+#[test]
+fn typing_ends_when_the_program_does() {
+    let mut attached = Attached::new(b"hi");
+    attached.start_typing();
+    attached
+        .app
+        .apply_terminal(1, StreamEvent::Exited(Exit::Code(0)));
+    assert!(!attached.app.terminal.typing());
+    assert!(text(&attached.app).contains("⏎ attaches again"));
+}
+
+#[test]
+fn enter_after_the_stream_ended_attaches_again() {
+    let (tab, opened) = tab();
+    let mut app = reader();
+    app.terminal = tab;
+    shown(&mut app);
+    app.apply_terminal(1, StreamEvent::Exited(Exit::Code(1)));
+    app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        !app.terminal.typing(),
+        "an ended terminal is attached, not typed into"
+    );
+    assert!(app.terminal_sync(), "the stream is opened afresh");
+    assert_eq!(opened.lock().unwrap().len(), 2);
+    assert_eq!(
+        app.terminal_locate().as_deref(),
+        Some(MEMBER),
+        "and core is asked again"
+    );
+}
+
+#[test]
+fn z_zooms_only_a_shown_terminal_and_escape_or_z_leaves() {
+    let mut app = reader();
+    with_stream(&mut app);
+    assert!(
+        !app.bindings().contains_key("z"),
+        "z is offered only where it acts"
+    );
+    app.key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    assert!(!app.terminal_zoomed(), "the chat has nothing to zoom");
+    assert!(!text(&app).contains("Zoom"), "no chip on the chat");
+    press_t(&mut app);
+    assert!(app.bindings().contains_key("z"));
+    let shown = text(&app);
+    assert!(
+        shown.contains("Zoom") && shown.contains("SQUAD / AGENT"),
+        "{shown}"
+    );
+    app.key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    assert!(app.terminal_zoomed());
+    let zoomed = text(&app);
+    assert!(
+        zoomed.contains("Zoom") && !zoomed.contains("SQUAD / AGENT"),
+        "{zoomed}"
+    );
+    app.key(key(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert!(
+        app.terminal_zoomed(),
+        "board keys do nothing behind a zoomed terminal"
+    );
+    app.key(key(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(!app.terminal_zoomed());
+    app.key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    app.key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    assert!(!app.terminal_zoomed(), "z leaves it too");
+    // The chip does the same, in both views.
+    let has_chip = |app: &App| {
+        app.workspace_strip_hits
+            .borrow()
+            .iter()
+            .any(|(_, choice)| matches!(choice, Choice::TerminalZoom))
+    };
+    text(&app);
+    assert!(has_chip(&app));
+    app.choose(Choice::TerminalZoom);
+    assert!(app.terminal_zoomed());
+    text(&app);
+    assert!(has_chip(&app), "the zoomed view keeps the chip to leave by");
+    app.choose(Choice::TerminalZoom);
+    assert!(!app.terminal_zoomed());
+}
+
+#[test]
+fn an_authored_zoom_key_works_while_typing_and_never_reaches_the_program() {
+    let mut attached = Attached::new(b"hi");
+    let path = std::env::temp_dir().join(format!("ops-terminal-zoom-{}.toml", std::process::id()));
+    std::fs::write(&path, "[bind]\nctrl-o = 'terminal-zoom'\n").unwrap();
+    let config = crate::config::Config::read(path.clone()).unwrap();
+    attached
+        .app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .configure(&config)
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    attached.start_typing();
+    attached
+        .app
+        .key(key(KeyCode::Char('o'), KeyModifiers::CONTROL));
+    assert!(attached.app.terminal_zoomed());
+    assert!(
+        attached.app.terminal.typing(),
+        "zooming does not end typing"
+    );
+    attached
+        .app
+        .key(key(KeyCode::Char('o'), KeyModifiers::CONTROL));
+    assert!(!attached.app.terminal_zoomed());
+    assert!(attached.peer.quiet(), "the bound key is never sent");
+    // The default z is not a binding the user wrote: it is the program's.
+    assert_eq!(attached.typed(KeyCode::Char('z'), KeyModifiers::NONE), b"z");
+    assert!(!attached.app.terminal_zoomed());
+}
+
+#[test]
+fn a_zoomed_terminal_starts_typing_with_enter_and_asks_for_the_whole_room() {
+    let mut attached = Attached::new(b"hi");
+    attached
+        .app
+        .key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    assert!(attached.app.terminal_zoomed());
+    text(&attached.app);
+    let zoomed = window(&attached.app);
+    attached.app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(attached.app.terminal.typing());
+    attached.app.terminal_sync();
+    assert_eq!(attached.peer.expect(), ClientMessage::Resize(zoomed));
+    assert!(
+        zoomed.cols >= 150,
+        "the zoomed screen has the width of the board: {zoomed:?}"
+    );
+}
+
 #[test]
 fn the_key_is_a_keycap_right_before_terminal_and_its_hit_covers_both() {
     let mut app = reader();
@@ -434,4 +789,60 @@ fn the_footer_names_t_terminal_only_while_the_selected_member_has_a_stream() {
     assert!(text(&app).contains("t terminal"));
     app.apply_terminal_located(MEMBER, Located::NoStream);
     assert!(!text(&app).contains("t terminal"));
+}
+
+#[test]
+fn the_zoom_glyph_is_one_cell_wide_in_narrow_and_cjk_terminals() {
+    use unicode_width::UnicodeWidthChar;
+    assert_eq!('⤢'.width(), Some(1));
+    assert_eq!('⤢'.width_cjk(), Some(1), "not an ambiguous-width character");
+}
+
+#[test]
+fn the_lines_under_the_screen_name_the_way_back() {
+    let mut app = reader();
+    shown(&mut app);
+    app.apply_terminal(1, StreamEvent::Screen(frame("hi")));
+    assert!(text(&app).contains("⏎ type into it"));
+    app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(text(&app).contains("Ctrl-\\ back to the list"));
+    app.key(key(KeyCode::Char('\\'), KeyModifiers::CONTROL));
+    app.key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    assert!(text(&app).contains("⏎ type into it · Esc back"));
+    app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(text(&app).contains("Typing into worker's terminal · Ctrl-\\ back"));
+}
+
+#[test]
+fn while_typing_the_footer_names_only_the_way_out() {
+    let mut app = reader();
+    shown(&mut app);
+    app.apply_terminal(1, StreamEvent::Screen(frame("hi")));
+    assert!(
+        text(&app).contains("p pin"),
+        "the list's hints before typing"
+    );
+    app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    let typing = text(&app);
+    let footer = typing.lines().last().unwrap().trim().to_owned();
+    assert_eq!(footer, "Ctrl-\\ back", "{typing}");
+}
+
+#[test]
+fn while_typing_the_composer_and_its_key_hints_are_not_offered() {
+    let mut app = reader();
+    shown(&mut app);
+    app.apply_terminal(1, StreamEvent::Screen(frame("hi")));
+    let before = text(&app);
+    assert!(before.contains("to message worker"), "{before}");
+    app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    let typing = text(&app);
+    for hint in ["to message worker", "⏎ send", "new line", "@ mention"] {
+        assert!(!typing.contains(hint), "{hint}\n{typing}");
+    }
+    app.key(key(KeyCode::Char('\\'), KeyModifiers::CONTROL));
+    assert!(
+        text(&app).contains("to message worker"),
+        "back after leaving"
+    );
 }

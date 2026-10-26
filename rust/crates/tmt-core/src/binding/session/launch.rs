@@ -149,7 +149,7 @@ impl SessionLearningEvent {
     }
 }
 
-/// Why a hook that decoded and could not bind admitted nothing.
+/// Why a decoded observer admitted nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionLearningStop {
     /// An activity-only event carried no activity to record.
@@ -162,6 +162,8 @@ pub enum SessionLearningStop {
     UnboundSession,
     /// The bound session or process is not the one the payload names.
     NotCurrent,
+    /// The turn end has no admitted start in its exact session/process/turn.
+    NoAdmittedStart,
 }
 /// Why a Digest Stop hook ended with no output on an admitted launch (#4871). Only a
 /// refusal is named: a Stop with no Digest due is not one.
@@ -305,7 +307,7 @@ pub enum SessionLearningDetail {
 impl SessionLearningDetail {
     /// Every `Stopped` pair a hook path can produce, with its stored token. Nothing else is
     /// writable, so the stored list stays closed. An event no decoder accepts is `Unknown`.
-    const STOPPED: [(SessionLearningEvent, SessionLearningStop, &'static str); 24] = {
+    const STOPPED: [(SessionLearningEvent, SessionLearningStop, &'static str); 25] = {
         use SessionLearningEvent as E;
         use SessionLearningStop as S;
         [
@@ -320,6 +322,11 @@ impl SessionLearningDetail {
                 "stopped:turn:Stop:unbound_session",
             ),
             (E::Stop, S::NotCurrent, "stopped:turn:Stop:not_current"),
+            (
+                E::Stop,
+                S::NoAdmittedStart,
+                "stopped:turn:Stop:no_admitted_start",
+            ),
             (
                 E::Interrupt,
                 S::ObserverOwnsStop,
@@ -420,10 +427,10 @@ impl SessionLearningDetail {
         ]
     };
 
-    /// Every detail, in the order the latest `detail` migration (`schema/080.sql`) lists them.
-    pub const ALL: [Self; 55] = {
+    /// Every detail, in the order the latest `detail` migration (`schema/082.sql`) lists them.
+    pub const ALL: [Self; 56] = {
         use SessionLearningEvent as E;
-        let mut all = [Self::HostUnsupported; 55];
+        let mut all = [Self::HostUnsupported; 56];
         let head = [
             Self::Refused(E::SessionStart),
             Self::Refused(E::SessionEnd),
@@ -691,6 +698,20 @@ mod tests {
         use SessionLearningEvent as E;
         use SessionLearningStop as S;
         assert!(SessionLearningDetail::stopped(E::Stop, S::UnboundSession).is_some());
+        assert_eq!(
+            SessionLearningDetail::stopped(E::Stop, S::NoAdmittedStart)
+                .unwrap()
+                .as_str(),
+            "stopped:turn:Stop:no_admitted_start"
+        );
+        assert_eq!(
+            SessionLearningDetail::stopped(E::Interrupt, S::NoAdmittedStart),
+            None
+        );
+        assert_eq!(
+            SessionLearningDetail::stopped(E::Unknown, S::NoAdmittedStart),
+            None
+        );
         assert!(SessionLearningDetail::stopped(E::Unknown, S::NotCurrent).is_some());
         // A finished tool call is the only event that can find nothing waiting, and a
         // session event is never decoded by an observer, so neither pairs with these.

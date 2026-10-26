@@ -205,7 +205,8 @@ launches per binding; expired rows are removed on the next launch). It never
 stores a transcript, context body or a second copy of preferences.
 
 `tmt ls --json` rows expose additive `session.learning`: `null` without an
-unresolved launch observation or an admitted launch's `digest_stop:` detail,
+unresolved launch observation, an admitted launch's missing-start Stop diagnostic,
+or its `digest_stop:` detail,
 otherwise `{step,reason,nextStep}` plus `detail` when the step recorded what it
 stopped on.
 `tmt identity show --json` and named `tmt ls <name> --json` add `session` only
@@ -222,6 +223,8 @@ event name), `stopped:<decoder>:<event>:<reason>` (`stopped:unknown:<reason>` fo
 event outside that list) when a decoded turn, prompt or activity event that cannot bind
 admitted nothing, with `<reason>` one of `activity_missing` (an activity-only event with
 no activity), `not_waiting` (a finished tool call with no activity waiting),
+`no_admitted_start` (only `stopped:turn:Stop:no_admitted_start`: no start was admitted
+in the end's exact session/process/turn),
 `observer_owns_stop` (an installed answer observer owns the turn end), `unbound_session`
 (no bound launch is waiting for the provider session) or `not_current` (the bound
 session or process is not the one the payload names), `host_unsupported` when the
@@ -246,7 +249,14 @@ run drops it. A run that cannot bind (a turn, prompt or activity event, or a pay
 no known event) never replaces the step, reason or detail an earlier run stored for a
 launch that is not admitted yet; it names its own reason only when no detail is stored.
 A lifecycle event (`SessionStart`, `SessionEnd`) is the launch's own run and replaces
-them. An admitted session suppresses an older failure, except a `digest_stop:` detail:
+them. On an admitted launch, `stopped:turn:Stop:no_admitted_start` remains visible
+through that hook's successful completion (step `storage`, reason `not_admitted`),
+without projecting `session.unbound=true`; its next step says to check the provider's
+start/stop hook ordering. It retains no final and settles no bound input. A later hook
+stage may clear or replace it under the ordinary rules; a pre-existing Digest refusal
+keeps its own priority.
+
+An admitted session otherwise suppresses an older failure, except a `digest_stop:` detail:
 it stays visible on the admitted launch until the next Digest Stop of that launch
 delivers, a later refusal replaces it, or a later launch starts its own row. No other
 hook run replaces or clears it, and it never projects `session.unbound=true`; its

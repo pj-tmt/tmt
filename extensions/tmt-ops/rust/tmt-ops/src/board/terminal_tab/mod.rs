@@ -4,10 +4,6 @@
 //!
 //! [`discovery`] asks core where the stream is, [`stream`] is the thread that reads it, [`tab`]
 //! holds the state, [`paint`] draws it and `board` ties it to the board loop.
-#![expect(
-    dead_code,
-    reason = "typing (Stream::input, resize and stop_typing) is wired by the next slice of #4606"
-)]
 
 mod board;
 pub(in crate::board) mod discovery;

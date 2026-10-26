@@ -607,7 +607,7 @@ sends or reads Core's control frames. The screen model and key encoder are `tmt-
 for it; a member with no stream is asked again after 60 s, a failed answer after 10 s), whether the
 tab is shown, and the one open `Stream` with the view it last drew. A stream that ended
 (`Exited`, `Evicted`, `Refused`, `Lost`) keeps its last screen, dimmed, under a line that says why;
-leaving the tab and coming back asks Core again and reconnects. `Tab::sync`, called once per
+`⏎` (or leaving the tab and coming back) asks Core again and reconnects. `Tab::sync`, called once per
 board-loop pass, opens, replaces or drops the stream so it matches what is shown (the selected
 member's, only while the Terminal tab shows); every open takes a new epoch and
 `BoardEvent::Terminal` carries it, so a late event of a replaced stream is dropped.
@@ -618,7 +618,23 @@ Actions menu otherwise. `paint` lays the cells on the pane with the program's ow
 (`foreign::style`): a bigger screen is cut at the edge (a wide character that would straddle it is
 left out), a smaller one leaves the rest blank, and the screen is dimmed while the stream is not
 live. The program's cursor shows as one reversed cell (not the terminal cursor) in the live state only,
-hidden when the program hides it. The view only watches; typing is a separate slice.
+hidden when the program hides it.
+
+Typing: `⏎` (the `talk` action while the terminal shows) starts it; after the stream ended it attaches
+again instead. While typing `App::terminal_key`, `terminal_mouse` and `terminal_paste` run before
+every other handler, so each key (Esc, PageUp and Ctrl-C included), a paste and the wheel over the
+screen go to the program through `tmt-tui`'s encoders; only Ctrl-\ (or Ctrl-4) leaves, calls
+`Stream::stop_typing` and is never sent, and a press outside the screen leaves too. The window is
+asked for (`Stream::resize`) in the pass after typing starts and whenever the drawn area changes
+while typing, never otherwise, and leaving resizes nothing back. A stream that ends ends typing.
+While typing the composer band is not offered (no key hint but `Ctrl-\` back is true), and the footer is that one hint.
+
+`terminal-zoom` (default `z` on Member and Reader lists, available only while the terminal shows)
+makes the screen fill the board (`paint::zoomed`; the board's own hit lists are rebuilt, so
+nothing behind it is clickable); while zoomed only `⏎`, Esc and the zoom key mean anything. A zoom
+key the user wrote under `[bind]` also works while typing and is never sent; the default `z` does
+not, since the program may need it. `workspace_keys` warns when that key is bare (no ctrl-, alt-
+or super-).
 
 ## Checklist controller
 

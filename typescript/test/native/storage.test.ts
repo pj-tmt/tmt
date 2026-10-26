@@ -160,6 +160,7 @@ function expectNativeSchema(
     { version: 79, name: 'admit every full runtime in retained finals' },
     { version: 80, name: 'let a session-learning diagnostic name why a Digest Stop refused' },
     { version: 81, name: 'record pending orchestration wakes and summary projection' },
+    { version: 82, name: 'name a Stop rejected without an admitted start' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

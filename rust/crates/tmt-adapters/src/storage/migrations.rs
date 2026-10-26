@@ -398,6 +398,10 @@ const MIGRATIONS: &[Migration] = &[
         "record pending orchestration wakes and summary projection",
         "schema/081.sql"
     ),
+    migration!(
+        "name a Stop rejected without an admitted start",
+        "schema/082.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

@@ -55,7 +55,7 @@ fn a_claude_stop_final_survives_a_concurrent_usage_observation() {
     let payload = br#"{"hook_event_name":"Stop","session_id":"fixture-session","stop_hook_active":false,"last_assistant_message":"answer before the blocking checklist"}"#;
     let turn = lifecycle.decode_turn(payload).unwrap();
     let activity = lifecycle.decode_activity(payload).unwrap();
-    assert!(
+    assert_eq!(
         storage
             .capture_turn_end(crate::storage::TurnCapture {
                 expected: &original,
@@ -68,7 +68,8 @@ fn a_claude_stop_final_survives_a_concurrent_usage_observation() {
                 now_ms: 7000,
                 deadline: Instant::now() + std::time::Duration::from_secs(2),
             })
-            .unwrap()
+            .unwrap(),
+        crate::storage::TurnCaptureOutcome::Committed
     );
     let committed = BindingRows(storage.connection().unwrap())
         .session_preferences(&id)

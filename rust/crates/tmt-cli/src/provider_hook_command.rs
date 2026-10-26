@@ -315,9 +315,9 @@ fn observe_turn(
     // Only older payloads missing the final need the consented driver reader
     // before capture; optional usage never precedes capture of supplied text.
     let mut failure = tmt_adapters::storage::CaptureFailure::Worker;
-    let pending = (|| -> Result<bool, ()> {
+    let pending = (|| -> Result<tmt_adapters::storage::TurnCaptureOutcome, ()> {
         let Some(activity) = activity else {
-            return Ok(false);
+            return Ok(tmt_adapters::storage::TurnCaptureOutcome::NotApplicable);
         };
         let fallback = if turn.final_text.is_none() && usage_on {
             let environment = ProviderEnvironment::capture()
@@ -354,7 +354,15 @@ fn observe_turn(
             .map_err(|_| ())
     })();
     let captured = match pending {
-        Ok(captured) => captured,
+        Ok(
+            tmt_adapters::storage::TurnCaptureOutcome::Committed
+            | tmt_adapters::storage::TurnCaptureOutcome::Duplicate,
+        ) => true,
+        Ok(tmt_adapters::storage::TurnCaptureOutcome::NoAdmittedStart) => {
+            run.stopped(Stop::NoAdmittedStart);
+            false
+        }
+        Ok(tmt_adapters::storage::TurnCaptureOutcome::NotApplicable) => false,
         Err(()) => {
             if Instant::now() >= deadline {
                 failure = tmt_adapters::storage::CaptureFailure::Budget;

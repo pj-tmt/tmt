@@ -3,10 +3,7 @@
 //! external-host world.
 use super::*;
 use tmt_adapters::runtime::hook_protocol::HookLaunch;
-use tmt_core::{
-    binding::{BindingRepository, session::launch::LaunchStatus},
-    endpoint::ProcessIncarnation,
-};
+use tmt_core::{binding::BindingRepository, endpoint::ProcessIncarnation};
 
 /// A Codex agent with a Digest due, a launch owner and an admitted launch row.
 struct DueDigest {
@@ -54,26 +51,7 @@ impl DueDigest {
         }
         let mut codex = SteppedProvider::start(&fixture, "codex", "digest-refusal-steps");
         ok(codex.hook(codex_event("SessionStart", None)));
-        let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
-        let binding = storage
-            .with_binding_transaction::<_, tmt_adapters::storage::StorageError>(|rows| {
-                let binding = rows.entry_by_id(&agent)?.unwrap().binding.unwrap();
-                let mut state = binding.session.clone();
-                state.launch_owner = Some(owner.clone());
-                assert!(rows.set_session_state(&binding.id, &binding.session, &state)?);
-                let binding = rows.entry_by_id(&agent)?.unwrap().binding.unwrap();
-                let now = tmt_adapters::request_runtime::wall_time_ms();
-                let driver = tmt_core::binding::session::HarnessId::new("codex").unwrap();
-                assert!(rows.begin_launch_observation(&binding, &owner, &driver, now)?);
-                let observed = rows.launch_observation(&binding.id, &owner)?.unwrap();
-                let mut admitted = observed.clone();
-                admitted.status = LaunchStatus::Admitted;
-                admitted.diagnostic = None;
-                assert!(rows.set_launch_observation(&observed, &admitted)?);
-                Ok(binding)
-            })
-            .unwrap();
-        storage.close().unwrap();
+        let launch = record_admitted_launch(&fixture, &agent, "codex", &owner);
         if due {
             let now = tmt_adapters::request_runtime::wall_time_ms();
             let policy = passthrough::api(
@@ -94,12 +72,6 @@ impl DueDigest {
             ]);
             assert_eq!(held["digest"], true, "{held:#}");
         }
-        let launch = HookLaunch {
-            identity_id: agent.clone(),
-            binding_id: binding.id,
-            owner_pid: owner.pid(),
-            owner_start: owner.start_identity().into(),
-        };
         Self {
             fixture,
             codex,
