@@ -327,7 +327,9 @@ As the global search (#4841) the same dialog is titled Search TMT, lists labelle
 scrollable list (Navigation, then Colab, then each module's own, such as Ops and Remote) with a
 quiet heading each, and grows to about six rows before it scrolls, capped by the viewport. The
 project picker is labelled Colab: it and the author filter scope only the Colab group. A group with
-no admitted data shows no heading and no row, and one active option moves across the groups.
+no admitted data shows no heading and no row, and one active option moves across the groups. The
+field's placeholder names only the groups that are ready (Search navigation, pages or agents…) and
+reads Search TMT… until one is.
 
 - Keep the query and project rows above a scrollable, single-column result list, with no
   loading flash when a cached list is available. The input keeps focus while

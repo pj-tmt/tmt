@@ -83,6 +83,11 @@ for (const width of [1440, 390])
       ]);
       expect(await active(page)).toEqual({ title: 'Home', marked: ['Home'] });
       await expect(dialog(page).locator('.quick-switcher-scope')).toHaveText('Colab:');
+      // The field names the groups that are ready, not Remote (no admitted snapshot) or devices.
+      await expect(input(page)).toHaveAttribute(
+        'data-placeholder',
+        'Search navigation, pages or ops…',
+      );
       // Each row draws the glyph its item names, and the arrow when the name is not one of the dialog's.
       const glyphs = await options(page).evaluateAll((nodes) =>
         nodes.map((node) => node.querySelector('svg')!.getAttribute('class')),
@@ -201,6 +206,10 @@ test('a provider that withdraws an item or its snapshot leaves the open list at 
     },
   ]);
   await expect(dialog(page).getByRole('group', { name: 'Remote' })).toBeVisible();
+  await expect(input(page)).toHaveAttribute(
+    'data-placeholder',
+    'Search navigation, pages, ops or remote…',
+  );
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
   expect(await proof(page)).toMatchObject({ went: ['/remote/devices'] });
