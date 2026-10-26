@@ -22,6 +22,33 @@ async function openFirst(page: Page, width = 1440) {
   await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Discussion');
   return { frame, panel };
 }
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`Discussion chevrons retain their icon box at ${width}px in ${theme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme: theme });
+      const { panel } = await openFirst(page, width);
+      for (const name of ['Previous thread', 'Next thread']) {
+        const button = panel.getByRole('button', { name, exact: true });
+        await expect(button).toBeVisible();
+        await expect(button).toHaveCSS('width', '24px');
+        await expect(button).toHaveCSS('height', '24px');
+        const icon = await button.locator('svg').boundingBox();
+        expect(icon).not.toBeNull();
+        expect(icon!.width).toBe(14);
+        expect(icon!.height).toBe(14);
+      }
+      await expect(
+        panel.getByRole('button', { name: 'Previous thread', exact: true }),
+      ).toBeDisabled();
+      await panel.getByRole('button', { name: 'Next thread', exact: true }).click();
+      await expect(
+        panel.getByRole('button', { name: 'Previous thread', exact: true }),
+      ).toBeEnabled();
+      await page.screenshot({ path: test.info().outputPath(`discussion-${width}-${theme}.png`) });
+    });
+
 const highlights = (frame: ReturnType<Page['frameLocator']>) =>
   frame.locator('html').evaluate(() => ({
     quiet: CSS.highlights.has('colab-quiet'),
