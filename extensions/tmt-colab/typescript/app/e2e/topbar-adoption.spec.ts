@@ -39,7 +39,7 @@ for (const mode of ['home', 'page'] as const)
     await expect(
       page.locator('.quick-switcher-control, .remote-header-chip, .remote-home-more, .theme'),
     ).toHaveCount(0);
-    // Search is first at the left, Theme and Remote close the right group.
+    // TMT's controls lead in the order Theme, Search, Remote.
     const [searchBox, themeBox, remoteBox] = await Promise.all([
       search(page).boundingBox(),
       bar(page)
@@ -49,8 +49,8 @@ for (const mode of ['home', 'page'] as const)
         .getByRole('link', { name: /^Remote:/ })
         .boundingBox(),
     ]);
-    expect(searchBox!.x).toBeLessThan(themeBox!.x);
-    expect(themeBox!.x).toBeLessThan(remoteBox!.x);
+    expect(themeBox!.x).toBeLessThan(searchBox!.x);
+    expect(searchBox!.x).toBeLessThan(remoteBox!.x);
   });
 
 test('the shortcut opens one dialog from anywhere and Escape returns focus to the bar Search', async ({

@@ -330,9 +330,18 @@ for (const width of [1440, 390])
         await mkdir(directory, { recursive: true });
         await page.screenshot({ path: `${directory}/link-${width}-${theme}.png` });
       }
-      // A press outside the confirmation dismisses it; the bar's empty middle is outside (the page's
-      // title row sits right under the bar, where the confirmation is drawn).
-      await page.locator('.tmt-ui-topbar:visible').click({ position: { x: 190, y: 28 } });
+      // A press outside the confirmation dismisses it; the bar's empty middle, between TMT's controls
+      // and the page's actions, is outside (the page's title row sits right under the bar, where the
+      // confirmation is drawn).
+      const topBar = page.locator('.tmt-ui-topbar:visible');
+      const [barBox, lead, end] = await Promise.all([
+        topBar.boundingBox(),
+        topBar.locator('.tmt-ui-topbar-common').boundingBox(),
+        topBar.locator('.tmt-ui-topbar-actions').boundingBox(),
+      ]);
+      await topBar.click({
+        position: { x: (lead!.x + lead!.width + end!.x) / 2 - barBox!.x, y: 28 },
+      });
       await expect(bar(page)).toHaveCount(0);
       await forge(page, 'data:text/html,private');
       await expect(bar(page)).toHaveAccessibleName(

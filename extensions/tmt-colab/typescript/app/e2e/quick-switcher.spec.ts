@@ -36,14 +36,14 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
     await expect(page.locator('.pages > li')).toHaveCount(3);
-    // Search is the first control at the bar's left; Theme and Remote close the right group.
+    // Theme leads TMT's controls and Search follows it.
     const searchBox = await control(page).boundingBox();
     const themeBox = await page
       .locator('.tmt-ui-topbar-common')
       .getByRole('button')
       .first()
       .boundingBox();
-    expect(searchBox!.x + searchBox!.width).toBeLessThanOrEqual(themeBox!.x);
+    expect(themeBox!.x + themeBox!.width).toBeLessThanOrEqual(searchBox!.x);
     await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toHaveCount(1);
     await page.evaluate(() => {
       const seen: string[] = [];

@@ -128,10 +128,11 @@ The one TMT web UI frame (#3937): one header row, then a global rail, an optiona
 module menu and the host's content. Every Colab and Remote page except the refusal
 page renders in it.
 
-The opt-in shared top bar places Search first in its left group, after the phone navigation
-button and before host content (Ben’s approved deviation from the website). Its icon and platform
-shortcut hint share one hit, hover and focus box; the hint is hidden below 640px. The right group
-keeps module actions followed by Theme and a Remote icon/count. Search opens the host's one switcher; the
+The opt-in shared top bar leads with TMT's own controls as one group, in the order Theme,
+Search, Remote, after the phone navigation button and before host content (Ben’s approved
+deviation from the website). The module's actions stand alone at the bar's far right edge.
+Search's icon and platform shortcut hint share one hit, hover and focus box; the hint is hidden
+below 640px. The Remote control is an icon with a count. Search opens the host's one switcher; the
 leaf reads no product data. Remote counts live sessions; zero and unknown omit the badge
 but keep distinct accessible names. The bar draws no title or avatar: the rail names the
 module and the content supplies its real h1. Root-only bindings and the actions-only module
@@ -177,13 +178,16 @@ product bars stay unchanged until their owning adoption.
   content: on the content background with no band or rule of its own, at the content column's
   left edge, scrolling with the page, so only the bar and a phone's module tabs stay fixed. A
   route whose content names itself (the list, settings, a shell page) has no title row.
-- **Bar cluster:** the shell owns the right end of the bar. A module fills the **search**
+- **Bar cluster:** the shell owns the right end of the bar, left of the module's own status and
+  actions: TMT's controls first, the module's controls last, so a module's More menu closes the
+  bar at its far right edge. A module fills the **search**
   slot (Colab: Search pages, an icon with a quiet `⌘K` key hint that a touch screen and a
   bar under 640 px do not draw; ⌘K opens it from anywhere in the module) and the **chip**
   slot (Colab, until its mount adopts the shared top bar: the Remote presence chip, `Remote · N`,
   not drawn under 640 px, where its count is in the page More menu). Colab's own shell fills
-  neither slot: the shared top bar's Search, Theme and Remote link replace them. Search comes first. An empty slot takes no room, and the
-  header leaves the room the shell measures for the cluster. The four-state connection chip
+  neither slot: the shared top bar's Search, Theme and Remote link replace them. Search comes
+  first in the cluster. An empty slot takes no room, and the header's title leaves the room the
+  shell measures for the cluster. The four-state connection chip
   of the [Remote switcher](#remote-switcher) is a design target and not shipped; the bar has
   no avatar slot until who the avatar is has been decided.
 - **Module content:** the shell adds no padding or width to a module's main area;

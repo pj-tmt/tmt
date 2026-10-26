@@ -6,8 +6,10 @@
      menu's tab row on a phone. Hosts subtract it from their viewport-high minimums. */
   --tmt-ui-module-menu-row-height: 44px;
   --tmt-ui-shell-lead: 0px;
-  /* The width of the bar's right-hand cluster; mountShell measures it. */
-  --tmt-ui-shell-tools-width: 0px;
+  /* The bar's right-hand cluster (mountShell measures both): the room it takes beside the header's
+     title, and how far in from the bar's right edge it sits (left of the module's own actions). */
+  --tmt-ui-shell-tools-room: 0px;
+  --tmt-ui-shell-tools-inset: var(--tmt-ui-header-padding-inline);
   font: var(--tmt-ui-page-body-size) / 1.5 var(--tmt-ui-font-body);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -31,8 +33,9 @@
   background: var(--tmt-ui-surface-paper);
 }
 /* The bar's right-hand cluster, a second layer over the bar's right end: a module fills the search
-   slot and the chip slot (an empty slot takes no room). The header leaves the room the shell
-   measured (`--tmt-ui-shell-tools-width`, set by mountShell). */
+   slot and the chip slot (an empty slot takes no room). It sits left of the module's own status and
+   actions, which keep the bar's far right edge, and the header's title leaves the room the shell
+   measured (`--tmt-ui-shell-tools-room`, set by mountShell). */
 .tmt-ui-shell-tools {
   position: sticky;
   top: 0;
@@ -45,7 +48,7 @@
   gap: var(--tmt-ui-header-gap);
   box-sizing: border-box;
   height: var(--tmt-ui-header-height);
-  padding-inline-end: var(--tmt-ui-header-padding-inline);
+  padding-inline-end: var(--tmt-ui-shell-tools-inset);
   pointer-events: none;
 }
 .tmt-ui-shell-tools > * {
@@ -57,11 +60,8 @@
 .tmt-ui-shell-tools:not(:has(> :not(:empty))) {
   display: none;
 }
-.tmt-ui-shell-bar > .tmt-ui-header {
-  padding-inline-end: max(
-    var(--tmt-ui-header-padding-inline),
-    calc(var(--tmt-ui-shell-tools-width) + var(--tmt-ui-header-gap))
-  );
+.tmt-ui-shell-bar > .tmt-ui-header > :is(.tmt-ui-heading, .tmt-ui-title) {
+  margin-inline-end: var(--tmt-ui-shell-tools-room);
 }
 /* The rule is drawn over the row's last pixel, where a host header draws its own. */
 .tmt-ui-shell-bar::after {
@@ -412,7 +412,6 @@
 .tmt-ui-topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--tmt-ui-header-gap);
   box-sizing: border-box;
   height: var(--tmt-ui-header-height);
@@ -420,13 +419,16 @@
   background: color-mix(in srgb, var(--tmt-ui-surface-paper) 95%, var(--tmt-ui-surface-sheet));
 }
 .tmt-ui-topbar-navigation,
-.tmt-ui-topbar-controls,
 .tmt-ui-topbar-actions,
 .tmt-ui-topbar-common {
   display: flex;
   align-items: center;
   gap: var(--tmt-ui-header-gap);
   min-width: 0;
+}
+/* The module's actions sit alone at the bar's far right edge. */
+.tmt-ui-topbar-actions {
+  margin-inline-start: auto;
 }
 .tmt-ui-shell[data-topbar] > .tmt-ui-shell-content > .tmt-ui-shell-tools {
   display: none;
@@ -470,7 +472,6 @@
   .tmt-ui-topbar .tmt-ui-shell-open {
     position: static;
   }
-  .tmt-ui-topbar-controls,
   .tmt-ui-topbar-actions,
   .tmt-ui-topbar-common {
     gap: var(--tmt-ui-space-s);

@@ -161,10 +161,11 @@ and `./react` entries. The root installs `ShellControls.setCommonControls({ open
 `ShellHost` delegates that setter, and `BrowserShell` accepts `commonControls`. These bindings
 belong to the root, never a route module. A route calls `ShellSlot.setTopBar()` and receives
 only `readonly actions: HTMLElement`; React's `BrowserTopBar({ actions })` portals into that
-same renderer. Search is the first control in the left group, after the phone navigation
-button and before any host content. Its one hit, hover and focus box contains the icon and
-platform shortcut hint; the hint is hidden below 640px. Module actions stay in the right group,
-followed by Theme and Remote. This far-left placement is Ben’s approved deviation from the website.
+same renderer. TMT's controls lead as one group, in the order Theme, Search, Remote, after the
+phone navigation button and before any host content; the module's actions stand alone at the
+bar's far right edge. Search's one hit, hover and focus box contains the icon and platform
+shortcut hint; the hint is hidden below 640px. This far-left placement is Ben’s approved
+deviation from the website.
 No title or avatar is drawn in this bar; the host's content supplies its real `h1`.
 
 `openSearch(opener)` connects the one existing product switcher and its focus return. The
@@ -190,7 +191,8 @@ There is no readiness subscription: the root installs controls before mounting a
 replaces the route when clearing them. Route departure clears
 the action slot and transient common UI; root disposal releases listeners and pending route
 loads cannot install a new header. Legacy header/tools slots remain for existing consumers
-until their owning adoption removes them. Gallery `?frame=topbar&renderer=react|native|hosted`
+until their owning adoption removes them; their cluster sits left of the module's own status and
+actions. Gallery `?frame=topbar&renderer=react|native|hosted`
 exercises the real renderer and adapter with demonstration root bindings, not product data.
 
 The legacy BrowserHeader has one h1. Optional `leading`, `headingPrefix` and `headingSuffix` slots place

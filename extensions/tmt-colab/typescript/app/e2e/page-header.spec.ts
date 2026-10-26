@@ -59,11 +59,11 @@ for (const width of [1440, 390])
       // Nothing waits and nothing shows; no Remote chip and no access chip.
       await expect(header.getByText('Nothing waits')).toBeHidden();
       await expect(header.locator('.remote-header-chip')).toHaveCount(0);
-      // Search is the bar's own control, first at the left, before the page's actions.
+      // Search is the bar's own control, among TMT's, before the page's actions.
       expect(await names(page)).toEqual(['More']);
       await expect(
         header
-          .locator('.tmt-ui-topbar-navigation')
+          .locator('.tmt-ui-topbar-common')
           .getByRole('button', { name: 'Search TMT', exact: true }),
       ).toBeVisible();
       await expect(header.locator('.page-connection')).toHaveText('Private · Live');
@@ -162,11 +162,9 @@ test.describe('the shell bar', () => {
   }
   // The ask-page fixture keeps a hidden earlier router beside the live one.
   const bar = (page: Page) => page.locator('.tmt-ui-shell-bar:visible');
-  const search = (page: Page) =>
-    bar(page)
-      .locator('.tmt-ui-topbar-navigation')
-      .getByRole('button', { name: 'Search TMT', exact: true });
   const common = (page: Page) => bar(page).locator('.tmt-ui-topbar-common');
+  const search = (page: Page) =>
+    common(page).getByRole('button', { name: 'Search TMT', exact: true });
   const dialog = (page: Page) => page.getByRole('dialog', { name: 'Search pages', exact: true });
   const views = [
     { width: 1440, scheme: 'light' },
@@ -253,24 +251,33 @@ test.describe('the shell bar', () => {
     });
   }
 
-  test('Search leads the bar, the Remote link closes it, and the page actions sit between them at 1440', async ({
+  test('TMT controls lead the bar (Theme, Search, Remote) and the page actions close it at 1440', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await mountHome(page);
     const control = search(page);
+    const theme = common(page).getByRole('button', { name: /^Theme:/ });
     const remote = common(page).getByRole('link', { name: 'Remote: 3 live sessions' });
     await expect(control).toBeVisible();
     await expect(remote).toBeVisible();
-    const [box, remoteBox, barBox, actionsBox] = await Promise.all([
+    const [themeBox, box, remoteBox, barBox, actionsBox] = await Promise.all([
+      theme.boundingBox(),
       control.boundingBox(),
       remote.boundingBox(),
       bar(page).boundingBox(),
       bar(page).locator('.tmt-ui-topbar-actions').boundingBox(),
     ]);
-    expect(box!.x).toBeLessThan(actionsBox!.x);
-    expect(actionsBox!.x + actionsBox!.width).toBeLessThanOrEqual(remoteBox!.x);
-    expect(remoteBox!.x + remoteBox!.width).toBeLessThanOrEqual(barBox!.x + barBox!.width);
+    expect(themeBox!.x + themeBox!.width).toBeLessThanOrEqual(box!.x);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(remoteBox!.x);
+    expect(remoteBox!.x + remoteBox!.width).toBeLessThanOrEqual(actionsBox!.x);
+    // The page's last action closes the bar at its far right edge, inside the bar's own padding.
+    const inset = await bar(page)
+      .locator('.tmt-ui-topbar')
+      .evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingRight));
+    expect(
+      Math.abs(actionsBox!.x + actionsBox!.width - (barBox!.x + barBox!.width - inset)),
+    ).toBeLessThanOrEqual(1);
     // Colab draws no Remote chip or Theme button of its own beside the bar's.
     await expect(page.locator('.remote-header-chip:visible')).toHaveCount(0);
     await expect(page.getByRole('link', { name: /^Remote:/ })).toHaveCount(1);

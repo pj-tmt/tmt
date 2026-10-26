@@ -29,16 +29,36 @@ for (const renderer of ['react', 'native', 'hosted'])
         );
         await expect(bar.getByRole('button', { name: /^Theme:/ })).toHaveCount(1);
         const search = bar.getByRole('button', { name: 'Search TMT', exact: true });
+        // TMT's controls lead as one group (Theme, Search, Remote); the module's actions stand alone
+        // at the bar's far right edge.
+        const common = bar.getByRole('group', { name: 'TMT controls', exact: true });
+        await expect(common.getByRole('button', { name: 'Search TMT', exact: true })).toHaveCount(
+          1,
+        );
         await expect(
-          bar
-            .locator('.tmt-ui-topbar-navigation')
-            .getByRole('button', { name: 'Search TMT', exact: true }),
-        ).toHaveCount(1);
-        await expect(
-          bar
-            .locator('.tmt-ui-topbar-controls')
-            .getByRole('button', { name: 'Search TMT', exact: true }),
+          common.getByRole('button', { name: 'Module action', exact: true }),
         ).toHaveCount(0);
+        const action = bar.getByRole('button', { name: 'Module action', exact: true });
+        const boxes = await Promise.all(
+          [
+            common.getByRole('button', { name: /^Theme:/ }),
+            search,
+            common.getByRole('link', { name: /^Remote:/ }),
+            action,
+          ].map((control) => control.boundingBox()),
+        );
+        for (let index = 1; index < boxes.length; index++)
+          expect(boxes[index]!.x).toBeGreaterThanOrEqual(
+            boxes[index - 1]!.x + boxes[index - 1]!.width,
+          );
+        const barBox = (await bar.boundingBox())!;
+        const inset = await bar.evaluate((node) =>
+          Number.parseFloat(getComputedStyle(node).paddingRight),
+        );
+        const last = boxes[3]!;
+        expect(
+          Math.abs(last.x + last.width - (barBox.x + barBox.width - inset)),
+        ).toBeLessThanOrEqual(1);
         const hint = search.locator('kbd');
         if (width < 640) await expect(hint).toBeHidden();
         else await expect(hint).toBeVisible();
@@ -59,8 +79,10 @@ for (const renderer of ['react', 'native', 'hosted'])
         expect(contained).toBe(true);
         await search.focus();
         await page.keyboard.press('Tab');
-        await expect(bar.getByRole('button', { name: 'Module action', exact: true })).toBeFocused();
         const remote = bar.getByRole('link', { name: 'Remote: 6 live sessions', exact: true });
+        await expect(remote).toBeFocused();
+        await page.keyboard.press('Tab');
+        await expect(action).toBeFocused();
         await expect(remote).toHaveAttribute('href', '/settings');
         await expect(remote.locator('.tmt-ui-count')).toHaveText('6');
         await remote.focus();

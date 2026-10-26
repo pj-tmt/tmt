@@ -3662,8 +3662,6 @@ function createShellTopBar(root, bar, navigation) {
 		const left = document.createElement("div");
 		left.className = "tmt-ui-topbar-navigation";
 		left.append(navigation);
-		const right = document.createElement("div");
-		right.className = "tmt-ui-topbar-controls";
 		const actions = document.createElement("div");
 		actions.className = "tmt-ui-topbar-actions";
 		const common = document.createElement("div");
@@ -3717,10 +3715,8 @@ function createShellTopBar(root, bar, navigation) {
 		};
 		const searchHelp = help(search, "Search TMT");
 		const remoteHelp = help(remote, "Remote: session count unconfirmed");
-		left.append(searchHelp.wrapper);
-		common.append(theme, remoteHelp.wrapper);
-		right.append(actions, common);
-		header.append(left, right);
+		common.append(theme, searchHelp.wrapper, remoteHelp.wrapper);
+		header.append(left, common, actions);
 		const choice = () => {
 			const explicit = document.documentElement.getAttribute("data-theme");
 			return explicit === "light" || explicit === "dark" ? explicit : "system";
@@ -4070,12 +4066,42 @@ function mountShell(root, view, select) {
 	};
 	const reserve = () => {
 		const width = toolsRoot.offsetWidth;
-		if (width > 0) root.style.setProperty("--tmt-ui-shell-tools-width", `${width}px`);
-		else root.style.removeProperty("--tmt-ui-shell-tools-width");
+		if (width > 0) {
+			const gap = Number.parseFloat(getComputedStyle(toolsRoot).columnGap);
+			root.style.setProperty("--tmt-ui-shell-tools-room", `${width + (gap > 0 ? gap : 0)}px`);
+		} else root.style.removeProperty("--tmt-ui-shell-tools-room");
 	};
 	const watchTools = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : void 0;
 	watchTools?.observe(toolsRoot);
 	reserve();
+	const moduleGroup = () => {
+		const header = bar.querySelector(":scope > .tmt-ui-header");
+		return {
+			header,
+			nodes: (header ? [...header.querySelectorAll(":scope > .tmt-ui-status, :scope > .tmt-ui-actions")] : []).filter((node) => node.getClientRects().length > 0)
+		};
+	};
+	const inset = () => {
+		const { header, nodes } = moduleGroup();
+		const reach = nodes.length ? bar.getBoundingClientRect().right - nodes[0].getBoundingClientRect().left : 0;
+		if (header && reach > 0) {
+			const gap = Number.parseFloat(getComputedStyle(header).columnGap);
+			root.style.setProperty("--tmt-ui-shell-tools-inset", `${reach + (gap > 0 ? gap : 0)}px`);
+		} else root.style.removeProperty("--tmt-ui-shell-tools-inset");
+	};
+	const watchModule = typeof ResizeObserver === "function" ? new ResizeObserver(inset) : void 0;
+	const watchBar = () => {
+		watchModule?.disconnect();
+		const { header, nodes } = moduleGroup();
+		for (const node of header ? [header, ...nodes] : []) watchModule?.observe(node);
+		inset();
+	};
+	const barChanges = new MutationObserver(watchBar);
+	barChanges.observe(bar, {
+		childList: true,
+		subtree: true
+	});
+	watchBar();
 	const setDrawer = (shown) => {
 		root.dataset.drawer = shown ? "open" : "closed";
 		open.setAttribute("aria-expanded", String(shown));
@@ -4256,7 +4282,10 @@ function mountShell(root, view, select) {
 		dispose() {
 			topBar.dispose();
 			watchTools?.disconnect();
-			root.style.removeProperty("--tmt-ui-shell-tools-width");
+			watchModule?.disconnect();
+			barChanges.disconnect();
+			root.style.removeProperty("--tmt-ui-shell-tools-room");
+			root.style.removeProperty("--tmt-ui-shell-tools-inset");
 			if (!drawn) toolsRoot.remove();
 			phone?.removeEventListener("change", rewidth);
 			document.removeEventListener("keydown", close);

@@ -386,9 +386,10 @@ export function mountShell(
   const bar = root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!;
   const topBar = createShellTopBar(root, bar, open);
   bar.after(menu);
-  // The cluster is the bar's second layer: it sits over the bar's right end and tells the host
-  // header how much room to leave (`--tmt-ui-shell-tools-width`). A React shell draws the element
-  // itself, so its modules can portal into the slots on their first render.
+  // The cluster is the bar's second layer: it sits over the bar's right end, left of the module's own
+  // status and actions (`--tmt-ui-shell-tools-inset`), and tells the host header how much room to
+  // leave (`--tmt-ui-shell-tools-room`). A React shell draws the element itself, so its modules can
+  // portal into the slots on their first render.
   const slotOf = (parent: HTMLElement, name: 'search' | 'chip') => {
     const existing = parent.querySelector<HTMLElement>(`:scope > .tmt-ui-shell-tools-${name}`);
     if (existing) return existing;
@@ -413,12 +414,48 @@ export function mountShell(
     // An empty cluster reserves nothing: the stylesheet's 0px default stands and the root keeps no
     // inline style.
     const width = toolsRoot.offsetWidth;
-    if (width > 0) root.style.setProperty('--tmt-ui-shell-tools-width', `${width}px`);
-    else root.style.removeProperty('--tmt-ui-shell-tools-width');
+    if (width > 0) {
+      const gap = Number.parseFloat(getComputedStyle(toolsRoot).columnGap);
+      root.style.setProperty('--tmt-ui-shell-tools-room', `${width + (gap > 0 ? gap : 0)}px`);
+    } else root.style.removeProperty('--tmt-ui-shell-tools-room');
   };
   const watchTools = typeof ResizeObserver === 'function' ? new ResizeObserver(reserve) : undefined;
   watchTools?.observe(toolsRoot);
   reserve();
+  // The module's own right group (its status and actions) closes the bar: the cluster's inset is how
+  // far that group reaches in from the bar's right edge, plus the header's gap. A module with no
+  // group leaves the stylesheet's default, the header's own inset.
+  const moduleGroup = () => {
+    const header = bar.querySelector<HTMLElement>(':scope > .tmt-ui-header');
+    const nodes = header
+      ? [
+          ...header.querySelectorAll<HTMLElement>(
+            ':scope > .tmt-ui-status, :scope > .tmt-ui-actions',
+          ),
+        ]
+      : [];
+    return { header, nodes: nodes.filter((node) => node.getClientRects().length > 0) };
+  };
+  const inset = () => {
+    const { header, nodes } = moduleGroup();
+    const reach = nodes.length
+      ? bar.getBoundingClientRect().right - nodes[0]!.getBoundingClientRect().left
+      : 0;
+    if (header && reach > 0) {
+      const gap = Number.parseFloat(getComputedStyle(header).columnGap);
+      root.style.setProperty('--tmt-ui-shell-tools-inset', `${reach + (gap > 0 ? gap : 0)}px`);
+    } else root.style.removeProperty('--tmt-ui-shell-tools-inset');
+  };
+  const watchModule = typeof ResizeObserver === 'function' ? new ResizeObserver(inset) : undefined;
+  const watchBar = () => {
+    watchModule?.disconnect();
+    const { header, nodes } = moduleGroup();
+    for (const node of header ? [header, ...nodes] : []) watchModule?.observe(node);
+    inset();
+  };
+  const barChanges = new MutationObserver(watchBar);
+  barChanges.observe(bar, { childList: true, subtree: true });
+  watchBar();
 
   const setDrawer = (shown: boolean) => {
     root.dataset.drawer = shown ? 'open' : 'closed';
@@ -624,7 +661,10 @@ export function mountShell(
     dispose() {
       topBar.dispose();
       watchTools?.disconnect();
-      root.style.removeProperty('--tmt-ui-shell-tools-width');
+      watchModule?.disconnect();
+      barChanges.disconnect();
+      root.style.removeProperty('--tmt-ui-shell-tools-room');
+      root.style.removeProperty('--tmt-ui-shell-tools-inset');
       if (!drawn) toolsRoot.remove();
       phone?.removeEventListener('change', rewidth);
       document.removeEventListener('keydown', close);

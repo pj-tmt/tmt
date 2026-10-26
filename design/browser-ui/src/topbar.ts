@@ -45,8 +45,6 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
     const left = document.createElement('div');
     left.className = 'tmt-ui-topbar-navigation';
     left.append(navigation);
-    const right = document.createElement('div');
-    right.className = 'tmt-ui-topbar-controls';
     const actions = document.createElement('div');
     actions.className = 'tmt-ui-topbar-actions';
     const common = document.createElement('div');
@@ -98,10 +96,9 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
     };
     const searchHelp = help(search, 'Search TMT');
     const remoteHelp = help(remote, 'Remote: session count unconfirmed');
-    left.append(searchHelp.wrapper);
-    common.append(theme, remoteHelp.wrapper);
-    right.append(actions, common);
-    header.append(left, right);
+    // TMT's own controls lead, the module's actions close the bar at its far right edge.
+    common.append(theme, searchHelp.wrapper, remoteHelp.wrapper);
+    header.append(left, common, actions);
 
     const choice = (): ThemeChoice => {
       const explicit = document.documentElement.getAttribute('data-theme');
