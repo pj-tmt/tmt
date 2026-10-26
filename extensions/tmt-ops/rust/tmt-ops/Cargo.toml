@@ -34,6 +34,8 @@ pulldown-cmark.workspace = true
 unicode-width = { workspace = true, features = ["cjk"] }
 tmt-invoke.workspace = true
 tmt-tui.workspace = true
+# The Terminal tab speaks the built-in host's stream frames (contracts/terminal-stream-v1.md).
+tmt-pty-protocol.workspace = true
 tmt-cli-style = { workspace = true, features = ["ratatui"] }
 # Cron jobs, checklists and config edits use the shared private-state entries (#3347).
 tmt-extension-state.workspace = true

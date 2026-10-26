@@ -14,6 +14,7 @@ mod scroll;
 mod status;
 pub mod strip;
 pub mod surface;
+pub mod terminal;
 
 pub use key_help::{KeyHelp, KeyHelpEntry, KeyHelpSection, KeyHint, footer};
 pub use modal::{Modal, ModalAreas, Placement};

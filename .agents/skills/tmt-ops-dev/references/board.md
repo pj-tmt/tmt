@@ -581,6 +581,25 @@ the frozen parity approval/regeneration gate. Relevant tests live in `view/tests
 (cells, styles, hits, footer, menu and parity), `workspace`, `scroll`, `app`,
 `markup` and `layout`. Text-list projection is corroborated by the native Squad test.
 
+## Terminal stream client
+
+`board/terminal_tab/` is the Terminal tab's model for a built-in-host member; the wire is
+[terminal-stream-v1](../../../../contracts/terminal-stream-v1.md). `discovery` asks Core
+(`terminal.stream`, `{identityId}`) where the stream is and checks the answer; a
+`TERMINAL_STREAM_UNAVAILABLE` refusal means no tab, any other failure is retried. `stream` runs one
+thread per open tab that owns the Unix socket: `Hello`, `Welcome`, one `Snapshot`, then live output
+applied on top of the snapshot (frames before `SnapshotStart` are superseded, a second
+`SnapshotStart` discards an unfinished one). The board hands it a sink and sends commands; it
+receives `Event`s (a connection notice, a `Screen` at most every 33 ms, `Exited`, `Evicted`,
+`Refused`, `Lost`), so painting and key handling do no I/O and a late event for an old tab is
+dropped by its epoch. A lost connection or a `TooSlow` eviction reconnects with a fresh `Hello` and
+`Snapshot` after a bounded backoff; `TakenOver`, `Exited` and a refusal do not. A viewer never sends
+`TakeSole`, never sends `Resize` unless the caller asks (typing starts or the typing area changes),
+sends that window again after a reconnect only while typing (`stop_typing` forgets it, so a
+viewer that only watches never takes the size back), drops input while not attached, and never
+sends or reads Core's control frames. The screen model and key encoder are `tmt-tui`'s
+`components::terminal`; this module depends on `tmt-pty-protocol` for frames only.
+
 ## Checklist controller
 
 `App::context_menu` owns the context action menu for configured Menu bindings and

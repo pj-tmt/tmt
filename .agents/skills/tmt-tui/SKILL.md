@@ -22,6 +22,15 @@ from `rust/`. It includes a clean source-tree control and a seeded raw-widget
 failure through real module discovery. Keep the frozen parity gate in the
 development reference below; unexplained differences block handoff.
 
+## Terminal screen
+
+`components::terminal` shows another program's screen: `Screen` takes bytes and a size and
+publishes a `Frame` of cells (colours, attributes, wide characters, cursor, input modes); `key_bytes`,
+`paste_bytes`, `wheel_bytes` and `is_leave` (Ctrl-\) are the bytes a key, a paste or a wheel turn
+sends back. It parses with `vt100` at the workspace pin (the parser that formats a built-in host's
+snapshot), keeps no scrollback and does no I/O, and it knows nothing of the stream that carries the
+bytes or of `tmt-pty-protocol`.
+
 ## References
 
 - [references/pipeline-and-components.md](references/pipeline-and-components.md): admission, binding, geometry, paint and component rules.

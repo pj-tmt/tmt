@@ -145,6 +145,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-invoke",
             // Production row geometry and grapheme fitting; no core behavior.
             "tmt-tui",
+            // The frames of a built-in host's terminal stream (dependency-free leaf, #4606).
+            "tmt-pty-protocol",
             "clap",
             "jiff",
             "serde_json",
@@ -185,6 +187,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "ratatui",
             "unicode-width",
             "unicode-segmentation",
+            // One terminal-screen parser for a built-in host's stream; the pin Core uses (#4606).
+            "vt100",
         ],
         "tmt-colab" => &[
             "tungstenite",
@@ -780,6 +784,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && !(root == "tmt_extension_objects"
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
                 && !(source.package == "tmt-ops" && root == "tmt_tui")
+                && !(source.package == "tmt-ops" && root == "tmt_pty_protocol")
                 && !(root == "tmt_colab_model" && colab_model_consumer)
                 && root != source.package.replace('-', "_")
             {
