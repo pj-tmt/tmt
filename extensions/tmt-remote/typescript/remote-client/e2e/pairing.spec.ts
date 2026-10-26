@@ -3244,22 +3244,23 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
       // This real effect+settlement and native response is the deterministic
       // milestone. The browser still has not received its acknowledgement.
       const response = await reply.json();
-      expect(JSON.parse(Buffer.from(response.payload, 'base64url').toString('utf8')).state).toBe(
-        'committed',
-      );
+      const publicOutcome = JSON.parse(Buffer.from(response.payload, 'base64url').toString('utf8'));
+      expect(publicOutcome.state).toBe('committed');
       durable = JSON.parse(
         execFileSync(
           'python3',
           [
             '-c',
-            "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome'],row)))); db.close()",
+            "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome,(SELECT member_id FROM member_machines WHERE client_id=management_receipts.client_id) FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome','actorMemberId'],row)))); db.close()",
             join(root, 'state/remote/remote.db'),
             originalId,
           ],
           { encoding: 'utf8' },
         ),
       );
-      expect(JSON.parse(durable.outcome as string).state).toBe('committed');
+      const stored = JSON.parse(durable.outcome as string);
+      expect(stored.actorMemberId).toBe(durable.actorMemberId);
+      expect(stored.outcome).toEqual(publicOutcome);
       expect(serve.kill('SIGKILL')).toBe(true);
       await exited(serve);
       expect(serve.signalCode).toBe('SIGKILL');
@@ -3301,7 +3302,7 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
       'python3',
       [
         '-c',
-        "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome'],row)))); db.close()",
+        "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome,(SELECT member_id FROM member_machines WHERE client_id=management_receipts.client_id) FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome','actorMemberId'],row)))); db.close()",
         join(root, 'state/remote/remote.db'),
         originalId,
       ],
