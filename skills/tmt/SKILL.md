@@ -1,13 +1,13 @@
 ---
 name: tmt
-description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
+description: 'Coordinate local agents with TMT: send `tmt talk` through a host terminal (built-in, tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
 ---
 
 # TMT
 
 Use `tmt` for local agent communication across supported hosts and runtimes.
-The native CLI needs no Node/npm/pnpm or Rust toolchain. A live host pane is needed
-for pane delivery; existing identities can receive through the local inbox.
+The native CLI needs no Node/npm/pnpm or Rust toolchain. A live host terminal is needed
+for terminal delivery; existing identities can receive through the local inbox.
 
 ## Quick start
 
@@ -41,7 +41,7 @@ as described below. Waiting `talk` returns that durable final directly.
 
 ## Can and won't
 
-TMT can send to a verified host pane (tmux, or Herdr, whose shipped driver TMT
+TMT can send to a verified host terminal (built-in, tmux, or Herdr, whose shipped driver TMT
 approves on first use in a Herdr pane and prints one line saying so; the user
 undoes it with `tmt driver rm herdr`, and a removed driver stays removed until
 `tmt driver install herdr`) or queue an existing identity's local inbox. It
@@ -112,6 +112,13 @@ yet. `check` captures diagnostics and does not retrieve a correlated result.
 Its positional count or `--lines` accepts integers from 0 through 2147483647;
 zero captures the visible pane. Invalid counts are rejected, not clamped.
 Invalid configured capture counts also fail before target lookup or capture.
+
+Use `tmt check <canonical-uuid> --capture-only --expect-name <name>` to pin a
+capture to the identity and name you last saw; `read` accepts the same options.
+A renamed or retired identity refuses with `IDENTITY_CHANGED` (exit 5) before
+capture; an unknown UUID is `NAME_NOT_FOUND` (exit 3). Capture-only never delivers
+a retained Digest checklist. Without `--expect-name`, a capture-only UUID still
+selects that identity directly, without falling back to a UUID-shaped name.
 
 Live `talk` can cause external input in another agent's host pane. Only use
 it when the user has requested that communication or the surrounding task
@@ -828,13 +835,17 @@ detaches and leaves the member running; Ctrl-C goes to the program. `attach -d`
 takes sole use and disconnects other viewers. Terminal sizes above 1000 columns
 or rows are clamped; another viewer's resize never resizes your physical window.
 After a program exits, attachment restores your terminal and prints its resume
-command. A lost connection does not prove the program ended; inspect before retrying.
+command. A lost connection does not prove the program ended; inspect `tmt ls --json`
+and `tmt check <name>` first. Once a saved member is offline after supervisor loss,
+`tmt resume <name>` starts its recorded session in a new terminal; it never resends
+old requests. `tmt stop --close <name>` stops the verified agent and waits for its
+supervisor to end. `rm` and `unbind` change identity bindings; they are not stop commands.
 If startup is unconfirmed, inspect the named pane before retrying: an agent may
 have started, and the command never resends the launch.
 
 `tmt resume` uses this pane's verified bound identity; an unbound pane refuses and
 lists saved names. `tmt resume <name>` (alias `tmt run --resume <name>`) resumes the exact
-hook-recorded session in the current pane. It replays the associated executable,
+hook-recorded session in the current verified host, or a new built-in terminal outside one. It replays the associated executable,
 last observed model and launch effort. `--model` and `--effort` before the name
 explicitly override those values; present allowed environment keys override stored
 ones, even when empty. `--show` displays the preset without launching and
@@ -1215,9 +1226,9 @@ applications or arbitrary drivers are installed; existing host-driver approval
 and removal rules remain. Agents must not use upgrade to obtain new setup authority.
 
 Completed items stay installed after an independent failure. Rerunning retries
-unfinished work. Within one apply process, interruption is honoured between items
-and returns 130. Root upgrade does not yet forward terminal Ctrl-C to its separate
-apply child; [#5180](https://github.com/tmt-ninja/tmt/issues/5180) tracks that limitation.
+unfinished work. Ctrl-C reaches the apply child, which stops at checkpoints,
+keeps completed outcomes and returns 130. A second Ctrl-C shortens the wait;
+forced cleanup or a deadline leaves an unconfirmed outcome. Inspect before retrying.
 JSON adds
 `providerSetup` outcomes (`changed`, `consentRequired`, `needsApproval`, `skipped`
 or `failed`) beside existing `integrations` and per-product results. A target

@@ -26,9 +26,9 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
   await mount(page);
   await expect(app(page).getByRole('heading', { name: 'A shared place for ideas.' })).toBeVisible();
   await expect(app(page).locator('h1:visible')).toHaveCount(1);
-  const header = app(page).locator('.tmt-ui-header:visible');
-  await expect(header).toHaveAttribute('aria-label', /Colab.*Pages/);
-  await expect(header.locator('h1, .tmt-ui-title')).toHaveCount(0);
+  // The list names itself in its content: the shared bar holds the actions, with no title row above.
+  await expect(app(page).locator('.colab-title-row')).toHaveCount(0);
+  await expect(app(page).locator('.tmt-ui-header:visible')).toHaveCount(0);
 
   await expect(app(page).getByRole('list', { name: 'Pinned pages' })).toHaveCount(0);
   for (const title of ['Review 2', 'Spec 1', 'Plan 3', 'Notes 4']) await pin(page, title);
@@ -65,7 +65,7 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
   await expect(pins.getByRole('link')).toHaveText(['Review 2']);
   await expect(app(page).getByRole('heading', { name: 'blog', exact: true })).toBeVisible();
   await expect(app(page).locator('h1:visible')).toHaveCount(1);
-  await expect(header).not.toContainText('blog');
+  await expect(app(page).locator('.tmt-ui-header:visible')).toHaveCount(0);
 
   await expect(row(page, 'Spec 1')).toHaveCount(0);
 });

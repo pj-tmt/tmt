@@ -22,7 +22,12 @@ struct Report {
     output: String,
 }
 
-fn run(target: String, lines: Option<u64>, capture_only: bool) -> Result<Report, Failure> {
+fn run(
+    target: String,
+    lines: Option<u64>,
+    capture_only: bool,
+    expect_name: Option<String>,
+) -> Result<Report, Failure> {
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let settings = ConfigFiles {
         paths: paths.clone(),
@@ -41,7 +46,12 @@ fn run(target: String, lines: Option<u64>, capture_only: bool) -> Result<Report,
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve(&mut storage, &target).and_then(|observed| {
+    let selected = if capture_only {
+        target::resolve_capture(&mut storage, &target, expect_name.as_deref())
+    } else {
+        target::resolve(&mut storage, &target)
+    };
+    let pending = selected.and_then(|observed| {
         // A capture-only read is for display data and may be repeated by a tool,
         // so it never hands a retained checklist to the pane.
         if let Some(identity) = observed.identity.as_ref().filter(|_| !capture_only) {
@@ -109,9 +119,10 @@ pub fn execute(
     target: String,
     lines: Option<u64>,
     capture_only: bool,
+    expect_name: Option<String>,
     mode: OutputMode,
 ) -> io::Result<u8> {
-    let report = match run(target, lines, capture_only) {
+    let report = match run(target, lines, capture_only, expect_name) {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };

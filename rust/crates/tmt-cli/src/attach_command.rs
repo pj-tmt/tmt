@@ -91,7 +91,7 @@ fn prepare(target: &str) -> Result<Prepared, Failure> {
             "Could not open identity storage.",
         )
     })?;
-    let result = target::resolve_focus(&mut storage, target).and_then(prepare_observed);
+    let result = target::resolve_identity_target(&mut storage, target).and_then(prepare_observed);
     after_cleanup(result, || storage.close())
 }
 

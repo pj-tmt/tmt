@@ -198,13 +198,16 @@ resume/external dispatch in created panes. Layout-only grants no launch authorit
 One typed result serves human and JSON output; `identity show`
 without a name uses the shared verified-caller selector and never falls back to
 a working directory, active pane or sole identity.
+`check --capture-only` shares UUID binding selection and `identity_context`'s
+expected-name guard with pinned identity reads, before host capture; ordinary
+check keeps name/pane routing and its existing Digest opportunity.
 
 ## Domain and state ownership
 
 ### Identity, names and bindings
 
 - `tmt-core::names` owns canonical names; hosts own pane-target syntax.
-  `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
+  `identity` owns canonical UUID spelling and lifetime/create/promote; `identity_metadata`/`identity_status`
   own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
   `binding` owns evidence, retirement, binds/moves and CAS rename.
   [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`.
@@ -289,8 +292,8 @@ owns behavior and limits.
 ### Tmux and process effects
 
 `tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
-monotonic deadlines, group cleanup, reaping) and native-first process-incarnation acquisition.
-A leaf probe such as `ps` never forks and
+monotonic deadlines, group cleanup, reaping and invocation-owned SIGINT forwarding) and
+native-first process-incarnation acquisition. A leaf probe such as `ps` never forks and
 stays in its caller's process group, so a supervisor's group kill also ends it;
 `process::interactive` owns direct terminal children without taking the shared process
 group. `tmux` pins caller or recorded
@@ -308,10 +311,11 @@ evidence and never copied back. Endpoint identity is
 opaque to everything but its host: `HostKind` is pure data, evidence from another
 host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
-fullwidth `！` in typed text and the ESC of a bracketed-paste marker to `␛`. The built-in host uses this seam in process;
-`tmt-adapters::pty` owns members, screens and attach; CLI restores terminal modes.
-[Terminal stream v1](contracts/terminal-stream-v1.md) publishes the attach stream. See the
-[hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md).
+fullwidth `！` in typed text and the ESC of a bracketed-paste marker to `␛`. The built-in host uses this seam in process.
+`tmt-adapters::pty` owns per-member supervisors, crash residue cleanup under nonblocking
+flocks, current screens and live attach; CLI restores terminal modes.
+[Terminal stream v1](contracts/terminal-stream-v1.md) and the
+[host reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#built-in-host) own snapshots and lifecycle.
 
 ### Agent drivers
 
@@ -600,4 +604,4 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
 - **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. ([native opening](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission))
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`; [detail](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission)), and the Worker is resource
-  containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Source/shell actions, attributed creator/question metadata, thread status and proposals publish through it (offline or the local `page-publish` route), browser Save and closed creator/handled/reopen metadata commands use the owner sync socket, signed by the root-local writer. Metadata commands retain expected-revision and save operation/status fences; link readers cannot publish them.
+  containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Source/shell actions, attributed creator/question metadata, thread status and proposals publish through it (offline or the local `page-publish` route), browser Save and closed creator/handled/reopen metadata commands use the owner sync socket, signed by the root-local writer. Metadata commands retain expected-revision and save operation/status fences. Link editors request bounded metadata changes through automatic owner admission; [target and result rules](extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256) preserve root-local content authority.

@@ -2074,11 +2074,11 @@ test('an upgraded server shows the update row in the shell bar without covering 
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const rowBox = (await row.boundingBox())!;
-    const headerBox = (await page.locator('header.tmt-ui-header').boundingBox())!;
+    const topBox = (await page.locator('.tmt-ui-shell-bar .tmt-ui-topbar').boundingBox())!;
     const barBox = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
-    // Inside the TMT web shell the row is the shell bar's line directly under the header: as wide
+    // Inside the TMT web shell the row is the shell bar's line directly under the top bar: as wide
     // as Colab's column (the bar), one line, and the page starts below it.
-    expect(rowBox.y).toBeCloseTo(headerBox.y + headerBox.height, 0);
+    expect(rowBox.y).toBeCloseTo(topBox.y + topBox.height, 0);
     expect(rowBox.x).toBeCloseTo(barBox.x, 0);
     expect(rowBox.width).toBeCloseTo(barBox.width, 0);
     expect(rowBox.y + rowBox.height).toBeCloseTo(barBox.y + barBox.height, 0);
@@ -2857,4 +2857,49 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await backToList(page);
   await showAllPages(page);
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
+});
+
+test('the global search reads the pages from a document that is not Colab’s and leaves its location alone', async ({
+  page,
+  context,
+}) => {
+  await wire(context);
+  await page.route('**/src/main.tsx', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: '' }),
+  );
+  // An Ops page, with a fragment and a query that are not Colab's.
+  await page.goto('/ops/?tab=agents#agents');
+  const before = await page.evaluate(() => ({ href: location.href, length: history.length }));
+  await page.evaluate(
+    async ({ path, mount }) => (await import(/* @vite-ignore */ path)).mount(mount),
+    { path: '/test/search-session-browser.tsx', mount },
+  );
+  await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Search TMT', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('combobox', { name: 'Search TMT' })).toHaveAttribute(
+    'data-placeholder',
+    'Search TMT…',
+  );
+  // Colab's pages arrive through the paired mount: bootstrap, registration and discovery all ran.
+  // (The row has no title yet: the list's own title reads have not run in this document.)
+  const option = dialog.getByRole('option', { name: /Untitled page/ });
+  await expect(option).toBeVisible();
+  // Neither the fragment nor the path was validated or rewritten, and no entry was pushed.
+  expect(await page.evaluate(() => ({ href: location.href, length: history.length }))).toEqual(
+    before,
+  );
+  await option.click();
+  expect(
+    await page.evaluate(
+      async (path) => (await import(/* @vite-ignore */ path)).proof().navigated,
+      '/test/search-session-browser.tsx',
+    ),
+  ).toEqual([v.page]);
+  expect(await page.evaluate(() => location.href)).toBe(before.href);
+  await page.evaluate(
+    async (path) => (await import(/* @vite-ignore */ path)).dispose(),
+    '/test/search-session-browser.tsx',
+  );
+  await expect(dialog).toHaveCount(0);
 });

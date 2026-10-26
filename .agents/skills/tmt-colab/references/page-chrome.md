@@ -37,10 +37,13 @@ the same-origin `/settings` link. Hosted/detached adapters and missing Sessions 
 `remote-presence.ts` owns the finite snapshot and replacement/close fences. Replacement
 starts one read after any stale read settles; close prevents that successor. `mounted.ts`
 uses its already-admitted Session without reopening. `remote-header.tsx` owns only presentation
-and the three refresh triggers. The space home header uses the shared Tooltip chip on desktop and,
-through 640px, a Remote submenu in its More menu with the same details and settings link. The page
-header keeps no Remote chip: its More menu holds that Remote entry, after Share…, and the header shows
-`△ Remote offline` (a mark and a word) only while the count cannot be confirmed. No shared header
+and the three refresh triggers. In Colab's own shell the shared top bar draws the Remote link:
+`useShellRemoteStatus` projects the snapshot (a confirmed count as the badge, linking to the
+settings link; unconfirmed or no source as the glyph alone, linking to the rail's Remote), so the
+chip's device-details tooltip and More's Remote entry are not drawn there. The hosted mount, which has
+no common controls yet (#5239, #5227), keeps the space home's Tooltip chip and, through 640px, a
+Remote submenu in More; its page header keeps no chip. Either mount shows `△ Remote offline` (a mark
+and a word) in the page's status only while the count cannot be confirmed. No shared header
 API, presence stream, periodic polling or new Remote operation is introduced.
 
 Native pairing/app-unavailable guidance stays static. `chrome.rs` compile-time embeds the same checked
@@ -121,10 +124,16 @@ from whichever route draws it and draws the title alone, then muted original aut
 or module crumb, because the rail's head carries the brand and the rail names the module (a scoped
 page keeps its project crumb before the title). The display-only `local · <backendName>` identity
 (`local` when absent) is not a visible element: it is in the header's accessible name
-(`Colab · local · <backendName> · <title>`). The shell bar's cluster holds Search (an icon and a
-quiet `⌘K` hint, hidden on coarse pointers) and the Remote presence chip (`Remote · N`, hidden
-below 640px where the count stays in More); both are portaled into the shell's `tools` slot, and
-the header leaves the room the shell measures for them. A standalone header (reader, mounted and
+(`Colab · local · <backendName> · <title>`). In Colab's own shell (`SharedTopBar`, #5237) Colab is the
+root of the shared top bar's common controls: Search opens the route's quick switcher (the bar owns
+the one ⌘K listener), Theme is the bar's menu, and the page's status (needs-you, attention marks) and
+actions, with More (no Theme or Remote entries), go into the bar's action slot through
+`BrowserTopBar`. The bar draws no title: the title row (title, crumb, project menu, caption) is
+content under it, static, on the content background, and a route whose content names itself has none;
+`barRef` hands the page the sticky bar to measure its clearances from, and `rowRef` the title row, which
+the renderer takes as the content between the bar and the frame (`frameLead`). The
+hosted mount still portals the header into the shell's `bar` and `tools` slots (Search and the
+Remote chip) until it adopts the bar. A standalone header (reader, mounted and
 native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the
 brand link `Colab · local · <backendName>` (an unlinked brand is a named group with the same title);
 below 480px it shows the mark only, the wordmark visually hidden and kept in that name. The shell's

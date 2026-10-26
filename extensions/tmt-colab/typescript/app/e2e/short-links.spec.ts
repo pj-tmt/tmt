@@ -27,8 +27,10 @@ test('an old short link opens a chooser after a new page collides and never gues
   await expect(page.getByRole('link', { name: /Original proposal/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /Later proposal/ })).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
-  await expect(page.locator('#short-fixture header')).toHaveCount(1);
-  // Inside the shell the rail carries the TMT mark; the bar's header draws none.
+  // The shared bar plus the page's title row.
+  await expect(page.locator('#short-fixture .tmt-ui-topbar')).toHaveCount(1);
+  await expect(page.locator('#short-fixture .colab-title-row header')).toHaveCount(1);
+  // Inside the shell the rail carries the TMT mark; the title row draws none.
   await expect(page.locator('#short-fixture .tmt-ui-header svg.tmt-ui-mark')).toHaveCount(0);
   await expect(page.getByTestId('short-page-choice').locator('section')).toHaveAttribute(
     'role',

@@ -29,7 +29,7 @@ const placed = (page: Page) =>
   page.evaluate(() => {
     const nodes = [
       ...document.querySelectorAll(
-        '#ask-page-fixture .page-header-actions button, #ask-page-fixture [aria-label="Search pages"], #ask-page-fixture .page-header-meta .status, #ask-page-fixture .page-floating-actions button',
+        '#ask-page-fixture .page-header-actions button, #ask-page-fixture [aria-label="Search TMT"], #ask-page-fixture .page-header-meta .status, #ask-page-fixture .page-floating-actions button',
       ),
     ];
     return nodes.map((node) => {

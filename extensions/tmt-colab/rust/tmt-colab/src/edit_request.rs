@@ -4,6 +4,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 use tmt_colab_model::{Invalid, Result, crypto, values};
+pub mod metadata;
 
 /// The most source a request may carry. A request is one sealed own update of at most
 /// `decoder::UPDATE_BYTES`; this leaves the Yjs and JSON overhead inside it.
@@ -42,8 +43,14 @@ fn require(value: bool) -> Result<()> {
 /// source and the base it was edited from, with the editor's change as anchored hunks so that
 /// the owner can merge it into a page that has moved since.
 pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()> {
+    if value.get("kind").and_then(Value::as_str) == Some("edit-result") {
+        return metadata::validate_result(root, key, value);
+    }
     if value.get("kind").and_then(Value::as_str) != Some("edit-request") {
         return Ok(());
+    }
+    if value.get("version").and_then(Value::as_u64) == Some(2) {
+        return metadata::Request::read(root, key, value).map(|_| ());
     }
     // A request without hunks carries no `hunks` key, never a null one.
     require(value.get("hunks").is_none_or(|hunks| !hunks.is_null()))?;

@@ -35,7 +35,7 @@ impl Drop for Fixture {
 }
 
 /// A store left at the schema before the current one, as an older Colab saved it: the current
-/// step only adds the pinned-project tables, so dropping them and the version is that store.
+/// step adds the metadata-result column, so dropping it and the version is that store.
 fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     let store = layout.directory.join("space.db");
     Store::open(layout).unwrap().close().unwrap();
@@ -43,7 +43,7 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version={previous}"
+            "ALTER TABLE edit_decisions DROP COLUMN result; PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -135,7 +135,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "ALTER TABLE edit_decisions DROP COLUMN result; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();
@@ -179,7 +179,16 @@ fn only_the_two_newest_copies_stay_and_other_names_are_left_alone() {
 fn a_migration_that_fails_partway_keeps_its_copy_and_every_older_one() {
     let fixture = Fixture::new();
     let layout = fixture.layout();
-    let (store, previous) = previous_schema(&layout);
+    let (store, _) = previous_schema(&layout);
+    // Keep exercising the two-statement migration 18, even while the newest step is a
+    // single ALTER. Its second statement fails after its first one has executed.
+    let previous = 17;
+    Connection::open(&store)
+        .unwrap()
+        .execute_batch(
+            "DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17",
+        )
+        .unwrap();
     for old in [3, 7] {
         fs::write(backup_path(&store, old), format!("v{old}")).unwrap();
     }

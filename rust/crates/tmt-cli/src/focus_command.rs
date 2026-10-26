@@ -127,7 +127,7 @@ fn run(
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve_focus(&mut storage, &target).and_then(|observed| {
+    let pending = target::resolve_identity_target(&mut storage, &target).and_then(|observed| {
         if let Some(direction) = into {
             let invoker = swap_invoker.as_ref().ok_or_else(host_unsupported)?;
             if observed.server.host != host.kind() || observed.server.socket_path != invoker.socket

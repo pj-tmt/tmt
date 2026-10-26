@@ -54,7 +54,10 @@ function provider(key: string, label: string, fixtureState: Fixture['state']): S
 }
 
 /** A search host that is not a Colab route: a bar with the opener, the entry, and seeded providers. */
-export function mount(mode: 'ready' | 'cold-failed' | 'no-colab-data' = 'ready') {
+export function mount(
+  mode: 'ready' | 'cold-failed' | 'no-colab-data' = 'ready',
+  placeholder?: string,
+) {
   dispose();
   reads = 0;
   went = [];
@@ -145,6 +148,7 @@ export function mount(mode: 'ready' | 'cold-failed' | 'no-colab-data' = 'ready')
     pageHref: (pageId) => `/colab/p/${pageId}`,
     go: async (href) => void went.push(href),
     projectHref: (name) => `/colab/?scope=${encodeURIComponent(name)}`,
+    ...(placeholder === undefined ? {} : { placeholder }),
   });
   opener.addEventListener('click', () => entry.open(opener));
   fixture = { entry, host, opener, registry, state };

@@ -183,6 +183,7 @@ fn a_killed_supervisor_hangs_up_its_program_and_its_member_can_start_again() {
         armed.display()
     );
     let started = fixture.start("pty_b", &["sh", "-c", &script]);
+    let live = fixture.start("pty_live", &["sh", "-c", "read l; echo live:$l"]);
     // Hung up before it set its handler, it would die without a trace.
     wait_until("the program to arm its handler", || armed.exists());
     assert!(alive(started.program));
@@ -193,10 +194,19 @@ fn a_killed_supervisor_hangs_up_its_program_and_its_member_can_start_again() {
     wait_until("the program to be hung up", || marker.exists());
     wait_until("the program to be gone", || !alive(started.program));
 
-    // The dead supervisor left its socket and lock, and neither blocks the id.
+    // A new ID reclaims the killed member's residue, leaving a live neighbour.
     assert!(socket_path(&fixture.directory, "pty_b").exists());
-    fixture.start("pty_b", &["sh", "-c", "read l; echo back"]);
-    let mut client = fixture.connect("pty_b");
+    assert!(lock_path(&fixture.directory, "pty_b").exists());
+    fixture.start("pty_new", &["sh", "-c", "read l; echo back"]);
+    assert!(!socket_path(&fixture.directory, "pty_b").exists());
+    assert!(!lock_path(&fixture.directory, "pty_b").exists());
+    assert!(socket_path(&fixture.directory, "pty_live").exists());
+    assert!(lock_path(&fixture.directory, "pty_live").exists());
+    assert!(alive(live.program));
+    let mut neighbour = fixture.connect("pty_live");
+    neighbour.input(b"untouched\r").unwrap();
+    output_until(&mut neighbour, "live:untouched");
+    let mut client = fixture.connect("pty_new");
     client.input(b"\r").unwrap();
     output_until(&mut client, "back");
 }

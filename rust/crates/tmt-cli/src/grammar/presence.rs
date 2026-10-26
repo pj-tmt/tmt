@@ -124,14 +124,14 @@ pub(in crate::grammar) fn check() -> Command {
         general(spec!(
             "check",
             "Capture diagnostic pane output",
-            details = "A check may hand off one retained checklist after Digest expires/is cleared or its held range is marked due, after verifying that exact live session is idle; --capture-only never does. Capture never proves a final response.",
+            details = "A check may hand off one retained checklist after Digest expires/is cleared or its held range is marked due, after verifying that exact live session is idle; --capture-only never does. Capture-only accepts a canonical UUIDv4; --expect-name pins it and refuses a renamed or retired identity before capture. Capture never proves a final response.",
             [
                 "Show recent output from an agent's pane" => "tmt check worker",
                 "Show the last 50 lines" => "tmt check worker 50",
-                "Read a pane without delivering a retained checklist" => "tmt check worker --capture-only",
+                "Pin a capture to an identity and its expected name" => "tmt check 7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f --capture-only --expect-name reviewer",
             ]
         )),
-        &["lines", "capture-only"],
+        &["lines", "capture-only", "expect-name"],
     )
     .visible_alias("read")
     .arg(operand("target", true))

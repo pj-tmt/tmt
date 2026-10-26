@@ -739,7 +739,7 @@ test('question collision placement preserves the fixed header controls', async (
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   const surface = page.locator('#ask-page-fixture');
   const floating = surface.locator('.selection-mode');
-  const header = await surface.locator('.tmt-ui-header').boundingBox();
+  const header = await surface.locator('.tmt-ui-topbar').boundingBox();
   const fab = await floating.boundingBox();
   expect(header).not.toBeNull();
   expect(fab).not.toBeNull();
@@ -757,7 +757,7 @@ test('question collision placement preserves the fixed header controls', async (
       async () => {
         if (!(await floating.isVisible())) return true;
         const fab = await floating.boundingBox();
-        const header = await surface.locator('.tmt-ui-header').boundingBox();
+        const header = await surface.locator('.tmt-ui-topbar').boundingBox();
         return !!fab && !!header && fab.y >= header.y + header.height + 8;
       },
       { message: 'moving FAB above a card must not overlap fixed chrome' },

@@ -2,6 +2,7 @@
 
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
+    identity_context,
     output::Failure,
 };
 use tmt_adapters::{
@@ -18,18 +19,52 @@ use tmt_core::{
 #[cfg(test)]
 mod tests;
 
-/// Focus alone accepts a canonical UUIDv4 before considering names or panes.
-pub fn resolve_focus(storage: &mut Storage, input: &str) -> Result<PaneIdentity, Failure> {
-    if !focus_identity_id(input) {
+/// A UUID selects its recorded binding without a mutable-name lookup.
+pub fn resolve_identity_target(
+    storage: &mut Storage,
+    input: &str,
+) -> Result<PaneIdentity, Failure> {
+    if !tmt_core::identity::canonical_identity_id(input) {
         return resolve(storage, input);
     }
     resolve_identity(storage, input, input)
 }
 
-fn focus_identity_id(input: &str) -> bool {
-    // The existing predicates jointly require canonical lowercase spelling,
-    // version 4 and the RFC4122 variant; no UUID dependency is needed here.
-    tmt_core::dispatch::canonical_id(input) && tmt_core::endpoint::valid_server_id(input)
+pub fn resolve_capture(
+    storage: &mut Storage,
+    input: &str,
+    expected: Option<&str>,
+) -> Result<PaneIdentity, Failure> {
+    if let Some(expected) = expected {
+        identity_context::pinned_identity(storage, input, expected)?;
+    }
+    let result = resolve_identity_target(storage, input);
+    if let Some(expected) = expected
+        && (result.is_ok()
+            || result
+                .as_ref()
+                .is_err_and(|error| error.code == "NAME_NOT_FOUND"))
+    {
+        // Presence acquisition runs outside the writer lock. Recheck the pin
+        // afterwards, including retirement that made presence unavailable.
+        identity_context::pinned_identity(storage, input, expected)?;
+    }
+    let observed = result?;
+    if let Some(expected) = expected {
+        let identity = observed
+            .identity
+            .as_ref()
+            .filter(|identity| identity.id == input)
+            .ok_or_else(|| {
+                Failure::new(
+                    "IDENTITY_CHANGED",
+                    "The selected identity changed before capture.",
+                    5,
+                )
+            })?;
+        identity_context::expect_name(identity, expected)?;
+    }
+    Ok(observed)
 }
 
 pub fn resolve(storage: &mut Storage, input: &str) -> Result<PaneIdentity, Failure> {

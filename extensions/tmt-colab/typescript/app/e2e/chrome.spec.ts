@@ -120,6 +120,21 @@ async function metrics(page: Page) {
   });
 }
 
+/** The shared top bar's own box: one bar at the header token's height, whatever the screen. */
+async function barMetrics(page: Page) {
+  await expect(page.locator('.tmt-ui-topbar:visible')).toHaveCount(1);
+  return page.locator('.tmt-ui-topbar:visible').evaluate((bar) => {
+    const style = getComputedStyle(bar);
+    return {
+      height: bar.getBoundingClientRect().height,
+      padding: [style.paddingLeft],
+      gap: style.gap,
+      background: style.backgroundColor,
+      foreground: style.color,
+    };
+  });
+}
+
 async function containment(page: Page) {
   const result = await page.evaluate(() => {
     const nested = Array.from(document.querySelectorAll<HTMLElement>('body *'))
@@ -150,10 +165,10 @@ for (const width of [1440, 390, 320])
       await page.addInitScript((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      // Router screens render in the TMT shell (the header sits in its sticky bar, as one
-      // breadcrumb); reader, mounted and native screens keep the standalone fixed header. Each
-      // kind shares one chrome.
-      const references = new Map<boolean, Omit<Awaited<ReturnType<typeof metrics>>, 'title'>>();
+      // Router screens render in Colab's own shell: the shared top bar (Search, the page's actions,
+      // Theme, Remote) with the page's title row as content under it; reader, mounted and native
+      // screens keep the standalone fixed header. Each kind shares one chrome.
+      const references = new Map<boolean, unknown>();
       let cardReference: unknown;
       for (const screen of [...screens, 'rust-private', 'rust-owner'] as const) {
         await test.step(screen, async () => {
@@ -183,35 +198,48 @@ for (const width of [1440, 390, 320])
                 .toBeGreaterThan(1500);
             }
           }
-          const current = await metrics(page);
           const shelled =
-            (await page.locator('.tmt-ui-shell-bar > .tmt-ui-header:visible').count()) > 0;
-          const { title, ...frame } = current;
+            (await page.locator('.tmt-ui-shell-bar > .tmt-ui-topbar:visible').count()) > 0;
+          const headerHeight = parseFloat(
+            width <= Number.parseFloat(tokens.header['compact-max-width'])
+              ? tokens.header['compact-height']
+              : tokens.header.height,
+          );
+          const measure = () => (shelled ? barMetrics(page) : metrics(page));
+          const current = await measure();
+          const { title, ...frame } = current as Awaited<ReturnType<typeof metrics>>;
           if (!references.has(shelled)) references.set(shelled, frame);
-          expect(frame, screen).toEqual({ ...references.get(shelled)!, gap: tokens.header.gap });
-          expect(current.height).toBe(
-            parseFloat(
-              width <= Number.parseFloat(tokens.header['compact-max-width'])
-                ? tokens.header['compact-height']
-                : tokens.header.height,
-            ),
-          );
-          if (screen === 'pages' || screen === 'archived' || screen === 'empty') {
-            expect(title).toBeNull();
-            await expect(page.locator('#chrome-fixture .home h1')).toHaveCount(1);
-            await expect(page.locator('.tmt-ui-header:visible')).toHaveAttribute(
-              'aria-label',
-              /Colab.*Pages/,
-            );
-          } else expect(title?.size).toBe(tokens.header['title-size']);
-          // The shell bar carries the page title alone; standalone headers keep the brand.
-          if (shelled) expect(current.wordmark).toBeNull();
-          else expect(current.wordmark?.size).toBe(tokens.header['wordmark-size']);
-          await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS(
-            'position',
-            shelled ? 'static' : 'fixed',
-          );
-          await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('flex-wrap', 'nowrap');
+          expect(frame, screen).toEqual({
+            ...(references.get(shelled) as object),
+            gap: tokens.header.gap,
+          });
+          expect(current.height).toBe(headerHeight);
+          if (shelled) {
+            // The bar draws no title or brand. A screen whose content names itself (the list) has no
+            // title row; the others keep theirs as content: static, with no band of its own.
+            await expect(page.locator('.tmt-ui-topbar:visible .tmt-ui-title')).toHaveCount(0);
+            const row = page.locator('.colab-title-row header:visible');
+            if (screen === 'pages' || screen === 'archived' || screen === 'empty') {
+              await expect(row).toHaveCount(0);
+              await expect(page.locator('#chrome-fixture .home h1')).toHaveCount(1);
+            } else {
+              await expect(row).toHaveCount(1);
+              await expect(row.locator('.tmt-ui-title')).toHaveCSS(
+                'font-size',
+                tokens.header['title-size'],
+              );
+              await expect(row.locator('.tmt-ui-wordmark')).toHaveCount(0);
+              await expect(row).toHaveCSS('position', 'static');
+              await expect(row).toHaveCSS('flex-wrap', 'nowrap');
+              await expect(row).toHaveCSS('border-bottom-width', '0px');
+              await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+            }
+          } else {
+            expect(title?.size).toBe(tokens.header['title-size']);
+            expect(frame.wordmark?.size).toBe(tokens.header['wordmark-size']);
+            await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('position', 'fixed');
+            await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('flex-wrap', 'nowrap');
+          }
           await containment(page);
           const card = page.locator('.tmt-ui-notice:visible');
           if (await card.count()) {
@@ -303,8 +331,12 @@ for (const width of [1440, 390, 320])
             scrollTo(0, (document.documentElement.scrollHeight - innerHeight) / 2);
           });
           await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
-          expect((await page.locator('.tmt-ui-header:visible').boundingBox())!.y).toBe(0);
-          expect(await metrics(page)).toEqual(current);
+          expect(
+            (await page
+              .locator(shelled ? '.tmt-ui-topbar:visible' : '.tmt-ui-header:visible')
+              .boundingBox())!.y,
+          ).toBe(0);
+          expect(await measure()).toEqual(current);
           await containment(page);
           if (screen === 'page' || screen === 'reader') {
             await expect(page.locator('iframe')).toHaveAttribute('scrolling', 'no');
@@ -388,6 +420,7 @@ for (const width of [1440, 390, 320])
         await (await import(path)).mount('page');
       });
       const header = page.locator('#chrome-fixture .tmt-ui-header');
+      const bar = page.locator('#chrome-fixture .tmt-ui-topbar');
       // The connection moved into the header's accessible name; the bar shows the page title alone.
       await expect(header).toHaveAttribute(
         'aria-label',
@@ -404,13 +437,11 @@ for (const width of [1440, 390, 320])
       expect(await header.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       // The access words stay in the document for assistive technology, never on screen (#4116);
       // Share… in the More menu carries them.
-      await expect(header.locator('.page-connection')).toHaveText('Private · Live');
-      expect((await header.locator('.page-connection').boundingBox())!.width).toBeLessThanOrEqual(
-        1,
-      );
+      await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
+      expect((await bar.locator('.page-connection').boundingBox())!.width).toBeLessThanOrEqual(1);
       await expect(heading).toBeVisible();
       expect(await fittingCharacters(heading)).toBeGreaterThanOrEqual(width === 390 ? 12 : 1);
-      const actions = header.getByRole('navigation', { name: 'Page actions' });
+      const actions = bar.getByRole('navigation', { name: 'Page actions' });
       // Comments and Chat are the dock's; the header holds More alone.
       await expect(actions.getByRole('button')).toHaveCount(1);
       for (const button of await actions.getByRole('button').all()) {
@@ -445,7 +476,7 @@ for (const width of [1440, 390, 320])
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`fixed header paints above controls and update row in its band: ${width}px ${theme}`, async ({
+    test(`shared top bar paints above controls and update row in its band: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 800 });
@@ -455,15 +486,14 @@ for (const width of [1440, 390, 320])
         const path = '/test/chrome-browser.tsx';
         await (await import(path)).mount('page');
       });
-      const header = page.locator('#chrome-fixture .tmt-ui-header');
-      await expect(header).toBeVisible();
+      const bar = page.locator('#chrome-fixture .tmt-ui-topbar');
+      await expect(bar).toBeVisible();
       for (const className of ['selection-control', 'annotation-popover', 'update-notice']) {
         const painted = await page.evaluate((className) => {
-          const header = document.querySelector('#chrome-fixture .tmt-ui-header')!;
-          const box = header.getBoundingClientRect();
-          // The header's own content starts after its padding (on a phone in the shell, the
-          // padding leaves room for the shell's menu button).
-          const left = box.left + parseFloat(getComputedStyle(header).paddingLeft);
+          const bar = document.querySelector('#chrome-fixture .tmt-ui-topbar')!;
+          const box = bar.getBoundingClientRect();
+          // The overlay sits across the middle of the bar, clear of the shell's menu button on a phone.
+          const left = box.left + box.width / 2 - 16;
           const overlay = document.createElement('div');
           overlay.className = className;
           overlay.textContent = 'Overlapping control';
@@ -477,7 +507,7 @@ for (const width of [1440, 390, 320])
           document.body.append(overlay);
           const hit = document.elementFromPoint(left + 16, box.top + 16);
           const result = {
-            headerOnTop: !!hit?.closest('.tmt-ui-header'),
+            barOnTop: !!hit?.closest('.tmt-ui-topbar'),
             position: getComputedStyle(overlay).position,
             zIndex: Number(getComputedStyle(overlay).zIndex),
           };
@@ -486,7 +516,7 @@ for (const width of [1440, 390, 320])
         }, className);
         expect(painted.position).toBe('fixed');
         expect(painted.zIndex).toBeGreaterThan(0);
-        expect(painted.headerOnTop, `${className} must not cover the fixed header`).toBe(true);
+        expect(painted.barOnTop, `${className} must not cover the shared top bar`).toBe(true);
       }
     });
 

@@ -172,12 +172,17 @@ product bars stay unchanged until their owning adoption.
   module crumb and no brand in the bar: the rail's head carries the brand and the current
   rail item names the module. The header keeps the module in its accessible name
   (`Colab · <page>`), and the document title keeps it too. While a route loads the bar
-  shows the module's name as its title and keeps its height and rule.
+  shows the module's name as its title and keeps its height and rule. A module that adopts the
+  shared top bar (Colab in its own shell, #5237) moves its actions there and draws its title row as
+  content: on the content background with no band or rule of its own, at the content column's
+  left edge, scrolling with the page, so only the bar and a phone's module tabs stay fixed. A
+  route whose content names itself (the list, settings, a shell page) has no title row.
 - **Bar cluster:** the shell owns the right end of the bar. A module fills the **search**
   slot (Colab: Search pages, an icon with a quiet `⌘K` key hint that a touch screen and a
   bar under 640 px do not draw; ⌘K opens it from anywhere in the module) and the **chip**
-  slot (Colab: the Remote presence chip, `Remote · N`, not drawn under 640 px, where its
-  count is in the page More menu). Search comes first. An empty slot takes no room, and the
+  slot (Colab, until its mount adopts the shared top bar: the Remote presence chip, `Remote · N`,
+  not drawn under 640 px, where its count is in the page More menu). Colab's own shell fills
+  neither slot: the shared top bar's Search, Theme and Remote link replace them. Search comes first. An empty slot takes no room, and the
   header leaves the room the shell measures for the cluster. The four-state connection chip
   of the [Remote switcher](#remote-switcher) is a design target and not shipped; the bar has
   no avatar slot until who the avatar is has been decided.
@@ -315,7 +320,8 @@ presentation stay in the browser leaf; products do not override its internals.
 
 ### Quick switcher
 
-Colab's **Search pages** header action and Cmd/Ctrl+K open a modal
+Colab's **Search TMT** control (the shared top bar's Search in Colab's own shell; a header action in
+the hosted mount until it adopts the bar) and Cmd/Ctrl+K open a modal
 [BrowserDialog](browser-ui/README.md#dialog) over the current page. It uses the
 same search editor and label/author filters as the page list; collections are not
 part of v1. The website `/#/colab/pages` Search surface (concept38 fallback) supplies the

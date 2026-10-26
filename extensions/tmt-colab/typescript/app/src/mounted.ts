@@ -23,12 +23,21 @@ import { TitleCache } from './title-cache.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 
-export async function mountedTransport(signal?: AbortSignal): Promise<{
+/**
+ * The paired mount's transport. Colab's own routes read the mount from the document's location;
+ * a host whose document belongs to another module (the global search) names the mount, and
+ * discovery then never reads or rewrites the location.
+ */
+export async function mountedTransport(
+  signal?: AbortSignal,
+  options: { mount?: URL } = {},
+): Promise<{
   space: string;
   pageIds: { pageId: string; deleted: boolean }[];
   transport: PageTransport;
   close(): void;
 }> {
+  const locate = options.mount === undefined;
   const lifetime = new AbortController();
   const abort = () => lifetime.abort(signal?.reason);
   signal?.addEventListener('abort', abort, { once: true });
@@ -39,7 +48,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
     lifetime.signal.throwIfAborted();
     return result;
   }
-  const mount = mountUrl(),
+  const mount = options.mount ?? mountUrl(),
     pairedSdk = await remoteSdk();
   lifetime.signal.throwIfAborted();
   const sdk = {
@@ -50,8 +59,11 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       transportUrl: (session: unknown, url: string | URL) => pairedSdk.transportUrl(session, url),
     },
     registration = await owned(() => register(mount, sdk)),
-    bootstrap = await discover(mount, (space, owner) =>
-      verifyRegistration(registration, space, owner),
+    bootstrap = await discover(
+      mount,
+      (space, owner) => verifyRegistration(registration, space, owner),
+      undefined,
+      { locate },
     );
   let current: LiveSession;
   let replacement: Promise<LiveSession> | undefined;
@@ -89,7 +101,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
   }, new URL('/settings', mount).href);
   const titles = new TitleCache(bootstrap.space, registration.deviceId);
   const drafts = new LocalDraftStore(bootstrap.space, registration.deviceId);
-  let managementClient = new ManagementClient(mount, current.registration);
+  let managementClient = new ManagementClient(mount, current.registration, locate);
   const views = new WeakMap<ManagementView, ManagementClient>();
   const requests = new WeakMap<Pending, ManagementClient>();
   const scopedSignal = (signal?: AbortSignal) =>
@@ -269,7 +281,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         titleGeneration = new AbortController();
         current = admitted;
         remotePresence.invalidate();
-        managementClient = new ManagementClient(mount, next);
+        managementClient = new ManagementClient(mount, next, locate);
         return current;
       }).finally(() => {
         replacement = undefined;
@@ -357,6 +369,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
               mount,
               (space, owner) => verifyRegistration(bound.registration, space, owner),
               readSignal,
+              { locate },
             );
             readSignal.throwIfAborted();
             requireValue(bound === current);
@@ -425,6 +438,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
               mount,
               (space, owner) => verifyRegistration(bound.registration, space, owner),
               pageSignal,
+              { locate },
             ),
           );
         let boot;

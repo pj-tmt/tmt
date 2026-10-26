@@ -1,5 +1,5 @@
 //! The built-in host as a user meets it with no tmux: one private world, two members that
-//! reply, one attached and then lost. Each leg has a focused test beside this one; this proves
+//! reply, one attached, lost and explicitly resumed. Each leg has a focused test beside this one; this proves
 //! they compose, and that the end state is honest and clean.
 use super::attach::{output_until, quote, wait_for};
 use super::*;
@@ -27,6 +27,67 @@ fn replying_script(world: &World, name: &str) -> String {
     format!(
         r#"printf '%s' "$$" > '{root}/{name}.pid'; printf 'provider-ready\n'; while IFS= read -r line; do printf '%s\n' "$line" >> '{root}/{name}.lines'; case "$line" in quit) exit 0;; *"tmt reply req_"*) set -- $line; while [ "$1" != tmt ]; do shift; done; {executable} reply "$3" --receipt "$5" --message {name}-processed;; esac; done"#
     )
+}
+
+const SESSION: &str = "11111111-1111-4111-8111-111111111111";
+
+// Reuse the native provider-shaped parent: hooks must come from a real admitted
+// provider descendant, and resume must discover that same executable/session.
+fn replying_provider(world: &mut World) -> PathBuf {
+    let example = std::path::Path::new(env!("CARGO_BIN_EXE_tmt"))
+        .parent()
+        .unwrap()
+        .join("examples/provider-script-fixture");
+    let provider = world.root.join("bin/claude");
+    tmt_test_support::write_executable(
+        &provider,
+        &fs::read(&example).expect("build tmt-adapters --example provider-script-fixture first"),
+        0o755,
+    )
+    .unwrap();
+    let root = world.root.display();
+    let script = format!(
+        r#"#!/bin/sh
+printf '%s' "$PPID" > '{root}/alpha.pid'
+printf '%s' "$$" > '{root}/alpha-peer.pid'
+printf '%s\n' "$@" >> '{root}/provider-argv'
+IFS= read -r release_hook
+printf '%s' '{{"hook_event_name":"SessionStart","session_id":"{SESSION}","source":"startup","cwd":"{root}","model":"fixture-model"}}' | {cli} __hook claude > '{root}/hook.out' 2> '{root}/hook.err'
+printf '%s' "$?" > '{root}/hook.status.tmp'
+/bin/mv '{root}/hook.status.tmp' '{root}/hook.status'
+{reply}
+"#,
+        cli = quote(env!("CARGO_BIN_EXE_tmt")),
+        reply = replying_script(world, "alpha").replace("\"$$\"", "\"$PPID\""),
+    );
+    let interpreter = world.root.join("fixture-interpreter");
+    tmt_test_support::write_executable(&interpreter, script.as_bytes(), 0o755).unwrap();
+    world.interpreter = Some(interpreter);
+    // An exact resume requires a readable transcript, entirely inside this world.
+    let transcripts = world.root.join("home/.claude/projects/fixture");
+    fs::create_dir_all(&transcripts).unwrap();
+    fs::write(transcripts.join(format!("{SESSION}.jsonl")), "{}\n").unwrap();
+    provider
+}
+
+fn exchanges(world: &World) -> Vec<Vec<rusqlite::types::Value>> {
+    let db = rusqlite::Connection::open_with_flags(
+        support::state_dir(&world.root).join("tmt.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let mut statement = db
+        .prepare(
+            "SELECT a.request_id,a.attempt_id,a.recipient_identity_id,a.message_text,\
+         a.status,a.wake_state,r.body,r.submitted_at_ms FROM request_attempts a \
+         LEFT JOIN request_responses r USING(request_id) ORDER BY a.rowid",
+        )
+        .unwrap();
+    statement
+        .query_map([], |row| (0..8).map(|i| row.get(i)).collect())
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
 }
 
 fn attempts(world: &World, request: &str) -> Vec<(String, String)> {
@@ -106,26 +167,40 @@ impl World {
 }
 
 #[test]
-fn two_members_talk_attach_and_lose_one_supervisor_without_tmux() {
+fn two_members_talk_attach_and_resume_after_supervisor_loss_without_tmux() {
     let mut world = World::new();
     world.json(&["identity", "create", "sender", "--json"]);
+    let provider = replying_provider(&mut world);
     for name in ["alpha", "beta"] {
         let script = replying_script(&world, name);
-        let started = world.run(&[
-            "run",
-            "--no-channel",
-            "--save",
-            name,
-            "/bin/sh",
-            "-c",
-            &script,
-        ]);
+        let started = if name == "alpha" {
+            world.run(&[
+                "run",
+                "--no-channel",
+                "--save",
+                name,
+                provider.to_str().unwrap(),
+            ])
+        } else {
+            world.run(&[
+                "run",
+                "--no-channel",
+                "--save",
+                name,
+                "/bin/sh",
+                "-c",
+                &script,
+            ])
+        };
         assert!(started.status.success(), "{name}: {started:?}");
         assert!(String::from_utf8_lossy(&started.stderr).contains("host pty"));
         wait_for("member pid", || {
             world.root.join(format!("{name}.pid")).exists()
         });
     }
+    let (identity, original_pane, session) = record_provider_session(&world, None, SESSION);
+    assert_eq!(session, SESSION);
+    assert!(!world.root.join("bin/tmux").exists());
     world.remember();
     world.remember_programs();
     let alpha_supervisor = world.supervisor_of("alpha");
@@ -162,6 +237,10 @@ fn two_members_talk_attach_and_lose_one_supervisor_without_tmux() {
     wait_for("typed line reaches alpha", || {
         received(&world, "alpha", "typed-before-loss") == 1
     });
+    assert!(
+        matches!(observe_runtime_process(&UnixCommandRunner, alpha_supervisor.pid(),
+        Instant::now() + Duration::from_secs(3)), Ok(ProcessObservation::Live(now)) if now == alpha_supervisor)
+    );
     kill(
         Pid::from_raw(alpha_supervisor.pid() as i32),
         Signal::SIGKILL,
@@ -219,6 +298,77 @@ fn two_members_talk_attach_and_lose_one_supervisor_without_tmux() {
     wait_for("alpha's program to end with its supervisor", || {
         gone(&alpha_supervisor) && gone(&alpha_program)
     });
+
+    // Resume is an explicit launch, never a retry of any exchange. The old
+    // provider and supervisor are confirmed gone before this action begins.
+    let before_resume = exchanges(&world);
+    fs::remove_file(world.root.join("hook.status")).unwrap();
+    let resumed = world.run(&["resume", "--host", "pty", "--no-channel", "alpha"]);
+    support::with_launch_failure_packet(
+        &support::state_dir(&world.root).join("tmt.db"),
+        &[alpha_supervisor.pid(), alpha_program.pid()],
+        || assert!(resumed.status.success(), "{resumed:?}"),
+    );
+    let (resumed_identity, resumed_pane, resumed_session) =
+        record_provider_session(&world, Some(&original_pane), SESSION);
+    assert_eq!(resumed_identity, identity);
+    assert_eq!(resumed_session, SESSION);
+    assert_ne!(resumed_pane, original_pane);
+    let restarted_supervisor = world.supervisor_of("alpha");
+    let restarted_program = world.program_of("alpha");
+    assert_ne!(restarted_supervisor, alpha_supervisor);
+    let argv = fs::read_to_string(world.root.join("provider-argv")).unwrap();
+    assert!(
+        argv.lines()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|words| words == ["--resume", SESSION]),
+        "{argv}"
+    );
+    assert_eq!(
+        exchanges(&world),
+        before_resume,
+        "resume must preserve every exchange"
+    );
+    assert_eq!(
+        attempts(&world, &request),
+        recorded,
+        "queued work must not replay on resume"
+    );
+    assert_eq!(lines(&world, "alpha"), before);
+    world.talk_for_reply("alpha", "story-resumed-alpha");
+    world.talk_for_reply("beta", "story-after-resume-beta");
+    for text in ["story-one-alpha", "story-two-alpha", "story-resumed-alpha"] {
+        assert_eq!(
+            received(&world, "alpha", text),
+            1,
+            "{text} processed exactly once"
+        );
+    }
+    assert_eq!(received(&world, "alpha", "story-after-loss"), 0);
+    assert_eq!(received(&world, "beta", "story-after-resume-beta"), 1);
+    let after_resume = exchanges(&world);
+    assert_eq!(after_resume.len(), before_resume.len() + 2);
+    assert!(
+        after_resume.starts_with(&before_resume),
+        "old exchanges changed"
+    );
+
+    let directory = support::state_dir(&world.root).join("pty");
+    let mut terminal = Connection::connect(&directory, &resumed_pane).unwrap();
+    terminal.input(b"quit\r").unwrap();
+    drop(terminal);
+    wait_for("resumed member and supervisor to end", || {
+        gone(&restarted_supervisor) && gone(&restarted_program)
+    });
+    for pane in [&original_pane, &resumed_pane] {
+        for extension in ["sock", "lock"] {
+            assert!(
+                !directory.join(format!("{pane}.{extension}")).exists(),
+                "{pane} left its .{extension} behind after resume and exit"
+            );
+        }
+    }
 
     // Beta ends on its own; its supervisor follows and removes its socket and lock.
     let directory = support::state_dir(&world.root).join("pty");

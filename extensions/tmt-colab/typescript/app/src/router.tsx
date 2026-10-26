@@ -79,6 +79,7 @@ import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
 import { ColabShell, ShellHostSlot } from './colab-shell.js';
+import { SharedTopBar } from './shared-top-bar.js';
 import {
   embeddedPageEnvironment,
   PageEnvironmentProvider,
@@ -1074,6 +1075,7 @@ export function AppHeader({
   remote,
   headerRef,
   headingSuffix,
+  namedByContent = false,
 }: {
   linked?: boolean;
   title?: string;
@@ -1081,11 +1083,14 @@ export function AppHeader({
   remote?: { deviceName?: string };
   headerRef?: Ref<HTMLElement>;
   headingSuffix?: ReactNode;
+  /** The page's own content carries its heading: the shared bar's title row would repeat it. */
+  namedByContent?: boolean;
 }) {
+  const sharedBar = useContext(SharedTopBar);
   return (
     <ColabHeader
       title={title}
-      titleVisible={titleVisible}
+      titleVisible={titleVisible && !(namedByContent && sharedBar)}
       headerRef={headerRef}
       remote={remote}
       headingSuffix={headingSuffix}
@@ -1098,7 +1103,7 @@ export function AppHeader({
             )
           : undefined
       }
-      actions={<ThemeButton />}
+      actions={sharedBar ? undefined : <ThemeButton />}
     />
   );
 }
@@ -1124,6 +1129,8 @@ function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
+  // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
+  const ownShell = useContext(ShellHostSlot) === null;
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -1131,7 +1138,8 @@ function Shell() {
         space={space}
         pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
         routeKey={pathname}
-        allowed={isPage || isHome}
+        allowed={ownShell || isPage || isHome}
+        shortcut={!ownShell}
         navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
         pageHref={(pageId) =>
           router.history.createHref(
@@ -1313,6 +1321,7 @@ function OpenPage({
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
+  const titleRow = useRef<HTMLDivElement>(null);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -1709,6 +1718,7 @@ function OpenPage({
     renderer,
     setState,
     toolbar,
+    titleRow,
     anchor,
     layers: {
       onSlots: inlineSlots.onSlots,
@@ -1907,7 +1917,8 @@ function OpenPage({
           />
         }
         crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
-        headerRef={toolbar}
+        barRef={toolbar}
+        rowRef={titleRow}
         title={view.title || snapshot.title || text.unknownPageTitle}
         remote={{ deviceName: transport.backendName }}
         caption={
@@ -2552,6 +2563,7 @@ function OpenPage({
                 <AppHeader
                   title={view.title || snapshot.title}
                   remote={{ deviceName: transport.backendName }}
+                  namedByContent
                 />
                 <main className="canvas">
                   {(view.shell || !endedError) && (

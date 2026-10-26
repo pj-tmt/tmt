@@ -13,3 +13,4 @@ export * as streamCut from './stream-cut.js';
 export * as link from './link.js';
 export * as attachment from './attachment.js';
 export * as editRequest from './edit-request.js';
+export * as metadataRequest from './metadata-request.js';

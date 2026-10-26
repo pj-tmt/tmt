@@ -55,10 +55,11 @@ for (const width of [1440, 390])
       await page.emulateMedia({ colorScheme: theme });
       await openShell(page);
       await expect(page.locator('iframe')).toHaveCount(0);
-      await expect(page.locator('header').first()).toContainText('Release shell');
+      // The shared bar draws no title and the page's own heading names it: no title row repeats it.
+      await expect(page.locator('.tmt-ui-topbar')).toHaveCount(1);
+      await expect(page.locator('.colab-title-row')).toHaveCount(0);
       // The page owns its headline; the greeting is its subtitle and names the local time of day
       // and the number waiting (1 + 2), spelled out.
-      // (The shell bar still carries the title as well, until the shared top bar drops it, #4779.)
       await expect(page.locator('.tmt-ui-page-title')).toHaveText('Release shell');
       await expect(page.locator('h1.tmt-ui-page-title')).toHaveCount(1);
       await expect(page.locator('.tmt-ui-page-subtitle')).toHaveText(

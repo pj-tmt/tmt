@@ -137,7 +137,11 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
                     providers: Vec::new(),
                 },
             },
-            DatabaseSteps::default(),
+            FinishContext {
+                database: DatabaseSteps::default(),
+                interrupt: None,
+                runner: &UnixCommandRunner
+            },
             mode
         )
         .unwrap(),

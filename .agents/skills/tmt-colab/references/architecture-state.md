@@ -855,8 +855,9 @@ list opens. The default scope is device-local: `readScope`/`writeScope` keep it 
 with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
 a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.
 The home hero names the current scope; `AppHeader` passes `titleVisible=false` through
-`ColabHeader` to the shared header, retaining its accessible name and tools without another
-visible heading. Other routes keep the default header title. A page
+`ColabHeader`: in Colab's own shell (the shared top bar, #5237) the list then has no title row, and in the
+hosted mount the shared header keeps its accessible name and tools without another visible heading.
+Other routes keep the default header title. A page
 opened from a scoped list carries the scope in history state only, and its own header shows
 `<project> / <title>` with the project linking back to `/?scope=<project>` (the shell bar draws no
 module crumb); a copied or reloaded page link has no crumb. A heading narrower than 200px (a
@@ -902,6 +903,15 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   connection after its own original is stored (the pages in `State::requests_due`, all settled by
   the next connection to poll), and the cloud pass (`Inbound::settle`) after it read new link
   originals or first read a page.
+- Version-2 `edit-request` records carry only creator/handled/reopen metadata. `edit_request/metadata.rs`
+  owns grammar, target comparison and the existing bounded Core identity read; `sync/edit_requests.rs`
+  automatically publishes through the existing metadata `SaveJob`, without an approval queue.
+  The relevant content before-image is checked before a fresh conditional revision, so the request's
+  own append does not invalidate its base. Schema 19 retains the first terminal save result with
+  the decision; owner-authenticated `edit-result` own records transport it to door and hosted
+  readers. Recovery uses the same operation journal before reevaluating a target and republishes
+  only a lost receipt. Source-request behavior is unchanged. The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256)
+  owns fields, identity refusals, provenance and replay rules; the browser UI follows in B.
 
 `quick-switcher-dialog.tsx` composes the website Search presentation over the existing
 source and ranking owners. Its project menu edits the same `SearchEdit` as query chips;
@@ -921,7 +931,25 @@ moment, so a withdrawn or replaced item cannot open. `search-entry.tsx` mounts t
 Colab route as `mount(container, { transport, registry, navigate, pageHref, go, projectHref })`
 returning `open(opener)` and `dispose()`, with the bar's one Command/Ctrl+K listener left to the
 shell; the module exports it as `mountSearch`, which links the module's stylesheet for as long as
-it lives. Without a `search` the host is the page switcher it always was.
+it lives. A host with no transport of its own mounts it as `mountSearchSession(container, options)`
+(#5267): `search-session.ts` (`createSearchSession`, no runtime imports) owns `mountedTransport` and
+its close behind one stable `PageTransport` whose reads wait for the bootstrap, so the dialog opens at
+once and shows the loading and failed states it already has. The document is not Colab's, so the
+session names the mount from the module's own URL (`mountOfModule(import.meta.url)`, the confined
+import) and `mountedTransport(signal, { mount })` runs `discover(..., { locate: false })` through the
+`ManagementClient` too: no location read, no `history.replaceState`, no `hostInShell`. The transport
+starts when mounted, a
+failed or `pagehide`-closed one is tried again by the next `open`, and `dispose` aborts a running
+bootstrap and closes it once. `options.placeholder` replaces the field's text (`search.placeholder`
+in the host). Without a `search` the host is the page switcher it always was.
+
+In Colab's own shell the router's host is opened by the shared top bar (#5237): `OwnShell` in
+`colab-shell.tsx` installs the common controls (`openSearch` takes the opener into the host's
+`control` and calls `activate`; `remote` is `useShellRemoteStatus`, the presence this page already
+reads), the host takes `shortcut={false}` so the bar's one listener is the only one, and it is
+`allowed` on every route of that shell. That dialog is still the page switcher (no registry yet).
+`SharedTopBar` (`shared-top-bar.ts`) tells `ColabHeader`, `AppHeader` and the page More menu that
+Search, Theme and Remote are the bar's; the hosted mount leaves it false until `useTopBarReady` (#5239).
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match

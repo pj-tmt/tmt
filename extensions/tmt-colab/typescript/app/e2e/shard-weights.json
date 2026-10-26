@@ -2,7 +2,7 @@
   "$comment": [
     "Approximate seconds per Colab Chromium component spec file; typescript/scripts/colab-acceptance-shards.mjs owns whole-file assignment. Weights affect balance, never coverage.",
     "Fit: runs 40240034686, 40243178248 and 40243982129, colab-app-results-1 through -7/results.json. Frozen oldest-three fit/newest-three holdout roles before reading durations; source heads, artifact hashes and matched validation are recorded on #4429, issuecomment-6406229672.",
-    "Per file, sum every result duration in each fit run, take the upper median across observed runs, round up to seconds, minimum 1 for wholly skipped files. Default is the upper median of measured weights greater than one. search-entry.spec.ts was absent from fit and retains its previous measured weight of 6 seconds; holdout timings do not tune it.",
+    "Per file, sum every result duration in each fit run, take the upper median across observed runs, round up to seconds, minimum 1 for wholly skipped files. Default is the upper median of measured weights greater than one. search-entry.spec.ts was absent from fit and retains its previous measured weight of 6 seconds; holdout timings do not tune it. topbar-adoption.spec.ts was absent from fit and carries its measured weight of 6 seconds (local Chromium run on 2026-10-26 at the head that adds it, #5237, one worker: 7 cases passed, summed result durations 5,364 ms).",
     "Job overhead 50 seconds is the rounded-up median fit job wall minus summed result durations. Model error 142 seconds is the rounded-up maximum positive fit residual above the fitted file prediction plus overhead. Both are frozen before holdout.",
     "Independent holdout: runs 40245938517, 40247341127 and 40248892859; matched historical shard membership, 19 of 21 walls covered by the margin, two misses of 7 and 8 seconds. Median absolute central prediction error 83 seconds; maximum 307 seconds. This is observed variation, not a qualified upper bound.",
     "Eleven shards are the smallest modeled split within the unchanged 720-second guard: 497 fitted test seconds + 50 overhead + 142 error = 689 seconds. Ten predict 739 seconds. All runs used one worker and no retries; no measured speed-up is claimed. At least five natural post-merge runs are required before claiming benefit."
@@ -156,6 +156,7 @@
     "thread-actions.spec.ts": 34,
     "thread-composer-place.spec.ts": 12,
     "thread-status.spec.ts": 10,
+    "topbar-adoption.spec.ts": 6,
     "ux-details.spec.ts": 1,
     "work-band.spec.ts": 116
   }

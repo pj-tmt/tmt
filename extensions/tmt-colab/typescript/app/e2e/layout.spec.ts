@@ -23,7 +23,7 @@ async function mount(page: Page, long: boolean) {
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount(html);
   }, source(long));
-  await expect(page.locator('.tmt-ui-header:visible .status')).toContainText('Live');
+  await expect(page.locator('.tmt-ui-topbar:visible .status')).toContainText('Live');
   await expect(page.frameLocator('iframe').locator('h1')).toBeVisible();
 }
 for (const width of [1440, 390])
@@ -35,7 +35,8 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       await mount(page, false);
-      const bar = page.locator('.tmt-ui-header:visible'),
+      const bar = page.locator('.tmt-ui-topbar:visible'),
+        title = page.locator('.colab-title-row header:visible'),
         frame = page.locator('iframe');
       await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
       await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
@@ -44,7 +45,7 @@ for (const width of [1440, 390])
       await expect(page.locator('.canvas')).toHaveCSS('box-shadow', 'none');
       // Inside the TMT web shell the page fills the main column beside the rail (the module's pages
       // nest in it)
-      // and starts under the bar, plus the module menu's tab row on a phone.
+      // and starts under the bar, plus the module menu's tab row on a phone and the page's title row.
       const rect = await frame.boundingBox();
       const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!;
       const lead = await page.evaluate(() =>
@@ -62,7 +63,8 @@ for (const width of [1440, 390])
         (await page.evaluate(() => document.documentElement.clientWidth)) - column.x,
       );
       const header = (await bar.boundingBox())!;
-      expect(rect?.y).toBe(header.y + header.height + lead);
+      const row = (await page.locator('.colab-title-row:visible').boundingBox())!;
+      expect(rect?.y).toBe(header.y + header.height + lead + row.height);
       expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
       // The frame ends the document: a page taller than the room grows it (window scroll mode), so
       // the bottom is the frame's, not a fixed 900 that depends on the runner's fonts. The frame
@@ -77,7 +79,7 @@ for (const width of [1440, 390])
       await expect(frame).toHaveAttribute('scrolling', 'no');
       await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-      await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
+      await expect(title).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
       const heading = page.getByRole('heading', { name: 'Release notes', exact: true });
       // The header holds no access chip at any width (#4116), so the title keeps its room.
@@ -91,7 +93,11 @@ for (const width of [1440, 390])
       // The bar draws no module crumb (the rail names the module), so the title keeps its row; the
       // module and the connection identity stay in the header's accessible name.
       await expect(bar.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-      await expect(bar).toHaveAttribute('aria-label', 'Colab · local · Studio Mac · Release notes');
+      await expect(title.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
+      await expect(title).toHaveAttribute(
+        'aria-label',
+        'Colab · local · Studio Mac · Release notes',
+      );
       // The connection words stay in the document for assistive technology; nothing shows.
       await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
       await expect(bar.locator('.page-attention')).toHaveCount(0);
@@ -99,9 +105,8 @@ for (const width of [1440, 390])
       // More entry.
       await expect(bar.locator('.page-header-actions button')).toHaveCount(1);
       await page.getByRole('button', { name: 'More', exact: true }).click();
-      await expect(
-        page.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
-      ).toHaveAttribute('aria-checked', 'true');
+      // Theme is the shared bar's: More keeps no copy of it.
+      await expect(page.getByRole('menuitemradio')).toHaveCount(0);
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-menu.png` });
       await page.keyboard.press('Escape');
       await mount(page, true);
@@ -258,20 +263,25 @@ for (const width of [1440, 390])
     await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(0);
     const frame = page.locator('#ask-page-fixture iframe');
     const render = await frame.getAttribute('data-render-id');
-    await (await pageAction(page, 'Theme: Dark')).click();
+    // Theme is the shared bar's menu; the page's More keeps no copy of it.
+    const theme = page.locator('.tmt-ui-topbar-common').getByRole('button', { name: /^Theme:/ });
+    await theme.click();
+    await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    await (await pageAction(page, 'Theme: System')).click();
+    await theme.click();
+    await page.getByRole('menuitemradio', { name: 'System', exact: true }).click();
     await expect(page.locator('html')).not.toHaveAttribute('data-theme');
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
     await expect(frame).toHaveAttribute('data-render-id', render!);
-    await (await pageAction(page, 'Theme: System')).focus();
-    await expect(
-      actions.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
-    ).toHaveAttribute('aria-checked', 'true');
-    await page.keyboard.press('Tab');
-    await expect(actions.getByRole('menu')).toHaveCount(0);
+    await theme.click();
+    await expect(page.getByRole('menuitemradio', { name: 'System', exact: true })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
   });
 
@@ -299,6 +309,17 @@ for (const width of [1440, 390])
       const frame = page.locator('#ask-page-fixture iframe');
       const marker = page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]');
       await expect(marker).toBeVisible();
+      // The page starts under the title row: give it room and scroll exactly past the row, so the
+      // column's sticky offset under the bar applies and the marker stays clear of the bar.
+      const rowHeight = Math.round(
+        (await page.locator('.colab-title-row:visible').boundingBox())!.height,
+      );
+      await page.evaluate((top) => {
+        document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
+          '3000px';
+        window.scrollTo(0, top);
+      }, rowHeight);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(rowHeight);
       const before = await frame.boundingBox();
       const scroll = await page.evaluate(() => window.scrollY);
       await (await pageAction(page, 'Comments')).click();
@@ -412,7 +433,8 @@ test('one-row fitting retains full labels, stable content and compact action aut
     },
     { title, deviceName },
   );
-  const header = page.locator('.tmt-ui-header:visible');
+  const header = page.locator('.colab-title-row header:visible');
+  const bar = page.locator('.tmt-ui-topbar:visible');
   const heading = header.getByRole('heading', { name: title, exact: true });
   await expect(heading).toBeVisible();
   await expect(header).toHaveAttribute('aria-label', `Colab · local · ${deviceName} · ${title}`);
@@ -440,7 +462,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
     await expect(heading).toBeVisible();
-    const actions = header.getByRole('navigation', { name: 'Page actions' });
+    const actions = bar.getByRole('navigation', { name: 'Page actions' });
     await expect(actions.getByRole('button')).toHaveCount(1);
     const more = actions.getByRole('button', { name: 'More', exact: true });
     await more.press('ArrowDown');

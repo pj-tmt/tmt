@@ -20,7 +20,11 @@ channels and the driver protocol. The owner map is in
   `snapshot` (all panes, or one).
 
 - A running-command handle separates launch from wait but keeps the original deadline and
-  cleanup; an abandoned handle stops and reaps its child. There is no second runner.
+  cleanup; an abandoned handle stops and reaps its child. Cancellable waits forward one SIGINT
+  to their private group while retaining the unreaped leader and bounded checkpoint report.
+  A repeat expires the wait; timeout/forced cleanup never confirms partial bytes. The resumable
+  communicator uses bounded blocking slices against the original absolute deadline, including
+  after pipe EOF. There is no second runner or signal/reader thread.
 - `process::runtime` uses the runner's native process evidence before bounded `ps` fallback.
   Native Unknown or late evidence grants nothing and never triggers a second acquisition;
   only unavailable native acquisition falls back. Owned unreaped children retain zombie
@@ -245,8 +249,8 @@ tmux or Herdr hosts it. `run`/`resume` default to this host outside a verified h
 `--host tmux|herdr|pty` selects explicitly and never silently falls back. `HostKind`
 keeps the existing `External` shape for the reserved `pty` grammar. `Host::for_server`
 reaches its in-process `host::pty` driver; no executable approval is involved.
-`tmt attach` and plain `focus` reach a built-in member (#4755, below); the Ops board does not
-stream its terminal yet.
+`tmt attach` and plain `focus` reach a built-in member; terminal views discover its
+stream through the public `terminal.stream` API rather than deriving socket paths.
 
 - **One process per member, no daemon.** `tmt __pty-serve DIRECTORY ID COLS ROWS PROGRAM...`
   (hidden; `tmt-adapters::pty::serve_process`) leaves its session, takes the member's lock,
@@ -254,9 +258,11 @@ stream its terminal yet.
   controlling terminal it is), prints `ready <program pid>` and points its standard streams
   at `/dev/null`, so a launcher can read its pipes to the end. It ends when the program
   does: it tells attached clients (`Exited`), then removes its socket and lock. A supervisor
-  that dies, even by SIGKILL, closes the terminal and the kernel hangs the program up; its
-  leftover socket and lock are replaced by the next start of the same id (ids are never
-  reused).
+  that dies, even by SIGKILL, closes the terminal and the kernel hangs the program up. The
+  next `Supervisor::start`, after taking its own lock, scans at most 64 directory entries and
+  only tries another ID's lock when its socket exists, then reclaims the socket and lock while
+  holding that ID's nonblocking exclusive flock. Lock-only starters, live or unknown locks and
+  scan/removal errors are left alone without failing startup.
 - **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
   (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
   `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);
@@ -319,9 +325,12 @@ stream its terminal yet.
   terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).
   `tmt-cli/tests/pty_host.rs` drives the public CLI with a `PATH` that has no tmux; its
   `pty_host/e2e.rs` story runs two replying members through talk, attach and detach, then
-  loses one supervisor: the other member keeps answering, the lost one reads offline and
-  queues a new request without any replay, and a member that exits on its own removes its
-  socket and lock. The resume leg is the separate `#[ignore]`d test quarantined for #4767.
+  loses one supervisor and explicitly resumes its recorded session in a new pane: identity,
+  retained exchanges and exactly-once processing survive; queued work is never silently
+  replayed, the other member stays available, and old/new supervisor files are absent before
+  fixture deletion. A shared fixture barrier waits for exact Running provider/owner evidence
+  before releasing SessionStart, then reads its committed session. The separate quarantined
+  resume control remains opt-in; a passing local story does not resolve hosted intermittency.
 
 ## Agent drivers
 

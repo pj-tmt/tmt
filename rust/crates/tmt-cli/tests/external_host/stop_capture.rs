@@ -18,6 +18,36 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
 }
 
 #[test]
+fn a_blocking_digest_keeps_the_answer_to_text_folded_into_a_running_claude_turn() {
+    blocking_digest(
+        "claude",
+        true,
+        &[(false, false), (true, true)],
+        CaptureScenario::FoldedInput,
+    );
+}
+
+#[test]
+fn a_blocking_digest_keeps_both_claude_finals_after_a_compaction_inside_the_turn() {
+    blocking_digest(
+        "claude",
+        true,
+        &[(false, false), (true, true)],
+        CaptureScenario::CompactedMidTurn,
+    );
+}
+
+#[test]
+fn a_blocking_digest_keeps_both_codex_finals_after_a_compaction_inside_the_turn() {
+    blocking_digest(
+        "codex",
+        true,
+        &[(false, false), (true, true)],
+        CaptureScenario::CompactedMidTurn,
+    );
+}
+
+#[test]
 fn a_blocking_digest_keeps_both_codex_finals_in_causal_order_for_both_hook_orders() {
     blocking_digest(
         "codex",
@@ -209,6 +239,11 @@ enum CaptureScenario {
     Subagent,
     UnboundOnce,
     StorageFailure,
+    /// Ben's text is typed into a turn another prompt started and a tool finishes
+    /// before the Stop (#5268); no prompt ever announces it.
+    FoldedInput,
+    /// The provider compacts its context inside the turn, before the Stop (#5268).
+    CompactedMidTurn,
 }
 
 fn blocking_digest(
@@ -333,6 +368,12 @@ fn blocking_digest(
             serde_json::json!({"identityId":agent,"ownerIdentityId":person,"setterIdentityId":person,"expectedRevision":0,"untilMs":now+60_000}),
         );
         assert_eq!(policy["active"], true, "{policy:#}");
+        let folded = scenario == CaptureScenario::FoldedInput;
+        if folded {
+            let mut earlier = event("UserPromptSubmit");
+            earlier["prompt"] = "A request that began the turn".into();
+            ok(provider.hook(earlier));
+        }
         let sent = fixture.json(&[
             "talk",
             "worker",
@@ -350,7 +391,16 @@ fn blocking_digest(
         } else {
             "prompt"
         }] = "Ben question".into();
-        ok(provider.hook(prompt));
+        if folded {
+            ok(provider.hook(event("PostToolUse")));
+        } else {
+            ok(provider.hook(prompt));
+        }
+        if scenario == CaptureScenario::CompactedMidTurn {
+            let mut compacted = event("SessionStart");
+            compacted["source"] = "compact".into();
+            ok(provider.hook(compacted));
+        }
         let held = fixture.json(&[
             "talk",
             "worker",

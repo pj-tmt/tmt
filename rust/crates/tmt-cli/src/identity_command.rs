@@ -180,23 +180,7 @@ fn shown(storage: &Storage, identity: Identity) -> Result<Report, Failure> {
 /// is cached for the caller.
 fn pinned(storage: &mut Storage, id: &str, expected: &str) -> Result<Report, Failure> {
     let changed = |reason: String| Failure::new("IDENTITY_CHANGED", reason, 5);
-    let identity = storage
-        .find_identity_by_id(id)
-        .map_err(unavailable)?
-        .ok_or_else(|| crate::output::identity_missing(id))?;
-    if storage
-        .find_active_identity_by_id(id)
-        .map_err(unavailable)?
-        .is_none()
-    {
-        return Err(changed(format!("The identity {id} has been retired.")));
-    }
-    if identity.canonical_name != tmt_core::names::normalize_name(expected) {
-        return Err(changed(format!(
-            "The identity {id} is now named '{}', not '{expected}'.",
-            identity.name
-        )));
-    }
+    let identity = identity_context::pinned_identity(storage, id, expected)?;
     // Presence is read as `tmt ls <name>` reads it, so a host that cannot answer is "unknown",
     // never a reason to refuse an identity that still has its name.
     let host = Host::for_caller(&CallerEnvironment::current());

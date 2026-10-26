@@ -1307,6 +1307,66 @@ the link sent first) and unconfirmed (an uncertain send, never sent again).
 the bounds for browser and native; a string `{"fill":text,"count":n}` there stands for `text`
 repeated `n` times.
 
+### Editor metadata requests (#5195, A #5256)
+
+The same immutable `intents[operationId]` and automatic owner consumer also admit
+`version:2`, `kind:"edit-request"`, `operationId`, `action`, `body` and `target`, with no
+other fields and at most 8192 UTF-8 JSON bytes. `action` is only `creator.set`,
+`question.handle` or `question.reopen`. Creator uses exactly `body:{selector}`: a nonempty
+name or canonical ID, at most 256 UTF-8 bytes, no control characters or surrounding whitespace.
+Its `target` is exactly `{creator,creationRecipient}`, using the complete observed values
+or explicit `null`. Question actions use exactly `body:{id}` (the registered UUIDv4) and
+`target` is the complete observed registry entry with that ID. The target is an inert,
+bounded before-image, not proposed metadata. Its field keys are nonnumeric ASCII names and its numbers are nonnegative browser-safe integers, as in the metadata projection. The owner compares it with its verified content
+projection; arbitrary or stale values cannot grant a write. The question precondition covers
+the registered entry, including its open/handled state; answers remain a derived own-stream
+projection and unrelated comments do not invalidate the entry.
+
+The envelope binds page, epoch and writer. A live editor grant is checked before preparation
+and again before publication; revoked/expired/non-editor links cannot publish metadata.
+Archived pages and shells keep their publication refusal. The owner checks the target in a
+fresh read and then passes that read's revision to the existing conditional metadata publisher.
+It never uses a full revision captured before the request append, because own appends change
+that revision. A concurrent change during preparation still refuses `COLAB_STALE_BASE`.
+The owner resolves `selector` through the existing bounded authenticated identity read;
+not found refuses `COLAB_IDENTITY_UNKNOWN`, and unavailable, ambiguous or malformed lookup
+refuses `COLAB_IDENTITY_UNVERIFIED`. No guessed/stored fallback binding or directory is supplied
+to the link. Only the resolved ID and observed label enter creator metadata; the publisher
+supplies attribution. Source, question registration, assignment, answers, Ask and tasks are
+unchanged. No approval queue or owner confirmation is involved.
+
+Metadata requests reuse the existing save result and operation journal. The internal operation
+is a UUIDv4-shaped SHA-256 derivation of the compact JSON array
+`["tmt-colab-editor-metadata-v1",page,epoch,writer,operationId]`, taking the first 16 bytes and
+setting version/variant bits. This keeps different links and epochs distinct. A recorded
+committed/rejected publication is recovered before its target is evaluated again. The first
+terminal metadata result is kept with the existing epoch-scoped decision (schema 19 adds its
+optional result column); a restart republishes that result, never the action. Source v1's
+local applied/conflict/refused decisions and source-observation behavior remain unchanged.
+
+**Result transport.** Existing source-request decisions are local-only and contain neither a
+revision nor a refusal reason, so they cannot answer this metadata operation for a hosted
+reader. The minimum additional transport is an immutable owner-authored `messages` record:
+`{version:1,kind:"edit-result",writer,operationId,requestSha256,result}`, keyed
+`writer:operationId:edit-result`. `writer` and `operationId` are the requesting UUIDv4s.
+`requestSha256` is SHA-256 of compact recursively ASCII-key-sorted JSON for the complete
+immutable request, unpadded base64url. `result` reuses the terminal save shape: exactly
+`{operationId,state,revision}` for `committed`/`unchanged` (a valid page revision), or exactly
+`{operationId,state:"rejected",code,message}` (COLAB code at most 80 bytes, message 1–2048 bytes).
+No pending/approval state or extra field is admitted. Syntax alone grants no trust: a consumer
+requires verified owner-member envelope provenance, the same page/epoch, matching request
+writer/operation and request digest. A link-authored lookalike is ignored even when valid.
+A result is durable before its own publication is attempted; losing that publication retries
+only the receipt. Exhausted capacity or transient publication failure is not a successful
+reply. An access-ended reader cannot be promised a delivered result.
+
+The current reader Info UI remains read-only until slice B adds direct Change creator…,
+Mark handled and Reopen actions with busy/result/refusal presentation. It must distinguish an
+uncertain send from a refusal, never automatically resend, and add no approval-wait state.
+Viewers/commenters keep the owner-only line without CLI guidance. Both door and hosted readers
+consume the same verified records. `vectors/editor-metadata-v1.json` pins request/result grammar;
+metadata UI and integrated door/hosted proofs belong to B, not this native slice.
+
 ### Own-stream discussion records (#1427)
 
 All discussion record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
@@ -4579,7 +4639,24 @@ Colab half, which the app mounts on any route, not only `/colab/…`. It opens o
 registry the app passes beside Colab's pages and projects, navigates a page through the app's own
 page navigation and anything else through the app's `go(href)`, and holds no keyboard shortcut:
 the app's top bar owns the one Command/Ctrl+K. `dispose()` closes the dialog and removes it. It is
-loaded from the same entry and only from an owner's composed shell.
+loaded from the same entry and only from an owner's composed shell. `options` may carry a
+`placeholder`, which replaces the field's text (which otherwise names the ready groups).
+
+A host that has no page transport of its own mounts the same search with
+`mountSearchSession(container, options)` (#5267), where `options` is `mountSearch`'s without
+`transport`, `space` and `pageId`. The session owns Colab's mounted transport (its admission,
+bootstrap and lifetime) and closes it, so the host never builds or closes one; it keeps the import,
+the prefetch and its own generation and disposal. The paired mount is the one this module was
+loaded from (`<mount>assets/colab-module.js`), so the host passes none and the session works from a
+document that is not Colab's: its discovery neither reads nor rewrites the document's location, and a
+module that was not loaded from a same-origin Colab mount never reaches the pages (the dialog says so
+as it does for any failed read). The transport starts when the session is mounted.
+`open(opener)` opens the dialog at once, on the groups that are ready, and the pages join when the
+transport is; the dialog says so while they load and when they cannot (the same states the search
+has), and a failed start is tried again by the next `open`. `dispose()` aborts a bootstrap that is
+still running, closes the dialog and closes the transport, once however often it is called; the
+tab's `pagehide` closes the transport too, and a page restored from the back-forward cache opens a
+new one on its next `open`. It returns `{ open(opener), dispose() }` like `mountSearch`.
 
 Inside the app Colab's locations are paths: `/colab/` (home), `/colab/pages/<pageId>`,
 `/colab/settings` and `/colab/p/<shortId>` (the printed short link, resolved like `/p/<shortId>`

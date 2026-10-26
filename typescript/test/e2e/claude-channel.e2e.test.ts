@@ -1554,21 +1554,29 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           expect(named(worker, 'paste')).toEqual([]);
           // A capture-only read of the same verified-idle session is a pure
           // read: it keeps every item held and delivers nothing.
-          const captured = await fixture.runJsonCli(['check', name, '--capture-only']);
-          expect(captured.code).toBe(0);
-          expect(Object.keys(captured.json!)).toEqual(Object.keys(plain.json!));
-          expect(named(worker, 'channel')).toEqual([]);
-          expect(named(worker, 'paste')).toEqual([]);
-          expect(
-            sql(fixture, (db) => db.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get())
-          ).toEqual({ count: 0 });
-          expect(
-            sql(fixture, (db) =>
-              db
-                .prepare('SELECT COUNT(*) AS count FROM focus_items WHERE checklist_id IS NULL')
-                .get()
-            )
-          ).toEqual({ count: dueNow ? 3 : 2 });
+          for (const target of [
+            [name, '--capture-only'],
+            [id, '--capture-only'],
+            [id, '--capture-only', '--expect-name', name],
+          ]) {
+            const captured = await fixture.runJsonCli(['check', ...target]);
+            expect(captured.code).toBe(0);
+            expect(Object.keys(captured.json!)).toEqual(Object.keys(plain.json!));
+            expect(named(worker, 'channel')).toEqual([]);
+            expect(named(worker, 'paste')).toEqual([]);
+            expect(
+              sql(fixture, (db) =>
+                db.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get()
+              )
+            ).toEqual({ count: 0 });
+            expect(
+              sql(fixture, (db) =>
+                db
+                  .prepare('SELECT COUNT(*) AS count FROM focus_items WHERE checklist_id IS NULL')
+                  .get()
+              )
+            ).toEqual({ count: dueNow ? 3 : 2 });
+          }
           if (flush) {
             expect(api('digest.checklist.flush', { identityId: id })).toEqual({
               identityId: id,

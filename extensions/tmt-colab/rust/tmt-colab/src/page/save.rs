@@ -347,6 +347,9 @@ impl SaveResult {
 }
 /// A stable code and a message a person can read, for any failure of a save.
 fn refusal(error: &(dyn std::error::Error + 'static)) -> (&'static str, String) {
+    if let Some(refused) = error.downcast_ref::<crate::edit_request::metadata::IdentityRefused>() {
+        return (refused.0, refused.to_string());
+    }
     if let Some(refused) = error.downcast_ref::<crate::question_registry::Refused>() {
         let line = refused.findings.first().map_or(1, |finding| finding.line);
         return (

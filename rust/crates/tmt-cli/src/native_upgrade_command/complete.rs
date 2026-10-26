@@ -15,7 +15,39 @@ pub(super) fn run(
     consented: bool,
     mode: OutputMode,
     runner: &impl CommandRunner,
+    mut interrupt: Option<&mut tmt_adapters::interrupt::Interrupt>,
 ) -> Outcome {
+    if let Some(interrupt) = interrupt.as_deref_mut() {
+        interrupt.defer_emergency_exit();
+    }
+    let mut outcome = run_with_interrupt(
+        executable,
+        approved,
+        consented,
+        mode,
+        runner,
+        interrupt.as_deref(),
+    );
+    // Even a signal arriving after the child's final checkpoint interrupts this
+    // invocation. A timeout/forced cleanup keeps its unconfirmed-outcome rows.
+    outcome.interrupted |= interrupt.is_some_and(|interrupt| interrupt.is_interrupted());
+    outcome
+}
+
+fn run_with_interrupt(
+    executable: &Path,
+    approved: &Plan,
+    consented: bool,
+    mode: OutputMode,
+    runner: &impl CommandRunner,
+    interrupt: Option<&tmt_adapters::interrupt::Interrupt>,
+) -> Outcome {
+    if interrupt.is_some_and(|interrupt| interrupt.is_interrupted()) {
+        return failed(
+            approved,
+            "Upgrade interrupted before extension apply; no later item was changed.",
+        );
+    }
     let has_actions = !approved.installed.pending.is_empty()
         || approved
             .missing
@@ -43,8 +75,15 @@ pub(super) fn run(
         } else {
             Duration::ZERO
         };
-    let probe =
-        extensions::invoke_complete(executable, runner, true, true, &[], budget, &mut |_| {});
+    let probe = extensions::invoke_complete(
+        executable,
+        runner,
+        true,
+        true,
+        &[],
+        extensions::ChildWait { budget, interrupt },
+        &mut |_| {},
+    );
     match probe {
         Err(error)
             if !error.cleanup_failed()
@@ -57,8 +96,14 @@ pub(super) fn run(
                 ) =>
         {
             // The old target can upgrade installed products, but receives no missing-item apply.
-            let products =
-                extensions::upgrade_frozen(executable, &approved.installed, true, mode, runner);
+            let products = extensions::upgrade_frozen(
+                executable,
+                &approved.installed,
+                true,
+                mode,
+                runner,
+                interrupt,
+            );
             let mut fallback =
                 Plan::parse(&serde_json::to_vec(&approved.document()).expect("plan JSON"))
                     .expect("own plan");
@@ -125,7 +170,7 @@ pub(super) fn run(
         false,
         true,
         &input,
-        budget,
+        extensions::ChildWait { budget, interrupt },
         &mut |bytes| decoder.feed(bytes, &mut observe),
     );
     let (output, status) = match result {
@@ -305,6 +350,10 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     ),
     crate::cli_style_tests::HintSpec::core("tmt upgrade", &[""], &[]),
 ];
+
+#[cfg(test)]
+#[path = "complete/signal_tests.rs"]
+mod signal_tests;
 
 #[cfg(test)]
 #[path = "complete/tests.rs"]

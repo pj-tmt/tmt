@@ -19,7 +19,7 @@ export async function showResolvedOn(page: Page) {
 }
 
 /** Resolve page actions: Comments and Chat are the dock's, page tools (including Agent status) are in
- * the header's More menu, and readers keep their direct Files control. */
+ * the top bar's More menu, and readers keep their direct Files control. */
 export async function pageAction(host: Page | Locator, name: string): Promise<Locator> {
   const directName =
     name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name === 'Agents' ? 'Agent status' : name;
@@ -37,7 +37,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     }
     // The first covered-header press dismisses only; the action needs a second press.
     const button = await page
-      .locator('.tmt-ui-header:visible button:visible')
+      .locator('.tmt-ui-topbar:visible button:visible')
       .first()
       .boundingBox();
     if (!button) throw new Error('Open drawer has no visible header return target');
@@ -46,6 +46,14 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   };
   const anythingOpen = async () => (await drawer.isVisible()) || (await comments.isVisible());
   if (await anythingOpen()) await dismissDrawer();
+  if (name.startsWith('Theme:')) {
+    // Theme is the shared top bar's menu, not a page action.
+    await page
+      .locator('.tmt-ui-topbar-common:visible')
+      .getByRole('button', { name: /^Theme:/ })
+      .click();
+    return page.getByRole('menuitemradio', { name: name.slice('Theme: '.length), exact: true });
+  }
   if (name === 'Files') {
     const direct = host.getByRole('button', { name: directName, exact: true });
     await header.or(direct).first().waitFor();
@@ -87,7 +95,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
       await trigger.click();
     }
   }
-  return page.getByRole(name.startsWith('Theme:') ? 'menuitemradio' : 'menuitem', {
+  return page.getByRole('menuitem', {
     name: name === 'Share…' ? /^Share…/ : directName,
     exact: name !== 'Share…',
   });

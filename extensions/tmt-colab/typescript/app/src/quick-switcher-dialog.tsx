@@ -82,6 +82,8 @@ export interface SwitcherSearch {
   go(href: string): Promise<unknown>;
   /** The page list scoped to one project; without it no project is offered. */
   projectHref?(name: string): string;
+  /** The field's placeholder; without it the placeholder names the groups that are ready. */
+  placeholder?: string;
 }
 const NO_GROUPS: readonly SearchGroup[] = [];
 const noSubscription = () => () => {};
@@ -351,7 +353,8 @@ export function QuickSwitcherHost({
                       onClear={() => setOpen(false)}
                       placeholder={
                         search
-                          ? t.placeholderGlobal(scopeNames(providers, t.pagesNoun))
+                          ? (search.placeholder ??
+                            t.placeholderGlobal(scopeNames(providers, t.pagesNoun)))
                           : t.placeholder
                       }
                       label={search ? t.titleGlobal : undefined}

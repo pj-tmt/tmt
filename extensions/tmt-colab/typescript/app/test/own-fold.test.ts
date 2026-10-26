@@ -18,6 +18,69 @@ const v = JSON.parse(
 const a = '00000000-0000-4000-8000-000000000001';
 const b = '00000000-0000-4000-8000-000000000002';
 const bytes = (raw: string) => binary(raw, 4 * 1024 * 1024);
+
+it('uses the shared metadata grammar and refuses replacement or removal of terminal receipts', async () => {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/editor-metadata-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const run = await worker();
+  for (const c of [...vectors.requests, ...vectors.results]) {
+    const prepare = run({
+      type: 'prepare-own',
+      writer: a,
+      records: [{ root: c.root, key: c.key, value: c.record }],
+    });
+    if (c.valid)
+      expect((await prepare).own[a][c.root as 'messages' | 'intents'][c.key], c.name).toEqual(
+        c.record,
+      );
+    else await expect(prepare, c.name).rejects.toThrow();
+  }
+  const first = vectors.results[0];
+  for (const remove of [false, true]) {
+    const run = await worker();
+    const prepared = await run({
+      type: 'prepare-own',
+      writer: a,
+      records: [{ root: first.root, key: first.key, value: first.record }],
+    });
+    const before = await run({
+      type: 'apply',
+      updates: [],
+      own: [{ writer: a, update: prepared.update }],
+    });
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, prepared.update);
+    const vector = Y.encodeStateVector(doc);
+    if (remove) doc.getMap('messages').delete(first.key);
+    else
+      doc.getMap('messages').set(first.key, {
+        ...first.record,
+        result: { ...first.record.result, revision: `v1:${'1'.repeat(64)}` },
+      });
+    await expect(
+      run({
+        type: 'apply',
+        updates: [],
+        own: [{ writer: a, update: Y.encodeStateAsUpdate(doc, vector) }],
+      }),
+    ).rejects.toThrow('Rejected content update');
+    expect((await run({ type: 'apply', updates: [] })).own).toEqual(before.own);
+    // This complete changed document is valid on its own. Only changing an already admitted
+    // immutable key is refused; the assertion is not satisfied by malformed test bytes.
+    const fresh = await worker();
+    const admitted = await fresh({
+      type: 'apply',
+      updates: [],
+      own: [{ writer: a, update: Y.encodeStateAsUpdate(doc) }],
+    });
+    expect(admitted.own[a].messages).toEqual(doc.getMap('messages').toJSON());
+    doc.destroy();
+  }
+});
 afterEach(() => vi.unstubAllGlobals());
 async function worker() {
   vi.resetModules();
