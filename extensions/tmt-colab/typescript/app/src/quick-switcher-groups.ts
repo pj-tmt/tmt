@@ -87,6 +87,24 @@ export function matchProjects(
 }
 
 /**
+ * What the global search field names, in the order the list shows it: the navigation group, Colab's
+ * pages, then every other provider that is ready. A provider without data (unavailable) is not
+ * named, so the field never offers what the list cannot show. Labels read as lower-case nouns
+ * unless they carry a capital past the first letter (an acronym or a name). Nothing is named until
+ * a provider is ready, so the field stays neutral instead of flipping from "pages" to a longer list.
+ */
+export function scopeNames(providers: readonly SearchGroup[], pages: string): string[] {
+  const ready = providers.filter((group) => group.key !== COLAB_GROUP && group.state === 'ready');
+  if (!ready.length) return [];
+  const noun = ({ label }: SearchGroup) => (/.\p{Lu}/su.test(label) ? label : fold(label));
+  return [
+    ...ready.filter((group) => group.key === NAVIGATION_GROUP).map(noun),
+    pages,
+    ...ready.filter((group) => group.key !== NAVIGATION_GROUP).map(noun),
+  ];
+}
+
+/**
  * Everything the open switcher lists: the navigation group first, then Colab's own, then every other
  * provider in registration order. Colab's group is `pages` as ranked (its project and author filters
  * already applied) plus the projects the text names; the provider groups take the text alone, so a

@@ -97,7 +97,12 @@ export const text = {
     shortcut: (command: boolean) => `Search pages · ${command ? '⌘K' : 'Ctrl+K'}`,
     // The global search: the same dialog with the groups of every module beside Colab's pages.
     titleGlobal: 'Search TMT',
-    placeholderGlobal: 'Search modules, pages, agents or devices…',
+    // Names only what the registered groups offer; none registered yet, so the field stays neutral.
+    placeholderGlobal: (names: readonly string[]) =>
+      names.length === 0
+        ? 'Search TMT…'
+        : `Search ${[names.slice(0, -1).join(', '), names[names.length - 1]].filter(Boolean).join(' or ')}…`,
+    pagesNoun: 'pages',
     resultsGlobal: 'Results',
     colab: 'Colab',
     projectPages: (count: number) => `Project · ${count} ${count === 1 ? 'page' : 'pages'}`,
