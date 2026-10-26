@@ -1891,6 +1891,8 @@ updates in that prefix has a committed checkpoint at exactly `n`, each binding
 the same update hash in its signed previous-hash field. An unpaired checkpoint
 is retained without pruning and is not selected for bootstrap. Completing the
 pair atomically prunes both covered prefixes and superseded unpinned checkpoints.
+After a prune commits, the local Store best-effort returns up to 64 free SQLite pages
+to disk with incremental vacuum; reclaim failure never fails or rolls back the write.
 
 The dormant native publication tracker adds a fence only for an explicitly tracked own
 stream. Its initial pending set is the current paired checkpoint plus its contiguous
@@ -5638,6 +5640,13 @@ when a store is newer than this build, the `COLAB_STORE_NEWER` refusal names the
 this build supports, "This space was saved by a newer Colab. Run tmt upgrade to open it. To stay on
 this version instead, stop Colab and replace space.db with the backup from before that update
 (<path>); changes made since then are lost.", and is unchanged when there is none. No command restores a copy.
+
+After schema migrations commit, `Store::open` separately converts a store to SQLite
+`auto_vacuum=INCREMENTAL` with `VACUUM` outside any transaction. This physical conversion
+is transactional and creates no backup; copies and their pruning remain tied to schema
+migrations only. Conversion is best effort: failure leaves the store usable and retries on
+the next open. The stored vacuum mode marks completion, with no schema-version change.
+Reads never convert or reclaim the file; per-prune reclaim failures stay silent.
 
 ### Projects (#3747)
 
