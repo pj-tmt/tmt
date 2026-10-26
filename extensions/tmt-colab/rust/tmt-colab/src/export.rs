@@ -253,18 +253,26 @@ impl Bundle {
         now: u64,
         attachment_source: &dyn attachments::Source,
     ) -> Result<Self> {
-        Self::capture_with_runtime(store, key, page, decoder, now, attachment_source, None)
+        Self::capture_with_assets(
+            store,
+            key,
+            page,
+            decoder,
+            now,
+            attachment_source,
+            &standalone::Assets::default(),
+        )
     }
-    /// `runtime` is the build's page runtime (#1693), written into `page.standalone.html` for a
-    /// page that opts in.
-    pub fn capture_with_runtime(
+    /// `assets` are the build's page runtime (#1693) and design system (#5057), written into
+    /// `page.standalone.html` for a page that needs them.
+    pub fn capture_with_assets(
         store: &Store,
         key: &Keyring,
         page: &str,
         decoder: &mut Decoder,
         now: u64,
         attachment_source: &dyn attachments::Source,
-        runtime: Option<&standalone::Runtime>,
+        assets: &standalone::Assets,
     ) -> Result<Self> {
         values::generated_id(page)?;
         values::time(now)?;
@@ -336,12 +344,12 @@ impl Bundle {
             attachment_source,
             std::time::Instant::now(),
         )?;
-        // Only an ordinary page's HTML can ask for the runtime; the copy is derived from the
+        // Only an ordinary page's HTML can need a copy; the copy is derived from the
         // admitted source and never replaces it.
         let derived = if content_name == "page.html" {
             std::str::from_utf8(&content)
                 .ok()
-                .and_then(|source| standalone::derive(source, runtime))
+                .and_then(|source| standalone::derive(source, assets))
         } else {
             None
         };

@@ -1834,7 +1834,7 @@ fn operation_show_preserves_existing_wire_projections() {
                 rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db"))
                     .unwrap();
             let frozen = input(&id, &recipient, "frozen").to_string().into_bytes();
-            connection.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,references_json) VALUES (?1,?2,'dispatch.create',zeroblob(32),?3,?4,?5,?6,?7)", rusqlite::params![id,owner.grant.client_id,frozen,phase,expected.to_string(),tmt_remote::pairing::now_ms().unwrap() as i64,json!([recipient]).to_string()]).unwrap();
+            connection.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,references_json,member_id) VALUES (?1,?2,'dispatch.create',zeroblob(32),?3,?4,?5,?6,?7,(SELECT member_id FROM member_machines WHERE client_id=?2))", rusqlite::params![id,owner.grant.client_id,frozen,phase,expected.to_string(),tmt_remote::pairing::now_ms().unwrap() as i64,json!([recipient]).to_string()]).unwrap();
         }
         let session = owner.open();
         let query = owner.wire(
@@ -1913,7 +1913,7 @@ fn saturated_device_keeps_live_reads_without_changing_its_journal() {
     let connection =
         rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db")).unwrap();
     connection.execute("INSERT INTO streams(client_id,incarnation,key,tip,last_ms) VALUES (?1,?2,zeroblob(32),1000,?3)", rusqlite::params![owner.grant.client_id,uuid_v4().unwrap(),now as i64]).unwrap();
-    connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms,references_json) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,'dispatch.create',zeroblob(32),'held','{}',?2,'[]' FROM n", rusqlite::params![owner.grant.client_id,now as i64]).unwrap();
+    connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms,references_json,member_id) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,'dispatch.create',zeroblob(32),'held','{}',?2,'[]',(SELECT member_id FROM member_machines WHERE client_id=?1) FROM n", rusqlite::params![owner.grant.client_id,now as i64]).unwrap();
     connection.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO entries(client_id,position,envelope,at_ms) SELECT ?1,x,CAST('{}' AS BLOB),?2 FROM n", rusqlite::params![owner.grant.client_id,now as i64]).unwrap();
     let original = "00000000-0000-4000-8000-000000000001";
     let request = format!("req_{}", uuid_v4().unwrap());
@@ -2100,7 +2100,7 @@ fn fill_operations(
     (operation, phase): (&str, &str),
     base_ms: i64,
 ) {
-    connection.execute("WITH RECURSIVE n(x) AS (VALUES(?2) UNION ALL SELECT x+1 FROM n WHERE x<?3) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms,references_json) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,?4,zeroblob(32),?5,'{}',?6+x,'[]' FROM n", rusqlite::params![client,first,first+count-1,operation,phase,base_ms]).unwrap();
+    connection.execute("WITH RECURSIVE n(x) AS (VALUES(?2) UNION ALL SELECT x+1 FROM n WHERE x<?3) INSERT INTO operations(id,client_id,operation,digest,phase,receipt,updated_ms,references_json,member_id) SELECT printf('00000000-0000-4000-8000-%012x',x),?1,?4,zeroblob(32),?5,'{}',?6+x,'[]',(SELECT member_id FROM member_machines WHERE client_id=?1) FROM n", rusqlite::params![client,first,first+count-1,operation,phase,base_ms]).unwrap();
 }
 fn count(connection: &rusqlite::Connection, sql: &str) -> i64 {
     connection.query_row(sql, [], |row| row.get(0)).unwrap()

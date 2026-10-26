@@ -6,14 +6,15 @@ use tmt_core::{
         DriverState, HarnessId, ProviderSessionId, RuntimeMode, SessionTransition,
         launch::{
             LaunchObservation, LaunchStatus, MAXIMUM_PER_BINDING, PendingStart, RETENTION_MS,
-            SessionLearningDiagnostic, SessionLearningReason, SessionLearningStep,
+            SessionLearningDetail, SessionLearningDiagnostic, SessionLearningReason,
+            SessionLearningStep,
         },
     },
     endpoint::ProcessIncarnation,
     limits::MAX_JS_SAFE_INTEGER,
 };
 
-const COLUMNS: &str = "binding_id,owner_pid,owner_start,driver,created_at_ms,expires_at_ms,status,provider_pid,provider_start,provider_session,runtime_mode,observed_at_ms,step,reason,driver_state_version,driver_state,preferences_fingerprint,provider_transition";
+const COLUMNS: &str = "binding_id,owner_pid,owner_start,driver,created_at_ms,expires_at_ms,status,provider_pid,provider_start,provider_session,runtime_mode,observed_at_ms,step,reason,driver_state_version,driver_state,preferences_fingerprint,provider_transition,detail";
 fn decode(row: &rusqlite::Row<'_>) -> rusqlite::Result<LaunchObservation> {
     let invalid = || rusqlite::Error::InvalidQuery;
     let process = |pid: i64, start: String| {
@@ -56,14 +57,20 @@ fn decode(row: &rusqlite::Row<'_>) -> rusqlite::Result<LaunchObservation> {
             },
         }),
     };
+    let detail = row
+        .get::<_, Option<String>>(18)?
+        .map(|detail| SessionLearningDetail::parse(&detail).ok_or_else(invalid))
+        .transpose()?;
     let diagnostic = match (
         row.get::<_, Option<String>>(12)?,
         row.get::<_, Option<String>>(13)?,
+        detail,
     ) {
-        (None, None) => None,
-        (Some(step), Some(reason)) => Some(SessionLearningDiagnostic {
+        (None, None, None) => None,
+        (Some(step), Some(reason), detail) => Some(SessionLearningDiagnostic {
             step: SessionLearningStep::parse(&step).ok_or_else(invalid)?,
             reason: SessionLearningReason::parse(&reason).ok_or_else(invalid)?,
+            detail,
         }),
         _ => return Err(invalid()),
     };
@@ -163,10 +170,11 @@ pub(super) fn replace(
     };
     let pending = next.pending.as_ref();
     let state = pending.and_then(|p| p.state.as_ref());
-    db.execute("UPDATE launch_observations SET status=?,provider_pid=?,provider_start=?,provider_session=?,runtime_mode=?,observed_at_ms=?,step=?,reason=?,driver_state_version=?,driver_state=?,provider_transition=?
+    db.execute("UPDATE launch_observations SET status=?,provider_pid=?,provider_start=?,provider_session=?,runtime_mode=?,observed_at_ms=?,step=?,reason=?,driver_state_version=?,driver_state=?,provider_transition=?,detail=?
         WHERE binding_id=? AND owner_pid=? AND owner_start=?", params![status,pending.map(|p|p.process.pid() as i64),pending.map(|p|p.process.start_identity()),
         pending.map(|p|p.session.as_str()),pending.map(|p|p.mode.as_str()),pending.map(|p|p.observed_at_ms as i64),
         next.diagnostic.map(|d|d.step.as_str()),next.diagnostic.map(|d|d.reason.as_str()),state.map(DriverState::version),state.map(DriverState::document),pending.map(|p|match p.transition {SessionTransition::Started=>"started",SessionTransition::Resumed=>"resumed",SessionTransition::Cleared=>"cleared",SessionTransition::Compacted=>"compacted",SessionTransition::Forked=>"forked",SessionTransition::Ended=>"ended"}),
+        next.diagnostic.and_then(|d|d.detail).map(SessionLearningDetail::as_str),
         next.binding_id,next.owner.pid() as i64,next.owner.start_identity()])
         .map(|n|n==1).map_err(|e|classify(e,"Commit launch observation"))
 }
@@ -479,5 +487,38 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn the_detail_column_accepts_exactly_the_tokens_the_rust_side_writes() {
+        use tmt_core::binding::session::launch::SessionLearningDetail;
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let definition: String = storage
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='launch_observations'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let listed = definition
+            .split("detail TEXT CHECK")
+            .nth(1)
+            .expect("the detail column is defined");
+        let listed = &listed[..listed.find("))").expect("its check closes")];
+        for detail in SessionLearningDetail::ALL {
+            assert!(
+                listed.contains(&format!("'{}'", detail.as_str())),
+                "{detail:?} is missing from the detail check"
+            );
+        }
+        assert_eq!(
+            listed.matches('\'').count(),
+            SessionLearningDetail::ALL.len() * 2,
+            "the detail check lists a token the Rust side cannot write"
+        );
+        storage.close().unwrap();
     }
 }

@@ -667,3 +667,23 @@ fn the_log_names_the_admitted_caller_and_reading_it_changes_nothing() {
     assert_eq!(own.events[0].member_id.as_deref(), Some(WORKER));
     assert_eq!(service.events(0, 100).unwrap().events.len(), 2);
 }
+
+#[test]
+fn a_short_id_is_the_shortest_unique_prefix_of_at_least_four_hex_characters() {
+    let a = id("3f2a1111-1111-4111-8111-111111111111");
+    let b = id("3f2a1112-1111-4111-8111-111111111111");
+    let c = id("9b0c0000-0000-4000-8000-000000000000");
+    let all = [a.clone(), b.clone(), c.clone()];
+    assert_eq!(c.short_in(&all), "9b0c");
+    assert_eq!(a.short_in(&all), "3f2a1111");
+    assert_eq!(b.short_in(&all), "3f2a1112");
+    assert_eq!(a.short_in([&a]), "3f2a");
+    // Never ends on a hyphen: a clash through the first group continues past it.
+    let d = id("3f2a1111-2222-4222-8222-222222222222");
+    let near = [a.clone(), d.clone()];
+    assert_eq!(a.short_in(&near), "3f2a1111-1");
+    assert_eq!(d.short_in(&near), "3f2a1111-2");
+    for short in [a.short_in(&near), d.short_in(&near)] {
+        assert!(!short.ends_with('-'));
+    }
+}

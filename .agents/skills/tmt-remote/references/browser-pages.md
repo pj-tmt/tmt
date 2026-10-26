@@ -68,19 +68,30 @@ entry states, keyboard activation, storage/transport/pin errors, refusal, token 
 1440/390 light/dark captures plus a 320-pixel fit check. The SDK fixture covers complete stored-record guards
 and page replacement; actual browser/terminal fixtures remain the user-flow evidence owner.
 
-The landing and settings pages consume the SDK's origin-local public registry. Its list, Add,
-rename/remove and confirmed collision-aware import follow the
+The Remote rail opens **My Remotes** at the existing `/remote/settings` route. One
+`registryView` projection feeds the page and the rail's current-machine context; the rail does
+not enumerate a second remote list. This machine is first, explicitly marked, including when
+no public reference has been saved. Each row shows its backend, mark plus connection word,
+and the viewer role from the existing confirmed readable management observation: a designated
+settings browser is Admin; a readable non-designated pairing is Member (M1 browser grants are
+users). Unreadable or unconfirmed access is Role unknown. This display grants no authority.
+Foreign entries show `◌ Not checked` and are never probed. Current access reuses the page's
+existing observation and grants no additional authority. Create a Remote and Join a Remote
+link to the existing machine/connect guidance until their dedicated flows ship.
+
+Create is the primary page-head action; Join contains invitation guidance and remembering an
+address. Row titles open their Remote; the shared overflow menu owns Rename and destructive
+Forget, while passive chips show role and this-machine context. Add, rename, browser-local
+Forget and confirmed collision-aware import follow the
 [browser registry contract](../../../../contracts/remote-channel-v1.md#browser-remote-registry).
-Handoff fragments are erased before admission. Registry changes touch only the public
-`remotes-v1` key; the existing device record and non-extractable handle remain unchanged.
-Current access reuses the page’s existing observation; foreign entries remain `not checked`, without
-probes or a state mark. Firebase Open preserves its validated public link and does not send
-catalog data. The static Remote chip/menu reuses this controller and current-origin observation, not the
-Colab switcher or a default selector. Native popover focus/roles follow the shared BrowserMenu
-contract; foreign Open navigates without retargeting an existing client. Settings blocks foreign
-Open while a request, unknown original outcome or unsent device name remains; the existing
-reason and original recovery stay on that page. Add/Manage open settings’s Remotes section.
-No optional signed catalog/default read or client factory is shipped.
+Forget states that access is unchanged and offers Undo, which re-adds only the public reference
+through the same collision/CAS checks. Handoff fragments are erased before admission. Registry
+changes touch only `remotes-v1`; the device record and non-extractable handle remain unchanged.
+Firebase Open preserves its validated public link and does not send catalog data. Foreign Open
+never retargets an existing client. Settings blocks it during a request, unknown original outcome
+or unsent device name; the original reason and recovery remain on that page. The list and rail
+reuse shipped browser-ui roles/icons; Remote owns only their page composition. No optional
+signed catalog/default read or client factory is shipped.
 
 ## The one web app and public entries
 

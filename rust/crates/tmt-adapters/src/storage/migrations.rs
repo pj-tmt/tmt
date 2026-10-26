@@ -58,6 +58,8 @@ mod rollup_account_tests;
 #[cfg(test)]
 mod room_tests;
 #[cfg(test)]
+mod session_detail_tests;
+#[cfg(test)]
 mod session_tests;
 #[cfg(test)]
 mod storage_cutover_tests;
@@ -357,6 +359,22 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "store orchestration plans and their decision journal",
         "schema/073.sql"
+    ),
+    migration!(
+        "count usage writes on their own cursor, so the sampler does not wake the board",
+        "schema/074.sql"
+    ),
+    migration!(
+        "let a session-learning diagnostic name what its step stopped on",
+        "schema/075.sql"
+    ),
+    migration!(
+        "record ordered conversation input batches and finals",
+        "schema/076.sql"
+    ),
+    migration!(
+        "let a session-learning diagnostic name why a decoded hook admitted nothing",
+        "schema/077.sql"
     ),
 ];
 

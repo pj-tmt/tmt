@@ -769,7 +769,15 @@ substitutes for current signed designation/grant authority.
 
 The trusted confirmed-invitation sink atomically creates a user member and its
 first grant with sending off and direct delivery. Verified enrollment proof alone
-cannot call that sink. Attaching another verified machine is an explicit local
+cannot call that sink. A new confirmed invitation for a revoked machine creates a
+fresh user member, advances the retained grant revision and moves its machine
+association in that same transaction, using the newly verified candidate key and
+sending off/direct policy. A non-disabled grant still refuses with
+`REMOTE_ALREADY_PAIRED`; expiry alone is not revocation. The old member stays a
+tombstone (or retains its other machines), and old receipt/operation identities,
+sessions and revoked routes never regain authority. No history is deleted or ID
+reset. The new immutable receipt describes the newly persisted grant; replaying
+an old invitation cannot perform this replacement. Attaching another verified machine is an explicit local
 owner or currently designated-owner-browser operation naming the target member,
 candidate grant and their expected revisions. The IMMEDIATE writer transaction
 rechecks local Remote identity, liveness and both revisions, and reserves its
@@ -786,6 +794,16 @@ Only member revoke or machine removal revokes routes and queues historical route
 cleanup; talk-on restores scope without route reactivation. Member revoke fences
 all associated grants and sessions in the same Store transaction. New associations
 honor current member policy; individual grants remain narrower execution fences.
+
+Each operation captures the client's current `member_id` when adopted. Effect
+eligibility, original-ID adoption/recovery and owned history require that captured
+member to equal the client's current association. The additive `operation_members`
+migration appends a nullable operation column and backfills from existing machine
+associations; unmapped rows remain fenced. Sending/policy revisions within the same
+member preserve operation recovery. Re-pairing as a new member does not: old
+uncertain/dispatching outcomes remain recorded unchanged and cannot be released,
+observed or re-adopted by that new member. Cloud final selection and mapped result
+reads use the same ownership fence.
 
 The existing devices facade is the first consumer; this change adds no new public
 members command or invitation transport. Member-wide sending changes reuse its
@@ -3803,8 +3821,9 @@ drafts, original operation IDs or reader seeds are carried.
 
 A duplicate canonical target is already added; a colliding name offers a new name or Skip,
 without overwriting the existing reference. Landing rows use only this origin's existing
-verified observation for current access. Foreign rows say `not checked`, carry no state mark
-and offer Open, with no probes or manufactured last-seen/default status. Firebase references
+verified observation for current access. Unprobed foreign rows show `◌ Not checked` (mark and
+word), meaning unknown, never offline or access, and offer Open without probes or manufactured
+last-seen/default status. Firebase references
 reuse the validated public remote link and remain `not checked`; Open preserves that link
 unchanged, with no catalog handoff, Auth, configuration fetch or Firestore transport. Hosted
 catalog reception and the Colab switcher are later consumers, not shipped registry behavior.

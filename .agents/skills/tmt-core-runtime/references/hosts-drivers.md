@@ -36,7 +36,9 @@ channels and the driver protocol. The owner map is in
   neither server options nor shell selection; command-local option unsets remain
   separate from the client flag.
 - `tmt_core::driver::pane_input_text` turns ASCII `!` into fullwidth `！` for all text typed
-  into a pane on every host; hosts and drivers add nothing. `check` is bounded diagnostics,
+  into a pane on every host, and the ESC of a bracketed-paste marker (`ESC [ 200 ~`,
+  `ESC [ 201 ~`) into the visible `␛`, so no message can close a paste early; hosts and
+  drivers add nothing. `check` is bounded diagnostics,
   never a response channel. `response_input` polls against the deadline before each read and
   never mutates stdin flags.
 
@@ -211,14 +213,21 @@ channels and the driver protocol. The owner map is in
 - A host's launch template (`LaunchTemplate` in `tmt-host-grammar`, the optional `launch`
   capability) is data core publishes and never runs: Ops expands and runs it. The tmux
   template is the constant in `tmt-adapters::tmux::launch`; `host::launch::launch_templates`
-  composes it with each approved driver's (an `ok` driver only) for `tmt host templates`.
+  composes it with the built-in host's (`host::pty::launch_template`, which starts a background
+  member through `tmt run --host pty` and opens no pane) and each approved driver's (an `ok`
+  driver only) for `tmt host templates`.
   The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` is its reader. It
   runs the verified stop first (`verified_stop`, shared with `resume --move`), then asks the
   host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
   policy in `host::driver::close_opened_pane`). The op is optional and capability-gated: tmux
   closes through `Tmux::close_opened_pane` (one `kill-pane`, never a session's only pane),
-  an external driver through its `close` op, and a host without either leaves the pane open.
-  An unmarked, unknown or unlisted pane is never closed, and no close is retried.
+  an external driver through its `close` op, and the built-in pty host by waiting up to
+  `CLOSE_WAIT` for the member's supervisor process to end (`PtyDriver::close_pane` checks the
+  process incarnation only; core never signals it, and a program still running is refused with
+  the evidence). The supervisor ends by itself once the program exits and removes its own
+  socket and lock. A host without any of these leaves the
+  pane open. An unmarked or unknown pane is never closed, a pane the host proves gone is
+  reported as already gone (`PaneClose::AlreadyGone`), and no close is retried.
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no
   process); only `locations`, `resume` and `usage` run the driver. The client validates the
   `locations` answer and calls `within(home)` before admitting write targets; approval alone
@@ -232,7 +241,8 @@ tmux or Herdr hosts it. `run`/`resume` default to this host outside a verified h
 `--host tmux|herdr|pty` selects explicitly and never silently falls back. `HostKind`
 keeps the existing `External` shape for the reserved `pty` grammar. `Host::for_server`
 reaches its in-process `host::pty` driver; no executable approval is involved.
-Attach/focus and the Ops stream are not yet shipped.
+`tmt attach` and plain `focus` reach a built-in member (#4755, below); the Ops board does not
+stream its terminal yet.
 
 - **One process per member, no daemon.** `tmt __pty-serve DIRECTORY ID COLS ROWS PROGRAM...`
   (hidden; `tmt-adapters::pty::serve_process`) leaves its session, takes the member's lock,
@@ -266,6 +276,13 @@ Attach/focus and the Ops stream are not yet shipped.
   then submit Enter separately; Core owns the `!` rewrite, delay and SQLite delivery stages.
   Control clients drain output and disconnect promptly, including between paste and Enter;
   they never resize. Failed post-paste transport is uncertain and never replayed.
+- **Terminal stream.** [terminal-stream-v1](../../../../contracts/terminal-stream-v1.md) publishes
+  these frames as the owner-only local stream a view such as the Ops Terminal tab reads and types
+  into. `Snapshot` is its one addition for a view that joins mid-session: the supervisor
+  (`Supervisor::snapshot`, in the same single thread that orders output) answers with
+  `SnapshotStart`, chunked `SnapshotData` (`vt100` `state_formatted` plus `ESC[?1049h` on the
+  alternate screen) and `SnapshotEnd(size)`, queued behind the client's other frames. A client
+  that asks with 256 KiB unread is evicted `TooSlow`. `tmt attach` never asks for one.
 - **Interactive attach.** `tmt attach <name-or-UUID> [-d]` resolves the existing
   binding and admits one connection through `Host`, checking the supervisor/pane
   incarnations and marker before terminal input. SQLite closes before the relay.
@@ -298,6 +315,10 @@ Attach/focus and the Ops stream are not yet shipped.
   terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).
 
 ## Agent drivers
+
+Claude owns `drivers/claude/plugins/` prompt-picker plugins (root `.claude-plugin`
+marketplace; user-installed) and a read-only missing-plugin hint. Launch adds no
+plugin arguments or persistent provider settings.
 
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for

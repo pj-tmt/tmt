@@ -1539,14 +1539,14 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comments-panel .annotation-list-item:first-child .annotation-row {
   padding-top: 10px;
 }
-/* The Discussion view: the status line, the thread's title and passage, the footer. */
+/* The Discussion view: a quiet state line when there is something to say, the thread's title (its
+   passage) and the turns. Resolve and the position stand in the panel's header. */
 .discussion-status {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 16px;
-  font-size: 12px;
+  margin-bottom: 12px;
+  font-size: 11px;
 }
 .discussion-state {
   display: inline-flex;
@@ -1565,28 +1565,81 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .discussion-state[data-state='needs'] {
   color: var(--tmt-ui-color-waiting);
 }
-.discussion-title {
-  margin: 0 0 16px;
-  font-size: 16px;
-  font-weight: 550;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
+/* The thread's title is the passage it is about: its number, the quoted text under a 2px accent rule
+   as in the annotation window, at most three lines. Activating it shows the passage in the page. */
 .discussion-quote {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 0 0 16px;
-  padding: 12px 10px;
-  border-left: 2px solid var(--tmt-ui-color-accent);
-  background: color-mix(in srgb, var(--tmt-ui-color-accent) 6%, var(--tmt-ui-surface-sheet));
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 4px 12px;
+  border: 0;
+  border-inline-start: 2px solid var(--tmt-ui-color-accent);
+  border-radius: 0;
+  background: none;
+  color: var(--tmt-ui-color-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: start;
+}
+button.discussion-quote {
+  cursor: pointer;
+}
+button.discussion-quote:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+button.discussion-quote:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.discussion-quote .annotation-number {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 11px;
 }
 .discussion-quote > q {
+  display: -webkit-box;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   quotes: none;
   line-height: 1.6;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+/* The header's controls: the position is the way back to the list, Resolve is a small secondary
+   action, and the arrows are the shared icon actions. */
+.discussion-position.tmt-ui-action[data-variant='text'] {
+  min-height: 0;
+  padding: 2px 4px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+  text-decoration: none;
+}
+.discussion-position.tmt-ui-action[data-variant='text']:hover {
+  color: var(--tmt-ui-color-text);
+  text-decoration: underline;
+}
+.discussion-header-slot {
+  display: contents;
+}
+.discussion-resolve {
+  gap: 4px;
+  min-height: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.discussion-resolve svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 /* In the drawer the thread is the page sheet itself, not a card: turns run full width, a rule
    between them, and the time ends the byline. */
@@ -1604,6 +1657,38 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread[data-layout='discussion'] .conversation-time-separator {
   display: none;
 }
+/* The turns of the Discussion view: the name at 12px, the time at 11px quiet, the body at 13px, a
+   mention as the composer's soft tag, and the delivery state one quiet 11px line. */
+.comment-thread[data-layout='discussion'] .conversation-main .conversation-author {
+  font-size: 12px;
+}
+.comment-thread[data-layout='discussion'] .conversation-main .comment-byline time {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 11px;
+}
+.comment-thread[data-layout='discussion'] .conversation-body {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.comment-thread[data-layout='discussion'] .conversation-body .agent-chip[data-variant='chip'] {
+  display: inline-flex;
+  vertical-align: baseline;
+}
+.comment-thread[data-layout='discussion'] .conversation-delivery,
+.comment-thread[data-layout='discussion'] .agent-activity {
+  font-size: 11px;
+}
+/* An agent's avatar is the spec's accent at 13% on the sheet (the leaf's selection fill is a shade off). */
+.comment-thread[data-layout='discussion'] .tmt-ui-avatar[data-kind='agent'] {
+  background: color-mix(in srgb, var(--tmt-ui-color-accent) 13%, var(--tmt-ui-surface-sheet));
+}
+/* A resolved thread's number is quiet grey, not the accent. */
+.comment-thread[data-layout='discussion'][data-anchor='resolved']
+  .discussion-quote
+  .annotation-number {
+  background: var(--tmt-ui-color-secondary);
+  color: var(--tmt-ui-surface-sheet);
+}
 .comment-thread[data-layout='discussion'] .conversation-composer {
   background: var(--tmt-ui-surface-sheet);
 }
@@ -1611,6 +1696,58 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
   flex: 1;
   justify-content: space-between;
+}
+/* The Discussion header: a 15px bold title, the position, the thread arrows, a `✓ Resolve` text
+   button and Close; the gap, the 24px arrows and the 12px position text keep them on one row where
+   the panel is wide enough. */
+.tmt-ui-panel[data-discussion] .tmt-ui-drawer-header {
+  gap: 4px;
+}
+.tmt-ui-panel[data-discussion] .tmt-ui-drawer-heading h2 {
+  font-size: 15px;
+  font-weight: 700;
+}
+.tmt-ui-panel[data-discussion] .tmt-ui-drawer-caption {
+  flex: none;
+}
+/* The 286px column cannot hold the title, the position, two arrows, `Resolve` and Close on one row (they
+   need about 288px of the 262px inside the header, and nothing is truncated): row 1 is the title and
+   Close, row 2 the position with the arrows as one group on the left and `Resolve` on the right. */
+.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-heading,
+.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header-actions {
+  display: contents;
+}
+.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-heading h2 {
+  flex: 1;
+  min-width: 0;
+}
+.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header > .tmt-ui-icon-action {
+  order: 1;
+}
+.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header::after {
+  content: '';
+  order: 1;
+  flex: 0 0 100%;
+  height: 0;
+}
+.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-caption {
+  order: 2;
+}
+.tmt-ui-panel[data-mode='column'][data-discussion] .tmt-ui-drawer-header-actions > * {
+  order: 3;
+}
+.tmt-ui-panel[data-mode='column'][data-discussion] .discussion-resolve {
+  order: 4;
+  margin-inline-start: auto;
+}
+.tmt-ui-panel[data-discussion] .tmt-ui-drawer-header-actions {
+  gap: 2px;
+  --tmt-ui-host-icon-action-size: 24px;
+  --tmt-ui-header-icon-size: 14px;
 }
 
 /* The annotation window is the website's: a sans title with its close, the quoted selection under an
@@ -1643,19 +1780,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .comment-thread[data-layout='discussion'] .conversation-composer {
   padding-inline: 0;
-}
-.discussion-footer .tmt-ui-action {
-  text-decoration: none;
-}
-.discussion-footer .tmt-ui-action svg {
-  width: 14px;
-  height: 14px;
-  flex: none;
-}
-.discussion-footer {
-  display: flex;
-  padding-top: 12px;
-  border-top: 1px solid var(--c-rule);
 }
 .comments-panel[data-view='discussion'] .conversation-main .comment-byline time {
   margin-inline-start: auto;
@@ -1896,20 +2020,69 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   gap: 8px;
 }
 .selection-mode .tmt-ui-icon-action-control {
-  width: 40px;
-  height: 40px;
-  min-height: 40px;
-  border: 1px solid var(--c-text);
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
 }
+/* One capsule holds both actions (#4919): one border, radius and shadow around the group, the actions
+   borderless and divided by a hairline. The shadow is the design system's one overlay shadow. The group
+   does not clip: an action's tooltip stands above it, so each end action carries its own rounded end. */
 .page-floating-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-rule);
+  border-radius: 22px;
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+.page-floating-actions > * + * {
+  border-left: 1px solid var(--c-rule);
+}
+.page-floating-actions .tmt-ui-icon-action-control {
+  height: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.page-floating-actions > :first-child .tmt-ui-icon-action-control {
+  border-start-start-radius: 21px;
+  border-end-start-radius: 21px;
+}
+.page-floating-actions > :last-child .tmt-ui-icon-action-control {
+  border-start-end-radius: 21px;
+  border-end-end-radius: 21px;
 }
 .page-floating-actions .tmt-ui-icon-action-control[aria-haspopup='dialog'] {
   width: auto;
-  min-width: 40px;
-  padding: 0 10px;
+  min-width: 44px;
+  padding: 0 12px;
+}
+/* While Chat is open the dock has become the panel: it keeps its place, unseen, for the drawer to open out
+   of and close back into (chat-dock-motion.ts), and for focus to return to. */
+.selection-mode[data-chat-open] {
+  opacity: 0;
+  pointer-events: none;
+}
+.selection-mode {
+  transition: opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+}
+/* Chat does not slide in from the edge: its motion is the clip in chat-dock-motion.ts, so the drawer is
+   always in its place and only the leaf's leaving transition keeps it rendered. */
+/* The leaf lays the open drawer out as a column (`[open]`); a leaving drawer is still rendered but no longer
+   `[open]`, so it would fall back to a row. Chat keeps its column while it closes into the dock. */
+.tmt-ui-drawer[data-panel='chat'],
+.tmt-ui-drawer[data-panel='chat'][open] {
+  flex-direction: column;
+  translate: 0 0;
+  transition:
+    overlay var(--tmt-ui-motion-base) allow-discrete,
+    display var(--tmt-ui-motion-base) allow-discrete;
+}
+@starting-style {
+  .tmt-ui-drawer[data-panel='chat'][open] {
+    translate: 0 0;
+  }
 }
 .chat-unread {
   color: var(--c-waiting);
@@ -1917,10 +2090,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
   width: auto;
-  padding: 0 12px;
-  background: var(--c-text);
-  color: var(--c-sheet);
-  border-color: var(--c-text);
+  padding: 0 14px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
 }
 .selection-mode .tmt-ui-icon-action-icon {
   width: auto;

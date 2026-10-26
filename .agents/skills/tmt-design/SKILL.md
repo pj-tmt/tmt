@@ -1,6 +1,6 @@
 ---
 name: tmt-design
-description: Build and check UX-owned site code and design tokens. Load when editing site/**, design/tokens or design/browser-ui/**; read the browser-leaf guidance before browser UI work. Owner - tmt-ux; handbook prose belongs to tmt-mkt.
+description: Build and check the handbook site. Load when editing site/**.
 ---
 
 # Handbook site
@@ -21,8 +21,8 @@ entry with its own canonical,
 noindex redirect stubs for historical chapter/zh paths, and a noindex Home-app 404 fallback.
 
 Merging `site/**` or `design/tokens/**` to `main` deploys to GitHub Pages
-(`.github/workflows/site.yml`); PRs never deploy. Existing tokens and source-only chapter
-scene behavior remain owned here. No handbook prose is authored by OpenAI members.
+(`.github/workflows/site.yml`); PRs never deploy. Source-only chapter scene behavior remains
+covered here. No handbook prose is authored by OpenAI members.
 
 ```sh
 cd site

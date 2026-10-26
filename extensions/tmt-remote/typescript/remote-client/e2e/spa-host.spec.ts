@@ -429,9 +429,9 @@ test.describe('the app in a browser', () => {
     {
       path: '/remote/settings',
       id: 'settings',
-      h1: 'Remote settings',
-      shown: '#firestore-title',
-      hidden: '#opening-title',
+      h1: 'My Remotes',
+      shown: '#remotes',
+      hidden: '#firestore-title',
     },
   ] as const;
   const litRow = (page: Page) =>
@@ -557,20 +557,20 @@ test.describe('the app in a browser', () => {
       }
   });
 
-  test('the rail returns to Status and a menu click on the shown row stays put', async () => {
+  test('the rail returns to My Remotes and a menu click on the shown row stays put', async () => {
     const { page } = await openApp('/remote/machine');
     await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
     await page.locator('nav.tmt-ui-rail a[data-id="remote"]').click();
-    await expectView(page, REMOTE_VIEWS[0]!);
-    await modulePages(page).locator('a[data-id="status"]').click();
-    await expectView(page, REMOTE_VIEWS[0]!);
+    await expectView(page, REMOTE_VIEWS[4]!);
+    await modulePages(page).locator('a[data-id="settings"]').click();
+    await expectView(page, REMOTE_VIEWS[4]!);
     // The menu has no Remotes heading; This machine's group keeps its own.
     await expect(modulePages(page).locator('.tmt-ui-rail-sub-group')).not.toContainText([
       'Remotes',
     ]);
     await expect(modulePages(page)).toContainText('This machine');
-    await expect(modulePages(page).locator('a[data-id="status"]')).toContainText('Status');
+    await expect(modulePages(page).locator('a[data-id="settings"]')).toContainText('My Remotes');
     await page.close();
   });
 

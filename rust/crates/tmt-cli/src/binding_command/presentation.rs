@@ -606,8 +606,9 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                         output,
                         terminal,
                         &format!(
-                            "The provider session for '{}' was not recorded ({}: {}). Resume may be unavailable.",
-                            row.presence.identity.name, learning.step, learning.reason
+                            "The provider session for '{}' was not recorded ({}). Resume may be unavailable.",
+                            row.presence.identity.name,
+                            learning.cause()
                         ),
                         Some(&learning.next_step),
                     )?;
@@ -635,8 +636,8 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                     output,
                     terminal,
                     &format!(
-                        "The provider session was not recorded ({}: {}). Resume may be unavailable.",
-                        learning.step, learning.reason
+                        "The provider session was not recorded ({}). Resume may be unavailable.",
+                        learning.cause()
                     ),
                     Some(&learning.next_step),
                 )?;

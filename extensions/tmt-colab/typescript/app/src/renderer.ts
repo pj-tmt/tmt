@@ -184,6 +184,8 @@ export async function mountRenderer(
     anchors: { id: string; selector: QuoteSelector; ordinal: number }[],
     draft?: QuoteSelector,
     threadCount?: number,
+    /** The resolved thread open in the Discussion view; its passage is drawn quietly. */
+    quiet?: { id: string; selector: QuoteSelector },
   ): void;
   slots(slots: InlineSlot[]): void;
   questions(
@@ -195,8 +197,9 @@ export async function mountRenderer(
   ): void;
   scrollAnchor(id: string): void;
   /** Mark the passage of the thread whose window is open (null: none), which the page draws in its
-   * selected look. An id the current highlight request does not hold is refused; the selection
-   * outlives a new request, which resends it. */
+   * selected look. An id the current highlight request does not hold (a resolved thread) selects
+   * nothing and clears the selection left behind; the selection outlives a new request, which
+   * resends it. */
   select(id: string | null): void;
   scrollReading(id: string): void;
   /** Scroll to the one element with this exact `id` once the frame is ready: true when found,
@@ -255,6 +258,8 @@ export async function mountRenderer(
   const stopTheme = subscribeTheme(sendTheme);
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector; ordinal?: number }[] = [];
+  // The resolved thread open in the Discussion panel: drawn quietly, never selected.
+  let quiet: { id: string; selector: QuoteSelector } | null = null;
   let selected: string | null = null;
   const positions = new Map<string, { top: number; rect: SelectionRect }>();
   let questionRequestId = '';
@@ -798,10 +803,10 @@ export async function mountRenderer(
       value.renderId !== snapshot.renderId ||
       value.requestId !== requestId ||
       !Array.isArray(value.resolved) ||
-      value.resolved.length > anchors.length
+      value.resolved.length > anchors.length + (quiet ? 1 : 0)
     )
       return;
-    const ids = new Set(anchors.map((v) => v.id));
+    const ids = new Set([...anchors.map((v) => v.id), ...(quiet ? [quiet.id] : [])]);
     if (
       value.resolved.some((id) => typeof id !== 'string' || !ids.has(id)) ||
       new Set(value.resolved).size !== value.resolved.length
@@ -847,7 +852,10 @@ export async function mountRenderer(
   };
   const select = (id: string | null) => {
     if (stopped || id === selected) return;
-    if (id === null) {
+    // A thread that is no passage on the page (a resolved one, whose Discussion view may be open, or
+    // one the frame has not resolved yet) selects nothing, so the thread left behind is not kept.
+    if (id === null || id === '' || !anchors.some((anchor) => anchor.id === id)) {
+      if (selected === null) return;
       selected = null;
       if (requestId)
         channel.port1.postMessage({
@@ -858,7 +866,6 @@ export async function mountRenderer(
         });
       return;
     }
-    if (id === '' || !anchors.some((anchor) => anchor.id === id)) return;
     selected = id;
     postSelected();
   };
@@ -866,6 +873,7 @@ export async function mountRenderer(
     input: { id: string; selector: QuoteSelector; ordinal: number }[],
     draft?: QuoteSelector,
     threadCount = input.length,
+    quietThread?: { id: string; selector: QuoteSelector },
   ) => {
     if (stopped) return;
     // Author code can inspect everything delivered into its frame. Rebuild this
@@ -887,9 +895,14 @@ export async function mountRenderer(
       return;
     // The unsaved quote resolves separately, without a thread ordinal or action.
     if (draft) validateSelector(draft);
+    if (quietThread) validateSelector(quietThread.selector);
     if (
       next.length > 1000 ||
-      next.some((v) => typeof v.id !== 'string' || v.id.length === 0 || v.id.length > 73)
+      next.some((v) => typeof v.id !== 'string' || v.id.length === 0 || v.id.length > 73) ||
+      (quietThread &&
+        (quietThread.id.length === 0 ||
+          quietThread.id.length > 73 ||
+          next.some(({ id }) => id === quietThread.id)))
     )
       return;
     for (const item of next) validateSelector(item.selector);
@@ -902,14 +915,19 @@ export async function mountRenderer(
       anchors: next,
       threadCount,
       draft: draft ? structuredClone(draft) : null,
+      quiet: quietThread
+        ? { id: quietThread.id, selector: structuredClone(quietThread.selector) }
+        : null,
     };
     if (new TextEncoder().encode(JSON.stringify(message)).length > 256 * 1024) {
       anchors = [];
+      quiet = null;
       options.onAnchors?.([]);
-      channel.port1.postMessage({ ...message, anchors: [] });
+      channel.port1.postMessage({ ...message, anchors: [], quiet: null });
       return;
     }
     anchors = [...next, ...(draft ? [{ id: '', selector: structuredClone(draft) }] : [])];
+    quiet = message.quiet;
     options.onAnchors?.([]);
     channel.port1.postMessage(message);
     postSelected();

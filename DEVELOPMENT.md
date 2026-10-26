@@ -18,6 +18,7 @@ gates every change shares; per-area procedures live in the skills below.
 | Remote door and embedded browser client                                                                | [tmt-remote](.agents/skills/tmt-remote/SKILL.md)                                  |
 | Colab executable, app and browser client                                                               | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)                                    |
 | Handbook site, blog and translations                                                                   | [tmt-design](.agents/skills/tmt-design/SKILL.md)                                  |
+| Browser UI leaf and design tokens                                                                      | [design/browser-ui](design/browser-ui/README.md) (tmt-gui-lead)                   |
 | Adding or moving files                                                                                 | [tmt-layout](.agents/skills/tmt-layout/SKILL.md)                                  |
 
 ## Setup
@@ -255,11 +256,9 @@ owns syntax, released-path scope, edit feedback and cumulative merge-group enfor
 
 `skills/tmt/SKILL.md` and `skills/tmt-inbox/SKILL.md` are the canonical
 installed guidance, one versioned bundle; core install exposes only these. Edit the
-single canonical file; never add provider-specific copies. Verify exact embedded
-bytes, managed links, repeat no-op, catalog replacement, API conflict/backup and partial warnings,
-lock ownership and no effects on SQLite or tmux. `test/native/legacy-extension-skills.test.ts`
-owns the legacy-bundle regressions, `skill_installation::owned_tests` the
-extension-owned skills, and every fixture uses the isolated HOME/config sandbox.
+single canonical file; never add provider-specific copies. Follow the mandatory
+[installed-guidance verification](.agents/skills/tmt-core-runtime/references/install-architecture.md#installed-guidance-verification)
+for byte, publication, isolation and provider-behavior checks.
 Provider and custom-root usage: [Settings chapter](site/src/chapters/settings.mdx)
 and `skills/README.md`. The Ops lead skill
 (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`) and playbooks are embedded by the
@@ -311,11 +310,8 @@ Tracker rules:
   No agent creates one on its own. Epic work requires the maintainer's explicit go; until
   then its issues stay `Todo`. Leads/PM freely open children below approved epics:
   one outcome, acceptance criteria and normally one PR; split work hiding progress.
-- PM checks at :05 hourly (usage, idle seats, green unarmed PRs) and updates Project
-  status at :35 (progress, releases, seats, usage, epics and owner decisions).
-  The first tick after 08:00 JST also posts daily usage on #1518. Leads add
-  event-driven updates; [PM procedure](.agents/skills/tmt-pm/SKILL.md) owns the steps.
-  Batch edits, never poll; stay near 200 GraphQL calls per lead per day:
+- [PM procedure and cadence](.agents/skills/tmt-pm/SKILL.md#cadence) own scheduled checks,
+  daily reports and event-driven lead updates. Batch edits, never poll; stay near 200 GraphQL calls per lead per day:
   one account-wide GraphQL limit is shared.
 
 ## Review and evidence

@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { buildPageUi } from './page-ui.mjs';
 
 const tokens = JSON.parse(
   await readFile(new URL('../../../design/tokens/tokens.json', import.meta.url), 'utf8'),
@@ -32,7 +33,9 @@ const numberStyle = await readFile(
   new URL('../typescript/app/src/annotation-number.css', import.meta.url),
   'utf8',
 );
-const css = `:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
+// A page the design system paints takes the scheme it paints for these roles too (see data-colab-scheme
+// below); these rules are unlayered, so they must name it as well as the viewer's theme.
+const css = `:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}:root[data-colab-scheme="light"]{${variables('light')}}:root[data-colab-scheme="dark"]{${variables('dark')}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
 const frameStyle = (
   await readFile(new URL('../typescript/app/src/page-frame.css', import.meta.url), 'utf8')
 )
@@ -41,6 +44,14 @@ const frameStyle = (
   // Double quotes keep the formatter from rewriting the single-quoted literal that holds it.
   .replaceAll("'", '"')
   .trim();
+// The design system the frame injects into every page (#5057) and the icons it draws; page-ui.mjs builds
+// both, and the standalone export carries the same bytes.
+const { staticCss, pageUiStyle, iconNodes, pageIcons } = await buildPageUi();
+// `page check` reads the same two lists the frame draws from: a `tmt-ui-*` class it does not know and an
+// icon name it does not know are findings, not silent no-ops.
+const classes = [...new Set([...staticCss.matchAll(/\.(tmt-ui-[A-Za-z0-9_-]+)/g)].map((m) => m[1]))].sort();
+const names = new URL('../rust/tmt-colab/src/page_check/page_ui.json', import.meta.url);
+const namesText = `${JSON.stringify({ classes, icons: Object.keys(iconNodes).sort() }, null, 1)}\n`;
 const source = await readFile(file, 'utf8');
 // Each generated constant sits between a pair of marker comments in renderer.html.
 const generate = (text, name, constant, value) => {
@@ -53,10 +64,14 @@ const generate = (text, name, constant, value) => {
   return `${text.slice(0, from)}${start}\n          const ${constant} =\n            ${literal};\n${text.slice(to)}`;
 };
 const expected = generate(
-  generate(source, 'ANNOTATION TOKENS', 'annotationTokens', css),
-  'PAGE FRAME',
-  'pageFrame',
-  frameStyle,
+  generate(generate(source, 'ANNOTATION TOKENS', 'annotationTokens', css), 'PAGE FRAME', 'pageFrame', frameStyle),
+  'PAGE UI',
+  'pageUi',
+  pageUiStyle,
 );
-if (mode === '--write') await writeFile(file, expected);
-else if (source !== expected) throw new Error('Renderer generated styles are stale');
+const withIcons = generate(expected, 'PAGE ICONS', 'pageIcons', pageIcons);
+if (mode === '--write') {
+  await writeFile(file, withIcons);
+  await writeFile(names, namesText);
+} else if (source !== withIcons || (await readFile(names, 'utf8').catch(() => '')) !== namesText)
+  throw new Error('Renderer generated styles are stale');

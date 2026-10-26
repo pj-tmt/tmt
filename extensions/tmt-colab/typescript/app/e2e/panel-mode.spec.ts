@@ -88,7 +88,7 @@ for (const width of [1440, 390])
     await panel.getByTestId('annotation-row').first().click();
     await page.evaluate(() => window.scrollTo(0, 0));
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
-    await panel.getByRole('button', { name: 'Show in the page', exact: true }).click();
+    await panel.getByRole('button', { name: /^Show in the page/ }).click();
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Discussion');

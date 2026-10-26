@@ -1016,8 +1016,10 @@ No command accepts an actor override or uses a member filter as assignment.
 
 | Action                                                 | Explicit inputs besides `--room`                                                                                                                                |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ls`                                                   | Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                                                           |
-| `show`                                                 | `--checklist UUID --item UUID`                                                                                                                                  |
+| `ls`                                                   | Without `--room`, the caller's own list. Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                                                           |
+| `show`                                                 | `--checklist UUID --item UUID\|PREFIX`                                                                                                                                  |
+| `add TITLE`                                            | Agent verb, no `--room` needed: optional `--body TEXT --reference HTTP(S)`; adds to the caller's own list and prints `#Title (3f2a)`                          |
+| `done ITEM`                                            | Agent verb, no `--room` needed: short id, UUID prefix or UUID; completes at the item's current revision                                                         |
 | `events`                                               | Optional `--member`, `--after CURSOR` (default 0), `--limit COUNT` (1 to 500, default 100); reads create nothing                                                |
 | `create TITLE`                                         | `--checklist UUID --item UUID --expect-inventory absent\|POSITIVE`; optional `--body TEXT --reference HTTP(S) --assignee UUID`                                  |
 | `edit`                                                 | `--checklist UUID --item UUID --expect-revision POSITIVE`; at least one `--title TEXT`, `--body TEXT`/`--clear-body`, `--reference HTTP(S)`/`--clear-reference` |
@@ -1051,10 +1053,14 @@ absent`) makes the list. Item UUIDs are still yours to generate. Permissions, re
 expectations and errors are those of a room list, and `current` adds
 `member:{id,name,retired}` for a conversation list only.
 
-```sh
-tmt ops sq checklist create "Read the design" --room ROOM_UUID --member MY_NAME --item "$(uuidgen)" --expect-inventory absent --reference https://example.org/design
-tmt ops sq checklist complete --room ROOM_UUID --member MY_NAME --item ITEM_UUID --expect-revision 1
-```
+An agent acting on its own list needs none of this: `add`, `ls` and `done` take a title or a
+short id and derive the room, the list and the revisions. They are described in the shipped
+`tmt-checklist` skill, which this section does not repeat.
+
+`show` alone also takes a unique prefix of an item UUID, at least 4 hex characters, read from that
+list (archived items included): Ops chat names an item as `#Title (3f2a)`, so resolve it with
+`tmt ops sq checklist show --room ROOM_UUID --member MEMBER --item 3f2a`. An ambiguous prefix is
+refused with up to five candidates and a missing one says so; every other command needs the exact UUID.
 
 The verified invoking caller decides authority. Only when no caller is bound may
 the active user be used; ambiguous or invalid callers refuse. Active

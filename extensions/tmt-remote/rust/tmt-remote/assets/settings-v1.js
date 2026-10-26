@@ -1,4 +1,113 @@
 import { ClientError, RefusalError, ReopenSessionError, budget, management, reopenSession } from "/sdk/remote-v1.js";
+//#region src/remote-state.ts
+/** A display observation only; pairing and sending permissions never imply a role. */
+function remoteRole(role) {
+	return role === "owner" ? "Admin" : role === "user" ? "Member" : "Role unknown";
+}
+/** M1 browser-role display from the existing readable management observation; grants nothing. */
+function managementRole(access, settingsWrite) {
+	if (access !== "live") return void 0;
+	return settingsWrite === true ? "owner" : settingsWrite === false ? "user" : void 0;
+}
+/** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
+function remoteState(state, current = true) {
+	if (!current) return {
+		text: "Not checked",
+		word: "not checked",
+		mark: "◌",
+		tone: "muted",
+		action: ""
+	};
+	const known = {
+		Connected: [
+			"Connected",
+			"connected",
+			"●",
+			""
+		],
+		Checking: [
+			"Checking…",
+			"connecting",
+			"◌",
+			""
+		],
+		"Access ended": [
+			"Access ended",
+			"access ended",
+			"✗",
+			"Pair again"
+		],
+		"Different machine": [
+			"Different machine",
+			"different machine",
+			"?",
+			"Pair again"
+		],
+		"Not paired": [
+			"Not paired",
+			"not paired",
+			"?",
+			"Pair again"
+		],
+		"Pairing unreadable": [
+			"Pairing unreadable",
+			"pairing unreadable",
+			"?",
+			"Pair again"
+		],
+		Offline: [
+			"Offline",
+			"offline",
+			"✗",
+			"Retry"
+		],
+		Unconfirmed: [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		],
+		"Not accepted": [
+			"Not accepted",
+			"not accepted",
+			"?",
+			"Retry"
+		],
+		"Can't reach Remote": [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		]
+	};
+	const value = Object.hasOwn(known, state) ? known[state] : void 0;
+	if (!value) return {
+		text: "Status unknown",
+		word: "unknown",
+		mark: "?",
+		tone: "muted",
+		action: ""
+	};
+	const [text, word, mark, action] = value;
+	return {
+		text,
+		word,
+		mark,
+		action,
+		tone: "neutral"
+	};
+}
+/** The native page's door root, shared by the registry projection and current-row check. */
+function currentDoor(pageUrl) {
+	const root = new URL("./", pageUrl);
+	if (root.pathname === "/remote/") root.pathname = "/";
+	return root.href;
+}
+/** Both page owners and the menu identify the current Local row by the same door root. */
+function currentRemote(entry, address, pageUrl) {
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
+}
+//#endregion
 //#region src/settings-controls.ts
 /** Static settings choices; values are drafts, never management authority. */
 function settingsChoice(trigger, surface) {
@@ -107,57 +216,6 @@ function settingsChoice(trigger, surface) {
 	};
 }
 //#endregion
-//#region src/remote-state.ts
-/** Current-origin observation only. A foreign entry has no mark or live-access claim. A connection
-* state is words only, in the neutral tone: the shared agent marks mean agent states, not these. */
-function remoteState(state, current = true) {
-	if (!current) return {
-		text: "not checked",
-		word: "not checked",
-		mark: "",
-		tone: "muted",
-		action: ""
-	};
-	const [text, word, action] = state === "Connected" ? [
-		"Connected",
-		"connected",
-		""
-	] : state === "Checking" ? [
-		"Checking…",
-		"connecting",
-		""
-	] : state === "Access ended" ? [
-		"Access ended",
-		"access ended",
-		"Pair again"
-	] : state === "Different machine" ? [
-		"Different machine",
-		"different machine",
-		"Pair again"
-	] : state === "Not paired" || state === "Pairing unreadable" ? [
-		state,
-		"not paired",
-		"Pair again"
-	] : [
-		"Unconfirmed",
-		"unreachable",
-		"Retry"
-	];
-	return {
-		text,
-		word,
-		mark: "",
-		tone: "neutral",
-		action
-	};
-}
-/** Both page owners and the menu identify the current Local row by the same door root. */
-function currentRemote(entry, address, pageUrl) {
-	const root = new URL("./", pageUrl);
-	if (root.pathname === "/remote/") root.pathname = "/";
-	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
-}
-//#endregion
 //#region src/remote-routes.ts
 var REMOTE_ITEMS = [
 	{
@@ -191,12 +249,12 @@ var REMOTE_ITEMS = [
 	{
 		id: "settings",
 		path: "/remote/settings",
-		label: "Remote settings",
-		title: "Remote settings",
+		label: "My Remotes",
+		title: "My Remotes",
 		page: "settings"
 	}
 ];
-[...REMOTE_ITEMS.filter((item) => item.id !== "status").map((item) => item.path)];
+[...REMOTE_ITEMS.filter((item) => item.id !== "settings").map((item) => item.path)];
 /** The row a path names; `/remote` and `/remote/` are Status, anything else under it is none. */
 function remoteItem(pathname) {
 	const path = pathname === "/remote" ? "/remote/" : pathname.replace(/(?<=.)\/$/, "");
@@ -207,19 +265,11 @@ function remoteItem(pathname) {
 function remoteMenu(actions, shell = void 0) {
 	if (!shell) return () => {};
 	const href = (view) => new URL(REMOTE_ITEMS.find((item) => item.id === view).path, location.href).href;
-	let catalog = {
-		version: 1,
-		entries: []
-	};
-	let state = "Checking";
-	let address = "";
+	let projection;
 	const run = /* @__PURE__ */ new Map();
 	function paint() {
 		run.clear();
-		const view = remoteState(state);
-		const reason = actions.blocked();
-		const selected = catalog.entries.find((entry) => currentRemote(entry, address, location.href));
-		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
+		const view = projection?.current.connection;
 		const showing = remoteItem(location.pathname)?.id;
 		const item = (id) => {
 			return {
@@ -229,29 +279,12 @@ function remoteMenu(actions, shell = void 0) {
 				current: showing === id
 			};
 		};
-		const remotes = [];
-		if (!selected) remotes.push({
-			id: "status",
-			label: [view.mark, `Status · ${view.word}`].filter(Boolean).join(" "),
-			href: href("status"),
-			current: showing === "status"
-		});
-		for (const entry of entries) {
-			const here = currentRemote(entry, address, location.href);
-			const shown = remoteState(state, here);
-			const id = `remote:${entry.name}`;
-			if (!here) run.set(id, () => actions.open(entry));
-			remotes.push({
-				id,
-				label: here ? [shown.mark, `${entry.name} · ${shown.word}`].filter(Boolean).join(" ") : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
-				href: here ? href("status") : "#",
-				current: here && showing === "status",
-				disabled: !here && !!reason,
-				note: !here && reason ? reason : void 0
-			});
-		}
-		if (view.action) {
-			run.set("recover", () => actions.recover(remoteState(state).action));
+		const remotes = [{
+			...item("status"),
+			label: `Status · ${view?.text ?? "Checking"}`
+		}];
+		if (view?.action) {
+			run.set("recover", () => actions.recover(view.action));
 			remotes.push({
 				id: "recover",
 				label: view.action,
@@ -260,31 +293,21 @@ function remoteMenu(actions, shell = void 0) {
 				note: view.text
 			});
 		}
-		run.set("add", actions.add);
 		shell.setMenu({
 			title: "Remote",
-			groups: [
-				{ items: remotes },
-				{
-					label: "This machine",
-					items: [
-						item("devices"),
-						item("connect"),
-						item("machine")
-					]
-				},
-				{ items: [{
-					id: "add",
-					label: "Add remote…",
-					href: href("settings"),
-					current: false
-				}, item("settings")] }
-			]
+			groups: [{ items: [item("settings")] }, {
+				label: "This machine",
+				items: [
+					...remotes,
+					item("devices"),
+					item("connect"),
+					item("machine")
+				]
+			}]
 		}, (id) => {
 			const action = run.get(id);
 			if (!action) return false;
-			if (!id.startsWith("remote:") || !actions.blocked()) action();
-			else paint();
+			action();
 			return true;
 		});
 	}
@@ -300,14 +323,617 @@ function remoteMenu(actions, shell = void 0) {
 	};
 	document.addEventListener("pointerover", entered, { signal: shell.signal });
 	document.addEventListener("focusin", entered, { signal: shell.signal });
-	return (next, observed, checkedAddress) => {
-		catalog = next;
-		state = observed;
-		address = checkedAddress;
-		if (observed === "Connected" && checkedAddress) shell.describe(checkedAddress);
+	return (next) => {
+		projection = next;
+		if (next.current.connection.word === "Connected" && next.address) shell.describe(next.address);
 		paint();
 	};
 }
+//#endregion
+//#region ../../../../design/browser-ui/src/overlay.ts
+/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
+function admitsOverlayEscape(event) {
+	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+}
+function restoreOverlayFocus(origin, fallback) {
+	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
+	if (usable(origin)) origin.focus({ preventScroll: true });
+	else {
+		const node = fallback?.() ?? null;
+		if (usable(node)) node.focus({ preventScroll: true });
+	}
+}
+function outsideOverlay(node, x, y) {
+	const box = node.getBoundingClientRect();
+	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/icon-action-tooltip.ts
+var activeTooltips = /* @__PURE__ */ new WeakMap();
+/** Help has one ephemeral owner per document, independent of menu/dialog state. */
+function claimIconActionTooltip(document, dismiss) {
+	activeTooltips.get(document)?.();
+	activeTooltips.set(document, dismiss);
+	return () => {
+		if (activeTooltips.get(document) === dismiss) activeTooltips.delete(document);
+	};
+}
+function iconActionTooltipPosition(anchor, tooltipWidth, tooltipHeight, viewport, gutter) {
+	const maxWidth = Math.max(0, viewport.width - gutter * 2);
+	const width = Math.min(tooltipWidth, maxWidth);
+	const leftEdge = viewport.left + gutter;
+	const belowTop = Math.max(viewport.top, anchor.bottom);
+	const below = Math.max(0, viewport.top + viewport.height - gutter - belowTop);
+	const above = Math.max(0, anchor.top - viewport.top - gutter);
+	const flipped = tooltipHeight > below && above > below;
+	const maxHeight = flipped ? above : below;
+	const top = flipped ? anchor.top - Math.min(tooltipHeight, maxHeight) : belowTop;
+	return {
+		left: Math.max(leftEdge, Math.min((anchor.left + anchor.right - width) / 2, viewport.left + viewport.width - gutter - width)),
+		top,
+		maxWidth,
+		maxHeight
+	};
+}
+function placeIconActionTooltip(anchor, tooltip) {
+	const view = anchor.ownerDocument.defaultView;
+	if (!view) return () => {};
+	const viewport = view.visualViewport;
+	const place = () => {
+		const box = anchor.getBoundingClientRect();
+		if (!anchor.isConnected || !box.width || !box.height) {
+			if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+			return;
+		}
+		const gutter = Number.parseFloat(view.getComputedStyle(tooltip).paddingTop) || 0;
+		const bounds = {
+			left: viewport?.offsetLeft ?? 0,
+			top: viewport?.offsetTop ?? 0,
+			width: viewport?.width ?? view.innerWidth,
+			height: viewport?.height ?? view.innerHeight
+		};
+		tooltip.style.maxWidth = `${Math.max(0, bounds.width - gutter * 2)}px`;
+		const tooltipBox = tooltip.getBoundingClientRect();
+		const next = iconActionTooltipPosition(box, tooltipBox.width, Math.max(tooltipBox.height, tooltip.scrollHeight), bounds, gutter);
+		tooltip.style.left = `${next.left}px`;
+		tooltip.style.top = `${next.top}px`;
+		tooltip.style.maxHeight = `${next.maxHeight}px`;
+	};
+	place();
+	const observer = new ResizeObserver(place);
+	observer.observe(anchor);
+	observer.observe(tooltip);
+	view.addEventListener("resize", place);
+	view.addEventListener("scroll", place, true);
+	viewport?.addEventListener("resize", place);
+	viewport?.addEventListener("scroll", place);
+	return () => {
+		observer.disconnect();
+		view.removeEventListener("resize", place);
+		view.removeEventListener("scroll", place, true);
+		viewport?.removeEventListener("resize", place);
+		viewport?.removeEventListener("scroll", place);
+	};
+}
+var escapeFocus = /* @__PURE__ */ new WeakSet();
+function guardEscapeFocus(document) {
+	escapeFocus.add(document);
+	const clear = () => {
+		escapeFocus.delete(document);
+		document.removeEventListener("keydown", nextKey, true);
+	};
+	const nextKey = (event) => {
+		if (event.key !== "Escape") clear();
+	};
+	document.addEventListener("keydown", nextKey, true);
+	document.defaultView?.requestAnimationFrame(clear);
+}
+/** Internal binding shared by icon renderers; activation and its busy fence stay with the caller. */
+function bindIconActionTooltip(wrapper, button, tooltip) {
+	const document = button.ownerDocument;
+	const view = document.defaultView;
+	let hovered = false;
+	let focused = false;
+	let dismissed = false;
+	let disposed = false;
+	let expanded = button.getAttribute("aria-expanded") === "true";
+	let returnGuard = false;
+	let returnFrame;
+	let release;
+	let position;
+	const close = () => {
+		position?.();
+		position = void 0;
+		release?.();
+		release = void 0;
+		document.removeEventListener("keydown", escape, true);
+		if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+	};
+	const dismiss = () => {
+		dismissed = true;
+		close();
+	};
+	const escape = (event) => {
+		if (event.key !== "Escape" || !tooltip.matches(":popover-open")) return;
+		dismiss();
+		guardEscapeFocus(document);
+	};
+	const paint = () => {
+		if (!(!disposed && (hovered || focused) && !dismissed && !expanded && button.isConnected && button.getClientRects().length > 0)) {
+			close();
+			return;
+		}
+		if (tooltip.matches(":popover-open")) return;
+		release = claimIconActionTooltip(document, dismiss);
+		tooltip.showPopover();
+		position = placeIconActionTooltip(button, tooltip);
+		document.addEventListener("keydown", escape, true);
+	};
+	const clearReturnGuard = () => {
+		returnGuard = false;
+		document.removeEventListener("keydown", returnKey, true);
+		if (returnFrame !== void 0) view.cancelAnimationFrame(returnFrame);
+		returnFrame = void 0;
+	};
+	const returnKey = (event) => {
+		if (event.key !== "Escape") clearReturnGuard();
+	};
+	const refresh = () => {
+		const next = button.getAttribute("aria-expanded") === "true";
+		if (expanded && !next) {
+			clearReturnGuard();
+			returnGuard = true;
+			document.addEventListener("keydown", returnKey, true);
+			returnFrame = view.requestAnimationFrame(clearReturnGuard);
+		}
+		expanded = next;
+		if (expanded) dismissed = true;
+		paint();
+	};
+	const move = () => {
+		if (!hovered) {
+			hovered = true;
+			dismissed = false;
+		}
+		refresh();
+	};
+	const leave = () => {
+		hovered = false;
+		refresh();
+	};
+	const focus = () => {
+		if (!button.matches(":focus-visible")) return;
+		focused = true;
+		expanded = button.getAttribute("aria-expanded") === "true";
+		dismissed = expanded || returnGuard || escapeFocus.has(document);
+		paint();
+	};
+	const blur = () => {
+		focused = false;
+		refresh();
+	};
+	wrapper.addEventListener("pointermove", move);
+	wrapper.addEventListener("pointerleave", leave);
+	button.addEventListener("focus", focus);
+	button.addEventListener("blur", blur);
+	return {
+		refresh,
+		dismiss,
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			close();
+			clearReturnGuard();
+			wrapper.removeEventListener("pointermove", move);
+			wrapper.removeEventListener("pointerleave", leave);
+			button.removeEventListener("focus", focus);
+			button.removeEventListener("blur", blur);
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-position.ts
+/** Menus share the leaf's below/flip/clamp rule, aligning to the trigger's end. */
+function browserMenuPosition(anchor, width, height, viewport, gutter = 8) {
+	const placed = iconActionTooltipPosition(anchor, width, height, viewport, gutter);
+	return {
+		...placed,
+		left: Math.max(viewport.left + gutter, Math.min(anchor.right - Math.min(width, placed.maxWidth), viewport.left + viewport.width - gutter - Math.min(width, placed.maxWidth)))
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/popup.ts
+var activePopups = /* @__PURE__ */ new WeakMap();
+/** Menu and combobox surfaces share one replacement owner, without owning host commands. */
+function claimBrowserPopup(document, dismiss) {
+	activePopups.get(document)?.();
+	activePopups.set(document, dismiss);
+	return () => {
+		if (activePopups.get(document) === dismiss) activePopups.delete(document);
+	};
+}
+function placeBrowserPopup(anchor, surface, dismiss) {
+	const view = anchor.ownerDocument.defaultView;
+	const viewport = view.visualViewport;
+	const place = () => {
+		if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
+		const bounds = {
+			left: viewport?.offsetLeft ?? 0,
+			top: viewport?.offsetTop ?? 0,
+			width: viewport?.width ?? view.innerWidth,
+			height: viewport?.height ?? view.innerHeight
+		};
+		surface.style.maxWidth = `${Math.max(0, bounds.width - 16)}px`;
+		const box = surface.getBoundingClientRect();
+		const position = browserMenuPosition(anchor.getBoundingClientRect(), box.width, Math.max(box.height, surface.scrollHeight + surface.offsetHeight - surface.clientHeight), bounds);
+		Object.assign(surface.style, {
+			left: `${position.left}px`,
+			top: `${position.top}px`,
+			maxHeight: `${position.maxHeight}px`
+		});
+	};
+	place();
+	let frame;
+	const observer = new ResizeObserver(() => {
+		if (frame !== void 0) return;
+		frame = view.requestAnimationFrame(() => {
+			frame = void 0;
+			place();
+		});
+	});
+	observer.observe(anchor);
+	observer.observe(surface);
+	view.addEventListener("resize", place);
+	view.addEventListener("scroll", place, true);
+	viewport?.addEventListener("resize", place);
+	viewport?.addEventListener("scroll", place);
+	return () => {
+		observer.disconnect();
+		if (frame !== void 0) view.cancelAnimationFrame(frame);
+		view.removeEventListener("resize", place);
+		view.removeEventListener("scroll", place, true);
+		viewport?.removeEventListener("resize", place);
+		viewport?.removeEventListener("scroll", place);
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-controller.ts
+/** One transient menu owner for React and framework-free renderers; commands stay with callers. */
+function createMenuController(options) {
+	let snapshot = {
+		open: false,
+		present: false
+	};
+	const listeners = /* @__PURE__ */ new Set();
+	let first = "first";
+	let search = {
+		text: "",
+		at: 0
+	};
+	let focused;
+	let reported = false;
+	let disposed = false;
+	let detach;
+	let cancelExit;
+	const enabled = () => options.items().flatMap((item, index) => item.disabled ? [] : [index]);
+	const publish = (open, present) => {
+		if (snapshot.open === open && snapshot.present === present) return;
+		snapshot = {
+			open,
+			present
+		};
+		for (const notify of listeners) notify();
+	};
+	const report = (open) => {
+		if (reported === open) return;
+		reported = open;
+		options.onOpenChange(open);
+	};
+	const canOpen = () => !disposed && !options.disabled() && (enabled().length > 0 || options.hasDescription());
+	function open(edge = "first") {
+		if (!canOpen() || snapshot.open) return;
+		cancelExit?.();
+		cancelExit = void 0;
+		first = edge;
+		focused = void 0;
+		search = {
+			text: "",
+			at: 0
+		};
+		publish(true, true);
+	}
+	function close(refocus = true) {
+		if (!snapshot.open) return;
+		const node = options.surface();
+		publish(false, snapshot.present);
+		if (node) {
+			node.dataset.state = "closed";
+			if (node.open) node.close();
+		}
+		detach?.();
+		report(false);
+		if (refocus) restoreOverlayFocus(options.trigger());
+		const animations = node?.getAnimations?.() ?? [];
+		if (!animations.length) {
+			publish(false, false);
+			return;
+		}
+		let current = true;
+		cancelExit = () => {
+			current = false;
+		};
+		Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+			if (current && !snapshot.open && !disposed) {
+				cancelExit = void 0;
+				publish(false, false);
+			}
+		});
+	}
+	function attachSurface() {
+		const node = options.surface();
+		const anchor = options.trigger();
+		if (!snapshot.open || !node || !anchor) return;
+		if (!node.isConnected || !anchor.isConnected || !anchor.getClientRects().length) {
+			close(false);
+			return;
+		}
+		if (detach) return detach;
+		const release = claimBrowserPopup(anchor.ownerDocument, () => close(false));
+		let position;
+		const cleanup = () => {
+			if (detach !== cleanup) return;
+			detach = void 0;
+			position?.();
+			release();
+			if (node.open) node.close();
+			queueMicrotask(() => {
+				const current = options.surface();
+				if (!node.isConnected && snapshot.open && (!current || current === node)) close(false);
+			});
+		};
+		detach = cleanup;
+		try {
+			node.showModal();
+			position = placeBrowserPopup(anchor, node, () => close(false));
+			if (!snapshot.open) return cleanup;
+			report(true);
+			if (!snapshot.open) return cleanup;
+			const choices = enabled();
+			const index = first === "last" ? choices.at(-1) : choices[0];
+			focused = index === void 0 ? void 0 : options.items()[index]?.key;
+			(index === void 0 ? node : options.entries()[index] ?? node).focus();
+		} catch (error) {
+			cleanup();
+			close(false);
+			throw error;
+		}
+		return cleanup;
+	}
+	function refresh() {
+		const node = options.surface();
+		if (!snapshot.open || !node) return;
+		const active = node.ownerDocument.activeElement;
+		if (active === node) return;
+		if (active !== node.ownerDocument.body && (!active || !node.contains(active))) return;
+		const entries = options.entries();
+		const choices = enabled();
+		if (choices.some((index) => entries[index] === active)) return;
+		const next = choices.find((index) => options.items()[index].key === focused) ?? choices[0];
+		(next === void 0 ? node : entries[next] ?? node).focus();
+	}
+	return {
+		getSnapshot: () => snapshot,
+		subscribe(notify) {
+			listeners.add(notify);
+			return () => {
+				listeners.delete(notify);
+			};
+		},
+		canOpen,
+		open,
+		close,
+		attachSurface,
+		refresh,
+		focused(key) {
+			if (snapshot.open) focused = key;
+		},
+		triggerKey(event) {
+			if (!["ArrowDown", "ArrowUp"].includes(event.key) || !event.isTrusted || (event.nativeEvent?.isComposing ?? event.isComposing)) return;
+			event.preventDefault();
+			open(event.key === "ArrowUp" ? "last" : "first");
+		},
+		menuKey(event) {
+			if (!snapshot.open || event.defaultPrevented) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				if (admitsOverlayEscape(event)) close();
+				return;
+			}
+			if ((event.nativeEvent?.isComposing ?? event.isComposing) || event.altKey || event.ctrlKey || event.metaKey) return;
+			if (event.key === "Tab") {
+				close();
+				return;
+			}
+			const choices = enabled();
+			const entries = options.entries();
+			const at = choices.indexOf(entries.findIndex((node) => node === node?.ownerDocument.activeElement));
+			let next;
+			if (event.key === "ArrowDown") next = choices[(at + 1) % choices.length];
+			else if (event.key === "ArrowUp") next = choices[(at - 1 + choices.length) % choices.length];
+			else if (event.key === "Home") next = choices[0];
+			else if (event.key === "End") next = choices.at(-1);
+			else if (event.key.length === 1 && event.key !== " ") {
+				const now = performance.now();
+				search = {
+					text: (now - search.at > 700 ? "" : search.text) + event.key.toLocaleLowerCase(),
+					at: now
+				};
+				next = [...choices.slice(at + 1), ...choices.slice(0, at + 1)].find((index) => options.items()[index].label.toLocaleLowerCase().startsWith(search.text));
+			} else return;
+			event.preventDefault();
+			if (next !== void 0) {
+				focused = options.items()[next]?.key;
+				entries[next]?.focus();
+			}
+		},
+		select(key, event) {
+			const item = options.items().find((item) => item.key === key);
+			if (!snapshot.open || !event.isTrusted || !item || item.disabled) return;
+			const select = options.selection();
+			close();
+			select(key, event);
+		},
+		nativeClose(event) {
+			event.stopPropagation();
+			const node = options.surface();
+			if (snapshot.open && event.target === node && !node?.open) close();
+		},
+		cancel(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) close();
+		},
+		pointerDown(event) {
+			const node = options.surface();
+			if (node && event.target === node && outsideOverlay(node, event.clientX, event.clientY)) event.preventDefault();
+		},
+		surfaceClick(event) {
+			const node = options.surface();
+			if (!node || event.target !== node || !outsideOverlay(node, event.clientX, event.clientY)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) close();
+		},
+		dispose() {
+			if (disposed) return;
+			close(false);
+			detach?.();
+			cancelExit?.();
+			cancelExit = void 0;
+			disposed = true;
+			publish(false, false);
+			listeners.clear();
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/shell-icons.ts
+/**
+* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
+* same icons without a React or Lucide runtime. The module icon allow-list below is the subset
+* of Remote's describe contract; an unknown name falls back to `box`.
+*/
+var shellIconNodes = {
+	sun: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "4"
+	}], ["path", { d: "M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" }]],
+	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+	"file-text": [
+		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
+		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
+		["path", { d: "M10 9H8" }],
+		["path", { d: "M16 13H8" }],
+		["path", { d: "M16 17H8" }]
+	],
+	"monitor-smartphone": [
+		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
+		["path", { d: "M10 19v-3.96 3.15" }],
+		["path", { d: "M7 19h5" }],
+		["rect", {
+			width: "6",
+			height: "10",
+			x: "16",
+			y: "12",
+			rx: "2"
+		}]
+	],
+	users: [
+		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
+		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
+		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
+		["circle", {
+			cx: "9",
+			cy: "7",
+			r: "4"
+		}]
+	],
+	"chart-column": [
+		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
+		["path", { d: "M18 17V9" }],
+		["path", { d: "M13 17V5" }],
+		["path", { d: "M8 17v-3" }]
+	],
+	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
+		cx: "11",
+		cy: "11",
+		r: "8"
+	}]],
+	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
+		cx: "12",
+		cy: "12",
+		r: "3"
+	}]],
+	box: [
+		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
+		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
+		["path", { d: "M12 22V12" }]
+	],
+	menu: [
+		["path", { d: "M4 5h16" }],
+		["path", { d: "M4 12h16" }],
+		["path", { d: "M4 19h16" }]
+	],
+	"chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
+	"chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
+	"triangle-alert": [
+		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
+		["path", { d: "M12 9v4" }],
+		["path", { d: "M12 17h.01" }]
+	],
+	lock: [["rect", {
+		width: "18",
+		height: "11",
+		x: "3",
+		y: "11",
+		rx: "2",
+		ry: "2"
+	}], ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }]],
+	clock: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "10"
+	}], ["path", { d: "M12 6v6l4 2" }]],
+	terminal: [["path", { d: "M12 19h8" }], ["path", { d: "m4 17 6-6-6-6" }]],
+	ellipsis: [
+		["circle", {
+			cx: "12",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "19",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "5",
+			cy: "12",
+			r: "1"
+		}]
+	],
+	copy: [["rect", {
+		width: "14",
+		height: "14",
+		x: "8",
+		y: "8",
+		rx: "2",
+		ry: "2"
+	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
+	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]]
+};
 //#endregion
 //#region ../../../../design/browser-ui/src/static.ts
 var browserUiClasses = Object.freeze({
@@ -466,13 +1092,13 @@ var busyDots = [
 ];
 /** The radius of each busy-mark dot on the 16x16 viewBox. */
 var busyDotRadius = 1.6;
-var SVG = "http://www.w3.org/2000/svg";
+var SVG$1 = "http://www.w3.org/2000/svg";
 /** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
 function busySvg(doc) {
-	const svg = doc.createElementNS(SVG, "svg");
+	const svg = doc.createElementNS(SVG$1, "svg");
 	svg.setAttribute("viewBox", "0 0 16 16");
 	for (const [cx, cy] of busyDots) {
-		const dot = doc.createElementNS(SVG, "circle");
+		const dot = doc.createElementNS(SVG$1, "circle");
 		dot.setAttribute("class", browserUiClasses.busyDot);
 		dot.setAttribute("cx", String(cx));
 		dot.setAttribute("cy", String(cy));
@@ -495,6 +1121,209 @@ function createActionMark(doc = document) {
 	mark.dataset.busy = "false";
 	mark.append(createBusyMark(doc));
 	return mark;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/glyph.ts
+var SVG = "http://www.w3.org/2000/svg";
+/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
+function createIcon(name, doc = document) {
+	const svg = doc.createElementNS(SVG, "svg");
+	svg.setAttribute("class", browserUiClasses.glyph);
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = doc.createElementNS(SVG, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-host.ts
+/** Mount the existing menu presentation without a framework; hosts retain values and commands. */
+function mountBrowserMenu(container, initial) {
+	const document = container.ownerDocument;
+	const id = `tmt-menu-${document.defaultView.crypto.randomUUID()}`;
+	const root = document.createElement("span");
+	root.className = "tmt-ui-menu";
+	const wrapper = document.createElement("span");
+	const trigger = document.createElement("button");
+	trigger.type = "button";
+	trigger.setAttribute("aria-haspopup", "menu");
+	const tooltip = document.createElement("span");
+	tooltip.className = browserUiClasses.iconActionTooltip;
+	tooltip.setAttribute("popover", "manual");
+	tooltip.setAttribute("aria-hidden", "true");
+	const tooltipLabel = document.createElement("span");
+	tooltipLabel.className = browserUiClasses.iconActionTooltipLabel;
+	tooltip.append(tooltipLabel);
+	wrapper.append(trigger, tooltip);
+	const surface = document.createElement("dialog");
+	surface.className = "tmt-ui-menu-surface";
+	surface.tabIndex = -1;
+	surface.hidden = true;
+	const menu = document.createElement("div");
+	menu.id = id;
+	menu.setAttribute("role", "menu");
+	menu.tabIndex = -1;
+	const description = document.createElement("div");
+	description.id = `${id}-description`;
+	description.className = "tmt-ui-menu-description";
+	surface.append(menu);
+	root.append(wrapper, surface);
+	let options = initial;
+	let disposed = false;
+	let help;
+	const rows = /* @__PURE__ */ new Map();
+	const controller = createMenuController({
+		items: () => options.items,
+		disabled: () => options.disabled === true,
+		hasDescription: () => Boolean(options.description),
+		trigger: () => trigger,
+		surface: () => surface,
+		entries: () => options.items.map((item) => rows.get(item.key)?.button ?? null),
+		selection: () => options.onSelect,
+		onOpenChange: (open) => options.onOpenChange?.(open)
+	});
+	const display = (target, content) => target.replaceChildren(typeof content === "string" ? document.createTextNode(content) : content);
+	const validate = (next) => {
+		if (!next.label.trim()) throw new Error("Menu requires a nonempty label");
+		if (new Set(next.items.map((item) => item.key)).size !== next.items.length) throw new Error("Menu item keys must be unique");
+	};
+	function renderOptions() {
+		const iconOnly = options.triggerText === void 0;
+		if (!iconOnly && options.presentation) root.dataset.presentation = options.presentation;
+		else delete root.dataset.presentation;
+		wrapper.className = iconOnly ? browserUiClasses.iconAction : "tmt-ui-menu-trigger-wrapper";
+		trigger.className = iconOnly ? `${browserUiClasses.action} ${browserUiClasses.iconActionControl}` : "tmt-ui-menu-trigger";
+		if (iconOnly) trigger.dataset.variant = "text";
+		else delete trigger.dataset.variant;
+		trigger.setAttribute("aria-label", options.label);
+		tooltipLabel.textContent = options.label;
+		tooltip.hidden = !iconOnly;
+		surface.setAttribute("aria-label", options.label);
+		menu.setAttribute("aria-label", options.label);
+		trigger.disabled = !controller.canOpen();
+		if (iconOnly) {
+			const icon = document.createElement("span");
+			icon.className = browserUiClasses.iconActionIcon;
+			icon.setAttribute("aria-hidden", "true");
+			icon.append(options.icon ?? createIcon("ellipsis", document));
+			trigger.replaceChildren(icon);
+			help ??= bindIconActionTooltip(wrapper, trigger, tooltip);
+		} else {
+			help?.dispose();
+			help = void 0;
+			const label = document.createElement("span");
+			label.className = "tmt-ui-menu-value";
+			label.textContent = options.triggerText;
+			trigger.replaceChildren(label, createIcon("chevron-down", document));
+		}
+		if (options.description) {
+			display(description, options.description);
+			menu.setAttribute("aria-describedby", description.id);
+		} else menu.removeAttribute("aria-describedby");
+		const removed = new Set(rows.keys());
+		const children = options.description ? [description] : [];
+		for (const [index, item] of options.items.entries()) {
+			let row = rows.get(item.key);
+			if (!row) {
+				const button = document.createElement("button");
+				button.type = "button";
+				button.className = "tmt-ui-menu-item";
+				button.tabIndex = -1;
+				button.onclick = (event) => controller.select(item.key, event);
+				button.onfocus = () => controller.focused(item.key);
+				row = {
+					root: document.createElement("div"),
+					button,
+					label: document.createElement("span"),
+					check: document.createElement("span"),
+					reason: document.createElement("span")
+				};
+				row.check.setAttribute("aria-hidden", "true");
+				row.check.textContent = "✓";
+				row.reason.className = "tmt-ui-menu-reason";
+				row.root.append(button);
+				rows.set(item.key, row);
+			}
+			removed.delete(item.key);
+			display(row.label, item.content ?? item.label);
+			row.button.replaceChildren(row.label, ...item.checked ? [row.check] : []);
+			row.button.disabled = item.disabled === true;
+			row.button.setAttribute("role", item.role ?? (item.checked === void 0 ? "menuitem" : "menuitemradio"));
+			if (item.checked === void 0) row.button.removeAttribute("aria-checked");
+			else row.button.setAttribute("aria-checked", String(item.checked));
+			if (item.separated) row.button.dataset.separated = "true";
+			else delete row.button.dataset.separated;
+			if (item.disabledReason) {
+				row.reason.id = `${id}-reason-${index}`;
+				row.reason.textContent = item.disabledReason;
+				row.button.setAttribute("aria-describedby", row.reason.id);
+				if (!row.reason.isConnected) row.root.append(row.reason);
+			} else {
+				row.reason.remove();
+				row.button.removeAttribute("aria-describedby");
+			}
+			children.push(row.root);
+		}
+		for (const key of removed) {
+			rows.get(key).root.remove();
+			rows.delete(key);
+		}
+		for (const [index, child] of children.entries()) if (menu.childNodes[index] !== child) menu.insertBefore(child, menu.childNodes[index] ?? null);
+		while (menu.childNodes.length > children.length) menu.lastChild.remove();
+		controller.refresh();
+		help?.refresh();
+	}
+	function renderState() {
+		const { open, present } = controller.getSnapshot();
+		trigger.setAttribute("aria-expanded", String(open));
+		if (open) trigger.setAttribute("aria-controls", id);
+		else trigger.removeAttribute("aria-controls");
+		surface.hidden = !present;
+		surface.dataset.state = open ? "open" : "closed";
+		help?.refresh();
+		if (open) controller.attachSurface();
+	}
+	trigger.onclick = (event) => {
+		if (event.isTrusted) {
+			help?.dismiss();
+			controller.open();
+		}
+	};
+	trigger.onkeydown = controller.triggerKey;
+	surface.onkeydown = controller.menuKey;
+	surface.onclose = controller.nativeClose;
+	surface.oncancel = controller.cancel;
+	surface.onpointerdown = controller.pointerDown;
+	surface.onclick = controller.surfaceClick;
+	validate(initial);
+	container.append(root);
+	renderOptions();
+	const unsubscribe = controller.subscribe(renderState);
+	renderState();
+	return {
+		update(next) {
+			if (!disposed) {
+				validate(next);
+				options = next;
+				renderOptions();
+				renderState();
+			}
+		},
+		open: () => controller.open(),
+		close: () => controller.close(),
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			controller.dispose();
+			unsubscribe();
+			help?.dispose();
+			root.remove();
+			rows.clear();
+		}
+	};
 }
 new TextEncoder();
 function requireValue(condition, label) {
@@ -655,6 +1484,27 @@ async function writeRegistry(expected, text) {
 //#endregion
 //#region src/remote-registry.ts
 /** Public references only; keys, pairings, credentials, drafts and intents never enter a catalog. */
+/** One projection feeds the list and rail; this machine is first even without a saved alias. */
+function registryView(catalog, observed) {
+	const selected = catalog.entries.find((entry) => currentRemote(entry, observed.address, observed.pageUrl));
+	const row = (entry, thisMachine) => ({
+		id: entry?.name ?? "@this-machine",
+		name: entry?.name ?? "This machine",
+		url: entry?.url ?? currentDoor(observed.pageUrl),
+		reference: entry,
+		thisMachine,
+		backend: entry?.kind === "firestore" ? "Firebase" : "Local",
+		project: entry?.project ?? null,
+		roleLabel: remoteRole(thisMachine ? observed.role : void 0),
+		connection: remoteState(observed.state, thisMachine)
+	});
+	const current = row(selected ?? null, true);
+	return {
+		rows: [current, ...catalog.entries.filter((entry) => entry !== selected).map((entry) => row(entry, false))],
+		current,
+		address: observed.address
+	};
+}
 var RemoteRegistryError = class extends Error {
 	code;
 	constructor(code, message) {
@@ -915,8 +1765,12 @@ function node$1(tag, text = "") {
 	result.textContent = text;
 	return result;
 }
-function action(text, run) {
-	const button = node$1("button", text);
+function action(text, run, variant) {
+	const button = node$1("button");
+	const label = node$1("span", text);
+	label.className = browserUiClasses.actionLabel;
+	button.append(label);
+	if (variant) button.dataset.variant = variant;
 	button.type = "button";
 	button.className = "tmt-ui-action";
 	button.addEventListener("click", run);
@@ -951,8 +1805,31 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	if (fragment) history.replaceState(null, "", location.pathname + location.search);
 	const list = document.getElementById("remote-list");
 	const status = document.getElementById("remote-status");
-	const add = document.getElementById("remote-add");
+	const joinHost = document.getElementById("remote-join");
+	const joinMenu = mountBrowserMenu(joinHost, {
+		label: "Join a Remote",
+		triggerText: "Join a Remote",
+		items: [{
+			key: "invite",
+			label: "Join with an invitation"
+		}, {
+			key: "address",
+			label: "Remember a Remote",
+			separated: true
+		}],
+		onSelect: (key) => {
+			if (key === "address") openAdd();
+			else (shell ?? void 0)?.navigate(new URL("connect", new URL("./", location.href)).href);
+		}
+	});
+	const join = joinHost.querySelector("button");
+	let rowMenus = [];
+	(shell ?? void 0)?.signal.addEventListener("abort", () => {
+		joinMenu.dispose();
+		rowMenus.forEach((item) => item.dispose());
+	}, { once: true });
 	let observed = "Checking";
+	let observedRole;
 	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
 	let currentDialog;
 	let catalog = {
@@ -962,14 +1839,6 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const settings = new URL("settings", new URL("./", location.href));
 	const menu = remoteMenu({
 		refresh: () => render(),
-		open: (entry) => {
-			if (blocked()) return;
-			remoteRegistry.navigation(entry).then((url) => location.assign(url)).catch((error) => showError(error, status));
-		},
-		add: () => {
-			if (document.documentElement.dataset.tmtPage !== "settings") (shell ?? void 0)?.navigate(settings.href);
-			add.click();
-		},
 		recover: (action) => {
 			const home = new URL("./", location.href).href;
 			if (action === "Retry") {
@@ -987,8 +1856,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				pair?.scrollIntoView();
 				pair?.focus();
 			}
-		},
-		blocked
+		}
 	}, shell);
 	const showError = (error, slot) => {
 		slot.textContent = error instanceof RemoteRegistryError ? error.message : "The remotes could not be read";
@@ -1019,7 +1887,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			box.remove();
 			if (currentDialog === box) {
 				currentDialog = void 0;
-				(opener.isConnected ? opener : add).focus();
+				(opener.isConnected ? opener : join).focus();
 			}
 		}, { once: true });
 		currentDialog = box;
@@ -1040,8 +1908,10 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			await run();
 			await render();
 			view.end();
+			return true;
 		} catch (error) {
 			showError(error, view.message);
+			return false;
 		} finally {
 			buttons.forEach((b) => {
 				b.disabled = false;
@@ -1049,7 +1919,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		}
 	};
 	const importView = (plan) => {
-		const view = dialog("Add these remotes to this browser?", add);
+		const view = dialog("Add these remotes to this browser?", join);
 		view.body.append(node$1("p", "Only names and addresses are copied. No keys, pairings or drafts."));
 		const choices = [];
 		for (const row of plan.rows) {
@@ -1111,77 +1981,153 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		view.box.showModal();
 	};
 	const remove = (entry, opener) => {
-		const view = dialog(`Remove ${entry.name} from this browser?`, opener);
+		const view = dialog(`Forget ${entry.name} in this browser?`, opener);
 		view.body.append(node$1("p", "This only removes the entry here. It does not sign out or revoke access."));
-		view.buttons.append(action("Remove", () => {
-			save(() => remoteRegistry.remove(entry.name), view);
-		}), action("Cancel", view.end));
+		view.buttons.append(action("Forget", () => {
+			save(() => remoteRegistry.remove(entry.name), view).then((saved) => {
+				if (!saved) return;
+				status.replaceChildren(node$1("span", `Forgot ${entry.name} in this browser. Access is unchanged. `), action("Undo", () => {
+					remoteRegistry.add(entry.name, entry.url).then(async () => {
+						await render();
+						status.textContent = `Restored ${entry.name}.`;
+					}).catch((error) => showError(error, status));
+				}));
+			});
+		}, "destructive"), action("Cancel", view.end));
 		view.box.showModal();
 	};
-	const current = (entry) => currentRemote(entry, address, location.href);
+	const paint = () => {
+		const projection = registryView(catalog, {
+			pageUrl: location.href,
+			state: observed,
+			address,
+			role: observedRole
+		});
+		const existing = [...list.children];
+		if (existing.length === projection.rows.length && existing.every((row, index) => {
+			const entry = projection.rows[index];
+			return row.dataset.remote === entry.id && row.dataset.url === entry.url && row.dataset.thisMachine === String(entry.thisMachine);
+		})) {
+			for (const [index, row] of existing.entries()) {
+				const entry = projection.rows[index];
+				const role = row.querySelector("[data-role]");
+				role.querySelector(".tmt-ui-chip-label").textContent = entry.roleLabel;
+				role.dataset.roleTone = entry.roleLabel === "Admin" ? "selected" : entry.roleLabel === "Role unknown" ? "muted" : "neutral";
+				const state = row.querySelector(".tmt-ui-list-state");
+				state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
+				state.dataset.tone = entry.connection.tone;
+				const open = row.querySelector("[data-action=\"open\"]");
+				open.setAttribute("aria-disabled", String(!entry.thisMachine && !!blocked()));
+				if (!entry.thisMachine && blocked()) open.removeAttribute("href");
+				else open.href = entry.thisMachine ? new URL("./", location.href).href : entry.url;
+				open.title = !entry.thisMachine ? blocked() : "";
+			}
+			menu(projection);
+			return;
+		}
+		rowMenus.forEach((item) => item.dispose());
+		rowMenus = [];
+		list.replaceChildren(...projection.rows.map((entry) => {
+			const row = node$1("li");
+			row.className = browserUiClasses.listRow;
+			row.dataset.remote = entry.id;
+			row.dataset.thisMachine = String(entry.thisMachine);
+			row.dataset.url = entry.url;
+			row.dataset.kind = entry.reference?.kind ?? "local";
+			row.dataset.leading = "";
+			const leading = node$1("div");
+			leading.className = browserUiClasses.listLeading;
+			leading.append(createIcon(entry.backend === "Local" ? "terminal" : "box"));
+			const title = node$1("div");
+			title.className = browserUiClasses.listTitle;
+			const label = node$1("span");
+			label.className = `${browserUiClasses.listLabel} remote-label`;
+			const open = node$1("a", entry.name);
+			open.href = entry.thisMachine ? new URL("./", location.href).href : entry.url;
+			open.dataset.action = "open";
+			open.setAttribute("role", "link");
+			open.setAttribute("aria-label", `Open ${entry.name}`);
+			open.setAttribute("aria-disabled", String(!entry.thisMachine && !!blocked()));
+			if (!entry.thisMachine && blocked()) open.removeAttribute("href");
+			open.title = !entry.thisMachine ? blocked() : "";
+			open.addEventListener("click", (event) => {
+				event.preventDefault();
+				if (entry.thisMachine) {
+					(shell ?? void 0)?.navigate(new URL("./", location.href).href);
+					return;
+				}
+				(async () => {
+					try {
+						if (!blocked() && entry.reference) location.assign(await remoteRegistry.navigation(entry.reference));
+					} catch (error) {
+						showError(error, status);
+					}
+				})();
+			});
+			label.append(open);
+			const chip = (text) => {
+				const box = node$1("span");
+				box.className = browserUiClasses.chip;
+				const value = node$1("span", text);
+				value.className = browserUiClasses.chipLabel;
+				box.append(value);
+				return box;
+			};
+			if (entry.thisMachine && entry.name !== "This machine") label.append(chip("This machine"));
+			const role = chip(entry.roleLabel);
+			role.className += " remote-role";
+			role.dataset.role = "";
+			role.dataset.roleTone = entry.roleLabel === "Admin" ? "selected" : entry.roleLabel === "Role unknown" ? "muted" : "neutral";
+			label.append(role);
+			const description = node$1("span", `${entry.backend}${entry.project ? ` · ${entry.project}` : ""} · ${entry.url}`);
+			description.className = browserUiClasses.listDescription;
+			title.append(label, description);
+			const meta = node$1("div");
+			meta.className = browserUiClasses.listMeta;
+			const state = node$1("div", `${entry.connection.mark} ${entry.connection.text}`);
+			state.className = browserUiClasses.listState;
+			state.dataset.tone = entry.connection.tone;
+			meta.append(state);
+			const actions = node$1("div");
+			actions.className = browserUiClasses.listActions;
+			if (entry.reference) {
+				const reference = entry.reference;
+				const destructive = node$1("span", "Forget");
+				destructive.className = "remote-forget";
+				const rowMenu = mountBrowserMenu(actions, {
+					label: `Actions for ${entry.name}`,
+					items: [{
+						key: "rename",
+						label: "Rename"
+					}, {
+						key: "forget",
+						label: "Forget",
+						content: destructive,
+						separated: true
+					}],
+					onSelect: (key) => {
+						const opener = actions.querySelector("button");
+						if (key === "rename") rename(reference, opener);
+						else remove(reference, opener);
+					}
+				});
+				rowMenus.push(rowMenu);
+			}
+			row.append(leading, title, meta, actions);
+			return row;
+		}));
+		menu(projection);
+	};
 	const render = async () => {
 		try {
 			catalog = await remoteRegistry.list();
-			const rows = catalog.entries.map((entry) => {
-				const row = node$1("li");
-				row.className = browserUiClasses.listRow;
-				row.dataset.remote = entry.name;
-				row.dataset.url = entry.url;
-				row.dataset.kind = entry.kind;
-				const title = node$1("div");
-				title.className = browserUiClasses.listTitle;
-				const label = node$1("span", entry.name);
-				label.className = browserUiClasses.listLabel;
-				const description = node$1("span", `${kindLabel(entry)} · ${entry.url}`);
-				description.className = browserUiClasses.listDescription;
-				title.append(label, description);
-				const meta = node$1("div");
-				meta.className = browserUiClasses.listMeta;
-				const state = node$1("div", remoteState(observed, current(entry)).text);
-				state.className = browserUiClasses.listState;
-				state.dataset.tone = remoteState(observed, current(entry)).tone;
-				meta.append(state);
-				const actions = node$1("div");
-				actions.className = browserUiClasses.listActions;
-				const open = action("Open", () => {
-					(async () => {
-						try {
-							if (!blocked()) location.assign(await remoteRegistry.navigation(entry));
-						} catch (error) {
-							showError(error, status);
-						}
-					})();
-				});
-				open.dataset.action = "open";
-				const renameButton = action("Rename", () => rename(entry, renameButton));
-				const removeButton = action("Remove", () => remove(entry, removeButton));
-				renameButton.setAttribute("aria-label", `Rename ${entry.name}`);
-				removeButton.setAttribute("aria-label", `Remove ${entry.name}`);
-				if (!current(entry)) {
-					open.disabled = !!blocked();
-					open.title = blocked();
-					actions.append(open);
-				}
-				actions.append(renameButton, removeButton);
-				row.append(title, meta, actions);
-				return row;
-			});
-			list.replaceChildren(...rows);
-			if (!rows.length) {
-				const empty = node$1("li");
-				empty.className = browserUiClasses.listRow;
-				const text = node$1("div", "No remotes added in this browser.");
-				text.className = browserUiClasses.listTitle;
-				empty.append(text);
-				list.append(empty);
-			}
-			menu(catalog, observed, address ?? "");
+			paint();
 		} catch (error) {
 			showError(error, status);
 		}
 	};
-	add.addEventListener("click", () => {
-		const view = dialog("Add remote", add);
+	function openAdd() {
+		const view = dialog("Add remote", join);
 		const alias = field("Remote name", "");
 		const url = field("Remote address or link", "");
 		view.body.append(alias.label, url.label);
@@ -1189,16 +2135,16 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			reference(alias.input.value, url.input.value).then((entry) => {
 				if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
 				view.end();
-				confirmAdd(entry, add);
+				confirmAdd(entry, join);
 			}).catch((error) => showError(error, view.message));
 		}), action("Cancel", view.end));
 		view.box.showModal();
-	});
+	}
 	render().then(() => {
-		if (fragment === "#add-remote") add.click();
+		if (fragment === "#add-remote") openAdd();
 		else if (fragment === "#remotes") {
 			root.scrollIntoView();
-			add.focus({ preventScroll: true });
+			join.focus({ preventScroll: true });
 		}
 	});
 	const receive = (value) => {
@@ -1214,24 +2160,12 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
 	}, { signal: (shell ?? void 0)?.signal });
-	const observe = (state, checkedAddress) => {
+	const observe = (state, checkedAddress, role) => {
 		observed = state;
+		if (state !== "Connected" || role === null) observedRole = void 0;
+		else if (role !== void 0) observedRole = role;
 		if (checkedAddress) address = checkedAddress;
-		for (const row of list.querySelectorAll("[data-remote]")) {
-			const stateNode = row.querySelector(".tmt-ui-list-state");
-			const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
-			const isCurrent = !!entry && currentRemote(entry, address, location.href);
-			const view = remoteState(observed, isCurrent);
-			stateNode.textContent = view.text;
-			stateNode.dataset.tone = view.tone;
-			const open = row.querySelector("[data-action=\"open\"]");
-			if (open) {
-				open.disabled = !!blocked();
-				open.title = blocked();
-			}
-			if (isCurrent) row.querySelector("[data-action=\"open\"]")?.remove();
-		}
-		menu(catalog, observed, address ?? "");
+		paint();
 	};
 	return Object.assign(observe, { blockedBy: (reason) => {
 		heldBy = reason;
@@ -1776,7 +2710,7 @@ async function settingsPage(shell, registry) {
 		if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
 	});
 	function syncBusyMark() {
-		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-switcher")) markSlot(button);
+		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher")) markSlot(button);
 		busyMark.set(page.busy);
 	}
 	function saveState(form, hint, changed, valid) {
@@ -1846,7 +2780,7 @@ async function settingsPage(shell, registry) {
 		}
 	}
 	function render() {
-		registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed");
+		registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed", void 0, managementRole(page.access, page.settings?.capabilities.settingsWrite) ?? null);
 		if (confirmation) {
 			const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
 			if (!page.writable || !target || targetSignature(target) !== confirmation.signature) cancelConfirmation();
@@ -1877,7 +2811,7 @@ async function settingsPage(shell, registry) {
 		element("controls-reason").textContent = reason;
 		element("controls-reason").hidden = !reason;
 		for (const button of document.querySelectorAll("button")) {
-			if (button.closest("#remotes, #remote-switcher")) continue;
+			if (button.closest("#remotes, #remote-head, #remote-switcher")) continue;
 			if (reason) button.setAttribute("aria-describedby", "controls-reason");
 			else button.removeAttribute("aria-describedby");
 			button.setAttribute("aria-busy", String(page.busy));

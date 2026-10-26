@@ -20,6 +20,8 @@ use tmt_cli_style::{
     table::{Cell, Column, Table},
 };
 
+mod own;
+
 fn option(name: &'static str, value: &'static str, help: &'static str) -> Arg {
     Arg::new(name).long(name).value_name(value).help(help)
 }
@@ -32,12 +34,41 @@ fn room(command: Command) -> Command {
             "Use this member's conversation list in the room, created on its first add",
         ))
 }
+/// The verbs that default to the calling agent's own list take `--room` only to choose between
+/// squads; `--member` needs it (a room's list of someone else).
+fn optional_room(command: Command) -> Command {
+    command
+        .arg(option(
+            "room",
+            "UUID",
+            "Squad room UUID; omit it to use your own list in your squad",
+        ))
+        .arg(
+            option(
+                "member",
+                "NAME|UUID",
+                "Use this member's conversation list in the room, created on its first add",
+            )
+            .requires("room"),
+        )
+}
 fn checklist(command: Command) -> Command {
     room(command)
         .arg(option("checklist", "UUID", "Exact checklist UUID").required_unless_present("member"))
 }
 fn item(command: Command) -> Command {
     checklist(command).arg(option("item", "UUID", "Exact item UUID").required(true))
+}
+/// `show` also resolves a unique UUID prefix, as `tmt result` does for request IDs.
+fn shown_item(command: Command) -> Command {
+    checklist(command).arg(
+        option(
+            "item",
+            "UUID|PREFIX",
+            "Exact item UUID, or a unique prefix of at least 4 hex characters in this list",
+        )
+        .required(true),
+    )
 }
 fn revision(name: &'static str, help: &'static str) -> Arg {
     option(name, "POSITIVE", help)
@@ -53,7 +84,7 @@ pub fn grammar() -> Command {
     build(specs::CHECKLIST)
         .subcommand_required(true)
         .subcommand(
-            room(build(specs::CHECKLIST_LS))
+            optional_room(build(specs::CHECKLIST_LS))
                 .alias("list")
                 .arg(
                     Arg::new("include-archived")
@@ -90,7 +121,40 @@ pub fn grammar() -> Command {
                     .allow_negative_numbers(true),
                 ),
         )
-        .subcommand(item(build(specs::CHECKLIST_SHOW)))
+        .subcommand(shown_item(build(specs::CHECKLIST_SHOW)))
+        .subcommand(
+            build(specs::CHECKLIST_ADD)
+                .arg(
+                    Arg::new("title")
+                        .required(true)
+                        .help("Title of the item, as you want it read"),
+                )
+                .arg(option("body", "TEXT", "Optional longer text"))
+                .arg(option(
+                    "reference",
+                    "HTTP(S)",
+                    "Optional inert link; never fetched or opened",
+                ))
+                .arg(option(
+                    "room",
+                    "UUID",
+                    "Squad room UUID; only needed when you are on several squads",
+                )),
+        )
+        .subcommand(
+            build(specs::CHECKLIST_DONE)
+                .arg(
+                    Arg::new("item")
+                        .required(true)
+                        .value_name("ITEM")
+                        .help("Short id from #Title (3f2a), a unique UUID prefix, or the UUID"),
+                )
+                .arg(option(
+                    "room",
+                    "UUID",
+                    "Squad room UUID; only needed when you are on several squads",
+                )),
+        )
         .subcommand(
             item(build(specs::CHECKLIST_CREATE))
                 .arg(
@@ -191,7 +255,10 @@ pub fn grammar() -> Command {
 }
 
 pub struct ChecklistCommand {
-    room_id: Id,
+    /// None only for the agent verbs and a bare `ls`, which take the caller's own squad room.
+    room_id: Option<Id>,
+    /// The agent verbs act as the caller on the caller's own conversation list.
+    own: bool,
     /// A conversation list's member, as given: a name or a UUID, resolved once in `run`.
     member: Option<String>,
     /// The exact checklist UUID, given or (for a conversation list) derived in `run`.
@@ -201,9 +268,102 @@ pub struct ChecklistCommand {
 }
 enum Operation {
     List(Filter),
-    Events { after: u64, limit: u64 },
-    Show { item_id: Id },
+    Events {
+        after: u64,
+        limit: u64,
+    },
+    Show {
+        item: ItemRef,
+    },
+    /// An agent's add to its own list: ids and expectations are chosen in [`own`].
+    Add {
+        content: ItemContent,
+    },
+    /// An agent's completion at the item's current revision.
+    Done {
+        item: ItemRef,
+    },
     Apply(Action),
+}
+/// What `show --item` names: an exact item UUID, or a prefix that must pick one item of the list.
+#[derive(Debug, PartialEq, Eq)]
+enum ItemRef {
+    Exact(Id),
+    Prefix(String),
+}
+impl ItemRef {
+    /// Shortest prefix accepted: the short ids Ops chat shows are at least this long.
+    const MINIMUM_PREFIX: usize = 4;
+    const MAXIMUM_CANDIDATES: usize = 5;
+
+    fn parse(text: &str) -> Result<Self, Error> {
+        if text.len() == 36 {
+            return Id::parse(text).map(Self::Exact);
+        }
+        let prefix = text.to_ascii_lowercase();
+        let uuid_shaped = prefix.bytes().enumerate().all(|(i, byte)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                matches!(byte, b'0'..=b'9' | b'a'..=b'f')
+            }
+        });
+        if prefix.len() < Self::MINIMUM_PREFIX || prefix.len() > 36 || !uuid_shaped {
+            return Err(invalid(
+                "Expected an item UUID, or a prefix of at least 4 hex characters of one.",
+            ));
+        }
+        Ok(Self::Prefix(prefix))
+    }
+
+    /// An exact UUID names itself. A prefix is read from the list, archived items included, and
+    /// must match exactly one of them; an ambiguous one names up to five candidates.
+    fn resolve(self, service: &Service) -> Result<Id, Error> {
+        let prefix = match self {
+            Self::Exact(id) => return Ok(id),
+            Self::Prefix(prefix) => prefix,
+        };
+        let listed = service.list(&Filter {
+            include_archived: true,
+            ..Filter::default()
+        })?;
+        let matches: Vec<_> = listed
+            .current
+            .items
+            .iter()
+            .map(|view| &view.item)
+            .filter(|item| item.id.as_str().starts_with(&prefix))
+            .collect();
+        match matches.as_slice() {
+            [] => Err(Error {
+                code: Code::NotFound,
+                message: format!("No item in this list starts with \"{prefix}\"."),
+                current: None,
+            }),
+            [item] => Ok(item.id.clone()),
+            many => {
+                let named: Vec<String> = many
+                    .iter()
+                    .take(Self::MAXIMUM_CANDIDATES)
+                    .map(|item| {
+                        let title: String = item.content.title.chars().take(40).collect();
+                        format!("{} {title:?}", item.id.as_str())
+                    })
+                    .collect();
+                let more = many.len().saturating_sub(Self::MAXIMUM_CANDIDATES);
+                Err(invalid(&format!(
+                    "\"{prefix}\" starts {} items; give more characters. Candidates: {}{}.",
+                    many.len(),
+                    named.join("; "),
+                    if more > 0 {
+                        format!("; and {more} more")
+                    } else {
+                        String::new()
+                    }
+                )))
+            }
+        }
+    }
 }
 fn text<'a>(matches: &'a ArgMatches, name: &str) -> Option<&'a str> {
     matches
@@ -266,10 +426,39 @@ fn edit_field(matches: &ArgMatches, name: &str, clear: &str) -> Option<Option<St
 /// Parse only the admitted grammar. Target UUIDs and revisions stay frozen for this invocation.
 pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
     let (name, flags) = parent.subcommand().expect("checklist action required");
-    let room_id = Id::parse(required(flags, "room"))?;
+    let room_id = text(flags, "room").map(Id::parse).transpose()?;
     let member = text(flags, "member").map(str::to_owned);
+    if name == "add" {
+        return Ok(ChecklistCommand {
+            room_id,
+            own: true,
+            member: None,
+            checklist_id: None,
+            action: "add",
+            operation: Operation::Add {
+                content: ItemContent::new(
+                    required(flags, "title").into(),
+                    text(flags, "body").map(str::to_owned),
+                    text(flags, "reference").map(str::to_owned),
+                )?,
+            },
+        });
+    }
+    if name == "done" {
+        return Ok(ChecklistCommand {
+            room_id,
+            own: true,
+            member: None,
+            checklist_id: None,
+            action: "done",
+            operation: Operation::Done {
+                item: ItemRef::parse(required(flags, "item"))?,
+            },
+        });
+    }
     if name == "ls" {
         return Ok(ChecklistCommand {
+            own: room_id.is_none(),
             room_id,
             member,
             checklist_id: None,
@@ -290,6 +479,7 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
     if name == "events" {
         return Ok(ChecklistCommand {
             room_id,
+            own: false,
             member,
             checklist_id: None,
             action: "events",
@@ -303,11 +493,12 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
     if name == "show" {
         return Ok(ChecklistCommand {
             room_id,
+            own: false,
             member,
             checklist_id,
             action: "show",
             operation: Operation::Show {
-                item_id: Id::parse(required(flags, "item"))?,
+                item: ItemRef::parse(required(flags, "item"))?,
             },
         });
     }
@@ -387,6 +578,7 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
     operation.validate()?;
     Ok(ChecklistCommand {
         room_id,
+        own: false,
         member,
         checklist_id,
         action,
@@ -396,11 +588,23 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
 
 pub fn run(core: &Core, config: &Config, invocation: ChecklistCommand) -> Outcome {
     finish((|| {
+        // An agent verb acts as the caller; its room is given or the caller's own squad.
+        let (room_id, member) = if invocation.own {
+            let (room, caller) = own::target(core, invocation.room_id)?;
+            (room, Some(caller.as_str().to_owned()))
+        } else {
+            (
+                invocation
+                    .room_id
+                    .ok_or_else(|| invalid("A room UUID is required."))?,
+                invocation.member,
+            )
+        };
         // The member is resolved once; the service and the store see only its UUID.
-        let (service, checklist_id) = match invocation.member.as_deref() {
+        let (service, checklist_id) = match member.as_deref() {
             Some(selector) => {
                 let member = resolve_member(core, selector)?;
-                let service = Service::for_conversation(core, config, invocation.room_id, member)?;
+                let service = Service::for_conversation(core, config, room_id, member)?;
                 let derived = service.conversation_checklist_id();
                 if let (Some(given), Some(derived)) = (&invocation.checklist_id, &derived)
                     && given != derived
@@ -412,7 +616,7 @@ pub fn run(core: &Core, config: &Config, invocation: ChecklistCommand) -> Outcom
                 (service, derived)
             }
             None => (
-                Service::new(core, config, invocation.room_id)?,
+                Service::new(core, config, room_id)?,
                 invocation.checklist_id,
             ),
         };
@@ -445,10 +649,21 @@ fn execute(
                     "action":event.action,"revision":event.revision})).collect::<Vec<_>>(),
                 "nextCursor":page.next_cursor,"more":page.more,"gap":page.gap.map(checklist::events::Gap::as_str)}))
         }
-        Operation::Show { item_id } => {
+        Operation::Show { item } => {
             let checklist_id =
                 checklist_id.ok_or_else(|| invalid("A checklist UUID is required."))?;
+            let item_id = item.resolve(service)?;
             Ok(json!({"action":action,"current":current(&service.show(&checklist_id, &item_id)?)}))
+        }
+        Operation::Add { content } => {
+            let checklist_id =
+                checklist_id.ok_or_else(|| invalid("A checklist UUID is required."))?;
+            own::add(service, checklist_id, content)
+        }
+        Operation::Done { item } => {
+            let checklist_id =
+                checklist_id.ok_or_else(|| invalid("A checklist UUID is required."))?;
+            own::done(service, checklist_id, item)
         }
         Operation::Apply(action_request) => {
             let request = Request {
@@ -561,6 +776,20 @@ pub fn text_output(document: &Value, terminal: Terminal) -> String {
     }
     let view = &document["current"];
     let mut out = Vec::new();
+    if let Some(verb) = match document["action"].as_str() {
+        Some("add") => Some("Added"),
+        Some("done") => Some("Done"),
+        _ => None,
+    } {
+        let named = document["reference"]
+            .as_str()
+            .map_or_else(|| display(&document["itemId"]), str::to_owned);
+        let _ = message::success(&mut out, terminal, &format!("{verb} {named}"));
+        if document["changed"] == false {
+            out.extend_from_slice(b"Nothing changed; it was already so.\n");
+        }
+        return String::from_utf8(out).expect("checklist output is UTF-8");
+    }
     if !matches!(document["action"].as_str(), Some("list" | "show")) {
         let target = document.get("itemId").unwrap_or(&view["checklistId"]);
         let _ = message::success(

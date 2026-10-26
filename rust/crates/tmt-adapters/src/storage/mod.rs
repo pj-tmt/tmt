@@ -1,4 +1,5 @@
 mod bindings;
+mod capture_batches;
 mod consumption_family;
 mod consumption_history;
 mod context;
@@ -47,7 +48,7 @@ use errors::{classify_io, classify_open, incompatible};
 pub use host_servers::{HostServerIncarnation, RecordedHostServers};
 pub use orchestration::{ORCH_JOURNAL_RETENTION_MS, OrchJournalPage, OrchStoredState};
 pub use requests::PassthroughFacts;
-pub use responses::ResponseCapture;
+pub use responses::{CaptureFailure, ResponseCapture, TurnCapture};
 pub use room::RoomStoreError;
 pub use room_roster::{RoomRoster, RosterError, RosterMember};
 pub use storage_cutover::StorageCutover;
@@ -247,6 +248,19 @@ impl Storage {
                 row.get::<_, i64>(0)
             })
             .map_err(|error| classify(error, "Read change cursor"))
+            // The schema keeps it non-negative.
+            .map(|value| value.unsigned_abs())
+    }
+
+    /// The usage cursor: advanced by every committed insert, update or delete of the
+    /// sampler's tables (schema 74), which never advance the change cursor. Opaque;
+    /// compare for equality.
+    pub fn usage_cursor(&self) -> Result<u64, StorageError> {
+        self.connection()?
+            .query_row("SELECT value FROM usage_cursor WHERE id = 1", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|error| classify(error, "Read usage cursor"))
             // The schema keeps it non-negative.
             .map(|value| value.unsigned_abs())
     }

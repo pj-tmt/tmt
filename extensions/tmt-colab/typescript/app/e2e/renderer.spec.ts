@@ -102,11 +102,13 @@ async function mount(page: Page, source: string, layout?: 'column' | 'full') {
           input: { id: string; selector: unknown; ordinal?: number }[],
           draft?: unknown,
           count?: number,
+          quiet?: unknown,
         ) {
           return renderer.highlight(
             input.map((anchor, index) => ({ ...anchor, ordinal: anchor.ordinal ?? index + 1 })),
             draft,
             count ?? input.length,
+            quiet,
           );
         },
       };
@@ -532,6 +534,10 @@ async function bindFrame(page: Page, id: string, extra: Record<string, unknown>)
         document.body.append(target);
       });
       const digest = 'c'.repeat(64);
+      // The parent keeps its end of the channel: the frame takes its later messages (a change of theme) there.
+      const channel = new MessageChannel();
+      const held = window as unknown as { colabPorts?: Record<string, MessagePort> };
+      held.colabPorts = { ...held.colabPorts, [id]: channel.port1 };
       target.contentWindow!.postMessage(
         {
           type: 'colab.render.bind',
@@ -542,7 +548,7 @@ async function bindFrame(page: Page, id: string, extra: Record<string, unknown>)
           ...extra,
         },
         '*',
-        [new MessageChannel().port2],
+        [channel.port2],
       );
     },
     { id, extra },
@@ -591,6 +597,327 @@ test('a bind may carry a layout; only column and full select the page column, ev
     .locator('body')
     .evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
   await expect(page.frameLocator('#target-wide').getByText('Bound text')).toHaveCount(0);
+});
+
+test('every frame carries the design system in its own layer, below the starter and the author, and follows the viewer theme', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await bindFrame(page, 'target-ui', {
+    source: `<style>.tmt-ui-card.mine{padding:3px}</style>
+      <section class="tmt-ui-card" id="plain"><h2 class="tmt-ui-card-title">Card</h2></section>
+      <section class="tmt-ui-card mine" id="mine">Mine</section>
+      <button class="tmt-ui-action" data-variant="primary" id="action"><span class="tmt-ui-action-label">Go</span></button>`,
+  });
+  const target = page.frameLocator('#target-ui');
+  await expect(target.locator('#plain')).toBeVisible();
+  const read = () =>
+    target.locator('html').evaluate((html) => {
+      const doc = html.ownerDocument;
+      const style = (id: string) => getComputedStyle(doc.getElementById(id)!);
+      const layers = [...doc.styleSheets].flatMap((sheet) =>
+        [...sheet.cssRules].filter((rule) => rule instanceof CSSLayerStatementRule),
+      ) as CSSLayerStatementRule[];
+      return {
+        order: layers.flatMap((rule) => [...rule.nameList]),
+        card: {
+          padding: style('plain').paddingTop,
+          radius: style('plain').borderTopLeftRadius,
+          border: style('plain').borderTopWidth,
+          fill: style('plain').backgroundColor,
+        },
+        mine: style('mine').paddingTop,
+        action: style('action').paddingTop,
+        icon: !!doc.querySelector('tmt-icon svg'),
+        hostProfile: getComputedStyle(html).getPropertyValue('--tmt-ui-host-action-padding').trim(),
+      };
+    });
+  const light = await read();
+  // One order: the frame, then the starter, then the classes; an author's unlayered rule beats a class.
+  expect(light.order).toEqual(['colab-frame', 'tmt-starter', 'tmt-ui']);
+  expect(light.card).toMatchObject({ padding: '24px', radius: '8px', border: '1px' });
+  expect(light.mine).toBe('3px');
+  expect(light.action).toBe('7px');
+  expect(light.hostProfile).toBe('7px 12px');
+  // The theme the viewer sends is the theme the classes paint.
+  await bindFrame(page, 'target-ui-dark', {
+    theme: 'dark',
+    source: '<section class="tmt-ui-card" id="plain">Card</section>',
+  });
+  const dark = await page
+    .frameLocator('#target-ui-dark')
+    .locator('#plain')
+    .evaluate((card) => getComputedStyle(card).backgroundColor);
+  expect(dark).not.toBe(light.card.fill);
+});
+
+/** WCAG's contrast ratio of the ink of each element of a frame on the paper its body paints, with the
+ * root's attributes the design system reads. */
+const inkOnPaper = (page: Page, id: string) =>
+  page
+    .frameLocator(`#${id}`)
+    .locator('html')
+    .evaluate((html) => {
+      const doc = html.ownerDocument;
+      const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).map(Number);
+      const luminance = ([r, g, b]: number[]) => {
+        const channel = (v: number) =>
+          (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
+      };
+      const paper = getComputedStyle(doc.body).backgroundColor;
+      const contrast = (ink: string) => {
+        const [a, b] = [luminance(rgb(ink)), luminance(rgb(paper))].sort((x, y) => y - x);
+        return (a! + 0.05) / (b! + 0.05);
+      };
+      return {
+        paper,
+        design: html.hasAttribute('data-colab-design'),
+        scheme: html.getAttribute('data-colab-scheme'),
+        canvas: getComputedStyle(html).backgroundColor,
+        ink: getComputedStyle(doc.body).color,
+        ratios: ['plain', 'link', 'table', 'field', 'disclosure']
+          .map((name) => doc.getElementById(name))
+          .filter((element) => element !== null)
+          .map((element) => contrast(getComputedStyle(element).color)),
+      };
+    });
+
+test('a page that uses the design system gets the paper and ink of the viewer theme; any other page keeps the white canvas', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const content = `<p id="plain">Plain text <a id="link" href="#">link</a></p>
+    <table class="tmt-ui-table" id="table"><tbody><tr><td>Build</td></tr></tbody></table>
+    <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
+    <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
+  const bare = `<p id="plain">Plain text <a id="link" href="#">link</a></p>`;
+  // A page with none of the markers is untouched: no paint on the body or the root, in both themes.
+  for (const theme of ['light', 'dark'] as const) {
+    const id = `target-bare-${theme}`;
+    await bindFrame(page, id, { theme, source: bare });
+    await expect(page.frameLocator(`#${id}`).locator('#plain')).toBeVisible();
+    expect(await inkOnPaper(page, id)).toMatchObject({
+      design: false,
+      paper: 'rgba(0, 0, 0, 0)',
+      canvas: 'rgba(0, 0, 0, 0)',
+      ink: 'rgb(0, 0, 0)',
+    });
+  }
+  // A `tmt-ui-*` class, a `<tmt-icon>` or the starter's layer opts the page in.
+  const optIns = {
+    class: content,
+    icon: `<tmt-icon name="check"></tmt-icon>${bare}`,
+    starter: `<style>@layer tmt-starter{.x{margin:0}}</style>${bare}`,
+  };
+  const papers = new Map<string, string>();
+  for (const [kind, source] of Object.entries(optIns))
+    for (const theme of ['light', 'dark'] as const) {
+      const id = `target-pair-${kind}-${theme}`;
+      await bindFrame(page, id, { theme, source });
+      await expect(page.frameLocator(`#${id}`).locator('#plain, tmt-icon').first()).toBeAttached();
+      const found = await inkOnPaper(page, id);
+      expect(found.design).toBe(true);
+      // Ink on paper in either theme, for the text, the link and the components with no fill of their own.
+      expect(found.ratios.length).toBeGreaterThan(0);
+      for (const ratio of found.ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+      // The body paints the paper, not the root, so an author's own `body` background still fills the canvas.
+      expect(found.canvas).toBe('rgba(0, 0, 0, 0)');
+      papers.set(`${kind}-${theme}`, found.paper);
+    }
+  for (const kind of Object.keys(optIns))
+    expect(papers.get(`${kind}-light`)).not.toBe(papers.get(`${kind}-dark`));
+  // An author's unlayered rule beats the pair, with or without the markers, and so does the starter's layer.
+  const own = '<style>body{background:rgb(1, 2, 3);color:rgb(250, 250, 250)}</style>';
+  const cases = [
+    ['bare-own', 'dark', `${own}${bare}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['bare-own', 'light', `${own}${bare}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['class-own', 'dark', `${own}${content}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['class-own', 'light', `${own}${content}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    [
+      'starter-own',
+      'dark',
+      `<style>@layer tmt-starter{body{background:rgb(4, 5, 6);color:rgb(240, 240, 240)}}</style>${bare}`,
+      'rgb(4, 5, 6)',
+      'rgb(240, 240, 240)',
+    ],
+  ] as const;
+  for (const [kind, theme, source, paper, ink] of cases) {
+    const id = `target-own-${kind}-${theme}`;
+    await bindFrame(page, id, { theme, source });
+    const body = page.frameLocator(`#${id}`).locator('body');
+    await expect(body).toHaveCSS('background-color', paper);
+    await expect(body).toHaveCSS('color', ink);
+  }
+});
+
+test("a design-system page the author paints takes the scheme it paints, not the viewer's; an unpainted one follows the viewer", async ({
+  page,
+}) => {
+  await page.goto('/');
+  const content = `<p id="plain">Plain text <a id="link" href="#">link</a></p>
+    <table class="tmt-ui-table" id="table"><tbody><tr><td>Build</td></tr></tbody></table>
+    <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
+    <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
+  const light = '<style>body{background:#fffdf7;color:#2b2b2b}a{color:#0a5c3a}</style>';
+  const dark = '<style>body{background:#111418;color:#eef2f4}a{color:#7be0b8}</style>';
+  const cases = [
+    ['own-light-body-in-dark', 'dark', `${light}${content}`, 'light'],
+    ['own-dark-body-in-light', 'light', `${dark}${content}`, 'dark'],
+    ['unpainted-in-dark', 'dark', content, 'dark'],
+    ['unpainted-in-light', 'light', content, 'light'],
+  ] as const;
+  for (const [name, theme, source, scheme] of cases) {
+    const id = `target-scheme-${name}`;
+    await bindFrame(page, id, { theme, source });
+    // The frame measures the page's canvas once it has painted, then the components follow what it paints.
+    await expect(page.frameLocator(`#${id}`).locator('html')).toHaveAttribute(
+      'data-colab-scheme',
+      scheme,
+    );
+    const found = await inkOnPaper(page, id);
+    expect(found.ratios.length).toBe(5);
+    for (const ratio of found.ratios) expect(ratio, name).toBeGreaterThanOrEqual(4.5);
+  }
+  // A page without the markers is not the design system's to scheme.
+  await bindFrame(page, 'target-scheme-bare', { theme: 'dark', source: '<p id="plain">Bare</p>' });
+  await expect(page.frameLocator('#target-scheme-bare').locator('#plain')).toBeVisible();
+  expect(await inkOnPaper(page, 'target-scheme-bare')).toMatchObject({
+    design: false,
+    scheme: null,
+  });
+});
+
+test('a design-system page the frame paints follows a live change of theme; one the author paints stays as painted', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const content = `<p id="plain">Plain text <a id="link" href="#">link</a></p>
+    <table class="tmt-ui-table" id="table"><tbody><tr><td>Build</td></tr></tbody></table>
+    <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
+    <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
+  const setTheme = (id: string, theme: 'light' | 'dark') =>
+    page.evaluate(
+      ({ id, theme }) =>
+        (window as unknown as { colabPorts: Record<string, MessagePort> }).colabPorts[
+          id
+        ].postMessage({
+          type: 'colab.render.theme',
+          renderId: `00000000-0000-4000-8000-000000000003:${'c'.repeat(64)}`,
+          theme,
+        }),
+      { id, theme },
+    );
+  // The scheme the frame measured must not keep painting the page in itself: an unpainted page is painted by
+  // the frame's paper, so it follows the viewer in both directions.
+  await bindFrame(page, 'target-live-unpainted', { theme: 'light', source: content });
+  const unpainted = page.frameLocator('#target-live-unpainted');
+  await expect(unpainted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+  for (const theme of ['dark', 'light', 'dark'] as const) {
+    await setTheme('target-live-unpainted', theme);
+    await expect(unpainted.locator('html')).toHaveAttribute('data-colab-scheme', theme);
+    await expect(unpainted.locator('body')).toHaveCSS(
+      'background-color',
+      theme === 'dark' ? 'rgb(14, 23, 29)' : 'rgb(243, 246, 245)',
+    );
+    const found = await inkOnPaper(page, 'target-live-unpainted');
+    expect(found.ratios.length).toBe(5);
+    for (const ratio of found.ratios) expect(ratio, theme).toBeGreaterThanOrEqual(4.5);
+  }
+  // A page the author paints light stays light under either theme.
+  const light = '<style>body{background:#fffdf7;color:#2b2b2b}a{color:#0a5c3a}</style>';
+  await bindFrame(page, 'target-live-painted', { theme: 'light', source: `${light}${content}` });
+  const painted = page.frameLocator('#target-live-painted');
+  await expect(painted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+  for (const theme of ['dark', 'light'] as const) {
+    await setTheme('target-live-painted', theme);
+    await expect(painted.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(painted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+    const found = await inkOnPaper(page, 'target-live-painted');
+    for (const ratio of found.ratios) expect(ratio, theme).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+test('the native parts of a design-system page take the scheme it paints: a page painted light under a dark viewer is light', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const light = '<style>body{background:#fffdf7;color:#2b2b2b}</style>';
+  const content = '<p>Plain text</p><input class="tmt-ui-field-control" value="Note">';
+  const cases = [
+    ['painted-light-in-dark', 'dark', `${light}${content}`, 'light'],
+    [
+      'painted-dark-in-light',
+      'light',
+      `<style>body{background:#111418;color:#eef2f4}</style>${content}`,
+      'dark',
+    ],
+    ['unpainted-in-dark', 'dark', content, 'dark'],
+    ['unpainted-in-light', 'light', content, 'light'],
+  ] as const;
+  for (const [name, theme, source, scheme] of cases) {
+    const id = `target-native-${name}`;
+    await bindFrame(page, id, { theme, source });
+    const root = page.frameLocator(`#${id}`).locator('html');
+    // The frame measures what the page paints; the native parts follow that, as the tokens do.
+    await expect(root, name).toHaveAttribute('data-colab-scheme', scheme);
+    await expect(root, name).toHaveCSS('color-scheme', scheme);
+  }
+  // A page that does not use the design system keeps the browser's own `color-scheme`.
+  await bindFrame(page, 'target-native-bare', { theme: 'dark', source: '<p>Bare</p>' });
+  await expect(page.frameLocator('#target-native-bare').locator('html')).toHaveCSS(
+    'color-scheme',
+    'normal',
+  );
+});
+
+test('the frame treats a page as using the design system exactly as the shared marker vectors say', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/design-marker-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  expect(vectors.cases.length).toBeGreaterThanOrEqual(20);
+  for (const [index, row] of vectors.cases.entries()) {
+    const id = `target-marker-${index}`;
+    await bindFrame(page, id, { source: row.source });
+    const root = page.frameLocator(`#${id}`).locator('html');
+    // The bootstrap sets the theme first, so the document is written once it is there.
+    await expect(root).toHaveAttribute('data-theme', 'light');
+    if (row.usesDesign) await expect(root, row.name).toHaveAttribute('data-colab-design', '');
+    else await expect(root, row.name).not.toHaveAttribute('data-colab-design');
+  }
+});
+
+test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unknown name draws nothing', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await bindFrame(page, 'target-icons', {
+    source: `<p>Done <tmt-icon id="ok" name="check"></tmt-icon>
+      <tmt-icon id="named" name="circle-check" label="Passed"></tmt-icon>
+      <tmt-icon id="none" name="not-an-icon"></tmt-icon>
+      <tmt-icon id="proto" name="constructor"></tmt-icon></p>`,
+  });
+  const target = page.frameLocator('#target-icons');
+  await expect(target.locator('#ok svg')).toHaveCount(1);
+  expect(
+    await target.locator('#ok svg').evaluate((svg) => ({
+      size: [svg.getAttribute('width'), svg.getAttribute('height')],
+      stroke: svg.getAttribute('stroke-width'),
+      caps: svg.getAttribute('stroke-linecap'),
+      hidden: svg.getAttribute('aria-hidden'),
+    })),
+  ).toEqual({ size: ['16', '16'], stroke: '1.75', caps: 'square', hidden: 'true' });
+  // A named icon is an image with that name; unknown names, and names that are only object keys, draw nothing.
+  await expect(target.locator('#named svg')).toHaveAttribute('role', 'img');
+  await expect(target.locator('#named svg')).toHaveAttribute('aria-label', 'Passed');
+  await expect(target.locator('#none svg')).toHaveCount(0);
+  await expect(target.locator('#proto svg')).toHaveCount(0);
 });
 
 test('a page opts in to the bundled runtime exactly as the shared marker vectors say', async ({
@@ -2069,6 +2396,7 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
         .filter((rule): rule is CSSStyleRule => (rule as CSSStyleRule).selectorText === selector)
         .map((rule) => ({
           line: rule.style.getPropertyValue('text-decoration-line'),
+          style: rule.style.getPropertyValue('text-decoration-style'),
           color: rule.style.getPropertyValue('text-decoration-color'),
           thickness: rule.style.getPropertyValue('text-decoration-thickness'),
           skipInk: rule.style.getPropertyValue('text-decoration-skip-ink'),
@@ -2078,30 +2406,40 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
     return {
       rest: read('::highlight(colab-comments)'),
       hover: read('::highlight(colab-hover)'),
-      rule: root.getPropertyValue('--tmt-ui-color-annotation-rule').trim(),
-      tint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight').trim(),
-      hoverTint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight-hover').trim(),
+      quiet: read('::highlight(colab-quiet)'),
+      accent: root.getPropertyValue('--tmt-ui-color-annotation-rule-selected').trim(),
     };
   });
-  expect(rules.rule).toMatch(/^#[0-9a-f]{6}$/i);
-  expect(rules.tint).toMatch(/^#[0-9a-f]{6}$/i);
-  expect(rules.hoverTint).toMatch(/^#[0-9a-f]{6}$/i);
-  expect(rules.rest).toEqual([
+  expect(rules.accent).toMatch(/^#[0-9a-f]{6}$/i);
+  // One accent at three strengths: a light tint under a 1 px rule at rest, a stronger tint under a
+  // 2 px rule for the pointer.
+  expect(rules.rest).toMatchObject([
     {
       line: 'underline',
-      color: 'var(--tmt-ui-color-annotation-rule)',
+      color: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
       thickness: '1px',
       skipInk: 'none',
-      background: 'var(--tmt-ui-surface-annotation-highlight)',
+      background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 14%,transparent)',
     },
   ]);
-  expect(rules.hover).toEqual([
+  expect(rules.hover).toMatchObject([
     {
       line: 'underline',
-      color: 'var(--tmt-ui-color-annotation-rule)',
+      color: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
       thickness: '2px',
       skipInk: 'none',
-      background: 'var(--tmt-ui-surface-annotation-highlight-hover)',
+      background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 20%,transparent)',
+    },
+  ]);
+  // A resolved thread that is open keeps only a quiet dashed rule: no tint.
+  expect(rules.quiet).toEqual([
+    {
+      line: 'underline',
+      style: 'dashed',
+      color: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
+      thickness: '1px',
+      skipInk: 'none',
+      background: '',
     },
   ]);
 });
@@ -2166,6 +2504,7 @@ const requestHighlight = (
           anchors,
           threadCount: Math.max(0, ...anchors.map((anchor) => anchor.ordinal)),
           draft: null,
+          quiet: null,
         });
       }),
     { id, renderId, requestId, anchors },
@@ -2353,7 +2692,7 @@ const contrast = (first: string, second: string) => {
   return (light + 0.05) / (dark + 0.05);
 };
 
-test('the selected highlight is a stronger tint and a solid rule thicker than the hover look', async ({
+test('the selected highlight is the deepest tint under a solid 2 px accent rule, above the hover look', async ({
   page,
 }) => {
   await page.goto('/');
@@ -2377,55 +2716,67 @@ test('the selected highlight is a stronger tint and a solid rule thicker than th
     return {
       hover: read('::highlight(colab-hover)'),
       selected: read('::highlight(colab-selected)'),
-      tint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight-selected').trim(),
       stroke: root.getPropertyValue('--tmt-ui-color-annotation-rule-selected').trim(),
     };
   });
   expect(rules.selected).toEqual({
     line: 'underline',
     color: 'var(--tmt-ui-color-annotation-rule-selected)',
-    thickness: '3px',
+    thickness: '2px',
     skipInk: 'none',
-    background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
+    background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 28%,transparent)',
   });
-  // The rule steps up from hover's, so the two do not read alike.
-  expect(parseFloat(rules.selected.thickness!)).toBeGreaterThan(parseFloat(rules.hover.thickness!));
-  expect(rules.tint).toBe(
-    tokens.browser.surface['annotation-highlight-selected'].light.toLowerCase(),
-  );
+  // Between the pointer's look and the open thread's: the same thickness, so the two do not read
+  // alike by the rule's colour (the accent whole, not at 45 %) and the tint under it (28 against 20 %).
+  expect(rules.hover.thickness).toBe(rules.selected.thickness);
+  expect(rules.hover.color).not.toBe(rules.selected.color);
   expect(rules.stroke).toBe(tokens.browser.color['annotation-rule-selected'].light.toLowerCase());
 });
 
-test('the selected tint steps clearly from the rest tint and keeps text as readable as hover', () => {
+/** A colour at a share of its strength over a page colour: what the page shows under a tint. */
+const over = (accent: string, share: number, page: string) =>
+  `#${[1, 3, 5]
+    .map((at) => {
+      const top = parseInt(accent.slice(at, at + 2), 16);
+      const below = parseInt(page.slice(at, at + 2), 16);
+      return Math.round(below + (top - below) * share)
+        .toString(16)
+        .padStart(2, '0');
+    })
+    .join('')}`;
+
+test('the tints step from rest through hover to selected and keep page text readable', () => {
   for (const theme of ['light', 'dark'] as const) {
-    const rest = tokens.browser.surface['annotation-highlight'][theme];
-    const hover = tokens.browser.surface['annotation-highlight-hover'][theme];
-    const selected = tokens.browser.surface['annotation-highlight-selected'][theme];
-    expect(contrast(rest, selected), `${theme} rest to selected`).toBeGreaterThanOrEqual(1.3);
-    // Page text at the palette's text colour and at the common near-black / near-white: at 7:1, or
-    // as readable as on the hover tint where that is below 7:1.
+    const accent = tokens.browser.color['annotation-rule-selected'][theme];
+    const page = tokens.browser.surface.sheet[theme];
+    const rest = over(accent, 0.14, page);
+    const hover = over(accent, 0.2, page);
+    const selected = over(accent, 0.28, page);
+    // The rule carries the rest of the difference (a solid 2 px under the open thread's).
+    expect(contrast(rest, selected), `${theme} rest to selected`).toBeGreaterThanOrEqual(1.15);
+    expect(contrast(rest, hover), `${theme} rest to hover`).toBeGreaterThan(1.0);
+    // Page text at the palette's text colour and at the common near-black / near-white stays at 4.5:1
+    // (AA) even on the deepest tint, checked on the composited fill.
     for (const text of [
       tokens.browser.color.text[theme],
       theme === 'light' ? '#343434' : '#dddddd',
     ])
-      expect(contrast(text, selected), `${theme} ${text} on selected`).toBeGreaterThanOrEqual(
-        Math.min(7, contrast(text, hover)),
-      );
+      expect(contrast(text, selected), `${theme} ${text} on selected`).toBeGreaterThanOrEqual(4.5);
   }
 });
 
-/** The pixel row of the clip with the most of the rule's colour: how much of the clip's width the rule
- * covers there and how much shows the tint instead, which is a gap in the rule. A glyph's tail
- * crossing the rule is neither. */
+/** The pixel row of the clip that one colour other than the page's or the tint's covers most: how much
+ * of the clip's width the rule covers there and how much shows the tint instead, which is a gap in the
+ * rule. A glyph's tail crossing the rule is neither. The rule is translucent, so its colour is the one
+ * the row shows, not a token's. */
 async function ruleRow(
   page: Page,
   clip: { x: number; y: number; width: number; height: number },
-  rule: string,
   tint: string,
 ) {
   const png = (await page.screenshot({ clip })).toString('base64');
   return page.evaluate(
-    async ({ png, rule, tint }) => {
+    async ({ png, tint }) => {
       const image = new Image();
       image.src = `data:image/png;base64,${png}`;
       await image.decode();
@@ -2438,20 +2789,25 @@ async function ruleRow(
       const channels = (hex: string) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
       const near = (at: number, colour: number[], tolerance: number) =>
         colour.every((channel, index) => Math.abs(data[at + index]! - channel) <= tolerance);
+      const page = [255, 255, 255];
       let best = { rule: 0, gaps: 1 };
       for (let y = 0; y < height; y++) {
-        let ruled = 0;
+        const colours = new Map<string, number>();
         let gaps = 0;
         for (let x = 0; x < width; x++) {
           const at = (y * width + x) * 4;
-          if (near(at, channels(rule), 12)) ruled++;
-          else if (near(at, channels(tint), 4)) gaps++;
+          if (near(at, channels(tint), 4)) gaps++;
+          else if (!near(at, page, 4)) {
+            const key = `${data[at]},${data[at + 1]},${data[at + 2]}`;
+            colours.set(key, (colours.get(key) ?? 0) + 1);
+          }
         }
+        const ruled = Math.max(0, ...colours.values());
         if (ruled / width > best.rule) best = { rule: ruled / width, gaps: gaps / width };
       }
       return best;
     },
-    { png, rule, tint },
+    { png, tint },
   );
 }
 
@@ -2495,15 +2851,11 @@ test('the hover and selected rules run unbroken under descenders', async ({ page
   await expect
     .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-hover')))
     .toBe(true);
-  const hovered = await ruleRow(
-    page,
-    clip,
-    tokens.browser.color['annotation-rule'].light,
-    tokens.browser.surface['annotation-highlight-hover'].light,
-  );
+  const accent = tokens.browser.color['annotation-rule-selected'].light;
+  const hovered = await ruleRow(page, clip, over(accent, 0.2, '#ffffff'));
   expect(hovered.rule).toBeGreaterThan(0.7);
   expect(hovered.gaps).toBeLessThan(0.01);
-  // Selected: the 3 px rule in the selected colour, with the pointer away.
+  // Selected: the 2 px rule in the accent, with the pointer away.
   await page.evaluate(() =>
     (
       window as unknown as { probe: { handle: { select(id: string | null): void } } }
@@ -2513,12 +2865,7 @@ test('the hover and selected rules run unbroken under descenders', async ({ page
   await expect
     .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-selected')))
     .toBe(true);
-  const selected = await ruleRow(
-    page,
-    clip,
-    tokens.browser.color['annotation-rule-selected'].light,
-    tokens.browser.surface['annotation-highlight-selected'].light,
-  );
+  const selected = await ruleRow(page, clip, over(accent, 0.28, '#ffffff'));
   expect(selected.rule).toBeGreaterThan(0.7);
   expect(selected.gaps).toBeLessThan(0.01);
 });
@@ -2563,12 +2910,13 @@ test('without the Highlight API the selected passage keeps the same look on its 
     }),
   ).toBe('none');
   const rest = {
-    background: 'var(--tmt-ui-surface-annotation-highlight)',
-    border: '1px solid var(--tmt-ui-color-annotation-rule)',
+    background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 14%,transparent)',
+    border:
+      '1px solid color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
   };
   const selected = {
-    background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
-    border: '3px solid var(--tmt-ui-color-annotation-rule-selected)',
+    background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 28%,transparent)',
+    border: '2px solid var(--tmt-ui-color-annotation-rule-selected)',
   };
   expect(await marks()).toEqual([
     { thread: 'one', ...rest },
@@ -2592,6 +2940,165 @@ test('without the Highlight API the selected passage keeps the same look on its 
     { thread: 'one', ...rest },
     { thread: 'two', ...rest },
   ]);
+});
+
+type QuietHandle = {
+  highlight(
+    anchors: { id: string; selector: unknown; ordinal: number }[],
+    draft?: unknown,
+    threadCount?: number,
+    quiet?: { id: string; selector: unknown },
+  ): void;
+  select(id: string | null): void;
+  scrollAnchor(id: string): void;
+};
+const quietQuote = (exact: string) => ({ exact, prefix: '', suffix: '' });
+
+test('a quiet thread draws only a dashed rule, reports its passage and scrolls to it, and is no marker, hover target or selection', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:20px;position:relative}.space{height:1800px}</style><div class="space"></div><p id="quote">Resolved passage</p><p id="other">Open passage</p><div class="space"></div>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(
+    ([resolved, open]) =>
+      (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+        [{ id: 'open', selector: open, ordinal: 1 }],
+        undefined,
+        1,
+        {
+          id: 'done',
+          selector: resolved,
+        },
+      ),
+    [quietQuote('Resolved passage'), quietQuote('Open passage')],
+  );
+  const frame = page.frameLocator('#probe iframe');
+  // Both passages resolve; only the open thread is a marker.
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["open","done"]');
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(1);
+  expect(
+    await frame
+      .locator('html')
+      .evaluate(() => [CSS.highlights.has('colab-quiet'), CSS.highlights.has('colab-comments')]),
+  ).toEqual([true, true]);
+  // It is not a selection: the page's selected look stays off, and the pointer over it draws nothing.
+  await page.evaluate(() =>
+    (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.select('done'),
+  );
+  const box = (await frame.locator('#quote').boundingBox())!;
+  await page.mouse.move(box.x + 10, box.y + 8);
+  expect(
+    await frame
+      .locator('html')
+      .evaluate(() => [CSS.highlights.has('colab-selected'), CSS.highlights.has('colab-hover')]),
+  ).toEqual([false, false]);
+  // The page scrolls to it like to any anchor.
+  await page.evaluate(() =>
+    (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.scrollAnchor('done'),
+  );
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(1700);
+  // A new request without it takes the rule off again.
+  await page.evaluate(() =>
+    (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+      [],
+      undefined,
+      0,
+    ),
+  );
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-quiet')))
+    .toBe(false);
+});
+
+test('a quiet thread whose ID is an anchor, or whose quote does not resolve, is refused or drawn nowhere', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote">Only passage</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(
+    (quote) =>
+      (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+        [{ id: 'one', selector: quote, ordinal: 1 }],
+        undefined,
+        1,
+      ),
+    quietQuote('Only passage'),
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["one"]');
+  // The same ID twice is refused as a whole: nothing changes.
+  await page.evaluate(
+    (quote) =>
+      (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+        [{ id: 'one', selector: quote, ordinal: 1 }],
+        undefined,
+        1,
+        {
+          id: 'one',
+          selector: quote,
+        },
+      ),
+    quietQuote('Only passage'),
+  );
+  const frame = page.frameLocator('#probe iframe');
+  expect(await frame.locator('html').evaluate(() => CSS.highlights.has('colab-quiet'))).toBe(false);
+  // A quote the page no longer holds draws nothing and is not reported as resolved.
+  await page.evaluate(() =>
+    (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+      [],
+      undefined,
+      0,
+      {
+        id: 'gone',
+        selector: { exact: 'A passage that is not here', prefix: '', suffix: '' },
+      },
+    ),
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  expect(await frame.locator('html').evaluate(() => CSS.highlights.has('colab-quiet'))).toBe(false);
+});
+
+test('without the Highlight API a quiet thread is one dashed overlay rule and no marked thread', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:24px;font:20px/1.6 sans-serif}</style><p>Resolved passage here.</p><script>window.Highlight=undefined;</script>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(
+    (quote) =>
+      (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+        [],
+        undefined,
+        0,
+        { id: 'done', selector: quote },
+      ),
+    quietQuote('Resolved passage'),
+  );
+  const frame = page.frameLocator('#probe iframe');
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["done"]');
+  const marks = () =>
+    frame.locator('body').evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-colab-highlight] > div')].map((mark) => ({
+        thread: mark.dataset.thread,
+        background: mark.style.background,
+        border: mark.style.borderBottom,
+      })),
+    );
+  await expect.poll(async () => (await marks()).length).toBeGreaterThan(0);
+  for (const mark of await marks())
+    expect(mark).toEqual({
+      thread: undefined,
+      background: '',
+      border:
+        '1px dashed color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
+    });
 });
 
 for (const layout of [undefined, 'column'] as const)

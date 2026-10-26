@@ -6,8 +6,10 @@ mod durable;
 mod durable_fixture;
 mod durable_refusals;
 mod faults;
+mod incarnation;
 mod lifecycle;
 mod policies;
+mod reinvite;
 mod submissions;
 use super::{
     port::*,

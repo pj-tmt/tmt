@@ -21,12 +21,12 @@ pub struct HostLaunch {
     pub launch: Option<LaunchTemplate>,
 }
 
-/// `built_in` first, then each approved host driver in the registry's order. A driver offers
-/// its template only while its executable is the one that was approved: otherwise the command
-/// line is not one the user saw. A stored template is validated again, as the registry file
-/// is not trusted. The built-in host is named by `host.rs`, which owns the terminal hosts.
+/// The `built_in` hosts first, then each approved host driver in the registry's order. A driver
+/// offers its template only while its executable is the one that was approved: otherwise the
+/// command line is not one the user saw. A stored template is validated again, as the registry
+/// file is not trusted. The built-in hosts are named by `host.rs`, which owns the terminal hosts.
 pub(super) fn compose(
-    built_in: HostLaunch,
+    built_in: Vec<HostLaunch>,
     drivers: &[(DriverRecord, ApprovalState)],
 ) -> Vec<HostLaunch> {
     let hosts = drivers.iter().filter_map(|(record, state)| {
@@ -42,7 +42,7 @@ pub(super) fn compose(
             launch,
         })
     });
-    std::iter::once(built_in).chain(hosts).collect()
+    built_in.into_iter().chain(hosts).collect()
 }
 
 #[cfg(test)]
@@ -76,7 +76,7 @@ mod tests {
     }
 
     fn launch_templates(drivers: &[(DriverRecord, ApprovalState)]) -> Vec<HostLaunch> {
-        compose(first(), drivers)
+        compose(vec![first()], drivers)
     }
 
     fn herdr_template() -> serde_json::Value {

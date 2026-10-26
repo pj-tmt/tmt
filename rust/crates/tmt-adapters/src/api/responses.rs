@@ -60,7 +60,7 @@ pub(super) fn recent(
 /// know when the list is empty: an agent whose driver has hooks but no turn-end hook has its
 /// answers uncaptured until the user runs `tmt setup` (#4914). A driver without hooks, or an
 /// agent that never ran one, has nothing to say.
-fn capture(
+pub(super) fn capture(
     driver: Option<&str>,
     installed: impl Fn(&crate::drivers::DriverDefinition) -> bool,
 ) -> Option<serde_json::Value> {

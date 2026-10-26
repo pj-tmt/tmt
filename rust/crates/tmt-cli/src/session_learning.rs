@@ -1,5 +1,5 @@
 //! Invocation-local coordination of stored startup evidence; no delivery authority.
-use std::time::Instant;
+use std::{cell::Cell, time::Instant};
 use tmt_adapters::{
     config::ConfigPaths,
     process::{
@@ -19,8 +19,8 @@ use tmt_core::{
         session::{
             HarnessId, RuntimeState, SessionTransition,
             launch::{
-                LaunchObservation, LaunchStatus, PendingStart, SessionLearningDiagnostic,
-                SessionLearningReason, SessionLearningStep,
+                LaunchObservation, LaunchStatus, PendingStart, SessionLearningDetail,
+                SessionLearningDiagnostic, SessionLearningReason, SessionLearningStep,
             },
         },
     },
@@ -28,10 +28,32 @@ use tmt_core::{
 };
 
 pub const ENVIRONMENT: &str = "TMT_LAUNCH_OBSERVATION";
+/// One change to the stored diagnostic of a launch.
+enum Update {
+    /// Enter a step, dropping what the previous one stopped on.
+    Stage(SessionLearningStep, Option<SessionLearningDetail>),
+    /// Name what the current step stopped on.
+    Note(SessionLearningDetail),
+    /// End the current step with this reason, unless it already has a final one.
+    Fail(SessionLearningReason),
+}
+/// What a hook run can do to the launch it reports to. A run learns this from its payload,
+/// so it starts as `Unknown`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// The payload has not been read yet.
+    Unknown,
+    /// A lifecycle event: it can bind or end the session, so its progress is the launch's.
+    Binding,
+    /// A turn, prompt or activity event, or one nothing decodes: it cannot bind, and it keeps
+    /// what an earlier run stored for a launch that is not admitted yet.
+    Observer,
+}
 pub struct Learning {
     pub launch: HookLaunch,
     pub driver: HarnessId,
     paths: ConfigPaths,
+    role: Cell<Role>,
 }
 impl Learning {
     pub fn capture(provider: &str) -> Option<Self> {
@@ -45,7 +67,12 @@ impl Learning {
             launch,
             driver: HarnessId::new(provider).ok()?,
             paths: ConfigPaths::discover().ok()?,
+            role: Cell::new(Role::Unknown),
         })
+    }
+    /// Says what this run can do, once its payload is known.
+    pub fn set_role(&self, role: Role) {
+        self.role.set(role);
     }
     fn owner(&self, deadline: Instant) -> Result<ProcessIncarnation, ()> {
         let owner = self.launch.owner().ok_or(())?;
@@ -59,17 +86,25 @@ impl Learning {
     /// Diagnostics select only a pre-existing launch row. An environment value
     /// never creates one or changes a runtime, preference or delivery decision.
     pub fn stage(&self, step: SessionLearningStep, deadline: Instant) -> Result<(), ()> {
-        self.diagnostic(Some(step), None, deadline)
+        self.diagnostic(Update::Stage(step, None), deadline)
     }
-    pub fn fail(&self, reason: SessionLearningReason, deadline: Instant) -> Result<(), ()> {
-        self.diagnostic(None, Some(reason), deadline)
-    }
-    fn diagnostic(
+    /// A stage that already knows why it will not go on.
+    pub fn stage_detail(
         &self,
-        step: Option<SessionLearningStep>,
-        reason: Option<SessionLearningReason>,
+        step: SessionLearningStep,
+        detail: SessionLearningDetail,
         deadline: Instant,
     ) -> Result<(), ()> {
+        self.diagnostic(Update::Stage(step, Some(detail)), deadline)
+    }
+    /// Names what the current step stopped on, keeping its step and reason.
+    pub fn note(&self, detail: SessionLearningDetail, deadline: Instant) -> Result<(), ()> {
+        self.diagnostic(Update::Note(detail), deadline)
+    }
+    pub fn fail(&self, reason: SessionLearningReason, deadline: Instant) -> Result<(), ()> {
+        self.diagnostic(Update::Fail(reason), deadline)
+    }
+    fn diagnostic(&self, update: Update, deadline: Instant) -> Result<(), ()> {
         let owner = self.owner(deadline)?;
         let mut storage = Storage::open_hook(&self.paths.database, deadline).map_err(|_| ())?;
         let result = storage
@@ -85,26 +120,49 @@ impl Learning {
                     return Ok(observed.diagnostic.is_some());
                 }
 
+                // A run that cannot bind never overwrites what an earlier run stored for a launch
+                // that is not admitted yet: the SessionStart refusal is the one worth reading.
+                // Such a run names its own reason only when nothing more specific is stored.
+                let keeps = self.role.get() != Role::Binding
+                    && observed.status != LaunchStatus::Admitted
+                    && observed.diagnostic.is_some();
+                if keeps {
+                    let named = observed.diagnostic.is_some_and(|d| d.detail.is_some());
+                    if !matches!(update, Update::Note(_)) || named {
+                        return Ok(true);
+                    }
+                }
                 let mut next = observed.clone();
-                let previous = observed.diagnostic.unwrap_or(SessionLearningDiagnostic {
-                    step: SessionLearningStep::Input,
-                    reason: SessionLearningReason::NotAdmitted,
-                });
-                next.diagnostic = Some(SessionLearningDiagnostic {
-                    step: step.unwrap_or(previous.step),
-                    reason: if step.is_some() {
-                        if observed.status == LaunchStatus::Admitted {
+                let previous = observed
+                    .diagnostic
+                    .unwrap_or(SessionLearningDiagnostic::new(
+                        SessionLearningStep::Input,
+                        SessionLearningReason::NotAdmitted,
+                    ));
+                next.diagnostic = Some(match update {
+                    Update::Stage(step, detail) => SessionLearningDiagnostic {
+                        step,
+                        reason: if observed.status == LaunchStatus::Admitted {
                             SessionLearningReason::InProgress
                         } else {
                             SessionLearningReason::NotAdmitted
-                        }
-                    } else if matches!(
-                        previous.reason,
-                        SessionLearningReason::NotAdmitted | SessionLearningReason::InProgress
-                    ) {
-                        reason.unwrap_or(previous.reason)
-                    } else {
-                        previous.reason
+                        },
+                        detail,
+                    },
+                    Update::Note(detail) => SessionLearningDiagnostic {
+                        detail: Some(detail),
+                        ..previous
+                    },
+                    Update::Fail(reason) => SessionLearningDiagnostic {
+                        reason: if matches!(
+                            previous.reason,
+                            SessionLearningReason::NotAdmitted | SessionLearningReason::InProgress
+                        ) {
+                            reason
+                        } else {
+                            previous.reason
+                        },
+                        ..previous
                     },
                 });
                 records.set_launch_observation(&observed, &next)
@@ -182,10 +240,10 @@ impl Learning {
                 let mut ended = pending.clone();
                 ended.transition = SessionTransition::Ended;
                 next.pending = Some(ended);
-                next.diagnostic = Some(SessionLearningDiagnostic {
-                    step: SessionLearningStep::Storage,
-                    reason: SessionLearningReason::LaunchEnded,
-                });
+                next.diagnostic = Some(SessionLearningDiagnostic::new(
+                    SessionLearningStep::Storage,
+                    SessionLearningReason::LaunchEnded,
+                ));
                 records.set_launch_observation(&observed, &next)
             })
             .map_err(|_| ());
@@ -284,20 +342,20 @@ impl Learning {
                         records,
                         &observed,
                         LaunchStatus::Settled,
-                        Some(SessionLearningDiagnostic {
-                            step: SessionLearningStep::Storage,
-                            reason: SessionLearningReason::Conflict,
-                        }),
+                        Some(SessionLearningDiagnostic::new(
+                            SessionLearningStep::Storage,
+                            SessionLearningReason::Conflict,
+                        )),
                     )?;
                     return Ok(false);
                 }
                 let mut next = observed.clone();
                 next.status = LaunchStatus::Pending;
                 next.pending = Some(pending);
-                next.diagnostic = Some(SessionLearningDiagnostic {
-                    step: SessionLearningStep::Storage,
-                    reason: SessionLearningReason::NotAdmitted,
-                });
+                next.diagnostic = Some(SessionLearningDiagnostic::new(
+                    SessionLearningStep::Storage,
+                    SessionLearningReason::NotAdmitted,
+                ));
                 records.set_launch_observation(&observed, &next)
             })
             .map_err(|_| ());
@@ -342,10 +400,10 @@ pub fn finish_records(
         let diagnostic = if observed.status == LaunchStatus::Admitted {
             None
         } else {
-            diagnostic.or(Some(SessionLearningDiagnostic {
-                step: SessionLearningStep::Storage,
-                reason: SessionLearningReason::LaunchEnded,
-            }))
+            diagnostic.or(Some(SessionLearningDiagnostic::new(
+                SessionLearningStep::Storage,
+                SessionLearningReason::LaunchEnded,
+            )))
         };
         settle(records, &observed, LaunchStatus::Settled, diagnostic)?;
     }
@@ -364,6 +422,7 @@ pub fn finish_launch(
 pub struct LearningView {
     pub step: &'static str,
     pub reason: &'static str,
+    pub detail: Option<&'static str>,
     pub next_step: String,
 }
 pub fn view(
@@ -394,6 +453,7 @@ fn from_observation(
     observed.diagnostic.map(|diagnostic| LearningView {
         step: diagnostic.step.as_str(),
         reason: diagnostic.reason.as_str(),
+        detail: diagnostic.detail.map(SessionLearningDetail::as_str),
         next_step: tmt_core::binding::session::launch::session_learning_recovery(
             identity,
             &observed.driver,
@@ -411,9 +471,24 @@ pub fn identity_view(
         .and_then(|(_, observed)| from_observation(observed, identity, preferences)))
 }
 
+impl LearningView {
+    /// `step: reason`, with what the step stopped on when it is known.
+    pub fn cause(&self) -> String {
+        match self.detail {
+            Some(detail) => format!("{}: {}, {detail}", self.step, self.reason),
+            None => format!("{}: {}", self.step, self.reason),
+        }
+    }
+}
+
 pub fn document(view: &LearningView) -> serde_json::Value {
-    serde_json::json!({"step":view.step,"reason":view.reason,"nextStep":view.next_step})
+    let mut document =
+        serde_json::json!({"step":view.step,"reason":view.reason,"nextStep":view.next_step});
+    if let Some(detail) = view.detail {
+        document["detail"] = detail.into();
+    }
+    document
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

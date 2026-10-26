@@ -1,5 +1,110 @@
 use super::{details::DriverUsage, *};
 
+/// A usage-only writer must not discard a real Claude Stop payload (#5082).
+#[test]
+fn a_claude_stop_final_survives_a_concurrent_usage_observation() {
+    use crate::{runtime::lifecycle::RuntimeLifecycle, storage::ResponseCapture};
+    use tmt_core::binding::BindingRecords;
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let session = tmt_core::binding::session::ProviderSessionId::new("fixture-session").unwrap();
+    let process = tmt_core::endpoint::ProcessIncarnation::new(12, "provider-start").unwrap();
+    let initial = Storage::context_by_identity(&path, &id, 5000)
+        .unwrap()
+        .unwrap();
+    let mut state = initial.entry.binding.as_ref().unwrap().session.clone();
+    state.state = tmt_core::binding::session::RuntimeState::Running;
+    state.key = Some(tmt_core::binding::session::ObservedSessionKey {
+        incarnation: process.clone(),
+        provider_session: Some(session.clone()),
+    });
+    let mut rows = BindingRows(storage.connection().unwrap());
+    assert!(
+        rows.set_session_state(
+            "fixture-binding",
+            &initial.entry.binding.as_ref().unwrap().session,
+            &state
+        )
+        .unwrap()
+    );
+    let lifecycle = crate::drivers::claude::ClaudeLifecycle;
+    let prompt = br#"{"hook_event_name":"UserPromptSubmit","session_id":"fixture-session","prompt":"question"}"#;
+    let activity = lifecycle.decode_activity(prompt).unwrap();
+    let mut preferences = initial.preferences.clone();
+    preferences.remembered.as_mut().unwrap().state =
+        lifecycle.activity_state(&activity, &session, &process, None, 5000);
+    rows.set_session_preferences(&id, &preferences).unwrap();
+    let original = Storage::context_by_identity(&path, &id, 6000)
+        .unwrap()
+        .unwrap();
+    let mut sampled = original.preferences.clone();
+    sampled.remembered.as_mut().unwrap().state = crate::runtime::driver_state::after_observation(
+        Some(crate::runtime::driver_state::Usage::new(12, None, 6000).unwrap()),
+        None,
+        original
+            .preferences
+            .remembered
+            .as_ref()
+            .unwrap()
+            .state
+            .as_ref(),
+    );
+    BindingRows(storage.connection().unwrap())
+        .set_session_preferences(&id, &sampled)
+        .unwrap();
+    let payload = br#"{"hook_event_name":"Stop","session_id":"fixture-session","stop_hook_active":false,"last_assistant_message":"answer before the blocking checklist"}"#;
+    let turn = lifecycle.decode_turn(payload).unwrap();
+    let activity = lifecycle.decode_activity(payload).unwrap();
+    assert!(
+        storage
+            .capture_turn_end(crate::storage::TurnCapture {
+                expected: &original,
+                process: &process,
+                activity: &activity,
+                interrupted: false,
+                response: Some(ResponseCapture {
+                    text: turn.final_text.unwrap()
+                }),
+                now_ms: 7000,
+                deadline: Instant::now() + std::time::Duration::from_secs(2),
+            })
+            .unwrap()
+    );
+    let committed = BindingRows(storage.connection().unwrap())
+        .session_preferences(&id)
+        .unwrap();
+    let committed_state = committed
+        .remembered
+        .as_ref()
+        .unwrap()
+        .state
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        crate::runtime::driver_state::state_usage(committed_state)
+            .unwrap()
+            .tokens,
+        12,
+        "capture preserves the newer usage writer"
+    );
+    assert_eq!(
+        crate::runtime::driver_state::state_activity(committed_state)
+            .unwrap()
+            .phase,
+        tmt_core::binding::session::activity::ActivityPhase::Idle
+    );
+    let response = storage.recent_responses(&id, 10, None, 8000).unwrap();
+    assert_eq!(
+        response["items"].as_array().unwrap().len(),
+        1,
+        "an admitted final is independent of optional usage: {response:#}"
+    );
+    assert_eq!(
+        response["items"][0]["text"],
+        "answer before the blocking checklist"
+    );
+}
+
 // Literal expectations characterize the pre-optimization public projection.
 #[test]
 fn history_empty_and_missing_keep_complete_wire_shape() {
@@ -1423,7 +1528,7 @@ mod family {
             [file(1), file(2)]
         );
         // One row moves, one is folded away; the unchanged header is not rewritten.
-        let cursor = storage.change_cursor().unwrap();
+        let cursor = storage.usage_cursor().unwrap();
         write(
             &storage,
             &id,
@@ -1432,10 +1537,10 @@ mod family {
             vec![member(1, 150)],
             vec![file(2)],
         );
-        assert!(storage.change_cursor().unwrap() > cursor);
+        assert!(storage.usage_cursor().unwrap() > cursor);
         let stored = storage.consumption_family(&id).unwrap().unwrap();
         assert_eq!(stored.members, [member(1, 150)]);
-        let cursor = storage.change_cursor().unwrap();
+        let cursor = storage.usage_cursor().unwrap();
         write(
             &storage,
             &id,
@@ -1445,7 +1550,7 @@ mod family {
             vec![],
         );
         assert_eq!(
-            storage.change_cursor().unwrap(),
+            storage.usage_cursor().unwrap(),
             cursor,
             "an identical write changes nothing"
         );

@@ -77,6 +77,8 @@ pub struct PassthroughCapture {
     pub bound_at_ms: Option<u64>,
     /// Typed into a turn that was already running, so bound to it when typed (#4912).
     pub folded: bool,
+    /// Explicit conversation grouping; it grants no runtime authority.
+    pub input_batch_id: Option<String>,
     pub answer: Option<PassthroughAnswer>,
     pub settled_at_ms: Option<u64>,
 }
@@ -107,6 +109,7 @@ impl PassthroughCapture {
             bound_turn: None,
             bound_at_ms: None,
             folded: false,
+            input_batch_id: None,
             answer: None,
             settled_at_ms: None,
         }

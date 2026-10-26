@@ -146,12 +146,27 @@ function expectNativeSchema(
     { version: 71, name: "keep an agent's answers 7 days, 16 KiB each, and say what was dropped" },
     { version: 72, name: 'name the retained final a captured passthrough answer came from' },
     { version: 73, name: 'store orchestration plans and their decision journal' },
+    {
+      version: 74,
+      name: 'count usage writes on their own cursor, so the sampler does not wake the board',
+    },
+    { version: 75, name: 'let a session-learning diagnostic name what its step stopped on' },
+    { version: 76, name: 'record ordered conversation input batches and finals' },
+    {
+      version: 77,
+      name: 'let a session-learning diagnostic name why a decoded hook admitted nothing',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
       'change_cursor',
+      'capture_batches',
+      'capture_entries',
+      'capture_acknowledgements',
+      'capture_floor',
+      'usage_cursor',
       'consumption_sources',
       'consumption_buckets',
       'consumption_tier5m',
@@ -285,6 +300,7 @@ function expectNativeSchema(
         'observed_at_ms',
         'step',
         'reason',
+        'detail',
       ],
     ],
     ['digest_counters', ['identity_id', 'due_through_sequence', 'delivered_digests']],

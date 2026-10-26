@@ -1,0 +1,105 @@
+{
+  "description": "Design-system markers (#5057): whether a page's HTML source uses the design system, so the renderer frame paints it and a standalone export carries the design system. The rule is stated once in colab-v1.md, 'Page frame': the source contains tmt-ui-, <tmt-icon or tmt-starter, ignoring ASCII case, as plain text with no parsing. The renderer frame, the browser export and the native export all test against this file.",
+  "cases": [
+    {
+      "name": "a tmt-ui class",
+      "source": "<section class=\"tmt-ui-card\">x</section>",
+      "usesDesign": true
+    },
+    {
+      "name": "a tmt-ui class in capitals",
+      "source": "<section class=\"TMT-UI-CARD\">x</section>",
+      "usesDesign": true
+    },
+    {
+      "name": "a tmt-icon element",
+      "source": "<p><tmt-icon name=\"check\"></tmt-icon></p>",
+      "usesDesign": true
+    },
+    {
+      "name": "a tmt-icon element in capitals",
+      "source": "<p><TMT-ICON name=\"check\"></TMT-ICON></p>",
+      "usesDesign": true
+    },
+    {
+      "name": "an element name that starts with tmt-icon",
+      "source": "<tmt-iconic></tmt-iconic>",
+      "usesDesign": true
+    },
+    {
+      "name": "the starter's layer",
+      "source": "<style>@layer tmt-starter{body{margin:0}}</style><p>x</p>",
+      "usesDesign": true
+    },
+    {
+      "name": "the starter's layer in capitals",
+      "source": "<style>@layer TMT-STARTER{body{margin:0}}</style>",
+      "usesDesign": true
+    },
+    {
+      "name": "a name in a comment",
+      "source": "<!-- tmt-ui-card --><p>x</p>",
+      "usesDesign": true
+    },
+    {
+      "name": "a name in prose",
+      "source": "<p>the tmt-ui-card class</p>",
+      "usesDesign": true
+    },
+    {
+      "name": "a name in a script",
+      "source": "<script>el.className = \"tmt-ui-\" + kind</script>",
+      "usesDesign": true
+    },
+    {
+      "name": "a page with none",
+      "source": "<p>plain</p>",
+      "usesDesign": false
+    },
+    {
+      "name": "the runtime marker alone",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"react\"><p>x</p>",
+      "usesDesign": false
+    },
+    {
+      "name": "tmt-ui without its dash",
+      "source": "<p class=\"tmt-ui\">x</p>",
+      "usesDesign": false
+    },
+    {
+      "name": "a class with a different prefix",
+      "source": "<p class=\"ui-card tmt_ui-card\">x</p>",
+      "usesDesign": false
+    },
+    {
+      "name": "tmt icon as two words",
+      "source": "<p>tmt icon</p>",
+      "usesDesign": false
+    },
+    {
+      "name": "the closing tag alone",
+      "source": "</tmt-icon>",
+      "usesDesign": false
+    },
+    {
+      "name": "a dotted capital I is not an ASCII letter",
+      "source": "<p class=\"tmt-u\u0130-card\">x</p>",
+      "usesDesign": false
+    },
+    {
+      "name": "a long s is not an ASCII letter",
+      "source": "<style>@layer tmt-\u017ftarter{}</style>",
+      "usesDesign": false
+    },
+    {
+      "name": "fullwidth letters are not ASCII",
+      "source": "<p class=\"\uff54\uff4d\uff54-\uff55\uff49-card\">x</p>",
+      "usesDesign": false
+    },
+    {
+      "name": "an empty source",
+      "source": "",
+      "usesDesign": false
+    }
+  ]
+}

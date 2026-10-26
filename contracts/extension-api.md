@@ -42,38 +42,40 @@ operation was performed. Other storage-open failures retain `API_UNAVAILABLE`
 or the resource's existing code. `capabilities` and `storage.root` remain
 independent of storage access.
 
-| Operation                | Input                                                                                               | Result                                                                                                                                                            |
-| ------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities`           | `{}`                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
-| `orchestration.read`     | Tagged `view`: `overview`, `plans`, `preview` or `why`                                              | [Orchestration v1](orchestration-v1.md): effective field sources, timeline, in-memory preview or retained decision page; additive at API version 1                |
-| `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
-| `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's board-relevant durable records change (see below)                                           |
-| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                             |
-| `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
-| `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
-| `requests.ack`           | `items`: 1–50 of `{requestId, revision}`; the envelope names the originator                         | `items`: per request `{requestId, revision, status}`; `status` is `acknowledged`, `already`, `conflict` (with `current`) or `notFound`                            |
-| `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))     |
-| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `capture?`, `nextBefore?`: locally retained provider-final pane output (see below)                                             |
-| `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                         |
-| `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                      |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                |
-| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                               | Room resource                                                                                                                                                     |
-| `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                                             | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT` |
-| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`                                       | `room` resource and `members` with metadata and status                                                                                                            |
-| `notes.read`             | `identityId`                                                                                        | Saved identity's `identityId`, `name`, `content`                                                                                                                  |
-| `identityHooks.register` | `consumer`, `identityId`, `reference`                                                               | `state`: `registered`, `pending` or `delivered`                                                                                                                   |
-| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                                          | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count                                                                           |
-| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                                               | `recorded`                                                                                                                                                        |
-| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                               | `acknowledged`                                                                                                                                                    |
-| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                                | `owner`, `published` targets                                                                                                                                      |
-| `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                 | `owner`, `removed` and `kept` targets                                                                                                                             |
-| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
-| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs` | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                              |
-| `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                           |
-| `user.identity`          | `{}`                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                         |
-| `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                            |
-| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, and `canPassthrough` (see [below](#passthrough-dispatch))       |
-| `extensions.uses`        | `extension`, `feature`                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
+| Operation                | Input                                                                                               | Result                                                                                                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities`           | `{}`                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                               |
+| `orchestration.read`     | Tagged `view`: `overview`, `plans`, `preview` or `why`                                              | [Orchestration v1](orchestration-v1.md): effective field sources, timeline, in-memory preview or retained decision page; additive at API version 1                          |
+| `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                             |
+| `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change; `usage`: the same kind of integer for the usage sampler's records (see below) |
+| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                                       |
+| `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))                        |
+| `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                          |
+| `requests.ack`           | `items`: 1–50 of `{requestId, revision}`; the envelope names the originator                         | `items`: per request `{requestId, revision, status}`; `status` is `acknowledged`, `already`, `conflict` (with `current`) or `notFound`                                      |
+| `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))               |
+| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `capture?`, `nextBefore?`: locally retained provider-final pane output (see below)                                                       |
+| `responses.timeline`     | `identityId`, optional `limit` (1–50, default 50), optional opaque `before`                         | Ordered captured inputs and replies, canonical final bodies, coverage and painted-answer acknowledgement keys (see below)                                                   |
+| `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                                   |
+| `terminal.stream`        | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `socket`, `pane`: where a built-in-host member's terminal stream is (see [below](#terminal-stream))                                                   |
+| `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                                |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                          |
+| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                               | Room resource                                                                                                                                                               |
+| `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                                             | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT`           |
+| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`                                       | `room` resource and `members` with metadata and status                                                                                                                      |
+| `notes.read`             | `identityId`                                                                                        | Saved identity's `identityId`, `name`, `content`                                                                                                                            |
+| `identityHooks.register` | `consumer`, `identityId`, `reference`                                                               | `state`: `registered`, `pending` or `delivered`                                                                                                                             |
+| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                                          | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count                                                                                     |
+| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                                               | `recorded`                                                                                                                                                                  |
+| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                               | `acknowledged`                                                                                                                                                              |
+| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                                | `owner`, `published` targets                                                                                                                                                |
+| `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                 | `owner`, `removed` and `kept` targets                                                                                                                                       |
+| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                          |
+| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs` | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                        |
+| `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                                     |
+| `user.identity`          | `{}`                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                                   |
+| `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                      |
+| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, and `canPassthrough` (see [below](#passthrough-dispatch))                 |
+| `extensions.uses`        | `extension`, `feature`                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                                |
 
 `storage.root` reports the data directory selected by the invoking core, including
 its normal explicit-home/XDG/legacy selection. Extensions MUST use this operation
@@ -192,6 +194,83 @@ An older Core's unknown-operation `API_INPUT_INVALID` is also unavailable,
 without a scrape or private-storage fallback. Additive response fields remain
 compatible. [Shared vectors](recent-responses-v1.json) pin bounds, ordering, expiry and error shapes.
 
+## Ordered captured conversation
+
+**Operation:** `responses.timeline`. Input `{identityId, limit?, before?}`; canonical identity UUID; limit 1–50, default 50; `before` is an opaque `nextBefore` cursor returned by this operation (not the numeric `responses.recent` cursor). Unknown fields and null cursors are invalid. Reads are storage-only and do not acknowledge requests, refresh hooks, probe providers, or perform retention writes.
+
+```json
+{
+  "identityId": "<UUID>",
+  "entries": [
+    {
+      "entryId": "<opaque committed entry key>",
+      "inputBatchId": "<opaque batch id>",
+      "kind": "input",
+      "requestId": "<original request/item id>",
+      "sender": { "identityId": "<UUID>", "name": "core-1" },
+      "delivery": "delivered",
+      "availability": "retained",
+      "text": "the original input",
+      "truncated": false,
+      "originalBytes": 18
+    },
+    {
+      "entryId": "<opaque committed entry key>",
+      "inputBatchId": "<same batch>",
+      "kind": "final",
+      "availability": "retained",
+      "responseId": "<immutable retained final id>"
+    },
+    {
+      "entryId": "<opaque committed entry key>",
+      "inputBatchId": "<same batch>",
+      "kind": "failure",
+      "failure": { "code": "budget_timeout", "nextStep": "See the agent's pane." }
+    }
+  ],
+  "responses": [
+    {
+      "responseId": "<immutable retained final id>",
+      "inputBatchId": "<same batch>",
+      "text": "A",
+      "endedMs": 1,
+      "provider": "claude",
+      "truncated": false,
+      "originalBytes": 1
+    }
+  ],
+  "coverage": { "olderDropped": false },
+  "capture": { "enabled": true },
+  "nextBefore": "<opaque cursor when an older entry exists>"
+}
+```
+
+- `entries` are returned in **committed ascending order** within the selected newest page, across batches. To load history, prepend the next older page. Ops must not compare/sort opaque keys or timestamps. `entryId` is the stable identity of an input/reply/failure entry; a final's display identity is always `responseId`. Entries do not move after later inputs arrive.
+- `inputBatchId` is optional for legacy/uncorrelated entries. It groups consecutive folded inputs even before any final exists. A batch can contain interleaved input groups and finals. Capture order, not batch creation time, owns global placement.
+- Every input has its original `requestId`, a `sender` object (unknown attribution is `{}`, never guessed), and `delivery: "delivered" | "uncertain"`. A merely held/claimed, unhanded Digest item has no input entry. An uncertain handoff is explicitly uncertain, not confirmed input. Input text comes from the existing retained request body; `availability` is `retained | unavailable`. Available text is capped at 16,384 UTF-8 bytes on a scalar boundary with `truncated` and `originalBytes`; unavailable text omits those three fields and gets a display caption. No second stored copy of a request body is introduced.
+- `responses` contains the canonical recent-final items referenced by this page. Final entries have `availability: "retained" | "unavailable"`. An unavailable final has no body, and gets a coverage caption. Every retained final participates in this stream, including replies unassociated with a person's input. The existing `responses.recent` operation and numeric cursor keep their meanings; its items additionally gain optional `inputBatchId`.
+- Explicit `tmt reply` has `kind: "reply"`, `requestId`, `availability`, and the same bounded `text/truncated/originalBytes` body fields. It is deduped by requestId, independently of any separately emitted provider final. No content comparison is performed. The original request relationship remains authoritative; no provider-final answer is substituted for a submitted reply.
+- `failure` exists only for a capture failure Core actually recorded for that batch, not inferred from absence. Codes are bounded `worker_error | budget_timeout | storage_error`; the UI caption is the agreed `✗ reply not captured · see the agent's pane`. A total storage failure may prevent even this projection; the API then reports unavailable through its existing error path. No replay is implied.
+- `coverage`/`capture` retain their existing explicit incomplete-history and capture-off meanings. The page contains at most 50 entries and at most 50 referenced final bodies; every inline body has the 16 KiB projection cap. Stored links follow existing request/response retention and scrubbing. No past timeline is manufactured from timestamps for legacy data; legacy finals remain readable as unbatched finals.
+- Captured-send projections also gain optional `inputBatchId`; the existing `answer.responseId`, first-answer copy, and recent-final `requestId` are unchanged. The first final remains the initial input's answer. For example, committed order can be a person's input, its final, another sender's Digest input, then a continued final.
+
+For painted-answer acknowledgement, every `kind: "final"` or `kind: "reply"` timeline entry gains:
+
+```json
+{
+  "acknowledgements": [
+    { "identityId": "<originator UUID>", "requestId": "<request id>", "revision": 7 }
+  ],
+  "acknowledgementsTruncated": false
+}
+```
+
+- The array has **0–50** keys, in stable request-id order. `acknowledgementsTruncated` is true exactly when more retained keys exist. Capture never fails or drops a final because more than 50 inputs folded. A 51-input regression must keep the answer for all 51, project 50 keys and true. There is **no new acknowledgement-read operation**.
+- `final` keys come from the originator attention revisions raised when that final settles its bound passthrough captures. `reply` keys come from the originator revisions raised by the explicit submitted reply. They are frozen in the same transaction that produces that body; reading the timeline never substitutes a request's later revision. Inputs and failure captions are not reply bodies and have no acknowledgement keys.
+- Ops acknowledges only the viewer's keys for **painted reply bodies**, through the existing `requests.ack` batches of at most 50. A conflict stays unread. The existing explicit **Mark read** flow covers any extra keys when truncated; painting must not claim those unseen keys were acknowledged.
+- Attribution prefers these explicit keys. When the array is empty, or is truncated without a key for the viewer, attribution is unknown and Ops may use the same-batch preceding input group as fallback; page-start without that context stays normal/unattributed. This is the agreed display rule, not a Core inference from time or content.
+- Input `sender.identityId` equal to the viewer is normal; another sender is muted `from <name>`; `{}` means `from unknown sender`. `delivery: "uncertain"` renders `◌ delivery uncertain`. Local pending sends reconcile by requestId only once a timeline input exists.
+
 ## Pane screen
 
 `pane.screen` reads one exact identity's current visible pane screen, for a
@@ -229,6 +308,25 @@ or an older Core answers the unknown operation with `API_INPUT_INVALID`, the vie
 is unavailable, with no `tmt check` or private-storage fallback.
 [Shared vectors](pane-screen-v1.json) pin the request, both resource formats, the
 errors and the byte cap.
+
+## Terminal stream
+
+`terminal.stream` answers where one built-in-host member's
+[terminal stream](terminal-stream-v1.md) is, for a view such as the Ops Terminal tab.
+Input is `{identityId}`: a required canonical identity UUID; names, other fields and
+envelope originator attribution are `API_INPUT_INVALID`. The resource is
+`{identityId, host, socket, pane}`: `host` is `pty`, `socket` the absolute path of the
+member's Unix socket and `pane` its pane ID. The path layout is not part of the contract:
+a client connects to the `socket` it is given.
+
+Core checks the identity's recorded binding against fresh host evidence first, as
+`pane.screen` does, and a read opens no connection, starts or wakes nothing and types
+nothing. Access to the socket is unchanged: it is owner-only and local. Errors use the
+existing envelope with exit 1. `NAME_NOT_FOUND` is an unknown or retired UUID.
+`TERMINAL_STREAM_UNAVAILABLE` is an identity that has no binding, a binding on another
+host, or a member whose supervisor is gone. `API_UNAVAILABLE` is host evidence that
+could not be read. Callers read `capabilities` first; if `terminal.stream` is absent the
+view is unavailable.
 
 ## Conditional identity rename
 
@@ -687,7 +785,8 @@ returned before anything is stored, with the command's codes: `PASSTHROUGH_NOT_A
 typed input; the message names why). A replay returns the stored receipt without that
 check and types nothing.
 
-On acceptance the text is typed as written (only the protective `!` to `！`), with no
+On acceptance the text is typed as written (only the protective `!` to `！` and, for a
+bracketed-paste marker in it, that marker's ESC to `␛`), with no
 wake line, and the first response's `wake` reports that typing with the table below.
 Whether the agent answered is read from `requests.show` (`mode: "passthrough"` and its
 capture). The agent gets no request, attention or reply receipt.
@@ -852,7 +951,11 @@ it across data roots. It is not a subscription and carries no description of
 what changed. It does not cover what core does not store as records: a pane's
 live presence (a binding's verification time is an observation, not a change,
 and a write that leaves every value the same is not a change either),
-notebook files, configuration files, and any extension's own storage. A client
+notebook files, configuration files, and any extension's own storage. The usage
+sampler's records (consumption sources, buckets, rollup and family rows) advance
+`usage` instead and never `cursor`, because a sampler tick is telemetry no screen
+reloads for; `usage` is compared the same way. A core before schema 74 returns
+`cursor` alone and counts those writes in it. A client
 that reloads on a changed cursor must still reload on its own interval for
 those, and must treat `API_INPUT_INVALID` for this operation (an older core) as
 "no cursor" and keep its interval.

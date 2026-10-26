@@ -15,6 +15,7 @@ mod question;
 mod reading;
 mod review;
 mod tree;
+mod ui;
 
 pub(crate) use image::repair_references;
 
@@ -261,6 +262,7 @@ fn inspect(tree: &tree::Tree) -> Report {
         .filter(|(id, _)| tree.name(*id) == "img")
         .collect();
     image::check(tree, &images, &mut report);
+    ui::check(tree, &ordinals, &mut report);
     report.sort();
     report
 }
@@ -291,6 +293,8 @@ pub fn codes() -> Vec<&'static str> {
         "attachment-ref-too-many",
         "attachment-ref-unresolved",
         "attachment-ref-ambiguous",
+        "unknown-ui-class",
+        "unknown-icon",
     ]);
     codes
 }

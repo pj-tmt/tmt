@@ -278,7 +278,7 @@ tmt colab export <page-uuid> --json          # or --dir /existing/export-parent
 Use the exact revision from `read`; a stale base returns `COLAB_STALE_BASE` (exit 1)
 and is never retried. A failed or uncertain serving IPC returns `COLAB_UNAVAILABLE`
 without an offline fallback. Export needs an existing parent, creates a new UUID
-directory with `page.html` (plus `page.standalone.html` for a page that opts in to the runtime, or
+directory with `page.html` (plus `page.standalone.html` for a page that opts in to the runtime or uses the design system, or
 the reason there is none), `conversations.json`, `conversations.md`, `manifest.json` and an
 `attachments/` directory of the files it could read (never replacing output), and reports
 `error.partialDirectory` on a failed publication. Attachments are read through the running serve,

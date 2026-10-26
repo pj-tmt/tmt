@@ -15,6 +15,8 @@ mod requests;
 mod responses;
 mod rooms;
 mod skills;
+mod terminal;
+mod timeline;
 mod user;
 
 use crate::{
@@ -53,7 +55,9 @@ const OPS: &[&str] = &[
     "requests.sendNow",
     "requests.ack",
     "responses.recent",
+    "responses.timeline",
     "pane.screen",
+    "terminal.stream",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -180,12 +184,20 @@ pub enum Request {
     Orchestration(Box<crate::orchestration::OrchReadQuery>),
     Digest(Box<digest::Operation>),
     Capabilities,
+    ConversationTimeline {
+        identity_id: String,
+        limit: u64,
+        before: Option<u64>,
+    },
     RecentResponses {
         identity_id: String,
         limit: u64,
         before: Option<u64>,
     },
     PaneScreen {
+        identity_id: String,
+    },
+    TerminalStream {
         identity_id: String,
     },
     ConsumptionHistory {
@@ -361,7 +373,9 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
             items: requests::decode_ack(input)?,
         },
         "responses.recent" => responses::decode(input)?,
+        "responses.timeline" => timeline::decode(input)?,
         "pane.screen" => pane::decode(input)?,
+        "terminal.stream" => terminal::decode(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -469,12 +483,18 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         | Request::ExtensionUse { .. }
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
+        Request::ConversationTimeline {
+            identity_id,
+            limit,
+            before,
+        } => timeline::read(&mut storage, &identity_id, limit, before),
         Request::RecentResponses {
             identity_id,
             limit,
             before,
         } => responses::recent(&mut storage, &identity_id, limit, before),
         Request::PaneScreen { identity_id } => pane::screen(&mut storage, &identity_id),
+        Request::TerminalStream { identity_id } => terminal::stream(&mut storage, &identity_id),
         Request::ConsumptionHistory {
             identities,
             windows,
@@ -1588,6 +1608,24 @@ mod tests {
         );
         assert!(cursor() > written, "a request advances it");
         assert!(capabilities_list().contains(&"changes.cursor".to_owned()));
+        // The sampler's writes move `usage` and leave `cursor` (#5019).
+        let both = || run("changes.cursor", json!({}), json!({}));
+        let (change, usage) = (both()["cursor"].clone(), both()["usage"].clone());
+        assert!(usage.as_u64().is_some(), "{usage}");
+        let sampler = rusqlite::Connection::open(&paths.database).unwrap();
+        sampler.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        sampler
+            .execute(
+                "INSERT INTO consumption_sources (identity_id, binding_id, driver, session) VALUES (?, 'fixture-binding', 'claude', 'fixture-session')",
+                [ada],
+            )
+            .unwrap();
+        let after = both();
+        assert_eq!(
+            after["cursor"], change,
+            "a usage write does not wake the board"
+        );
+        assert_ne!(after["usage"], usage, "it advances the usage cursor");
         // Strict input, as every other operation.
         assert!(
             decode(

@@ -67,17 +67,21 @@ projects; opens the picker below), Pin to top / Unpin (below 640px, once the own
 non-archived page the viewer can write), Agent status (writers only; the read-only presence
 observations return focus to More on close), Files (count; while the page holds a file or the viewer can add
 one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
-The page's own projects (`page-projects.tsx`) follow the title: the first three as small chips
-and a count of the rest (hidden under 640px), then the list row's picker (`PageProjectsMenu`: up to
-eight projects, New project… names one and puts this page in it). The always-visible writer-only `+` chip (Add to project), the assigned chips and More → Projects…
-open the same menu. List rows put the real `+` picker immediately after their project tags, revealed
-on hover/focus and always visible on touch; their ⋯ → Projects… and `l` use its existing open request.
+The page's own projects (`page-projects.tsx`) follow the title as one writer-only group button:
+up to three 22px pills, a count of the rest, and Plus; an empty header shows Plus and Project.
+Below 640px only the header group reduces to Plus. List rows show the first pill, a count of the
+rest and Plus at both widths; empty rows show Plus alone. The group opens the existing
+`PageProjectsMenu` (up to eight projects, New project… names one and puts this page in it).
+The row's ⋯ → Projects… and `l`, and the header's More → Projects…, use that same open request.
+Each group is one visible focus target, exposes every membership in its accessible name/title,
+and restores focus on close without taking focus away from a new dialog. Writer row pills open
+the picker; project scope and search retain filtering. Viewer row tags retain read-only filtering.
 Opening observes the catalog; choosing a project or creating one is the write. Long project and
 Access text uses an ellipsis with the full text available on hover. The chips come from the list the space home last loaded, so arriving
 from the list reads nothing extra. A page opened by a link has no list yet: it reads `spaceHome(signal)`
 once on open (#4130), and leaving the page aborts that read through the signal, so no read outlives
-the page. The owner list is also read when the picker opens and after each write. A viewer who cannot
-write projects shows none of it. The desktop pin beside the chips and the phone's More item use
+the page. The owner list is also read when the picker opens and after each write. A header whose viewer
+cannot write projects shows no project control. The desktop pin beside the chips and the phone's More item use
 the same `PageProjects` write, owner-list refresh and refusal words; the menu only projects its
 confirmed pin state and pending write. Archived pages and non-writers have no pin item. Below 480px a pin
 refusal also appears in a closable shared inline Alert in flow under the header, using the same refusal
@@ -85,8 +89,11 @@ words. In the shell it joins the header slot, pushing the phone sub-bar and page
 leaving the page or Close clears it; at 480px and wider the existing header alert is unchanged.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
-The floating Chat icon shares the selection control's corner and opens the same
-retained drawer in one press; it hides during selection mode or an annotation.
+The floating Chat action and the selection control are one capsule, the dock, in the page's corner (one
+border, radius and the design system's overlay shadow, a hairline between the actions); Chat opens the same
+retained drawer in one press, out of the dock and back into it on close (`chat-dock-motion.ts`: the dialog
+clipped to the dock's rectangle, no animation under reduced motion), and hides during selection mode or an
+annotation. The dock sits unseen under the drawer while Chat is open.
 Its mark plus `Unread` (also on the Chat menu entry) is device-local reply attention,
 not the unresolved/Unseen count. Only visible Chat history at its end clears it;
 toast dismissal/expiry, closing and reload do not. Close/Escape restores the opener.
@@ -225,6 +232,19 @@ unconditional CSS palettes, not a pinned root theme attribute; the bundled skill
 shows that authoring rule. The unstyled white
 canvas, sandbox attributes, source limits and CSP remain unchanged.
 
+**Design system in the frame (#5057).** Every page frame carries the leaf's whole `static.css` and the page
+host profile (`src/page-host.css`) in the `tmt-ui` layer (order `colab-frame, tmt-starter, tmt-ui`) in a
+`<style>` of its own, so the hover-driven rewrite of the highlight sheet never reparses it, and defines
+`<tmt-icon name>` from the runtime's Lucide list (`generate-renderer-style.mjs` writes both the sheet and
+`page_check/page_ui.json`, the names `page check` accepts). The sheet is capped at 120,000 bytes. A page
+using only the documented subset in `components.md` looks like the product's components. The lowest layer
+(`colab-frame`) also paints a page that uses the design system (its source contains `tmt-ui-`,
+`<tmt-icon` or `tmt-starter`; the bootstrap writes `data-colab-design` on the root) with the paper, ink and
+link accent tokens of the viewer theme (`src/page-base.css`), on `body`, so components with no fill of
+their own stay readable in dark; the starter and any author CSS win over it. The frame's paint measurement
+also writes `data-colab-scheme` on that root, and the design tokens follow it, so components take the scheme
+the page paints, not the viewer's. Any other page keeps the white canvas in both themes.
+
 **Page frame (#3913).** `mountRenderer({ layout })` adds an optional `layout` to the bind; only
 `column` and `full` make the bootstrap set `data-colab-layout` and the generated `src/page-frame.css`
 apply, in a layer declared before author styles. The column (`min(1280px, 100% - 32px)`), the
@@ -351,7 +371,12 @@ card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and
 75dvh) float over the page; the floating page controls move left of a card and above a sheet. Escape
 closes the panel only from inside it (a Discussion view steps back to the list first); on the page it
 falls through to the annotation window and selection mode. `Show in the page` scrolls to the passage
-and leaves the panel open. The panel mounts only while open; a thread opens at its latest message, and a
+and leaves the panel open. The Discussion view's header holds the position (`n / m`, a text button named
+`All comments` that returns to the list), the previous and next thread arrows (creation order) and
+Resolve or Reopen; the router owns the first two and a slot in the header (`headerActions`), the thread
+window draws Resolve into it (`headerSlot`) so its busy fence and failure line stay with the thread. A
+resolved thread open in the view keeps a dashed `quiet` mark on its passage, the seventh field of the
+highlight request (see the contract), and a mention in its messages is the composer's soft tag. The panel mounts only while open; a thread opens at its latest message, and a
 reader at the end follows new messages while one scrolled up is held.
 
 `agent-status-panel.tsx` presents the canonical read-only `LiveAsk` observation

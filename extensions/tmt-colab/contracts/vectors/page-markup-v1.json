@@ -9871,6 +9871,89 @@
           "code": "question-choice-empty"
         }
       ]
+    },
+    {
+      "name": "ui-class-known-and-unknown",
+      "scope": "checker",
+      "why": "A class with the design system's prefix that the frame does not know is a finding, once per element however many tokens are unknown; a known class, other classes and a different case are not.",
+      "source": [
+        "<section class=\"tmt-ui-card mine\">ok</section>",
+        "<p class=\"tmt-ui-nonsense\">x</p>",
+        "<div class=\"mine tmt-ui-card tmt-ui-gone tmt-ui-gone2\">y</div>",
+        "<p class=\"tmt-ui-\">z</p>",
+        "<p class=\"TMT-UI-card\">w</p>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "p",
+          "ordinal": 1,
+          "id": null,
+          "line": 2,
+          "severity": "warning",
+          "code": "unknown-ui-class"
+        },
+        {
+          "element": "div",
+          "ordinal": 1,
+          "id": null,
+          "line": 3,
+          "severity": "warning",
+          "code": "unknown-ui-class"
+        },
+        {
+          "element": "p",
+          "ordinal": 2,
+          "id": null,
+          "line": 4,
+          "severity": "warning",
+          "code": "unknown-ui-class"
+        }
+      ]
+    },
+    {
+      "name": "icon-names",
+      "scope": "checker",
+      "why": "A tmt-icon draws only a name the frame has, spelled in lowercase kebab-case; a missing, unknown or differently cased name draws nothing and is a finding.",
+      "source": [
+        "<tmt-icon name=\"check\"></tmt-icon>",
+        "<tmt-icon name=\"not-an-icon\"></tmt-icon>",
+        "<tmt-icon></tmt-icon>",
+        "<tmt-icon name=\"Check\"></tmt-icon>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-icon",
+          "ordinal": 2,
+          "id": null,
+          "line": 2,
+          "severity": "warning",
+          "code": "unknown-icon"
+        },
+        {
+          "element": "tmt-icon",
+          "ordinal": 3,
+          "id": null,
+          "line": 3,
+          "severity": "warning",
+          "code": "unknown-icon"
+        },
+        {
+          "element": "tmt-icon",
+          "ordinal": 4,
+          "id": null,
+          "line": 4,
+          "severity": "warning",
+          "code": "unknown-icon"
+        }
+      ]
     }
   ]
 }

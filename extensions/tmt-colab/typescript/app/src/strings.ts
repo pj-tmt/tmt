@@ -384,7 +384,8 @@ export const text = {
   threadCollapse: 'Collapse thread',
   allComments: 'All comments',
   discussionReply: 'Reply',
-  discussionOpen: 'Open discussion',
+  discussionPrevious: 'Previous thread',
+  discussionNext: 'Next thread',
   discussionPosition: (number: number, total: number) => `${number} / ${total}`,
   threadShowInPage: 'Show in the page',
   threadCollapseHelp: 'Collapse · Esc',
@@ -570,6 +571,10 @@ export const text = {
     'runtime-unavailable':
       'No standalone copy: the page runtime could not be loaded. Export again to retry.',
     'runtime-unusable': 'No standalone copy: the page runtime cannot be written into an HTML file.',
+    'design-unavailable':
+      'No standalone copy: the page design system could not be loaded. Export again to retry.',
+    'design-unusable':
+      'No standalone copy: the page design system cannot be written into an HTML file.',
   },
   exportAttachments: 'Attachments',
   exportAttachmentRequested: 'Download requested',

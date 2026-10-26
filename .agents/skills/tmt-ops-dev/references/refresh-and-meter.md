@@ -14,7 +14,9 @@
 - Change detection: between requests the worker checks `board::changes` every `CHECK_EVERY` (1 s)
   using core's `changes.cursor` (public extension API method) and the invocation-selected config file's modification time (`ops.toml` after cutover)
   and length. When either moved since the stamp taken just before the last load, it reloads that
-  squad early unless its `refresh` is off. A failed read is never a change, and
+  squad early unless its `refresh` is off. The same request returns `usage`, the sampler's own
+  cursor (schema 74): it never wakes the board, and the history seed cache is keyed on
+  `cursor + usage` so new usage rows still invalidate it. A failed read is never a change, and
   `API_INPUT_INVALID` (a core without the method) stops cursor reads for the session, leaving the
   file check and the interval. A field-provider save moves the cache directory's stamp, which
   `board::changes` also watches.

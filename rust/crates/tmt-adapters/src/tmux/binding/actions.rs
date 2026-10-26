@@ -385,6 +385,34 @@ mod tests {
     }
 
     #[test]
+    fn a_paste_end_marker_in_the_message_stays_inside_one_paste_and_submits_once() {
+        let entry = entry();
+        let runner = ScriptedRunner::default();
+        runner.push_output(observation(&entry, 654, true), Vec::new());
+        for _ in 0..3 {
+            runner.push_output(Vec::new(), Vec::new());
+        }
+        let tmux = Tmux::new(runner);
+        let mut driver = BindingSession::new(&tmux);
+        assert!(matches!(
+            driver.send(&entry, "before\x1b[201~after\r"),
+            ActionResult::Completed(DeliveryAcceptance::Submitted)
+        ));
+        let calls = tmux.runner.calls.borrow();
+        assert_eq!(
+            calls.len(),
+            4,
+            "one observation, one buffer, one paste, one Enter"
+        );
+        assert_eq!(calls[1].args[3], "set-buffer");
+        let pasted = calls[1].args.last().unwrap();
+        assert!(!pasted.contains('\x1b'), "{pasted:?}");
+        assert_eq!(pasted, "before\u{241b}[201~after\r\n");
+        assert_eq!(calls[2].args[3], "paste-buffer");
+        assert_eq!(calls[3].args.last().unwrap(), "Enter");
+    }
+
+    #[test]
     fn failing_observations_do_not_veto_or_repeat_a_real_driver_submission() {
         use tmt_core::driver::{HookEvent, HookObserver, observe_driver_hook};
         struct Observer(Vec<String>);

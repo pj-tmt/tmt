@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct RecoverySnapshotSummary {
     pub name: Option<String>,
+    pub generation: Option<String>,
     pub digest: String,
     pub captured_at_ms: u64,
 }
@@ -12,8 +13,11 @@ impl RecoverySnapshotSummary {
     pub fn label(&self) -> &str {
         self.name.as_deref().unwrap_or("Latest")
     }
+    pub fn selector(&self) -> Option<&str> {
+        self.name.as_deref().or(self.generation.as_deref())
+    }
     pub fn id(&self) -> String {
-        format!("snapshot:{}", self.name.as_deref().unwrap_or("latest"))
+        format!("snapshot:{}", self.selector().unwrap_or("latest"))
     }
 }
 #[derive(Debug)]
@@ -168,7 +172,7 @@ const MAX_NAMED: usize = 16;
 const MAX_UNNAMED: usize = 35;
 impl Inventory {
     pub fn validate(&self, socket: Option<&str>) -> Result<(), SquadError> {
-        let mut names = BTreeSet::new();
+        let mut ids = BTreeSet::new();
         if self.version != 1
             || !valid_socket(&self.socket)
             || socket.is_some_and(|s| s != self.socket)
@@ -177,8 +181,10 @@ impl Inventory {
             || self.snapshots.iter().any(|e| {
                 !valid_digest(&e.digest)
                     || e.name.as_deref().is_some_and(|s| !valid_name(s))
-                    // Unnamed generations are many and share no name; only real names are unique.
-                    || e.name.as_ref().is_some_and(|name| !names.insert(name.clone()))
+                    || e.generation.as_deref().is_some_and(|g| {
+                        e.name.is_some() || !g.strip_prefix("g:").is_some_and(valid_digest)
+                    })
+                    || !ids.insert(e.id())
             })
         {
             return Err(invalid());
@@ -314,11 +320,20 @@ macro_rules! document {
         }
     };
 }
-document!(RecoverySnapshotSummary {
-    name: "name",
-    digest: "digest",
-    captured_at_ms: "capturedAtMs"
-});
+impl Decode for RecoverySnapshotSummary {
+    fn decode(v: &serde_json::Value) -> Result<Self, SquadError> {
+        Ok(Self {
+            name: Decode::decode(v.get("name").ok_or_else(invalid)?)?,
+            generation: v
+                .get("generation")
+                .map(Decode::decode)
+                .transpose()?
+                .flatten(),
+            digest: Decode::decode(v.get("digest").ok_or_else(invalid)?)?,
+            captured_at_ms: Decode::decode(v.get("capturedAtMs").ok_or_else(invalid)?)?,
+        })
+    }
+}
 document!(Inventory {
     version: "version",
     socket: "socket",

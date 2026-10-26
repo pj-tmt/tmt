@@ -2563,6 +2563,33 @@ and question lines on the same column. The layout is the page's verified `meta.l
 browser binds the frame from the live view, so a change that arrives without a new source
 (a `page layout` from the CLI or another device) reframes the open page.
 
+Every page frame, whatever its layout, also carries the product's design system (#5057): in a
+`<style>` of its own, written before the highlight sheet, the leaf's generated `static.css` (the
+`tmt-ui-*` classes and their tokens, which follow the frame's `data-theme`) and the page host profile
+(`src/page-host.css`, the host metrics those classes read) in the layer `tmt-ui`, after the layer order
+`colab-frame, tmt-starter, tmt-ui`; an author's unlayered CSS beats all three. The sheet is inlined
+into `renderer.html` by `scripts/generate-renderer-style.mjs`, which fails when it grows past 120,000
+bytes. The layer `colab-frame`, the lowest, also holds the paper and ink of a page that uses the design
+system (`src/page-base.css`): when the page's source contains, ignoring ASCII case, `tmt-ui-`,
+`<tmt-icon` or `tmt-starter`, the bootstrap writes `data-colab-design` on the root, and then `body`
+takes `--tmt-ui-surface-paper` and `--tmt-ui-color-text` and a link takes `--tmt-ui-color-accent`, from
+the tokens of the frame's `data-theme`, so components with no fill of their own (a table, a field) keep
+their ink on their paper in either theme. The rule is on `body`, not `html`, so an author's `body`
+background still fills the canvas, and the starter's layer and an author's CSS both win; an author who
+paints only one of paper and ink paints the other. The same pages take the scheme they paint, not the
+viewer's: the frame's paint measurement (the one behind the parent's card scheme, #4081) also writes
+`data-colab-scheme` (`light` or `dark`) on the root, and the design tokens and the frame's annotation
+roles follow it, so a page that paints its own light body under a dark viewer gets light components on it;
+a page that paints nothing is painted by the frame and measures as the viewer's scheme. Each
+measurement drops the root's own `data-colab-scheme` first, so it reads the page under the tokens of
+`data-theme`, and a page the frame paints follows a change of theme in either direction. Any other page
+keeps the white canvas in both themes (#2267, #4081).
+The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
+runtime lists (lowercase kebab-case), drawn as inline SVG at 16 px with stroke 1.75 and square caps,
+decorative unless `label` is set; a name it does not have draws nothing. No network, script authority or
+sandbox rule changes. `page check` reports a `tmt-ui-*` class and a `tmt-icon` name the frame does not
+have (`unknown-ui-class`, `unknown-icon`, in the table below).
+
 For a fixed look, author CSS uses an unconditional palette and `color-scheme`,
 without theme-attribute or OS-media palette overrides. The bootstrap overwrites an
 author-pinned `<html data-theme>` with Colab's effective theme; the attribute is
@@ -2624,8 +2651,13 @@ Alt+Enter still explicitly requests the annotation view with exactly
 the quote. Page-wide comments have null anchors.
 
 The parent highlight request on the bound MessagePort contains exactly
-`type:"colab.render.highlight"`, `renderId`, `requestId` and `anchors`, whose entries
-are exactly `{id,selector}`. Comment bodies, reply text and discussion display labels
+`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft` and
+`quiet`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
+quote or `null`; `quiet` is `null` or exactly `{id,selector}`: the resolved thread whose
+Discussion view is open, whose ID is not in `anchors` (#4931). The frame draws `quiet`'s passage
+(see below) and reports its ID in `resolved` and its offset in `positions` like an anchor's, so the
+parent can scroll to it; it is no marker, hover target or selection, and an ID or quote that is
+not valid refuses the whole request as any other invalid field does. Comment bodies, reply text and discussion display labels
 MUST NOT enter the author-code frame; the parent reconstructs these narrow objects
 instead of forwarding caller records. Results contain `type:"colab.render.anchors"`, `renderId`,
 `requestId`, `resolved` IDs and optional `positions:[{id,top}]`; top is finite,
@@ -2639,8 +2671,8 @@ There is no fuzzy automatic attachment. DOM mutations trigger bounded debounced
 resolution; replacement/navigation/disposal closes ports, observers and highlights.
 
 CSS Highlights, or pointer-inert range overlays when unavailable, leave author text
-nodes intact. Resolved ranges keep a mint tint and a 1 px underline (a 2 px underline and a
-stronger tint under the pointer), each drawn unbroken under descenders (`text-decoration-skip-ink:
+nodes intact. Resolved ranges keep a light accent tint (14 %) and a 1 px underline (45 %),
+and under the pointer a stronger tint (20 %) and a 2 px underline, each drawn unbroken under descenders (`text-decoration-skip-ink:
 none` on the highlight, which the page root's value does not reach), and a number marker, a 16 px circle in a 24 px target, in
 the frame's right marker lane, centred on the line the passage ends on, so it covers no text
 and moves none. On a `column` or `full` page the marker stands 4 px after the end of the
@@ -2654,12 +2686,13 @@ posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the pare
 current render and request only and opens the Comments list (closing an open annotation
 window), with no thread ID and no thread opened. Forging either view-only
 action cannot publish, sign or send. The passage of the thread whose anchored window or Discussion view is open
-takes a selected look: a stronger tint (`surface.annotation-highlight-selected`) and a solid 3 px
-underline (`color.annotation-rule-selected`, against hover's 2 px), above the hover look, and its
+takes a selected look: the deepest tint (28 %) and a solid 2 px underline in the accent
+(`color.annotation-rule-selected`), above the hover look, and its
 lane marker, or the `+n` pill that holds it, wears a 2 px ring in the same colour, 2 px outside the
 circle and inside the 24 px target, so the lane names the open thread even when its passage is off
-screen; both return to rest when the window closes or another thread opens; a window for a new quote, resolved threads (which have no
-page passage) and a page without a selection draw nothing extra. The parent selects it with
+screen; both return to rest when the window closes or another thread opens; a window for a new quote and a page without a
+selection draw nothing extra. A resolved thread has no marker or tint; while its Discussion view is open its
+passage (`quiet`) wears a 1 px dashed underline (45 %) and nothing else. The parent selects it with
 exactly `type:"colab.render.select"`, `renderId`, `requestId` and `id`, where `id` is a thread ID
 of its current highlight request or `null`; the frame accepts only the current render and request
 and an ID its request holds, refuses any other value and key set, keeps the selection across a new
@@ -3687,12 +3720,15 @@ authority.
 
 ### Page Chat (#1645)
 
-Discussion → Chat and the floating Chat icon beside the selection-mode control
-open the same retained Chat drawer without resizing or reflowing the page.
-The floating Chat control hides while selection mode or an annotation window is open;
-Close/Escape or a backdrop press returns focus to its opener. No press sends a message.
-At compact widths the modal drawer covers the floating action: Close/Escape dismisses;
-at wide widths a press at the exposed floating location dismisses through the backdrop.
+Discussion → Chat and the Chat action in the page's dock open the same retained Chat drawer
+without resizing or reflowing the page. The dock is one capsule at the page's lower corner that holds
+the Chat and selection-mode actions, divided by a hairline; the Chat action hides while selection mode
+or an annotation window is open. The drawer opens out of the dock's rectangle and closes back into it:
+the same dialog, clipped to the dock at one end of the motion (180 ms, the leaf's `--tmt-ui-motion-base`
+and easings); under reduced motion there is no animation. While Chat is open the dock stays in its place,
+unseen and out of reach, and the drawer covers it. Close/Escape or a backdrop press returns focus to the
+Chat action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape
+dismisses; at wide widths a press on the backdrop, anywhere outside the drawer, dismisses.
 Messages scroll inside it; one shared plaintext message input remains at the bottom.
 Chat uses the same shared history owner and scroll policy as inline annotation
 conversations: it opens at the bottom and follows new record identities within
@@ -5605,9 +5641,11 @@ is no command that returns a page to freeform.
 `tmt colab page create --title <title> --template <name> [--json]` starts from a template instead
 of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and `--file`,
 because the template brings its own layout and source. The catalog is closed and compiled into the
-binary: `report`, `review` and `compare` (layout `column`) and `board` (layout `full`). Each source
-is under 8 KiB and passes the page check with no finding. It starts from the page-style starter
-(`tmt colab skill page-style`) without that starter's `body` rule, which frames `canvas` and
+binary: `report`, `review`, `compare` and `gallery` (layout `column`) and `board` (layout `full`).
+Each source is under 8 KiB and passes the page check with no finding. A card, table and callout is
+the design system's markup (`tmt-ui-card`, `tmt-ui-table`, `tmt-ui-notice`; `gallery` is a copyable
+catalog of the documented subset). It starts from the page-style starter
+(`tmt colab skill page-style`, the `tmt-starter` layer) without that starter's `body` rule, which frames `canvas` and
 `freeform` pages, and adds no width, margin or gap CSS of its own: those stay the frame's
 (`data-width` and `data-gap` are the only declarations it uses). A one-line
 HTML comment before each block names the rule and the `tmt colab skill` topic and section that
@@ -6128,6 +6166,8 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `attachment-ref-invalid`                                          | warning  | an `<img>` `src` starting `colab-attachment:` that is not the scheme plus 8 lowercase hex digits or a full lowercase UUID                                                                 |
 | `attachment-ref-too-many`                                         | warning  | more than 128 distinct well-formed references; one finding, on the 129th                                                                                                                  |
 | `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page write` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
+| `unknown-ui-class`                                                | warning  | an element whose `class` holds a `tmt-ui-*` token the page frame's design system does not define (it styles nothing); one finding per element                                             |
+| `unknown-icon`                                                    | warning  | a `<tmt-icon>` whose `name` is missing, not lowercase kebab-case or not in the frame's icon set (it draws nothing)                                                                        |
 
 Groups (`tmt-questions`, a `<p data-title>` and up to 12 direct `tmt-question` children). A group
 reports the first structural rule it fails, in table order, and is then skipped whole: its
@@ -6166,8 +6206,8 @@ image sizes need payloads of tens of KiB, and reference resolution needs a page'
 Export v1 emits `page.html`, `conversations.json`, `conversations.md`, one
 `attachments/<attachmentId>` file for each attachment it could read, and `manifest.json` (see
 [Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)).
-A page that opts in to the bundled runtime also gets `page.standalone.html` (see
-[Standalone copy of a page that uses the runtime](#standalone-copy-of-a-page-that-uses-the-runtime-1693)). Native captures one
+A page that opts in to the bundled runtime or uses the design system also gets `page.standalone.html` (see
+[Standalone copy of a page that uses the runtime or the design system](#standalone-copy-of-a-page-that-uses-the-runtime-or-the-design-system-1693-5057)). Native captures one
 owner-authenticated read snapshot through its isolated decoder; the mounted
 browser captures one admitted committed projection through its connection executor.
 HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
@@ -6263,45 +6303,63 @@ bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export is not supported; deleted pages remain denied.
 
-### Standalone copy of a page that uses the runtime (#1693)
+### Standalone copy of a page that uses the runtime or the design system (#1693, #5057)
 
-`page.html` is the exact admitted source and never changes. For an ordinary page whose source opts
-in to the bundled runtime (the page runtime's marker rule: the first `<meta name="tmt-colab-runtime">`
-in document order, found by parsing, with a `react` or `tailwind` token), the export also writes
-`page.standalone.html`, listed right after `page.html` (after `work.json` when the page has work) and
-before `conversations.json`. It is the document the renderer frame builds for the page, with the
-runtime written into its head, so the page works when the file is opened from disk with no Colab and
-no network. Its bytes are this template around the exact source, in UTF-8, with the text between
-braces written verbatim and nothing else added:
+`page.html` is the exact admitted source and never changes. For an ordinary page that needs a
+standalone copy, the export also writes `page.standalone.html`, listed right after `page.html` (after
+`work.json` when the page has work) and before `conversations.json`. It is the document the renderer
+frame builds for the page, with what the page needs written into its head, so the page looks and works
+when the file is opened from disk with no Colab and no network. A page needs a copy when either holds:
+
+- It opts in to the bundled runtime: the first `<meta name="tmt-colab-runtime">` in document order,
+  found by parsing, has a `react` or `tailwind` token. The copy carries the runtime.
+- It uses the design system: its source contains `tmt-ui-`, `<tmt-icon` or `tmt-starter`, ignoring
+  ASCII case, as plain text with no parsing (the test the renderer frame makes to paint the page,
+  [Renderer and live anchors](#renderer-and-live-anchors)). The copy carries the design system and writes `data-colab-design` on
+  the root.
+
+A page can need both; it then carries both. The bytes are this template around the exact source, in
+UTF-8, with the text between braces written verbatim, the parts in square brackets written only for
+what the page needs, and nothing else added:
 
 ```text
-<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8"><style type="text/tailwindcss">{style}</style><script>{themeSwitch}</script><script>{script}</script></head><body>{source}</body></html>
+<!doctype html><html[ data-colab-design]><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8">[<style>{designStyle}</style>][<style type="text/tailwindcss">{style}</style>]<script>{themeSwitch}</script>[<script>{designScript}</script>][<script>{script}</script>]</head><body>{source}</body></html>
 ```
+
+A page that needs only the runtime gets exactly the bytes it got before the design system existed.
 
 - `{policy}` is the renderer frame's response policy without its `sandbox allow-scripts` directive:
   a `<meta>` cannot carry `sandbox`, so the copy has the same no-network policy (nothing loads or
   leaves) but is not sandboxed; opened from disk it runs with the origin the browser gives a local
   file, like any HTML file.
 - `{themeSwitch}` is one fixed script that sets `data-theme` on the root from the system colour
-  scheme and follows its changes, because the runtime theme reads `data-theme` only.
+  scheme and follows its changes, because the runtime theme and the design tokens read `data-theme`.
 - `{script}` and `{style}` are the bytes of `assets/colab-runtime.js` and `assets/colab-runtime.css`
-  of the same build. A runtime text that contains `<!--`, or `</script` / `</style` in any ASCII case,
-  is not written (the build already refuses them).
+  of the same build. `{designScript}` and `{designStyle}` are the bytes of `assets/colab-page-ui.js` and
+  `assets/colab-page-ui.css` of the same build: the design system's CSS and the script that defines
+  `<tmt-icon>` and measures the scheme the page paints (`data-colab-scheme`), written by the runtime
+  build from the same sources the renderer frame inlines, so the file draws what the frame draws. A text
+  that contains `<!--`, or `</script` / `</style` in any ASCII case, is not written (the build already
+  refuses them).
 
 The manifest row of the copy is `{name, sizeBytes, sha256, derivedFrom:"page.html"}`; `derivedFrom`
-appears on no other row. A page that does not opt in, and every dashboard, exports byte for byte as
+appears on no other row. A page that needs no copy, and every dashboard, exports byte for byte as
 before: no file, no new field.
 
-When a page opts in but no copy can be made, the export still succeeds without the file and says
+When a page needs a copy but none can be made, the export still succeeds without the file and says
 why. The reasons are `runtime-unavailable` (the build carries no runtime, or the browser could not
-load it), `runtime-unusable` (a runtime text could escape its element) and, for native export only,
-`page-too-deep` (the page nests past the parse depth, so its marker cannot be judged). The CLI JSON
-result has `standalone: {included, reason?}` (absent for a page that does not opt in) and the human
-output prints a line naming the reason; the browser's Export panel does the same. Native export
-reads the marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides
-pass the same cases (`vectors/runtime-marker-v1.json`). Native and browser export write identical
-bytes: `vectors/export-v1.json` has a `standalone` section with a tiny stand-in runtime that pins the
-copy, its policy, theme switch, hash and the manifest.
+load it), `runtime-unusable` (a runtime text could escape its element), `design-unavailable` and
+`design-unusable` (the same for the design system's files) and, for native export only, `page-too-deep`
+(the page nests past the parse depth, so its runtime marker cannot be judged). The first part the page
+needs that is missing names the reason, runtime before design. The CLI JSON result has
+`standalone: {included, reason?}` (absent for a page that needs no copy) and the human output prints a
+line naming the reason; the browser's Export panel does the same. Native export reads the runtime
+marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides pass the same
+cases (`vectors/runtime-marker-v1.json`); the design test is the same text test in the frame, the
+browser export and the native export, pinned by `vectors/design-marker-v1.json`. Native and browser
+export write identical bytes: `vectors/export-v1.json` has `standalone` (the runtime), `standaloneDesign`
+and `standaloneBoth` sections with tiny stand-in files that pin each copy, its policy, theme switch, hash
+and the manifest.
 
 ### Attachments in an export (#1867)
 

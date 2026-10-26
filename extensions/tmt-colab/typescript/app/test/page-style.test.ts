@@ -33,13 +33,15 @@ it('keeps dark secondary text distinct from body text and readable on page surfa
   }
 });
 
-it('ships a compact content-only starter with exact browser token roles and both themes', () => {
+it('ships a compact starter that is only glue on the injected design system', () => {
   const skill = read(skillFile);
   const starter = starterFrom(skill);
+  const style = starter.slice(0, starter.indexOf('<!-- Examples to copy'));
   const tokens = JSON.parse(read(tokenFile));
+  const { metric } = tokens.browser;
   run(new URL(generator, repository).pathname);
   expect(read(skillFile)).toBe(skill);
-  expect(Buffer.byteLength(starter)).toBeLessThanOrEqual(3_000);
+  expect(Buffer.byteLength(style)).toBeLessThanOrEqual(2_000);
   expect(Buffer.byteLength(read(rootSkillFile))).toBeLessThanOrEqual(10_300);
   expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(12_000);
   expect(skill.split('\n').length - 1).toBeLessThanOrEqual(500);
@@ -49,67 +51,51 @@ it('ships a compact content-only starter with exact browser token roles and both
   expect(skill).toContain('Colab already shows the brand, page title and actions.');
   expect(skill).toContain('Do not add a site header,');
   expect(skill).toContain('any sticky or fixed bar.');
-  expect(skill).toContain("Use the starter's explicit data-theme selectors to\nfollow Colab.");
+  expect(skill).toContain('colour with the `--tmt-ui-*`');
   expect(skill).toContain('CSS keyed only on prefers-color-scheme follows the OS.');
 
-  const declarations = (selector: string) => {
-    const block = starter.slice(starter.indexOf(selector) + selector.length).split('}')[0];
-    return Object.fromEntries(
-      [...block.matchAll(/--([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]]),
-    );
-  };
-  for (const [theme, selector] of [
-    ['light', ':root {'],
-    ['light', ":root[data-theme='light'] {"],
-    ['dark', ":root:not([data-theme='light']) {"],
-    ['dark', ":root[data-theme='dark'] {"],
+  // The type scale and rhythm come from the design tokens, not from numbers of the starter's own.
+  for (const declaration of [
+    `padding: ${metric['notice-heading-gap']};`,
+    `font: ${metric['page-body-size']}/1.5 var(--tmt-ui-font-body);`,
+    `font-weight: ${metric['card-title-weight']};`,
+    `line-height: ${metric['page-title-line-height']};`,
+    `font-size: ${metric['page-title-compact-size']};`,
+    `font-weight: ${metric['page-title-weight']};`,
+    `letter-spacing: ${metric['page-title-compact-tracking']};`,
+    `h3 { font-size: ${metric['card-title-size']}; }`,
+    `border-bottom: ${metric['rule-width']} solid var(--tmt-ui-surface-rule);`,
   ]) {
-    expect(declarations(selector)).toMatchObject({
-      ink: tokens.browser.color.text[theme].toLowerCase(),
-      muted: tokens.browser.color.secondary[theme].toLowerCase(),
-      paper: tokens.browser.surface.paper[theme].toLowerCase(),
-      sheet: tokens.browser.surface.sheet[theme].toLowerCase(),
-      edge: tokens.browser.surface.rule[theme].toLowerCase(),
-      waiting: tokens.browser.color.waiting[theme].toLowerCase(),
-    });
+    expect(style).toContain(declaration);
   }
-  expect(declarations(':root {')).toMatchObject({
-    body: tokens.font.body.stack.replace(/^"[^"]+",\s*/, '').replaceAll('"', "'"),
-    mono: tokens.font.mono.stack.replace(/^"[^"]+",\s*/, '').replaceAll('"', "'"),
-    size: tokens.header['wordmark-size'],
-    heading: '28px',
-    rule: tokens.browser.metric['rule-width'],
-    gap: tokens.browser.metric['notice-heading-gap'],
-    'small-gap': tokens.browser.metric['eyebrow-gap'],
-  });
-  expect(starter).toContain(`line-height: ${tokens.header['title-line-height']};`);
-  expect(starter).toContain('@media (prefers-color-scheme: dark)');
-  expect(starter).not.toMatch(
-    /url\s*\(|@import|https?:|\/\/|shadow|radius|position\s*:|header|nav|chrome|tmt-ui/i,
+
+  // It sits in the starter layer between the frame's and the design system's, owns no palette and
+  // reads only roles the injected design system defines.
+  expect(style).toMatch(/^<style>\n@layer tmt-starter \{\n/);
+  const staticCss = read('design/browser-ui/generated/static.css');
+  const roles = [...style.matchAll(/var\((--tmt-ui-[\w-]+)\)/g)].map((m) => m[1]);
+  expect(roles.length).toBeGreaterThan(0);
+  for (const role of roles) expect(staticCss, role).toContain(`${role}:`);
+  expect(style).not.toMatch(
+    /#[0-9a-f]{3,8}\b|:root|@media|prefers-color-scheme|data-theme|url\s*\(|@import|https?:|\/\/|shadow|position\s*:|header|nav|chrome/i,
   );
-  // Only content elements, theme roots and two text-colour utilities belong in the starter.
-  const selectors = [...starter.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim());
+  // Only content elements and two text-colour utilities belong in the starter.
+  const selectors = [...style.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim());
   expect(selectors).toEqual([
-    '<style>\n  :root',
-    '@media (prefers-color-scheme: dark)',
-    ":root:not([data-theme='light'])",
-    ":root[data-theme='light']",
-    ":root[data-theme='dark']",
+    '<style>\n@layer tmt-starter',
     '*',
     'body',
-    'h1,\n  h2,\n  h3',
+    'h1, h2, h3',
     'h1',
     'h2',
     'h3',
-    'p,\n  ul,\n  ol,\n  table,\n  pre',
-    'ul,\n  ol',
-    'a',
-    'table',
-    'th,\n  td',
-    'code,\n  pre',
-    'pre',
+    'p, ul, ol, pre, table',
     'section',
     'section > :last-child',
+    'ul, ol',
+    'table',
+    'th, td',
+    'pre',
     '.muted',
     '.waiting',
   ]);
@@ -127,7 +113,7 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
     const file = path.join(root, skillFile);
     const skill = read(skillFile);
     for (const invalid of [
-      skill.replace('--ink: #26393f;', '--ink: #000000;'),
+      skill.replace('font: 13px/1.5', 'font: 12px/1.5'),
       skill.replace(begin, ''),
       skill.replace(end, ''),
       skill + begin,
@@ -139,7 +125,7 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
     }
     writeFileSync(file, skill);
     const tokens = JSON.parse(read(tokenFile));
-    tokens.browser.surface.paper.dark = '#090909';
+    tokens.browser.metric['page-title-compact-size'] = '31px';
     writeFileSync(path.join(root, tokenFile), JSON.stringify(tokens));
     expect(() => run(script)).toThrow();
     expect(readFileSync(file, 'utf8')).toBe(skill);
@@ -148,7 +134,7 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
     const updated = readFileSync(file, 'utf8');
     expect(updated.split(begin)[0]).toBe(skill.split(begin)[0]);
     expect(updated.split(end)[1]).toBe(skill.split(end)[1]);
-    expect(starterFrom(updated)).toContain('--paper: #090909;');
+    expect(starterFrom(updated)).toContain('font-size: 31px;');
     expect(() => run(script, '--repair')).toThrow();
     expect(readFileSync(file, 'utf8')).toBe(updated);
     for (const oversized of ['x'.repeat(12_000) + updated, '\n'.repeat(500) + updated]) {
@@ -157,7 +143,7 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
       expect(readFileSync(file, 'utf8')).toBe(oversized);
     }
     writeFileSync(file, updated);
-    tokens.font.body.stack += ', ' + 'x'.repeat(3_000);
+    tokens.browser.metric['page-body-size'] += 'x'.repeat(3_000);
     writeFileSync(path.join(root, tokenFile), JSON.stringify(tokens));
     expect(() => run(script, '--write')).toThrow();
     expect(readFileSync(file, 'utf8')).toBe(updated);

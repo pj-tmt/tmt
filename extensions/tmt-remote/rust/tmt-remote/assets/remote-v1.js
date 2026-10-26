@@ -1471,57 +1471,6 @@ function homePage(shell, open) {
 	});
 }
 //#endregion
-//#region src/remote-state.ts
-/** Current-origin observation only. A foreign entry has no mark or live-access claim. A connection
-* state is words only, in the neutral tone: the shared agent marks mean agent states, not these. */
-function remoteState(state, current = true) {
-	if (!current) return {
-		text: "not checked",
-		word: "not checked",
-		mark: "",
-		tone: "muted",
-		action: ""
-	};
-	const [text, word, action] = state === "Connected" ? [
-		"Connected",
-		"connected",
-		""
-	] : state === "Checking" ? [
-		"Checking…",
-		"connecting",
-		""
-	] : state === "Access ended" ? [
-		"Access ended",
-		"access ended",
-		"Pair again"
-	] : state === "Different machine" ? [
-		"Different machine",
-		"different machine",
-		"Pair again"
-	] : state === "Not paired" || state === "Pairing unreadable" ? [
-		state,
-		"not paired",
-		"Pair again"
-	] : [
-		"Unconfirmed",
-		"unreachable",
-		"Retry"
-	];
-	return {
-		text,
-		word,
-		mark: "",
-		tone: "neutral",
-		action
-	};
-}
-/** Both page owners and the menu identify the current Local row by the same door root. */
-function currentRemote(entry, address, pageUrl) {
-	const root = new URL("./", pageUrl);
-	if (root.pathname === "/remote/") root.pathname = "/";
-	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
-}
-//#endregion
 //#region src/remote-routes.ts
 var REMOTE_ITEMS = [
 	{
@@ -1555,19 +1504,18 @@ var REMOTE_ITEMS = [
 	{
 		id: "settings",
 		path: "/remote/settings",
-		label: "Remote settings",
-		title: "Remote settings",
+		label: "My Remotes",
+		title: "My Remotes",
 		page: "settings"
 	}
 ];
 /**
-* The route's paths. `/remote/` comes last: the rail links to a route's last path, and `/remote`
-* (no slash) is the same row.
+* The rail opens My Remotes. Existing connection and management paths remain addressable.
 */
 var REMOTE_PATHS = [
-	...REMOTE_ITEMS.filter((item) => item.id !== "status").map((item) => item.path),
+	...REMOTE_ITEMS.filter((item) => item.id !== "settings").map((item) => item.path),
 	"/remote",
-	"/remote/"
+	"/remote/settings"
 ];
 /** The row a path names; `/remote` and `/remote/` are Status, anything else under it is none. */
 function remoteItem(pathname) {
@@ -1579,19 +1527,11 @@ function remoteItem(pathname) {
 function remoteMenu(actions, shell = remoteShell()) {
 	if (!shell) return () => {};
 	const href = (view) => new URL(REMOTE_ITEMS.find((item) => item.id === view).path, location.href).href;
-	let catalog = {
-		version: 1,
-		entries: []
-	};
-	let state = "Checking";
-	let address = "";
+	let projection;
 	const run = /* @__PURE__ */ new Map();
 	function paint() {
 		run.clear();
-		const view = remoteState(state);
-		const reason = actions.blocked();
-		const selected = catalog.entries.find((entry) => currentRemote(entry, address, location.href));
-		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
+		const view = projection?.current.connection;
 		const showing = remoteItem(location.pathname)?.id;
 		const item = (id) => {
 			return {
@@ -1601,29 +1541,12 @@ function remoteMenu(actions, shell = remoteShell()) {
 				current: showing === id
 			};
 		};
-		const remotes = [];
-		if (!selected) remotes.push({
-			id: "status",
-			label: [view.mark, `Status · ${view.word}`].filter(Boolean).join(" "),
-			href: href("status"),
-			current: showing === "status"
-		});
-		for (const entry of entries) {
-			const here = currentRemote(entry, address, location.href);
-			const shown = remoteState(state, here);
-			const id = `remote:${entry.name}`;
-			if (!here) run.set(id, () => actions.open(entry));
-			remotes.push({
-				id,
-				label: here ? [shown.mark, `${entry.name} · ${shown.word}`].filter(Boolean).join(" ") : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
-				href: here ? href("status") : "#",
-				current: here && showing === "status",
-				disabled: !here && !!reason,
-				note: !here && reason ? reason : void 0
-			});
-		}
-		if (view.action) {
-			run.set("recover", () => actions.recover(remoteState(state).action));
+		const remotes = [{
+			...item("status"),
+			label: `Status · ${view?.text ?? "Checking"}`
+		}];
+		if (view?.action) {
+			run.set("recover", () => actions.recover(view.action));
 			remotes.push({
 				id: "recover",
 				label: view.action,
@@ -1632,31 +1555,21 @@ function remoteMenu(actions, shell = remoteShell()) {
 				note: view.text
 			});
 		}
-		run.set("add", actions.add);
 		shell.setMenu({
 			title: "Remote",
-			groups: [
-				{ items: remotes },
-				{
-					label: "This machine",
-					items: [
-						item("devices"),
-						item("connect"),
-						item("machine")
-					]
-				},
-				{ items: [{
-					id: "add",
-					label: "Add remote…",
-					href: href("settings"),
-					current: false
-				}, item("settings")] }
-			]
+			groups: [{ items: [item("settings")] }, {
+				label: "This machine",
+				items: [
+					...remotes,
+					item("devices"),
+					item("connect"),
+					item("machine")
+				]
+			}]
 		}, (id) => {
 			const action = run.get(id);
 			if (!action) return false;
-			if (!id.startsWith("remote:") || !actions.blocked()) action();
-			else paint();
+			action();
 			return true;
 		});
 	}
@@ -1672,901 +1585,29 @@ function remoteMenu(actions, shell = remoteShell()) {
 	};
 	document.addEventListener("pointerover", entered, { signal: shell.signal });
 	document.addEventListener("focusin", entered, { signal: shell.signal });
-	return (next, observed, checkedAddress) => {
-		catalog = next;
-		state = observed;
-		address = checkedAddress;
-		if (observed === "Connected" && checkedAddress) shell.describe(checkedAddress);
+	return (next) => {
+		projection = next;
+		if (next.current.connection.word === "Connected" && next.address) shell.describe(next.address);
 		paint();
 	};
 }
 //#endregion
-//#region ../../../../design/browser-ui/src/static.ts
-var browserUiClasses = Object.freeze({
-	chips: "tmt-ui-chips",
-	chip: "tmt-ui-chip",
-	chipLabel: "tmt-ui-chip-label",
-	chipsAdd: "tmt-ui-chips-add",
-	chipsStatus: "tmt-ui-chips-status",
-	chipsSurface: "tmt-ui-chips-surface",
-	chipsSearch: "tmt-ui-chips-search",
-	chipsOption: "tmt-ui-chips-option",
-	countChip: "tmt-ui-count-chip",
-	count: "tmt-ui-count",
-	avatar: "tmt-ui-avatar",
-	radio: "tmt-ui-radio",
-	choices: "tmt-ui-choices",
-	choicesLegend: "tmt-ui-choices-legend",
-	choice: "tmt-ui-choice",
-	choiceText: "tmt-ui-choice-text",
-	choiceDescription: "tmt-ui-choice-description",
-	choiceHint: "tmt-ui-choice-hint",
-	pager: "tmt-ui-pager",
-	pagerPosition: "tmt-ui-pager-position",
-	statusTiles: "tmt-ui-status-tiles",
-	statusTile: "tmt-ui-status-tile",
-	statusTileLabel: "tmt-ui-status-tile-label",
-	statusTileValue: "tmt-ui-status-tile-value",
-	statusTileDot: "tmt-ui-status-tile-dot",
-	stateMark: "tmt-ui-state-mark",
-	card: "tmt-ui-card",
-	cardHead: "tmt-ui-card-head",
-	cardTitle: "tmt-ui-card-title",
-	cardMeta: "tmt-ui-card-meta",
-	meter: "tmt-ui-meter",
-	meterFill: "tmt-ui-meter-fill",
-	glyph: "tmt-ui-glyph",
-	page: "tmt-ui-page",
-	pageHead: "tmt-ui-page-head",
-	pageTitle: "tmt-ui-page-title",
-	pageSubtitle: "tmt-ui-page-subtitle",
-	stats: "tmt-ui-stats",
-	stat: "tmt-ui-stat",
-	statValue: "tmt-ui-stat-value",
-	statNumber: "tmt-ui-stat-number",
-	statCaption: "tmt-ui-stat-caption",
-	banner: "tmt-ui-banner",
-	bannerHead: "tmt-ui-banner-head",
-	bannerRow: "tmt-ui-banner-row",
-	facts: "tmt-ui-facts",
-	tableScroll: "tmt-ui-table-scroll",
-	tableGroup: "tmt-ui-table-group",
-	tableGroupToggle: "tmt-ui-table-group-toggle",
-	tableGroupCount: "tmt-ui-table-group-count",
-	tableSelect: "tmt-ui-table-select",
-	tableCompactMeta: "tmt-ui-table-compact-meta",
-	tableMono: "tmt-ui-table-mono",
-	tableQuiet: "tmt-ui-table-quiet",
-	avatarStack: "tmt-ui-avatar-stack",
-	glyphTile: "tmt-ui-glyph-tile",
-	notifications: "tmt-ui-notifications",
-	notification: "tmt-ui-notification",
-	notificationStatus: "tmt-ui-notification-status",
-	notificationHeading: "tmt-ui-notification-heading",
-	notificationTag: "tmt-ui-notification-tag",
-	notificationLine: "tmt-ui-notification-line",
-	notificationQuote: "tmt-ui-notification-quote",
-	notificationWaiting: "tmt-ui-notification-waiting",
-	drawer: "tmt-ui-drawer",
-	drawerHeader: "tmt-ui-drawer-header",
-	drawerBody: "tmt-ui-drawer-body",
-	dialog: "tmt-ui-dialog",
-	dialogHeader: "tmt-ui-dialog-header",
-	dialogBody: "tmt-ui-dialog-body",
-	dialogActions: "tmt-ui-dialog-actions",
-	menu: "tmt-ui-menu",
-	menuSurface: "tmt-ui-menu-surface",
-	menuItem: "tmt-ui-menu-item",
-	command: "tmt-ui-command",
-	commandText: "tmt-ui-command-text",
-	commandCopy: "tmt-ui-command-copy",
-	commandFeedback: "tmt-ui-command-feedback",
-	code: "tmt-ui-code",
-	header: "tmt-ui-header",
-	brand: "tmt-ui-brand",
-	mark: "tmt-ui-mark",
-	wordmark: "tmt-ui-wordmark",
-	heading: "tmt-ui-heading",
-	headingSuffix: "tmt-ui-heading-suffix",
-	title: "tmt-ui-title",
-	caption: "tmt-ui-caption",
-	status: "tmt-ui-status",
-	actions: "tmt-ui-actions",
-	icon: "tmt-ui-icon",
-	notice: "tmt-ui-notice",
-	noticeMark: "tmt-ui-notice-mark",
-	noticeEyebrow: "tmt-ui-notice-eyebrow",
-	noticeHeading: "tmt-ui-notice-heading",
-	noticeBody: "tmt-ui-notice-body",
-	noticeActions: "tmt-ui-notice-actions",
-	field: "tmt-ui-field",
-	fieldLabel: "tmt-ui-field-label",
-	fieldControl: "tmt-ui-field-control",
-	searchField: "tmt-ui-search-field",
-	fieldDescription: "tmt-ui-field-description",
-	fieldError: "tmt-ui-field-error",
-	action: "tmt-ui-action",
-	actionLabel: "tmt-ui-action-label",
-	actionMark: "tmt-ui-action-mark",
-	busyMark: "tmt-ui-busy-mark",
-	busyDot: "tmt-ui-busy-dot",
-	checkbox: "tmt-ui-checkbox",
-	checkboxLabel: "tmt-ui-checkbox-label",
-	iconAction: "tmt-ui-icon-action",
-	iconActionControl: "tmt-ui-icon-action-control",
-	iconActionIcon: "tmt-ui-icon-action-icon",
-	iconActionTooltip: "tmt-ui-icon-action-tooltip",
-	iconActionTooltipLabel: "tmt-ui-icon-action-tooltip-label",
-	toggle: "tmt-ui-toggle",
-	toggleIndicator: "tmt-ui-toggle-indicator",
-	list: "tmt-ui-list",
-	listRow: "tmt-ui-list-row",
-	listLeading: "tmt-ui-list-leading",
-	listTitle: "tmt-ui-list-title",
-	listMeta: "tmt-ui-list-meta",
-	listLabel: "tmt-ui-list-label",
-	listDescription: "tmt-ui-list-description",
-	listUpdated: "tmt-ui-list-updated",
-	listState: "tmt-ui-list-state",
-	listActions: "tmt-ui-list-actions",
-	tabs: "tmt-ui-tabs",
-	tabsHeader: "tmt-ui-tabs-header",
-	tabList: "tmt-ui-tab-list",
-	tab: "tmt-ui-tab",
-	tabMark: "tmt-ui-tab-mark",
-	tabLabel: "tmt-ui-tab-label",
-	tabCount: "tmt-ui-tab-count",
-	tabsStatus: "tmt-ui-tabs-status",
-	tabPanel: "tmt-ui-tab-panel",
-	section: "tmt-ui-section",
-	sectionHeading: "tmt-ui-section-heading",
-	table: "tmt-ui-table",
-	disclosure: "tmt-ui-disclosure",
-	visuallyHidden: "tmt-ui-visually-hidden"
-});
-/** A count as drawn in a chip or the rail: counts above 99 read `99+`. */
-function countText(value) {
-	return value > 99 ? "99+" : String(value);
+//#region ../../../../design/browser-ui/src/overlay.ts
+/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
+function admitsOverlayEscape(event) {
+	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
 }
-/** The initials an avatar draws: the first letters of up to two words of a name or handle. */
-function avatarInitials(name) {
-	return name.split(/[\s\-_.@]+/u).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase();
-}
-/**
-* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
-* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
-*/
-var busyDots = [
-	[5, 3],
-	[11, 3],
-	[11, 8],
-	[11, 13],
-	[5, 13],
-	[5, 8]
-];
-/** The radius of each busy-mark dot on the 16x16 viewBox. */
-var busyDotRadius = 1.6;
-var SVG$3 = "http://www.w3.org/2000/svg";
-/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
-function busySvg(doc) {
-	const svg = doc.createElementNS(SVG$3, "svg");
-	svg.setAttribute("viewBox", "0 0 16 16");
-	for (const [cx, cy] of busyDots) {
-		const dot = doc.createElementNS(SVG$3, "circle");
-		dot.setAttribute("class", browserUiClasses.busyDot);
-		dot.setAttribute("cx", String(cx));
-		dot.setAttribute("cy", String(cy));
-		dot.setAttribute("r", String(busyDotRadius));
-		svg.append(dot);
-	}
-	return svg;
-}
-/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
-function createBusyMark(doc = document) {
-	const busy = doc.createElement("span");
-	busy.className = browserUiClasses.busyMark;
-	busy.append(busySvg(doc));
-	return busy;
-}
-//#endregion
-//#region src/remote-registry.ts
-/** Public references only; keys, pairings, credentials, drafts and intents never enter a catalog. */
-var RemoteRegistryError = class extends Error {
-	code;
-	constructor(code, message) {
-		super(message);
-		this.code = code;
-	}
-};
-var LIMIT = 8192;
-var encoder = new TextEncoder();
-var decoder = new TextDecoder("utf-8", { fatal: true });
-var empty = {
-	version: 1,
-	entries: []
-};
-function valid$1(condition, message = "The remote name or link is invalid") {
-	if (!condition) throw new RemoteRegistryError("REMOTE_SELECTOR_INVALID", message);
-}
-function fields(value, keys) {
-	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
-	const object = value;
-	valid$1(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
-	return object;
-}
-function name(value) {
-	valid$1(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
-}
-function target(entry) {
-	return new URL(entry.url).href;
-}
-async function reference(alias, address) {
-	name(alias);
-	valid$1(typeof address === "string" && address.length <= LIMIT);
-	let url;
-	try {
-		url = new URL(address);
-	} catch {
-		valid$1(false);
-	}
-	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") {
-		const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
-			valid$1(false);
-		});
-		return {
-			name: alias,
-			kind: "firestore",
-			url: address,
-			project: config.projectId
-		};
-	}
-	valid$1(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
-	return {
-		name: alias,
-		kind: "local",
-		url: address,
-		project: null
-	};
-}
-async function parseCatalog(value) {
-	const row = fields(value, ["version", "entries"]);
-	valid$1(row.version === 1 && Array.isArray(row.entries));
-	valid$1(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
-	const entries = [];
-	for (const raw of row.entries) {
-		const r = fields(raw, [
-			"name",
-			"kind",
-			"url",
-			"project"
-		]);
-		const entry = await reference(r.name, r.url);
-		valid$1(entry.kind === r.kind && entry.project === r.project);
-		valid$1(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
-		entries.push(Object.freeze(entry));
-	}
-	const catalog = {
-		version: 1,
-		entries: Object.freeze(entries)
-	};
-	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
-	return Object.freeze(catalog);
-}
-function json(catalog) {
-	return JSON.stringify(catalog);
-}
-function decode$1(value) {
-	valid$1(/^[A-Za-z0-9_-]+$/.test(value));
-	try {
-		const bytes = Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
-		valid$1(base64url(bytes) === value);
-		return JSON.parse(decoder.decode(bytes));
-	} catch {
-		valid$1(false);
+function restoreOverlayFocus(origin, fallback) {
+	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
+	if (usable(origin)) origin.focus({ preventScroll: true });
+	else {
+		const node = fallback?.() ?? null;
+		if (usable(node)) node.focus({ preventScroll: true });
 	}
 }
-function hint(value) {
-	const r = fields(value, ["spaceId", "pageId"]);
-	valid$1(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
-	valid$1(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
-	return {
-		spaceId: r.spaceId,
-		pageId: r.pageId
-	};
-}
-async function parseHandoff(fragment) {
-	valid$1(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
-	const params = new URLSearchParams(fragment.slice(1));
-	const keys = [...params.keys()];
-	valid$1(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
-	const raw = params.get("tmt-remotes");
-	valid$1(raw !== null);
-	const catalog = await parseCatalog(decode$1(raw));
-	valid$1(base64url(encoder.encode(json(catalog))) === raw);
-	const page = params.get("tmt-page");
-	const checkedHint = page === null ? void 0 : hint(decode$1(page));
-	if (checkedHint) valid$1(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
-	return {
-		catalog,
-		...checkedHint ? { hint: checkedHint } : {}
-	};
-}
-async function buildHandoff(destination, value, page) {
-	const checked = await reference(destination.name, destination.url);
-	valid$1(checked.kind === destination.kind && checked.project === destination.project);
-	if (checked.kind === "firestore") return checked.url;
-	const catalog = await parseCatalog(value);
-	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
-	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
-	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
-	return `${new URL("/remote/", checked.url).href}#${params}`;
-}
-async function planImport(incoming, current) {
-	const next = await parseCatalog(incoming), before = await parseCatalog(current);
-	const used = new Set([...before.entries, ...next.entries].map((entry) => entry.name));
-	return {
-		incoming: next,
-		current: before,
-		rows: next.entries.map((entry) => {
-			const same = before.entries.find((old) => target(old) === target(entry));
-			if (same) return {
-				entry,
-				status: "duplicate",
-				suggestedName: entry.name,
-				existingName: same.name
-			};
-			if (!before.entries.some((old) => old.name === entry.name)) return {
-				entry,
-				status: "add",
-				suggestedName: entry.name
-			};
-			let n = 2;
-			let proposed;
-			do {
-				const suffix = `-${n++}`;
-				proposed = entry.name.slice(0, 63 - suffix.length) + suffix;
-			} while (used.has(proposed));
-			used.add(proposed);
-			return {
-				entry,
-				status: "collision",
-				suggestedName: proposed
-			};
-		})
-	};
-}
-async function mergeImport(plan, choices) {
-	const checked = await planImport(plan.incoming, plan.current);
-	valid$1(choices.length === checked.rows.length);
-	const entries = [...checked.current.entries];
-	for (const [index, row] of checked.rows.entries()) {
-		const alias = choices[index];
-		if (alias === null || row.status === "duplicate") continue;
-		name(alias);
-		if (entries.some((old) => old.name === alias)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", `You already have a remote named ${alias}`);
-		entries.push({
-			...row.entry,
-			name: alias
-		});
-	}
-	return parseCatalog({
-		version: 1,
-		entries
-	});
-}
-async function snapshot() {
-	try {
-		const raw = await readRegistry();
-		valid$1(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
-		const catalog = raw === void 0 ? empty : await parseCatalog(JSON.parse(raw));
-		valid$1(raw === void 0 || raw === json(catalog));
-		return {
-			raw,
-			catalog
-		};
-	} catch {
-		throw new RemoteRegistryError("REMOTE_SELECTOR_UNAVAILABLE", "The remotes could not be read");
-	}
-}
-async function commit(raw, catalog) {
-	try {
-		await writeRegistry(raw, json(catalog));
-	} catch (error) {
-		throw new RemoteRegistryError(error instanceof Error && error.message === "Registry changed" ? "REMOTE_SELECTOR_CONFLICT" : "REMOTE_SELECTOR_UNAVAILABLE", "The remotes could not be saved. Check the list again.");
-	}
-}
-var remoteRegistry = {
-	parseHandoff,
-	async list() {
-		return (await snapshot()).catalog;
-	},
-	async planImport(incoming) {
-		return planImport(incoming, (await snapshot()).catalog);
-	},
-	async confirmImport(plan, choices) {
-		const next = await mergeImport(plan, choices), latest = await snapshot();
-		if (json(latest.catalog) !== json(plan.current)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", "The remotes changed. Check the list again.");
-		await commit(latest.raw, next);
-	},
-	async add(alias, url) {
-		const entry = await reference(alias, url), latest = await snapshot();
-		const plan = await planImport({
-			version: 1,
-			entries: [entry]
-		}, latest.catalog);
-		valid$1(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
-		await remoteRegistry.confirmImport(plan, [alias]);
-	},
-	async rename(previous, alias) {
-		name(alias);
-		const latest = await snapshot();
-		valid$1(latest.catalog.entries.some((entry) => entry.name === previous));
-		valid$1(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
-		const next = await parseCatalog({
-			version: 1,
-			entries: latest.catalog.entries.map((entry) => entry.name === previous ? {
-				...entry,
-				name: alias
-			} : entry)
-		});
-		await commit(latest.raw, next);
-	},
-	async remove(alias) {
-		const latest = await snapshot();
-		valid$1(latest.catalog.entries.some((entry) => entry.name === alias));
-		await commit(latest.raw, {
-			version: 1,
-			entries: latest.catalog.entries.filter((entry) => entry.name !== alias)
-		});
-	},
-	async navigation(entry, page) {
-		return buildHandoff(entry, await remoteRegistry.list(), page);
-	}
-};
-//#endregion
-//#region src/remote-registry-page.ts
-/** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
-function node(tag, text = "") {
-	const result = document.createElement(tag);
-	result.textContent = text;
-	return result;
-}
-function action(text, run) {
-	const button = node("button", text);
-	button.type = "button";
-	button.className = "tmt-ui-action";
-	button.addEventListener("click", run);
-	return button;
-}
-var fieldCount = 0;
-function field(label, value) {
-	const wrapper = node("div");
-	wrapper.className = browserUiClasses.field;
-	const input = node("input");
-	input.id = `remote-field-${++fieldCount}`;
-	input.className = browserUiClasses.fieldControl;
-	input.value = value;
-	const text = node("label", label);
-	text.className = browserUiClasses.fieldLabel;
-	text.htmlFor = input.id;
-	wrapper.append(text, input);
-	return {
-		label: wrapper,
-		input
-	};
-}
-function kindLabel(entry) {
-	return entry.kind === "local" ? "Local" : "Firebase";
-}
-function remoteRegistryPage(initialBlocked = () => "", shell) {
-	let heldBy = initialBlocked;
-	const blocked = () => heldBy();
-	const root = document.getElementById("remotes");
-	if (!root) return Object.assign(() => {}, { blockedBy: () => {} });
-	const fragment = location.hash;
-	if (fragment) history.replaceState(null, "", location.pathname + location.search);
-	const list = document.getElementById("remote-list");
-	const status = document.getElementById("remote-status");
-	const add = document.getElementById("remote-add");
-	let observed = "Checking";
-	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
-	let currentDialog;
-	let catalog = {
-		version: 1,
-		entries: []
-	};
-	const settings = new URL("settings", new URL("./", location.href));
-	const menu = remoteMenu({
-		refresh: () => render(),
-		open: (entry) => {
-			if (blocked()) return;
-			remoteRegistry.navigation(entry).then((url) => location.assign(url)).catch((error) => showError(error, status));
-		},
-		add: () => {
-			if (document.documentElement.dataset.tmtPage !== "settings") (shell ?? remoteShell())?.navigate(settings.href);
-			add.click();
-		},
-		recover: (action) => {
-			const home = new URL("./", location.href).href;
-			if (action === "Retry") {
-				const retry = ["check", "refresh"].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
-				if (retry && !retry.disabled) retry.click();
-				else (shell ?? remoteShell())?.navigate(home);
-			} else if (document.documentElement.dataset.tmtPage === "settings") (shell ?? remoteShell())?.navigate(home);
-			else {
-				const pair = [
-					"copy-refused-pair",
-					"copy-missing-pair",
-					"copy-unreadable-pair",
-					"copy-different-pair"
-				].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
-				pair?.scrollIntoView();
-				pair?.focus();
-			}
-		},
-		blocked
-	}, shell);
-	const showError = (error, slot) => {
-		slot.textContent = error instanceof RemoteRegistryError ? error.message : "The remotes could not be read";
-	};
-	const dialog = (title, opener) => {
-		currentDialog?.close();
-		if (document.documentElement.dataset.tmtPage !== "settings") (shell ?? remoteShell())?.navigate(settings.href);
-		const box = node("dialog");
-		box.className = browserUiClasses.dialog;
-		const header = node("header");
-		header.className = browserUiClasses.dialogHeader;
-		const heading = node("h2", title);
-		heading.id = "remote-dialog-heading";
-		header.append(heading);
-		box.setAttribute("aria-labelledby", heading.id);
-		const content = node("div");
-		content.className = browserUiClasses.dialogBody;
-		const body = node("div");
-		const message = node("p");
-		message.setAttribute("role", "status");
-		content.append(body, message);
-		const buttons = node("footer");
-		buttons.className = browserUiClasses.dialogActions;
-		box.append(header, content, buttons);
-		root.append(box);
-		const end = () => box.close();
-		box.addEventListener("close", () => {
-			box.remove();
-			if (currentDialog === box) {
-				currentDialog = void 0;
-				(opener.isConnected ? opener : add).focus();
-			}
-		}, { once: true });
-		currentDialog = box;
-		return {
-			box,
-			body,
-			buttons,
-			message,
-			end
-		};
-	};
-	const save = async (run, view) => {
-		const buttons = [...view.box.querySelectorAll("button")];
-		buttons.forEach((b) => {
-			b.disabled = true;
-		});
-		try {
-			await run();
-			await render();
-			view.end();
-		} catch (error) {
-			showError(error, view.message);
-		} finally {
-			buttons.forEach((b) => {
-				b.disabled = false;
-			});
-		}
-	};
-	const importView = (plan) => {
-		const view = dialog("Add these remotes to this browser?", add);
-		view.body.append(node("p", "Only names and addresses are copied. No keys, pairings or drafts."));
-		const choices = [];
-		for (const row of plan.rows) {
-			const item = node("section");
-			item.className = browserUiClasses.section;
-			const name = node("h3", row.entry.name);
-			name.className = browserUiClasses.sectionHeading;
-			name.dataset.variant = "title";
-			item.append(name, node("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
-			if (row.status === "duplicate") {
-				item.append(node("p", `Already added as ${row.existingName}`));
-				choices.push(() => null);
-			} else if (row.status === "collision") {
-				item.append(node("p", `You already have a remote named ${row.entry.name}`));
-				const alias = field("Remote name", row.suggestedName);
-				const skip = node("input");
-				skip.type = "checkbox";
-				skip.className = browserUiClasses.checkbox;
-				const skipLabel = node("label", "Skip");
-				skipLabel.className = browserUiClasses.checkboxLabel;
-				skipLabel.prepend(skip);
-				item.append(alias.label, skipLabel);
-				choices.push(() => skip.checked ? null : alias.input.value);
-			} else choices.push(() => row.entry.name);
-			view.body.append(item);
-		}
-		const submit = action("Add", () => {
-			save(() => remoteRegistry.confirmImport(plan, choices.map((choice) => choice())), view);
-		});
-		const update = () => {
-			submit.disabled = choices.every((choice) => choice() === null);
-			view.message.textContent = submit.disabled ? "Nothing new to add." : "";
-		};
-		view.body.addEventListener("change", update);
-		update();
-		view.buttons.append(submit, action("Cancel", view.end));
-		view.box.showModal();
-	};
-	const confirmAdd = (entry, opener) => {
-		const view = dialog(entry.kind === "firestore" ? `Add Firebase remote ${entry.project}?` : `Add remote ${entry.name}?`, opener);
-		view.body.append(node("p", entry.kind === "firestore" ? new URL(entry.url).host : entry.url));
-		view.buttons.append(action("Add", () => {
-			save(() => remoteRegistry.add(entry.name, entry.url), view);
-		}), action("Cancel", view.end));
-		view.box.showModal();
-	};
-	const rename = (entry, opener) => {
-		const view = dialog(`Rename ${entry.name}`, opener);
-		const alias = field("Remote name", entry.name);
-		view.body.append(alias.label);
-		const submit = action("Save", () => {
-			save(() => remoteRegistry.rename(entry.name, alias.input.value), view);
-		});
-		submit.disabled = true;
-		alias.input.addEventListener("input", () => {
-			submit.disabled = alias.input.value === entry.name;
-		});
-		view.buttons.append(submit, action("Cancel", view.end));
-		view.box.showModal();
-	};
-	const remove = (entry, opener) => {
-		const view = dialog(`Remove ${entry.name} from this browser?`, opener);
-		view.body.append(node("p", "This only removes the entry here. It does not sign out or revoke access."));
-		view.buttons.append(action("Remove", () => {
-			save(() => remoteRegistry.remove(entry.name), view);
-		}), action("Cancel", view.end));
-		view.box.showModal();
-	};
-	const current = (entry) => currentRemote(entry, address, location.href);
-	const render = async () => {
-		try {
-			catalog = await remoteRegistry.list();
-			const rows = catalog.entries.map((entry) => {
-				const row = node("li");
-				row.className = browserUiClasses.listRow;
-				row.dataset.remote = entry.name;
-				row.dataset.url = entry.url;
-				row.dataset.kind = entry.kind;
-				const title = node("div");
-				title.className = browserUiClasses.listTitle;
-				const label = node("span", entry.name);
-				label.className = browserUiClasses.listLabel;
-				const description = node("span", `${kindLabel(entry)} · ${entry.url}`);
-				description.className = browserUiClasses.listDescription;
-				title.append(label, description);
-				const meta = node("div");
-				meta.className = browserUiClasses.listMeta;
-				const state = node("div", remoteState(observed, current(entry)).text);
-				state.className = browserUiClasses.listState;
-				state.dataset.tone = remoteState(observed, current(entry)).tone;
-				meta.append(state);
-				const actions = node("div");
-				actions.className = browserUiClasses.listActions;
-				const open = action("Open", () => {
-					(async () => {
-						try {
-							if (!blocked()) location.assign(await remoteRegistry.navigation(entry));
-						} catch (error) {
-							showError(error, status);
-						}
-					})();
-				});
-				open.dataset.action = "open";
-				const renameButton = action("Rename", () => rename(entry, renameButton));
-				const removeButton = action("Remove", () => remove(entry, removeButton));
-				renameButton.setAttribute("aria-label", `Rename ${entry.name}`);
-				removeButton.setAttribute("aria-label", `Remove ${entry.name}`);
-				if (!current(entry)) {
-					open.disabled = !!blocked();
-					open.title = blocked();
-					actions.append(open);
-				}
-				actions.append(renameButton, removeButton);
-				row.append(title, meta, actions);
-				return row;
-			});
-			list.replaceChildren(...rows);
-			if (!rows.length) {
-				const empty = node("li");
-				empty.className = browserUiClasses.listRow;
-				const text = node("div", "No remotes added in this browser.");
-				text.className = browserUiClasses.listTitle;
-				empty.append(text);
-				list.append(empty);
-			}
-			menu(catalog, observed, address ?? "");
-		} catch (error) {
-			showError(error, status);
-		}
-	};
-	add.addEventListener("click", () => {
-		const view = dialog("Add remote", add);
-		const alias = field("Remote name", "");
-		const url = field("Remote address or link", "");
-		view.body.append(alias.label, url.label);
-		view.buttons.append(action("Continue", () => {
-			reference(alias.input.value, url.input.value).then((entry) => {
-				if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
-				view.end();
-				confirmAdd(entry, add);
-			}).catch((error) => showError(error, view.message));
-		}), action("Cancel", view.end));
-		view.box.showModal();
-	});
-	render().then(() => {
-		if (fragment === "#add-remote") add.click();
-		else if (fragment === "#remotes") {
-			root.scrollIntoView();
-			add.focus({ preventScroll: true });
-		}
-	});
-	const receive = (value) => {
-		remoteRegistry.parseHandoff(value).then(async (packet) => {
-			const plan = await remoteRegistry.planImport(packet.catalog);
-			importView(plan);
-		}).catch((error) => showError(error, status));
-	};
-	if (fragment && !["#remotes", "#add-remote"].includes(fragment)) receive(fragment);
-	window.addEventListener("hashchange", () => {
-		const value = location.hash;
-		if (!value || ["#remotes", "#add-remote"].includes(value)) return;
-		history.replaceState(null, "", location.pathname + location.search);
-		receive(value);
-	}, { signal: (shell ?? remoteShell())?.signal });
-	const observe = (state, checkedAddress) => {
-		observed = state;
-		if (checkedAddress) address = checkedAddress;
-		for (const row of list.querySelectorAll("[data-remote]")) {
-			const stateNode = row.querySelector(".tmt-ui-list-state");
-			const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
-			const isCurrent = !!entry && currentRemote(entry, address, location.href);
-			const view = remoteState(observed, isCurrent);
-			stateNode.textContent = view.text;
-			stateNode.dataset.tone = view.tone;
-			const open = row.querySelector("[data-action=\"open\"]");
-			if (open) {
-				open.disabled = !!blocked();
-				open.title = blocked();
-			}
-			if (isCurrent) row.querySelector("[data-action=\"open\"]")?.remove();
-		}
-		menu(catalog, observed, address ?? "");
-	};
-	return Object.assign(observe, { blockedBy: (reason) => {
-		heldBy = reason;
-	} });
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/brand-mark-svg.ts
-/** A polygon whose corners are quadratic curves of the given radii (0 keeps a corner sharp). */
-function rounded(points, radii) {
-	const n = points.length;
-	const toward = ([ax, ay], [bx, by], k) => {
-		const length = Math.hypot(bx - ax, by - ay);
-		const t = Math.min(k, length / 2) / length;
-		return [ax + (bx - ax) * t, ay + (by - ay) * t];
-	};
-	let d = "";
-	for (let i = 0; i < n; i++) {
-		const corner = points[i];
-		const [sx, sy] = toward(corner, points[(i - 1 + n) % n], radii[i]);
-		const [ex, ey] = toward(corner, points[(i + 1) % n], radii[i]);
-		d += `${i ? "L" : "M"}${sx.toFixed(2)} ${sy.toFixed(2)}Q${corner[0]} ${corner[1]} `;
-		d += `${ex.toFixed(2)} ${ey.toFixed(2)}`;
-	}
-	return `${d}Z`;
-}
-var FULL = {
-	panel: rounded([
-		[6, 10],
-		[50, 24],
-		[50, 80],
-		[6, 88]
-	], [
-		8,
-		6.5,
-		6.5,
-		8
-	]),
-	beam: rounded([
-		[7, 10],
-		[74, 22],
-		[80, 28],
-		[80, 80],
-		[74, 86],
-		[50, 80],
-		[7, 70]
-	], [
-		0,
-		7,
-		7,
-		7,
-		7,
-		0,
-		0
-	]),
-	rim: "M49.4 29 L49.4 75",
-	prompt: "M15.5 34 L23.5 40.5 L15.5 47 M26.5 49.5 L34 51.2"
-};
-var SMALL = {
-	panel: rounded([
-		[5, 14],
-		[52, 24],
-		[52, 76],
-		[5, 86]
-	], [
-		7,
-		7,
-		7,
-		7
-	]),
-	beam: rounded([
-		[6, 14],
-		[86, 24],
-		[92, 29],
-		[92, 81],
-		[86, 86],
-		[52, 76],
-		[6, 70]
-	], [
-		0,
-		9,
-		9,
-		9,
-		9,
-		0,
-		0
-	]),
-	prompt: "M15 37 L28 50 L15 63"
-};
-var brandMarkSmall = (size) => size !== void 0 && size < 28;
-var stop = (name, offset, opacity) => `<stop class="tmt-brand-mark-${name}" offset="${offset}"${opacity === void 0 ? "" : ` stop-opacity="${opacity}"`}></stop>`;
-var light = (offset, opacity) => `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
-var box = "filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"96\" height=\"96\"";
-/**
-* A paint-server id prefix that no element of the document uses yet: `base`, then `base-1`,
-* `base-2`. Marks that share a prefix resolve `url(#…)` to the first paint server in the document,
-* which can sit in a hidden subtree and paint nothing. `taken` asks the live document, so marks
-* drawn by separate bundles do not collide either.
-*/
-function freshMarkId(base, taken) {
-	let id = base;
-	for (let count = 1; taken(id); count++) id = `${base}-${count}`;
-	return id;
-}
-/** The mark's children; `id` prefixes its paint servers, unique per document. */
-function brandMarkInner(small, id) {
-	const shape = small ? SMALL : FULL;
-	const aurora = `<linearGradient id="${id}-aurora" x1="0.2" y1="0.05" x2="0.85" y2="1">${stop("cyan", 0)}${stop("green", .5)}${stop("gold", 1)}</linearGradient><linearGradient id="${id}-far" x1="0" y1="0" x2="1" y2="0">${stop("far", .45, 0)}${stop("far", 1, small ? .15 : .25)}</linearGradient><linearGradient id="${id}-panel" x1="0" y1="0" x2="0.6" y2="1">${stop("panel-top", 0)}${stop("panel-bottom", 1)}</linearGradient><linearGradient id="${id}-mono" x1="0" y1="0" x2="1" y2="0.35">${stop("mono-start", 0)}${stop("mono-end", 1)}</linearGradient>`;
-	const beam = `<path d="${shape.beam}" fill="url(#${id}-aurora)"></path><path d="${shape.beam}" fill="url(#${id}-far)"></path>`;
-	const print = `<path class="tmt-brand-mark-print" d="${shape.beam}" fill="url(#${id}-mono)"></path>`;
-	const panel = `<path class="tmt-brand-mark-panel" d="${shape.panel}" fill="url(#${id}-panel)"></path>`;
-	const prompt = `<path class="tmt-brand-mark-prompt" d="${shape.prompt}"></path>`;
-	if (small) return `<defs>${aurora}</defs><g class="tmt-brand-mark-beam">${beam}</g>${print}${panel}${prompt}`;
-	return `<defs>${aurora}<linearGradient id="${id}-halo-weight" x1="0" y1="0" x2="1" y2="1">${light(.3, .15)}${light(1, 1)}</linearGradient><mask id="${id}-halo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"><rect width="96" height="96" fill="url(#${id}-halo-weight)"></rect></mask><linearGradient id="${id}-feather" x1="0" y1="0" x2="1" y2="0">${light(.88, 1)}${light(1, .7)}</linearGradient><mask id="${id}-feather-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#${id}-feather)"></rect></mask><linearGradient id="${id}-spill" gradientUnits="userSpaceOnUse" x1="50" y1="0" x2="36" y2="0">${stop("glow", 0, .6)}${stop("cyan", .35, .22)}${stop("cyan", 1, 0)}</linearGradient><linearGradient id="${id}-sheen" x1="0" y1="0" x2="1" y2="1">${light(0, .1)}${light(.35, 0)}</linearGradient><linearGradient id="${id}-rim" x1="0" y1="0" x2="0" y2="1">${stop("cyan", 0, .9)}${stop("gold", 1, .9)}</linearGradient><clipPath id="${id}-panel-clip"><path d="${shape.panel}"></path></clipPath><filter id="${id}-halo" ${box}><feGaussianBlur stdDeviation="2.4"></feGaussianBlur></filter><filter id="${id}-soft" ${box}><feGaussianBlur stdDeviation="0.25"></feGaussianBlur></filter></defs><g transform="translate(6.5 3) scale(0.94)"><g class="tmt-brand-mark-beam"><g mask="url(#${id}-halo-mask)"><path d="${shape.beam}" fill="url(#${id}-aurora)" filter="url(#${id}-halo)" opacity="0.55" transform="translate(1 1.4)"></path></g><g mask="url(#${id}-feather-mask)" filter="url(#${id}-soft)">${beam}</g></g>` + print + panel + `<g class="tmt-brand-mark-beam" clip-path="url(#${id}-panel-clip)"><path d="${shape.panel}" fill="url(#${id}-spill)"></path><path class="tmt-brand-mark-rim" d="${FULL.rim}" stroke="url(#${id}-rim)"></path></g><path d="${shape.panel}" fill="url(#${id}-sheen)"></path>` + prompt + `</g>`;
-}
-/** The whole decorative `<svg>`, as static hosts embed it. */
-function brandMarkSvg({ size, className = "tmt-brand-mark", id }) {
-	const small = brandMarkSmall(size);
-	const dimensions = size === void 0 ? "" : ` width="${size}" height="${size}"`;
-	return `<svg class="${className}" data-form="${small ? "small" : "full"}" viewBox="0 0 96 96" aria-hidden="true"${dimensions}>${brandMarkInner(small, id)}</svg>`;
+function outsideOverlay(node, x, y) {
+	const box = node.getBoundingClientRect();
+	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/icon-action-tooltip.ts
@@ -2751,168 +1792,6 @@ function bindIconActionTooltip(wrapper, button, tooltip) {
 			button.removeEventListener("blur", blur);
 		}
 	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/shell-icons.ts
-/**
-* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
-* same icons without a React or Lucide runtime. The module icon allow-list below is the subset
-* of Remote's describe contract; an unknown name falls back to `box`.
-*/
-var shellIconNodes = {
-	sun: [["circle", {
-		cx: "12",
-		cy: "12",
-		r: "4"
-	}], ["path", { d: "M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" }]],
-	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
-	"file-text": [
-		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
-		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
-		["path", { d: "M10 9H8" }],
-		["path", { d: "M16 13H8" }],
-		["path", { d: "M16 17H8" }]
-	],
-	"monitor-smartphone": [
-		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
-		["path", { d: "M10 19v-3.96 3.15" }],
-		["path", { d: "M7 19h5" }],
-		["rect", {
-			width: "6",
-			height: "10",
-			x: "16",
-			y: "12",
-			rx: "2"
-		}]
-	],
-	users: [
-		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
-		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
-		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
-		["circle", {
-			cx: "9",
-			cy: "7",
-			r: "4"
-		}]
-	],
-	"chart-column": [
-		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
-		["path", { d: "M18 17V9" }],
-		["path", { d: "M13 17V5" }],
-		["path", { d: "M8 17v-3" }]
-	],
-	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
-		cx: "11",
-		cy: "11",
-		r: "8"
-	}]],
-	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
-		cx: "12",
-		cy: "12",
-		r: "3"
-	}]],
-	box: [
-		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
-		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
-		["path", { d: "M12 22V12" }]
-	],
-	menu: [
-		["path", { d: "M4 5h16" }],
-		["path", { d: "M4 12h16" }],
-		["path", { d: "M4 19h16" }]
-	],
-	"chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
-	"chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
-	"triangle-alert": [
-		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
-		["path", { d: "M12 9v4" }],
-		["path", { d: "M12 17h.01" }]
-	],
-	lock: [["rect", {
-		width: "18",
-		height: "11",
-		x: "3",
-		y: "11",
-		rx: "2",
-		ry: "2"
-	}], ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }]],
-	clock: [["circle", {
-		cx: "12",
-		cy: "12",
-		r: "10"
-	}], ["path", { d: "M12 6v6l4 2" }]],
-	terminal: [["path", { d: "M12 19h8" }], ["path", { d: "m4 17 6-6-6-6" }]],
-	ellipsis: [
-		["circle", {
-			cx: "12",
-			cy: "12",
-			r: "1"
-		}],
-		["circle", {
-			cx: "19",
-			cy: "12",
-			r: "1"
-		}],
-		["circle", {
-			cx: "5",
-			cy: "12",
-			r: "1"
-		}]
-	],
-	copy: [["rect", {
-		width: "14",
-		height: "14",
-		x: "8",
-		y: "8",
-		rx: "2",
-		ry: "2"
-	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
-	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]]
-};
-var moduleIcons = [
-	"house",
-	"file-text",
-	"monitor-smartphone",
-	"users",
-	"chart-column",
-	"search",
-	"settings",
-	"box"
-];
-var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
-//#endregion
-//#region ../../../../design/browser-ui/src/glyph.ts
-var SVG$2 = "http://www.w3.org/2000/svg";
-/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
-function createIcon(name, doc = document) {
-	const svg = doc.createElementNS(SVG$2, "svg");
-	svg.setAttribute("class", browserUiClasses.glyph);
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("aria-hidden", "true");
-	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = doc.createElementNS(SVG$2, tag);
-		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-		svg.append(node);
-	}
-	return svg;
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/overlay.ts
-/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
-function admitsOverlayEscape(event) {
-	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-}
-function restoreOverlayFocus(origin, fallback) {
-	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
-	if (usable(origin)) origin.focus({ preventScroll: true });
-	else {
-		const node = fallback?.() ?? null;
-		if (usable(node)) node.focus({ preventScroll: true });
-	}
-}
-function outsideOverlay(node, x, y) {
-	const box = node.getBoundingClientRect();
-	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/menu-position.ts
@@ -3201,6 +2080,338 @@ function createMenuController(options) {
 	};
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/shell-icons.ts
+/**
+* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
+* same icons without a React or Lucide runtime. The module icon allow-list below is the subset
+* of Remote's describe contract; an unknown name falls back to `box`.
+*/
+var shellIconNodes = {
+	sun: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "4"
+	}], ["path", { d: "M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" }]],
+	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+	"file-text": [
+		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
+		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
+		["path", { d: "M10 9H8" }],
+		["path", { d: "M16 13H8" }],
+		["path", { d: "M16 17H8" }]
+	],
+	"monitor-smartphone": [
+		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
+		["path", { d: "M10 19v-3.96 3.15" }],
+		["path", { d: "M7 19h5" }],
+		["rect", {
+			width: "6",
+			height: "10",
+			x: "16",
+			y: "12",
+			rx: "2"
+		}]
+	],
+	users: [
+		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
+		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
+		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
+		["circle", {
+			cx: "9",
+			cy: "7",
+			r: "4"
+		}]
+	],
+	"chart-column": [
+		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
+		["path", { d: "M18 17V9" }],
+		["path", { d: "M13 17V5" }],
+		["path", { d: "M8 17v-3" }]
+	],
+	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
+		cx: "11",
+		cy: "11",
+		r: "8"
+	}]],
+	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
+		cx: "12",
+		cy: "12",
+		r: "3"
+	}]],
+	box: [
+		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
+		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
+		["path", { d: "M12 22V12" }]
+	],
+	menu: [
+		["path", { d: "M4 5h16" }],
+		["path", { d: "M4 12h16" }],
+		["path", { d: "M4 19h16" }]
+	],
+	"chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
+	"chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
+	"triangle-alert": [
+		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
+		["path", { d: "M12 9v4" }],
+		["path", { d: "M12 17h.01" }]
+	],
+	lock: [["rect", {
+		width: "18",
+		height: "11",
+		x: "3",
+		y: "11",
+		rx: "2",
+		ry: "2"
+	}], ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }]],
+	clock: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "10"
+	}], ["path", { d: "M12 6v6l4 2" }]],
+	terminal: [["path", { d: "M12 19h8" }], ["path", { d: "m4 17 6-6-6-6" }]],
+	ellipsis: [
+		["circle", {
+			cx: "12",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "19",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "5",
+			cy: "12",
+			r: "1"
+		}]
+	],
+	copy: [["rect", {
+		width: "14",
+		height: "14",
+		x: "8",
+		y: "8",
+		rx: "2",
+		ry: "2"
+	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
+	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]]
+};
+var moduleIcons = [
+	"house",
+	"file-text",
+	"monitor-smartphone",
+	"users",
+	"chart-column",
+	"search",
+	"settings",
+	"box"
+];
+var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
+//#endregion
+//#region ../../../../design/browser-ui/src/static.ts
+var browserUiClasses = Object.freeze({
+	chips: "tmt-ui-chips",
+	chip: "tmt-ui-chip",
+	chipLabel: "tmt-ui-chip-label",
+	chipsAdd: "tmt-ui-chips-add",
+	chipsStatus: "tmt-ui-chips-status",
+	chipsSurface: "tmt-ui-chips-surface",
+	chipsSearch: "tmt-ui-chips-search",
+	chipsOption: "tmt-ui-chips-option",
+	countChip: "tmt-ui-count-chip",
+	count: "tmt-ui-count",
+	avatar: "tmt-ui-avatar",
+	radio: "tmt-ui-radio",
+	choices: "tmt-ui-choices",
+	choicesLegend: "tmt-ui-choices-legend",
+	choice: "tmt-ui-choice",
+	choiceText: "tmt-ui-choice-text",
+	choiceDescription: "tmt-ui-choice-description",
+	choiceHint: "tmt-ui-choice-hint",
+	pager: "tmt-ui-pager",
+	pagerPosition: "tmt-ui-pager-position",
+	statusTiles: "tmt-ui-status-tiles",
+	statusTile: "tmt-ui-status-tile",
+	statusTileLabel: "tmt-ui-status-tile-label",
+	statusTileValue: "tmt-ui-status-tile-value",
+	statusTileDot: "tmt-ui-status-tile-dot",
+	stateMark: "tmt-ui-state-mark",
+	card: "tmt-ui-card",
+	cardHead: "tmt-ui-card-head",
+	cardTitle: "tmt-ui-card-title",
+	cardMeta: "tmt-ui-card-meta",
+	meter: "tmt-ui-meter",
+	meterFill: "tmt-ui-meter-fill",
+	glyph: "tmt-ui-glyph",
+	page: "tmt-ui-page",
+	pageHead: "tmt-ui-page-head",
+	pageTitle: "tmt-ui-page-title",
+	pageSubtitle: "tmt-ui-page-subtitle",
+	stats: "tmt-ui-stats",
+	stat: "tmt-ui-stat",
+	statValue: "tmt-ui-stat-value",
+	statNumber: "tmt-ui-stat-number",
+	statCaption: "tmt-ui-stat-caption",
+	banner: "tmt-ui-banner",
+	bannerHead: "tmt-ui-banner-head",
+	bannerRow: "tmt-ui-banner-row",
+	facts: "tmt-ui-facts",
+	tableScroll: "tmt-ui-table-scroll",
+	tableGroup: "tmt-ui-table-group",
+	tableGroupToggle: "tmt-ui-table-group-toggle",
+	tableGroupCount: "tmt-ui-table-group-count",
+	tableSelect: "tmt-ui-table-select",
+	tableCompactMeta: "tmt-ui-table-compact-meta",
+	tableMono: "tmt-ui-table-mono",
+	tableQuiet: "tmt-ui-table-quiet",
+	avatarStack: "tmt-ui-avatar-stack",
+	glyphTile: "tmt-ui-glyph-tile",
+	notifications: "tmt-ui-notifications",
+	notification: "tmt-ui-notification",
+	notificationStatus: "tmt-ui-notification-status",
+	notificationHeading: "tmt-ui-notification-heading",
+	notificationTag: "tmt-ui-notification-tag",
+	notificationLine: "tmt-ui-notification-line",
+	notificationQuote: "tmt-ui-notification-quote",
+	notificationWaiting: "tmt-ui-notification-waiting",
+	drawer: "tmt-ui-drawer",
+	drawerHeader: "tmt-ui-drawer-header",
+	drawerBody: "tmt-ui-drawer-body",
+	dialog: "tmt-ui-dialog",
+	dialogHeader: "tmt-ui-dialog-header",
+	dialogBody: "tmt-ui-dialog-body",
+	dialogActions: "tmt-ui-dialog-actions",
+	menu: "tmt-ui-menu",
+	menuSurface: "tmt-ui-menu-surface",
+	menuItem: "tmt-ui-menu-item",
+	command: "tmt-ui-command",
+	commandText: "tmt-ui-command-text",
+	commandCopy: "tmt-ui-command-copy",
+	commandFeedback: "tmt-ui-command-feedback",
+	code: "tmt-ui-code",
+	header: "tmt-ui-header",
+	brand: "tmt-ui-brand",
+	mark: "tmt-ui-mark",
+	wordmark: "tmt-ui-wordmark",
+	heading: "tmt-ui-heading",
+	headingSuffix: "tmt-ui-heading-suffix",
+	title: "tmt-ui-title",
+	caption: "tmt-ui-caption",
+	status: "tmt-ui-status",
+	actions: "tmt-ui-actions",
+	icon: "tmt-ui-icon",
+	notice: "tmt-ui-notice",
+	noticeMark: "tmt-ui-notice-mark",
+	noticeEyebrow: "tmt-ui-notice-eyebrow",
+	noticeHeading: "tmt-ui-notice-heading",
+	noticeBody: "tmt-ui-notice-body",
+	noticeActions: "tmt-ui-notice-actions",
+	field: "tmt-ui-field",
+	fieldLabel: "tmt-ui-field-label",
+	fieldControl: "tmt-ui-field-control",
+	searchField: "tmt-ui-search-field",
+	fieldDescription: "tmt-ui-field-description",
+	fieldError: "tmt-ui-field-error",
+	action: "tmt-ui-action",
+	actionLabel: "tmt-ui-action-label",
+	actionMark: "tmt-ui-action-mark",
+	busyMark: "tmt-ui-busy-mark",
+	busyDot: "tmt-ui-busy-dot",
+	checkbox: "tmt-ui-checkbox",
+	checkboxLabel: "tmt-ui-checkbox-label",
+	iconAction: "tmt-ui-icon-action",
+	iconActionControl: "tmt-ui-icon-action-control",
+	iconActionIcon: "tmt-ui-icon-action-icon",
+	iconActionTooltip: "tmt-ui-icon-action-tooltip",
+	iconActionTooltipLabel: "tmt-ui-icon-action-tooltip-label",
+	toggle: "tmt-ui-toggle",
+	toggleIndicator: "tmt-ui-toggle-indicator",
+	list: "tmt-ui-list",
+	listRow: "tmt-ui-list-row",
+	listLeading: "tmt-ui-list-leading",
+	listTitle: "tmt-ui-list-title",
+	listMeta: "tmt-ui-list-meta",
+	listLabel: "tmt-ui-list-label",
+	listDescription: "tmt-ui-list-description",
+	listUpdated: "tmt-ui-list-updated",
+	listState: "tmt-ui-list-state",
+	listActions: "tmt-ui-list-actions",
+	tabs: "tmt-ui-tabs",
+	tabsHeader: "tmt-ui-tabs-header",
+	tabList: "tmt-ui-tab-list",
+	tab: "tmt-ui-tab",
+	tabMark: "tmt-ui-tab-mark",
+	tabLabel: "tmt-ui-tab-label",
+	tabCount: "tmt-ui-tab-count",
+	tabsStatus: "tmt-ui-tabs-status",
+	tabPanel: "tmt-ui-tab-panel",
+	section: "tmt-ui-section",
+	sectionHeading: "tmt-ui-section-heading",
+	table: "tmt-ui-table",
+	disclosure: "tmt-ui-disclosure",
+	visuallyHidden: "tmt-ui-visually-hidden"
+});
+/** A count as drawn in a chip or the rail: counts above 99 read `99+`. */
+function countText(value) {
+	return value > 99 ? "99+" : String(value);
+}
+/** The initials an avatar draws: the first letters of up to two words of a name or handle. */
+function avatarInitials(name) {
+	return name.split(/[\s\-_.@]+/u).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase();
+}
+/**
+* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
+* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
+*/
+var busyDots = [
+	[5, 3],
+	[11, 3],
+	[11, 8],
+	[11, 13],
+	[5, 13],
+	[5, 8]
+];
+/** The radius of each busy-mark dot on the 16x16 viewBox. */
+var busyDotRadius = 1.6;
+var SVG$3 = "http://www.w3.org/2000/svg";
+/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
+function busySvg(doc) {
+	const svg = doc.createElementNS(SVG$3, "svg");
+	svg.setAttribute("viewBox", "0 0 16 16");
+	for (const [cx, cy] of busyDots) {
+		const dot = doc.createElementNS(SVG$3, "circle");
+		dot.setAttribute("class", browserUiClasses.busyDot);
+		dot.setAttribute("cx", String(cx));
+		dot.setAttribute("cy", String(cy));
+		dot.setAttribute("r", String(busyDotRadius));
+		svg.append(dot);
+	}
+	return svg;
+}
+/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
+function createBusyMark(doc = document) {
+	const busy = doc.createElement("span");
+	busy.className = browserUiClasses.busyMark;
+	busy.append(busySvg(doc));
+	return busy;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/glyph.ts
+var SVG$2 = "http://www.w3.org/2000/svg";
+/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
+function createIcon(name, doc = document) {
+	const svg = doc.createElementNS(SVG$2, "svg");
+	svg.setAttribute("class", browserUiClasses.glyph);
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = doc.createElementNS(SVG$2, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
+}
+//#endregion
 //#region ../../../../design/browser-ui/src/menu-host.ts
 /** Mount the existing menu presentation without a framework; hosts retain values and commands. */
 function mountBrowserMenu(container, initial) {
@@ -3386,6 +2597,915 @@ function mountBrowserMenu(container, initial) {
 			rows.clear();
 		}
 	};
+}
+//#endregion
+//#region src/remote-state.ts
+/** A display observation only; pairing and sending permissions never imply a role. */
+function remoteRole(role) {
+	return role === "owner" ? "Admin" : role === "user" ? "Member" : "Role unknown";
+}
+/** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
+function remoteState(state, current = true) {
+	if (!current) return {
+		text: "Not checked",
+		word: "not checked",
+		mark: "◌",
+		tone: "muted",
+		action: ""
+	};
+	const known = {
+		Connected: [
+			"Connected",
+			"connected",
+			"●",
+			""
+		],
+		Checking: [
+			"Checking…",
+			"connecting",
+			"◌",
+			""
+		],
+		"Access ended": [
+			"Access ended",
+			"access ended",
+			"✗",
+			"Pair again"
+		],
+		"Different machine": [
+			"Different machine",
+			"different machine",
+			"?",
+			"Pair again"
+		],
+		"Not paired": [
+			"Not paired",
+			"not paired",
+			"?",
+			"Pair again"
+		],
+		"Pairing unreadable": [
+			"Pairing unreadable",
+			"pairing unreadable",
+			"?",
+			"Pair again"
+		],
+		Offline: [
+			"Offline",
+			"offline",
+			"✗",
+			"Retry"
+		],
+		Unconfirmed: [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		],
+		"Not accepted": [
+			"Not accepted",
+			"not accepted",
+			"?",
+			"Retry"
+		],
+		"Can't reach Remote": [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		]
+	};
+	const value = Object.hasOwn(known, state) ? known[state] : void 0;
+	if (!value) return {
+		text: "Status unknown",
+		word: "unknown",
+		mark: "?",
+		tone: "muted",
+		action: ""
+	};
+	const [text, word, mark, action] = value;
+	return {
+		text,
+		word,
+		mark,
+		action,
+		tone: "neutral"
+	};
+}
+/** The native page's door root, shared by the registry projection and current-row check. */
+function currentDoor(pageUrl) {
+	const root = new URL("./", pageUrl);
+	if (root.pathname === "/remote/") root.pathname = "/";
+	return root.href;
+}
+/** Both page owners and the menu identify the current Local row by the same door root. */
+function currentRemote(entry, address, pageUrl) {
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
+}
+//#endregion
+//#region src/remote-registry.ts
+/** Public references only; keys, pairings, credentials, drafts and intents never enter a catalog. */
+/** One projection feeds the list and rail; this machine is first even without a saved alias. */
+function registryView(catalog, observed) {
+	const selected = catalog.entries.find((entry) => currentRemote(entry, observed.address, observed.pageUrl));
+	const row = (entry, thisMachine) => ({
+		id: entry?.name ?? "@this-machine",
+		name: entry?.name ?? "This machine",
+		url: entry?.url ?? currentDoor(observed.pageUrl),
+		reference: entry,
+		thisMachine,
+		backend: entry?.kind === "firestore" ? "Firebase" : "Local",
+		project: entry?.project ?? null,
+		roleLabel: remoteRole(thisMachine ? observed.role : void 0),
+		connection: remoteState(observed.state, thisMachine)
+	});
+	const current = row(selected ?? null, true);
+	return {
+		rows: [current, ...catalog.entries.filter((entry) => entry !== selected).map((entry) => row(entry, false))],
+		current,
+		address: observed.address
+	};
+}
+var RemoteRegistryError = class extends Error {
+	code;
+	constructor(code, message) {
+		super(message);
+		this.code = code;
+	}
+};
+var LIMIT = 8192;
+var encoder = new TextEncoder();
+var decoder = new TextDecoder("utf-8", { fatal: true });
+var empty = {
+	version: 1,
+	entries: []
+};
+function valid$1(condition, message = "The remote name or link is invalid") {
+	if (!condition) throw new RemoteRegistryError("REMOTE_SELECTOR_INVALID", message);
+}
+function fields(value, keys) {
+	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	const object = value;
+	valid$1(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
+	return object;
+}
+function name(value) {
+	valid$1(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
+}
+function target(entry) {
+	return new URL(entry.url).href;
+}
+async function reference(alias, address) {
+	name(alias);
+	valid$1(typeof address === "string" && address.length <= LIMIT);
+	let url;
+	try {
+		url = new URL(address);
+	} catch {
+		valid$1(false);
+	}
+	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") {
+		const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
+			valid$1(false);
+		});
+		return {
+			name: alias,
+			kind: "firestore",
+			url: address,
+			project: config.projectId
+		};
+	}
+	valid$1(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
+	return {
+		name: alias,
+		kind: "local",
+		url: address,
+		project: null
+	};
+}
+async function parseCatalog(value) {
+	const row = fields(value, ["version", "entries"]);
+	valid$1(row.version === 1 && Array.isArray(row.entries));
+	valid$1(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
+	const entries = [];
+	for (const raw of row.entries) {
+		const r = fields(raw, [
+			"name",
+			"kind",
+			"url",
+			"project"
+		]);
+		const entry = await reference(r.name, r.url);
+		valid$1(entry.kind === r.kind && entry.project === r.project);
+		valid$1(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
+		entries.push(Object.freeze(entry));
+	}
+	const catalog = {
+		version: 1,
+		entries: Object.freeze(entries)
+	};
+	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
+	return Object.freeze(catalog);
+}
+function json(catalog) {
+	return JSON.stringify(catalog);
+}
+function decode$1(value) {
+	valid$1(/^[A-Za-z0-9_-]+$/.test(value));
+	try {
+		const bytes = Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+		valid$1(base64url(bytes) === value);
+		return JSON.parse(decoder.decode(bytes));
+	} catch {
+		valid$1(false);
+	}
+}
+function hint(value) {
+	const r = fields(value, ["spaceId", "pageId"]);
+	valid$1(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
+	valid$1(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
+	return {
+		spaceId: r.spaceId,
+		pageId: r.pageId
+	};
+}
+async function parseHandoff(fragment) {
+	valid$1(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
+	const params = new URLSearchParams(fragment.slice(1));
+	const keys = [...params.keys()];
+	valid$1(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
+	const raw = params.get("tmt-remotes");
+	valid$1(raw !== null);
+	const catalog = await parseCatalog(decode$1(raw));
+	valid$1(base64url(encoder.encode(json(catalog))) === raw);
+	const page = params.get("tmt-page");
+	const checkedHint = page === null ? void 0 : hint(decode$1(page));
+	if (checkedHint) valid$1(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
+	return {
+		catalog,
+		...checkedHint ? { hint: checkedHint } : {}
+	};
+}
+async function buildHandoff(destination, value, page) {
+	const checked = await reference(destination.name, destination.url);
+	valid$1(checked.kind === destination.kind && checked.project === destination.project);
+	if (checked.kind === "firestore") return checked.url;
+	const catalog = await parseCatalog(value);
+	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
+	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
+	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
+	return `${new URL("/remote/", checked.url).href}#${params}`;
+}
+async function planImport(incoming, current) {
+	const next = await parseCatalog(incoming), before = await parseCatalog(current);
+	const used = new Set([...before.entries, ...next.entries].map((entry) => entry.name));
+	return {
+		incoming: next,
+		current: before,
+		rows: next.entries.map((entry) => {
+			const same = before.entries.find((old) => target(old) === target(entry));
+			if (same) return {
+				entry,
+				status: "duplicate",
+				suggestedName: entry.name,
+				existingName: same.name
+			};
+			if (!before.entries.some((old) => old.name === entry.name)) return {
+				entry,
+				status: "add",
+				suggestedName: entry.name
+			};
+			let n = 2;
+			let proposed;
+			do {
+				const suffix = `-${n++}`;
+				proposed = entry.name.slice(0, 63 - suffix.length) + suffix;
+			} while (used.has(proposed));
+			used.add(proposed);
+			return {
+				entry,
+				status: "collision",
+				suggestedName: proposed
+			};
+		})
+	};
+}
+async function mergeImport(plan, choices) {
+	const checked = await planImport(plan.incoming, plan.current);
+	valid$1(choices.length === checked.rows.length);
+	const entries = [...checked.current.entries];
+	for (const [index, row] of checked.rows.entries()) {
+		const alias = choices[index];
+		if (alias === null || row.status === "duplicate") continue;
+		name(alias);
+		if (entries.some((old) => old.name === alias)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", `You already have a remote named ${alias}`);
+		entries.push({
+			...row.entry,
+			name: alias
+		});
+	}
+	return parseCatalog({
+		version: 1,
+		entries
+	});
+}
+async function snapshot() {
+	try {
+		const raw = await readRegistry();
+		valid$1(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
+		const catalog = raw === void 0 ? empty : await parseCatalog(JSON.parse(raw));
+		valid$1(raw === void 0 || raw === json(catalog));
+		return {
+			raw,
+			catalog
+		};
+	} catch {
+		throw new RemoteRegistryError("REMOTE_SELECTOR_UNAVAILABLE", "The remotes could not be read");
+	}
+}
+async function commit(raw, catalog) {
+	try {
+		await writeRegistry(raw, json(catalog));
+	} catch (error) {
+		throw new RemoteRegistryError(error instanceof Error && error.message === "Registry changed" ? "REMOTE_SELECTOR_CONFLICT" : "REMOTE_SELECTOR_UNAVAILABLE", "The remotes could not be saved. Check the list again.");
+	}
+}
+var remoteRegistry = {
+	parseHandoff,
+	async list() {
+		return (await snapshot()).catalog;
+	},
+	async planImport(incoming) {
+		return planImport(incoming, (await snapshot()).catalog);
+	},
+	async confirmImport(plan, choices) {
+		const next = await mergeImport(plan, choices), latest = await snapshot();
+		if (json(latest.catalog) !== json(plan.current)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", "The remotes changed. Check the list again.");
+		await commit(latest.raw, next);
+	},
+	async add(alias, url) {
+		const entry = await reference(alias, url), latest = await snapshot();
+		const plan = await planImport({
+			version: 1,
+			entries: [entry]
+		}, latest.catalog);
+		valid$1(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
+		await remoteRegistry.confirmImport(plan, [alias]);
+	},
+	async rename(previous, alias) {
+		name(alias);
+		const latest = await snapshot();
+		valid$1(latest.catalog.entries.some((entry) => entry.name === previous));
+		valid$1(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
+		const next = await parseCatalog({
+			version: 1,
+			entries: latest.catalog.entries.map((entry) => entry.name === previous ? {
+				...entry,
+				name: alias
+			} : entry)
+		});
+		await commit(latest.raw, next);
+	},
+	async remove(alias) {
+		const latest = await snapshot();
+		valid$1(latest.catalog.entries.some((entry) => entry.name === alias));
+		await commit(latest.raw, {
+			version: 1,
+			entries: latest.catalog.entries.filter((entry) => entry.name !== alias)
+		});
+	},
+	async navigation(entry, page) {
+		return buildHandoff(entry, await remoteRegistry.list(), page);
+	}
+};
+//#endregion
+//#region src/remote-registry-page.ts
+/** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
+function node(tag, text = "") {
+	const result = document.createElement(tag);
+	result.textContent = text;
+	return result;
+}
+function action(text, run, variant) {
+	const button = node("button");
+	const label = node("span", text);
+	label.className = browserUiClasses.actionLabel;
+	button.append(label);
+	if (variant) button.dataset.variant = variant;
+	button.type = "button";
+	button.className = "tmt-ui-action";
+	button.addEventListener("click", run);
+	return button;
+}
+var fieldCount = 0;
+function field(label, value) {
+	const wrapper = node("div");
+	wrapper.className = browserUiClasses.field;
+	const input = node("input");
+	input.id = `remote-field-${++fieldCount}`;
+	input.className = browserUiClasses.fieldControl;
+	input.value = value;
+	const text = node("label", label);
+	text.className = browserUiClasses.fieldLabel;
+	text.htmlFor = input.id;
+	wrapper.append(text, input);
+	return {
+		label: wrapper,
+		input
+	};
+}
+function kindLabel(entry) {
+	return entry.kind === "local" ? "Local" : "Firebase";
+}
+function remoteRegistryPage(initialBlocked = () => "", shell) {
+	let heldBy = initialBlocked;
+	const blocked = () => heldBy();
+	const root = document.getElementById("remotes");
+	if (!root) return Object.assign(() => {}, { blockedBy: () => {} });
+	const fragment = location.hash;
+	if (fragment) history.replaceState(null, "", location.pathname + location.search);
+	const list = document.getElementById("remote-list");
+	const status = document.getElementById("remote-status");
+	const joinHost = document.getElementById("remote-join");
+	const joinMenu = mountBrowserMenu(joinHost, {
+		label: "Join a Remote",
+		triggerText: "Join a Remote",
+		items: [{
+			key: "invite",
+			label: "Join with an invitation"
+		}, {
+			key: "address",
+			label: "Remember a Remote",
+			separated: true
+		}],
+		onSelect: (key) => {
+			if (key === "address") openAdd();
+			else (shell ?? remoteShell())?.navigate(new URL("connect", new URL("./", location.href)).href);
+		}
+	});
+	const join = joinHost.querySelector("button");
+	let rowMenus = [];
+	(shell ?? remoteShell())?.signal.addEventListener("abort", () => {
+		joinMenu.dispose();
+		rowMenus.forEach((item) => item.dispose());
+	}, { once: true });
+	let observed = "Checking";
+	let observedRole;
+	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
+	let currentDialog;
+	let catalog = {
+		version: 1,
+		entries: []
+	};
+	const settings = new URL("settings", new URL("./", location.href));
+	const menu = remoteMenu({
+		refresh: () => render(),
+		recover: (action) => {
+			const home = new URL("./", location.href).href;
+			if (action === "Retry") {
+				const retry = ["check", "refresh"].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
+				if (retry && !retry.disabled) retry.click();
+				else (shell ?? remoteShell())?.navigate(home);
+			} else if (document.documentElement.dataset.tmtPage === "settings") (shell ?? remoteShell())?.navigate(home);
+			else {
+				const pair = [
+					"copy-refused-pair",
+					"copy-missing-pair",
+					"copy-unreadable-pair",
+					"copy-different-pair"
+				].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
+				pair?.scrollIntoView();
+				pair?.focus();
+			}
+		}
+	}, shell);
+	const showError = (error, slot) => {
+		slot.textContent = error instanceof RemoteRegistryError ? error.message : "The remotes could not be read";
+	};
+	const dialog = (title, opener) => {
+		currentDialog?.close();
+		if (document.documentElement.dataset.tmtPage !== "settings") (shell ?? remoteShell())?.navigate(settings.href);
+		const box = node("dialog");
+		box.className = browserUiClasses.dialog;
+		const header = node("header");
+		header.className = browserUiClasses.dialogHeader;
+		const heading = node("h2", title);
+		heading.id = "remote-dialog-heading";
+		header.append(heading);
+		box.setAttribute("aria-labelledby", heading.id);
+		const content = node("div");
+		content.className = browserUiClasses.dialogBody;
+		const body = node("div");
+		const message = node("p");
+		message.setAttribute("role", "status");
+		content.append(body, message);
+		const buttons = node("footer");
+		buttons.className = browserUiClasses.dialogActions;
+		box.append(header, content, buttons);
+		root.append(box);
+		const end = () => box.close();
+		box.addEventListener("close", () => {
+			box.remove();
+			if (currentDialog === box) {
+				currentDialog = void 0;
+				(opener.isConnected ? opener : join).focus();
+			}
+		}, { once: true });
+		currentDialog = box;
+		return {
+			box,
+			body,
+			buttons,
+			message,
+			end
+		};
+	};
+	const save = async (run, view) => {
+		const buttons = [...view.box.querySelectorAll("button")];
+		buttons.forEach((b) => {
+			b.disabled = true;
+		});
+		try {
+			await run();
+			await render();
+			view.end();
+			return true;
+		} catch (error) {
+			showError(error, view.message);
+			return false;
+		} finally {
+			buttons.forEach((b) => {
+				b.disabled = false;
+			});
+		}
+	};
+	const importView = (plan) => {
+		const view = dialog("Add these remotes to this browser?", join);
+		view.body.append(node("p", "Only names and addresses are copied. No keys, pairings or drafts."));
+		const choices = [];
+		for (const row of plan.rows) {
+			const item = node("section");
+			item.className = browserUiClasses.section;
+			const name = node("h3", row.entry.name);
+			name.className = browserUiClasses.sectionHeading;
+			name.dataset.variant = "title";
+			item.append(name, node("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
+			if (row.status === "duplicate") {
+				item.append(node("p", `Already added as ${row.existingName}`));
+				choices.push(() => null);
+			} else if (row.status === "collision") {
+				item.append(node("p", `You already have a remote named ${row.entry.name}`));
+				const alias = field("Remote name", row.suggestedName);
+				const skip = node("input");
+				skip.type = "checkbox";
+				skip.className = browserUiClasses.checkbox;
+				const skipLabel = node("label", "Skip");
+				skipLabel.className = browserUiClasses.checkboxLabel;
+				skipLabel.prepend(skip);
+				item.append(alias.label, skipLabel);
+				choices.push(() => skip.checked ? null : alias.input.value);
+			} else choices.push(() => row.entry.name);
+			view.body.append(item);
+		}
+		const submit = action("Add", () => {
+			save(() => remoteRegistry.confirmImport(plan, choices.map((choice) => choice())), view);
+		});
+		const update = () => {
+			submit.disabled = choices.every((choice) => choice() === null);
+			view.message.textContent = submit.disabled ? "Nothing new to add." : "";
+		};
+		view.body.addEventListener("change", update);
+		update();
+		view.buttons.append(submit, action("Cancel", view.end));
+		view.box.showModal();
+	};
+	const confirmAdd = (entry, opener) => {
+		const view = dialog(entry.kind === "firestore" ? `Add Firebase remote ${entry.project}?` : `Add remote ${entry.name}?`, opener);
+		view.body.append(node("p", entry.kind === "firestore" ? new URL(entry.url).host : entry.url));
+		view.buttons.append(action("Add", () => {
+			save(() => remoteRegistry.add(entry.name, entry.url), view);
+		}), action("Cancel", view.end));
+		view.box.showModal();
+	};
+	const rename = (entry, opener) => {
+		const view = dialog(`Rename ${entry.name}`, opener);
+		const alias = field("Remote name", entry.name);
+		view.body.append(alias.label);
+		const submit = action("Save", () => {
+			save(() => remoteRegistry.rename(entry.name, alias.input.value), view);
+		});
+		submit.disabled = true;
+		alias.input.addEventListener("input", () => {
+			submit.disabled = alias.input.value === entry.name;
+		});
+		view.buttons.append(submit, action("Cancel", view.end));
+		view.box.showModal();
+	};
+	const remove = (entry, opener) => {
+		const view = dialog(`Forget ${entry.name} in this browser?`, opener);
+		view.body.append(node("p", "This only removes the entry here. It does not sign out or revoke access."));
+		view.buttons.append(action("Forget", () => {
+			save(() => remoteRegistry.remove(entry.name), view).then((saved) => {
+				if (!saved) return;
+				status.replaceChildren(node("span", `Forgot ${entry.name} in this browser. Access is unchanged. `), action("Undo", () => {
+					remoteRegistry.add(entry.name, entry.url).then(async () => {
+						await render();
+						status.textContent = `Restored ${entry.name}.`;
+					}).catch((error) => showError(error, status));
+				}));
+			});
+		}, "destructive"), action("Cancel", view.end));
+		view.box.showModal();
+	};
+	const paint = () => {
+		const projection = registryView(catalog, {
+			pageUrl: location.href,
+			state: observed,
+			address,
+			role: observedRole
+		});
+		const existing = [...list.children];
+		if (existing.length === projection.rows.length && existing.every((row, index) => {
+			const entry = projection.rows[index];
+			return row.dataset.remote === entry.id && row.dataset.url === entry.url && row.dataset.thisMachine === String(entry.thisMachine);
+		})) {
+			for (const [index, row] of existing.entries()) {
+				const entry = projection.rows[index];
+				const role = row.querySelector("[data-role]");
+				role.querySelector(".tmt-ui-chip-label").textContent = entry.roleLabel;
+				role.dataset.roleTone = entry.roleLabel === "Admin" ? "selected" : entry.roleLabel === "Role unknown" ? "muted" : "neutral";
+				const state = row.querySelector(".tmt-ui-list-state");
+				state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
+				state.dataset.tone = entry.connection.tone;
+				const open = row.querySelector("[data-action=\"open\"]");
+				open.setAttribute("aria-disabled", String(!entry.thisMachine && !!blocked()));
+				if (!entry.thisMachine && blocked()) open.removeAttribute("href");
+				else open.href = entry.thisMachine ? new URL("./", location.href).href : entry.url;
+				open.title = !entry.thisMachine ? blocked() : "";
+			}
+			menu(projection);
+			return;
+		}
+		rowMenus.forEach((item) => item.dispose());
+		rowMenus = [];
+		list.replaceChildren(...projection.rows.map((entry) => {
+			const row = node("li");
+			row.className = browserUiClasses.listRow;
+			row.dataset.remote = entry.id;
+			row.dataset.thisMachine = String(entry.thisMachine);
+			row.dataset.url = entry.url;
+			row.dataset.kind = entry.reference?.kind ?? "local";
+			row.dataset.leading = "";
+			const leading = node("div");
+			leading.className = browserUiClasses.listLeading;
+			leading.append(createIcon(entry.backend === "Local" ? "terminal" : "box"));
+			const title = node("div");
+			title.className = browserUiClasses.listTitle;
+			const label = node("span");
+			label.className = `${browserUiClasses.listLabel} remote-label`;
+			const open = node("a", entry.name);
+			open.href = entry.thisMachine ? new URL("./", location.href).href : entry.url;
+			open.dataset.action = "open";
+			open.setAttribute("role", "link");
+			open.setAttribute("aria-label", `Open ${entry.name}`);
+			open.setAttribute("aria-disabled", String(!entry.thisMachine && !!blocked()));
+			if (!entry.thisMachine && blocked()) open.removeAttribute("href");
+			open.title = !entry.thisMachine ? blocked() : "";
+			open.addEventListener("click", (event) => {
+				event.preventDefault();
+				if (entry.thisMachine) {
+					(shell ?? remoteShell())?.navigate(new URL("./", location.href).href);
+					return;
+				}
+				(async () => {
+					try {
+						if (!blocked() && entry.reference) location.assign(await remoteRegistry.navigation(entry.reference));
+					} catch (error) {
+						showError(error, status);
+					}
+				})();
+			});
+			label.append(open);
+			const chip = (text) => {
+				const box = node("span");
+				box.className = browserUiClasses.chip;
+				const value = node("span", text);
+				value.className = browserUiClasses.chipLabel;
+				box.append(value);
+				return box;
+			};
+			if (entry.thisMachine && entry.name !== "This machine") label.append(chip("This machine"));
+			const role = chip(entry.roleLabel);
+			role.className += " remote-role";
+			role.dataset.role = "";
+			role.dataset.roleTone = entry.roleLabel === "Admin" ? "selected" : entry.roleLabel === "Role unknown" ? "muted" : "neutral";
+			label.append(role);
+			const description = node("span", `${entry.backend}${entry.project ? ` · ${entry.project}` : ""} · ${entry.url}`);
+			description.className = browserUiClasses.listDescription;
+			title.append(label, description);
+			const meta = node("div");
+			meta.className = browserUiClasses.listMeta;
+			const state = node("div", `${entry.connection.mark} ${entry.connection.text}`);
+			state.className = browserUiClasses.listState;
+			state.dataset.tone = entry.connection.tone;
+			meta.append(state);
+			const actions = node("div");
+			actions.className = browserUiClasses.listActions;
+			if (entry.reference) {
+				const reference = entry.reference;
+				const destructive = node("span", "Forget");
+				destructive.className = "remote-forget";
+				const rowMenu = mountBrowserMenu(actions, {
+					label: `Actions for ${entry.name}`,
+					items: [{
+						key: "rename",
+						label: "Rename"
+					}, {
+						key: "forget",
+						label: "Forget",
+						content: destructive,
+						separated: true
+					}],
+					onSelect: (key) => {
+						const opener = actions.querySelector("button");
+						if (key === "rename") rename(reference, opener);
+						else remove(reference, opener);
+					}
+				});
+				rowMenus.push(rowMenu);
+			}
+			row.append(leading, title, meta, actions);
+			return row;
+		}));
+		menu(projection);
+	};
+	const render = async () => {
+		try {
+			catalog = await remoteRegistry.list();
+			paint();
+		} catch (error) {
+			showError(error, status);
+		}
+	};
+	function openAdd() {
+		const view = dialog("Add remote", join);
+		const alias = field("Remote name", "");
+		const url = field("Remote address or link", "");
+		view.body.append(alias.label, url.label);
+		view.buttons.append(action("Continue", () => {
+			reference(alias.input.value, url.input.value).then((entry) => {
+				if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
+				view.end();
+				confirmAdd(entry, join);
+			}).catch((error) => showError(error, view.message));
+		}), action("Cancel", view.end));
+		view.box.showModal();
+	}
+	render().then(() => {
+		if (fragment === "#add-remote") openAdd();
+		else if (fragment === "#remotes") {
+			root.scrollIntoView();
+			join.focus({ preventScroll: true });
+		}
+	});
+	const receive = (value) => {
+		remoteRegistry.parseHandoff(value).then(async (packet) => {
+			const plan = await remoteRegistry.planImport(packet.catalog);
+			importView(plan);
+		}).catch((error) => showError(error, status));
+	};
+	if (fragment && !["#remotes", "#add-remote"].includes(fragment)) receive(fragment);
+	window.addEventListener("hashchange", () => {
+		const value = location.hash;
+		if (!value || ["#remotes", "#add-remote"].includes(value)) return;
+		history.replaceState(null, "", location.pathname + location.search);
+		receive(value);
+	}, { signal: (shell ?? remoteShell())?.signal });
+	const observe = (state, checkedAddress, role) => {
+		observed = state;
+		if (state !== "Connected" || role === null) observedRole = void 0;
+		else if (role !== void 0) observedRole = role;
+		if (checkedAddress) address = checkedAddress;
+		paint();
+	};
+	return Object.assign(observe, { blockedBy: (reason) => {
+		heldBy = reason;
+	} });
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/brand-mark-svg.ts
+/** A polygon whose corners are quadratic curves of the given radii (0 keeps a corner sharp). */
+function rounded(points, radii) {
+	const n = points.length;
+	const toward = ([ax, ay], [bx, by], k) => {
+		const length = Math.hypot(bx - ax, by - ay);
+		const t = Math.min(k, length / 2) / length;
+		return [ax + (bx - ax) * t, ay + (by - ay) * t];
+	};
+	let d = "";
+	for (let i = 0; i < n; i++) {
+		const corner = points[i];
+		const [sx, sy] = toward(corner, points[(i - 1 + n) % n], radii[i]);
+		const [ex, ey] = toward(corner, points[(i + 1) % n], radii[i]);
+		d += `${i ? "L" : "M"}${sx.toFixed(2)} ${sy.toFixed(2)}Q${corner[0]} ${corner[1]} `;
+		d += `${ex.toFixed(2)} ${ey.toFixed(2)}`;
+	}
+	return `${d}Z`;
+}
+var FULL = {
+	panel: rounded([
+		[6, 10],
+		[50, 24],
+		[50, 80],
+		[6, 88]
+	], [
+		8,
+		6.5,
+		6.5,
+		8
+	]),
+	beam: rounded([
+		[7, 10],
+		[74, 22],
+		[80, 28],
+		[80, 80],
+		[74, 86],
+		[50, 80],
+		[7, 70]
+	], [
+		0,
+		7,
+		7,
+		7,
+		7,
+		0,
+		0
+	]),
+	rim: "M49.4 29 L49.4 75",
+	prompt: "M15.5 34 L23.5 40.5 L15.5 47 M26.5 49.5 L34 51.2"
+};
+var SMALL = {
+	panel: rounded([
+		[5, 14],
+		[52, 24],
+		[52, 76],
+		[5, 86]
+	], [
+		7,
+		7,
+		7,
+		7
+	]),
+	beam: rounded([
+		[6, 14],
+		[86, 24],
+		[92, 29],
+		[92, 81],
+		[86, 86],
+		[52, 76],
+		[6, 70]
+	], [
+		0,
+		9,
+		9,
+		9,
+		9,
+		0,
+		0
+	]),
+	prompt: "M15 37 L28 50 L15 63"
+};
+var brandMarkSmall = (size) => size !== void 0 && size < 28;
+var stop = (name, offset, opacity) => `<stop class="tmt-brand-mark-${name}" offset="${offset}"${opacity === void 0 ? "" : ` stop-opacity="${opacity}"`}></stop>`;
+var light = (offset, opacity) => `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
+var box = "filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"96\" height=\"96\"";
+/**
+* A paint-server id prefix that no element of the document uses yet: `base`, then `base-1`,
+* `base-2`. Marks that share a prefix resolve `url(#…)` to the first paint server in the document,
+* which can sit in a hidden subtree and paint nothing. `taken` asks the live document, so marks
+* drawn by separate bundles do not collide either.
+*/
+function freshMarkId(base, taken) {
+	let id = base;
+	for (let count = 1; taken(id); count++) id = `${base}-${count}`;
+	return id;
+}
+/** The mark's children; `id` prefixes its paint servers, unique per document. */
+function brandMarkInner(small, id) {
+	const shape = small ? SMALL : FULL;
+	const aurora = `<linearGradient id="${id}-aurora" x1="0.2" y1="0.05" x2="0.85" y2="1">${stop("cyan", 0)}${stop("green", .5)}${stop("gold", 1)}</linearGradient><linearGradient id="${id}-far" x1="0" y1="0" x2="1" y2="0">${stop("far", .45, 0)}${stop("far", 1, small ? .15 : .25)}</linearGradient><linearGradient id="${id}-panel" x1="0" y1="0" x2="0.6" y2="1">${stop("panel-top", 0)}${stop("panel-bottom", 1)}</linearGradient><linearGradient id="${id}-mono" x1="0" y1="0" x2="1" y2="0.35">${stop("mono-start", 0)}${stop("mono-end", 1)}</linearGradient>`;
+	const beam = `<path d="${shape.beam}" fill="url(#${id}-aurora)"></path><path d="${shape.beam}" fill="url(#${id}-far)"></path>`;
+	const print = `<path class="tmt-brand-mark-print" d="${shape.beam}" fill="url(#${id}-mono)"></path>`;
+	const panel = `<path class="tmt-brand-mark-panel" d="${shape.panel}" fill="url(#${id}-panel)"></path>`;
+	const prompt = `<path class="tmt-brand-mark-prompt" d="${shape.prompt}"></path>`;
+	if (small) return `<defs>${aurora}</defs><g class="tmt-brand-mark-beam">${beam}</g>${print}${panel}${prompt}`;
+	return `<defs>${aurora}<linearGradient id="${id}-halo-weight" x1="0" y1="0" x2="1" y2="1">${light(.3, .15)}${light(1, 1)}</linearGradient><mask id="${id}-halo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"><rect width="96" height="96" fill="url(#${id}-halo-weight)"></rect></mask><linearGradient id="${id}-feather" x1="0" y1="0" x2="1" y2="0">${light(.88, 1)}${light(1, .7)}</linearGradient><mask id="${id}-feather-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#${id}-feather)"></rect></mask><linearGradient id="${id}-spill" gradientUnits="userSpaceOnUse" x1="50" y1="0" x2="36" y2="0">${stop("glow", 0, .6)}${stop("cyan", .35, .22)}${stop("cyan", 1, 0)}</linearGradient><linearGradient id="${id}-sheen" x1="0" y1="0" x2="1" y2="1">${light(0, .1)}${light(.35, 0)}</linearGradient><linearGradient id="${id}-rim" x1="0" y1="0" x2="0" y2="1">${stop("cyan", 0, .9)}${stop("gold", 1, .9)}</linearGradient><clipPath id="${id}-panel-clip"><path d="${shape.panel}"></path></clipPath><filter id="${id}-halo" ${box}><feGaussianBlur stdDeviation="2.4"></feGaussianBlur></filter><filter id="${id}-soft" ${box}><feGaussianBlur stdDeviation="0.25"></feGaussianBlur></filter></defs><g transform="translate(6.5 3) scale(0.94)"><g class="tmt-brand-mark-beam"><g mask="url(#${id}-halo-mask)"><path d="${shape.beam}" fill="url(#${id}-aurora)" filter="url(#${id}-halo)" opacity="0.55" transform="translate(1 1.4)"></path></g><g mask="url(#${id}-feather-mask)" filter="url(#${id}-soft)">${beam}</g></g>` + print + panel + `<g class="tmt-brand-mark-beam" clip-path="url(#${id}-panel-clip)"><path d="${shape.panel}" fill="url(#${id}-spill)"></path><path class="tmt-brand-mark-rim" d="${FULL.rim}" stroke="url(#${id}-rim)"></path></g><path d="${shape.panel}" fill="url(#${id}-sheen)"></path>` + prompt + `</g>`;
+}
+/** The whole decorative `<svg>`, as static hosts embed it. */
+function brandMarkSvg({ size, className = "tmt-brand-mark", id }) {
+	const small = brandMarkSmall(size);
+	const dimensions = size === void 0 ? "" : ` width="${size}" height="${size}"`;
+	return `<svg class="${className}" data-form="${small ? "small" : "full"}" viewBox="0 0 96 96" aria-hidden="true"${dimensions}>${brandMarkInner(small, id)}</svg>`;
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/theme.ts
@@ -4309,7 +4429,7 @@ var home_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"home\">\n
 var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landing\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Remote connection · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/landing.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote connection\">\n      <h1 class=\"header-title tmt-ui-title\">Remote connection</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page\">\n      <section\n        id=\"notice\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"status\"\n        aria-labelledby=\"heading\"\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <div class=\"tmt-ui-notice-mark\">\n            <span id=\"mark\" class=\"state-mark\" aria-hidden=\"true\">◌</span\n            ><span id=\"state-label\">Checking</span>\n          </div>\n          <h2 id=\"heading\" class=\"tmt-ui-notice-heading\">Checking the connection…</h2>\n          <p id=\"status\" role=\"status\">Reading this browser's pairing.</p>\n          <p id=\"command-location\" class=\"entry-note\" hidden>\n            Run these commands on the machine that runs Remote.\n          </p>\n          <ol id=\"steps-missing\" class=\"entry-steps\" hidden>\n            <li>\n              On the machine running Remote, run\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-missing-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-missing-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n            <li>Open the link it prints <strong>in this browser</strong>.</li>\n            <li>Name this device, then check that the four words match the terminal.</li>\n            <li>Confirm in the terminal. This page updates when you come back.</li>\n          </ol>\n          <ol id=\"steps-different\" class=\"entry-steps\" hidden>\n            <li>\n              To use this machine too, run this on it:\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-different-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-different-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n          </ol>\n          <ol id=\"steps-refused\" class=\"entry-steps\" hidden>\n            <li>\n              Check this device with\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote devices</code>\n                <button\n                  id=\"copy-refused-devices\"\n                  aria-label=\"Copy tmt remote devices\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-refused-devices\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n            <li>\n              If it's missing, pair again with\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-refused-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-refused-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n          </ol>\n          <ol id=\"steps-unconfirmed\" class=\"entry-steps\" hidden>\n            <li>\n              Check Remote is running:\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote status</code>\n                <button\n                  id=\"copy-unconfirmed-status\"\n                  aria-label=\"Copy tmt remote status\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-unconfirmed-status\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n          </ol>\n          <ol id=\"steps-unreadable\" class=\"entry-steps\" hidden>\n            <li>\n              Pair again with\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-unreadable-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-unreadable-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n          </ol>\n          <p id=\"pairing-note\" class=\"entry-note\" hidden>Pair links are private and work once.</p>\n          <button id=\"check\" class=\"tmt-ui-action\" type=\"button\" aria-describedby=\"status\" disabled>\n            Check again\n          </button>\n          <details class=\"tmt-ui-disclosure\" data-divided>\n            <summary>Details</summary>\n            <dl class=\"entry-status\">\n              <dt>Machine ID</dt>\n              <dd id=\"machine-id\">Not available</dd>\n              <dt>Last checked</dt>\n              <dd id=\"checked-time\">Not checked</dd>\n              <dt>Address</dt>\n              <dd id=\"protocol-address\">Not available</dd>\n              <dt>Fingerprint</dt>\n              <dd id=\"trust-pin\">Not available</dd>\n            </dl>\n            <p class=\"entry-note\">\n              Pairing gives this browser its own access. It does not make this browser a\n              settings administrator.\n            </p>\n          </details>\n        </div>\n      </section>\n      <section\n        id=\"connect\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"neutral\"\n        data-view=\"connect\"\n        aria-labelledby=\"connect-heading\"\n        hidden\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"connect-heading\" class=\"tmt-ui-notice-heading\">Connect a device</h2>\n          <p>Give another browser or device its own access to this machine.</p>\n          <ol class=\"entry-steps\">\n            <li>\n              On the machine that runs Remote, run\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-connect-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-connect-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n            <li>Open the link it prints in the browser you want to connect.</li>\n          </ol>\n          <p class=\"entry-note\">Pair links are private and work once.</p>\n        </div>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/settings.html?raw
-var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>Remote settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote settings\">\n      <h1 class=\"header-title tmt-ui-title\">Remote settings</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page settings-page\">\n      <h2 class=\"settings-title\" data-view=\"settings\">Remote settings</h2>\n      <p class=\"settings-intro\" data-view=\"settings\">\n        Control browser opening, sessions and paired devices for this Remote.\n      </p>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"devices machine settings\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote devices</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\" data-view=\"devices machine settings\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"machine\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"machine\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Firestore</h2>\n          <p>Recorded setup, not a live Firebase check.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking recorded Firestore setup…</div>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"devices\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"tmt-ui-notice\" hidden>\n            <p id=\"remove-others-consequence\" class=\"tmt-ui-notice-body\" role=\"status\"></p>\n            <div class=\"tmt-ui-notice-actions\">\n              <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">\n                <span class=\"tmt-ui-action-label\">Cancel</span>\n              </button>\n            </div>\n          </div>\n          <div id=\"devices\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Remotes in this browser</h2>\n        <p class=\"entry-note\">\n          Names and addresses are saved here. Each remote keeps its own pairing.\n        </p>\n        <ul id=\"remote-list\" class=\"tmt-ui-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n        <button id=\"remote-add\" class=\"tmt-ui-action\" type=\"button\">Add remote</button>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>My Remotes · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · My Remotes\">\n      <h1 class=\"header-title tmt-ui-title\">My Remotes</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page settings-page\">\n      <div id=\"remote-head\" class=\"remote-head\" data-view=\"settings\">\n        <div class=\"remote-head-copy\">\n          <h2 class=\"settings-title\">My Remotes</h2>\n          <p class=\"settings-intro\">Names and addresses stay in this browser. Forgetting a row leaves access unchanged.</p>\n        </div>\n        <div class=\"remote-head-actions\">\n          <a class=\"tmt-ui-action\" data-variant=\"primary\" href=\"/remote/machine\"><span class=\"tmt-ui-action-label\">Create a Remote</span></a>\n          <span id=\"remote-join\"></span>\n        </div>\n      </div>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"devices machine\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote devices</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\" data-view=\"devices machine settings\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"machine\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"machine\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"machine\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Firestore</h2>\n          <p>Recorded setup, not a live Firebase check.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking recorded Firestore setup…</div>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"devices\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"tmt-ui-notice\" hidden>\n            <p id=\"remove-others-consequence\" class=\"tmt-ui-notice-body\" role=\"status\"></p>\n            <div class=\"tmt-ui-notice-actions\">\n              <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">\n                <span class=\"tmt-ui-action-label\">Cancel</span>\n              </button>\n            </div>\n          </div>\n          <div id=\"devices\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"tmt-ui-section\" data-view=\"settings\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\" class=\"tmt-ui-visually-hidden\">Remote list</h2>\n        <ul id=\"remote-list\" class=\"tmt-ui-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/tmt-settings.html?raw
 var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"tmt-settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>TMT settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">TMT settings</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main id=\"tmt-settings-page\" class=\"tmt-page tmt-settings\">\n      <p id=\"tmt-settings-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"tmt-settings-section\" class=\"tmt-settings-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";

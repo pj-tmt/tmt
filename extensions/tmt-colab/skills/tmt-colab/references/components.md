@@ -4,6 +4,101 @@ The shortest markup for each part a page can use. Each sample is a run of top-le
 `column` page (see [layout](layout.md), `tmt colab skill layout`); drop the ones you do not need.
 Group related text in one block, and run `tmt colab page check FILE` before publishing.
 
+## Design system
+
+Every page frame carries the product's own component classes (`tmt-ui-*`), the design tokens and the
+`tmt-icon` element: nothing to import, no network. The markup below is the whole promise; the frame
+holds other `tmt-ui-*` classes that are not documented and may change. Your own CSS wins over these
+classes, and a page that uses them and sets no `body` background or text colour is painted with the
+viewer theme's paper and ink (a link takes the accent); set both or neither. The classes' colours
+follow the scheme the page paints: a page you paint light stays light under a dark viewer, and an
+unpainted one follows the viewer. `tmt colab page check` reports a `tmt-ui-*` class or an icon name the frame
+does not have (`unknown-ui-class`, `unknown-icon`). Tabs, menus and other parts that need a script are
+not in the subset.
+
+Section label and card; a card runs its table edge to edge inside its padding:
+
+```html
+<section class="tmt-ui-section">
+  <h2 class="tmt-ui-section-heading" data-variant="label">Checks</h2>
+  <div class="tmt-ui-card">
+    <div class="tmt-ui-card-head">
+      <h3 class="tmt-ui-card-title">Release</h3>
+      <span class="tmt-ui-card-meta">2 rows</span>
+    </div>
+    <table class="tmt-ui-table">
+      <thead>
+        <tr>
+          <th>Check</th>
+          <th>State</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Build</td>
+          <td>✓ Done</td>
+        </tr>
+        <tr>
+          <td>Review</td>
+          <td>◆ Waiting</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+```
+
+Actions (`data-variant`: `primary`, `text`, `ghost`, `destructive`; none is the plain bordered button) and
+count chips (`data-tone="attention"` for what needs the reader). Put them in a paragraph so they sit in a
+row, side by side (a bare button fills its block). A page's own script gives them behaviour:
+
+```html
+<p>
+  <button class="tmt-ui-action" data-variant="primary"><span class="tmt-ui-action-label">Approve</span></button>
+  <button class="tmt-ui-action"><span class="tmt-ui-action-label">Cancel</span></button>
+  <button class="tmt-ui-action" data-variant="text"><span class="tmt-ui-action-label">Details</span></button>
+  <button class="tmt-ui-count-chip"><span>Comments</span><span class="tmt-ui-count">3</span></button>
+  <button class="tmt-ui-count-chip" data-tone="attention"><span>Needs you</span><span class="tmt-ui-count">2</span></button>
+</p>
+```
+
+Callout (`data-tone`: `working`, `waiting`, `review`, `blocked`; add `data-tinted` for the soft fill):
+
+```html
+<div class="tmt-ui-notice" data-tinted data-tone="waiting">
+  <div class="tmt-ui-notice-eyebrow">Needs you</div>
+  <h3 class="tmt-ui-notice-heading">Decide before release</h3>
+  <div class="tmt-ui-notice-body">What the reader has to decide, in a sentence.</div>
+</div>
+```
+
+List rows, a disclosure, a field and code:
+
+```html
+<ul class="tmt-ui-list" aria-label="Tasks">
+  <li class="tmt-ui-list-row">
+    <div class="tmt-ui-list-title"><span class="tmt-ui-list-label">Write the report</span></div>
+    <div class="tmt-ui-list-meta"><div class="tmt-ui-list-state">Done</div></div>
+  </li>
+</ul>
+<details class="tmt-ui-disclosure">
+  <summary>More detail</summary>
+  <p>Hidden until opened.</p>
+</details>
+<div class="tmt-ui-field">
+  <label class="tmt-ui-field-label" for="note">Note</label>
+  <input class="tmt-ui-field-control" id="note" />
+</div>
+<p>Run <code class="tmt-ui-code">tmt colab page check page.html</code> first.</p>
+```
+
+`tmt-ui-code` is for code inside a line. A code block is a plain `<pre><code>` that takes its look from
+the starter ([page-style](page-style.md)), so give it no class.
+
+Icons are a bounded Lucide set, named in lowercase kebab-case: `<tmt-icon name="circle-check"></tmt-icon>`
+draws a 16px icon in the text colour; add `label="Passed"` to name it for assistive technology (otherwise it
+is decorative). An unknown name draws nothing.
+
 ## Text
 
 Headings, paragraphs and lists, grouped in one block:
@@ -31,34 +126,35 @@ stops the preview. Other URL schemes are refused.
 ## Summary
 
 ```html
-<section>
-  <h2>Summary</h2>
+<section class="tmt-ui-card">
+  <h2 class="tmt-ui-card-title">Summary</h2>
   <p>One short paragraph: the result and what the reader should do next.</p>
 </section>
 ```
 
 ## Section
 
-A boxed block for one topic. `data-gap="tight"` keeps a related block close:
+A card for one topic (`tmt-ui-card`; a plain `<section>` is unboxed). `data-gap="tight"` keeps a related block close:
 
 ```html
-<section>
-  <h2>Findings</h2>
+<section class="tmt-ui-card">
+  <h2 class="tmt-ui-card-title">Findings</h2>
   <p>One topic.</p>
 </section>
-<section data-gap="tight">
-  <h2>Related finding</h2>
+<section class="tmt-ui-card" data-gap="tight">
+  <h2 class="tmt-ui-card-title">Related finding</h2>
   <p>Eight pixels below the previous block.</p>
 </section>
 ```
 
 ## Table
 
-The table fills its block; never set a width.
+The table fills its block; never set a width. `tmt-ui-table` gives it the design system's header and rules; a bare
+`<table>` gets the starter's plain rules.
 
 ```html
-<section>
-  <table>
+<section class="tmt-ui-card">
+  <table class="tmt-ui-table">
     <thead>
       <tr>
         <th>Check</th>
@@ -111,7 +207,7 @@ yours:
     gap: 16px;
   }
 </style>
-<section class="compare">
+<section class="tmt-ui-card compare">
   <div>
     <h3>Now</h3>
     <p>Today's behaviour.</p>

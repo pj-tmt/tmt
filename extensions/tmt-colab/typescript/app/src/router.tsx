@@ -31,6 +31,8 @@ import {
 } from './reading-link.js';
 import {
   ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
   MessageCircle,
   MessageSquarePlus,
   Moon,
@@ -114,6 +116,7 @@ import { BrowserDrawer, BrowserPanel } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
+import { useChatDockMotion } from './chat-dock-motion.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import { FilesSurface } from './files-panel.js';
 import { CreatorDefaultProvider } from './creator-default.js';
@@ -176,7 +179,11 @@ function PageFloatingActions({
       // These parent-owned overlays sit outside the renderer host's layout box.
       // Their actual bounds keep the control clear without altering author geometry.
       // A page hosted in a panel sits inside that panel's drawer; only another drawer is an overlay.
-      const drawer = [...document.querySelectorAll<HTMLDialogElement>('.tmt-ui-drawer[open]')]
+      const drawer = [
+        ...document.querySelectorAll<HTMLDialogElement>(
+          '.tmt-ui-drawer[open]:not([data-panel="chat"])',
+        ),
+      ]
         .find((candidate) => !candidate.contains(host))
         ?.getBoundingClientRect();
       // A card sits over the page's right edge and a sheet over its bottom; a column is a grid
@@ -255,7 +262,12 @@ function PageFloatingActions({
     };
   }, [host, enabled, panel, discussionOpen, slots]);
   return (
-    <div ref={element} className="selection-mode" style={placement}>
+    <div
+      ref={element}
+      className="selection-mode"
+      style={placement}
+      data-chat-open={panel === 'chat' ? '' : undefined}
+    >
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
@@ -1288,6 +1300,7 @@ function OpenPage({
     setActiveThread,
   } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
+  useChatDockMotion(panel === 'chat');
   const activateChat = useRef<() => boolean>(() => false);
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
@@ -1487,6 +1500,21 @@ function OpenPage({
       (thread) =>
         !isChatThread(thread) && `${thread.ref.writer}:${thread.threadId}` === activeThread,
     );
+  // The Discussion header's arrows walk the threads in the order of their numbers, the order of the
+  // position it shows.
+  const [resolveSlot, setResolveSlot] = useState<HTMLElement | null>(null);
+  const neighbour = (offset: -1 | 1) => {
+    if (activeThread === null) return undefined;
+    const ordered = [...numbers.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
+    const next = ordered[ordered.indexOf(activeThread) + offset];
+    return next === undefined
+      ? undefined
+      : (view.threads ?? []).find((thread) => `${thread.ref.writer}:${thread.threadId}` === next);
+  };
+  const openNeighbour = (offset: -1 | 1) => {
+    const thread = neighbour(offset);
+    if (thread) openThread(thread.ref);
+  };
   const openThreads = discussionPending ? undefined : openThreadCount(view.threads ?? []);
   const fileCount = view.attachments?.length ?? 0;
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
@@ -1682,14 +1710,34 @@ function OpenPage({
   );
   const anchoredThreads = highlights.current,
     threadTotal = numbers.size;
+  // A resolved thread leaves the marker set, but while its Discussion view is open the page keeps a
+  // quiet mark on its passage, so the person can see and scroll to what it was about.
+  const quietCandidate =
+    discussedThread && activeThread !== null
+      ? (view.threads ?? []).find(
+          (thread) =>
+            !isChatThread(thread) &&
+            `${thread.ref.writer}:${thread.threadId}` === activeThread &&
+            thread.resolved &&
+            !thread.deleted &&
+            thread.anchor,
+        )
+      : undefined;
+  const quietRef = useRef<{ id: string; selector: QuoteSelector } | undefined>(undefined);
+  quietRef.current = shareView(
+    quietRef.current,
+    quietCandidate?.anchor ? { id: activeThread!, selector: quietCandidate.anchor } : undefined,
+  );
+  const quietThread = quietRef.current;
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
       anchoredThreads as { id: string; selector: QuoteSelector; ordinal: number }[],
       annotation?.selector ?? undefined,
       threadTotal,
+      quietThread,
     );
-  }, [state, anchoredThreads, annotation, threadTotal]);
+  }, [state, anchoredThreads, annotation, threadTotal, quietThread]);
   // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.
@@ -2004,11 +2052,51 @@ function OpenPage({
           mode={panelMode}
           title={discussedThread ? text.discussion : text.comments}
           caption={
-            discussedThread && numbers.get(activeThread!) !== undefined
-              ? text.discussionPosition(numbers.get(activeThread!)!, numbers.size)
-              : undefined
+            discussedThread && numbers.get(activeThread!) !== undefined ? (
+              // The position is the way back to the list.
+              <button
+                type="button"
+                className={`${ui.action} discussion-position`}
+                data-variant="text"
+                aria-label={text.allComments}
+                title={text.allComments}
+                onClick={(event) => {
+                  if (event.isTrusted) openThread(null);
+                }}
+              >
+                {text.discussionPosition(numbers.get(activeThread!)!, numbers.size)}
+              </button>
+            ) : undefined
+          }
+          headerActions={
+            discussedThread && numbers.get(activeThread!) !== undefined ? (
+              <>
+                <BrowserIconAction
+                  type="button"
+                  variant="text"
+                  label={text.discussionPrevious}
+                  icon={<ChevronLeft />}
+                  disabled={!neighbour(-1)}
+                  onActivate={(event) => {
+                    if (event.isTrusted) openNeighbour(-1);
+                  }}
+                />
+                <BrowserIconAction
+                  type="button"
+                  variant="text"
+                  label={text.discussionNext}
+                  icon={<ChevronRight />}
+                  disabled={!neighbour(1)}
+                  onActivate={(event) => {
+                    if (event.isTrusted) openNeighbour(1);
+                  }}
+                />
+                <span className="discussion-header-slot" ref={setResolveSlot} />
+              </>
+            ) : undefined
           }
           data-panel="comments"
+          data-discussion={discussedThread || undefined}
           onDismiss={(reason) => {
             if (reason === 'close') close();
             else escapeAnnotation.current(true);
@@ -2052,6 +2140,7 @@ function OpenPage({
               asks={view.asks ?? []}
               active={activeThread}
               select={openThread}
+              headerSlot={resolveSlot}
               showInPage={(ref) => {
                 // The panel stays: it is beside or over the page, not a modal that hides it.
                 renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);

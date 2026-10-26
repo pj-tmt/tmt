@@ -578,6 +578,7 @@ impl Supervisor {
                 self.clients[index].fate = Some(Fate::Leave);
             }
             ClientMessage::Control(control) => self.control(index, control),
+            ClientMessage::Snapshot => self.snapshot(index),
             ClientMessage::Input(data) => {
                 self.last_key = Some(Instant::now());
                 // Typing from another window brings the terminal to that window.
@@ -604,6 +605,34 @@ impl Supervisor {
                 }
             }
         }
+    }
+
+    /// Answers a snapshot request with the screen as it is at this moment: the formatted
+    /// screen (cursor and input modes included), bounded by the screen size and queued in
+    /// output-sized chunks behind the client's other frames, so live output that follows
+    /// arrives after it and nothing is lost or repeated. The supervisor handles requests and
+    /// reads program output in one thread, so the screen already holds every byte queued
+    /// before this request and none that is queued after it. Every request gets the current
+    /// screen; none is kept waiting. A client that asks while 256 KiB of earlier frames are
+    /// unread is too slow to follow a screen and is evicted like any other.
+    fn snapshot(&mut self, index: usize) {
+        if self.clients[index].congested() {
+            self.clients[index].fate = Some(Fate::Evict(Eviction::TooSlow));
+            return;
+        }
+        let screen = self.screen.screen();
+        let mut state = Vec::new();
+        if screen.alternate_screen() {
+            state.extend_from_slice(b"\x1b[?1049h");
+        }
+        state.extend_from_slice(&screen.state_formatted());
+        let size = self.size;
+        let client = &mut self.clients[index];
+        client.queue(&ServerMessage::SnapshotStart);
+        for chunk in state.chunks(MAX_OUTPUT) {
+            client.queue(&ServerMessage::SnapshotData(chunk.to_vec()));
+        }
+        client.queue(&ServerMessage::SnapshotEnd(size));
     }
 
     /// Controls share the supervisor's serialization with the stream. No control

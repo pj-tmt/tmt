@@ -333,7 +333,7 @@ impl Shell {
         let mut modules = vec![(
             200,
             "remote",
-            json!({"extension":"remote","rail":{"label":"Remote","icon":"monitor-smartphone","path":format!("{origin}/remote/"),"order":200},"menu":[{"id":"remote","label":"Remote","path":format!("{origin}/remote/")}],"settings":[{"id":"settings","label":"Remote settings","path":format!("{origin}/remote/settings")}],"needsYou":0}),
+            json!({"extension":"remote","rail":{"label":"Remote","icon":"monitor-smartphone","path":format!("{origin}/remote/settings"),"order":200},"menu":[{"id":"remote","label":"Remote","path":format!("{origin}/remote/settings")}],"settings":[{"id":"settings","label":"My Remotes","path":format!("{origin}/remote/settings")}],"needsYou":0}),
         )];
         for (name, entry) in &state.entries {
             if let Some((answer, at, _)) = &entry.good

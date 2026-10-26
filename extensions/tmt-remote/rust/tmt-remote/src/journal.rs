@@ -250,6 +250,7 @@ fn event<'a>(
 }
 struct Stored {
     client: String,
+    member: Option<String>,
     digest: Vec<u8>,
     owned: Owned,
     time: u64,
@@ -268,12 +269,48 @@ fn json_column<T: serde::de::DeserializeOwned>(
     })
 }
 fn read_owned(tx: &Transaction<'_>, id: &str) -> Result<Option<Stored>, RemoteError> {
-    tx.query_row("SELECT client_id,operation,digest,phase,receipt,frozen,references_json,updated_ms FROM operations WHERE id=?1",[id],|row| {
+    tx.query_row("SELECT client_id,operation,digest,phase,receipt,frozen,references_json,updated_ms,member_id FROM operations WHERE id=?1",[id],|row| {
         let time:i64=row.get(7)?;
-        Ok(Stored{client:row.get(0)?,digest:row.get(2)?,
+        Ok(Stored{client:row.get(0)?,member:row.get(8)?,digest:row.get(2)?,
             owned:Owned{id:id.into(),operation:row.get(1)?,phase:row.get(3)?,receipt:json_column(row,4)?,frozen:row.get(5)?,references:json_column(row,6)?},
             time:u64::try_from(time).map_err(|_|rusqlite::Error::IntegralValueOutOfRange(7,time))?})
     }).optional().map_err(database)
+}
+/// Queries using this predicate alias the ownership row as `o`. A missing
+/// migration association remains NULL and cannot confer history or effects.
+pub(crate) const CURRENT_OPERATION_MEMBER: &str = "o.member_id=(SELECT mm.member_id FROM member_machines mm WHERE mm.client_id=o.client_id AND mm.remote_id=(SELECT machine_id FROM machine WHERE singleton=1))";
+
+fn current_member(connection: &rusqlite::Connection, client: &str) -> Result<String, RemoteError> {
+    connection.query_row(
+        "SELECT member_id FROM member_machines WHERE client_id=?1 AND remote_id=(SELECT machine_id FROM machine WHERE singleton=1)",
+        [client], |row| row.get(0),
+    ).optional().map_err(database)?.ok_or_else(member_closed)
+}
+fn member_closed() -> RemoteError {
+    RemoteError::new(
+        "REMOTE_CLOSED",
+        "Operation belongs to an unavailable or previous member.",
+    )
+}
+pub(crate) fn require_operation_member(
+    connection: &rusqlite::Connection,
+    client: &str,
+    id: &str,
+) -> Result<(), RemoteError> {
+    let current = current_member(connection, client)?;
+    let captured: Option<String> = connection
+        .query_row(
+            "SELECT member_id FROM operations WHERE id=?1 AND client_id=?2",
+            [id, client],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database)?
+        .flatten();
+    if captured.as_deref() != Some(current.as_str()) {
+        return Err(member_closed());
+    }
+    Ok(())
 }
 impl Store {
     fn begin(&mut self) -> Result<Transaction<'_>, RemoteError> {
@@ -336,6 +373,7 @@ impl Store {
             return Err(database("invalid adoption"));
         }
         let tx = self.authorized(grant, now)?;
+        let member = current_member(&tx, &grant.client_id)?;
         if tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM management_receipts WHERE id=?1)",
@@ -351,6 +389,7 @@ impl Store {
         }
         if let Some(Stored {
             client,
+            member: captured,
             digest: old,
             owned,
             time,
@@ -361,6 +400,9 @@ impl Store {
                     "REMOTE_INTENT_CONFLICT",
                     "Request ID or intent conflicts.",
                 ));
+            }
+            if captured.as_deref() != Some(member.as_str()) {
+                return Err(member_closed());
             }
             if now.saturating_sub(time) >= RECOVERY {
                 return Err(database("recovery horizon"));
@@ -417,7 +459,7 @@ impl Store {
             .tip
             .checked_add(1)
             .ok_or_else(|| database("stream exhausted"))?;
-        tx.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,references_json,session_id,grant_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",params![input.id,grant.client_id,input.operation,digest.as_slice(),frozen,phase,receipt.to_string(),now as i64,serde_json::to_string(resources).map_err(database)?,input.session_id,grant.revision as i64]).map_err(database)?;
+        tx.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,references_json,session_id,grant_revision,member_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",params![input.id,grant.client_id,input.operation,digest.as_slice(),frozen,phase,receipt.to_string(),now as i64,serde_json::to_string(resources).map_err(database)?,input.session_id,grant.revision as i64,member]).map_err(database)?;
         let at_ms = (now as i64).max(stream.last_ms);
         tx.execute(
             "INSERT INTO entries VALUES (?1,?2,?3,?4)",
@@ -446,6 +488,7 @@ impl Store {
             .map_err(|error| error.with_owned_read(OwnedReadFailure::Store))?;
         let Some(Stored {
             client,
+            member,
             owned,
             time,
             ..
@@ -455,7 +498,10 @@ impl Store {
                 database("owned state absent").with_owned_read(OwnedReadFailure::Unavailable)
             );
         };
-        if client != grant.client_id || now.saturating_sub(time) >= RECOVERY {
+        if client != grant.client_id
+            || member.as_deref() != Some(current_member(&tx, &grant.client_id)?.as_str())
+            || now.saturating_sub(time) >= RECOVERY
+        {
             return Err(
                 database("owned state unavailable").with_owned_read(OwnedReadFailure::Unavailable)
             );

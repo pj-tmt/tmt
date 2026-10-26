@@ -307,6 +307,255 @@ fn a_stalled_client_is_evicted_and_the_program_goes_on_for_the_others() {
     member.finish().unwrap();
 }
 
+/// What a client rebuilds from one snapshot: a terminal at the size it says, holding the screen.
+struct Snapshot {
+    /// Frames that arrived before the snapshot started, in order.
+    before: Vec<ServerMessage>,
+    screen: vt100::Parser,
+    chunks: Vec<usize>,
+}
+
+/// Requests a snapshot and applies it the way a client must: start discards what it held,
+/// the data is buffered, and the end gives the size to rebuild it at.
+fn snapshot(connection: &mut Connection) -> Snapshot {
+    connection.send(&ClientMessage::Snapshot).unwrap();
+    let (mut before, mut data, mut chunks, mut started) =
+        (Vec::new(), Vec::new(), Vec::new(), false);
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match connection
+            .receive(left)
+            .unwrap()
+            .expect("a snapshot before the timeout")
+        {
+            ServerMessage::SnapshotStart => {
+                (data, chunks, started) = (Vec::new(), Vec::new(), true);
+            }
+            ServerMessage::SnapshotData(bytes) => {
+                assert!(started, "data before a start");
+                chunks.push(bytes.len());
+                data.extend(bytes);
+            }
+            ServerMessage::SnapshotEnd(at) => {
+                assert!(started, "an end before a start");
+                let mut screen = vt100::Parser::new(at.rows, at.cols, 0);
+                screen.process(&data);
+                return Snapshot {
+                    before,
+                    screen,
+                    chunks,
+                };
+            }
+            other => {
+                assert!(!started, "a frame inside a snapshot: {other:?}");
+                before.push(other);
+            }
+        }
+    }
+}
+
+/// A member whose program prints nothing until the test opens the gate: output is not replayed
+/// to a client that connects later, so a program that printed at once could win the race.
+struct Gate {
+    _directory: TestDirectory,
+    file: PathBuf,
+}
+
+impl Gate {
+    fn member(script: &str) -> (Member, Self) {
+        let directory = TestDirectory::new();
+        let file = directory.path.join("open");
+        let script = format!(
+            "while [ ! -e '{}' ]; do sleep 0.02; done; {script}",
+            file.display()
+        );
+        let member = Member::start(&["sh", "-c", &script]);
+        (
+            member,
+            Self {
+                _directory: directory,
+                file,
+            },
+        )
+    }
+
+    fn open(&self) {
+        fs::write(&self.file, b"").unwrap();
+    }
+}
+
+#[test]
+fn a_snapshot_rebuilds_the_screen_with_its_colors_cursor_and_input_modes() {
+    let (member, gate) = Gate::member(
+        r"printf '\033[?2004h\033[?1h\033[?1000h\033[31mred\033[0m plain\r\nnext'; read l",
+    );
+    let mut client = member.connect();
+    client.send(&ClientMessage::Resize(size(100, 30))).unwrap();
+    gate.open();
+    collect(&mut client, says("next"));
+
+    let rebuilt = snapshot(&mut client);
+    let screen = rebuilt.screen.screen();
+    assert_eq!(screen.size(), (30, 100));
+    assert_eq!(screen.contents(), "red plain\nnext");
+    assert_eq!(screen.cell(0, 0).unwrap().fgcolor(), vt100::Color::Idx(1));
+    assert_eq!(screen.cell(0, 4).unwrap().fgcolor(), vt100::Color::Default);
+    assert_eq!(screen.cursor_position(), (1, 4));
+    assert!(!screen.hide_cursor());
+    assert!(screen.bracketed_paste());
+    assert!(screen.application_cursor());
+    assert_eq!(
+        screen.mouse_protocol_mode(),
+        vt100::MouseProtocolMode::PressRelease
+    );
+    assert!(!screen.alternate_screen());
+}
+
+#[test]
+fn a_snapshot_of_the_alternate_screen_enters_it() {
+    let (member, gate) = Gate::member(r"printf 'main\r\n\033[?1049h\033[2J\033[Halt'; read l");
+    let mut client = member.connect();
+    gate.open();
+    collect(&mut client, says("alt"));
+
+    let rebuilt = snapshot(&mut client);
+    assert!(rebuilt.screen.screen().alternate_screen());
+    assert_eq!(rebuilt.screen.screen().contents(), "alt");
+}
+
+#[test]
+fn output_before_a_snapshot_precedes_it_and_output_after_applies_once_on_top() {
+    let (member, gate) = Gate::member("printf 'one\\r\\n'; read l; printf 'two\\r\\n'; read l");
+    // Never reads before asking: the first line is already queued ahead of the request.
+    let mut client = member.connect();
+    let mut watcher = member.connect();
+    gate.open();
+    collect(&mut watcher, says("one"));
+
+    let rebuilt = snapshot(&mut client);
+    let early: String = rebuilt
+        .before
+        .iter()
+        .filter_map(|frame| match frame {
+            ServerMessage::Output(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+            _ => None,
+        })
+        .collect();
+    assert!(early.is_empty() || early.contains("one"), "{early:?}");
+    assert_eq!(rebuilt.screen.screen().contents(), "one");
+
+    // What the program prints next arrives after the snapshot, once.
+    client.input(b"\r").unwrap();
+    let after = collect(&mut client, says("two"));
+    assert!(!after.text.contains("one"), "repeated: {:?}", after.text);
+}
+
+#[test]
+fn every_snapshot_request_gets_the_screen_as_it_is_then() {
+    let (member, gate) = Gate::member("printf 'first'; read l; printf ' second'; read l");
+    let mut client = member.connect();
+    gate.open();
+    collect(&mut client, says("first"));
+    assert_eq!(snapshot(&mut client).screen.screen().contents(), "first");
+
+    client.input(b"\r").unwrap();
+    collect(&mut client, says("second"));
+    // The echo of the Enter moved to the next line before the program printed again.
+    let latest = snapshot(&mut client);
+    assert!(latest.screen.screen().contents().contains("second"));
+    // Asking again with nothing new returns the same screen, not a queue of older ones.
+    let again = snapshot(&mut client);
+    assert_eq!(
+        again.screen.screen().contents_formatted(),
+        latest.screen.screen().contents_formatted()
+    );
+}
+
+#[test]
+fn a_large_screen_arrives_in_chunks_within_the_output_bound() {
+    let member = Member::start(&[
+        "sh",
+        "-c",
+        r#"read l; i=0; while [ $i -lt 100 ]; do printf '\033[%dm%0300d\033[0m\r\n' $((31 + i % 7)) $i; i=$((i + 1)); done; printf end; read l"#,
+    ]);
+    let mut client = member.connect();
+    client.send(&ClientMessage::Resize(size(300, 100))).unwrap();
+    collect(&mut client, |seen| {
+        seen.frames
+            .contains(&ServerMessage::Resized(size(300, 100)))
+    });
+    client.input(b"go\r").unwrap();
+    collect(&mut client, says("end"));
+
+    let rebuilt = snapshot(&mut client);
+    assert!(rebuilt.chunks.len() >= 2, "{:?}", rebuilt.chunks);
+    assert!(
+        rebuilt
+            .chunks
+            .iter()
+            .all(|chunk| (1..=tmt_pty_protocol::MAX_OUTPUT).contains(chunk))
+    );
+    let contents = rebuilt.screen.screen().contents();
+    assert!(contents.contains(&format!("{:0300}", 42)));
+    assert!(contents.ends_with("end"));
+}
+
+#[test]
+fn a_snapshot_asked_before_the_hello_is_a_handshake_refusal() {
+    let member = Member::start(&["sh", "-c", "read l"]);
+    let mut raw = Raw::connect(&member);
+    raw.send(&ClientMessage::Snapshot.encode());
+    assert_eq!(raw.next(), Some(ServerMessage::Refused(Refusal::Handshake)));
+    assert_eq!(raw.next(), None);
+}
+
+#[test]
+fn a_client_that_asks_for_a_snapshot_without_reading_its_backlog_is_evicted() {
+    // A full 1000 x 1000 screen makes the first snapshot far larger than the backlog the
+    // supervisor tolerates and than any socket buffer can absorb, so the second request finds
+    // the client behind whatever the timing: no sleep decides it.
+    let member = Member::start(&[
+        "sh",
+        "-c",
+        r#"read l; i=0; while [ $i -lt 1000 ]; do printf '%01000d\r\n' $i; i=$((i + 1)); done; printf end; read l"#,
+    ]);
+    let mut reading = member.connect();
+    reading
+        .send(&ClientMessage::Resize(size(1000, 1000)))
+        .unwrap();
+    collect(&mut reading, |seen| {
+        seen.frames
+            .contains(&ServerMessage::Resized(size(1000, 1000)))
+    });
+    reading.input(b"go\r").unwrap();
+    collect(&mut reading, says("end"));
+
+    let mut stalled = Raw::connect(&member);
+    stalled.send(&ClientMessage::Hello { version: VERSION }.encode());
+    assert!(matches!(
+        stalled.next(),
+        Some(ServerMessage::Welcome { .. })
+    ));
+    let mut twice = ClientMessage::Snapshot.encode();
+    twice.extend(ClientMessage::Snapshot.encode());
+    stalled.send(&twice);
+    let mut evicted = false;
+    let mut completed = 0;
+    while let Some(frame) = stalled.next() {
+        match frame {
+            ServerMessage::Evicted(Eviction::TooSlow) => evicted = true,
+            ServerMessage::SnapshotEnd(_) => completed += 1,
+            _ => {}
+        }
+    }
+    assert!(evicted, "the stalled client was not told it was too slow");
+    // The first snapshot is larger than any buffer and was not read, so none was completed.
+    assert_eq!(completed, 0);
+    // The member went on: the reading client is still served.
+    reading.input(b"\r").unwrap();
+}
+
 #[test]
 fn a_connection_that_breaks_the_protocol_is_refused_or_closed() {
     let member = Member::start(&["sh", "-c", "read l; echo got:$l"]);
@@ -610,6 +859,55 @@ fn delivery_wraps_paste_only_in_the_program_mode_and_never_counts_as_typing() {
         drop(client);
         member.finish().unwrap();
     }
+}
+
+#[test]
+fn a_paste_end_marker_in_the_message_stays_inside_the_one_bracketed_paste() {
+    use tmt_pty_protocol::{Control, ControlReply};
+    // 6 (start) + 1 + 3 (U+241B) + 5 + 1 + 6 (end) bytes of paste, then the Enter.
+    // The program stays alive after printing what it read (`read` holds it until the test
+    // ends), so the capture never races its exit and the screen still proves the bytes.
+    let script = r"stty raw -echo; printf '\033[?2004hready'; dd bs=1 count=23 2>/dev/null | od -An -tx1; read hold";
+    let member = Member::start(&["sh", "-c", script]);
+    let mut client = member.connect();
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let ControlReply::Screen(text) = client.control(Control::Capture, WAIT).unwrap()
+            && text.contains("ready")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    // What every host receives: the message after Core's pane input policy.
+    let message = tmt_core::driver::pane_input_text("a\x1b[201~b");
+    assert_eq!(
+        client
+            .control(Control::Paste(message.into_bytes()), WAIT)
+            .unwrap(),
+        ControlReply::Applied(true)
+    );
+    client.control(Control::Enter, WAIT).unwrap();
+    let expected = "1b 5b 32 30 30 7e 61 e2 90 9b 5b 32 30 31 7e 62 1b 5b 32 30 31 7e 0d";
+    loop {
+        let ControlReply::Screen(text) = client.control(Control::Capture, WAIT).unwrap() else {
+            panic!("capture refused")
+        };
+        let seen = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if seen.contains(expected) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "expected {expected}; screen={seen:?}"
+        );
+        std::thread::yield_now();
+    }
+    // Release the program and let the supervisor end with it (raw mode: a newline, not Enter).
+    client.input(b"\n").unwrap();
+    drop(client);
+    member.finish().unwrap();
 }
 
 #[test]

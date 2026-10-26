@@ -7,7 +7,14 @@ description: Run the project-management pass for this repository. Find blocked, 
 
 Use this skill as project manager (`tmt-core-pm`) or when auditing delivery flow.
 [Project tracking](../../../DEVELOPMENT.md#project-tracking) owns Project fields,
-Status meanings, epic approval/start rules and cadence; this skill owns procedure.
+Status meanings and epic approval/start rules; this skill owns procedure and cadence.
+
+## Cadence
+
+- PM checks at :05 hourly (usage, idle seats, green unarmed PRs) and updates Project
+  status at :35 (progress, releases, seats, usage, epics and owner decisions).
+  The first tick after 08:00 JST also posts daily usage on #1518. Leads add
+  event-driven updates; the scheduled pass below owns the steps.
 
 ## Ticket levels
 
@@ -55,8 +62,7 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
    other store of PM's own, and no usage data in repository artifacts. Read it by the
    [usage report contract](../../../extensions/tmt-digest/contracts/usage-v1.md):
    - _Missing evidence is unavailable, never zero._ Print `usage.unavailable[]`
-     identities and `limitsUnavailable[]` lines (Claude is `no_source`: Core has no
-     Claude allowance source) with their `reason`; a seat whose `coverage.complete`
+     identities and `limitsUnavailable[]` lines with their `reason`; a seat whose `coverage.complete`
      is false is a lower bound; `window.toMs` is stated and excludes the newest five
      minutes.
    - _Allowance._ For each `windowMinutes` (300 and 10080) take the `limits[]` entry
@@ -103,10 +109,10 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
    at +7 points with options. Alert once near 5% OpenAI allowance left so the
    maintainer can decide on the Codex reset. Never change seats or models.
 
-5. **Update Project and report.** On the owning guide's status-update schedule,
+5. **Update Project and report.** On the [status-update schedule](#cadence),
    summarize progress, merged/released work, seats, usage, epic progress and
    decisions under `Owner action pending`. Post the daily usage report on #1518
-   at the guide's daily tick. Leads send event-driven updates to the PM; send
+   at the [daily tick](#cadence). Leads send event-driven updates to the PM; send
    tmt-lead only decisions about core paths/contracts or cross-squad seams.
    Broadcast team-wide API, disk and CI alerts to leads.
 

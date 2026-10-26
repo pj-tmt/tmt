@@ -1,10 +1,13 @@
 import { remoteShell, type RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
-import { remoteState, currentRemote } from './remote-state.js';
+import type { ViewerRole } from './remote-state.js';
+import { mountBrowserMenu, type BrowserMenuHost } from '@tmt/browser-ui/menu-host';
+import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses } from '@tmt/browser-ui/static';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
 import {
   remoteRegistry,
+  registryView,
   reference,
   RemoteRegistryError,
   type RemoteReference,
@@ -16,8 +19,12 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = ''): HTMLEle
   result.textContent = text;
   return result;
 }
-function action(text: string, run: () => void): HTMLButtonElement {
-  const button = node('button', text);
+function action(text: string, run: () => void, variant?: 'destructive'): HTMLButtonElement {
+  const button = node('button');
+  const label = node('span', text);
+  label.className = browserUiClasses.actionLabel;
+  button.append(label);
+  if (variant) button.dataset.variant = variant;
   button.type = 'button';
   button.className = 'tmt-ui-action';
   button.addEventListener('click', run);
@@ -43,7 +50,11 @@ function kindLabel(entry: RemoteReference): string {
 }
 
 /** The page's registry controller: observations in, and the reason a switch is held (settings). */
-export type RemoteRegistryPage = ((state: string, address?: string) => void) & {
+export type RemoteRegistryPage = ((
+  state: string,
+  address?: string,
+  role?: ViewerRole | null,
+) => void) & {
   /** Replaces the reason a foreign Open waits (the settings page holds unsent work). */
   blockedBy(reason: () => string): void;
 };
@@ -61,8 +72,32 @@ export function remoteRegistryPage(
   if (fragment) history.replaceState(null, '', location.pathname + location.search);
   const list = document.getElementById('remote-list')!;
   const status = document.getElementById('remote-status')!;
-  const add = document.getElementById('remote-add') as HTMLButtonElement;
+  const joinHost = document.getElementById('remote-join')!;
+  const joinMenu = mountBrowserMenu(joinHost, {
+    label: 'Join a Remote',
+    triggerText: 'Join a Remote',
+    items: [
+      { key: 'invite', label: 'Join with an invitation' },
+      { key: 'address', label: 'Remember a Remote', separated: true },
+    ],
+    onSelect: (key) => {
+      if (key === 'address') openAdd();
+      else
+        (shell ?? remoteShell())?.navigate(new URL('connect', new URL('./', location.href)).href);
+    },
+  });
+  const join = joinHost.querySelector<HTMLButtonElement>('button')!;
+  let rowMenus: Pick<BrowserMenuHost, 'dispose'>[] = [];
+  (shell ?? remoteShell())?.signal.addEventListener(
+    'abort',
+    () => {
+      joinMenu.dispose();
+      rowMenus.forEach((item) => item.dispose());
+    },
+    { once: true },
+  );
   let observed = 'Checking';
+  let observedRole: ViewerRole | undefined;
   let address: string | undefined =
     document.documentElement.dataset.tmtPage === 'settings'
       ? new URL('./', location.href).href
@@ -73,20 +108,6 @@ export function remoteRegistryPage(
   const menu = remoteMenu(
     {
       refresh: () => render(),
-      open: (entry) => {
-        if (blocked()) return;
-        void remoteRegistry
-          .navigation(entry)
-          .then((url) => location.assign(url))
-          .catch((error: unknown) => showError(error, status));
-      },
-      add: () => {
-        // The registry lives on the settings view: go there (the same route, so the page only
-        // shows another view), then open the form.
-        if (document.documentElement.dataset.tmtPage !== 'settings')
-          (shell ?? remoteShell())?.navigate(settings.href);
-        add.click();
-      },
       recover: (action) => {
         const home = new URL('./', location.href).href;
         if (action === 'Retry') {
@@ -111,7 +132,6 @@ export function remoteRegistryPage(
           pair?.focus();
         }
       },
-      blocked,
     },
     shell,
   );
@@ -160,7 +180,7 @@ export function remoteRegistryPage(
         box.remove();
         if (currentDialog === box) {
           currentDialog = undefined;
-          (opener.isConnected ? opener : add).focus();
+          (opener.isConnected ? opener : join).focus();
         }
       },
       { once: true },
@@ -168,7 +188,10 @@ export function remoteRegistryPage(
     currentDialog = box;
     return { box, body, buttons, message, end };
   };
-  const save = async (run: () => Promise<void>, view: ReturnType<typeof dialog>): Promise<void> => {
+  const save = async (
+    run: () => Promise<void>,
+    view: ReturnType<typeof dialog>,
+  ): Promise<boolean> => {
     const buttons = [...view.box.querySelectorAll('button')];
     buttons.forEach((b) => {
       b.disabled = true;
@@ -177,8 +200,10 @@ export function remoteRegistryPage(
       await run();
       await render();
       view.end();
+      return true;
     } catch (error) {
       showError(error, view.message);
+      return false;
     } finally {
       buttons.forEach((b) => {
         b.disabled = false;
@@ -186,7 +211,7 @@ export function remoteRegistryPage(
     }
   };
   const importView = (plan: ImportPlan): void => {
-    const view = dialog('Add these remotes to this browser?', add);
+    const view = dialog('Add these remotes to this browser?', join);
     view.body.append(
       node('p', 'Only names and addresses are copied. No keys, pairings or drafts.'),
     );
@@ -265,82 +290,186 @@ export function remoteRegistryPage(
     view.box.showModal();
   };
   const remove = (entry: RemoteReference, opener: HTMLElement): void => {
-    const view = dialog(`Remove ${entry.name} from this browser?`, opener);
+    const view = dialog(`Forget ${entry.name} in this browser?`, opener);
     view.body.append(
       node('p', 'This only removes the entry here. It does not sign out or revoke access.'),
     );
     view.buttons.append(
-      action('Remove', () => {
-        void save(() => remoteRegistry.remove(entry.name), view);
-      }),
+      action(
+        'Forget',
+        () => {
+          void save(() => remoteRegistry.remove(entry.name), view).then((saved) => {
+            if (!saved) return;
+            status.replaceChildren(
+              node('span', `Forgot ${entry.name} in this browser. Access is unchanged. `),
+              action('Undo', () => {
+                void remoteRegistry
+                  .add(entry.name, entry.url)
+                  .then(async () => {
+                    await render();
+                    status.textContent = `Restored ${entry.name}.`;
+                  })
+                  .catch((error: unknown) => showError(error, status));
+              }),
+            );
+          });
+        },
+        'destructive',
+      ),
       action('Cancel', view.end),
     );
     view.box.showModal();
   };
-  const current = (entry: RemoteReference): boolean => currentRemote(entry, address, location.href);
-  const render = async (): Promise<void> => {
-    try {
-      catalog = await remoteRegistry.list();
-      const rows = catalog.entries.map((entry) => {
+  const paint = (): void => {
+    const projection = registryView(catalog, {
+      pageUrl: location.href,
+      state: observed,
+      address,
+      role: observedRole,
+    });
+    const existing = [...list.children] as HTMLElement[];
+    if (
+      existing.length === projection.rows.length &&
+      existing.every((row, index) => {
+        const entry = projection.rows[index]!;
+        return (
+          row.dataset.remote === entry.id &&
+          row.dataset.url === entry.url &&
+          row.dataset.thisMachine === String(entry.thisMachine)
+        );
+      })
+    ) {
+      for (const [index, row] of existing.entries()) {
+        const entry = projection.rows[index]!;
+        const role = row.querySelector<HTMLElement>('[data-role]')!;
+        role.querySelector<HTMLElement>('.tmt-ui-chip-label')!.textContent = entry.roleLabel;
+        role.dataset.roleTone =
+          entry.roleLabel === 'Admin'
+            ? 'selected'
+            : entry.roleLabel === 'Role unknown'
+              ? 'muted'
+              : 'neutral';
+        const state = row.querySelector<HTMLElement>('.tmt-ui-list-state')!;
+        state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
+        state.dataset.tone = entry.connection.tone;
+        const open = row.querySelector<HTMLAnchorElement>('[data-action="open"]')!;
+        open.setAttribute('aria-disabled', String(!entry.thisMachine && !!blocked()));
+        if (!entry.thisMachine && blocked()) open.removeAttribute('href');
+        else open.href = entry.thisMachine ? new URL('./', location.href).href : entry.url;
+        open.title = !entry.thisMachine ? blocked() : '';
+      }
+      menu(projection);
+      return;
+    }
+    rowMenus.forEach((item) => item.dispose());
+    rowMenus = [];
+    list.replaceChildren(
+      ...projection.rows.map((entry) => {
         const row = node('li');
         row.className = browserUiClasses.listRow;
-        row.dataset.remote = entry.name;
+        row.dataset.remote = entry.id;
+        row.dataset.thisMachine = String(entry.thisMachine);
         row.dataset.url = entry.url;
-        row.dataset.kind = entry.kind;
+        row.dataset.kind = entry.reference?.kind ?? 'local';
+        row.dataset.leading = '';
+        const leading = node('div');
+        leading.className = browserUiClasses.listLeading;
+        leading.append(createIcon(entry.backend === 'Local' ? 'terminal' : 'box'));
         const title = node('div');
         title.className = browserUiClasses.listTitle;
-        const label = node('span', entry.name);
-        label.className = browserUiClasses.listLabel;
-        const description = node('span', `${kindLabel(entry)} · ${entry.url}`);
-        description.className = browserUiClasses.listDescription;
-        title.append(label, description);
-        const meta = node('div');
-        meta.className = browserUiClasses.listMeta;
-        const state = node('div', remoteState(observed, current(entry)).text);
-        state.className = browserUiClasses.listState;
-        state.dataset.tone = remoteState(observed, current(entry)).tone;
-        meta.append(state);
-        const actions = node('div');
-        actions.className = browserUiClasses.listActions;
-        const open = action('Open', () => {
+        const label = node('span');
+        label.className = `${browserUiClasses.listLabel} remote-label`;
+        const open = node('a', entry.name);
+        open.href = entry.thisMachine ? new URL('./', location.href).href : entry.url;
+        open.dataset.action = 'open';
+        open.setAttribute('role', 'link');
+        open.setAttribute('aria-label', `Open ${entry.name}`);
+        open.setAttribute('aria-disabled', String(!entry.thisMachine && !!blocked()));
+        if (!entry.thisMachine && blocked()) open.removeAttribute('href');
+        open.title = !entry.thisMachine ? blocked() : '';
+        open.addEventListener('click', (event) => {
+          event.preventDefault();
+          if (entry.thisMachine) {
+            (shell ?? remoteShell())?.navigate(new URL('./', location.href).href);
+            return;
+          }
           void (async () => {
             try {
-              if (!blocked()) location.assign(await remoteRegistry.navigation(entry));
+              if (!blocked() && entry.reference)
+                location.assign(await remoteRegistry.navigation(entry.reference));
             } catch (error) {
               showError(error, status);
             }
           })();
         });
-        open.dataset.action = 'open';
-        const renameButton = action('Rename', () => rename(entry, renameButton));
-        const removeButton = action('Remove', () => remove(entry, removeButton));
-        renameButton.setAttribute('aria-label', `Rename ${entry.name}`);
-        removeButton.setAttribute('aria-label', `Remove ${entry.name}`);
-        if (!current(entry)) {
-          open.disabled = !!blocked();
-          open.title = blocked();
-          actions.append(open);
+        label.append(open);
+        const chip = (text: string) => {
+          const box = node('span');
+          box.className = browserUiClasses.chip;
+          const value = node('span', text);
+          value.className = browserUiClasses.chipLabel;
+          box.append(value);
+          return box;
+        };
+        if (entry.thisMachine && entry.name !== 'This machine') label.append(chip('This machine'));
+        const role = chip(entry.roleLabel);
+        role.className += ' remote-role';
+        role.dataset.role = '';
+        role.dataset.roleTone =
+          entry.roleLabel === 'Admin'
+            ? 'selected'
+            : entry.roleLabel === 'Role unknown'
+              ? 'muted'
+              : 'neutral';
+        label.append(role);
+        const description = node(
+          'span',
+          `${entry.backend}${entry.project ? ` · ${entry.project}` : ''} · ${entry.url}`,
+        );
+        description.className = browserUiClasses.listDescription;
+        title.append(label, description);
+        const meta = node('div');
+        meta.className = browserUiClasses.listMeta;
+        const state = node('div', `${entry.connection.mark} ${entry.connection.text}`);
+        state.className = browserUiClasses.listState;
+        state.dataset.tone = entry.connection.tone;
+        meta.append(state);
+        const actions = node('div');
+        actions.className = browserUiClasses.listActions;
+        if (entry.reference) {
+          const reference = entry.reference;
+          const destructive = node('span', 'Forget');
+          destructive.className = 'remote-forget';
+          const rowMenu = mountBrowserMenu(actions, {
+            label: `Actions for ${entry.name}`,
+            items: [
+              { key: 'rename', label: 'Rename' },
+              { key: 'forget', label: 'Forget', content: destructive, separated: true },
+            ],
+            onSelect: (key) => {
+              const opener = actions.querySelector<HTMLButtonElement>('button')!;
+              if (key === 'rename') rename(reference, opener);
+              else remove(reference, opener);
+            },
+          });
+          rowMenus.push(rowMenu);
         }
-        actions.append(renameButton, removeButton);
-        row.append(title, meta, actions);
+        row.append(leading, title, meta, actions);
         return row;
-      });
-      list.replaceChildren(...rows);
-      if (!rows.length) {
-        const empty = node('li');
-        empty.className = browserUiClasses.listRow;
-        const text = node('div', 'No remotes added in this browser.');
-        text.className = browserUiClasses.listTitle;
-        empty.append(text);
-        list.append(empty);
-      }
-      menu(catalog, observed, address ?? '');
+      }),
+    );
+    menu(projection);
+  };
+  const render = async (): Promise<void> => {
+    try {
+      catalog = await remoteRegistry.list();
+      paint();
     } catch (error) {
       showError(error, status);
     }
   };
-  add.addEventListener('click', () => {
-    const view = dialog('Add remote', add);
+  function openAdd(): void {
+    const view = dialog('Add remote', join);
     const alias = field('Remote name', '');
     const url = field('Remote address or link', '');
     view.body.append(alias.label, url.label);
@@ -352,19 +481,19 @@ export function remoteRegistryPage(
             // a later opening.
             if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
             view.end();
-            confirmAdd(entry, add);
+            confirmAdd(entry, join);
           })
           .catch((error: unknown) => showError(error, view.message));
       }),
       action('Cancel', view.end),
     );
     view.box.showModal();
-  });
+  }
   void render().then(() => {
-    if (fragment === '#add-remote') add.click();
+    if (fragment === '#add-remote') openAdd();
     else if (fragment === '#remotes') {
       root.scrollIntoView();
-      add.focus({ preventScroll: true });
+      join.focus({ preventScroll: true });
     }
   });
   const receive = (value: string): void => {
@@ -387,24 +516,12 @@ export function remoteRegistryPage(
     },
     { signal: (shell ?? remoteShell())?.signal },
   );
-  const observe = (state: string, checkedAddress?: string): void => {
+  const observe = (state: string, checkedAddress?: string, role?: ViewerRole | null): void => {
     observed = state;
+    if (state !== 'Connected' || role === null) observedRole = undefined;
+    else if (role !== undefined) observedRole = role;
     if (checkedAddress) address = checkedAddress;
-    for (const row of list.querySelectorAll<HTMLElement>('[data-remote]')) {
-      const stateNode = row.querySelector<HTMLElement>('.tmt-ui-list-state')!;
-      const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
-      const isCurrent = !!entry && currentRemote(entry, address, location.href);
-      const view = remoteState(observed, isCurrent);
-      stateNode.textContent = view.text;
-      stateNode.dataset.tone = view.tone;
-      const open = row.querySelector<HTMLButtonElement>('[data-action="open"]');
-      if (open) {
-        open.disabled = !!blocked();
-        open.title = blocked();
-      }
-      if (isCurrent) row.querySelector('[data-action="open"]')?.remove();
-    }
-    menu(catalog, observed, address ?? '');
+    paint();
   };
   return Object.assign(observe, {
     blockedBy: (reason: () => string): void => {

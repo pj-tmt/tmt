@@ -46,14 +46,15 @@ impl Storage {
                 return Ok(None);
             }
             let mut requests = TransactionRequests(transaction);
-            RequestService::new(&mut requests, crate::request_runtime::wall_time_ms)
+            let claimed = RequestService::new(&mut requests, crate::request_runtime::wall_time_ms)
                 .claim_digest_checklist(
                     identity,
                     id,
                     token,
                     DigestOpportunity::TurnBoundary,
                     through_limit,
-                )
+                )?;
+            Ok(claimed)
         })
     }
 }

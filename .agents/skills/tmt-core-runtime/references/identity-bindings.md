@@ -6,6 +6,10 @@ in `contracts/`.
 
 ## Names and identities
 
+Concrete owners are `storage::{identities,identity_metadata,identity_status,bindings}`
+and `tmux::{metadata,evidence,binding,caller,transport}`; `binding_command` checks
+caller/target and CLI `target` selects recorded servers.
+
 - `tmt-core::names` canonicalizes with an ECMAScript whitespace trim, NFKC and root-locale
   lowercase from pinned ICU data, never case folding or compiler-dependent casing. A
   dependency upgrade must not renormalize stored keys. Names are global in the database.

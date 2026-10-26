@@ -52,6 +52,12 @@ owns shapes, recurrence rules, state defaults and slice boundaries.
 
 ## Request service
 
+`storage::requests` owns SQL and cleanup; `request::attention` owns attention.
+`request::delivery` derives message state and decides send-now. Talk and Digest
+use `tmt-adapters::request_frame` for each item; the Digest adapter renders the
+sealed checklist. Claims seal whole-item prefixes within 32 KiB; live paste may
+carry one oversized first item, while provider hooks leave it held.
+
 - Preparation, delivery transitions, exact final submission, waiter release, attention revisions
   and retention housekeeping belong to `RequestService`. Prompt/final content, attempt metadata,
   retention and acknowledgment have independent lifecycles.
@@ -349,14 +355,24 @@ I/O occurs in the holding transaction. `api::digest` and the Digest adapter proj
 the trusted local consumer seam; the owning local API contract defines stats,
 legacy-counter provenance and the difference between idle and turn-boundary eligibility.
 
-`storage::responses` keeps provider-final pane output within the existing binding/preferences
-observation CAS, only when the activity owner admitted a new, non-interrupted Stop.
-`responses::FinalText` owns byte truncation. With usage consent, `provider_hook_command`
-prefers the observation's final text and falls back to the Stop payload when it finds none;
-without usage consent it reads only the payload. Retirement removes these answers
-independently of exchange retention. `api::responses` reads one snapshot without housekeeping;
-the [local API contract](../../../../contracts/extension-api.md#recent-agent-responses)
-owns capture consent, retention, coverage and wire shapes. This output never completes an exchange.
+`storage::responses::capture` owns the final's activity transition under the binding/session/process
+fence, recomputing from current activity so a usage-only writer cannot discard the final or be
+reverted. Claude and Codex payload finals commit before optional telemetry and before Digest can block. A missing
+payload final may use the existing consented driver reader; usage failure cannot roll back a kept
+answer. Both hooks use this capture entry point, so a normal Stop is retained once regardless of
+hook order. Inapplicable capture leaves Digest's independent launch verification unchanged;
+a capture failure for a verified current caller defers its publication. Interrupted and stale events retain nothing.
+
+`storage::capture_batches` stores correlation and committed ordering over existing request and
+response bodies. An admitted prompt creates the input batch; verified folded deliveries and
+Digest continuation inputs join it. Shared checklist and transport claims reserve invisible
+input positions before publication; explicit prompt confirmation joins idle inputs to their new batch. Every final has its own response id; a passthrough keeps its
+first answer's id. Later finals share the batch without replacing that answer. Session/binding
+changes never transfer batch authority. `api::timeline` reads the ordered storage projection;
+Ops owns rendering, with no inferred time/text grouping. The
+[local API contract](../../../../contracts/extension-api.md#ordered-captured-conversation)
+owns paging, retention, explicit unavailable states and wire shapes. Retirement removes captured
+history independently of exchange retention. Captured output never submits a request reply.
 
 Schema 54 adds `consumption_tier5m`, the 30-day five-minute consumption rollup
 (see [identity bindings](identity-bindings.md)), with the usual change-cursor triggers.

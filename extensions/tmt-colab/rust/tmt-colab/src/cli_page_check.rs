@@ -161,6 +161,8 @@ fn message(code: &str) -> String {
             "More than {ATTACHMENT_REFS} distinct colab-attachment: references; one render resolves at most {ATTACHMENT_REFS}."
         ),
         "attachment-ref-unresolved" => "No current document attachment of this page matches this reference, so a placeholder shows.".into(),
+        "unknown-ui-class" => "A tmt-ui-* class the page frame does not know, so it styles nothing; see tmt colab skill components for the classes the design system documents.".into(),
+        "unknown-icon" => "A tmt-icon whose name the page frame does not have, so it draws nothing; name an icon in lowercase kebab-case from the documented set.".into(),
         "attachment-ref-ambiguous" => "This reference matches more than one current document attachment; use the full attachment ID.".into(),
         _ => "See the reason code in the colab-v1 page markup check.".into(),
     }
