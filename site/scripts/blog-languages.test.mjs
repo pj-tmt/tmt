@@ -75,6 +75,11 @@ test("approved variants have separate routes, language tags, reciprocal alternat
         }
         assert.ok(html.includes(`hreflang="x-default" href="${prefix}posts/${slug}/"`));
         const index = await readFile(join(output, directory, "index.html"), "utf8");
+        assert.ok(index.includes(`<html lang="${tag}">`));
+        assert.ok(index.includes(`rel="canonical" href="${prefix}${directory}"`));
+        assert.doesNotMatch(index, /noindex/);
+        assert.ok(publicFiles["sitemap.xml"].includes(`<loc>${prefix}${directory}</loc>`));
+        for (const [, indexTag] of variants) assert.ok(index.includes(`hreflang="${indexTag}"`));
         assert.ok(index.includes(`lang="${tag}" href="${base}blog/${directory}posts/${slug}/"`));
         const feed = publicFiles[directory + "feed.xml"];
         assert.ok(feed.includes(`<language>${tag}</language>`));
@@ -104,13 +109,41 @@ test("missing translations render English with a visible notice but stay out of 
     assert.match(html, /title="Simplified Chinese \(English fallback\)"/);
     const index = await readFile(join(output, "zh-hans/index.html"), "utf8");
     assert.match(index, /English · translation not available yet/);
+    assert.match(index, /<html lang="en">/);
+    assert.match(index, /name="robots" content="noindex,follow"/);
+    assert.ok(index.includes(`rel="canonical" href="${origin}/tmt/blog/"`));
+    const englishIndex = await readFile(join(output, "index.html"), "utf8");
+    assert.doesNotMatch(englishIndex, /hreflang="zh-Hans"/);
+    assert.ok(!publicFiles["sitemap.xml"].includes(`<loc>${origin}/tmt/blog/zh-hans/</loc>`));
     assert.doesNotMatch(publicFiles["zh-hans/feed.xml"], /<item>/);
     assert.ok(!publicFiles["sitemap.xml"].includes(`/zh-hans/posts/${slug}/`));
     const pages = JSON.parse(publicFiles["build-info.json"]).pages;
+    assert.equal(pages.find((page) => page.path === "zh-hans/").fallbackTo, "");
     assert.equal(
       pages.find((page) => page.path === `zh-hans/posts/${slug}/`).fallbackTo,
       `posts/${slug}/`,
     );
+  }));
+
+test("English-only and empty blogs expose no indexable foreign-language indexes", async () =>
+  world(async ({ root, english }) => {
+    for (const [language] of variants) await rm(join(english, language), { recursive: true });
+    for (const empty of [false, true]) {
+      if (empty) await rm(english, { recursive: true });
+      const { output, publicFiles } = await generate({ root, base: "/tmt/", origin });
+      const sitemap = publicFiles["sitemap.xml"];
+      const englishIndex = await readFile(join(output, "index.html"), "utf8");
+      for (const [language, tag] of variants) {
+        const html = await readFile(join(output, language, "index.html"), "utf8");
+        assert.match(html, /<html lang="en">/);
+        assert.match(html, /name="robots" content="noindex,follow"/);
+        assert.ok(html.includes(`rel="canonical" href="${origin}/tmt/blog/"`));
+        assert.doesNotMatch(englishIndex, new RegExp(`hreflang="${tag}"`));
+        assert.ok(!sitemap.includes(`<loc>${origin}/tmt/blog/${language}/</loc>`));
+        assert.doesNotMatch(publicFiles[language + "/feed.xml"], /<item>/);
+      }
+      assert.doesNotMatch(englishIndex, /noindex/);
+    }
   }));
 
 test("language and approval bindings reject misplaced or reused variants", async () =>

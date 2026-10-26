@@ -72,9 +72,12 @@ labels remain English and declare `lang="en"`; article HTML uses `en`, `ja`,
 `zh-Hant` or `zh-Hans` as appropriate. Indexes show the approved translation or
 label an English fallback. A missing article translation renders English with a
 visible notice, English canonical URL and `noindex,follow`; it is excluded from
-article alternates, feeds and the sitemap. Each language has its own `feed.xml`
-with its RSS language tag and only approved variants. The sitemap lists all
-language indexes and actual approved article URLs, never fallback article URLs.
+article alternates, feeds and the sitemap. A language index with zero approved
+translations also falls back to English: `lang="en"`, English canonical, visible
+notice and `noindex,follow`; it is excluded from index alternates and the sitemap.
+Each language has its own `feed.xml` with its RSS language tag and only approved
+variants; an empty feed links to the English index. The sitemap lists available
+language indexes and actual approved article URLs, never fallback URLs.
 
 Before committing a translation, add its exact directory (for example
 `site/src/posts/example-post/ja`: `ja`) to the repository `languageExceptions` map

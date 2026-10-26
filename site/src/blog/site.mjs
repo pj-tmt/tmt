@@ -117,7 +117,7 @@ export function layout({
     : "";
   const switcher = languages
     .map(({ id, tag, label }) => {
-      const available = !slug || alternates.some((item) => item.language === id);
+      const available = alternates.some((item) => item.language === id);
       const name = label + (available ? "" : " (English fallback)");
       const url = location.base + (slug ? postPath(slug, id) : indexPath(id));
       return `<a href="${e(url)}"${id === requestedLanguage ? ' aria-current="page"' : ""} aria-label="${e(name)}" title="${e(name)}">${e(id === "en" ? "EN" : id === "ja" ? "JA" : tag)}</a>`;
@@ -142,9 +142,9 @@ ${demo ? '<div class="preview-notice">◇ Template preview · Example content, n
 </body></html>\n`;
 }
 
-export function indexBody(posts, site, location, language = "en") {
+export function indexBody(posts, site, location, language = "en", fallback = false) {
   const e = escapeHtml;
-  return `<section class="index-intro" lang="en"><p class="eyebrow">THE TMT JOURNAL</p><h1>Field notes.<br>Working ideas.</h1><p class="intro-description">${e(site.description)}</p></section>
+  return `<section class="index-intro" lang="en"><p class="eyebrow">THE TMT JOURNAL</p><h1>Field notes.<br>Working ideas.</h1><p class="intro-description">${e(site.description)}</p>${fallback ? `<p class="translation-notice">${e(languageInfo(language).label)} translations are not available yet. Showing the English index.</p>` : ""}</section>
 <section class="article-index" aria-labelledby="articles-title"><div class="section-heading" lang="en"><h2 id="articles-title">All articles</h2><span>${String(posts.length).padStart(2, "0")} ARTICLES</span></div>
 ${posts.length ? posts.map(({ meta }, index) => `<a class="article-row" lang="${languageInfo(meta.language).tag}" href="${e(location.base + postPath(meta.slug, language))}"><span class="article-number">${String(index + 1).padStart(2, "0")}</span><div><time datetime="${meta.date}">${meta.date}</time><h3>${e(meta.title)}</h3><p>${e(meta.summary)}</p>${meta.language !== language ? '<p class="fallback-label" lang="en">English · translation not available yet</p>' : ""}</div><span class="article-arrow" aria-hidden="true">↗</span></a>`).join("\n") : '<div class="empty-state" lang="en"><p class="eyebrow">A SPACE FOR WHAT COMES NEXT</p><h3>The first note is on its way.</h3><p>New articles will appear here when they are ready.</p></div>'}
 </section>`;
@@ -158,5 +158,6 @@ export function postBody(post, location, language = "en") {
 
 export function rss(posts, site, location, language = "en") {
   const e = escapeHtml;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel><title>${e(site.title)}</title><link>${e(location.url + indexPath(language))}</link><language>${languageInfo(language).tag}</language><description>${e(site.description)}</description>${posts.map(({ meta }) => `<item><title>${e(meta.title)}</title><link>${e(location.url + postPath(meta.slug, language))}</link><guid isPermaLink="true">${e(location.url + postPath(meta.slug, language))}</guid><description>${e(meta.summary)}</description><pubDate>${new Date(meta.date + "T00:00:00Z").toUTCString()}</pubDate></item>`).join("")}</channel></rss>\n`;
+  const channelPath = posts.length ? indexPath(language) : "";
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel><title>${e(site.title)}</title><link>${e(location.url + channelPath)}</link><language>${languageInfo(language).tag}</language><description>${e(site.description)}</description>${posts.map(({ meta }) => `<item><title>${e(meta.title)}</title><link>${e(location.url + postPath(meta.slug, language))}</link><guid isPermaLink="true">${e(location.url + postPath(meta.slug, language))}</guid><description>${e(meta.summary)}</description><pubDate>${new Date(meta.date + "T00:00:00Z").toUTCString()}</pubDate></item>`).join("")}</channel></rss>\n`;
 }

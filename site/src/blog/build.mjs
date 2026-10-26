@@ -48,19 +48,25 @@ export async function generate({ root, demo = false, development = false, base, 
     );
   };
   const publicFeeds = {};
+  const indexAlternates = languages
+    .filter(({ id }) => id === "en" || posts.some(({ meta }) => meta.language === id))
+    .map(({ id }) => ({ language: id, path: indexPath(id) }));
   for (const language of languages) {
     const translated = posts.filter(({ meta }) => meta.language === language.id);
+    const indexFallback = language.id !== "en" && translated.length === 0;
     const visible = english.map(
       (post) => translated.find(({ meta }) => meta.slug === post.meta.slug) ?? post,
     );
     await render({
       path: indexPath(language.id),
-      language: language.tag,
+      canonicalPath: indexFallback ? "" : indexPath(language.id),
+      language: indexFallback ? "en" : language.tag,
+      fallback: indexFallback,
       requestedLanguage: language.id,
       title: site.title,
       description: site.description,
-      body: indexBody(visible, site, location, language.id),
-      alternates: languages.map(({ id }) => ({ language: id, path: indexPath(id) })),
+      body: indexBody(visible, site, location, language.id, indexFallback),
+      alternates: indexAlternates,
     });
     for (const post of visible) {
       const { meta } = post;
@@ -97,7 +103,7 @@ export async function generate({ root, demo = false, development = false, base, 
     "robots.txt": demo
       ? "User-agent: *\nDisallow: /\n"
       : `User-agent: *\nAllow: ${location.base}\nSitemap: ${location.url}sitemap.xml\n`,
-    "sitemap.xml": `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${(demo ? [] : pages.filter((page) => !page.fallbackTo).map((page) => page.path)).map((path) => `<url><loc>${location.url}${path}</loc></url>`).join("")}</urlset>\n`,
+    "sitemap.xml": `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${(demo ? [] : pages.filter((page) => page.fallbackTo === undefined).map((page) => page.path)).map((path) => `<url><loc>${location.url}${path}</loc></url>`).join("")}</urlset>\n`,
     "build-info.json": stableJson({
       demo,
       development,

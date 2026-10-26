@@ -69,8 +69,17 @@ export async function verifyDist(
       /^(?:(ja|zh-hant|zh-hans)\/)?(?:posts\/([a-z0-9]+(?:-[a-z0-9]+)*)\/)?$/,
     );
     if (!route) throw new Error(`Invalid blog route: ${path}`);
-    if (page.fallbackTo && (!route[1] || !route[2] || page.fallbackTo !== `posts/${route[2]}/`))
+    const fallback = page.fallbackTo !== undefined;
+    const englishTarget = route[2] ? `posts/${route[2]}/` : "";
+    if (fallback && (!route[1] || page.fallbackTo !== englishTarget))
       throw new Error(`Invalid English fallback target: ${path}`);
+    if (route[1] && !route[2]) {
+      const expectedFallback = !info.pages.some(
+        (other) => other.path.startsWith(`${route[1]}/posts/`) && other.fallbackTo === undefined,
+      );
+      if (fallback !== expectedFallback)
+        throw new Error(`Index fallback must match approved language articles: ${path}`);
+    }
     const html = files[path].toString("utf8");
     let policy = false;
     let article = null;
@@ -121,19 +130,19 @@ export async function verifyDist(
         : null;
       if (
         !target ||
-        target.fallbackTo ||
+        target.fallbackTo !== undefined ||
         url.origin !== origin ||
         (tag === "x-default" ? target.language !== "en" : tag !== target.language)
       )
         throw new Error(`Invalid language alternate in ${path}: ${href}`);
     }
     if (
-      page.language !== languageInfo(page.fallbackTo ? "en" : (route[1] ?? "en")).tag ||
+      page.language !== languageInfo(fallback ? "en" : (route[1] ?? "en")).tag ||
       htmlLanguage !== page.language
     )
       throw new Error(`Wrong HTML language in ${path}`);
     if (
-      page.fallbackTo &&
+      fallback &&
       (!expectedPages.has(page.fallbackTo + "index.html") ||
         (!demo && !html.includes('name="robots" content="noindex,follow"')))
     )
@@ -171,7 +180,8 @@ export async function verifyDist(
           throw new Error("Feed/sitemap URL escapes base");
         checkLink(local, "index.html");
         const linked = expectedPages.get(parsed.pathname.slice(info.base.length) + "index.html");
-        if (linked?.fallbackTo) throw new Error(`Fallback URL in feed/sitemap: ${value}`);
+        if (linked?.fallbackTo !== undefined)
+          throw new Error(`Fallback URL in feed/sitemap: ${value}`);
       }
     });
     xml.on("closetag", () => {
