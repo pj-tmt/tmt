@@ -1787,12 +1787,16 @@ mod tests {
             }
         }
         // External tool references are argv-checked only, never launched by this proof.
+        let firebase_tools = format!(
+            "firebase-tools@{}",
+            tmt_remote::deploy_firestore::FIREBASE_TOOLS_VERSIONS[0]
+        );
         for (key, expected) in [
             ("nodeVersion", vec!["node", "--version"]),
             ("firebaseVersion", vec!["firebase", "--version"]),
             (
                 "firebaseInstall",
-                vec!["npm", "install", "-g", "firebase-tools@15.29.0"],
+                vec!["npm", "install", "-g", firebase_tools.as_str()],
             ),
             ("firebaseLogin", vec!["firebase", "login"]),
         ] {
