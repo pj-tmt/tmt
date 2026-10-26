@@ -143,6 +143,9 @@ for (const width of [1440, 390])
         await expect(page.locator('.annotation-popover')).not.toHaveAttribute('data-leader');
       }
       await page.keyboard.press('Escape');
+      // Collapse the browser selection too, so its Annotate control does not float over the sheet the
+      // marker opens below.
+      await range.evaluate((node) => node.ownerDocument.getSelection()!.removeAllRanges());
       // The passage at rest is not selected; the one whose thread window opens takes the selected look
       // (#4490) and returns to rest when the window closes.
       const selectedPassages = () =>

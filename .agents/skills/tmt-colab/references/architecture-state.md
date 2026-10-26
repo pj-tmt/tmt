@@ -855,8 +855,9 @@ list opens. The default scope is device-local: `readScope`/`writeScope` keep it 
 with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
 a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.
 The home hero names the current scope; `AppHeader` passes `titleVisible=false` through
-`ColabHeader` to the shared header, retaining its accessible name and tools without another
-visible heading. Other routes keep the default header title. A page
+`ColabHeader`: in Colab's own shell (the shared top bar, #5237) the list then has no title row, and in the
+hosted mount the shared header keeps its accessible name and tools without another visible heading.
+Other routes keep the default header title. A page
 opened from a scoped list carries the scope in history state only, and its own header shows
 `<project> / <title>` with the project linking back to `/?scope=<project>` (the shell bar draws no
 module crumb); a copied or reloaded page link has no crumb. A heading narrower than 200px (a
@@ -922,6 +923,14 @@ Colab route as `mount(container, { transport, registry, navigate, pageHref, go, 
 returning `open(opener)` and `dispose()`, with the bar's one Command/Ctrl+K listener left to the
 shell; the module exports it as `mountSearch`, which links the module's stylesheet for as long as
 it lives. Without a `search` the host is the page switcher it always was.
+
+In Colab's own shell the router's host is opened by the shared top bar (#5237): `OwnShell` in
+`colab-shell.tsx` installs the common controls (`openSearch` takes the opener into the host's
+`control` and calls `activate`; `remote` is `useShellRemoteStatus`, the presence this page already
+reads), the host takes `shortcut={false}` so the bar's one listener is the only one, and it is
+`allowed` on every route of that shell. That dialog is still the page switcher (no registry yet).
+`SharedTopBar` (`shared-top-bar.ts`) tells `ColabHeader`, `AppHeader` and the page More menu that
+Search, Theme and Remote are the bar's; the hosted mount leaves it false until `useTopBarReady` (#5239).
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match

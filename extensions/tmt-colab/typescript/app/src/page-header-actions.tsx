@@ -1,9 +1,10 @@
 import { RemoteMoreMenu, useRemoteHeaderSource } from './remote-header.js';
-import { useSyncExternalStore } from 'react';
+import { useContext, useSyncExternalStore } from 'react';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
 import { pinMenuItem, type PagePinState } from './pins.js';
+import { SharedTopBar } from './shared-top-bar.js';
 import { useMedia } from './use-media.js';
 
 export type PageHeaderAction =
@@ -66,7 +67,9 @@ export function PageHeaderActions({
   onSelect(action: PageHeaderAction | 'projects' | 'pin'): void;
 }) {
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
-  const remoteAvailable = useRemoteHeaderSource();
+  // The shared top bar owns Theme and the Remote link; the menu keeps neither.
+  const sharedBar = useContext(SharedTopBar);
+  const remoteAvailable = useRemoteHeaderSource() && !sharedBar;
   const compact = useMedia('(max-width: 639px)');
   const pinItem = pinMenuItem(pin, compact, canProjects, readOnly);
   const more = {
@@ -95,11 +98,13 @@ export function PageHeaderActions({
       { key: 'source', label: text.source },
       ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
       { key: 'manage', label: text.managePage, disabled: !canManage, separated: true },
-      ...(['light', 'dark', 'system'] as const).map((theme) => ({
-        key: theme,
-        label: text.themeChoice[theme],
-        checked: choice === theme,
-      })),
+      ...(sharedBar
+        ? []
+        : (['light', 'dark', 'system'] as const).map((theme) => ({
+            key: theme,
+            label: text.themeChoice[theme],
+            checked: choice === theme,
+          }))),
       { key: 'about', label: text.aboutPage },
     ],
     onSelect: (key: string) => {

@@ -537,14 +537,12 @@ for (const [width, theme] of [
   });
 }
 
-for (const [width, theme, shell] of [
-  [1440, 'light', false],
-  [390, 'dark', false],
-  [1440, 'light', true],
-  [390, 'dark', true],
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
 ] as const) {
   for (const destination of ['Answer', 'Proposal'] as const) {
-    test(`${shell ? 'shell' : 'standalone'} ${destination} follow-up opens its block with a pointer-visible arrival cue ${width} ${theme}`, async ({
+    test(`${destination} follow-up opens its block with a pointer-visible arrival cue ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -555,11 +553,6 @@ for (const [width, theme, shell] of [
         destination === 'Answer' ? '.question-card' : '.proposal-inline .proposal-card',
       );
       await expect(block).toHaveCount(1);
-      if (shell) {
-        await run(page, 'shellPlaceholder');
-        await expect(page.locator('[data-shell-placeholder]')).toHaveCount(1);
-        await expect(page.locator('[data-shell-placeholder]')).toBeHidden();
-      }
       // A question starts closed; its compact row owns placement until arrival opens the controls.
       const placement = destination === 'Answer' ? page.locator('.question-compact-block') : block;
       await expect(placement).toBeVisible();
@@ -601,7 +594,7 @@ for (const [width, theme, shell] of [
       expect(geometry.color).toBe(geometry.token);
       await page.screenshot({
         path: capturePath(
-          `notification-${shell ? 'shell' : 'standalone'}-${destination.toLowerCase()}-arrival-${width}-${theme}.png`,
+          `notification-standalone-${destination.toLowerCase()}-arrival-${width}-${theme}.png`,
         ),
       });
       await page.keyboard.press('Tab');

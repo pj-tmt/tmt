@@ -1572,11 +1572,10 @@ for (const width of [1440, 390, 320])
         await expect(scopeTrigger(page, long)).toBeVisible();
         expect(await inside()).toEqual({ scroll: 0, crumbInside: true, railOverflow: 0 });
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
-        // The header holds only More, so a phone has room for the crumb (ellipsized at its own cap); a
-        // heading too narrow for the crumb and the title (320px) leaves the crumb out.
+        // The title row owns the column's whole width (the actions are in the shared bar), so even a
+        // 320px phone keeps the crumb, ellipsized at its own cap.
         const crumb = app(page).locator('.colab-scope-crumb', { hasText: long });
-        if (width >= 390) await expect(crumb).toBeVisible();
-        else await expect(crumb).toBeHidden();
+        await expect(crumb).toBeVisible();
         expect(
           await page.evaluate(
             () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -1586,10 +1585,8 @@ for (const width of [1440, 390, 320])
           await page.screenshot({
             path: await capturePath(`3747-page-crumb-long-${width}-${theme}.png`),
           });
-        if (width >= 390) {
-          await crumb.click();
-          await showAll(page);
-        } else await page.goBack();
+        await crumb.click();
+        await showAll(page);
         await expect(scopeTrigger(page, long)).toBeVisible();
       }
     });

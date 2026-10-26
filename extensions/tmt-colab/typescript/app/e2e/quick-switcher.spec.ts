@@ -15,10 +15,11 @@ async function mount(
     const fixture = '/test/quick-switcher-browser.tsx';
     await (await import(/* @vite-ignore */ fixture)).mount(mode);
   }, mode);
-  await expect(page.locator('.tmt-ui-header')).toBeVisible();
+  await expect(page.locator('.tmt-ui-topbar')).toBeVisible();
 }
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Search pages', exact: true });
-const control = (page: Page) => page.getByRole('button', { name: 'Search pages', exact: true });
+// The shared bar's one Search control opens this dialog.
+const control = (page: Page) => page.getByRole('button', { name: 'Search TMT', exact: true });
 const options = (page: Page) => dialog(page).getByRole('option');
 const proof = (page: Page) =>
   page.evaluate(async () => {
@@ -35,10 +36,15 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
     await expect(page.locator('.pages > li')).toHaveCount(3);
-    // The bar's cluster sits at the right edge; the header keeps its own actions clear of it.
+    // Search is the first control at the bar's left; Theme and Remote close the right group.
     const searchBox = await control(page).boundingBox();
-    const themeBox = await page.locator('.tmt-ui-header').getByRole('button').last().boundingBox();
-    expect(themeBox!.x + themeBox!.width).toBeLessThanOrEqual(searchBox!.x);
+    const themeBox = await page
+      .locator('.tmt-ui-topbar-common')
+      .getByRole('button')
+      .first()
+      .boundingBox();
+    expect(searchBox!.x + searchBox!.width).toBeLessThanOrEqual(themeBox!.x);
+    await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toHaveCount(1);
     await page.evaluate(() => {
       const seen: string[] = [];
       (window as unknown as { switcherStatuses: string[] }).switcherStatuses = seen;

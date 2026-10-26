@@ -9,7 +9,7 @@ async function mount(page: Page) {
   );
   await page.goto('/');
   await expect(page.locator('.pages > li')).toHaveCount(3);
-  await page.getByRole('button', { name: 'Search pages', exact: true }).click();
+  await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
 }
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Search pages', exact: true });
 const input = (page: Page) =>
@@ -119,7 +119,7 @@ test('chip Enter removes only its filter; Tab never opens a result and Escape re
   expect((await reads(page)).pageReads).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Search pages', exact: true })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toBeFocused();
 });
 
 test('Escape closes suggestions first, then the dialog, and empty matches cannot navigate', async ({
@@ -134,7 +134,7 @@ test('Escape closes suggestions first, then the dialog, and empty matches cannot
   await expect(dialog(page)).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
-  await page.getByRole('button', { name: 'Search pages', exact: true }).click();
+  await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
   await page.keyboard.type('no such page');
   await expect(dialog(page).locator('.quick-switcher-message')).toHaveText('No matching pages.');
   await page.keyboard.press('Shift+Escape');

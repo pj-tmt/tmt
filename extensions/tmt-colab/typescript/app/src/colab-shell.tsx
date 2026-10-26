@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -18,10 +19,14 @@ import {
   shellRail,
   type ShellAnswer,
   type ShellMenu,
+  type ShellView,
 } from '@tmt/browser-ui/shell';
 import { knownScope, scopeRows, writeScope } from './project-scope.js';
 import { ProjectMenuActionsSlot, type ProjectMenuActions } from './project-menu-actions.js';
 import { menuProjects } from './project-pins.js';
+import { useQuickSwitcher } from './quick-switcher-context.js';
+import { useShellRemoteStatus } from './remote-header.js';
+import { SharedTopBar } from './shared-top-bar.js';
 import {
   onRememberedPages,
   rememberedPages,
@@ -33,7 +38,6 @@ import type { PageSummary, PageTransport } from './transport.js';
 
 /** The TMT app's slot when Colab runs as its `/colab/` route; the app owns the rail then. */
 export const ShellHostSlot = createContext<ShellSlot | null>(null);
-
 const NO_PAGES: readonly PageSummary[] = [];
 const NO_PROJECTS: readonly string[] = [];
 
@@ -224,8 +228,44 @@ export function ColabShell({
       {content}
     </HostedShell>
   ) : (
-    <BrowserShell view={view} select={select}>
+    <OwnShell view={view} select={select}>
       {content}
+    </OwnShell>
+  );
+}
+
+/** Colab's own shell is the root of its common controls: Search opens the quick switcher the
+ * route's host owns, and Remote shows the live-session count this page already reads, linking to the
+ * rail's Remote until a count is confirmed. */
+function OwnShell({
+  view,
+  select,
+  children,
+}: {
+  view: ShellView;
+  select(id: string): boolean;
+  children: ReactNode;
+}) {
+  const switcher = useQuickSwitcher();
+  const owner = useRef(switcher);
+  owner.current = switcher;
+  const remote = useShellRemoteStatus(
+    view.rail.main.find((item) => item.id === 'remote')?.href ?? '/remote/',
+  );
+  const commonControls = useMemo(
+    () => ({
+      openSearch(opener: HTMLButtonElement) {
+        if (!owner.current) return;
+        owner.current.control.current = opener;
+        owner.current.activate();
+      },
+      remote,
+    }),
+    [remote],
+  );
+  return (
+    <BrowserShell view={view} select={select} commonControls={commonControls}>
+      <SharedTopBar value>{children}</SharedTopBar>
     </BrowserShell>
   );
 }

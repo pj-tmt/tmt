@@ -15,7 +15,8 @@ for (const theme of ['light', 'dark'] as const)
       await page.emulateMedia({ colorScheme: theme });
       const app = await mount(page);
       await expect(app.getByRole('heading', { level: 1 })).toHaveText('Colab settings');
-      await expect(app.locator('.tmt-ui-header')).toHaveAccessibleName('Colab · Colab settings');
+      // The settings page names itself in its content; the bar is the shared one.
+      await expect(app.locator('.tmt-ui-topbar')).toBeVisible();
       const panel = app.getByRole('region', { name: 'Reference defaults', exact: true });
       await expect(panel).toBeVisible();
       await expect(panel).toContainText('CLI managed');
