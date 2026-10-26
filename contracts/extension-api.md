@@ -66,6 +66,8 @@ receipt, consent and unavailable-release behavior.
 `tmt extension ls --json` adds `guidance: {actions: [...]}` beside its existing
 `extensions` rows. This is the shared setup inventory projection for Core,
 TUI, GUI and Remote consumers, not another API operation or installation store.
+Absent `guidance` (an older CLI) and `actions: []` both mean no guidance, not an
+error. Unknown `kind` values render as plain advice without execution.
 Each action has:
 
 | Field         | Meaning                                                                                                          |
@@ -80,7 +82,20 @@ commands, then one install command per genuinely missing optional extension.
 Missing is distinct from damaged, partially removed or unmanaged. Inventory
 verification, command resolution, shadowing, CLI compatibility and Colab's Remote
 dependency govern readiness; installed does not imply running, paired or deployed.
-Repair commands may contain explicit artifact placeholders that the user must supply.
+An entire `argv` element matching `<[a-z][a-z0-9-]*>` is a reserved, unfilled
+input token, never a literal argument. The current tokens `<original-archive>`
+and `<matching-manifest>` require the original archive path and its matching
+manifest path. Consumers must recognize this token form, including unknown
+future names, and keep an action with any unfilled token copy-only: never offer
+or attempt execution until the user supplies every replacement. Other argument
+bytes remain opaque; consumers must not infer inputs from descriptions or invent
+replacement paths.
+
+Install and repair actions can include `--yes`, suppressing the command's own
+prompt. A consumer offering execution must display the complete argument array,
+including filled inputs and `--yes`, and obtain explicit user confirmation before
+running it; that confirmation supplies the command's consent. Agents never run
+these actions unasked. Receiving `argv` with `--yes` grants no authority.
 Optional inspection failure suppresses recommendations without changing an
 operation's result. Existing diagnostics and failure/consent semantics remain authoritative.
 
