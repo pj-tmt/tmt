@@ -261,8 +261,8 @@ mod tests {
     }
 }
 
-/// One bounded public presence snapshot. A missing local row does not prove a
-/// foreign identity ended. Failed or malformed reads never clear a lock.
+/// One bounded public presence snapshot, containing only observed IDs. The lock owner
+/// distinguishes local retirement from foreign absence. Failed reads clear nothing.
 pub fn lock_presence(
     ids: &[String],
 ) -> crate::Result<std::collections::BTreeMap<String, crate::edit_lock::LockHolderState>> {
@@ -305,9 +305,7 @@ fn lock_presence_from_reply(
     let mut found = std::collections::BTreeMap::new();
     for row in rows {
         let id = row["id"].as_str()?;
-        if !ids.iter().any(|wanted| wanted == id) {
-            continue;
-        }
+        tmt_colab_model::values::core_id(id).ok()?;
         let presence = match row["presence"].as_str()? {
             "active"
                 if row
@@ -326,9 +324,8 @@ fn lock_presence_from_reply(
             return None;
         }
     }
-    for id in ids {
-        found.entry(id.clone()).or_insert(LockHolderState::Unknown);
-    }
+    // Absence is meaningful for a local-writer lock only after the whole snapshot is valid.
+    found.retain(|id, _| ids.iter().any(|wanted| wanted == id));
     Some(found)
 }
 
@@ -338,11 +335,12 @@ mod edit_lock_tests {
     use crate::edit_lock::LockHolderState;
     const ID: &str = "50000000-0000-7000-8000-000000000001";
     #[test]
-    fn public_presence_keeps_unobserved_identities_unknown_and_distinguishes_ended() {
+    fn public_presence_preserves_absence_and_distinguishes_ended() {
         let ids = vec![ID.to_owned()];
-        assert_eq!(
-            lock_presence_from_reply(br#"{"identities":[]}"#, &ids).unwrap()[ID],
-            LockHolderState::Unknown
+        assert!(
+            lock_presence_from_reply(br#"{"identities":[]}"#, &ids)
+                .unwrap()
+                .is_empty()
         );
         for (presence, activity, expected) in [
             ("active", "idle", LockHolderState::Active),
@@ -360,6 +358,9 @@ mod edit_lock_tests {
             br#"{}"#.as_slice(),
             br#"{"identities":[{"id":"50000000-0000-7000-8000-000000000001"}]}"#,
             br#"{"identities":[{"id":"50000000-0000-7000-8000-000000000001","presence":"guess"}]}"#,
+            br#"{"identities":[{"id":"invalid","presence":"active"}]}"#,
+            br#"{"identities":[{"id":"50000000-0000-7000-8000-000000000002","presence":"guess"}]}"#,
+            br#"{"identities":[{"id":"50000000-0000-7000-8000-000000000002","presence":"active"},{"id":"50000000-0000-7000-8000-000000000002","presence":"active"}]}"#,
         ] {
             assert!(lock_presence_from_reply(reply, &ids).is_none());
         }

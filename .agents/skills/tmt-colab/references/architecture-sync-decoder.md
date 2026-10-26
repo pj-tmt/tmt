@@ -172,7 +172,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   all own bytes in the checked raw fastpath. `page patch` and the browser Save (`page/save.rs`) are its callers.
 - `page/compact.rs` combines the local device's own stream after a write (best effort, repeatable):
   it opens only that stream's objects through `Snapshot::open_object`, merges them in the decoder
-  child (`Decoder::merge`; content keeps raw merged structs because it can depend on another's stream, while self-contained own streams encode the validated current document to collect replaced lock values),
+  child (content keeps its policy-gated rebuild and raw fallback; complete own documents encode validated current state to collect replaced lock values, while pending own structs/delete sets retain a raw merge),
   compares the full page's HTML, metadata and each own projection before and after substitution,
   then seals a checkpoint per namespace at the stream head and publishes through `Store::checkpoint`,
   which prunes the covered prefix once the namespaces are paired. Write limits count only the updates

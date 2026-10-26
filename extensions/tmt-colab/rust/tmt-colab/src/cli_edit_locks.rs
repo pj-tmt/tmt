@@ -27,7 +27,7 @@ const LOCK: CommandSpec = CommandSpec {
         note: "Lock the exact passage before a multi-step edit",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Publishes a signed identity-bound advisory edit lock. Give --find TEXT (one exact source passage) or --whole. One identity has one effective lock per page; a new lock replaces its previous target. The holder's overlapping patch releases it after the content commits. Offline or ended holder presence hides a lock, unknown presence keeps it. People are never blocked. Locks do not expire, open a browser or dispatch requests.",
+    details: "Publishes a signed identity-bound advisory edit lock. Give --find TEXT (one exact source passage) or --whole. One identity has one effective lock per page; a new lock replaces its previous target. The holder's overlapping patch releases it after the content commits. Offline or ended holder presence hides a lock, unknown presence keeps it. A missing local-writer holder is retired; an absent foreign holder stays unknown. People are never blocked. Locks do not expire, open a browser or dispatch requests.",
 };
 const UNLOCK: CommandSpec = CommandSpec {
     name: "unlock",
@@ -173,10 +173,10 @@ pub fn run(root: &Path, mode: &str, args: &ArgMatches) -> Result<()> {
                 .collect::<Vec<_>>(),
         )?;
         for lock in own {
-            if presence
-                .get(&lock.holder.id)
-                .is_some_and(|p| matches!(p, LockHolderState::Offline | LockHolderState::Ended))
-            {
+            if matches!(
+                tmt_colab::edit_lock::holder_state(lock, &view.writer, &presence),
+                LockHolderState::Offline | LockHolderState::Ended
+            ) {
                 changes.push(Change::Release {
                     holder_id: lock.holder.id.clone(),
                     lock_id: lock.lock_id.clone(),
@@ -233,7 +233,10 @@ pub fn run(root: &Path, mode: &str, args: &ArgMatches) -> Result<()> {
             if lock.released {
                 continue;
             }
-            if stale && presence.get(&lock.holder.id) == Some(&LockHolderState::Active) {
+            if stale
+                && tmt_colab::edit_lock::holder_state(lock, &view.writer, &presence)
+                    == LockHolderState::Active
+            {
                 if selector.is_some() {
                     return Err(fail(
                         "COLAB_LOCK_HELD",

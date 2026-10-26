@@ -6335,7 +6335,9 @@ across writers uses greatest numeric `(revision, senderDevice)`; a publisher
 increments the greatest revision observed for that identity. A new lock gets a
 fresh lock ID and replaces its previous target. A release preserves that lock ID.
 Acquisition allows at most eight effective unreleased locks attributed to the local
-writer. Normal compaction collects overwritten own values and sealed updates;
+writer. Normal compaction collects overwritten values in complete own documents;
+steps with pending structs or delete sets retain the exact raw merge until their
+dependencies arrive. Sealed update history is reclaimed by normal compaction;
 repeated lock/unlock does not grow an action ledger.
 
 Locks belong to the Core identity UUID. A restarted identity can retain its lock.
@@ -6344,7 +6346,8 @@ its old lock again. Durable release happens only through unlock, the holder's pa
 or acquisition cleanup of observed-gone holders on the local writer.
 They have no timer. A successful public bounded `tmt ls --json` observation of
 `offline` or activity `ended` hides a lock; active and unknown preserve it. A missing
-local row is unknown, not proof that a foreign holder is offline. Failed or malformed
+row is Ended only when the lock belongs to this machine's local writer; an absent
+foreign-writer holder stays Unknown. Failed or malformed
 presence observations preserve locks. Normal unlock releases only the caller's
 identity. `--stale` lets anyone release a holder not observed active, including
 unknown, but requires a successful fresh observation. A selected active holder is

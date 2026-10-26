@@ -120,6 +120,21 @@ impl LockHolderState {
         matches!(self, Self::Active | Self::Unknown)
     }
 }
+/// An absent local holder was retired from this machine. A foreign writer's absent
+/// holder is only unobserved; the local directory cannot establish its lifecycle.
+pub fn holder_state(
+    lock: &Action,
+    local_writer: &str,
+    observed: &BTreeMap<String, LockHolderState>,
+) -> LockHolderState {
+    observed.get(&lock.holder.id).copied().unwrap_or_else(|| {
+        if lock.sender_device == local_writer {
+            LockHolderState::Ended
+        } else {
+            LockHolderState::Unknown
+        }
+    })
+}
 pub(crate) fn validate_limits(roots: &Value) -> Result<()> {
     let mut count = 0;
     if let Some(messages) = roots["messages"].as_object() {
@@ -243,6 +258,24 @@ mod tests {
         assert!(validate_limits(&serde_json::json!({"messages":messages})).is_err());
         messages.remove("50000000-0000-7000-8000-000000000001:edit-lock");
         assert!(validate_limits(&serde_json::json!({"messages":messages})).is_ok());
+    }
+    #[test]
+    fn absent_local_writer_holders_are_ended_but_foreign_absence_and_explicit_unknown_keep_locks() {
+        let lock: Action = serde_json::from_value(fixture()["record"].clone()).unwrap();
+        let empty = BTreeMap::new();
+        assert_eq!(
+            holder_state(&lock, &lock.sender_device, &empty),
+            LockHolderState::Ended
+        );
+        assert_eq!(
+            holder_state(&lock, "20000000-0000-4000-8000-000000000002", &empty),
+            LockHolderState::Unknown
+        );
+        let observed = BTreeMap::from([(lock.holder.id.clone(), LockHolderState::Unknown)]);
+        assert_eq!(
+            holder_state(&lock, &lock.sender_device, &observed),
+            LockHolderState::Unknown
+        );
     }
     #[test]
     fn overlap_uses_precise_hunks_and_utf8_quote_boundaries() {

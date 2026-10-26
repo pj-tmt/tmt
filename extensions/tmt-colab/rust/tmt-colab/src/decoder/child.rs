@@ -229,6 +229,7 @@ fn execute_with(
         let merged = if wire.rebuild && !incomplete {
             rebuild_content(&doc)?
         } else if wire.namespace == Namespace::Own && !incomplete {
+            // Complete own documents reclaim replaced cells; pending own steps retain raw bytes.
             project(&doc, Namespace::Own)?;
             doc.transact()
                 .encode_state_as_update_v1(&StateVector::default())

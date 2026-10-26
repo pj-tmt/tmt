@@ -248,10 +248,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             .collect::<Vec<_>>();
         if let Ok(presence) = tmt_colab::core::lock_presence(&ids) {
             value.edit_locks.retain(|lock| {
-                presence
-                    .get(&lock.holder.id)
-                    .copied()
-                    .unwrap_or(tmt_colab::edit_lock::LockHolderState::Unknown)
+                tmt_colab::edit_lock::holder_state(lock, &value.local_writer, &presence)
                     .keeps_lock()
             });
         }

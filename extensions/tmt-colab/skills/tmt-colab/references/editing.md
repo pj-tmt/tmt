@@ -36,7 +36,9 @@ in a separate publication after saving the source. Check `lockRelease.confirmed`
 if false, the source is saved; follow the exact unlock command in its warning and
 never repeat the patch. An unrelated or failed patch keeps the lock.
 
-Offline or ended presence hides a lock; unknown presence keeps it. To clear a
+Offline or ended presence hides a lock; unknown presence keeps it. An absent holder
+of this machine's local-writer lock is retired and hidden; a foreign-writer holder
+missing from the local directory stays unknown. To clear a
 forgotten lock whose holder is no longer active, use
 `tmt colab page unlock PAGE LOCK --stale --json` (omit LOCK to clear eligible locks).
 A failed presence observation clears nothing. This phase publishes and reads locks;

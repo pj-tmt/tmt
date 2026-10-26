@@ -11896,3 +11896,42 @@ fn a_failed_post_patch_release_reports_saved_content_and_the_captured_unlock_com
     assert_eq!(read["editLocks"][0]["lockId"], lock_id);
     assert_eq!(read["revision"], patched["revision"]);
 }
+
+#[test]
+fn retired_local_writer_holder_is_hidden_and_can_be_unlocked_by_another_identity() {
+    let pilot = Pilot::new(None);
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Retired holder",
+        "--layout",
+        "column",
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let locked = pilot.call(&["page", "lock", page, "--whole", "--json"]);
+    let lock_id = locked["locks"][0]["lockId"].as_str().unwrap();
+    fs::write(
+        pilot.root.join("presence"),
+        json!({"identities":[]}).to_string(),
+    )
+    .unwrap();
+    let read = pilot.call(&["page", "read", page, "--json"]);
+    assert!(read.get("editLocks").is_none(), "{read}");
+    fs::write(
+        pilot.root.join("publisher"),
+        json!({"identity":{"name":"Recovery agent","id":"50000000-0000-1000-8000-000000000002"}})
+            .to_string(),
+    )
+    .unwrap();
+    let released = pilot.call(&["page", "unlock", page, lock_id, "--stale", "--json"]);
+    assert_eq!(released["locks"][0]["released"], true);
+    assert!(
+        pilot
+            .call(&["page", "read", page, "--json"])
+            .get("editLocks")
+            .is_none()
+    );
+}
