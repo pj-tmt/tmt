@@ -86,14 +86,18 @@
   gap: var(--tmt-ui-space-s);
   margin-left: auto;
 }
-/* Shared Drawer/Panel header controls use the website's compact type and padding.
-   Footer and body actions keep their normal geometry. */
-.tmt-ui-drawer-header-actions .tmt-ui-action {
+/* Shared Drawer/Panel header defaults use the website's compact type and padding.
+   Explicit host control styles still win; footer and body actions keep their geometry. */
+:where(.tmt-ui-drawer-header-actions) .tmt-ui-action {
   min-height: 0;
   font-size: 11px;
   font-weight: 620;
   line-height: 1.35;
   padding: 7px 10px;
+}
+/* Match the primary variant's specificity without making header context outrank host classes. */
+:where(.tmt-ui-drawer-header-actions) .tmt-ui-action[data-variant='primary'] {
+  font-weight: 620;
 }
 .tmt-ui-drawer-heading {
   display: flex;

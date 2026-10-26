@@ -549,8 +549,8 @@ Optional `headerActions` renders host-owned controls immediately before Close in
 and keyboard order, with shared spacing. Omitted, it adds no element or layout change;
 footer `actions` is separate. Header actions retain their own labels, busy/admission
 state and effects. In both Drawer and Panel, BrowserAction controls in this slot use 11px/620
-body type, 1.35 line height, 7px/10px padding and the canonical 8px radius. Footer/body actions
-and Close retain their geometry. The leaf does not infer saving or change dismissal/focus ownership.
+body type, 1.35 line height, 7px/10px padding and the canonical 8px radius by default.
+Explicit host control styles retain precedence. Footer/body actions and Close retain their geometry. The leaf does not infer saving or change dismissal/focus ownership.
 
 The host supplies `open`, title/caption, children and `onDismiss(reason, event)`.
 It owns busy admission, drafts, attempts and commands. An optional `notice` slot
