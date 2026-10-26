@@ -104,21 +104,30 @@ pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<Rat
         .zip(account(&bytes))
         .and_then(|(root, account)| pushed(root, account, now_ms));
     // The newest observation wins whole; a tie prefers the cache. Never merged per window.
-    let mut winner = match (cached, pushed) {
+    match (cached, pushed) {
         (Some(cached), Some(pushed)) if pushed.observed_at_ms > cached.observed_at_ms => {
             Some(pushed)
         }
         (Some(cached), _) => Some(cached),
         (None, pushed) => pushed,
-    }?;
-    // Both sources are this root's account (the cache is admitted only when its account is the
-    // file's own), so the winner is named by that account and the root's name (#5274).
-    winner.account = account(&bytes).map(|uuid| {
-        let root = super::config_root(environment);
-        let name = root.file_name().and_then(|name| name.to_str());
-        RateAccount::derive(super::NAME, uuid, name.unwrap_or_default())
-    });
-    Some(winner)
+    }
+}
+
+/// The account of `environment`'s Claude root as consumers group it (#5274): an opaque key over
+/// the root's `oauthAccount.accountUuid` and the root's name. Both allowance sources are this
+/// account's (the cache is admitted only when its account is the file's own). It is attached to
+/// sampled readings and never stored in the 1024-byte remembered state.
+pub(super) fn rate_account(environment: &ProviderEnvironment) -> Option<RateAccount> {
+    let bytes =
+        crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES).ok()?;
+    let uuid = account(&bytes)?;
+    let root = super::config_root(environment);
+    let name = root.file_name().and_then(|name| name.to_str());
+    Some(RateAccount::derive(
+        super::NAME,
+        uuid,
+        name.unwrap_or_default(),
+    ))
 }
 
 #[derive(Deserialize)]

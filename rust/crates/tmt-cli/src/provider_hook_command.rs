@@ -406,7 +406,7 @@ fn observe_turn(
             let consumption = observation
                 .state
                 .as_ref()
-                .and_then(|state| lifecycle.state_consumption(state));
+                .and_then(|state| lifecycle.sampled_consumption(state, &environment));
             let locator = turn.transcript.as_ref().and_then(|path| {
                 lifecycle.consumption_locator(
                     serde_json::json!({"transcript_path":path})
@@ -1724,7 +1724,7 @@ fn observe_main_event(
             let state = lifecycle.turn_state(&turn, &environment, previous, now, deadline);
             let consumption = state
                 .as_ref()
-                .and_then(|state| lifecycle.state_consumption(state));
+                .and_then(|state| lifecycle.sampled_consumption(state, &environment));
             Some((
                 state,
                 ConsumptionReading {

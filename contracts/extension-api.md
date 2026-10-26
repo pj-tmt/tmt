@@ -612,7 +612,11 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   never inferred from a seat's models; values stored before this field read as
   `codex`. `account` is `{key,label}` and present only when the source names its account
   (Claude; absent for Codex and agy, which have one implicit account, and for every value
-  stored before the field, so absence reads as that one account). `key` is the first 12
+  stored before the field, so absence reads as that one account). Core attaches it when a
+  reading is sampled, because the remembered state is capped at 1024 bytes and never holds
+  it: the history (`latest` and buckets) carries it, and `resume.consumption.rateLimits`
+  shows the newest sample's account when that sample is of the same driver, session and
+  provider, and none otherwise. `key` is the first 12
   lowercase hex digits of SHA-256 over the provider, a NUL and the provider's account id: stable
   per account, opaque, never the raw id, an email or an organization name. `label` is 1 to 32
   characters of `[A-Za-z0-9._-]` taken from the name of the seat's config root without its
