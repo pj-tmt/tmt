@@ -651,6 +651,21 @@ fn idle_tabs_share_one_admission_sweep_per_second() {
 }
 
 #[test]
+fn a_new_peer_cannot_reuse_an_existing_peers_admission_sweep() {
+    let f = Fixture::new();
+    let mut existing = f.peer(ALICE);
+    let mut denial = None;
+    f.server
+        .update_admission(|policy| denial = Some(Arc::clone(&policy.external_denial)))
+        .unwrap();
+    assert_eq!(existing.1.poll(), Progress::Pending);
+    *denial.unwrap().lock().unwrap() = Some(Code::Denied);
+    let mut fresh = f.peer(BOB);
+    assert_eq!(fresh.1.poll(), Progress::Closed);
+    closed(&mut fresh, "DENIED");
+}
+
+#[test]
 fn an_external_revocation_or_expiry_ends_idle_access_at_one_second() {
     for (code, reason) in [
         (Code::Denied, "DENIED"),

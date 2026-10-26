@@ -1016,6 +1016,8 @@ impl<A: Admission> Server<A> {
         let id = state.next;
         state.next = id.checked_add(1).ok_or(Code::Capacity)?;
         state.peers.insert(id, Peer::new(principal));
+        // This peer was not included in the retained sweep. Check it before its first flush.
+        state.checked_admission = None;
         let config = WebSocketConfig::default()
             .read_buffer_size(4096)
             .write_buffer_size(0)
