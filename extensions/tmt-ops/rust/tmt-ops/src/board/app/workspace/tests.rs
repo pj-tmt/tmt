@@ -1,5 +1,6 @@
 mod host_action;
 pub(in crate::board) mod idle_alert;
+mod rekey;
 mod unbound;
 use super::*;
 use crate::board::workspace::{
@@ -2942,6 +2943,19 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         "squad-settings" => {
             app.workspace_settings();
             idle_alert::open_squad_settings(&mut app);
+        }
+        "squad-settings-keys" | "squad-settings-key-edit" => {
+            app.workspace_settings();
+            idle_alert::open_squad_settings(&mut app);
+            app.settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow_mut()
+                .select("keys.member-checklist");
+            if scene == "squad-settings-key-edit" {
+                key(&mut app, KeyCode::Enter);
+            }
         }
         "review" | "result" => {
             app.workspace_begin(Kind::Remove);

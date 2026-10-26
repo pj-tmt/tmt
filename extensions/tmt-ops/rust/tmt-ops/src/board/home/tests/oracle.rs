@@ -1052,6 +1052,22 @@ fn captures() -> Value {
                 }
             }
         }
+        // The Settings page's keys group: scrolled to the checklist key, and its editor open.
+        for (look_name, look) in looks() {
+            for state in ["squad-settings-keys", "squad-settings-key-edit"] {
+                for width in [100, 60] {
+                    let app = capture_case(state, look);
+                    frames.push(capture_frame(
+                        &app,
+                        state,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

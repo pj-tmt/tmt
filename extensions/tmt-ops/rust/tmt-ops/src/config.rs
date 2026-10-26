@@ -21,6 +21,7 @@ use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 mod edit;
 mod idle_alert;
 mod launch;
+mod rebind;
 mod rename;
 mod settings;
 mod sourced;

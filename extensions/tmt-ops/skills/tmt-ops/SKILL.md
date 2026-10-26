@@ -674,6 +674,8 @@ host overrides, then section overrides. Compatible explicit bindings keep their
 meaning, including an explicit `f5 = "refresh"` binding. `C = "unbound"` removes the default
 binding of `C` (in `[bind]` it applies to every scope; in a host table, to that host); the footer,
 help and keycaps then show nothing for it. A key no scope binds by default gets a notice instead.
+The `,` settings page lists each action's key under `keys` and changes it for you (Enter edits, `r`
+restores the default): it writes `[bind] NEW = "<action>"` plus `OLD = "unbound"`, or `tmt ops sq config set keys.<action> NEW` does the same.
 Whole optional hints drop when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
 Their Esc back action cannot be rebound. At the base list, Esc clears an active
