@@ -44,8 +44,8 @@ fn conflict(why: impl Into<String>) -> PatchFault {
 /// One anchored change to a page's source.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Patch {
-    /// `find` must occur exactly once, wherever it now is; `replace` takes its place.
-    Replace { find: String, replace: String },
+    /// Several exact, non-overlapping replacements against the same original source.
+    Replace(Vec<(String, String)>),
     /// Lines `start..=end` (1-based) become `text`, only while they still hash to `sha256`.
     Lines {
         start: usize,
@@ -69,7 +69,7 @@ impl Patch {
     /// The source after the patch, or why it does not apply. Pure: nothing is read or written.
     pub fn apply(&self, source: &str) -> Result<String, PatchFault> {
         match self {
-            Self::Replace { find, replace } => replace_once(source, find, replace),
+            Self::Replace(pairs) => replace_many(source, pairs),
             Self::Lines {
                 start,
                 end,
@@ -93,24 +93,52 @@ fn occurrences(source: &str, needle: &str) -> Vec<usize> {
     found
 }
 
-fn replace_once(source: &str, find: &str, replace: &str) -> Result<String, PatchFault> {
-    if find.is_empty() {
-        return Err(invalid("The text to find is empty."));
+fn replace_many(source: &str, pairs: &[(String, String)]) -> Result<String, PatchFault> {
+    if pairs.is_empty() {
+        return Err(invalid("No find/replace pairs were given."));
     }
-    let found = occurrences(source, find);
-    match found.as_slice() {
-        [] => Err(conflict("The text to find is not on the page.")),
-        [at] => Ok(format!(
-            "{}{replace}{}",
-            &source[..*at],
-            &source[at + find.len()..]
-        )),
-        many => Err(conflict(format!(
-            "The text to find is on the page {} times (first at line {}); add enough around it to match once.",
-            many.len(),
-            line_number(source, many[0])
-        ))),
+    let mut placed = Vec::with_capacity(pairs.len());
+    for (index, (find, replace)) in pairs.iter().enumerate() {
+        let number = index + 1;
+        if find.is_empty() {
+            return Err(invalid(format!(
+                "Pair {number}: the text to find is empty."
+            )));
+        }
+        let found = occurrences(source, find);
+        let at = match found.as_slice() {
+            [] => {
+                return Err(conflict(format!(
+                    "Pair {number}: the text to find is not on the page."
+                )));
+            }
+            [at] => *at,
+            many => {
+                return Err(conflict(format!(
+                    "Pair {number}: the text to find is on the page {} times (first at line {}); add enough around it to match once.",
+                    many.len(),
+                    line_number(source, many[0])
+                )));
+            }
+        };
+        placed.push((at, at + find.len(), replace, number));
     }
+    placed.sort_by_key(|(at, ..)| *at);
+    if let Some(pair) = placed.windows(2).find(|pair| pair[0].1 > pair[1].0) {
+        return Err(conflict(format!(
+            "Pairs {} and {} overlap on the page.",
+            pair[0].3, pair[1].3
+        )));
+    }
+    let mut out = String::with_capacity(source.len());
+    let mut cursor = 0;
+    for (from, to, replacement, _) in placed {
+        out.push_str(&source[cursor..from]);
+        out.push_str(replacement);
+        cursor = to;
+    }
+    out.push_str(&source[cursor..]);
+    Ok(out)
 }
 
 fn replace_lines(
@@ -402,10 +430,7 @@ mod tests {
 
     #[test]
     fn find_replace_needs_exactly_one_match_even_an_overlapping_one() {
-        let patch = |find: &str, replace: &str| Patch::Replace {
-            find: find.into(),
-            replace: replace.into(),
-        };
+        let patch = |find: &str, replace: &str| Patch::Replace(vec![(find.into(), replace.into())]);
         assert_eq!(
             patch("beta", "BETA").apply("alpha beta gamma").unwrap(),
             "alpha BETA gamma"
@@ -433,6 +458,65 @@ mod tests {
             "COLAB_PATCH_CONFLICT"
         );
         assert_eq!(patch("🐈", "cat").apply("a 🐈 b").unwrap(), "a cat b");
+    }
+
+    #[test]
+    fn replacement_pairs_match_one_original_source_and_apply_together() {
+        let pairs = |pairs: &[(&str, &str)]| {
+            Patch::Replace(
+                pairs
+                    .iter()
+                    .map(|(a, b)| ((*a).into(), (*b).into()))
+                    .collect(),
+            )
+        };
+        assert_eq!(
+            pairs(&[("beta", "B"), ("alpha", "β")])
+                .apply("alpha middle beta")
+                .unwrap(),
+            "β middle B"
+        );
+        // A replacement cannot become the next pair's anchor.
+        assert_eq!(
+            pairs(&[("alpha", "created"), ("created", "x")])
+                .apply("alpha")
+                .unwrap_err()
+                .code(),
+            "COLAB_PATCH_CONFLICT"
+        );
+        assert_eq!(
+            pairs(&[("alpha", "x"), ("missing", "y")])
+                .apply("alpha beta")
+                .unwrap_err()
+                .code(),
+            "COLAB_PATCH_CONFLICT"
+        );
+        for input in [
+            vec![("alpha", "x"), ("pha", "y")],
+            vec![("alpha", "x"), ("alpha", "y")],
+        ] {
+            assert!(
+                pairs(&input)
+                    .apply("alpha beta")
+                    .unwrap_err()
+                    .to_string()
+                    .contains("overlap")
+            );
+        }
+        assert_eq!(
+            pairs(&[("alpha", ""), ("beta", "")])
+                .apply("alphabeta")
+                .unwrap(),
+            ""
+        );
+        assert_eq!(
+            pairs(&[("", "x")]).apply("alpha").unwrap_err().code(),
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(
+            pairs(&[]).apply("alpha").unwrap_err().code(),
+            "COLAB_INPUT_INVALID"
+        );
     }
 
     #[test]

@@ -264,7 +264,7 @@ unrelated processes sharing an executable remain untouched.
 including a timeout while cleanup is already running, and checks process absence. A worker that Playwright kills
 outright (a hook timeout) can still leave a world behind; no hook can run then.
 
-`reader.spec.ts` (#1545) drives the read-only share link: the page, `share link add`/`reset` and `page write`
+`reader.spec.ts` (#1545) drives the read-only share link: the page, `share link add`/`reset` and `page patch`
 are real owner commands, and each reader is an unpaired Chromium profile (`openReaderLink`) that
 never paired with the door. It asserts that an unpaired browser gets no owner file, the fragment
 leaves the address bar, the page shows read-only and live, an owner edit reaches it, no request
@@ -292,7 +292,7 @@ tunnel limits or the live reconnect path.
 
 `connection-reconnect.spec.ts` (#2572) restarts Remote (SIGKILL, same port) under an open owner
 page and expects the same tab, with no Reconnect click and no reload, to return to Live, read the
-next `page write` and deliver a Chat message to an agent.
+next `page patch` and deliver a Chat message to an agent.
 
 `serve-restart.spec.ts` (#2929) installs a newer Colab release under an attached door and holds
 the replacement down for longer than the readmission (`READMIT_DELAYS_MS` plus margin). The open
@@ -303,7 +303,7 @@ card.
 
 `connection-readmit.spec.ts` (#2557) opens an owner page, advances the page epoch by adding and
 removing a share link, and expects the same tab, with no reload, to return to Live, read the next
-`page write` and deliver a Chat message to an agent. An epoch advance or authority recheck
+`page patch` and deliver a Chat message to an agent. An epoch advance or authority recheck
 (`STALE_EPOCH`, `DENIED`, `EXPIRED`) on an open page reopens it; only a refusal that ends access is terminal, and the
 rule is in [Owner-page readmission](../../../../extensions/tmt-colab/contracts/colab-v1.md#owner-page-readmission-2557).
 

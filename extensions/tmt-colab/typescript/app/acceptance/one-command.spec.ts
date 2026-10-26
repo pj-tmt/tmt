@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createPage, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, openPage, run } from './harness/ask.js';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -87,7 +87,7 @@ exec ${word(world.binaries.colab)} "$@"
     run(
       world,
       world.binaries.colab,
-      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
       '<p id="body">After upgrade</p>',
     );
     expect(

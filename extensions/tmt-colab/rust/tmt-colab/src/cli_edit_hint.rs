@@ -1,4 +1,4 @@
-//! The editing reference a `page write` or `page patch` receipt names when the edit went
+//! The editing reference a `page patch` receipt names when the edit went
 //! off-guidance (#5029). A normal edit stays quiet: only a lint warning, a non-minimal update or a
 //! rewrite of most of a large page earns the one command.
 use tmt_colab::{edit_scale::EditScale, page::UpdateSize};
@@ -20,7 +20,7 @@ impl Reason {
         let what = match self {
             Self::Warnings => "The page check found problems in the result.",
             Self::NotMinimal => "The write was not the minimal change.",
-            Self::LargeRewrite => "The write replaced most of the page.",
+            Self::LargeRewrite => "The patch replaced most of the page.",
         };
         format!("{what} Read `{EDITING}` for the small-change workflow.")
     }

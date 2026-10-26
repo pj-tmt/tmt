@@ -1,7 +1,7 @@
 import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 // #1627: a page created at 1.5 MiB (and up to the 2 MiB source limit) must create, read, open and
@@ -52,7 +52,7 @@ test('a 1.5 MiB page creates, opens in the browser and takes edits from both sid
 
     // A small CLI edit on top, then the browser reloads to the latest.
     const cliEdit = browserEdit + '<p>cli edit</p>';
-    run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], cliEdit);
+    run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), cliEdit);
     expect(read(created.pageId).source === cliEdit).toBe(true);
     await page.reload();
     await (await pageAction(page, 'Source')).click();
@@ -75,7 +75,7 @@ test('creating past the 2 MiB source limit refuses by name and creates nothing',
     run(
       world,
       world.binaries.colab,
-      ['page', 'write', small.pageId, '--file', '-', '--json'],
+      patchArgs(world, small.pageId, ['--file', '-', '--json']),
       replacement,
     );
     const read = (id: string) =>
@@ -93,7 +93,7 @@ test('creating past the 2 MiB source limit refuses by name and creates nothing',
       run(
         world,
         world.binaries.colab,
-        ['page', 'write', atLimit.pageId, '--file', '-', '--json'],
+        patchArgs(world, atLimit.pageId, ['--file', '-', '--json']),
         'z'.repeat(2 * MIB),
       );
     } catch (error) {

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { text } from '../src/strings.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, freePort, openPage, run } from './harness/ask.js';
 import { distinct, openSource, save } from './harness/page-source.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -74,7 +74,7 @@ test('wide CLI and browser batches keep the original live socket and exact sourc
       };
     const cliSource = distinct(1.5 * 1024 * 1024, '1998-cli');
     const written = JSON.parse(
-      run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], cliSource),
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), cliSource),
     ) as { count: number };
     expect(written.count).toBeGreaterThan(4);
     await expect
@@ -230,7 +230,7 @@ test('a save that overlaps a newer change is refused naming it and the newer ver
     run(
       world,
       colab,
-      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
       '<p>v2 by CLI</p>',
     );
     await box.fill('<p>v1 edited in the browser</p>');
@@ -329,7 +329,7 @@ test('near-cap CLI and browser whole replacements keep taking edits and refuse o
     // A whole replacement from a small source, not an append to a large baseline.
     const a = distinct(LIMIT - 4096, '1627-cli-a');
     let started = Date.now();
-    const receipt = JSON.parse(cli(['page', 'write', created.pageId, '--file', '-', '--json'], a));
+    const receipt = JSON.parse(cli(patchArgs(world, created.pageId, ['--file', '-', '--json']), a));
     console.log(`FINAL_CAP cli receipt ${JSON.stringify(receipt)}`);
     verify('CLI whole replacement', a, started);
     const page = await openPage(door, browser, created);
@@ -361,7 +361,7 @@ test('near-cap CLI and browser whole replacements keep taking edits and refuse o
     const d = c.replace('nnnn', 'EDIT');
     expect(Buffer.byteLength(d)).toBe(LIMIT);
     started = Date.now();
-    cli(['page', 'write', created.pageId, '--file', '-', '--json'], d);
+    cli(patchArgs(world, created.pageId, ['--file', '-', '--json']), d);
     verify('CLI follow-up at exact cap', d, started);
     await page.reload();
     box = await openSource(page);
@@ -380,7 +380,7 @@ test('near-cap CLI and browser whole replacements keep taking edits and refuse o
     verify('over-cap browser leaves exact source', d, Date.now());
     let refusal = '';
     try {
-      cli(['page', 'write', created.pageId, '--file', '-', '--json'], d + 'x');
+      cli(patchArgs(world, created.pageId, ['--file', '-', '--json']), d + 'x');
     } catch (error) {
       refusal = (error as Error).message;
     }

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import {
+  patchArgs,
   annotationInput,
   clientId,
   createPage,
@@ -579,7 +580,7 @@ test('a foreign write during an upload leaves a message attachment valid; a memb
     try {
       await sendBig('Big one');
       colab(
-        ['page', 'write', created.pageId, '--file', '-'],
+        patchArgs(world, created.pageId, ['--file', '-']),
         '<h1>Fence, moved by another writer</h1>',
       );
     } finally {
@@ -730,7 +731,7 @@ test('export and attachment read return the same bytes as the browser, and say w
       run(
         world,
         world.binaries.colab,
-        ['page', 'write', created.pageId, '--file', '-'],
+        patchArgs(world, created.pageId, ['--file', '-']),
         '<h1>Moved</h1>',
       );
       expect(() => read('notes.txt')).toThrow(/COLAB_STALE_BASE/);

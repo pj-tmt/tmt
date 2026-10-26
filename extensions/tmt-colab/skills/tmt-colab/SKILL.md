@@ -95,8 +95,8 @@ tmt colab page check page.html --json
 
 Offline: lists ignored markup, heavy `data:` images and unusable `colab-attachment:` references,
 with `code` and `line`. Exit 1 means fix the page first.
-`page create` and `page write` run the same check and report `warnings`; `--strict`
-refuses to publish while any remain. `hints` are advice that blocks nothing.
+`page create` and `page patch` run the same check and report `warnings`; `--strict`
+refuses to publish while markup findings remain. `hints` are advice that blocks nothing.
 
 ## Edit a page
 
@@ -109,14 +109,9 @@ tmt colab page patch PAGE --find 'quoted text' --replace 'new text' --json
 
 `--lines A:B` reads a range; an annotation's quote makes a good `--find`. See
 [editing](references/editing.md) (`tmt colab skill editing`) for forms, conflicts and design.
-On `COLAB_PATCH_CONFLICT` read again and rebuild the patch; never overwrite with a whole-page
-write.
-
-To replace most of the page, edit the `source` of `page read PAGE --json` and write:
-
-```sh
-tmt colab page write PAGE --file page.html --expected-revision REVISION --json
-```
+On `COLAB_PATCH_CONFLICT`, reread and rebuild the patch. Existing pages use `page patch`;
+`page write` refuses them. Repeat `--find/--replace` pairs for several non-overlapping changes
+against the original source in one revision. Patches replacing over half the source warn. Use `page create --file` for a new page.
 
 `revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`);
 title and discussion stay. On `COLAB_STALE_BASE`, reread, merge and use

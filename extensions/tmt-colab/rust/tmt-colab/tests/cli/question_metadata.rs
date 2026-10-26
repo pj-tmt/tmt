@@ -54,14 +54,7 @@ fn metadata_registry_lifecycle_is_conditional_and_preserves_source_and_original_
         );
         let file = pilot.root.join("question.html");
         fs::write(&file, &source).unwrap();
-        pilot.call(&[
-            "page",
-            "write",
-            &page,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ]);
+        pilot.patch_call(&page, &["--file", file.to_str().unwrap(), "--json"]);
         let read = pilot.call(&["page", "read", &page, "--json"]);
         assert_eq!(read["source"], source);
         assert_eq!(read["questions"][0]["state"], "open");
@@ -99,14 +92,7 @@ fn metadata_registry_lifecycle_is_conditional_and_preserves_source_and_original_
         assert_eq!(changed["source"], source);
         // Creator changes seed new drafts; this question keeps its registered agent even
         // without an explicit data-agent in its source, through both local and served Save.
-        pilot.call(&[
-            "page",
-            "write",
-            &page,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ]);
+        pilot.patch_call(&page, &["--file", file.to_str().unwrap(), "--json"]);
         let rewritten = pilot.call(&["page", "read", &page, "--json"]);
         assert_eq!(rewritten["revision"], changed["revision"]);
         assert_eq!(rewritten["questions"], changed["questions"]);
@@ -179,7 +165,7 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
         message.contains("page create")
             && message.contains("question add PAGE")
             && message.contains("--title 'First question'")
-            && message.contains("page write PAGE")
+            && message.contains("page patch PAGE")
     );
     assert!(!pilot.root.join("selected/colab").exists());
     refused(
@@ -214,14 +200,7 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
         fs::write(&file, body).unwrap();
         let refusal = refused(
             &pilot,
-            &[
-                "page",
-                "write",
-                &page,
-                "--file",
-                file.to_str().unwrap(),
-                "--json",
-            ],
+            &borrowed(&pilot.patch_args(&page, &["--file", file.to_str().unwrap(), "--json"])),
             code,
         );
         assert_eq!(refusal["findings"][0]["line"], 2);
@@ -315,15 +294,7 @@ fn anonymous_creation_including_question_templates_keeps_unassigned_questions_on
             "<tmt-question data-id=\"{QUESTION}\" data-kind=\"short\"><p data-question>Choose</p></tmt-question>"
         );
         fs::write(&file, &source).unwrap();
-        pilot.call(&[
-            "page",
-            "write",
-            page,
-            "--file",
-            file.to_str().unwrap(),
-            "--replace",
-            "--json",
-        ]);
+        pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
         let after = pilot.call(&["page", "read", page, "--json"]);
         assert_eq!(after["source"], source);
         assert_eq!(after["questions"], registered["questions"]);
@@ -345,14 +316,7 @@ fn anonymous_creation_including_question_templates_keeps_unassigned_questions_on
         .unwrap();
         refused(
             &pilot,
-            &[
-                "page",
-                "write",
-                page,
-                "--file",
-                file.to_str().unwrap(),
-                "--json",
-            ],
+            &borrowed(&pilot.patch_args(page, &["--file", file.to_str().unwrap(), "--json"])),
             "COLAB_QUESTION_AGENT_MISMATCH",
         );
         assert_eq!(
@@ -558,14 +522,7 @@ fn registry_repairs_preserve_leading_hyphen_names_and_titles_as_cli_values() {
     fs::write(&file, &source).unwrap();
     let error = refused(
         &pilot,
-        &[
-            "page",
-            "write",
-            &page,
-            "--file",
-            file.to_str().unwrap(),
-            "--json",
-        ],
+        &borrowed(&pilot.patch_args(&page, &["--file", file.to_str().unwrap(), "--json"])),
         "COLAB_QUESTION_UNREGISTERED",
     );
     let fix = error["findings"][0]["fix"].as_str().unwrap();
@@ -589,14 +546,7 @@ fn registry_repairs_preserve_leading_hyphen_names_and_titles_as_cli_values() {
         "--title=-Title",
         "--json",
     ]);
-    pilot.call(&[
-        "page",
-        "write",
-        &page,
-        "--file",
-        file.to_str().unwrap(),
-        "--json",
-    ]);
+    pilot.patch_call(&page, &["--file", file.to_str().unwrap(), "--json"]);
     pilot.call(&["page", "creator", &page, "--json", "--", "-Agent"]);
     assert_eq!(
         pilot.call(&["page", "read", &page, "--json"])["source"],

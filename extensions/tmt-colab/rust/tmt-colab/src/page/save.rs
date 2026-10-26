@@ -1,6 +1,6 @@
 //! The browser's whole-source Save over the owner-authenticated sync socket. The serve assembles
 //! the source, prepares it natively from a snapshot of its own outside every lock, and commits
-//! the frozen publication like `page write`, signing as the root-local writer. Nothing here
+//! the frozen publication like `page patch`, signing as the root-local writer. Nothing here
 //! decodes, signs or stores: it names the pieces and the reply.
 use super::{
     Fault, FrozenPublication, PublicationRecord, PublishOptions, SourceTooLarge,
@@ -27,7 +27,7 @@ pub struct Source {
 }
 /// How the serve opens a `Source`; supplied by whoever owns the data root.
 pub type SourceOpener = Arc<dyn Fn() -> crate::Result<Source> + Send + Sync>;
-/// The opener for a data root: the same read-only store, keyring and decoder `page write` uses.
+/// The opener for a data root: the same read-only store, keyring and decoder `page patch` uses.
 pub fn open_source(
     root: &std::path::Path,
     decoder: crate::decoder::Config,

@@ -286,14 +286,15 @@ pub(crate) fn admit_create_file(
     let file = args
         .get_one::<std::path::PathBuf>("file")
         .expect("authored file");
+    lines.push("tmt colab page read PAGE --json".into());
     lines.push(format!(
-        "tmt colab page write PAGE {}",
+        "tmt colab page patch PAGE --lines A:B --range-sha256 HASH {}",
         option("file", &file.to_string_lossy())
     ));
     Err(fail(
         "COLAB_QUESTION_UNREGISTERED",
         &format!(
-            "Authored question blocks must be registered before their first source write. Nothing was created. Run the create command, replacing UUID with a known canonical identity UUID when shown, replace PAGE below with its returned page ID, then register and write (for stdin, save the source in a file first):\n{}",
+            "Authored question blocks must be registered before their first source write. Nothing was created. Run the create command, replacing UUID with a known canonical identity UUID when shown, replace PAGE below with its returned page ID, then register and patch (replace A:B with the current source line range and HASH with its rangeSha256 from page read --lines A:B --json; for stdin, save the source in a file first):\n{}",
             lines.join("\n")
         ),
     ))

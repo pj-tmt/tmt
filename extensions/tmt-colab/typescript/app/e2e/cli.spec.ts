@@ -1,4 +1,5 @@
 import { pageAction } from '../test/page-actions.js';
+import { createHash } from 'node:crypto';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -251,10 +252,17 @@ async function native() {
       execute(binary, args, { cwd: root, env, timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
     const write = async (source: string, revision?: string) => {
       await writeFile(root + '/source.html', source);
+      const read = await cli(['page', 'read', fixture.pageId, '--json']);
+      const base = (JSON.parse(read.stdout) as { source: string }).source;
+      const lines = Math.max(1, base.split('\n').length - Number(base.endsWith('\n')));
       return cli([
         'page',
-        'write',
+        'patch',
         fixture.pageId,
+        '--lines',
+        `1:${lines}`,
+        '--range-sha256',
+        createHash('sha256').update(base).digest('hex'),
         '--file',
         root + '/source.html',
         '--json',

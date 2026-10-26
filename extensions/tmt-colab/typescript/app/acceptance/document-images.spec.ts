@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
-import { clientId, createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, clientId, createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -36,7 +36,7 @@ test('document image references disclose verified page files to paired and reade
     const other = colab(['attachment', 'attach', foreign.pageId, foreignImage]).attachment;
     const document = colab(['attachment', 'attach', created.pageId, pdf]).attachment;
     const source = `<h1>Document images</h1><img id="full" src="colab-attachment:${attached.attachmentId}" alt="Full ID"><img id="short" src="colab-attachment:${attached.attachmentId.slice(0, 8)}" alt="Short ID"><img src="colab-attachment:${other.attachmentId}" alt="Another page"><img src="colab-attachment:${document.attachmentId}" alt="Not raster">`;
-    colab(['page', 'write', created.pageId, '--file', '-'], source);
+    colab(patchArgs(world, created.pageId, ['--file', '-']), source);
     const written = colab(['page', 'read', created.pageId]);
     expect(written.source).toBe(source);
     expect(Buffer.byteLength(written.source)).toBeLessThan(2048);
@@ -98,7 +98,7 @@ test('page images keep their attachment references after a key change and the se
       .attachmentId as string;
     const html = (id: string, short: string) =>
       `<h1>Rekey images</h1>é<img id="full" src="colab-attachment:${id}" alt="Full"><img id="short" src="colab-attachment:${short}" alt="Short">🦀`;
-    colab(['page', 'write', created.pageId, '--file', '-'], html(old, old.slice(0, 8)));
+    colab(patchArgs(world, created.pageId, ['--file', '-']), html(old, old.slice(0, 8)));
     const check = async () => {
       for (const id of ['full', 'short']) {
         const image = page.frameLocator('iframe').locator(`#${id}`);

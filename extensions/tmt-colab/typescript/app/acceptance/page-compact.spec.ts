@@ -1,7 +1,7 @@
 import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 // #2846: the owner browser asks the serve how full a page is and to combine this device's own
@@ -18,7 +18,7 @@ test('the owner browser shows the page size the CLI reports and compacts it with
     let source = '<p>start</p>';
     for (let i = 0; i < 12; i++) {
       source += `<i>${String(i).padStart(2, '0')}</i>`;
-      run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], source);
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), source);
     }
     const before = json(['page', 'read', created.pageId, '--json']).usage;
     expect(before.updates).toBeGreaterThanOrEqual(12);

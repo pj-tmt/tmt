@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { run } from './harness/ask.js';
+import { patchArgs, run } from './harness/ask.js';
 import { openReaderLink, startDoor } from './harness/browser.js';
 import { composed, serve } from './harness/hosting.js';
 import { finiteLoopbackResponse } from './harness/firestore-proxy.js';
@@ -146,7 +146,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
         run(
           world,
           world.binaries.colab,
-          ['page', 'write', created.pageId, '--file', '-', '--json'],
+          patchArgs(world, created.pageId, ['--file', '-', '--json']),
           `<main><h1>${initialHeading}</h1></main>`,
         ),
       ) as { update: { count: number } };
@@ -408,7 +408,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
     run(
       world,
       world.binaries.colab,
-      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
       '<main><h1>Native owner second version</h1></main>',
     );
     await expect(page.frameLocator('iframe').locator('h1')).toHaveText(

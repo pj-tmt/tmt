@@ -21,14 +21,7 @@ fn refused(pilot: &Pilot, args: &[&str], code: &str) -> Value {
 fn write(pilot: &Pilot, page: &str, source: &str) {
     let file = pilot.root.join(format!("{page}.html"));
     fs::write(&file, source).unwrap();
-    pilot.call(&[
-        "page",
-        "write",
-        page,
-        "--file",
-        file.to_str().unwrap(),
-        "--json",
-    ]);
+    pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
 }
 /// A column page holding `source`.
 fn page(pilot: &Pilot, title: &str, source: &str) -> String {

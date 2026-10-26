@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -72,15 +72,9 @@ test('references resolve against the page’s current document attachments', asy
 
     // A write reads the same attachment list and reports the same two as warnings.
     const before = colab(['page', 'read', created.pageId]);
-    const written = colab([
-      'page',
-      'write',
-      created.pageId,
-      '--file',
-      html,
-      '--expected-revision',
-      before.revision,
-    ]);
+    const written = colab(
+      patchArgs(world, created.pageId, ['--file', html, '--expected-revision', before.revision]),
+    );
     expect(written.warnings.map((f: { code: string; line: number }) => [f.code, f.line])).toEqual([
       ['attachment-ref-unresolved', 3],
       ['attachment-ref-unresolved', 4],
@@ -89,16 +83,15 @@ test('references resolve against the page’s current document attachments', asy
     // --strict refuses before anything is written; the page keeps its revision.
     const stable = colab(['page', 'read', created.pageId]);
     fs.writeFileSync(html, `${source}<p>More</p>\n`);
-    const strict = refused([
-      'page',
-      'write',
-      created.pageId,
-      '--file',
-      html,
-      '--expected-revision',
-      stable.revision,
-      '--strict',
-    ]);
+    const strict = refused(
+      patchArgs(world, created.pageId, [
+        '--file',
+        html,
+        '--expected-revision',
+        stable.revision,
+        '--strict',
+      ]),
+    );
     expect(strict.error.code).toBe('COLAB_PAGE_CHECK');
     expect(colab(['page', 'read', created.pageId])).toEqual(stable);
 

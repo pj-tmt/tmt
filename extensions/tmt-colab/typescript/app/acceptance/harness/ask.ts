@@ -40,6 +40,24 @@ export function run(
   }
 }
 
+/** Fresh whole-fixture range for scenarios testing native publication rather than anchoring. */
+export function patchArgs(world: AcceptanceWorld, page: string, flags: string[]): string[] {
+  const { source } = JSON.parse(
+    run(world, world.binaries.colab, ['page', 'read', page, '--json']),
+  ) as { source: string };
+  const lines = Math.max(1, source.split('\n').length - Number(source.endsWith('\n')));
+  return [
+    'page',
+    'patch',
+    page,
+    '--lines',
+    `1:${lines}`,
+    '--range-sha256',
+    createHash('sha256').update(source).digest('hex'),
+    ...flags,
+  ];
+}
+
 /** The paired device's Remote client ID, for `devices revoke`. */
 export function clientId(world: AcceptanceWorld, name: string): string {
   const listing = JSON.parse(run(world, world.binaries.remote, ['devices', '--json'])) as {
@@ -106,7 +124,7 @@ export function createPage(
     run(
       world,
       world.binaries.colab,
-      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
       html,
       callerPane,
     );
