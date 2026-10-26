@@ -903,6 +903,15 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   connection after its own original is stored (the pages in `State::requests_due`, all settled by
   the next connection to poll), and the cloud pass (`Inbound::settle`) after it read new link
   originals or first read a page.
+- Version-2 `edit-request` records carry only creator/handled/reopen metadata. `edit_request/metadata.rs`
+  owns grammar, target comparison and the existing bounded Core identity read; `sync/edit_requests.rs`
+  automatically publishes through the existing metadata `SaveJob`, without an approval queue.
+  The relevant content before-image is checked before a fresh conditional revision, so the request's
+  own append does not invalidate its base. Schema 19 retains the first terminal save result with
+  the decision; owner-authenticated `edit-result` own records transport it to door and hosted
+  readers. Recovery uses the same operation journal before reevaluating a target and republishes
+  only a lost receipt. Source-request behavior is unchanged. The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256)
+  owns fields, identity refusals, provenance and replay rules; the browser UI follows in B.
 
 `quick-switcher-dialog.tsx` composes the website Search presentation over the existing
 source and ranking owners. Its project menu edits the same `SearchEdit` as query chips;

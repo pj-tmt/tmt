@@ -1656,11 +1656,13 @@ impl<A: Admission> State<A> {
     }
     /// The save is no longer preparing; its outcome, if any, is in the store.
     fn unsave(&mut self, job: &SaveJob) {
-        let key = (job.save.page.clone(), job.save.operation_id.clone());
-        if let Some(count) = self.saving.get_mut(&key) {
+        self.release_save(&(job.save.page.clone(), job.save.operation_id.clone()));
+    }
+    fn release_save(&mut self, key: &(String, String)) {
+        if let Some(count) = self.saving.get_mut(key) {
             *count -= 1;
             if *count == 0 {
-                self.saving.remove(&key);
+                self.saving.remove(key);
             }
         }
     }

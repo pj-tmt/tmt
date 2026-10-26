@@ -158,6 +158,11 @@ const MIGRATIONS: &[&str] = &[
         FOREIGN KEY(name) REFERENCES projects(name)) WITHOUT ROWID;
     CREATE TABLE project_pin_choice(chosen INTEGER PRIMARY KEY CHECK(chosen=1));
     "#,
+    // Schema 19: terminal metadata-request results survive a crash before their signed own
+    // receipt is appended. Existing source-request decisions and their semantics are unchanged.
+    r#"
+    ALTER TABLE edit_decisions ADD COLUMN result TEXT;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// How many pre-update copies stay: the one just taken and the newest other by the schema it was
