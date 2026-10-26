@@ -80,7 +80,8 @@ test("approved variants have separate routes, language tags, reciprocal alternat
         assert.doesNotMatch(index, /noindex/);
         assert.ok(publicFiles["sitemap.xml"].includes(`<loc>${prefix}${directory}</loc>`));
         for (const [, indexTag] of variants) assert.ok(index.includes(`hreflang="${indexTag}"`));
-        assert.ok(index.includes(`lang="${tag}" href="${base}blog/${directory}posts/${slug}/"`));
+        assert.ok(index.includes(`class="article-row" lang="${tag}"`));
+        assert.ok(index.includes(`<h3><a href="${base}blog/${directory}posts/${slug}/"`));
         const feed = publicFiles[directory + "feed.xml"];
         assert.ok(feed.includes(`<language>${tag}</language>`));
         assert.ok(feed.includes(`<link>${prefix}${directory}posts/${slug}/</link>`));
