@@ -32,7 +32,7 @@
     "src/notifications.tsx": "2ba8d3206bc94fe4e700f5627f2e73405b989f9577938339f9ed4c865c45f89b",
     "src/overlay.ts": "1ea82859428c4136e01d619b27771260d5ff894fe132611a77d1b066f2afbae0",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
-    "src/react.ts": "c1e190895087a363a806090ac8dafc79dbbfac11114e4823039045ea88fe5377",
+    "src/react.ts": "c583cef263dbe9aa31f46d22cfda1657733ff853c8fa67593fde28c1dfcc3b86",
     "src/static.ts": "58348603ccab65e4469df286c5be5a23b47293fecb45ad6fec46ca5373a8d83a",
     "src/tabs.css": "84ada6672b079b68bf4aebb7a0db49e13a9d0c7a35cf93bf72844e818d9d167b",
     "src/tabs.tsx": "c325a0f2eb9178e045a679e987bb667ea859010d7665fce78c0c408e17b8545c",

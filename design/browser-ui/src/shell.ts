@@ -324,6 +324,8 @@ export interface ShellControls {
   readonly tools: ShellTools;
   /** Root-only common bindings; route modules never receive this method. */
   setCommonControls(options: ShellCommonControls | undefined): void;
+  /** True while common controls are installed and the shell is not disposed. */
+  topBarReady(): boolean;
   setTopBar(): ShellTopBar;
   /** The route owner releases the active action slot and transient common UI. */
   clearTopBar(): void;
@@ -615,6 +617,7 @@ export function mountShell(
   return {
     tools,
     setCommonControls: topBar.setCommonControls,
+    topBarReady: topBar.topBarReady,
     setTopBar: topBar.setTopBar,
     clearTopBar: topBar.clear,
     update: render,

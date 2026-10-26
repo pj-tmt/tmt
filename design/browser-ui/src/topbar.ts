@@ -197,6 +197,7 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
       if (!next) clear();
       else active?.update();
     },
+    topBarReady: () => !disposed && options !== undefined,
     setTopBar(): ShellTopBar {
       if (disposed) throw new Error('The shell has been disposed');
       if (!options)

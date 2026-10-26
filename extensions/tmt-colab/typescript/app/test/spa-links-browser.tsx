@@ -159,6 +159,7 @@ function newSlot(url: string): ShellSlot {
     main,
     bar,
     tools,
+    topBarReady: () => false,
     setTopBar: () => {
       bar.append(actions);
       return { actions };
