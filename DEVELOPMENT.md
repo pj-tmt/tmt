@@ -19,7 +19,6 @@ gates every change shares; per-area procedures live in the skills below.
 | Colab executable, app and browser client                                                               | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)                                    |
 | Handbook site, blog and translations                                                                   | [tmt-design](.agents/skills/tmt-design/SKILL.md)                                  |
 | Browser UI leaf and design tokens                                                                      | [design/browser-ui](design/browser-ui/README.md) (tmt-gui-lead)                   |
-| UI mockups and UX proposals for browser surfaces                                                       | [tmt-ui-ux-design](.agents/skills/tmt-ui-ux-design/SKILL.md)                      |
 | Adding or moving files                                                                                 | [tmt-layout](.agents/skills/tmt-layout/SKILL.md)                                  |
 
 ## Setup
