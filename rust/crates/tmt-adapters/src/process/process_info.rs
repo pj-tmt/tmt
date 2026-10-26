@@ -204,28 +204,11 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::process::{UnixCommandRunner, runtime::observe_start};
+    use crate::process::{
+        CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner,
+        runtime::observe_start,
+    };
     use std::time::Duration;
-
-    #[test]
-    fn native_start_and_parent_equal_the_existing_ps_identity() {
-        let pid = u64::from(std::process::id());
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let ProcessObservation::Live(native) = observe(pid, deadline).expect("native acquisition")
-        else {
-            panic!("test process is live");
-        };
-        assert_eq!(
-            Some(native.start_identity()),
-            observe_start(&UnixCommandRunner, pid, deadline)
-                .unwrap()
-                .as_deref()
-        );
-        assert_eq!(
-            parent(pid, deadline),
-            Some(nix::unistd::getppid().as_raw() as u64)
-        );
-    }
 
     #[test]
     fn a_native_link_is_the_observation_and_parent_of_one_read() {
@@ -249,9 +232,7 @@ mod tests {
 
     #[test]
     fn stopped_and_exited_owned_children_keep_batch_parity() {
-        use crate::process::{
-            CommandError, CommandOutput, CommandRequest, CommandRunner, runtime::observe_starts,
-        };
+        use crate::process::runtime::observe_starts;
         use nix::{
             sys::{
                 signal::{Signal, kill},
@@ -259,17 +240,33 @@ mod tests {
             },
             unistd::Pid,
         };
+        // Keep the real-ps oracle and all state parity in the existing pinned
+        // environment case, including the single-process native-first path.
+        struct Ps;
+        impl CommandRunner for Ps {
+            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                UnixCommandRunner.execute(request)
+            }
+        }
+        let pid = u64::from(std::process::id());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let ProcessObservation::Live(native) = observe(pid, deadline).expect("native acquisition")
+        else {
+            panic!("test process is live");
+        };
+        assert_eq!(
+            Some(native.start_identity()),
+            observe_start(&Ps, pid, deadline).unwrap().as_deref()
+        );
+        assert_eq!(
+            parent(pid, deadline),
+            Some(nix::unistd::getppid().as_raw() as u64)
+        );
         struct Child(std::process::Child);
         impl Drop for Child {
             fn drop(&mut self) {
                 let _ = self.0.kill();
                 let _ = self.0.wait();
-            }
-        }
-        struct Ps;
-        impl CommandRunner for Ps {
-            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
-                UnixCommandRunner.execute(request)
             }
         }
         let mut child = Child(

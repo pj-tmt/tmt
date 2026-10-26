@@ -535,15 +535,15 @@ impl Entry {
     }
 }
 
-/// The chip's words: `≡ Checklist · 3 links · 2 todo · 1 done`, `≡ Checklist · empty`, or the mark alone
-/// until the first read answers.
+/// The chip's words: `Checklist · 3 links · 2 todo · 1 done`, `Checklist · empty`, or the name alone
+/// until the first read answers. The key that opens the list is drawn before them as a keycap.
 pub(in crate::board) fn chip(summary: Option<&Summary>) -> String {
     match summary {
-        None | Some(Summary::Pending) => "≡ Checklist".into(),
-        Some(Summary::Unavailable(_)) => "≡ Checklist · unavailable".into(),
-        Some(Summary::Counts(counts)) if counts.is_empty() => "≡ Checklist · empty".into(),
+        None | Some(Summary::Pending) => "Checklist".into(),
+        Some(Summary::Unavailable(_)) => "Checklist · unavailable".into(),
+        Some(Summary::Counts(counts)) if counts.is_empty() => "Checklist · empty".into(),
         Some(Summary::Counts(counts)) => format!(
-            "≡ Checklist · {} {} · {} todo · {} done",
+            "Checklist · {} {} · {} todo · {} done",
             counts.links,
             if counts.links == 1 { "link" } else { "links" },
             counts.todo,
@@ -552,10 +552,9 @@ pub(in crate::board) fn chip(summary: Option<&Summary>) -> String {
     }
 }
 
-/// The chip fitted to `columns` so that it also fits where an East Asian locale draws the
-/// ambiguous-width `≡` two cells wide.
+/// The chip fitted to `columns`.
 pub(in crate::board) fn fitted(summary: Option<&Summary>, columns: usize) -> String {
-    super::view::fit(&chip(summary), columns.saturating_sub(1))
+    super::view::fit(&chip(summary), columns)
         .trim_end()
         .to_owned()
 }

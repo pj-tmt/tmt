@@ -157,20 +157,20 @@ fn references_are_attributes_of_open_and_completed_items_and_archived_counts_now
 #[test]
 fn the_chip_reads_pending_empty_counts_and_unavailable() {
     let counts = |links, todo, done| Some(Summary::Counts(Counts { links, todo, done }));
-    assert_eq!(chip(None), "≡ Checklist");
-    assert_eq!(chip(Some(&Summary::Pending)), "≡ Checklist");
-    assert_eq!(chip(counts(0, 0, 0).as_ref()), "≡ Checklist · empty");
+    assert_eq!(chip(None), "Checklist");
+    assert_eq!(chip(Some(&Summary::Pending)), "Checklist");
+    assert_eq!(chip(counts(0, 0, 0).as_ref()), "Checklist · empty");
     assert_eq!(
         chip(counts(3, 2, 1).as_ref()),
-        "≡ Checklist · 3 links · 2 todo · 1 done"
+        "Checklist · 3 links · 2 todo · 1 done"
     );
     assert_eq!(
         chip(counts(1, 1, 0).as_ref()),
-        "≡ Checklist · 1 link · 1 todo · 0 done"
+        "Checklist · 1 link · 1 todo · 0 done"
     );
     assert_eq!(
         chip(Some(&Summary::Unavailable("no".into()))),
-        "≡ Checklist · unavailable"
+        "Checklist · unavailable"
     );
 }
 
@@ -502,13 +502,8 @@ pub(in crate::board) fn capture_case(
 }
 
 #[test]
-fn the_chip_fits_whether_the_ambiguous_equivalence_sign_is_one_cell_or_two() {
-    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-    assert_eq!(
-        ('≡'.width(), '≡'.width_cjk()),
-        (Some(1), Some(2)),
-        "the sign is ambiguous"
-    );
+fn the_chip_fits_the_columns_it_is_given() {
+    use unicode_width::UnicodeWidthStr;
     let summaries = [
         None,
         Some(Summary::Counts(Counts::default())),
@@ -522,17 +517,13 @@ fn the_chip_fits_whether_the_ambiguous_equivalence_sign_is_one_cell_or_two() {
     for summary in &summaries {
         for columns in 0..=60 {
             let text = fitted(summary.as_ref(), columns);
-            // `columns` is what the header leaves for the chip after its leading space.
             assert!(text.width() <= columns, "{columns}: {text:?}");
-            // Counting the sign two cells wide, as an East Asian locale draws it, still fits.
-            let sign = usize::from(text.contains('≡'));
-            assert!(text.width() + sign <= columns, "{columns}: {text:?} (CJK)");
         }
         let text = chip(summary.as_ref());
         assert_eq!(
             crate::board::glyph_guard::glyph_error(&text),
             None,
-            "the sign is a registered mark: {text:?}"
+            "the chip has no unregistered glyph: {text:?}"
         );
     }
 }
@@ -711,7 +702,7 @@ mod header {
         let text = screen(&app);
         assert!(text.lines().next().unwrap().contains("○ 1 todo"), "{text}");
         assert!(
-            text.contains("≡ Checklist · 0 links · 1 todo · 1 done"),
+            text.contains("Checklist · 0 links · 1 todo · 1 done"),
             "{text}"
         );
         assert!(
@@ -728,7 +719,7 @@ mod header {
         let key = select_member(&mut app);
         let text = screen(&app);
         assert!(
-            text.contains("≡ Checklist"),
+            text.contains("Checklist"),
             "the chip stands before the first read answers\n{text}"
         );
         assert!(
@@ -747,7 +738,7 @@ mod header {
         );
         let text = screen(&app);
         assert!(
-            text.contains("≡ Checklist · 3 links · 5 todo · 1 done"),
+            text.contains("Checklist · 3 links · 5 todo · 1 done"),
             "{text}"
         );
     }
@@ -757,12 +748,12 @@ mod header {
         let mut app = board();
         let key = select_member(&mut app);
         answer(&mut app, &key, Ok(Counts::default()));
-        assert!(screen(&app).contains("≡ Checklist · empty"));
+        assert!(screen(&app).contains("Checklist · empty"));
 
         let mut app = board();
         let key = select_member(&mut app);
         answer(&mut app, &key, Err("no recorded user".into()));
-        assert!(screen(&app).contains("≡ Checklist · unavailable"));
+        assert!(screen(&app).contains("Checklist · unavailable"));
 
         let mut app = board();
         let last = app.workspace_rows().len() - 1;

@@ -342,13 +342,14 @@ each room list and each admitted room/member conversation once, independent of s
 collapse or viewport. Unknown and partial totals retain their existing presentation.
 [Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
 
-The conversation entry is `≡ Checklist · …`; its modal is `Checklist · <member>`
+The conversation entry is `C  Checklist · …` (the key as a keycap, none when unbound); its modal is `Checklist · <member>`
 (with the item count), and a source form is `Add to checklist · <member>`. Captions
 resolve held preview/roster data by the frozen room/member UUID, falling back to
 `member <short UUID>` when no name is held. Rendering never reads Core or borrows
 another selected member's name. Both form variants label the first field Title.
-The canonical authored action is `member-checklist`, still bound to `N` for members
-and the Reader. This breaking rename before launch has no `member-notes` alias;
+The canonical authored action is `member-checklist`, bound to `C` for members
+and the Reader (`N` stays create-squad on a squad row); the chip leads with that key as a
+keycap, taken from the effective bindings. This breaking rename before launch has no `member-notes` alias;
 an authored former action gets the ordinary unknown-action notice.
 
 Enter on a link row follows the global `board.checklist_enter` (`open` by default, or `tick`; a todo
