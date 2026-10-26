@@ -6612,3 +6612,200 @@ describe('workspace snapshots in the real board', () => {
     });
   }, 120_000);
 });
+
+// An opt-in measurement, not a timing threshold or a replacement for lifecycle tests.
+// The wrapper logs only operation names and fixture process ownership, never payloads.
+function apiProbeWrapper(executable: string, log: string): string {
+  return `#!${process.execPath}
+import { appendFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
+const args = process.argv.slice(2);
+const emit = (event) => appendFileSync(${JSON.stringify(log)}, JSON.stringify({
+  atMs: Date.now(), view: process.env.TMT_API_PROBE_VIEW, wrapperPid: process.pid, ...event
+}) + '\\n');
+const child = spawn(${JSON.stringify(executable)}, args, { stdio: ['pipe', 'inherit', 'inherit'] });
+emit({ event: 'launch', pid: child.pid, argv: args });
+const api = args[0] === 'api';
+const decoder = new StringDecoder('utf8');
+let pending = '';
+const frame = (line) => {
+  if (!line.trim()) return;
+  let operation = 'malformed';
+  try { operation = JSON.parse(line).operation; } catch {}
+  emit({ event: 'request', operation });
+};
+process.stdin.on('data', (bytes) => {
+  if (api) {
+    pending += decoder.write(bytes);
+    let newline;
+    while ((newline = pending.indexOf('\\n')) !== -1) {
+      frame(pending.slice(0, newline));
+      pending = pending.slice(newline + 1);
+    }
+  }
+  if (!child.stdin.write(bytes)) process.stdin.pause();
+});
+child.stdin.on('drain', () => process.stdin.resume());
+child.stdin.on('error', () => process.stdin.pause());
+process.stdin.on('end', () => {
+  if (api) frame(pending + decoder.end());
+  child.stdin.end();
+});
+child.on('error', (error) => { emit({ event: 'spawn-error', code: error.code }); process.exit(1); });
+child.on('close', (code, signal) => {
+  emit({ event: 'exit', pid: child.pid, code, signal });
+  process.exit(code ?? 1);
+});
+`;
+}
+
+describe('Ops API process-cost probe', () => {
+  it.skipIf(!process.env.TMT_OPS_API_PROBE)(
+    'records public operations and API spawns for two idle real TUIs',
+    async () => {
+      const destination = process.env.TMT_OPS_API_PROBE!;
+      expect(path.isAbsolute(destination)).toBe(true);
+      await withSandbox(async (sandbox) => {
+        installSquad(sandbox);
+        const scratch = startPrivateTmux(sandbox, 'api-probe');
+        const { tmux } = scratch;
+        sandbox.env.TERM = 'xterm-256color';
+        sandbox.env.NO_COLOR = '1';
+        await identity(sandbox, 'Ben');
+        expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+        for (let index = 0; index < 8; index++) {
+          const name = `probe-member-${index}`;
+          await identity(sandbox, name);
+          expect((await squad(sandbox, ['add', name])).status).toBe(0);
+        }
+        const log = path.join(sandbox.root, 'api-calls.jsonl');
+        const wrapper = path.join(sandbox.root, 'core-probe');
+        writeFileSync(log, '');
+        writeExecutable(wrapper, apiProbeWrapper(sandbox.cli.executable, log));
+        type Record = {
+          atMs: number;
+          view: string;
+          event: string;
+          wrapperPid: number;
+          pid?: number;
+          argv?: string[];
+          operation?: string;
+        };
+        const records = () =>
+          readFileSync(log, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as Record);
+        const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+        tmux(['new-session', '-d', '-s', 'probe', '-x', '160', '-y', '40', '/bin/sh']);
+        const server = Number(tmux(['display-message', '-p', '#{pid}']));
+        const boards: { view: string; pane: string; pid: number; trace: string }[] = [];
+        try {
+          for (const view of ['global', 'product']) {
+            const pane = tmux([
+              'new-window',
+              '-d',
+              '-P',
+              '-F',
+              '#{pane_id}',
+              '-c',
+              sandbox.cwd,
+              '/bin/sh',
+            ]);
+            const pid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
+            const trace = path.join(sandbox.root, `${view}.trace.jsonl`);
+            boards.push({ view, pane, pid, trace });
+            const args = ['ui', '--view', `api-probe-${view}`, '--reset-view'];
+            if (view === 'product') args.push('--squad', 'product');
+            tmux([
+              'send-keys',
+              '-t',
+              pane,
+              '-l',
+              `exec env TMT_EXECUTABLE=${quote(wrapper)} TMT_API_PROBE_VIEW=${view} TMT_OPS_TIMING_TRACE=${quote(trace)} ${quote(squadExecutable)} ${args.map(quote).join(' ')}`,
+            ]);
+            tmux(['send-keys', '-t', pane, 'Enter']);
+          }
+          await vi.waitFor(
+            () => {
+              for (const { trace } of boards) {
+                expect(existsSync(trace)).toBe(true);
+                expect(readFileSync(trace, 'utf8')).toContain('fresh_board');
+              }
+            },
+            { timeout: 60_000, interval: 100 }
+          );
+          // Readiness is the milestone above. These are explicitly measured warm-up
+          // and observation windows, not sleeps used to establish lifecycle readiness.
+          await new Promise((resolve) => setTimeout(resolve, 10_000));
+          const startedAtMs = Date.now();
+          await new Promise((resolve) => setTimeout(resolve, 60_000));
+          const endedAtMs = Date.now();
+          const all = records();
+          const steady = all.filter((row) => row.atMs >= startedAtMs && row.atMs < endedAtMs);
+          const counts = (rows: Record[], field: (row: Record) => string | undefined) => {
+            const result: { [key: string]: number } = {};
+            for (const row of rows) {
+              const key = field(row);
+              if (key !== undefined) result[key] = (result[key] ?? 0) + 1;
+            }
+            return result;
+          };
+          const summary = boards.map(({ view, trace }) => {
+            const rows = steady.filter((row) => row.view === view);
+            return {
+              view,
+              apiSpawns: rows.filter((row) => row.event === 'launch' && row.argv?.[0] === 'api')
+                .length,
+              operations: counts(rows, (row) =>
+                row.event === 'request' ? row.operation : undefined
+              ),
+              commands: counts(rows, (row) =>
+                row.event === 'launch' ? row.argv?.join(' ') : undefined
+              ),
+              trace: readFileSync(trace, 'utf8'),
+            };
+          });
+          for (const { pane } of boards) tmux(['send-keys', '-t', pane, 'q']);
+          const owned = new Set([
+            ...boards.map((board) => board.pid),
+            ...all.flatMap((row) => [row.wrapperPid, ...(row.pid ? [row.pid] : [])]),
+          ]);
+          await vi.waitFor(
+            () => {
+              for (const pid of owned) expect(() => process.kill(pid, 0)).toThrow();
+            },
+            { timeout: 15_000, interval: 100 }
+          );
+          writeFileSync(
+            destination,
+            JSON.stringify(
+              {
+                startedAtMs,
+                endedAtMs,
+                seconds: (endedAtMs - startedAtMs) / 1000,
+                seededPeers: 8,
+                seededLead: 'Ben',
+                warmupSeconds: 10,
+                summary,
+                records: all,
+                cleanup: { boardsAndCoreChildrenGone: true },
+              },
+              null,
+              2
+            ) + '\n'
+          );
+        } finally {
+          scratch.stop();
+          await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+            timeout: 10_000,
+            interval: 100,
+          });
+          expect(scratch.run(['list-sessions']).status).not.toBe(0);
+        }
+      });
+    },
+    240_000
+  );
+});
