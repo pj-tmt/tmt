@@ -251,3 +251,198 @@ fn a_digest_stop_with_nothing_due_names_nothing() {
     let session = digest.session();
     assert_eq!(session["learning"], Value::Null, "{session:#}");
 }
+
+impl DueDigest {
+    /// Configuration is fixture setup; the actual held request still enters through public talk.
+    fn hold_summary(&self) -> String {
+        use tmt_adapters::orchestration::{DigestReceiving, DigestReceivingSettings};
+        let mut storage = Storage::open(self.fixture.state().join("tmt.db")).unwrap();
+        storage
+            .sync_digest_receiving(
+                0,
+                DigestReceivingSettings {
+                    enabled: true,
+                    default_receiving: DigestReceiving::Auto {},
+                    members: vec![],
+                },
+            )
+            .unwrap();
+        storage.close().unwrap();
+        let db = rusqlite::Connection::open(self.fixture.state().join("tmt.db")).unwrap();
+        db.execute("INSERT INTO orchestration_settings VALUES(1,1,'UTC')", [])
+            .unwrap();
+        let plan = tmt_core::operation::new_operation_id();
+        db.execute("INSERT INTO orchestration_plans VALUES(?1,'Quiet',1,1,1,'{\"kind\":\"always\"}','{\"state\":\"sleep\"}')",[&plan]).unwrap();
+        db.execute(
+            "INSERT INTO orchestration_plan_targets VALUES(?1,0,'{\"kind\":\"all\"}')",
+            [&plan],
+        )
+        .unwrap();
+        let now = tmt_adapters::request_runtime::wall_time_ms();
+        let policy = passthrough::api(
+            &self.fixture,
+            "ok",
+            "digest.policy.set",
+            serde_json::json!({"identityId":self.agent,"ownerIdentityId":self.agent,"setterIdentityId":self.agent,"expectedRevision":0,"untilMs":now+120000}),
+        );
+        assert_eq!(policy["active"], true, "{policy:#}");
+        let held = self.fixture.json(&[
+            "talk",
+            "worker",
+            "secret body belongs only in inbox",
+            "--identity",
+            "core-1",
+            "--detach",
+            "--json",
+        ]);
+        assert_eq!(held["digest"], true, "{held:#}");
+        held["requestId"].as_str().unwrap().into()
+    }
+    fn release_summary(&self) {
+        rusqlite::Connection::open(self.fixture.state().join("tmt.db"))
+            .unwrap()
+            .execute(
+                "UPDATE orchestration_plans SET fields='{\"state\":\"awake\"}',revision=2",
+                [],
+            )
+            .unwrap();
+    }
+    fn assert_terminal_summary(&self, request: &str) {
+        let db = rusqlite::Connection::open(self.fixture.state().join("tmt.db")).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM orchestration_pending_wakes",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM capture_entries WHERE checklist_id IS NOT NULL",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        let evidence:(String,String,i64,i64,bool)=db.query_row("SELECT state,projection,sealed_count,summary_urgent_count,confirmed_at_ms IS NOT NULL FROM focus_checklists",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).unwrap();
+        assert_eq!(
+            evidence,
+            ("delivered".into(), "incoming_summary".into(), 1, 0, true)
+        );
+        assert!(
+            db.query_row(
+                "SELECT response_submitted_at_ms IS NULL FROM request_attempts WHERE request_id=?",
+                [request],
+                |r| r.get::<_, bool>(0)
+            )
+            .unwrap()
+        );
+    }
+}
+#[test]
+fn a_released_summary_uses_the_public_stop_handoff_without_bodies_capture_or_reoffer() {
+    let mut digest = DueDigest::start("digest-summary-stop", live_owner(), false, false);
+    let request = digest.hold_summary();
+    digest.release_summary();
+    let output = digest.stop("summary");
+    let handoff: Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(handoff["decision"], "block", "{output}");
+    assert_eq!(
+        handoff["reason"], "you have 1 messages, 0 urgent: tmt inbox",
+        "{output}"
+    );
+    digest.assert_terminal_summary(&request);
+    let again = digest.stop("summary-finished");
+    assert!(
+        !again.contains("decision"),
+        "terminal summary must never reoffer: {again}"
+    );
+}
+#[test]
+fn the_public_wake_step_keeps_sleep_pending_then_uses_the_existing_host_send() {
+    let mut digest = DueDigest::start("digest-summary-host", live_owner(), false, false);
+    let request = digest.hold_summary();
+    ok(digest
+        .codex
+        .hook(codex_event("UserPromptSubmit", Some("ready"))));
+    ok(digest.codex.hook(codex_event("Stop", Some("ready"))));
+    let blocked = passthrough::api(
+        &digest.fixture,
+        "ok",
+        "digest.wake.step",
+        serde_json::json!({"budgetMs":1000,"limit":1}),
+    );
+    assert_eq!(blocked["state"], "unavailable", "{blocked:#}");
+    digest.release_summary();
+    // Complete the prior bounded UUID pass, then the next step sees the released seat.
+    let mut result = Value::Null;
+    for _ in 0..2 {
+        result = passthrough::api(
+            &digest.fixture,
+            "ok",
+            "digest.wake.step",
+            serde_json::json!({"budgetMs":5000,"limit":1}),
+        );
+        if result["state"] == "delivered" {
+            break;
+        }
+    }
+    assert_eq!(result["schemaVersion"], 1);
+    assert_eq!(result["state"], "delivered", "{result:#}");
+    assert_eq!(result["identityId"], digest.agent);
+    assert_eq!(result["incomingCount"], 1);
+    assert_eq!(result["urgentCount"], 0);
+    let prompted = digest.fixture.requests("prompted");
+    assert_eq!(prompted.len(), 1, "{prompted:#?}");
+    assert_eq!(
+        prompted[0]["text"],
+        "you have 1 messages, 0 urgent: tmt inbox"
+    );
+    digest.assert_terminal_summary(&request);
+}
+
+#[test]
+fn a_uuid_pinned_flush_defers_a_busy_summary_even_with_when_busy_then_delivers_at_idle() {
+    let mut digest = DueDigest::start("digest-summary-pinned", live_owner(), false, false);
+    let request = digest.hold_summary();
+    digest.release_summary();
+    ok(digest
+        .codex
+        .hook(codex_event("UserPromptSubmit", Some("busy"))));
+    let busy = passthrough::api(
+        &digest.fixture,
+        "ok",
+        "digest.checklist.flush",
+        serde_json::json!({"identityId":digest.agent,"whenBusy":true}),
+    );
+    assert_eq!(busy["state"], "not_idle", "{busy:#}");
+    let db = rusqlite::Connection::open(digest.fixture.state().join("tmt.db")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM orchestration_wake_clock", [], |r| r
+            .get::<_, i64>(
+            0
+        ))
+        .unwrap(),
+        0,
+        "busy input consumes no admission"
+    );
+    ok(digest.codex.hook(codex_event("Stop", Some("busy"))));
+    let idle = passthrough::api(
+        &digest.fixture,
+        "ok",
+        "digest.checklist.flush",
+        serde_json::json!({"identityId":digest.agent,"whenBusy":true}),
+    );
+    assert_eq!(idle["state"], "delivered", "{idle:#}");
+    assert_eq!(idle["identityId"], digest.agent);
+    let prompted = digest.fixture.requests("prompted");
+    assert_eq!(prompted.len(), 1);
+    assert_eq!(
+        prompted[0]["text"],
+        "you have 1 messages, 0 urgent: tmt inbox"
+    );
+    digest.assert_terminal_summary(&request);
+}

@@ -7,6 +7,7 @@ mod concurrency;
 mod crash;
 mod delivery_state;
 mod digest;
+mod digest_summary;
 mod enqueue;
 mod flow;
 mod history;

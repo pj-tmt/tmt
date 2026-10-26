@@ -2,6 +2,32 @@
 use super::*;
 
 #[test]
+fn wake_step_admits_only_finite_whole_budgets_and_candidate_limits() {
+    let decode = |input: Value| {
+        super::super::decode(
+            &json!({"version":1,"operation":"digest.wake.step","input":input}).to_string(),
+        )
+    };
+    for (budget, limit) in [(1, 1), (60_000, 256)] {
+        assert!(
+            matches!(decode(json!({"budgetMs":budget,"limit":limit})).unwrap(), Request::Digest(op) if matches!(*op,Operation::WakeStep{budget_ms,..} if budget_ms==budget))
+        );
+    }
+    for input in [
+        json!({}),
+        json!({"budgetMs":0,"limit":1}),
+        json!({"budgetMs":60001,"limit":1}),
+        json!({"budgetMs":1.5,"limit":1}),
+        json!({"budgetMs":1,"limit":0}),
+        json!({"budgetMs":1,"limit":257}),
+        json!({"budgetMs":1,"limit":1,"identityId":"any"}),
+        json!({"budgetMs":1,"limit":"1"}),
+    ] {
+        assert!(decode(input).is_err());
+    }
+}
+
+#[test]
 fn receiving_sync_admits_only_configured_modes_and_unique_bounded_overrides() {
     let id = "10000000-0000-4000-8000-000000000001";
     let base = json!({"expectedRevision":0,"enabled":true,"defaultReceiving":{"mode":"batch","intervalMs":1501},"members":[]});
@@ -134,6 +160,7 @@ fn history_vectors_pin_content_free_projection_and_fit_the_consumer_byte_budget(
                             through_sequence: 999,
                             state: DigestState::parse(row["outcome"].as_str().unwrap()).unwrap(),
                             created_at_ms: row["claimedAtMs"].as_u64().unwrap(),
+                            projection: Default::default(),
                         },
                         settlement_sequence: row["settlementSequence"].as_u64().unwrap(),
                         settled_at_ms: row["settledAtMs"].as_u64(),
@@ -176,6 +203,21 @@ fn history_vectors_pin_content_free_projection_and_fit_the_consumer_byte_budget(
         };
         let actual = history_value(given["identityId"].as_str().unwrap(), &page);
         assert_eq!(actual, vector["expected"], "{}", vector["name"]);
+        let mut summary = page.clone();
+        if let Some(row) = summary.checklists.first_mut() {
+            row.evidence.checklist.projection =
+                tmt_core::request::digest::DigestProjection::IncomingSummary {
+                    incoming_count: 2,
+                    urgent_count: 1,
+                };
+            row.evidence.sealed_count = Some(2);
+            let value = history_value(given["identityId"].as_str().unwrap(), &summary);
+            assert_eq!(
+                value["checklists"][0]["projection"],
+                json!({"kind":"incoming_summary","incomingCount":2,"urgentCount":1})
+            );
+        }
+
         let mut largest = page.clone();
         if let Some(row) = largest.checklists.first().cloned() {
             let mut header = row.clone();

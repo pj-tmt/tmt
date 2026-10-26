@@ -214,20 +214,17 @@ fn orchestration_sleep_and_focus_gate_every_claim_and_seal_only_urgent_members()
     let items = service(&mut f)
         .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
         .unwrap();
-    assert_eq!(
-        items
-            .iter()
-            .map(|i| i.request_id.as_str())
-            .collect::<Vec<_>>(),
-        vec![urgent.as_str()]
+    assert!(
+        items.is_empty(),
+        "pending summary membership is frozen only at claim"
     );
     let batch = service(&mut f)
-        .claim_digest_checklist(
+        .claim_digest_summary(
             &target,
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::TurnBoundary,
-            None,
+            || true,
         )
         .unwrap()
         .unwrap();
@@ -279,13 +276,14 @@ fn orchestration_sleep_and_focus_gate_every_claim_and_seal_only_urgent_members()
         4,
         "idempotent settlement is not another decision"
     );
+    f.set_now(NOW_MS + 1000); // Every admitted summary shares the persistent spacing clock.
     let restored = service(&mut f)
-        .claim_digest_checklist(
+        .claim_digest_summary(
             &target,
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::Idle,
-            None,
+            || true,
         )
         .unwrap()
         .unwrap();

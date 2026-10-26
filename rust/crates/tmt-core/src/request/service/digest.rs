@@ -3,6 +3,7 @@ use super::super::digest::{
     DigestRejection, DigestState,
 };
 use super::*;
+mod summary;
 
 fn digest_error<E>(reason: DigestRejection) -> RequestError<E> {
     RequestError::Digest(reason)
@@ -91,8 +92,12 @@ fn selected_items<E>(
     }
     let mut admitted = Vec::new();
     for item in items {
-        if item.source == digest::DigestSource::Incoming
-            && records.delivery_policy(&item.request_id)?.urgent
+        if (selection == digest::DigestSelection::Notices
+            && item.source != digest::DigestSource::Incoming)
+            || (item.source == digest::DigestSource::Incoming
+                && (selection == digest::DigestSelection::Incoming
+                    || (selection == digest::DigestSelection::UrgentIncoming
+                        && records.delivery_policy(&item.request_id)?.urgent)))
         {
             admitted.push(item);
         }
@@ -114,6 +119,11 @@ fn reap_stranded_claim<E>(
     else {
         return Ok(false);
     };
+    if stale.projection != digest::DigestProjection::Full {
+        records.settle_digest_checklist(&stale, DigestState::Uncertain, now)?;
+        summary::settled_marker(records, &stale, now)?;
+        return Ok(true);
+    }
     let release: Vec<u64> = stranded_open_items(records, &stale, now)?
         .into_iter()
         .map(|item| item.sequence)
@@ -128,6 +138,9 @@ fn stranded_open_items<E>(
     stale: &DigestChecklist,
     now: u64,
 ) -> Result<Vec<digest::DigestItem>, RequestError<E>> {
+    if stale.projection != digest::DigestProjection::Full {
+        return Ok(Vec::new());
+    }
     let mut open = Vec::new();
     let mut after = 0;
     loop {
@@ -148,6 +161,20 @@ fn stranded_open_items<E>(
 }
 
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    /// Inspect a checklist's projection within its identity's retained records.
+    pub fn digest_projection(
+        &mut self,
+        identity: &str,
+        checklist: &str,
+    ) -> Result<Option<digest::DigestProjection>, RequestError<R::Error>> {
+        self.repository.with_request_observation(|records| {
+            digest_identity(records, identity)?;
+            Ok(records
+                .digest_checklist(checklist)?
+                .filter(|b| b.identity_id == identity)
+                .map(|b| b.projection))
+        })
+    }
     /// Uses the same first-final eligibility as reply admission, without renewing
     /// retention or acknowledging attention.
     pub fn digest_reply_context(
@@ -544,8 +571,16 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 through_sequence,
                 state: DigestState::Claimed,
                 created_at_ms: now,
+                projection: digest::DigestProjection::Full,
             };
-            records.create_digest_checklist(&checklist, now, opportunity, count, selection)?;
+            records.create_digest_checklist(
+                &checklist,
+                now,
+                opportunity,
+                count,
+                selection,
+                None,
+            )?;
             Ok(Some(checklist))
         })
     }
@@ -582,6 +617,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 return Err(RequestError::RevisionExhausted);
             }
             records.settle_digest_checklist(&batch, state, now)?;
+            if batch.projection != digest::DigestProjection::Full {
+                summary::settled_marker(records, &batch, now)?;
+            }
             Ok(true)
         })
     }
@@ -606,6 +644,24 @@ fn receiving_selection<E>(
     identity: &str,
     now: u64,
 ) -> Result<digest::DigestSelection, RequestError<E>> {
+    if records.digest_pending_wake(identity)?.is_some() {
+        return Ok(
+            if records
+                .orchestration_receiving_policy(identity, now)?
+                .is_some_and(|p| {
+                    matches!(
+                        p.receiving.value,
+                        crate::orchestration::OrchReceiving::Hold
+                            | crate::orchestration::OrchReceiving::Urgent
+                    )
+                })
+            {
+                digest::DigestSelection::None
+            } else {
+                digest::DigestSelection::Notices
+            },
+        );
+    }
     Ok(
         if records
             .orchestration_receiving_policy(identity, now)?
@@ -700,6 +756,11 @@ pub(super) fn hold_incoming<E>(
     if until.is_some()
         && let Some(identity) = &attempt.recipient_identity_id
     {
+        let new_hold = !records.has_digest_item(
+            identity,
+            &attempt.request_id,
+            digest::DigestSource::Incoming,
+        )?;
         records.hold_digest_item(
             identity,
             &attempt.request_id,
@@ -707,6 +768,9 @@ pub(super) fn hold_incoming<E>(
             digest::DigestSource::Incoming,
             now,
         )?;
+        if new_hold {
+            summary::restricted_hold(records, identity, policy.urgent, now)?;
+        }
     }
     Ok(until)
 }

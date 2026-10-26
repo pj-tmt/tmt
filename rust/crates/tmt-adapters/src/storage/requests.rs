@@ -8,6 +8,7 @@ mod attention;
 mod delivery;
 mod digest;
 mod digest_journal;
+mod digest_wake;
 mod flow;
 mod history;
 mod notification;
@@ -378,6 +379,49 @@ impl RequestRecords for RequestRows<'_> {
     fn digest_oldest_held(&self, id: &str, now: u64) -> Result<Option<u64>, Self::Error> {
         digest::oldest_held(self.0, id, now)
     }
+    fn resolved_receiving_policy(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<Option<tmt_core::orchestration::receiving::OrchReceivingPolicy>, Self::Error> {
+        self.1
+            .ok_or_else(|| {
+                StorageError::new(
+                    StorageErrorCode::Unknown,
+                    "Receiving calendar was not admitted",
+                )
+            })?
+            .resolved_receiving(self.0, id, now, digest::policy(self.0, id)?)
+    }
+    fn digest_pending_wake(
+        &self,
+        id: &str,
+    ) -> Result<Option<tmt_core::request::digest::DigestPendingWake>, Self::Error> {
+        digest_wake::marker(self.0, id)
+    }
+    fn write_digest_pending_wake(
+        &mut self,
+        id: &str,
+        marker: Option<&tmt_core::request::digest::DigestPendingWake>,
+    ) -> Result<(), Self::Error> {
+        digest_wake::write_marker(self.0, id, marker)
+    }
+    fn digest_wake_clock(&self) -> Result<tmt_core::request::digest::DigestWakeClock, Self::Error> {
+        digest_wake::clock(self.0)
+    }
+    fn write_digest_wake_clock(
+        &mut self,
+        clock: &tmt_core::request::digest::DigestWakeClock,
+    ) -> Result<(), Self::Error> {
+        digest_wake::write_clock(self.0, clock)
+    }
+    fn digest_wake_candidates(
+        &self,
+        after: Option<&str>,
+        limit: u64,
+    ) -> Result<Vec<String>, Self::Error> {
+        digest_wake::candidates(self.0, after, limit)
+    }
     fn release_digest_item(
         &mut self,
         id: &str,
@@ -490,9 +534,23 @@ impl RequestRecords for RequestRows<'_> {
         opportunity: tmt_core::request::digest::DigestOpportunity,
         sealed_count: u64,
         selection: tmt_core::request::digest::DigestSelection,
+        members: Option<&[u64]>,
     ) -> Result<(), Self::Error> {
-        digest::create_checklist(self.0, b, now, opportunity, sealed_count, selection)?;
-        if let Some(policy) = self.orchestration_receiving_policy(&b.identity_id, now)? {
+        digest::create_checklist(
+            self.0,
+            b,
+            now,
+            opportunity,
+            sealed_count,
+            selection,
+            members,
+        )?;
+        let policy = if b.projection == tmt_core::request::digest::DigestProjection::Full {
+            self.orchestration_receiving_policy(&b.identity_id, now)?
+        } else {
+            self.resolved_receiving_policy(&b.identity_id, now)?
+        };
+        if let Some(policy) = policy {
             digest_journal::claim(self.0, b, &policy, now)?;
         }
         Ok(())

@@ -13,9 +13,10 @@ owns policy; its calendar port receives adapter/Jiff conversions only. Calendar 
 loads before request transactions and its zone selection is rechecked inside them.
 Real hold, checklist admission and settlement journal appends share their request
 transaction; checklist settlement uses frozen claim evidence. Reads, preview and
-configuration publication append nothing. Pending wake markers and the shared clock
-keep no range history or copied members; the existing tagged checklist owns frozen
-Incoming summary membership and terminal notification evidence. [Orchestration v1](../../../../contracts/orchestration-v1.md)
+configuration publication append nothing. Actual restricted Incoming holds create class markers; the shared clock keeps
+only admission spacing/pass progress. Claims freeze eligible membership and counts
+in the existing summary-tagged checklist; settlement is terminal without captured
+input, prompt confirmation or reoffer. No range history or member copy exists. [Orchestration v1](../../../../contracts/orchestration-v1.md)
 owns shapes, recurrence rules, state defaults and slice boundaries.
 
 - Raw connections stay private; core sees narrow ports. Frozen fixtures keep their provenance in

@@ -225,14 +225,14 @@ The existing same-user person/passthrough authority remains separate.
 Holding still requires the existing finite Digest window: if Digest is removed
 and its tick stops, a stale settings publication creates no continuing hold.
 
-### Incoming summary implementation target (#5113)
+### Incoming summaries and wake spacing
 
-This section specifies the approved implementation target; the incomplete slice
-still uses the ordinary checklist delivery described above.
-
-When receiving releases currently held eligible Incoming, Core records one
-pending wake marker for the canonical identity UUID. It keeps no range history
-or second copy of held membership. Current policy and held items determine the
+The transaction that actually holds Incoming under effective Urgent/Hold
+creates or coalesces one pending class marker for the canonical identity UUID.
+It stays pending while current receiving blocks those classes; release does not
+reconstruct historical policy. Base Auto never creates a marker, and holds from
+before the upgrade keep the ordinary Digest lifecycle. The marker keeps no range
+history or second copy of held membership. Current policy and held items determine the
 released classes; Sleep changing to Focus releases urgent Incoming separately
 while ordinary Incoming remains held. Other simultaneous class releases coalesce.
 An overlapping effective restriction still prevents an inadmissible wake.
@@ -260,7 +260,8 @@ The existing Digest transport sends exactly
 member request IDs or receipts, reserves no captured input, and never enters
 request-ID prompt confirmation or reoffer. Notification does not pull,
 acknowledge, answer or complete its requests. Delivered or uncertain is terminal;
-the marker is cleared with settlement and sealed membership grants no replay.
+the claimed opportunity closes with settlement and sealed membership grants no
+replay. Only other unsealed eligible work keeps the marker pending.
 Only a proven-unsent preflight permits a later opportunity. Possible transport
 is uncertainty, not automatic retry permission.
 

@@ -2,7 +2,7 @@
 use super::*;
 use tmt_core::request::digest::{
     DeliveryMode, DeliveryPolicy, DigestChecklist, DigestItem, DigestKind, DigestPolicy,
-    DigestSelection, DigestSource, DigestState,
+    DigestProjection, DigestSelection, DigestSource, DigestState,
 };
 
 pub(super) fn policy(db: &Connection, id: &str) -> Result<Option<DigestPolicy>, StorageError> {
@@ -220,6 +220,8 @@ fn selection_clause(selection: DigestSelection) -> &'static str {
     match selection {
         DigestSelection::All => "1",
         DigestSelection::Incoming => "source='incoming'",
+        DigestSelection::Notices => "source!='incoming'",
+        DigestSelection::None => "0",
         DigestSelection::UrgentIncoming => {
             "source='incoming' AND EXISTS(SELECT 1 FROM request_delivery_policies p WHERE p.request_id=focus_items.request_id AND p.urgent=1)"
         }
@@ -265,9 +267,17 @@ fn checklist_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<DigestChecklist> {
         through_sequence: rows::u64_at(r, 3)?,
         state: DigestState::parse(&r.get::<_, String>(4)?).ok_or(rusqlite::Error::InvalidQuery)?,
         created_at_ms: rows::u64_at(r, 5)?,
+        projection: match r.get::<_, String>(6)?.as_str() {
+            "full" => DigestProjection::Full,
+            "incoming_summary" => DigestProjection::IncomingSummary {
+                incoming_count: rows::u64_at(r, 7)?,
+                urgent_count: rows::u64_at(r, 8)?,
+            },
+            _ => return Err(rusqlite::Error::InvalidQuery),
+        },
     })
 }
-const CHECKLIST_COLUMNS: &str = "id,identity_id,attempt_token,through_sequence,state,created_at_ms";
+const CHECKLIST_COLUMNS: &str = "id,identity_id,attempt_token,through_sequence,state,created_at_ms,projection,sealed_count,summary_urgent_count";
 pub(super) fn checklist(
     db: &Connection,
     id: &str,
@@ -294,15 +304,52 @@ pub(super) fn create_checklist(
     opportunity: tmt_core::request::digest::DigestOpportunity,
     sealed_count: u64,
     selection: DigestSelection,
+    members: Option<&[u64]>,
 ) -> Result<(), StorageError> {
     let input_opportunity = opportunity;
     let opportunity = match opportunity {
         tmt_core::request::digest::DigestOpportunity::Idle => "idle",
         tmt_core::request::digest::DigestOpportunity::TurnBoundary => "turn_boundary",
     };
-    db.execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,state,created_at_ms,opportunity,sealed_count) VALUES(?1,?2,?3,?4,'claimed',?5,?6,?7)",
-        params![b.id,b.identity_id,b.attempt_token,checked_i64(b.through_sequence,"Digest snapshot sequence")?,checked_now(b.created_at_ms,"Digest claim clock")?,opportunity,checked_i64(sealed_count,"Digest sealed count")?])
+    let (projection, urgent) = match b.projection {
+        DigestProjection::Full if members.is_none() => ("full", None),
+        DigestProjection::Full => {
+            return Err(StorageError::new(
+                StorageErrorCode::Unknown,
+                "Full checklist cannot seal summary membership",
+            ));
+        }
+        DigestProjection::IncomingSummary {
+            incoming_count,
+            urgent_count,
+        } => {
+            if members.is_none_or(|items| items.len() as u64 != incoming_count)
+                || sealed_count != incoming_count
+                || urgent_count > incoming_count
+            {
+                return Err(StorageError::new(
+                    StorageErrorCode::Unknown,
+                    "Invalid summary membership",
+                ));
+            }
+            ("incoming_summary", Some(urgent_count as i64))
+        }
+    };
+    db.execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,state,created_at_ms,opportunity,sealed_count,projection,summary_urgent_count) VALUES(?1,?2,?3,?4,'claimed',?5,?6,?7,?8,?9)",
+        params![b.id,b.identity_id,b.attempt_token,checked_i64(b.through_sequence,"Digest snapshot sequence")?,checked_now(b.created_at_ms,"Digest claim clock")?,opportunity,checked_i64(sealed_count,"Digest sealed count")?,projection,urgent])
         .map_err(|e|classify(e,"Claim digest checklist"))?;
+    if let Some(members) = members {
+        let document = serde_json::to_string(members).expect("sequences serialize");
+        let changed = db.execute("UPDATE focus_items SET checklist_id=?1 WHERE identity_id=?2 AND checklist_id IS NULL AND source='incoming' AND sequence IN (SELECT value FROM json_each(?3))", params![b.id,b.identity_id,document])
+            .map_err(|e|classify(e,"Seal eligible Incoming summary membership"))?;
+        if changed as u64 != sealed_count {
+            return Err(StorageError::new(
+                StorageErrorCode::Unknown,
+                "Summary membership changed",
+            ));
+        }
+        return Ok(());
+    }
     db.execute(&format!("UPDATE focus_items SET checklist_id=?1 WHERE identity_id=?2 AND checklist_id IS NULL AND sequence<=?3
         AND {} AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?4)",selection_clause(selection)),
         params![b.id,b.identity_id,checked_i64(b.through_sequence,"Digest snapshot sequence")?,checked_now(now,"Digest claim clock")?])
@@ -325,7 +372,7 @@ pub(super) fn settle(
     // The existing writer transaction serializes allocation with every Core change.
     // A delivered checklist waits on later evidence (#4858): `confirmed_at_ms` stays null until it
     // comes (a prompt that carries an idle paste, the end of the continuation a Stop hook started).
-    let changed=db.execute("UPDATE focus_checklists SET state=?1,settled_at_ms=?5,settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1) WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
+    let changed=db.execute("UPDATE focus_checklists SET state=?1,settled_at_ms=?5,confirmed_at_ms=CASE WHEN projection='incoming_summary' THEN ?5 ELSE confirmed_at_ms END,settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1) WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
         params![state.as_str(),b.id,b.identity_id,b.attempt_token,checked_now(now,"Digest settlement clock")?]).map_err(|e|classify(e,"Settle digest checklist"))?;
     if changed != 1 {
         return Err(StorageError::new(
@@ -358,7 +405,7 @@ pub(super) fn settle(
 }
 
 /// The scope of an idle checklist that was typed and no prompt has carried yet.
-const UNCONFIRMED: &str = "c.identity_id=?1 AND c.state='delivered' AND c.opportunity='idle' AND c.confirmed_at_ms IS NULL";
+const UNCONFIRMED: &str = "c.identity_id=?1 AND c.projection='full' AND c.state='delivered' AND c.opportunity='idle' AND c.confirmed_at_ms IS NULL";
 
 pub(super) fn unconfirmed_items(
     db: &Connection,
@@ -488,7 +535,7 @@ pub(super) fn reap_claim(
 /// ended: the provider is working although its activity reads idle.
 pub(super) fn continuation_open(db: &Connection, identity: &str) -> Result<bool, StorageError> {
     db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM focus_checklists WHERE identity_id=?1 AND opportunity='turn_boundary'
+        "SELECT EXISTS(SELECT 1 FROM focus_checklists WHERE identity_id=?1 AND projection='full' AND opportunity='turn_boundary'
          AND state IN ('delivered','uncertain') AND confirmed_at_ms IS NULL)",
         [identity],
         |row| row.get(0),
@@ -503,7 +550,7 @@ pub(super) fn end_continuation(
     now: u64,
 ) -> Result<u64, StorageError> {
     db.execute(
-        "UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE identity_id=?1 AND opportunity='turn_boundary'
+        "UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE identity_id=?1 AND projection='full' AND opportunity='turn_boundary'
          AND state IN ('delivered','uncertain') AND confirmed_at_ms IS NULL",
         params![identity, checked_now(now, "Digest continuation clock")?],
     )
@@ -604,7 +651,7 @@ pub(super) fn history(
                 checked_limit(limit)?
             ],
             |r| {
-                let opportunity = match r.get::<_, Option<String>>(8)?.as_deref() {
+                let opportunity = match r.get::<_, Option<String>>(11)?.as_deref() {
                     None => None,
                     Some("idle") => Some(DigestOpportunity::Idle),
                     Some("turn_boundary") => Some(DigestOpportunity::TurnBoundary),
@@ -612,10 +659,10 @@ pub(super) fn history(
                 };
                 Ok(DigestHistoryChecklist {
                     checklist: checklist_row(r)?,
-                    settlement_sequence: rows::u64_at(r, 6)?,
-                    settled_at_ms: rows::optional_u64_at(r, 7)?,
+                    settlement_sequence: rows::u64_at(r, 9)?,
+                    settled_at_ms: rows::optional_u64_at(r, 10)?,
                     opportunity,
-                    sealed_count: rows::optional_u64_at(r, 9)?,
+                    sealed_count: rows::optional_u64_at(r, 12)?,
                 })
             },
         )
