@@ -40,9 +40,9 @@ describe('menu crumb trigger', () => {
 describe('menu item separator', () => {
   it('draws a rule above a separated row only', () => {
     const css = staticCss;
-    expect(css).toContain(
-      '.tmt-ui-menu-item[data-separated] {\n  border-top: var(--tmt-ui-rule-width) solid',
-    );
+    const rule = css.match(/\.tmt-ui-menu-item\[data-separated\]::before \{([^}]+)\}/)?.[1];
+    expect(rule).toContain('border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule)');
+    expect(rule).toContain('border-radius: 0');
   });
 });
 
