@@ -581,7 +581,7 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   Historical requests are not attributed on initial baseline. At most four
   distinct model IDs are retained per increment; unavailable evidence or the
   existing opaque-state size bound omits attribution while retaining totals.
-- `consumption.rateLimits` is `{provider,observedAtMs,windows}` from the driver's
+- `consumption.rateLimits` is `{provider,observedAtMs,windows,account?}` from the driver's
   allowance source, independently of its token counters. Codex reads the same newest
   accepted `token_count` line as the counters, unchanged; `observedAtMs` is that line's
   time. Claude reads only its existing `cachedUsageUtilization` in `~/.claude.json`,
@@ -610,8 +610,16 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   windows means no limits. A cache change advances the consumption sequence without
   adding tokens; an unchanged cache does not. `provider` is fixed by the source (`claude` or `codex`),
   never inferred from a seat's models; values stored before this field read as
-  `codex`. Core publishes no account identifier; consumers group windows only by
-  `(provider, windowMinutes, resetsAtMs)`, never by a model or plan tier.
+  `codex`. `account` is `{key,label}` and present only when the source names its account
+  (Claude; absent for Codex and agy, which have one implicit account, and for every value
+  stored before the field, so absence reads as that one account). `key` is the first 12
+  lowercase hex digits of SHA-256 over the provider, a NUL and the provider's account id: stable
+  per account, opaque, never the raw id, an email or an organization name. `label` is 1 to 32
+  characters of `[A-Za-z0-9._-]` taken from the name of the seat's config root without its
+  leading dots (`~/.claude` gives `claude`, `CLAUDE_CONFIG_DIR=~/.claude-work` gives
+  `claude-work`); a root name that is empty or contains `@` gives the provider id. Consumers
+  group windows by `(provider, account.key, windowMinutes, resetsAtMs)` and show the label only
+  when a provider has more than one account; they never group by a model or plan tier.
   Codex's `limit_id` names a limit family and `plan_type` a shared plan tier;
   neither identifies an account.
   `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs}` entries in
@@ -747,7 +755,7 @@ are uncovered). A bucket adds `rateLimits` (the public `resume.consumption` shap
 newest limits **observed inside the bucket**, absent when no source timestamp falls
 in it. Cached allowance fetched before every retained bucket is available only in
 `latest.consumption`, preserving its original fetch time. Account windows repeat across seats on one
-account and across buckets, so a reader dedupes by `(provider, windowMinutes, resetsAtMs)`
+account and across buckets, so a reader dedupes by `(provider, account.key, windowMinutes, resetsAtMs)`
 and never sums them. A bucket also adds the
 Codex `credits` (the public `consumption.credits` shape), the newest **observed inside the
 bucket** by the same rule as `rateLimits`, and `serviceTier`, the tier id of the newest

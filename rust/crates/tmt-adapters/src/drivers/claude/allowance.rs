@@ -2,7 +2,7 @@
 //! first-party mod pushes (#5187). Never refresh the cache, read credentials, or retain unrelated
 //! configuration fields. The newest observation per account wins, whole.
 use crate::{
-    runtime::consumption::{RateLimits, RateWindow},
+    runtime::consumption::{RateAccount, RateLimits, RateWindow},
     skill_installation::ProviderEnvironment,
 };
 use serde::{Deserialize, Serialize};
@@ -104,13 +104,21 @@ pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<Rat
         .zip(account(&bytes))
         .and_then(|(root, account)| pushed(root, account, now_ms));
     // The newest observation wins whole; a tie prefers the cache. Never merged per window.
-    match (cached, pushed) {
+    let mut winner = match (cached, pushed) {
         (Some(cached), Some(pushed)) if pushed.observed_at_ms > cached.observed_at_ms => {
             Some(pushed)
         }
         (Some(cached), _) => Some(cached),
         (None, pushed) => pushed,
-    }
+    }?;
+    // Both sources are this root's account (the cache is admitted only when its account is the
+    // file's own), so the winner is named by that account and the root's name (#5274).
+    winner.account = account(&bytes).map(|uuid| {
+        let root = super::config_root(environment);
+        let name = root.file_name().and_then(|name| name.to_str());
+        RateAccount::derive(super::NAME, uuid, name.unwrap_or_default())
+    });
+    Some(winner)
 }
 
 #[derive(Deserialize)]
@@ -204,6 +212,7 @@ pub(super) fn push(
         provider: super::NAME.into(),
         observed_at_ms: now_ms,
         windows,
+        account: None,
     };
     if limits
         .windows
@@ -266,6 +275,7 @@ fn parse(bytes: &[u8], now_ms: u64) -> Option<RateLimits> {
         provider: super::NAME.into(),
         observed_at_ms: cache.fetched_at_ms,
         windows: Vec::new(),
+        account: None,
     };
     for (minutes, window) in [
         (300, cache.utilization.five_hour),

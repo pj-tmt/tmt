@@ -431,3 +431,48 @@ fn without_a_data_root_the_cache_alone_answers() {
         ProviderEnvironment::from_parts(&pushed.home.path, &pushed.home.path, Vec::new(), []);
     assert_eq!(read(&rootless, NOW).unwrap().observed_at_ms, FETCHED);
 }
+
+#[test]
+fn a_reading_names_its_account_by_a_key_and_the_roots_name_whichever_source_won() {
+    let pushed = PushedFixture::new(&config());
+    // The cache answers: the default root `~/.claude` is labelled `claude`.
+    let cached = pushed.read(NOW).unwrap();
+    let account = cached.account.clone().unwrap();
+    assert_eq!(account.label, "claude");
+    assert!(!account.key.contains("account-a"));
+    // A newer push names the same account the cache did.
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let from_push = pushed.read(NOW).unwrap();
+    assert_eq!(from_push.observed_at_ms, NOW);
+    assert_eq!(from_push.account, Some(account.clone()));
+    // The store keeps no account: it is keyed by the account id already.
+    let store = fs::read_to_string(pushed.data.path.join(STORE)).unwrap();
+    assert!(!store.contains("\"account\"") && !store.contains(&account.key));
+    // Another account is another key; the same account under another root keeps its key and
+    // takes that root's name.
+    let mut other = config();
+    other["oauthAccount"]["accountUuid"] = json!("account-b");
+    other["cachedUsageUtilization"]["accountUuid"] = json!("account-b");
+    pushed.config(&other);
+    let second = pushed.read(NOW).unwrap().account.unwrap();
+    assert_ne!(second.key, account.key);
+    let home = TestDirectory::new();
+    let root = home.path.join(".claude-work");
+    fs::create_dir(&root).unwrap();
+    fs::write(
+        root.join(".claude.json"),
+        serde_json::to_vec(&config()).unwrap(),
+    )
+    .unwrap();
+    let selected = ProviderEnvironment::from_parts(
+        &home.path,
+        &home.path,
+        Vec::new(),
+        [("CLAUDE_CONFIG_DIR", root.clone())],
+    );
+    let work = read(&selected, NOW).unwrap().account.unwrap();
+    assert_eq!(
+        (work.key.as_str(), work.label.as_str()),
+        (account.key.as_str(), "claude-work")
+    );
+}

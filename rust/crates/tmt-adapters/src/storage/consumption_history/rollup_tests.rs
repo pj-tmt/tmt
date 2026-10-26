@@ -494,6 +494,54 @@ fn only_limits_observed_inside_the_bucket_are_kept_and_the_newest_wins() {
     assert!(kept(connection, ROLLUP_BUCKET_MS).unwrap().contains("12.5"));
 }
 
+#[test]
+fn a_bucket_reports_the_account_of_the_limits_it_kept_and_omits_it_for_an_earlier_value() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let connection = storage.connection().unwrap();
+    let limited = |account: Option<serde_json::Value>, sequence: u64, at: u64| {
+        let mut reading = latest(sequence, sequence, sequence, at);
+        let mut limits = json!({"provider":"claude","observedAtMs":at - 500,"windows":[
+            {"windowMinutes":10_080,"usedPercent":40.0,"resetsAtMs":9_000_000}]});
+        if let Some(account) = account {
+            limits["account"] = account;
+        }
+        reading.consumption.rate_limits = Some(serde_json::from_value(limits).unwrap());
+        reading
+    };
+    let account = json!({"key":"0123456789ab","label":"claude-work"});
+    record_sample(
+        connection,
+        &id,
+        Some(limited(Some(account.clone()), 1, 6_000)),
+        6_000,
+    )
+    .unwrap();
+    let next = ROLLUP_BUCKET_MS + 6_000;
+    record_sample(connection, &id, Some(limited(None, 2, next)), next).unwrap();
+    let history = storage
+        .consumption_history(
+            std::slice::from_ref(&id),
+            &[3_900_000],
+            120,
+            2 * ROLLUP_BUCKET_MS + 2_500,
+            false,
+            None,
+        )
+        .unwrap();
+    let buckets = history["identities"][0]["windows"][0]["buckets"]
+        .as_array()
+        .unwrap();
+    let limits: Vec<&Value> = buckets
+        .iter()
+        .filter_map(|bucket| bucket.get("rateLimits"))
+        .collect();
+    assert_eq!(limits.len(), 2, "{history:#}");
+    assert_eq!(limits[0]["account"], account);
+    assert!(limits[1].get("account").is_none(), "{:#}", limits[1]);
+}
+
 fn account(
     observed: u64,
     balance: &str,

@@ -398,7 +398,10 @@ delivery. They install and launch nothing.
   cache, with same-file account equality and the original fetch time. It never
   refreshes the cache, reads credentials or changes provider configuration. The
   [allowance contract](../../../../contracts/extension-api.md#consumption-history)
-  owns age, reset expiry and unavailable-window semantics.
+  owns age, reset expiry and unavailable-window semantics, and the `account {key,label}`
+  that names the root's account (#5274): `RateAccount::derive` hashes the provider and the
+  account id and labels it with the root's name, and `allowance::read` attaches it to the
+  winning reading, so the pushed store stays keyed by the raw id and holds no account.
   The same line's `credits` (balance text, never arithmetic) and the newest
   `thread_settings_applied` `service_tier` in the attribution tail are read the same way:
   each is dropped whole when invalid, absent tier means unknown (never `default`), and
