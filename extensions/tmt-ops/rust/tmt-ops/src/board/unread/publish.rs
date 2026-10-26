@@ -168,12 +168,14 @@ impl Writer {
                     member: body.member.clone(),
                     request: body.request.clone(),
                     kind: Some(body.kind),
-                    answered_at_ms: body.at_ms,
+                    // A frozen revision is the complete ack authority; this clock
+                    // is not sent to Core or used to resolve a newer revision.
+                    answered_at_ms: body.at_ms.unwrap_or(0),
                     revision,
                     acknowledged: false,
                 },
             });
-        } else {
+        } else if body.at_ms.is_some() {
             self.walk(
                 Walk::new(body.actor.clone(), Goal::Body(body.clone())),
                 true,

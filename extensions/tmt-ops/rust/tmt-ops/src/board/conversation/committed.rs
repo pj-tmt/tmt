@@ -61,6 +61,8 @@ mod tests {
     fn input(id: &str, batch: Option<&str>) -> Entry {
         Entry {
             id: id.into(),
+            acknowledgements: Vec::new(),
+            acknowledgements_truncated: false,
             batch: batch.map(str::to_owned),
             kind: Kind::Input(Input {
                 request: id.into(),
@@ -80,6 +82,8 @@ mod tests {
     fn final_entry(id: &str, response: &str) -> Entry {
         Entry {
             id: id.into(),
+            acknowledgements: Vec::new(),
+            acknowledgements_truncated: false,
             batch: Some("g".into()),
             kind: Kind::Final {
                 response_id: response.into(),
@@ -151,6 +155,8 @@ mod tests {
     fn submitted_replies_use_request_identity_and_failures_are_once_per_batch() {
         let reply = |id: &str, request: &str| Entry {
             id: id.into(),
+            acknowledgements: Vec::new(),
+            acknowledgements_truncated: false,
             batch: Some("g".into()),
             kind: Kind::Reply {
                 request: request.into(),
@@ -163,6 +169,8 @@ mod tests {
         };
         let fail = |id: &str| Entry {
             id: id.into(),
+            acknowledgements: Vec::new(),
+            acknowledgements_truncated: false,
             batch: Some("g".into()),
             kind: Kind::Failure {
                 code: "worker_error".into(),

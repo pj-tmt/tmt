@@ -320,7 +320,12 @@ fn new_output_does_not_replace_a_paused_request_and_end_reads_latest() {
     assert!(unavailable.contains("new final"));
     assert!(!unavailable.contains("new output"));
     app.scroll_pane(Pane::Replies, Step::Bottom);
-    assert!(draw(&app, 80, 18).contains("no response in loaded history"));
+    let empty = draw(&app, 80, 18);
+    assert!(
+        !empty.contains("alpha line") && !empty.contains("new final"),
+        "{empty}"
+    );
+    assert!(!empty.contains("Exchange history unavailable"), "{empty}");
 }
 
 #[test]
@@ -343,7 +348,7 @@ fn append_and_resize_keep_source_anchor_without_reparsing_unchanged_text() {
     );
     session.follow = false;
     session.anchor.select_visual(
-        &crate::board::notes::IndexedText::new(session.text.clone()),
+        &session.rendered.as_ref().unwrap().anchor_text,
         &session.rendered.as_ref().unwrap().mapped.sources,
         4,
     );
@@ -376,7 +381,7 @@ fn reacquiring_same_request_keeps_readable_source_but_explicit_failure_does_not(
     loading.acquired = false;
     loading.source = false;
     session.update(Some(loading.clone()));
-    assert_eq!(session.text, "known body");
+    assert_eq!(session.reply.as_ref().unwrap().body, "known body");
     assert_eq!(
         session.rendered.as_ref().unwrap().mapped.lines.as_ptr(),
         cache
@@ -384,7 +389,7 @@ fn reacquiring_same_request_keeps_readable_source_but_explicit_failure_does_not(
     loading.acquired = true;
     loading.body = "(reply expired)".into();
     session.update(Some(loading));
-    assert_eq!(session.text, "(reply expired)");
+    assert_eq!(session.reply.as_ref().unwrap().body, "(reply expired)");
     assert!(!session.reply.as_ref().unwrap().source);
 }
 
@@ -818,7 +823,10 @@ fn returning_to_agents_keeps_uuid_and_link_while_only_observed_questions_are_dis
                 "Digest shows status details"
             );
         } else if tab == OpsTab::Agents {
-            assert!(text.contains("(no response in loaded history)"), "{text}");
+            assert!(
+                text.contains("⏎ to message worker"),
+                "the selected conversation remains open: {text}"
+            );
             assert!(!text.contains("Loading recent pane output"), "{text}");
             assert!(
                 !text.contains("worker line 089"),
@@ -1178,7 +1186,8 @@ fn member_projection_keeps_exact_response_and_refresh_invalidates_only_the_displ
         "exact reply/copy source remains original markup"
     );
     assert_eq!(
-        session.text, raw,
+        session.reply.as_ref().unwrap().body,
+        raw,
         "source line anchors are based on the original sanitized source"
     );
     assert_eq!(
@@ -1223,7 +1232,6 @@ fn member_projection_keeps_exact_response_and_refresh_invalidates_only_the_displ
 #[test]
 fn pane_output_is_neutral_bounded_and_never_a_request_source() {
     use crate::board::recent_responses::{Item, Observation};
-    use ratatui::style::Modifier;
     let mut session = Session::default();
     session.update(Some(reply(
         "real-request",
@@ -1232,7 +1240,7 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
     session.transcript_context = transcript::Context {
         enabled: true,
         name: "alpha".into(),
-        times: vec![1000],
+
         exchanges: transcript::Exchanges::Observed,
         output_ages: vec!["now".into()],
         ..Default::default()
@@ -1261,37 +1269,20 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
             .collect();
         let header = labels
             .iter()
-            .position(|line| line.starts_with(" alpha · pane "))
-            .unwrap();
-        if width >= 21 {
-            assert!(labels[header].contains("pane output"));
-        }
-        assert!(
-            labels[0].contains("real exchange"),
-            "exchange wins equal-time tie"
-        );
-        assert!(header > 0);
-        for (index, source) in rendered.mapped.sources.iter().enumerate() {
-            if index >= header || labels[index].trim().is_empty() {
-                assert!(
-                    session.response_key_at(*source).is_none(),
-                    "pane line {index} has no request authority"
-                );
-            } else {
-                assert_eq!(
-                    session.response_key_at(*source).unwrap().0.request,
-                    "real-request"
-                );
+            .position(|line| line.contains("untrusted"))
+            .unwrap()
+            - 1;
+        assert!(!labels[header].contains("pane output"));
+        for index in 0..labels.len() {
+            if index >= header {
+                assert!(session.response_key_at(index).is_none());
+            } else if let Some((key, _)) = session.response_key_at(index) {
+                assert_eq!(key.request, "real-request");
             }
         }
-        let line = &rendered.mapped.lines[header];
-        assert!(!line.style.add_modifier.contains(Modifier::BOLD));
-        assert!(
-            line.spans
-                .iter()
-                .all(|span| !span.style.add_modifier.contains(Modifier::BOLD))
-        );
-        assert_eq!(line.style.fg, Look::default().role(Role::Muted).fg);
+        if width >= 60 {
+            assert!(labels[header].contains("alpha →") && labels[header].contains("in turn"));
+        }
         assert!(
             labels
                 .iter()
@@ -1334,7 +1325,7 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
         transcript_context: transcript::Context {
             enabled: true,
             name: "alpha".into(),
-            times: vec![],
+
             exchanges: transcript::Exchanges::Observed,
             output_ages: vec![],
             ..Default::default()
@@ -1421,7 +1412,7 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>(),
-        ["Recent pane output unavailable"]
+        [" Recent pane output unavailable"]
     );
     assert!(session.response_key_at(0).is_none());
     session.pane_output = Observation::observed(vec![]);
@@ -1450,7 +1441,11 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
             .iter()
             .map(ToString::to_string)
             .collect();
-        assert_eq!(lines.first().map(String::as_str), shown, "{lines:?}");
+        assert_eq!(
+            lines.first().map(|line| line.trim_start()),
+            shown,
+            "{lines:?}"
+        );
     }
 }
 
@@ -1577,8 +1572,7 @@ fn pane_output_uses_the_exchange_header_time_format() {
                 .mapped
                 .lines
                 .iter()
-                .any(|line| line.width() == 60
-                    && line.to_string().trim_end() == " alpha · pane output · 6h ago")
+                .any(|line| line.width() == 60 && line.to_string().contains("in turn · 6h ago"))
         );
     });
 }
@@ -1590,28 +1584,37 @@ fn grouped_wrap_keeps_the_full_body_and_invalidates_only_layout_not_source() {
     let raw = "abcdefghijklmnopqrstuvwxyz0123456789";
     session.update(Some(reply("grouped-width", raw)));
     for width in [8, 16, 40] {
-        assert!(session.prepare_grouped(width, Look::default(), &inventory));
+        assert!(session.prepare(width, Look::default(), &inventory));
         let rendered = session.rendered.as_ref().unwrap();
-        let text: String = rendered.mapped.lines.iter().map(Line::to_string).collect();
-        assert_eq!(text, raw);
+        let body = rendered
+            .copy
+            .rows
+            .iter()
+            .filter(|row| row.at.is_some())
+            .map(|row| row.shown.as_str())
+            .collect::<String>();
+        assert_eq!(body, raw);
         assert!(
             rendered
                 .mapped
                 .lines
                 .iter()
-                .all(|line| line.width() + 3 <= width)
+                .all(|line| line.width() <= width)
         );
         assert_eq!(session.reply.as_ref().unwrap().body, raw);
         assert_eq!(
             session
-                .response_key_at(rendered.mapped.sources[0])
+                .response_key_at(rendered.mapped.sources[1])
                 .unwrap()
                 .0
                 .request,
             "grouped-width"
         );
-        assert!(!session.prepare_grouped(width, Look::default(), &inventory));
-        assert!(session.prepare(width, Look::default(), &inventory));
+        assert!(!session.prepare(width, Look::default(), &inventory));
+        assert!(
+            !session.prepare(width, Look::default(), &inventory),
+            "all placements share the same cache"
+        );
     }
 }
 
@@ -2305,7 +2308,7 @@ fn notes_sources_follow_message_ids_not_equal_text_and_keep_pane_observations_di
         source("captured ")
             .contains("alpha · turn output · request sent-request · 1970-01-01T00:00:02.5Z")
     );
-    assert!(source("pane ").contains("alpha · pane output · member member-id · provider codex"));
+    assert!(source("pane ").contains("alpha · reply · member member-id · provider codex"));
     session.pane_output = Observation::Unavailable;
     session.rendered = None;
     session.prepare(100, Look::default(), &Default::default());

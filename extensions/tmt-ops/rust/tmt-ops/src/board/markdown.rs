@@ -531,15 +531,6 @@ pub(super) fn render_conversation_with_members<'a>(
 ) -> Mapped {
     project(text, width, look, inventory, Format::Message)
 }
-/// Held screen output uses authored line breaks.
-pub(super) fn render_output_with_members<'a>(
-    text: &'a str,
-    width: usize,
-    look: crate::look::Look,
-    inventory: Option<&'a super::inventory::Inventory>,
-) -> Mapped {
-    project(text, width, look, inventory, Format::Output)
-}
 pub(super) fn render_plain_with_members<'a>(
     text: &'a str,
     width: usize,
@@ -553,7 +544,6 @@ pub(super) fn render_plain_with_members<'a>(
 enum Format {
     Markdown,
     Message,
-    Output,
     Plain,
 }
 
@@ -1158,8 +1148,6 @@ mod tests {
                     .any(|link| matches!(link.target, Target::File(_))),
                 "{source}"
             );
-            let literal = render_output_with_members(source, 80, Look::default(), None);
-            assert_eq!(mapped.lines, literal.lines, "{source}");
         }
     }
 
@@ -1171,7 +1159,7 @@ mod tests {
             "src/some_module/file_name.rs",
         ] {
             for width in [512, 160, 100, 80, 60, 24] {
-                let mapped = render_output_with_members(source, width, Look::default(), None);
+                let mapped = render_conversation_with_members(source, width, Look::default(), None);
                 let rows = text(&mapped.lines);
                 let without_spaces =
                     |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();

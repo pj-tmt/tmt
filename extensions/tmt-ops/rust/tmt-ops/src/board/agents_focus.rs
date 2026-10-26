@@ -268,7 +268,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if remaining == 0 {
         return;
     }
-    // TODO #3217: use “Exchanges” after the all-party read contract ships.
     if y == area.y + 1 {
         // At the smallest heights metadata has yielded entirely. The optional
         // exchange rule yields too, keeping one gap below the focus title.
@@ -283,7 +282,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             area,
             &mut y,
             &shown.map_or_else(
-                || "Exchanges with you".to_owned(),
+                || "Conversation".to_owned(),
                 |target| conversation::screen::title(app, target, usize::from(area.width)),
             ),
             recipient

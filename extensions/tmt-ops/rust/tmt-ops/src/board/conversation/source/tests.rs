@@ -1668,24 +1668,17 @@ fn n_and_the_selection_menu_open_the_same_todo_draft_with_the_held_message_sourc
 fn a_selection_from_distinct_messages_does_not_borrow_one_message_source() {
     use crate::board::conversation::note_source::{Map, Source};
     let mut map = Map::default();
-    map.range(
-        0..2,
-        Source::Message {
+    for (range, reference) in [(0..2, "request first"), (2..4, "request second")] {
+        let source = map.add(Source::Message {
             author: "worker".into(),
             kind: "final",
             at_ms: Some(1000),
-            reference: "request first".into(),
-        },
-    );
-    map.range(
-        2..4,
-        Source::Message {
-            author: "worker".into(),
-            kind: "final",
-            at_ms: Some(1000),
-            reference: "request second".into(),
-        },
-    );
+            reference: reference.into(),
+        });
+        for row in range {
+            map.row(row, source);
+        }
+    }
     assert_eq!(
         map.selected(1..3).body(),
         "Source: multiple messages / missing source"

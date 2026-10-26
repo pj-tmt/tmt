@@ -156,12 +156,6 @@ impl Capture {
         }
     }
 
-    /// Only Core's opaque link can identify a repeated answer. Legacy captures
-    /// without a link always stay visible, even with identical text and times.
-    pub(super) fn first<'a>(&'a self, seen: &mut std::collections::BTreeSet<&'a str>) -> bool {
-        self.response_id().is_none_or(|id| seen.insert(id))
-    }
-
     fn read(send: &Value) -> Option<Self> {
         if send["mode"] != "passthrough" {
             return None;
@@ -187,19 +181,6 @@ impl Capture {
             }),
             "no_answer" => Some(Self::NoAnswer),
             _ => None,
-        }
-    }
-    pub(super) fn markdown(&self) -> String {
-        match self {
-            Self::Pending | Self::Bound => "⠹ working…".into(),
-            Self::NoAnswer => "No turn output was captured for this message.".into(),
-            Self::Answered {
-                text, truncated, ..
-            } => format!(
-                "turn output{}\n\n{}",
-                if *truncated { " · truncated" } else { "" },
-                super::notes::sanitize(text).trim_end_matches('\n')
-            ),
         }
     }
 }

@@ -40,13 +40,22 @@ pub(in crate::board) enum Kind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) struct Acknowledgement {
+    pub identity: String,
+    pub request: String,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct Entry {
     pub id: String,
     pub batch: Option<String>,
     pub kind: Kind,
+    pub acknowledgements: Vec<Acknowledgement>,
+    pub acknowledgements_truncated: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::board) struct Page {
     pub entries: Vec<Entry>,
     pub responses: HashMap<String, super::Item>,
@@ -85,7 +94,7 @@ fn body(value: &Value) -> Option<Option<Body>> {
     }
 }
 
-pub(super) fn parse(identity: &str, value: &Value) -> Option<Page> {
+pub(in crate::board) fn parse(identity: &str, value: &Value) -> Option<Page> {
     let values = value["entries"].as_array()?;
     if values.len() > super::MAX_ITEMS {
         return None;
@@ -154,7 +163,43 @@ pub(super) fn parse(identity: &str, value: &Value) -> Option<Page> {
             }
             _ => return None,
         };
-        entries.push(Entry { id, batch, kind });
+        let (acknowledgements, acknowledgements_truncated) =
+            if matches!(kind, Kind::Final { .. } | Kind::Reply { .. }) {
+                let keys = value["acknowledgements"].as_array()?;
+                if keys.len() > super::MAX_ITEMS {
+                    return None;
+                }
+                let mut acknowledgements = Vec::with_capacity(keys.len());
+                let mut requests = std::collections::HashSet::new();
+                for key in keys {
+                    let identity = string(&key["identityId"])?;
+                    if !super::canonical_identity(&identity) {
+                        return None;
+                    }
+                    let request = string(&key["requestId"])?;
+                    if !requests.insert((identity.clone(), request.clone())) {
+                        return None;
+                    }
+                    acknowledgements.push(Acknowledgement {
+                        identity,
+                        request,
+                        revision: key["revision"].as_u64()?,
+                    });
+                }
+                (
+                    acknowledgements,
+                    value["acknowledgementsTruncated"].as_bool()?,
+                )
+            } else {
+                (Vec::new(), false)
+            };
+        entries.push(Entry {
+            id,
+            batch,
+            kind,
+            acknowledgements,
+            acknowledgements_truncated,
+        });
     }
     Some(Page {
         entries,
@@ -176,11 +221,11 @@ mod tests {
             {"entryId":"opaque-z","inputBatchId":"batch-g","kind":"input","requestId":"person",
              "sender":{"identityId":ID,"name":"Ben"},"delivery":"delivered","availability":"retained",
              "text":"Ben question","truncated":false,"originalBytes":12},
-            {"entryId":"opaque-a","inputBatchId":"batch-g","kind":"final","responseId":"rsp_A","availability":"retained"},
+            {"entryId":"opaque-a","inputBatchId":"batch-g","kind":"final","responseId":"rsp_A","availability":"retained","acknowledgements":[],"acknowledgementsTruncated":false},
             {"entryId":"opaque-y","inputBatchId":"batch-g","kind":"input","requestId":"digest",
              "sender":{"name":"core-1"},"delivery":"delivered","availability":"retained",
              "text":"Digest question","truncated":false,"originalBytes":15},
-            {"entryId":"opaque-b","inputBatchId":"batch-g","kind":"final","responseId":"rsp_B","availability":"retained"}
+            {"entryId":"opaque-b","inputBatchId":"batch-g","kind":"final","responseId":"rsp_B","availability":"retained","acknowledgements":[],"acknowledgementsTruncated":false}
         ],"responses":[
             {"responseId":"rsp_A","text":"Answer A","provider":"claude","endedMs":2000,"truncated":false,"originalBytes":8},
             {"responseId":"rsp_B","text":"Answer B","provider":"claude","endedMs":1000,"truncated":false,"originalBytes":8}
@@ -233,5 +278,21 @@ mod tests {
             }
             assert!(parse(ID, &value).is_none(), "corruption {corrupt}");
         }
+    }
+    #[test]
+    fn frozen_acknowledgements_keep_the_producing_revision_and_the_truncation_flag() {
+        let mut value = page();
+        value["entries"][1]["acknowledgements"] =
+            json!([{"identityId":ID,"requestId":"person","revision":7}]);
+        value["entries"][1]["acknowledgementsTruncated"] = json!(true);
+        let held = parse(ID, &value).unwrap();
+        assert_eq!(held.entries[1].acknowledgements[0].revision, 7);
+        assert!(held.entries[1].acknowledgements_truncated);
+        assert!(held.entries[0].acknowledgements.is_empty());
+        value["entries"][1]["acknowledgements"] = json!(vec![
+            json!({"identityId":ID,"requestId":"person","revision":7});
+            51
+        ]);
+        assert!(parse(ID, &value).is_none());
     }
 }

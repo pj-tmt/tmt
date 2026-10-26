@@ -20,8 +20,6 @@ use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
 mod activity;
-mod answer_order;
-#[cfg(test)]
 mod committed;
 mod copy;
 pub(in crate::board) mod exchange;
@@ -32,6 +30,7 @@ pub(super) mod outgoing;
 pub(in crate::board) mod screen;
 pub(in crate::board) use outgoing::FeedbackClock;
 pub(in crate::board) mod source;
+pub(in crate::board) mod timeline;
 mod transcript;
 
 #[derive(Clone)]
@@ -171,15 +170,15 @@ pub(super) struct State {
 struct Rendered {
     pane_start: Option<usize>,
     width: usize,
-    gutter: usize,
     look: Look,
     identities: Option<std::sync::Arc<()>>,
     mapped: Mapped,
     anchor_text: super::notes::IndexedText,
     anchor_sources: Vec<usize>,
-    response_sources: Option<Vec<Option<usize>>>,
-    final_spans: Vec<(std::ops::Range<usize>, usize)>,
-    capture_spans: Vec<(std::ops::Range<usize>, String, u64)>,
+    timeline_spans: Vec<timeline::BodySpan>,
+    /// Requests whose input bodies were painted; retained provenance, not delivery evidence.
+    timeline_inputs: Vec<String>,
+    feedback: Vec<(std::ops::Range<usize>, u64)>,
     /// What each displayed line was written as, for copying a selection as source.
     copy: copy::Map,
     note_sources: note_source::Map,
@@ -192,21 +191,6 @@ enum Change {
     Unavailable,
 }
 
-#[derive(Clone, Copy)]
-enum AuthoredLine {
-    Outgoing { answer: bool, sequence: u64 },
-    ReplyHeading,
-    Status { sequence: u64 },
-}
-impl AuthoredLine {
-    fn role(self) -> Role {
-        match self {
-            Self::ReplyHeading => Role::Accent,
-            _ => Role::Muted,
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AnswerFailure {
     Latest,
@@ -216,7 +200,6 @@ enum AnswerFailure {
 struct Session {
     reply: Option<Reply>,
     finals: Vec<Reply>,
-    text: String,
     rendered: Option<Rendered>,
     /// The content changed after `rendered` was built. Pointer events keep using the last
     /// painted frame until the next `prepare` rebuilds it; clearing it would drop a press,
@@ -232,15 +215,6 @@ struct Session {
     tail: Option<Reply>,
     /// Requests of this session's sends whose reply exists but whose body is still being read.
     pending_replies: std::collections::BTreeSet<String>,
-    response_spans: Vec<(
-        Option<u64>,
-        super::home_leads::MessageKey,
-        std::ops::Range<usize>,
-    )>,
-    authored_lines: BTreeMap<usize, AuthoredLine>,
-    outgoing_note_sources: note_source::Map,
-    capture_body_spans: Vec<(std::ops::Range<usize>, String, u64)>,
-    compact_separators: std::collections::BTreeSet<usize>,
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
     older_demand: bool,
@@ -269,7 +243,6 @@ impl Default for Session {
         Self {
             reply: None,
             finals: Vec::new(),
-            text: "(no response in loaded history)".into(),
             rendered: None,
             stale: false,
             anchor: Default::default(),
@@ -279,11 +252,6 @@ impl Default for Session {
             before_send: None,
             tail: None,
             pending_replies: Default::default(),
-            response_spans: Default::default(),
-            authored_lines: Default::default(),
-            outgoing_note_sources: Default::default(),
-            capture_body_spans: Vec::new(),
-            compact_separators: Default::default(),
             pane_output: Default::default(),
             pane_output_fresh: false,
             older_demand: false,
@@ -333,9 +301,6 @@ impl Session {
                 return;
             }
             self.before_send = None;
-            self.response_spans.clear();
-            self.authored_lines.clear();
-            self.compact_separators.clear();
         }
         if !self.outgoing.is_empty() {
             self.correlate(incoming.as_ref());
@@ -378,11 +343,6 @@ impl Session {
                 return;
             }
         }
-        self.text = sanitize(
-            incoming
-                .as_ref()
-                .map_or("(no response in loaded history)", |reply| &reply.body),
-        );
         self.reply = incoming;
         self.stale = true;
     }
@@ -397,8 +357,19 @@ impl Session {
         let detail = app.detail(&Target::Row(target.clone())).unwrap_or_default();
         let detail_agent = detail.agent.clone();
         self.observe_finals(detail.finals);
-        if self.sent != detail.sent {
-            self.sent = detail.sent;
+        let mut sent = detail.sent;
+        for held in &self.sent {
+            if self
+                .outgoing
+                .iter()
+                .any(|entry| entry.request() == Some(held.request.as_str()))
+                && !sent.iter().any(|send| send.request == held.request)
+            {
+                sent.push(held.clone());
+            }
+        }
+        if self.sent != sent {
+            self.sent = sent;
             self.observe_captures();
             self.stale = true;
         }
@@ -454,30 +425,10 @@ impl Session {
         look: Look,
         inventory: &super::inventory::Inventory,
     ) -> bool {
-        self.prepare_with_gutter(width, 0, look, inventory)
-    }
-
-    fn prepare_grouped(
-        &mut self,
-        width: usize,
-        look: Look,
-        inventory: &super::inventory::Inventory,
-    ) -> bool {
-        self.prepare_with_gutter(width, 3, look, inventory)
-    }
-
-    fn prepare_with_gutter(
-        &mut self,
-        width: usize,
-        gutter: usize,
-        look: Look,
-        inventory: &super::inventory::Inventory,
-    ) -> bool {
         let identities = Some(std::sync::Arc::clone(&inventory.generation));
         let changed = self.stale
             || self.rendered.as_ref().is_none_or(|rendered| {
                 rendered.width != width
-                    || rendered.gutter != gutter
                     || rendered.look != look
                     || match (&rendered.identities, &identities) {
                         (None, None) => false,
@@ -486,78 +437,15 @@ impl Session {
                     }
             });
         if changed {
-            let mut mapped = markdown::render_conversation_with_members(
-                &self.text,
-                width.saturating_sub(gutter).max(1),
-                look,
-                Some(inventory),
-            );
-            let mut lines = Vec::with_capacity(mapped.lines.len());
-            let mut sources = Vec::with_capacity(mapped.sources.len());
-            let mut mentions = Vec::with_capacity(mapped.mentions.len());
-            for ((mut line, source), mut links) in mapped
-                .lines
-                .into_iter()
-                .zip(mapped.sources)
-                .zip(mapped.mentions)
-            {
-                if line.width() == 0 && self.compact_separators.contains(&source) {
-                    continue;
-                }
-                if let Some(kind) = self.authored_lines.get(&source) {
-                    let style = look.role(kind.role());
-                    if gutter > 0
-                        && let AuthoredLine::Status { sequence } = kind
-                        && let Some(status) =
-                            self.grouped_feedback(*sequence, width.saturating_sub(gutter), look)
-                    {
-                        if sources.last() != Some(&source) {
-                            for mut status_line in status {
-                                status_line.style = style;
-                                lines.push(status_line);
-                                sources.push(source);
-                                mentions.push(Vec::new());
-                            }
-                        }
-                        continue;
-                    }
-                    line.style = style;
-                    for span in &mut line.spans {
-                        span.style = style;
-                    }
-                    links.clear();
-                }
-                for link in &mut links {
-                    link.column += gutter;
-                }
-                lines.push(line);
-                sources.push(source);
-                mentions.push(links);
-            }
-            mapped = Mapped {
-                lines,
-                sources,
-                mentions,
-            };
-            let transcript = self.merge_pane_output(mapped, width, gutter, look, inventory);
+            let transcript = self.timeline_transcript(width, look, inventory);
             let anchor_text = super::notes::IndexedText::new(transcript.anchor_text);
             // Visual rows keep the transcript's source rows for anchors and, through
             // the transcript's own map, for the retained response lines.
             let anchor_sources = transcript.mapped.sources.clone();
-            let response_sources: Vec<_> = anchor_sources
-                .iter()
-                .map(|source| {
-                    transcript
-                        .response_sources
-                        .as_ref()
-                        .map_or(Some(*source), |map| map.get(*source).copied().flatten())
-                })
-                .collect();
             self.anchor.reconcile(&anchor_text);
             self.rendered = Some(Rendered {
                 pane_start: transcript.pane_start,
                 width,
-                gutter,
                 look,
                 identities,
                 mapped: Mapped {
@@ -566,9 +454,9 @@ impl Session {
                 },
                 anchor_text,
                 anchor_sources,
-                response_sources: Some(response_sources),
-                final_spans: transcript.final_spans,
-                capture_spans: transcript.capture_spans,
+                timeline_spans: transcript.timeline_spans,
+                timeline_inputs: transcript.timeline_inputs,
+                feedback: transcript.feedback,
                 copy: transcript.copy,
                 note_sources: transcript.note_sources,
             });

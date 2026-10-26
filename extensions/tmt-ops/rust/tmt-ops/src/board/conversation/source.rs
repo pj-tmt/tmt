@@ -217,20 +217,9 @@ fn author_at(app: &App, state: &State, name: &str, line: Option<usize>) -> Strin
     if let Some((key, _)) = session.response_key_at(line) {
         return app.quote_author(&key.lead).unwrap_or(name).to_owned();
     }
-    let original = rendered
-        .response_sources
-        .as_ref()
-        .map_or(Some(line), |sources| sources.get(line).copied().flatten());
-    if original
-        .and_then(|line| session.authored_lines.range(..=line).next_back())
-        .is_some_and(|(_, kind)| matches!(kind, super::AuthoredLine::Outgoing { .. }))
-    {
-        app.view
-            .as_ref()
-            .and_then(|view| view.me.clone())
-            .unwrap_or_else(|| "you".into())
-    } else {
-        name.to_owned()
+    match rendered.note_sources.at(line) {
+        super::note_source::Source::Message { author, .. } => author,
+        _ => name.to_owned(),
     }
 }
 
@@ -430,13 +419,44 @@ impl Session {
         let page = app.home_leads.unread(actor);
         let mut painted: Vec<Body> = Vec::new();
         for row in rows {
+            if let Some(span) = self.rendered.as_ref().and_then(|rendered| {
+                let original = *rendered.anchor_sources.get(row)?;
+                rendered
+                    .timeline_spans
+                    .iter()
+                    .find(|span| span.range.contains(&original))
+            }) && let Some(keys) = &span.acknowledgements
+            {
+                for key in keys.iter().filter(|key| key.identity == actor) {
+                    if page
+                        .and_then(|page| page.answer(member, &key.request))
+                        .is_some_and(|answer| {
+                            answer.revision > key.revision
+                                || answer.revision == key.revision && answer.acknowledged
+                        })
+                    {
+                        continue;
+                    }
+                    let body = Body {
+                        actor: actor.into(),
+                        member: member.into(),
+                        request: key.request.clone(),
+                        kind: span.kind,
+                        at_ms: None,
+                        revision: Some(key.revision),
+                    };
+                    if !painted.contains(&body) {
+                        painted.push(body);
+                    }
+                }
+                continue;
+            }
             let Some((request, kind, at_ms)) = self.answer_body_at(row) else {
                 continue;
             };
-            if painted
-                .iter()
-                .any(|body| body.request == request && body.kind == kind && body.at_ms == at_ms)
-            {
+            if painted.iter().any(|body| {
+                body.request == request && body.kind == kind && body.at_ms == Some(at_ms)
+            }) {
                 continue;
             }
             let revision = if let Some(answer) = page.and_then(|page| page.answer(member, request))
@@ -456,7 +476,7 @@ impl Session {
                 member: member.into(),
                 request: request.into(),
                 kind,
-                at_ms,
+                at_ms: Some(at_ms),
                 revision,
             };
             if !painted.contains(&body) {
@@ -472,83 +492,26 @@ impl Session {
         &self,
         line: usize,
     ) -> Option<(&str, super::super::unread::BodyKind, u64)> {
-        if let Some((key, _)) = self.response_key_at(line)
-            && key.kind == crate::board::home_leads::Kind::Reply
-        {
-            let reply = self
-                .finals
-                .iter()
-                .chain(self.reply.iter())
-                .chain(self.local_finals())
-                .chain(self.before_send.iter())
-                .find(|reply| {
-                    reply.acquired
-                        && reply.source
-                        && reply.key.as_ref().is_some_and(|held| held.same_source(key))
-                })?;
-            return Some((
-                &key.request,
-                super::super::unread::BodyKind::Final,
-                reply.at_ms?,
-            ));
-        }
         let rendered = self.rendered.as_ref()?;
         let original = *rendered.anchor_sources.get(line)?;
-        if let Some((_, request, at)) = rendered
-            .capture_spans
+        let span = rendered
+            .timeline_spans
             .iter()
-            .find(|(range, _, _)| range.contains(&original))
-        {
-            return Some((request, super::super::unread::BodyKind::Turn, *at));
-        }
-        let line = match rendered.response_sources.as_ref() {
-            Some(rows) => rows.get(line).copied().flatten()?,
-            None => line,
-        };
-        self.capture_body_spans
-            .iter()
-            .find(|(range, _, _)| range.contains(&line))
-            .map(|(_, request, at)| (request.as_str(), super::super::unread::BodyKind::Turn, *at))
+            .find(|span| span.range.contains(&original))?;
+        let (request, at) = span.legacy.as_ref()?;
+        Some((request.as_str(), span.kind, *at))
     }
 
     pub(super) fn response_key_at(&self, line: usize) -> Option<(&MessageKey, Option<u64>)> {
-        if let Some((_, index)) = self.rendered.as_ref().and_then(|rendered| {
-            let original = *rendered.anchor_sources.get(line)?;
-            rendered
-                .final_spans
-                .iter()
-                .find(|(range, _)| range.contains(&original))
-        }) {
-            return self
-                .finals
-                .get(*index)
-                .filter(|reply| reply.acquired && reply.source)?
-                .key
-                .as_ref()
-                .map(|key| (key, None));
-        }
-        let line = if let Some(sources) = self
-            .rendered
+        let rendered = self.rendered.as_ref()?;
+        let original = *rendered.anchor_sources.get(line)?;
+        rendered
+            .timeline_spans
+            .iter()
+            .find(|span| span.range.contains(&original))?
+            .source
             .as_ref()
-            .and_then(|rendered| rendered.response_sources.as_ref())
-        {
-            sources.get(line).copied().flatten()?
-        } else {
-            line
-        };
-        if self.outgoing.is_empty() {
-            self.reply
-                .as_ref()
-                .filter(|reply| reply.acquired && reply.source)?
-                .key
-                .as_ref()
-                .map(|key| (key, None))
-        } else {
-            self.response_spans
-                .iter()
-                .find(|(_, _, range)| range.contains(&line))
-                .map(|(sequence, key, _)| (key, *sequence))
-        }
+            .map(|key| (key, None))
     }
 }
 

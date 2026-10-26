@@ -1060,15 +1060,25 @@ fn capture_states_are_core_owned_and_never_regular_replies() {
             "answer":{"text":"Full **answer**\n", "truncated":true,"provider":"codex","endedMs":100}}});
         let capture = Capture::read(&send);
         match state {
-            "pending" | "bound" => assert_eq!(capture.unwrap().markdown(), "⠹ working…"),
-            "answered" => assert_eq!(
-                capture.unwrap().markdown(),
-                "turn output · truncated\n\nFull **answer**"
-            ),
-            "no_answer" => assert_eq!(
-                capture.unwrap().markdown(),
-                "No turn output was captured for this message."
-            ),
+            "pending" => assert!(matches!(capture, Some(Capture::Pending))),
+            "bound" => assert!(matches!(capture, Some(Capture::Bound))),
+            "answered" => {
+                let Some(Capture::Answered {
+                    text,
+                    truncated,
+                    provider,
+                    ended_ms,
+                    ..
+                }) = capture
+                else {
+                    panic!("retained captured answer")
+                };
+                assert_eq!(text, "Full **answer**\n");
+                assert!(truncated);
+                assert_eq!(provider, "codex");
+                assert_eq!(ended_ms, 100);
+            }
+            "no_answer" => assert!(matches!(capture, Some(Capture::NoAnswer))),
             _ => assert!(capture.is_none()),
         }
         let mut request = send;

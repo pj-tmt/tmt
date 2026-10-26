@@ -41,7 +41,7 @@ fn settled_final_after_older_pane_text_is_its_own_message_with_exact_lines_and_a
                 .unwrap_or_else(|| panic!("missing {text}: {lines:#?}"))
         };
         let older = at("Older final first");
-        let pane = at("pane output");
+        let pane = at("in turn · 40m ago");
         let later = at("New retained final first");
         assert!(older < pane && pane < later, "{lines:#?}");
         assert_eq!(at("Older final second"), older + 1);
@@ -53,7 +53,7 @@ fn settled_final_after_older_pane_text_is_its_own_message_with_exact_lines_and_a
         );
         assert!(lines[older - 1].contains("50m ago"), "{lines:#?}");
         assert!(lines[pane].contains("40m ago"));
-        assert!(lines[pane].starts_with(" worker · pane output"));
+        assert!(lines[pane].contains("worker →") && lines[pane].contains("in turn"));
         assert_eq!(
             session
                 .response_key_at(mapped.sources[later])
@@ -156,7 +156,13 @@ fn pending_final_text_cannot_supply_an_exact_note_attachment() {
     let rendered = session.rendered.as_ref().unwrap();
     assert_eq!(session.finals.len(), 1);
     assert!(!session.finals[0].acquired);
-    assert!(!rendered.final_spans.is_empty());
+    assert!(!rendered.timeline_spans.is_empty());
+    assert!(
+        rendered
+            .timeline_spans
+            .iter()
+            .all(|span| span.source.is_none() && span.legacy.is_none())
+    );
     let reply = session.finals[0].clone();
     drop(state);
     let quote = crate::board::response::Quote {

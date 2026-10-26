@@ -8,22 +8,6 @@ pub(in crate::board) struct Surface {
     pub interactive: bool,
 }
 
-impl Session {
-    /// Outgoing turns own their headers. Only an actual earlier exchange needs
-    /// a separate incoming heading above them, using that exchange's age.
-    fn group_heading_reply(&self) -> Option<&Reply> {
-        if !self.finals.is_empty() {
-            None
-        } else if self.outgoing.is_empty() {
-            self.reply.as_ref()
-        } else {
-            self.before_send
-                .as_ref()
-                .filter(|reply| !reply.body.is_empty())
-        }
-    }
-}
-
 /// Measure the held group with the same wrapped body the painter uses. Empty
 /// observations never reserve a minimum transcript or impose a growth cap.
 pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface) -> u16 {
@@ -48,7 +32,7 @@ pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface)
         session.observe_context(app, &target, row);
     }
     if refresh == Refresh::Current || session.needs_outgoing_prepare() {
-        session.prepare_grouped(usize::from(width), app.look(), &app.references);
+        session.prepare(usize::from(width), app.look(), &app.references);
     }
     let waiting = (session.outgoing.is_empty() || session.tail.is_some())
         && session.reply.as_ref().is_some_and(|reply| {
@@ -57,7 +41,7 @@ pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface)
                 .as_ref()
                 .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
         });
-    (usize::from(session.group_heading_reply().is_some())
+    (usize::from(false)
         + session.rendered.as_ref().unwrap().mapped.lines.len()
         + usize::from(waiting)
         + usize::from(session.send_now_request().is_some()))
@@ -93,11 +77,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
         app.view.as_ref().and_then(|view| view.me_id.clone()),
         id.to_owned(),
     );
-    let me = app
-        .view
-        .as_ref()
-        .and_then(|view| view.me.as_deref())
-        .unwrap_or("you");
     let name = row["name"].as_str().unwrap_or("unknown agent");
     let reader_keys = app.workspace_context_bindings(
         app.workspace.selected.as_ref(),
@@ -111,10 +90,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
         })
         .map(|(key, _)| crate::board::view::footer::key_label(key).to_owned())
         .filter(|_| app.input.is_none() && !app.modal_open() && !app.loading());
-    let read_only = !surface.interactive
-        || app
-            .composer_projection()
-            .is_none_or(|projection| projection.key.is_none());
     let refresh = app.conversation_refresh(&target);
     if refresh == Refresh::Loading {
         let mut state = app.conversation.borrow_mut();
@@ -139,44 +114,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
             .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
     });
     // Derived from the settled time at paint: a held reply keeps its true age.
-    let age = session.group_heading_reply().map_or_else(
-        || "—".to_owned(),
-        |reply| reply.age_at(crate::status::now_ms()),
-    );
-    let stamp = age_stamp(&age);
-    let stamp = if session.change != Change::Current {
-        format!(
-            "{stamp} · {}",
-            if session.change == Change::NewOutput {
-                "new output"
-            } else {
-                "unavailable"
-            }
-        )
-    } else {
-        stamp
-    };
-    let read_only = read_only || session.change != Change::Current;
-    let header = Rect {
-        height: area
-            .height
-            .min(u16::from(session.group_heading_reply().is_some())),
-        ..area
-    };
-    strip::paint_left(
-        frame.buffer_mut(),
-        header,
-        exchange::header(
-            exchange::Sender::Agent(name),
-            me,
-            &stamp,
-            read_only,
-            usize::from(area.width),
-            look,
-        ),
-    );
+    let header = Rect { height: 0, ..area };
     let rebuilt = (refresh == Refresh::Current || session.needs_outgoing_prepare())
-        && session.prepare_grouped(usize::from(area.width), look, &app.references);
+        && session.prepare(usize::from(area.width), look, &app.references);
     // The Send now chip owns the last row while Core says the newest own message can go now.
     let send_now = session.send_now_request().map(str::to_owned);
     let chip_rows = u16::from(send_now.is_some() && area.height >= 3);
@@ -216,67 +156,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
                 .unwrap_or_default(),
         )]);
     }
-    let (offset, shown) =
-        app.scrolls.show_exchange(
-            frame,
-            body,
-            &mapped.lines,
-            look,
-            earlier_key,
-            |index, line| {
-                let source = session
-                    .rendered
-                    .as_ref()
-                    .unwrap()
-                    .response_sources
-                    .as_ref()
-                    .map_or(Some(mapped.sources[index]), |sources| {
-                        sources.get(mapped.sources[index]).copied().flatten()
-                    });
-                let Some(source) = source else {
-                    return if session.rendered.as_ref().unwrap().final_spans.iter().any(
-                        |(range, _)| {
-                            session
-                                .rendered
-                                .as_ref()
-                                .unwrap()
-                                .anchor_sources
-                                .get(index)
-                                .is_some_and(|original| range.contains(original))
-                        },
-                    ) {
-                        exchange::body(line.clone(), look)
-                    } else {
-                        line.clone()
-                    };
-                };
-                match session.authored_lines.get(&source) {
-                    Some(AuthoredLine::Outgoing { answer: true, .. }) => {
-                        exchange::replier(exchange::Sender::You(me), look)
-                    }
-                    Some(AuthoredLine::Outgoing {
-                        answer: false,
-                        sequence,
-                    }) => exchange::header(
-                        exchange::Sender::You(me),
-                        name,
-                        &session.outgoing_stamp(app, *sequence),
-                        read_only,
-                        usize::from(body.width),
-                        look,
-                    ),
-                    Some(AuthoredLine::ReplyHeading) => exchange::replier(
-                        exchange::Sender::Agent(line.to_string().trim().trim_end_matches(" · now")),
-                        look,
-                    ),
-                    Some(AuthoredLine::Status { .. }) => exchange::feedback(
-                        session.feedback_line(mapped.sources[index], line, crate::status::now_ms()),
-                        look,
-                    ),
-                    None => exchange::body(line.clone(), look),
-                }
-            },
-        );
+    let (offset, shown) = app.scrolls.show_exchange(
+        frame,
+        body,
+        &mapped.lines,
+        look,
+        earlier_key,
+        |index, line| session.feedback_line(mapped.sources[index], line, crate::status::now_ms()),
+    );
     if surface.interactive {
         super::super::member_links::paint_hits(
             frame,

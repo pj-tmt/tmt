@@ -1,4 +1,27 @@
 use super::*;
+
+fn answer(session: &Session, index: usize) -> Option<&Reply> {
+    let request = session.outgoing.get(index)?.request()?;
+    session
+        .finals
+        .iter()
+        .find(|reply| reply.key.as_ref().is_some_and(|key| key.request == request))
+}
+fn transcript(app: &App, identity: &ConversationKey) -> String {
+    let mut state = app.conversation.borrow_mut();
+    let session = state.sessions.get_mut(identity).unwrap();
+    session.prepare(120, app.look(), &app.references);
+    session
+        .rendered
+        .as_ref()
+        .unwrap()
+        .mapped
+        .lines
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 use crate::board::{
     ActionOutcome, BoardEvent,
     app::{Compose, Effect},
@@ -310,7 +333,7 @@ fn five_dispositions_preserve_delivery_and_never_infer_activity_from_task_state(
         let started = crate::status::now_ms();
         let sending = crate::status::with_now_ms(started + 500, || draw(&app));
         assert!(
-            sending.contains("You")
+            sending.contains("Ben")
                 && sending.contains("exact outgoing text")
                 && sending.contains("sending")
         );
@@ -446,16 +469,10 @@ fn observed_completion_then_exact_reply_replaces_feedback_without_another_send()
         let state = app.conversation.borrow();
         let session = state.sessions.values().next().unwrap();
         assert_eq!(session.outgoing.len(), 1);
-        let key = session.outgoing[0]
-            .reply
-            .as_ref()
-            .unwrap()
-            .key
-            .as_ref()
-            .unwrap();
+        let key = answer(session, 0).as_ref().unwrap().key.as_ref().unwrap();
         assert_eq!(key.request, "provider-completion");
         assert_eq!(
-            session.outgoing[0].reply.as_ref().unwrap().body,
+            answer(session, 0).as_ref().unwrap().body,
             "Exact acquired reply"
         );
         assert_eq!(
@@ -542,15 +559,11 @@ fn only_exact_request_and_originator_bodies_attach_even_when_another_reply_is_la
     ];
     assert!(draw(&app).contains("unrelated body"));
     assert!(
-        app.conversation
-            .borrow()
-            .sessions
-            .values()
-            .next()
-            .unwrap()
-            .outgoing[0]
-            .reply
-            .is_none(),
+        answer(
+            app.conversation.borrow().sessions.values().next().unwrap(),
+            0
+        )
+        .is_none(),
         "another request's final is visible history, never attached to this local turn"
     );
     app.view.as_mut().unwrap().replies.push(json!({"recipientId":"auth-fix", "requestId":"accepted", "response":"correlated answer", "submittedAtMs":100}));
@@ -558,17 +571,13 @@ fn only_exact_request_and_originator_bodies_attach_even_when_another_reply_is_la
     assert!(painted.contains("auth-fix") && painted.contains("correlated answer"));
     assert!(painted.contains("unrelated body"));
     assert_eq!(
-        app.conversation
-            .borrow()
-            .sessions
-            .values()
-            .next()
-            .unwrap()
-            .outgoing[0]
-            .reply
-            .as_ref()
-            .unwrap()
-            .body,
+        answer(
+            app.conversation.borrow().sessions.values().next().unwrap(),
+            0
+        )
+        .as_ref()
+        .unwrap()
+        .body,
         "correlated answer"
     );
     app.view.as_mut().unwrap().me_id = Some("different-sender".into());
@@ -627,10 +636,13 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
             .mapped
             .lines;
         assert_eq!(
-            lines[2].to_string(),
+            lines[2].to_string().trim_start_matches(" │ ").to_owned(),
             "✓ sent · auth-fix's activity is not reported"
         );
-        assert_eq!(lines[2].style, app.look().role(Role::Muted));
+        assert!(
+            lines[2].spans.iter().any(|span| span.content.contains('✓')
+                && span.style.fg == app.look().role(Role::Working).fg)
+        );
     }
     app.view.as_mut().unwrap().replies = vec![json!({
         "recipientId":"auth-fix", "requestId":"req-private-display-id", "response":"answer body"
@@ -643,7 +655,9 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     let rendered = session.rendered.as_ref().unwrap();
     let lines = &rendered.mapped.lines;
     let text: Vec<_> = lines.iter().map(ToString::to_string).collect();
-    assert_eq!(&text[..3], ["You · now", "literal auth-fix · now", ""]);
+    assert!(text[0].contains("Ben → auth-fix"), "{text:?}");
+    assert_eq!(text[1], " │ literal auth-fix · now");
+    assert_eq!(text[2], "");
     assert!(
         text[3].contains("auth-fix")
             && text[3].contains("→")
@@ -651,8 +665,14 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
             && text[3].contains('—'),
         "unknown settled time is not invented: {text:?}"
     );
-    assert_eq!(text[4], "answer body");
-    assert_eq!(lines[0].style, app.look().role(Role::Muted));
+    assert_eq!(text[4], " │ answer body");
+    assert!(
+        lines[0]
+            .spans
+            .iter()
+            .any(|span| span.content.contains("Ben")
+                && span.style.fg == app.look().role(Role::Accent).fg)
+    );
     assert!(
         lines[3]
             .spans
@@ -660,12 +680,7 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
             .any(|span| span.content.contains("auth-fix")
                 && span.style.fg == app.look().role(Role::Text).fg)
     );
-    assert!(
-        session
-            .authored_lines
-            .values()
-            .all(|line| !matches!(line, super::super::AuthoredLine::Status { .. }))
-    );
+    assert!(session.rendered.as_ref().unwrap().feedback.is_empty());
     assert_ne!(
         lines[1].style,
         app.look().role(Role::Accent),
@@ -709,11 +724,11 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
         for index in 0..3 {
             let message = lines
                 .iter()
-                .position(|line| line == &format!("message {index}"))
+                .position(|line| line.trim_start_matches(" │ ") == format!("message {index}"))
                 .unwrap();
             assert_eq!(lines[message + 1], "", "{lines:?}");
             assert_eq!(
-                lines[message + 3],
+                lines[message + 3].trim_start_matches(" │ "),
                 format!("reply {index}"),
                 "the correlated reply immediately replaces feedback: {lines:?}"
             );
@@ -726,13 +741,8 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
                 "{lines:?}"
             );
             if index < 2 {
-                assert_eq!(
-                    &lines[reply + 1..reply + 3],
-                    &["", "You · now"],
-                    "repaint={repaint}; sources={:?}; compact={:?}; {lines:?}",
-                    rendered.mapped.sources,
-                    session.compact_separators
-                );
+                assert_eq!(lines[reply + 1], "", "one blank between turns: {lines:?}");
+                assert!(lines[reply + 2].contains("Ben → auth-fix"), "{lines:?}");
             }
         }
     }
@@ -762,8 +772,8 @@ fn a_replied_outgoing_body_renders_in_full_beside_its_reply_and_the_next_turn() 
     assert!(shown.contains("Next turn remains visible"), "{shown}");
     let state = app.conversation.borrow();
     let session = state.sessions.values().next().unwrap();
-    assert!(session.outgoing[0].reply.is_some());
-    assert!(session.outgoing[1].reply.is_none());
+    assert!(answer(session, 0).is_some());
+    assert!(answer(session, 1).is_none());
 }
 
 #[test]
@@ -857,10 +867,9 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
             let state = app.conversation.borrow();
             let session = state.sessions.values().next().unwrap();
             assert!(
-                session.outgoing[0].status() == "✓ sent · worker's activity is not reported"
-                    && !session.text.contains("is working"),
+                session.outgoing[0].status() == "✓ sent · worker's activity is not reported",
                 "{source}: missing provider evidence stays unknown: {}",
-                session.text
+                screen
             );
             assert!(
                 matches!(
@@ -1026,13 +1035,13 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
         .get_mut(&identity)
         .unwrap()
         .update(Some(incoming));
-    let text = app.conversation.borrow().sessions[&identity].text.clone();
+    let text = transcript(&app, &identity);
     assert!(
-        text.starts_with("You · now\n\n") && text.contains("in flight"),
+        text.matches("in flight").count() == 1,
         "the settled send stays: {text:?}"
     );
     assert!(
-        text.ends_with("auth-fix · now\n\nNew exact question"),
+        text.find("in flight").unwrap() < text.find("New exact question").unwrap(),
         "the new question is a later block below it: {text:?}"
     );
 }
@@ -1507,7 +1516,7 @@ fn provider_feedback_names_are_literal_and_do_not_create_authored_member_links()
         );
         assert_eq!(mapped.mentions.iter().map(Vec::len).sum::<usize>(), 1);
         assert_eq!(
-            session.outgoing[0].reply.as_ref().unwrap().body,
+            answer(session, 0).as_ref().unwrap().body,
             "Exact reply body stays literal source evidence"
         );
         assert_eq!(
@@ -1562,6 +1571,65 @@ fn a_settled_send_stays_in_order_when_the_same_agent_asks_a_new_question() {
 }
 
 #[test]
+fn late_capture_bytes_are_bounded_even_when_delivery_label_is_unchanged() {
+    let mut session = Session::default();
+    for index in 0..MAX_BYTES / crate::board::app::MESSAGE_LIMIT {
+        session.outgoing.push_back(Entry {
+            ticket: Ticket {
+                key: ("ben-id".into(), "agent".into()),
+                sequence: index as u64,
+                text: "x".repeat(crate::board::app::MESSAGE_LIMIT),
+                squad: "product".into(),
+            },
+            started_ms: 1,
+            lead_in: None,
+            feedback: String::new(),
+            feedback_clock: None,
+            sending_shown_ms: None,
+            sending_held: false,
+            outcome: Some(Ok(Accepted {
+                request: format!("request-{index}"),
+                disposition: Disposition::Queued,
+                passthrough: false,
+                message_state_label: None,
+                can_send_now: false,
+                working: false,
+                fallback: None,
+                warning: None,
+            })),
+        });
+    }
+    session.sent = vec![crate::board::row_detail::Sent {
+        request: "request-0".into(),
+        at_ms: 1,
+        text: "sent".into(),
+        truncated: false,
+        capture: Some(crate::board::row_detail::Capture::Answered {
+            text: "a".repeat(16_384),
+            truncated: false,
+            provider: "codex".into(),
+            ended_ms: 2,
+            response_id: None,
+            bound_ms: None,
+            settled_ms: None,
+        }),
+        message_state_label: None,
+        can_send_now: false,
+        working: false,
+    }];
+    session.observe_captures();
+    assert!(session.outgoing_bytes() <= MAX_BYTES);
+    assert_eq!(
+        session.outgoing.front().unwrap().request(),
+        Some("request-1")
+    );
+    assert!(
+        session.sent.is_empty(),
+        "the evicted local capture has no remaining owner"
+    );
+}
+
+#[test]
 fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
     let mut session = Session::default();
     for sequence in 0..=MAX_ITEMS as u64 {
@@ -1573,11 +1641,8 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
                 squad: "product".into(),
             },
             started_ms: sequence,
-            talk: true,
             outcome: None,
             lead_in: None,
-            reply: None,
-            capture: None,
             feedback: String::new(),
             feedback_clock: None,
             sending_shown_ms: None,
@@ -1635,11 +1700,11 @@ fn sends_and_later_questions_alternate_in_arrival_order() {
     feed(&app, question("q2", "second question, revised"));
     // A newer question replaces only the unanswered tail, not the sends.
     feed(&app, question("q3", "third question"));
-    let text = app.conversation.borrow().sessions[&identity].text.clone();
-    assert_eq!(text.matches("You · now").count(), 1, "{text:?}");
+    let text = transcript(&app, &identity);
+    assert_eq!(text.matches("first send").count(), 1, "{text:?}");
     assert!(!text.contains("second question"), "{text:?}");
     assert!(
-        text.ends_with("auth-fix · now\n\nthird question"),
+        text.find("first send").unwrap() < text.find("third question").unwrap(),
         "{text:?}"
     );
     // Answering the tail keeps it above the new send, below the first one.
@@ -1648,7 +1713,7 @@ fn sends_and_later_questions_alternate_in_arrival_order() {
     }
     let completed = send(&mut app, &fake, "second send");
     finish(&mut app, completed);
-    let text = app.conversation.borrow().sessions[&identity].text.clone();
+    let text = transcript(&app, &identity);
     let order: Vec<_> = ["first send", "third question", "second send"]
         .iter()
         .map(|part| {

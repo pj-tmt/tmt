@@ -435,8 +435,9 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   picker; empty submission and cancellation send nothing. `conversation` holds
   bounded session-only outgoing turns, truthful typed delivery labels and replies
   correlated by exact sender/recipient/request identity. While a local send awaits
-  its receipt ID, only that conversation's new sent-history admission waits; its
-  previously admitted history and incoming replies stay visible. A local send or
+  its receipt ID, only that pending send's new own sent-history/timeline input admission waits;
+  painted inputs, other senders and replies stay visible. Every outcome or the
+  existing worker timeout releases this bounded deferral. A local send or
   outcome rebuilds the held session once, even during its first source read;
   unchanged retained paints reuse that render. Deferred sent history does not
   gate acquired replies. Closing the composer leaves the existing send’s delivery
