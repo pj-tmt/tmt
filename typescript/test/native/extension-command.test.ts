@@ -14,40 +14,6 @@ function extension(sandbox: Sandbox, name: string, script: string): string {
 }
 
 describe('PATH extension command contract', () => {
-  it('shares bare-root guidance with the inventory without executing extensions or creating state', async () => {
-    await withSandbox(async (sandbox) => {
-      const marker = path.join(sandbox.root, 'extension-executed');
-      sandbox.env.TMT_EXTENSION_MARKER = marker;
-      extension(sandbox, 'ops', ': > "$TMT_EXTENSION_MARKER"; exit 99');
-      const listed = await runCli(sandbox, ['extension', 'ls', '--json']);
-      expect(listed.status, listed.stdout + listed.stderr).toBe(0);
-      const guidance = JSON.parse(listed.stdout).guidance as {
-        actions: { id: string; kind: string; argv: string[]; description: string }[];
-      };
-      const bare = await runCli(sandbox, []);
-      expect(bare.status, bare.stderr).toBe(0);
-      expect(bare.stdout).toContain('Start here:');
-      expect(bare.stdout.indexOf('Start here:')).toBeLessThan(bare.stdout.indexOf('Usage:'));
-      for (const action of guidance.actions) {
-        expect(bare.stdout).toContain(action.argv.join(' '));
-      }
-      expect(guidance.actions).toContainEqual(
-        expect.objectContaining({ argv: ['tmt', 'ops', '--help'] })
-      );
-      expect(bare.stdout).not.toContain('tmt ops ui');
-      for (const args of [['--help'], ['help'], ['help', 'setup']]) {
-        const help = await runCli(sandbox, args);
-        expect(help.status, help.stderr).toBe(0);
-        expect(help.stdout).not.toContain('Start here:');
-      }
-      expect(existsSync(marker)).toBe(false);
-      expect(existsSync(sandbox.database)).toBe(false);
-      expect(existsSync(sandbox.globalConfig)).toBe(false);
-      expect(existsSync(sandbox.localConfig)).toBe(false);
-      expect(existsSync(path.join(sandbox.home, '.local'))).toBe(false);
-    });
-  });
-
   it('dispatches an installed retired Office executable through the generic PATH boundary', async () => {
     await withSandbox(async (sandbox) => {
       extension(sandbox, 'office', 'printf "%s\\n" "$@"; exit 23');

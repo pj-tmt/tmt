@@ -48,11 +48,11 @@ help and review updates with `tmt upgrade`.
 
 TMT exchanges durable requests/replies through verified host terminals (built-in,
 tmux or Herdr) or local inboxes.
-Ops provides the terminal workspace ([tmt-ops](../tmt-ops/SKILL.md),
-`tmt ops skill`); Colab provides browser spaces ([tmt-colab](../tmt-colab/SKILL.md),
+Ops provides the terminal workspace ([tmt-ops](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md),
+`tmt ops skill`); Colab provides browser spaces ([tmt-colab](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/skills/tmt-colab/SKILL.md),
 `tmt colab skill`); Remote owns browser connections and cloud setup
 (`tmt remote --help`); Digest batches attention
-([tmt-digest](../tmt-digest/SKILL.md), `tmt digest skill`). Extension skills
+([tmt-digest](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-digest/skills/tmt-digest/SKILL.md), `tmt digest skill`). Extension skills
 arrive with their consented installations; read their own guidance before use.
 Agents show `tmt remote pair` and all sharing/sending grant commands to the user;
 **never run pairing or grant commands yourself**. The user performs those actions.
