@@ -4573,6 +4573,14 @@ to pair the browser and loads no Colab code; a module that cannot load says Cola
 The renderer stays its own sandboxed frame under the mount, with its own policy. The reader
 (`/read/<id>`) and the hosted bundle stay outside the app.
 
+The same entry has a second export, `mountSearch(container, options)` (#4841): the global search's
+Colab half, which the app mounts on any route, not only `/colab/…`. It opens one dialog on request
+(`open(opener)`), reads the page list each time the dialog opens, lists the groups of the search
+registry the app passes beside Colab's pages and projects, navigates a page through the app's own
+page navigation and anything else through the app's `go(href)`, and holds no keyboard shortcut:
+the app's top bar owns the one Command/Ctrl+K. `dispose()` closes the dialog and removes it. It is
+loaded from the same entry and only from an owner's composed shell.
+
 Inside the app Colab's locations are paths: `/colab/` (home), `/colab/pages/<pageId>`,
 `/colab/settings` and `/colab/p/<shortId>` (the printed short link, resolved like `/p/<shortId>`
 below). Every older link form keeps working and lands on the same route, its display hint carried

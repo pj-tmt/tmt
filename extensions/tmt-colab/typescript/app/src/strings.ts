@@ -95,6 +95,12 @@ export const text = {
     noMatch: 'No matching pages.',
     failed: "Couldn't load pages. Close and try again.",
     shortcut: (command: boolean) => `Search pages · ${command ? '⌘K' : 'Ctrl+K'}`,
+    // The global search: the same dialog with the groups of every module beside Colab's pages.
+    titleGlobal: 'Search TMT',
+    placeholderGlobal: 'Search modules, pages, agents or devices…',
+    resultsGlobal: 'Results',
+    colab: 'Colab',
+    projectPages: (count: number) => `Project · ${count} ${count === 1 ? 'page' : 'pages'}`,
   },
   archiveReadOnly: 'Archived · Read only',
   archiveReadOnlyHint: 'Archived pages can be read, not changed.',

@@ -121,8 +121,21 @@ function admitted(provider: SearchProvider): SearchSnapshot {
   return { state: 'unavailable' };
 }
 
+function groupOf(provider: SearchProvider, snapshot: SearchSnapshot): SearchGroup {
+  return {
+    key: provider.key,
+    label: provider.label,
+    state: snapshot.state,
+    items: snapshot.state === 'ready' ? snapshot.items : [],
+  };
+}
+
 export function createSearchRegistry(): SearchRegistry {
-  const entries = new Map<string, { provider: SearchProvider; stop(): void }>();
+  // Each entry keeps its group until its own provider notifies, so a change reads one provider.
+  const entries = new Map<
+    string,
+    { provider: SearchProvider; stop(): void; group: SearchGroup | undefined }
+  >();
   const listeners = new Set<() => void>();
   let cache: readonly SearchGroup[] | undefined;
   let disposed = false;
@@ -131,15 +144,9 @@ export function createSearchRegistry(): SearchRegistry {
     for (const listener of Array.from(listeners)) listener();
   };
   const groups = () =>
-    (cache ??= [...entries.values()].map(({ provider }) => {
-      const snapshot = admitted(provider);
-      return {
-        key: provider.key,
-        label: provider.label,
-        state: snapshot.state,
-        items: snapshot.state === 'ready' ? snapshot.items : [],
-      };
-    }));
+    (cache ??= [...entries.values()].map(
+      (entry) => (entry.group ??= groupOf(entry.provider, admitted(entry.provider))),
+    ));
   return {
     register(provider) {
       if (disposed) return noop;
@@ -147,12 +154,16 @@ export function createSearchRegistry(): SearchRegistry {
         throw new Error('A search provider needs a key and a label');
       if (entries.has(provider.key))
         throw new Error(`A search provider is already registered for ${provider.key}`);
-      const problem = searchSnapshotProblem(provider.getSnapshot());
+      const snapshot = provider.getSnapshot();
+      const problem = searchSnapshotProblem(snapshot);
       if (problem) throw new Error(`Search provider ${provider.key}: ${problem}`);
       const stop = provider.subscribe(() => {
-        if (entries.get(provider.key)?.provider === provider) changed();
+        const own = entries.get(provider.key);
+        if (own?.provider !== provider) return;
+        own.group = undefined;
+        changed();
       });
-      const entry = { provider, stop };
+      const entry = { provider, stop, group: groupOf(provider, snapshot) };
       entries.set(provider.key, entry);
       changed();
       return () => {

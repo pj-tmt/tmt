@@ -908,6 +908,21 @@ source and ranking owners. Its project menu edits the same `SearchEdit` as query
 there is no separate filter state. The result list keeps native links, plural memberships
 and real author/waiting metadata, with a shared-dialog footer for keyboard hints.
 
+The same host is the global search (#4841) when it is given a `SwitcherSearch`: a
+`@tmt/browser-ui/search` registry whose groups list beside Colab's, and the host's own `go(href)`
+for everything that is not a Colab page. `quick-switcher-groups.ts` composes the list: the
+`navigation` group first, then Colab's (the pages as ranked, with the project and author filter
+already applied, and the projects the text names, when `projectHref` is given), then each other
+provider in registration order, matched on the text alone and capped. Colab's `Listbox` takes an
+optional `group` per option and draws consecutive options of one group under a quiet heading in a
+`role="group"`; the list stays one combobox with one active descendant, and a list where no option
+has a group keeps its flat markup. A provider item is chosen as `registry.find` has it at that
+moment, so a withdrawn or replaced item cannot open. `search-entry.tsx` mounts the host off the
+Colab route as `mount(container, { transport, registry, navigate, pageHref, go, projectHref })`
+returning `open(opener)` and `dispose()`, with the bar's one Command/Ctrl+K listener left to the
+shell; the module exports it as `mountSearch`, which links the module's stylesheet for as long as
+it lives. Without a `search` the host is the page switcher it always was.
+
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match
 strength of the free text, then a page waiting for you, then `max(opened, updated)`, ties by title

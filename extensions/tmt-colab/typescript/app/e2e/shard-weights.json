@@ -11,6 +11,7 @@
     "Additional file measurement: question-choice-rows.spec.ts, local Chromium run on 2026-10-23 at the head that adds it (#4585), one worker: 5 cases passed, summed result durations 4,964 ms, rounded up to 5 seconds. Other file weights retain the measurement above.",
     "Additional file measurement: question-card-v2.spec.ts, local Chromium run on 2026-10-23 at the head that adds it (#4629), two workers: 4 cases passed, summed result durations 3,990 ms, rounded up to 4 seconds. Other file weights retain the measurement above.",
     "Additional file measurement: question-choice-rows.spec.ts after #4629 trimmed it to one view, local Chromium run on 2026-10-23, two workers: 2 cases passed, summed result durations 2,361 ms, rounded up to 3 seconds. Other file weights retain the measurement above.",
+    "Additional file measurement: search-entry.spec.ts, local Chromium run on 2026-10-26 at the head that adds it (#4841), one worker: 10 cases passed, summed result durations 5,741 ms, rounded up to 6 seconds. Other file weights retain the measurement above.",
     "Re-measured chrome.spec.ts, mounted.spec.ts, page-list-screen.spec.ts, page-list-v2.spec.ts, page-list.spec.ts, page-stages.spec.ts and spa-links.spec.ts from run 39976282614 at 40f27585f1b38bef245e287cb8b6405cedcfd363, colab-app-results-1 through -6/results.json. Sum every result duration per file, round up to whole seconds, minimum 1 for wholly skipped files; other weights retain their recorded measurements. All re-measured cases passed or retained existing skips."
   ],
   "jobOverheadSeconds": 58,
@@ -96,6 +97,7 @@
     "reply-reveal.spec.ts": 5,
     "reviews.spec.ts": 46,
     "rich-input.spec.ts": 5,
+    "search-entry.spec.ts": 6,
     "served.spec.ts": 1,
     "short-links.spec.ts": 6,
     "spa-links.spec.ts": 23,
