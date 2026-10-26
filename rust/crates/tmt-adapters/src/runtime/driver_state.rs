@@ -315,19 +315,23 @@ pub fn after_start(
     previous: Option<&DriverState>,
     now_ms: u64,
 ) -> Option<DriverState> {
-    started(reported, usage, previous, None, now_ms)
+    started(reported, usage, previous, None, None, now_ms)
 }
 
 /// The state after a compaction start. Unlike any other start, it keeps the
 /// consumption counter: the provider goes on appending to the same source, so
-/// an idle agent stays observed rather than starting a gap (#5122).
+/// an idle agent stays observed rather than starting a gap (#5122). It also
+/// keeps the activity: a provider compacts inside a running turn, so the
+/// compaction neither starts nor ends one, and the turn's own end still needs
+/// the start it was admitted with (#5268).
 pub fn after_compaction(
     reported: Option<&str>,
     previous: Option<&DriverState>,
     now_ms: u64,
 ) -> Option<DriverState> {
     let consumption = previous.and_then(state_consumption);
-    started(reported, None, previous, consumption, now_ms)
+    let activity = previous.and_then(state_activity);
+    started(reported, None, previous, consumption, activity, now_ms)
 }
 
 fn started(
@@ -335,6 +339,7 @@ fn started(
     usage: Option<Usage>,
     previous: Option<&DriverState>,
     consumption: Option<super::consumption::State>,
+    activity: Option<Activity>,
     now_ms: u64,
 ) -> Option<DriverState> {
     let reported = reported.filter(|model| valid_model(model));
@@ -343,7 +348,7 @@ fn started(
             .map(str::to_owned)
             .or_else(|| previous.and_then(state_model)),
         usage,
-        activity: None,
+        activity,
         consumption,
         observed: reported.and_then(|model| ObservedModel::new(model, now_ms)),
     }
@@ -560,6 +565,53 @@ mod tests {
         let mut bad: Value = serde_json::from_str(active.document()).unwrap();
         bad["activity"]["sinceMs"] = 101.into();
         assert!(state_activity(&DriverState::new(5, &bad.to_string()).unwrap()).is_none());
+    }
+
+    #[test]
+    fn a_compaction_inside_a_turn_keeps_its_activity_and_still_drops_usage() {
+        let session = ProviderSessionId::new("s").unwrap();
+        let process = ProcessIncarnation::new(42, "birth").unwrap();
+        let started = after_activity(
+            Some(&after_start(Some("opus"), Some(usage(10)), None, 50).unwrap()),
+            &session,
+            &process,
+            &Event {
+                kind: tmt_core::binding::session::activity::EventKind::TurnStarted,
+                turn: None,
+            },
+            None,
+            100,
+        )
+        .unwrap();
+        let compacted = after_compaction(None, Some(&started), 101).unwrap();
+        assert_eq!(state_activity(&compacted), state_activity(&started));
+        assert_eq!(state_model(&compacted).as_deref(), Some("opus"));
+        assert!(state_usage(&compacted).is_none(), "the context changed");
+        // The turn's own end is still admitted once; every other start forgets it.
+        let ended = after_activity(
+            Some(&compacted),
+            &session,
+            &process,
+            &Event {
+                kind: tmt_core::binding::session::activity::EventKind::TurnEnded,
+                turn: None,
+            },
+            None,
+            102,
+        )
+        .unwrap();
+        assert_eq!(state_activity(&ended).unwrap().phase, ActivityPhase::Idle);
+        assert!(state_activity(&after_start(None, None, Some(&started), 101).unwrap()).is_none());
+        // Idle stays idle, and a compaction with no activity to keep adds none.
+        assert_eq!(
+            state_activity(&after_compaction(None, Some(&ended), 103).unwrap())
+                .unwrap()
+                .phase,
+            ActivityPhase::Idle
+        );
+        assert!(
+            state_activity(&after_compaction(None, Some(&legacy("opus")), 104).unwrap()).is_none()
+        );
     }
 
     #[test]
