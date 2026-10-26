@@ -662,6 +662,65 @@ for (const width of [1440, 390])
     });
   }
 
+for (const selectionMode of [false, true])
+  test(`reselecting text keeps the drag active until release in selection mode ${selectionMode}`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(
+      page,
+      'change',
+      '<p id="first" style="display:inline-block">First selected passage.</p><p id="second" style="display:inline-block">Another selected passage.</p>',
+    );
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    const first = frame.locator('#first');
+    const second = frame.locator('#second');
+    if (selectionMode)
+      await page
+        .locator('.selection-mode')
+        .getByRole('button', { name: 'Selection mode', exact: true })
+        .click();
+    await first.evaluate((node) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNodeContents(node);
+      node.ownerDocument.getSelection()?.removeAllRanges();
+      node.ownerDocument.getSelection()?.addRange(range);
+    });
+    const painted = () =>
+      second.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+    await painted();
+    const box = (await second.boundingBox())!;
+    await page.mouse.move(box.x + 1, box.y + box.height / 2);
+    await page.mouse.down();
+    try {
+      // The new press collapses the old range before the pointer starts extending it.
+      expect(await second.evaluate((node) => node.ownerDocument.getSelection()?.isCollapsed)).toBe(
+        true,
+      );
+      await painted();
+      await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+      await painted();
+      expect(
+        await second.evaluate((node) => node.ownerDocument.getSelection()?.toString()),
+      ).not.toBe('');
+      if (!selectionMode) await expect(page.getByTestId('selection-ask')).toBeHidden();
+    } finally {
+      await page.mouse.up();
+    }
+    if (selectionMode)
+      await expect(
+        page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' }),
+      ).toBeFocused();
+    else await expect(page.getByTestId('selection-ask')).toBeVisible();
+    expect((await run(page, 'proof')).sends).toEqual([]);
+  });
+
 for (const gesture of ['drag', 'completed selection C'] as const)
   test(`selection mode exits after ${gesture} opens a comment`, async ({ page }) => {
     await page.goto('/');

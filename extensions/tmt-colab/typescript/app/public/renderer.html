@@ -870,12 +870,14 @@
             return capture();
           };
           const selectionChanged = () => {
+            // A new drag collapses the previous range before extending it. Its endpoint, not
+            // that intermediate selectionchange, owns completion and annotation admission.
+            if (stopped || pointerSelecting || keyboardSelecting) return;
             if (getSelection()?.isCollapsed) {
               endGesture();
               return;
             }
-            if (stopped || pointerSelecting || keyboardSelecting || selectionFrame !== undefined)
-              return;
+            if (selectionFrame !== undefined) return;
             selectionFrame = requestAnimationFrame(() => {
               selectionFrame = undefined;
               capture();
@@ -2076,7 +2078,7 @@
               document.addEventListener('pointercancel', endGesture, true);
               document.addEventListener('lostpointercapture', endGesture, true);
               document.addEventListener('mouseup', endGesture, true);
-              document.addEventListener('pointerleave', endGesture);
+              document.documentElement.addEventListener('pointerleave', endGesture);
               document.addEventListener('visibilitychange', endGesture);
               addEventListener('blur', endGesture);
               document.addEventListener('keyup', finishKeyboardSelection, true);
@@ -2223,7 +2225,7 @@
               document.removeEventListener('pointercancel', endGesture, true);
               document.removeEventListener('lostpointercapture', endGesture, true);
               document.removeEventListener('mouseup', endGesture, true);
-              document.removeEventListener('pointerleave', endGesture);
+              document.documentElement.removeEventListener('pointerleave', endGesture);
               document.removeEventListener('visibilitychange', endGesture);
               removeEventListener('blur', endGesture);
               document.removeEventListener('keyup', finishKeyboardSelection, true);
