@@ -6,6 +6,9 @@ on:
       - 'extensions/tmt-remote/typescript/remote-client/**'
       - '.github/workflows/remote-pairing.yml'
       - '.github/actions/setup-tooling/**'
+      - '.github/actions/install-chromium-deps/**'
+      - '.github/actions/apt-install/**'
+      - 'scripts/retry-command.sh'
       - 'typescript/package.json'
       - 'typescript/pnpm-workspace.yaml'
       - 'typescript/pnpm-lock.yaml'
@@ -40,10 +43,11 @@ jobs:
       - name: Build the door
         working-directory: rust
         run: cargo build --locked -p tmt-remote
+      - uses: ./.github/actions/install-chromium-deps
       - name: Pair a real Chromium with a real door
         working-directory: typescript
         run: |
-          pnpm --filter @tmt/remote-client exec playwright install --with-deps chromium
+          pnpm --filter @tmt/remote-client exec playwright install chromium
           pnpm --filter @tmt/remote-client --fail-if-no-match test:browser
       - uses: actions/upload-artifact@v4
         if: always()

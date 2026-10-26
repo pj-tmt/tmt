@@ -5,6 +5,8 @@ on:
       - 'extensions/tmt-remote/typescript/browser-addon/**'
       - '.github/workflows/browser-addon.yml'
       - '.github/actions/setup-tooling/**'
+      - '.github/actions/install-chromium-deps/**'
+      - '.github/actions/apt-install/**'
       - 'scripts/retry-command.sh'
       - 'typescript/package.json'
       - 'typescript/pnpm-workspace.yaml'
@@ -28,13 +30,17 @@ jobs:
       - name: Install locked add-on tools
         working-directory: typescript
         run: pnpm --filter @tmt/browser-addon install --frozen-lockfile --ignore-scripts
-      - name: Verify the shell and real isolated extension
+      - name: Verify and build the shell
         working-directory: typescript
         run: |
           pnpm --filter @tmt/browser-addon --fail-if-no-match check
           pnpm --filter @tmt/browser-addon --fail-if-no-match test
           pnpm --filter @tmt/browser-addon --fail-if-no-match build
-          pnpm --filter @tmt/browser-addon exec playwright install --with-deps chromium
+      - uses: ./.github/actions/install-chromium-deps
+      - name: Verify the real isolated extension
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/browser-addon exec playwright install chromium
           pnpm --filter @tmt/browser-addon --fail-if-no-match test:browser
       - uses: actions/upload-artifact@v4
         if: always()

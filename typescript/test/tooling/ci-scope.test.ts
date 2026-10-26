@@ -612,6 +612,17 @@ describe('native dependency notices selection', () => {
       )
     ).devDependencies['@playwright/test'];
     expect(playwright).toBe('1.63.0');
+    for (const [manifest, dependency] of [
+      ['extensions/tmt-colab/typescript/colab-client/package.json', 'playwright'],
+      ['extensions/tmt-remote/typescript/remote-client/package.json', '@playwright/test'],
+      ['extensions/tmt-remote/typescript/browser-addon/package.json', '@playwright/test'],
+    ]) {
+      const consumer = JSON.parse(
+        readFileSync(new URL(`../../../${manifest}`, import.meta.url), 'utf8')
+      );
+      expect(consumer.devDependencies[dependency], manifest).toBe(playwright);
+    }
+
     expect(helper).toContain('using: composite');
     expect(helper.match(/uses: /g)).toHaveLength(1);
     const packages = [
@@ -632,6 +643,51 @@ describe('native dependency notices selection', () => {
       ...['libnspr4', 'libnss3', 'libpango-1.0-0', 'libx11-6', 'libxcb1', 'libxcomposite1'],
       ...['libxdamage1', 'libxext6', 'libxfixes3', 'libxkbcommon0', 'libxrandr2'],
     ]);
+  });
+  it('bounds Chromium-only installs while retaining the three-engine safety net', () => {
+    const workflows = fileURLToPath(new URL('../../../.github/workflows/', import.meta.url));
+    const safetyNet = `      - name: Install all three engines and Linux dependencies for the safety net
+        if: github.event_name != 'pull_request'
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-client exec playwright install --with-deps chromium firefox webkit
+`;
+    for (const file of readdirSync(workflows).filter((name) => /\.ya?ml$/.test(name))) {
+      let source = readFileSync(path.join(workflows, file), 'utf8');
+      if (file === 'colab-browser.yml') {
+        expect(source).toContain(safetyNet);
+        source = source.replace(safetyNet, '');
+      }
+      for (const [command] of source.matchAll(/^.*\bplaywright install\b.*$/gm))
+        if (/\bchromium\b/.test(command)) expect(command, file).not.toContain('--with-deps');
+    }
+    for (const [file, names] of [
+      ['remote-pairing.yml', ['remote-pairing']],
+      ['browser-addon.yml', ['browser-addon']],
+      ['colab-browser.yml', ['colab-browser', 'colab-app', 'colab-hosted', 'colab-acceptance']],
+    ] as const) {
+      const source = readFileSync(path.join(workflows, file), 'utf8');
+      if (file !== 'colab-browser.yml')
+        for (const input of [
+          '.github/actions/install-chromium-deps/**',
+          '.github/actions/apt-install/**',
+          'scripts/retry-command.sh',
+        ])
+          expect(source, file).toContain(`      - '${input}'`);
+      for (const name of names) {
+        const body = source.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+        expect(
+          body.match(/uses: \.\/\.github\/actions\/install-chromium-deps/g),
+          name
+        ).toHaveLength(1);
+        expect(body.indexOf('actions/install-chromium-deps'), name).toBeLessThan(
+          body.indexOf('playwright install chromium')
+        );
+      }
+    }
+    const colab = readFileSync(path.join(workflows, 'colab-browser.yml'), 'utf8');
+    expect(colab).toContain(
+      "      - name: Install Linux dependencies for PRs\n        if: github.event_name == 'pull_request'\n        uses: ./.github/actions/install-chromium-deps\n"
+    );
   });
 });
 
