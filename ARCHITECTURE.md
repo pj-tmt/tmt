@@ -289,7 +289,8 @@ owns behavior and limits.
 ### Tmux and process effects
 
 `tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
-monotonic deadlines, group cleanup, reaping). A leaf probe such as `ps` never forks and
+monotonic deadlines, group cleanup, reaping) and native-first process-incarnation acquisition.
+A leaf probe such as `ps` never forks and
 stays in its caller's process group, so a supervisor's group kill also ends it;
 `process::interactive` owns direct terminal children without taking the shared process
 group. `tmux` pins caller or recorded
