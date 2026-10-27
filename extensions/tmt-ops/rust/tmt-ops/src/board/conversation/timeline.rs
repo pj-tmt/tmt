@@ -226,6 +226,21 @@ impl<'a> Paint<'a> {
         }
     }
 }
+/// For each position, the first known clock at or after it. One pass from the end;
+/// an unknown clock stays unknown when nothing after it has one.
+fn next_known(times: &[Option<u64>]) -> Vec<Option<u64>> {
+    let mut next = None;
+    let mut known: Vec<_> = times
+        .iter()
+        .rev()
+        .map(|time| {
+            next = time.or(next);
+            next
+        })
+        .collect();
+    known.reverse();
+    known
+}
 fn mute(line: &mut Line<'_>, look: Look) {
     line.style = line.style.patch(look.role(Role::Muted));
     for span in &mut line.spans {
@@ -373,11 +388,14 @@ impl Session {
         let mut inputs: &[model::Entry] = &[];
         let mut painted_inputs = HashSet::new();
         let blocks = committed::blocks(&page.entries);
-        for (index, block) in blocks.iter().enumerate() {
-            let at = blocks[index..]
+        let clocks = next_known(
+            &blocks
                 .iter()
-                .find_map(|block| self.committed_time(block, page))
-                .unwrap_or(u64::MAX);
+                .map(|block| self.committed_time(block, page))
+                .collect::<Vec<_>>(),
+        );
+        for (index, block) in blocks.iter().enumerate() {
+            let at = clocks[index].unwrap_or(u64::MAX);
             history.through(self, &mut paint, at, &painted_inputs);
             history.boundary();
             paint.separate();
