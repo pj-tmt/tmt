@@ -116,7 +116,10 @@ pub(in crate::board) const SCENES: &[&str] = &[
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
     let now = crate::status::now_ms();
     let mut app = app_with_two_members();
-    app.view.as_mut().unwrap().look = look;
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    // A saved squad look would win over the scene's, and it follows the environment.
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     install(
         &mut app,
         &[
