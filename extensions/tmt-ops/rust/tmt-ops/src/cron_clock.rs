@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_cli_style::{Terminal, detail, message};
-use tmt_ops::cron::{self, Clock, ClockStatus, Dispatch, Job, Lease, Store, Tick};
+use tmt_ops::cron::{self, Clock, ClockStatus, Dispatch, Job, Lease, Tick};
 
 const EVERY: Duration = Duration::from_secs(1);
 
@@ -66,9 +66,11 @@ pub fn send_now(
     expected_revision: u64,
     operation_id: &str,
 ) -> Result<Value, SquadError> {
-    let job = service::authorize_write(core, key, actor, expected_revision)?;
+    let (job, squad) = service::authorize_write(core, key, actor, expected_revision)?;
     let receipt = dispatch(core, &job, operation_id, Some(&actor.id))?;
-    Ok(json!({"action":"send","job":job.document(),"dispatch":receipt,"warnings":[]}))
+    let mut document = job.document();
+    document["squad"] = json!(squad);
+    Ok(json!({"action":"send","job":document,"dispatch":receipt,"warnings":[]}))
 }
 
 fn dispatch(
@@ -165,14 +167,14 @@ fn occupied(clock: &Clock) -> SquadError {
 fn pass(
     core: &Core,
     config: &Config,
-    root: &std::path::Path,
+    _root: &std::path::Path,
     lease: &mut Lease,
     tick: Option<&mut Tick>,
     cancellation: &Cancellation,
 ) -> Result<Value, SquadError> {
     let time = now();
     let mut warnings = service::drain_retired(core, config, time)?;
-    let jobs = Store::new(root)?.read()?;
+    let jobs = service::read_jobs(core)?;
     let mut dispatcher = Scheduled {
         core,
         lease,
@@ -199,7 +201,6 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
         )?;
         let squad = Squad::resolve(core, flags.get_one::<String>("squad").map(String::as_str))?;
         let key = JobKey {
-            squad: squad.name,
             room_id: squad.room_id,
             id: flags.get_one::<String>("id").expect("job id").clone(),
         };

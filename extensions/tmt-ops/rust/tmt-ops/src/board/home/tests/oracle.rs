@@ -127,7 +127,7 @@ pub(in crate::board) fn rich() -> App {
     app.home_leads
         .reconcile(view.home.as_ref().unwrap(), view.me_id.as_deref());
     let mut job = test_view("lead-a", "merge queue sweep", Some(TEST_NOW + 3_600_000));
-    job.job.squad = "alpha".into();
+    job.squad = "alpha".into();
     app.cron
         .replace(Ok(test_cron(vec![job], ClockStatus::NoClock)));
     app.select(0);

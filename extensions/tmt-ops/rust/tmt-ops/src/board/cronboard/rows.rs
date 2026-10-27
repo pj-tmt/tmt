@@ -259,7 +259,7 @@ pub(super) fn project(
                 "cursor": if selected == Some(id.as_str()) { "›" } else { "" },
                 "mark_role": mark_role.name(),
                 "cid": view.job.id(),
-                "squad": view.job.squad,
+                "squad": view.squad,
                 "owner": first_line(owner),
                 "owner_role": if state == "no owner" { Role::Blocked } else { Role::Text }.name(),
                 "what": first_line(&view.job.message),

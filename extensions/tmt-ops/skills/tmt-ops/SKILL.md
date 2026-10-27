@@ -961,8 +961,8 @@ automatic retry. `x` removes membership, not an identity, process, draft or hist
 Source timers pause before leave; re-add/reassign never resumes them. Explicit
 Resume is separate.
 
-Squad rename keeps its room UUID, moves Ops metadata/config and the cron counter
-namespace/jobs' squad field, and preserves c-ids and pause. A second-step failure
+Squad rename keeps its room UUID, moves Ops metadata/config and leaves cron jobs
+and counters keyed to that UUID, preserving c-ids and pause. A second-step failure
 leaves the confirmed room name intact and reports a repair command. Use that
 exact command to repair; do not roll the room name back or blindly retry.
 
@@ -1632,8 +1632,13 @@ first use after an upgrade imports the earlier `cron/jobs.json` and
 nothing is deleted, and an old file that reappears is archived the same way and never
 read. Concurrent commands queue for up to five seconds; a longer wait reports
 `SQUAD_CRON_STORE_BUSY` (or a checklist storage error) with nothing saved, and the same
-command can simply be run again. A database written by a newer Ops is refused with an
-upgrade hint (`tmt extension upgrade ops` or `tmt upgrade`) and never changed.
+command can simply be run again. Cron's first use after this upgrade converts existing
+name-keyed timers to their current room UUIDs. A missing squad with timers, ambiguous
+name, or two names resolving to one room is refused with a next step and the stored bytes
+remain unchanged; a counter with no jobs and no room is dropped. Older Ops refuses the
+new cron document as `SQUAD_CRON_STORE_INVALID`; use the current Ops to read it. A database
+written by a newer Ops is refused with an upgrade hint (`tmt extension upgrade ops` or
+`tmt upgrade`) and never changed.
 
 ## Observed token usage
 

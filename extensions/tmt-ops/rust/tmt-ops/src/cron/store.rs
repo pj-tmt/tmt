@@ -23,7 +23,6 @@ pub struct Pause {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     id: u64,
-    pub squad: String,
     pub room_id: String,
     pub owner_id: Option<String>,
     pub message: String,
@@ -46,16 +45,9 @@ fn string(value: &Value, key: &str) -> Result<String, Error> {
 }
 
 impl Job {
-    pub fn new(
-        squad: String,
-        room_id: String,
-        owner_id: String,
-        message: String,
-        schedule: Schedule,
-    ) -> Self {
+    pub fn new(room_id: String, owner_id: String, message: String, schedule: Schedule) -> Self {
         Self {
             id: 0,
-            squad,
             room_id,
             owner_id: Some(owner_id),
             message,
@@ -77,7 +69,7 @@ impl Job {
         }
     }
     pub fn document(&self) -> Value {
-        json!({"id":self.id(),"squad":self.squad,"roomId":self.room_id,"ownerId":self.owner_id,"message":self.message,"schedule":self.schedule.document(),"revision":self.revision,"state":self.state(),"pause":self.pause.as_ref().map(|p| json!({"by":p.by,"atMs":p.at_ms}))})
+        json!({"id":self.id(),"roomId":self.room_id,"ownerId":self.owner_id,"message":self.message,"schedule":self.schedule.document(),"revision":self.revision,"state":self.state(),"pause":self.pause.as_ref().map(|p| json!({"by":p.by,"atMs":p.at_ms}))})
     }
     fn from_document(value: &Value) -> Result<Self, Error> {
         let id = string(value, "id")?
@@ -97,7 +89,6 @@ impl Job {
         };
         let job = Self {
             id,
-            squad: string(value, "squad")?,
             room_id: string(value, "roomId")?,
             owner_id: if value["ownerId"].is_null() {
                 None
@@ -120,8 +111,7 @@ impl Job {
         Ok(job)
     }
     fn validate(&self) -> Result<(), Error> {
-        if self.squad.is_empty()
-            || self.room_id.is_empty()
+        if self.room_id.is_empty()
             || self.owner_id.as_ref().is_some_and(|id| id.is_empty())
             || self.revision == 0
             || (self.owner_id.is_none() && self.pause.is_none())
@@ -143,6 +133,11 @@ pub struct Jobs {
     jobs: Vec<Job>,
 }
 
+struct LegacyJobs {
+    counters: BTreeMap<String, u64>,
+    jobs: Vec<(String, Job)>,
+}
+
 impl Jobs {
     /// Convert a fully validated v1 snapshot using the caller's public room inventory.
     /// The caller must apply the returned document to the same snapshot under the
@@ -156,7 +151,7 @@ impl Jobs {
                 .iter()
                 .filter(|(room_name, _)| room_name == name)
                 .collect();
-            let has_jobs = legacy.jobs.iter().any(|job| job.squad == *name);
+            let has_jobs = legacy.jobs.iter().any(|(squad, _)| squad == name);
             let room = match matches.as_slice() {
                 [] if !has_jobs => continue,
                 [(_, room)] => room,
@@ -174,7 +169,7 @@ impl Jobs {
             if legacy
                 .jobs
                 .iter()
-                .any(|job| job.squad == *name && job.room_id != *room)
+                .any(|(squad, job)| squad == name && job.room_id != *room)
             {
                 return Err(corrupt(format!(
                     "Cannot migrate timers for squad '{name}': a job belongs to a different room. Resolve the squad room and retry."
@@ -185,14 +180,7 @@ impl Jobs {
         let jobs = legacy
             .jobs
             .iter()
-            .map(|job| {
-                let mut document = job.document();
-                document
-                    .as_object_mut()
-                    .expect("job document is an object")
-                    .remove("squad");
-                document
-            })
+            .map(|(_, job)| job.document())
             .collect::<Vec<_>>();
         Ok(json!({"version": 2, "counters": counters, "jobs": jobs}))
     }
@@ -203,18 +191,18 @@ impl Jobs {
     pub fn find_mut(&mut self, squad: &str, id: &str) -> Option<&mut Job> {
         self.jobs
             .iter_mut()
-            .find(|j| j.squad == squad && j.id() == id)
+            .find(|j| j.room_id == squad && j.id() == id)
     }
     pub fn remove(&mut self, squad: &str, id: &str) -> Option<Job> {
         let index = self
             .jobs
             .iter()
-            .position(|j| j.squad == squad && j.id() == id)?;
+            .position(|j| j.room_id == squad && j.id() == id)?;
         Some(self.jobs.remove(index))
     }
     pub fn insert(&mut self, mut job: Job) -> Result<String, Error> {
         job.validate()?;
-        let counter = self.counters.entry(job.squad.clone()).or_default();
+        let counter = self.counters.entry(job.room_id.clone()).or_default();
         let id = counter
             .checked_add(1)
             .ok_or_else(|| corrupt("Job id space exhausted."))?;
@@ -251,54 +239,52 @@ impl Jobs {
         Ok(paused)
     }
 
-    /// Called under Store::update after the room CAS. Retain deleted-job counters
-    /// as well as live job IDs. A destination namespace is never silently merged.
-    /// Repeating the completed step is a no-op for the explicit repair path.
-    pub fn rename_squad(&mut self, old: &str, new: &str, room_id: &str) -> Result<bool, Error> {
-        if old == new {
-            return Ok(false);
-        }
-        if self
-            .jobs
-            .iter()
-            .any(|job| job.squad == old && job.room_id != room_id)
-        {
-            return Err(Error::new(
-                "SQUAD_CRON_ROOM_CONFLICT",
-                "The old timer namespace belongs to a different room.",
-            ));
-        }
-        if !self.counters.contains_key(old) && !self.jobs.iter().any(|job| job.squad == old) {
-            return Ok(false);
-        }
-        if self.counters.contains_key(new) || self.jobs.iter().any(|job| job.squad == new) {
-            return Err(Error::new(
-                "SQUAD_CRON_NAMESPACE_CONFLICT",
-                "The destination timer namespace already exists; choose a different squad name.",
-            ));
-        }
-        if let Some(counter) = self.counters.remove(old) {
-            self.counters.insert(new.into(), counter);
-        }
-        for job in &mut self.jobs {
-            if job.squad == old {
-                job.squad = new.into();
-            }
-        }
-        Ok(true)
-    }
-
     pub fn document(&self) -> Value {
-        json!({"version":1,"counters":self.counters,"jobs":self.jobs.iter().map(Job::document).collect::<Vec<_>>()})
+        json!({"version":2,"counters":self.counters,"jobs":self.jobs.iter().map(Job::document).collect::<Vec<_>>()})
     }
     fn from_document(value: &Value) -> Result<Self, Error> {
-        Self::from_v1_document(value)
+        if value["version"] != 2 {
+            if value["version"].as_u64().is_some_and(|version| version > 2) {
+                return Err(Error::new(
+                    "SQUAD_CRON_STORE_NEWER",
+                    "Cron timers were written by a newer Ops. Upgrade Ops, then retry.",
+                ));
+            }
+            return Err(corrupt("Unsupported cron store version."));
+        }
+        let jobs = Self::parse_document(value)?;
+        jobs.validate()?;
+        Ok(jobs)
     }
 
-    fn from_v1_document(value: &Value) -> Result<Self, Error> {
+    fn from_v1_document(value: &Value) -> Result<LegacyJobs, Error> {
         if value["version"] != 1 {
             return Err(corrupt("Unsupported cron store version."));
         }
+        let parsed = Self::parse_document(value)?;
+        let entries = value["jobs"]
+            .as_array()
+            .ok_or_else(|| corrupt("Missing jobs."))?;
+        let mut keys = std::collections::BTreeSet::new();
+        let mut jobs = Vec::with_capacity(parsed.jobs.len());
+        for (value, job) in entries.iter().zip(parsed.jobs) {
+            let squad = string(value, "squad")?;
+            if squad.is_empty()
+                || job.id == 0
+                || parsed.counters.get(&squad).is_none_or(|n| *n < job.id)
+                || !keys.insert((squad.clone(), job.id))
+            {
+                return Err(corrupt("Duplicate job or invalid counter."));
+            }
+            jobs.push((squad, job));
+        }
+        Ok(LegacyJobs {
+            counters: parsed.counters,
+            jobs,
+        })
+    }
+
+    fn parse_document(value: &Value) -> Result<Self, Error> {
         let counters = value["counters"]
             .as_object()
             .ok_or_else(|| corrupt("Missing job counters."))?
@@ -316,17 +302,22 @@ impl Jobs {
             .iter()
             .map(Job::from_document)
             .collect::<Result<_, _>>()?;
-        let jobs = Self { counters, jobs };
-        jobs.validate()?;
-        Ok(jobs)
+        Ok(Self { counters, jobs })
     }
     fn validate(&self) -> Result<(), Error> {
+        if self
+            .counters
+            .keys()
+            .any(|room| !crate::operation::uuid_like(room))
+        {
+            return Err(corrupt("Cron counter keys must be room UUIDs."));
+        }
         let mut keys = std::collections::BTreeSet::new();
         for job in &self.jobs {
             job.validate()?;
             if job.id == 0
-                || self.counters.get(&job.squad).is_none_or(|n| *n < job.id)
-                || !keys.insert((&job.squad, job.id))
+                || self.counters.get(&job.room_id).is_none_or(|n| *n < job.id)
+                || !keys.insert((&job.room_id, job.id))
             {
                 return Err(corrupt("Duplicate job or invalid counter."));
             }
@@ -360,6 +351,37 @@ impl Store {
         }
     }
 
+    /// Inspect the current format without creating an absent store.
+    pub fn needs_v1_migration(&self) -> Result<bool, Error> {
+        let slot = self.slot();
+        let Some(mut database) =
+            Database::open_existing(&self.root, &slot.legacy).map_err(refused)?
+        else {
+            return Ok(false);
+        };
+        database
+            .inspect(&slot, |bytes| {
+                let Some(bytes) = bytes else {
+                    return Ok(false);
+                };
+                let value: Value =
+                    serde_json::from_slice(bytes).map_err(|error| corrupt(error.to_string()))?;
+                match value["version"].as_u64() {
+                    Some(1) => Ok(true),
+                    Some(2) => {
+                        Jobs::from_document(&value)?;
+                        Ok(false)
+                    }
+                    Some(version) if version > 2 => Err(Error::new(
+                        "SQUAD_CRON_STORE_NEWER",
+                        "Cron timers were written by a newer Ops. Upgrade Ops, then retry.",
+                    )),
+                    _ => Err(corrupt("Unsupported cron store version.")),
+                }
+            })
+            .map_err(failed)
+    }
+
     /// Convert the currently stored legacy snapshot, if any. The room inventory
     /// is a public observation acquired by the caller before the transaction;
     /// the document itself is read again inside the write transaction.
@@ -380,9 +402,11 @@ impl Store {
                     let value: Value = serde_json::from_slice(bytes)
                         .map_err(|error| corrupt(error.to_string()))?;
                     if value["version"] == 2 {
+                        Jobs::from_document(&value)?;
                         return Ok((None, ()));
                     }
                     let converted = Jobs::migrate_v1(&value, rooms)?;
+                    Jobs::from_document(&converted)?;
                     let bytes = serde_json::to_vec(&converted).map_err(io)?;
                     if bytes.len() as u64 > LIMIT {
                         return Err(corrupt("Cron store exceeds 16 MiB."));

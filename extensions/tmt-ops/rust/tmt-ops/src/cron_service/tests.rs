@@ -52,7 +52,7 @@ fn legacy_cron_migration_refuses_missing_room_with_jobs_without_changing_bytes()
         error.to_string().contains("missing"),
         "name the affected squad"
     );
-    assert!(error.human().1.is_some(), "offer a next step");
+    assert!(error.message.contains("retry"), "offer a next step");
     assert_eq!(stored_jobs(&f.directory), before);
 }
 
@@ -73,7 +73,7 @@ fn refuses_legacy_room_mapping(rooms: Value, counters: Value, affected: &[&str])
         affected.iter().any(|name| error.message.contains(name)),
         "name an affected squad"
     );
-    assert!(error.human().1.is_some(), "offer a next step");
+    assert!(error.message.contains("retry"), "offer a next step");
     assert_eq!(stored_jobs(&f.directory), before);
 }
 
@@ -99,6 +99,72 @@ fn legacy_cron_migration_refuses_two_names_for_one_room_without_writes() {
         json!({"product": 2, "platform": 3}),
         &["product", "platform"],
     );
+}
+
+#[test]
+fn refused_legacy_file_migration_does_not_import_or_archive_the_file() {
+    use std::os::unix::fs::DirBuilderExt;
+    let f = Fixture::new();
+    let directory = f.directory.join("ops/cron");
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
+    let path = directory.join("jobs.json");
+    let legacy = json!({
+        "version": 1, "counters": {"missing": 1},
+        "jobs": [{
+            "id": "c1", "squad": "missing", "roomId": ROOM, "ownerId": WORKER,
+            "message": "retained", "revision": 1, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        }]
+    });
+    let before = legacy.to_string().into_bytes();
+    fs::write(&path, &before).unwrap();
+    let result = list_jobs(&f.core, &f.config, None, 100);
+    assert!(result.is_err(), "missing room must refuse migration");
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        before,
+        "legacy bytes remain in place"
+    );
+    let database = rusqlite::Connection::open(f.directory.join("ops/ops.db")).unwrap();
+    let rows: i64 = database
+        .query_row(
+            "SELECT COUNT(*) FROM documents WHERE kind = 'cron' AND key = ''",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 0, "refusal must not import the legacy file");
+}
+
+#[test]
+fn legacy_cron_migration_refuses_a_reused_squad_name_without_writes() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    let legacy = json!({
+        "version": 1,
+        "counters": {"product": 1},
+        "jobs": [{
+            "id": "c1", "squad": "product",
+            "roomId": "55555555-5555-4555-8555-555555555555", "ownerId": WORKER,
+            "message": "original room", "revision": 1, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        }]
+    });
+    let before = legacy.to_string().into_bytes();
+    replace_stored_jobs(&f.directory, &before);
+    let result = list_jobs(&f.core, &f.config, None, 100);
+    assert!(
+        result.is_err(),
+        "a reused squad name must not retarget a job"
+    );
+    let error = result.err().unwrap();
+    assert!(error.message.contains("product"), "name the affected squad");
+    assert!(error.message.contains("retry"), "offer a next step");
+    assert_eq!(stored_jobs(&f.directory), before);
 }
 
 #[test]
@@ -285,12 +351,9 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
             .err()
             .unwrap()
             .code,
-        "SQUAD_CRON_ROOM_CONFLICT"
+        "ROOM_NOT_FOUND"
     );
-    assert_eq!(
-        f.add(&user, WORKER).err().unwrap().code,
-        "SQUAD_CRON_ROOM_CONFLICT"
-    );
+    assert_eq!(f.add(&user, WORKER).err().unwrap().code, "ROOM_NOT_FOUND");
     assert_eq!(stored_jobs(&f.directory), before);
     let calls = f.model()["calls"].as_array().unwrap().clone();
     assert!(
@@ -394,6 +457,33 @@ fn change_announcements_declare_automation_and_only_that_refusal_is_retried() {
     let resumed = f.mutate(&user, &paused.job.job, Mutation::Resume).unwrap();
     assert_eq!(resumed.warnings[0].code, "DISPATCH_FAILURE");
     assert_eq!(dispatches(&f), before + 1);
+}
+
+#[test]
+fn legacy_and_current_retirement_hooks_follow_room_after_rename_only_once() {
+    let f = Fixture::new();
+    let original = f.add(&f.actor(USER), WORKER).unwrap().job.job;
+    f.change_model(|model| {
+        model["roomName"] = json!("squad-renamed");
+        model["hooks"].as_array_mut().unwrap().push(json!({
+            "consumer": "squad-cron", "identityId": WORKER,
+            "reference": format!("{}:product:{}", ROOM, original.id())
+        }));
+        model["retired"] = json!([WORKER]);
+    });
+    drain_retired(&f.core, &f.config, 200).unwrap();
+    let stored = Store::new(&f.directory.join("ops"))
+        .unwrap()
+        .read()
+        .unwrap();
+    let job = &stored.jobs()[0];
+    assert_eq!(job.owner_id, None);
+    assert_eq!(
+        job.revision,
+        original.revision + 1,
+        "duplicate hooks change the job once"
+    );
+    assert!(f.model()["hooks"].as_array().unwrap().is_empty());
 }
 
 #[test]

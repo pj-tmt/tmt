@@ -64,12 +64,12 @@ pub(super) fn project_jobs(
     store.update(|jobs| {
         let mut views = Vec::new();
         for squad in squads {
-            let keys: Vec<_> = jobs.jobs().iter().filter(|job| job.squad == squad.name && job.room_id == squad.room_id).map(|job| job.id()).collect();
+            let keys: Vec<_> = jobs.jobs().iter().filter(|job| job.room_id == squad.room_id).map(|job| job.id()).collect();
             if keys.is_empty() { continue; }
             let roster = squad.roster(core).map_err(stored)?;
             let mut observations = std::collections::BTreeMap::new();
             for key in keys {
-                let job = jobs.find_mut(&squad.name, &key).expect("locked job");
+                let job = jobs.find_mut(&squad.room_id, &key).expect("locked job");
                 let name = if let Some(id) = &job.owner_id {
                     if !observations.contains_key(id) {
                         observations.insert(id.clone(), observe(core, &roster, id).map_err(stored)?);
@@ -78,7 +78,7 @@ pub(super) fn project_jobs(
                 } else { None };
                 let missing = name.is_none();
                 if missing { pause_missing(job, now_ms).map_err(stored)?; }
-                let mut view = project_with_owner(job.clone(), name, missing, count, now_ms).map_err(stored)?;
+                let mut view = project_with_owner(job.clone(), squad.name.clone(), name, missing, count, now_ms).map_err(stored)?;
                 if missing {
                     view.warnings.push(failure("SQUAD_CRON_OWNER_MISSING", "Paused: owner missing from this squad. Reassign if needed, then resume explicitly."));
                 }

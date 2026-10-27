@@ -156,7 +156,6 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
     }
     let selected = Squad::resolve(core, flag(flags, "squad"))?;
     let key = JobKey {
-        squad: selected.name.clone(),
         room_id: selected.room_id.clone(),
         id: flag(flags, "id").unwrap_or_default().into(),
     };

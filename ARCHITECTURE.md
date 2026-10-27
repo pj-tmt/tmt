@@ -424,7 +424,7 @@ own module/drawing boundaries and verification.
   The shell replaces tab/factory/switcher navigation and HOME cursors.
   Savings and usage figures come from `labels::Reader`/`labels::digest` (supplier estimates, never provider history) and `usage_report::Reader`; `usage_report::valuation` is the one reader of TOK and input price, for the Digest table and the Agents TOK figures alike. [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns ranges and lifecycles.
   Member references resolve through the acquired global identity inventory and grant no delivery authority or paint/input I/O ([reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md)).
-  Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config and cron namespaces under owned locks; partial results
+  Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config under owned locks; cron jobs and counters remain keyed by that UUID. Partial results
   offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
 - **Board rendering.** The [Ops board guide](.agents/skills/tmt-ops-dev/references/board-home.md#shared-board-components) owns shared painter responsibilities and their host adapters.
 - **Discovery.** The board consumes [Core discovery

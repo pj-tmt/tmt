@@ -36,6 +36,7 @@ fn existing(
 ) -> CronRequest {
     CronRequest::Existing {
         actor: f.actor(actor),
+        squad: job.squad.clone(),
         key: JobKey::of(&job.job),
         revision,
         op,

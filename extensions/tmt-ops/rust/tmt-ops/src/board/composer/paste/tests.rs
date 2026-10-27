@@ -335,7 +335,7 @@ fn cron_message_form(raw: &str) -> (App, String) {
     use crate::board::cronboard::{detail_id, test_cron, test_view};
     let mut app = crate::board::app::workspace::tests::board();
     let mut job = test_view("worker", raw, None);
-    job.job.squad = "product".into();
+    job.squad = "product".into();
     job.job.room_id = crate::board::app::workspace::tests::ROOM.into();
     let id = detail_id(&job);
     app.cron.replace(Ok(test_cron(
@@ -661,7 +661,7 @@ pub(in crate::board) fn capture_case(
     if scene.starts_with("paste-cron-") {
         use crate::board::cronboard::{detail_id, test_cron, test_view};
         let mut job = test_view("worker", &"stored line\r\n".repeat(10), None);
-        job.job.squad = "product".into();
+        job.squad = "product".into();
         job.job.room_id = crate::board::app::workspace::tests::ROOM.into();
         let id = detail_id(&job);
         app.cron.replace(Ok(test_cron(

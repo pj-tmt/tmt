@@ -83,7 +83,7 @@ fn rename_lists_same_jobs_and_add_continues_the_original_counter() {
     assert_eq!(listed.jobs[0].job.room_id, paused.room_id);
     assert_eq!(listed.jobs[0].job.id(), paused.id());
     assert_eq!(listed.jobs[0].job.pause, paused.pause);
-    assert_eq!(listed.jobs[0].job.squad, "renamed");
+    assert_eq!(listed.jobs[0].squad, "renamed");
     assert_eq!(add_after_rename(&f, &config), "c2");
     assert!(config.squad_config_text("product").is_none());
     assert!(config.squad_config_text("renamed").is_some());
@@ -93,8 +93,9 @@ fn rename_lists_same_jobs_and_add_continues_the_original_counter() {
     );
     let hooks = f.model()["hooks"].as_array().unwrap().clone();
     assert!(
-        hooks.iter().any(|hook| hook["identityId"] == WORKER
-            && hook["reference"] == format!("{ROOM}:renamed:c1"))
+        hooks
+            .iter()
+            .any(|hook| hook["identityId"] == WORKER && hook["reference"] == format!("{ROOM}:c1"))
     );
 }
 
@@ -111,6 +112,41 @@ fn rename_after_removing_all_jobs_still_allocates_the_next_id() {
             .complete
     );
     assert_eq!(add_after_rename(&f, &config), "c2");
+}
+
+#[test]
+fn repair_of_an_old_partial_rename_migrates_the_retained_legacy_namespace() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    f.change_model(|model| {
+        model["members"][2]["metadata"] = json!({"squad.product.task":"keep"});
+        model["applyFailure"] = json!("STORAGE_UNAVAILABLE");
+    });
+    let mut config = config(&f);
+    assert!(
+        !rename_squad(&f.core, &mut config, &request(false))
+            .unwrap()
+            .complete
+    );
+    let legacy = json!({
+        "version":1, "counters":{"product":3},
+        "jobs":[{"id":"c1", "squad":"product", "roomId":ROOM, "ownerId":WORKER,
+            "message":"legacy", "revision":1, "state":"on", "pause":null,
+            "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}}]
+    });
+    crate::test_support::replace_stored_jobs(&f.directory, legacy.to_string().as_bytes());
+    f.change_model(|model| model["applyFailure"] = json!(false));
+    assert!(
+        rename_squad(&f.core, &mut config, &request(true))
+            .unwrap()
+            .complete
+    );
+    let document: Value =
+        serde_json::from_slice(&crate::test_support::stored_jobs(&f.directory)).unwrap();
+    assert_eq!(document["version"], 2);
+    assert_eq!(document["counters"][ROOM], 3);
+    assert_eq!(document["jobs"][0]["message"], "legacy");
+    assert_eq!(room_writes(&f), 1);
 }
 
 #[test]
@@ -221,7 +257,7 @@ fn unconfirmed_metadata_exchange_is_partial_and_repair_observes_the_recorded_exc
 }
 
 #[test]
-fn frozen_revision_and_destination_namespace_fail_before_any_effect() {
+fn stale_revision_refuses_and_other_room_timers_do_not_block_rename() {
     let f = Fixture::new();
     let mut config = config(&f);
     let mut stale = request(false);
@@ -246,15 +282,13 @@ fn frozen_revision_and_destination_namespace_fail_before_any_effect() {
                 0,
             )?;
             jobs.insert(tmt_ops::cron::Job::new(
-                "product".into(),
                 ROOM.into(),
                 WORKER.into(),
                 "old".into(),
                 schedule.clone(),
             ))?;
             jobs.insert(tmt_ops::cron::Job::new(
-                "renamed".into(),
-                "other-room".into(),
+                "55555555-5555-4555-8555-555555555555".into(),
                 WORKER.into(),
                 "other".into(),
                 schedule,
@@ -262,14 +296,14 @@ fn frozen_revision_and_destination_namespace_fail_before_any_effect() {
             Ok(())
         })
         .unwrap();
-    assert_eq!(
+    let before = crate::test_support::stored_jobs(&f.directory);
+    assert!(
         rename_squad(&f.core, &mut config, &request(false))
-            .err()
             .unwrap()
-            .code,
-        "SQUAD_CRON_NAMESPACE_CONFLICT"
+            .complete
     );
-    assert_eq!(room_writes(&f), 0);
+    assert_eq!(room_writes(&f), 1);
+    assert_eq!(crate::test_support::stored_jobs(&f.directory), before);
 }
 
 #[test]

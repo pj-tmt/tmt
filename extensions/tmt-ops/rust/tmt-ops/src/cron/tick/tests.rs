@@ -18,7 +18,6 @@ fn persisted_squad_slot_identity_survives_the_ops_product_rename() {
 fn jobs() -> Vec<Job> {
     let mut jobs = Jobs::default();
     jobs.insert(Job::new(
-        "product".into(),
         "11111111-1111-4111-8111-111111111111".into(),
         "22222222-2222-4222-8222-222222222222".into(),
         "literal {time}\n!\0 message".into(),

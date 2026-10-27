@@ -2484,14 +2484,7 @@ fn too_large() -> SquadError {
 
 /// The shape core gives identity UUIDs; anything else is a hand edit.
 pub fn uuid_like(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            if matches!(index, 8 | 13 | 18 | 23) {
-                byte == b'-'
-            } else {
-                byte.is_ascii_hexdigit()
-            }
-        })
+    tmt_ops::operation::uuid_like(value)
 }
 
 fn write_failed(path: &Path, error: io::Error) -> SquadError {

@@ -54,9 +54,9 @@ impl Draft {
         };
         match (&self.job, self.kind) {
             (Some((key, _)), Kind::Reassign) => {
-                format!("reassign {} {} · {step}", key.squad, key.id)
+                format!("reassign {} {} · {step}", self.squad, key.id)
             }
-            (Some((key, _)), _) => format!("edit {} {} · {step}", key.squad, key.id),
+            (Some((key, _)), _) => format!("edit {} {} · {step}", self.squad, key.id),
             (None, _) => format!("new job in {} · {step}", self.squad),
         }
     }
@@ -112,6 +112,7 @@ impl App {
         let existing = |op| {
             Request::Cron(CronRequest::Existing {
                 actor: actor.clone(),
+                squad: job.squad.clone(),
                 key: job_key.clone(),
                 revision,
                 op,
@@ -129,7 +130,7 @@ impl App {
                     row_send: None,
                     link: None,
                     prefill: String::new(),
-                    title: format!("delete {} {}?", job_key.squad, job_key.id),
+                    title: format!("delete {} {}?", job.squad, job_key.id),
                     entries: vec![
                         MenuEntry {
                             key: "n".into(),
@@ -172,7 +173,7 @@ impl App {
                         Step::Owner
                     },
                     actor,
-                    squad: job_key.squad.clone(),
+                    squad: job.squad.clone(),
                     room_id: job_key.room_id.clone(),
                     job: Some((job_key, revision)),
                     zone,
@@ -202,7 +203,7 @@ impl App {
         // A selected job carries its room UUID; an empty workspace list uses
         // the explicitly selected squad membership.
         let target = match near {
-            Some(job) => Some((job.job.squad.clone(), job.job.room_id.clone())),
+            Some(job) => Some((job.squad.clone(), job.job.room_id.clone())),
             None if self.workspace_snapshot().is_some() => self
                 .workspace
                 .selected
@@ -369,6 +370,7 @@ impl App {
                 }
                 CronRequest::Existing {
                     actor: draft.actor,
+                    squad: draft.squad,
                     key,
                     revision,
                     op: Op::Edit {
@@ -380,6 +382,7 @@ impl App {
             }
             (Kind::Reassign, Some((key, revision))) => CronRequest::Existing {
                 actor: draft.actor,
+                squad: draft.squad,
                 key,
                 revision,
                 op: Op::Reassign { owner: draft.owner },

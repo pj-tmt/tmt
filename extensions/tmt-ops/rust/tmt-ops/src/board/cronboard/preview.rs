@@ -108,10 +108,14 @@ impl Review {
                 format!("Schedule: {schedule} · timezone {zone}"),
             ],
             CronRequest::Existing {
-                key, revision, op, ..
+                key,
+                squad,
+                revision,
+                op,
+                ..
             } => {
                 let mut lines = vec![
-                    format!("Timer {} in {} · room {}", key.id, key.squad, key.room_id),
+                    format!("Timer {} in {} · room {}", key.id, squad, key.room_id),
                     format!("Viewed revision: {revision}; a changed timer will be refused."),
                 ];
                 match op {

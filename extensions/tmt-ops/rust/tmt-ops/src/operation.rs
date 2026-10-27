@@ -1,5 +1,17 @@
 //! Dispatch operation IDs: a digest of what the operation is about, shaped as a UUID.
 
+/// The canonical textual shape of a Core UUID.
+pub fn uuid_like(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
 /// The first 16 bytes of `digest` as an RFC 9562 custom (version 8) UUID. Callers hash their own
 /// fixed domain and identities, so the same operation always gets the same ID.
 pub fn uuid_v8(digest: &[u8]) -> String {

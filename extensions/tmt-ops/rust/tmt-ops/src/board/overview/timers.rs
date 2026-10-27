@@ -101,7 +101,7 @@ fn project_scope(app: &App, room: Option<&str>, title: &'static str, query: &str
     jobs.retain(|view| {
         [
             view.job.id(),
-            view.job.squad.clone(),
+            view.squad.clone(),
             crate::cron_service::schedule_text(&view.job.schedule),
             view.job.message.lines().next().unwrap_or("").to_owned(),
         ]
@@ -139,7 +139,7 @@ fn project_scope(app: &App, room: Option<&str>, title: &'static str, query: &str
             };
             timer_rows::Row {
                 id: view.job.id(),
-                squad: view.job.squad.clone(),
+                squad: view.squad.clone(),
                 schedule: crate::cron_service::schedule_text(&view.job.schedule),
                 next,
                 purpose: view.job.message.lines().next().unwrap_or("").into(),

@@ -125,7 +125,6 @@ fn partial(request: &Rename, room_status: &str, stage: &str, error: SquadError) 
         document: json!({"roomId": request.room_id,
         "old": request.old, "new": request.new, "roomStatus": room_status,
         "ownedStatus": "Incomplete",
-        "cronStatus": if matches!(stage, "metadata" | "configuration" | "completion record") { "Applied" } else { "Unknown" },
         "metadataStatus": if matches!(stage, "configuration" | "completion record") { "Applied" } else if stage == "metadata" { "Partial or unknown" } else { "Not applied" },
         "configStatus": if stage == "completion record" { "Applied" } else { "Not applied" },
         "failed": {"stage": stage, "error": {
@@ -161,12 +160,7 @@ fn prepare(
     }
     let scope = config.squad_config_text(&request.old);
     config.check_squad_rename(&request.old, &request.new, scope.as_deref())?;
-    crate::cron_service::check_rename_namespace(
-        core,
-        &request.old,
-        &request.new,
-        &request.room_id,
-    )?;
+    crate::cron_service::prepare_rename(core)?;
     let old_prefix = format!("squad.{}.", request.old);
     let new_prefix = format!("squad.{}.", request.new);
     let mut metadata = serde_json::Map::new();
@@ -321,6 +315,14 @@ pub fn rename_squad(
             "Repair arguments do not match the retained rename.",
         ));
     }
+    if request.repair && snapshot["name"] == squad::room_name(&request.new) {
+        crate::cron_service::prepare_rename_repair(
+            core,
+            &request.old,
+            &request.new,
+            &request.room_id,
+        )?;
+    }
     if snapshot["name"] == squad::room_name(&request.old) {
         let writer = match crate::me::caller(core)? {
             Some(caller) => Some(caller.me.id),
@@ -369,11 +371,6 @@ pub fn rename_squad(
             "ROOM_REVISION_CONFLICT",
             "The room no longer has either rename name; do not replay this operation.",
         ));
-    }
-    if let Err(error) =
-        crate::cron_service::rename_namespace(core, &request.old, &request.new, &request.room_id)
-    {
-        return Ok(partial(request, "Applied", "cron namespace", error));
     }
     if let Err(error) = apply_metadata(core, request, &journal) {
         return Ok(partial(request, "Applied", "metadata", error));
