@@ -113,12 +113,7 @@ impl Core {
             return self.capture(&[OsString::from("api")], &bytes);
         };
         let mut state = persistent.borrow_mut();
-        if state.capabilities.is_none() {
-            // Admission is one ordinary request; an older CLI answers without `session`.
-            let request = br#"{"version":1,"operation":"capabilities","input":{}}"#;
-            state.capabilities = Some(self.capture(&[OsString::from("api")], request)?);
-        }
-        let capabilities = state.capabilities.as_ref().expect("negotiated");
+        let capabilities = self.negotiate(&mut state)?;
         if operation == "capabilities" {
             return Ok(capabilities.clone());
         }
@@ -127,6 +122,24 @@ impl Core {
             return self.capture(&[OsString::from("api")], &bytes);
         }
         self.exchange(&mut state, &bytes)
+    }
+    /// Whether this handle's requests go through a session, which is negotiated by the first
+    /// request (or by this question). A caller uses it to ask only what a session makes cheap.
+    pub fn in_session(&self) -> bool {
+        let Some(persistent) = &self.persistent else {
+            return false;
+        };
+        let mut state = persistent.borrow_mut();
+        self.negotiate(&mut state)
+            .is_ok_and(|capabilities| capabilities["session"]["framing"] == "ndjson")
+    }
+    /// Admission is one ordinary request; an older CLI answers without `session`.
+    fn negotiate<'a>(&self, state: &'a mut Persistent) -> Result<&'a Value, Error> {
+        if state.capabilities.is_none() {
+            let request = br#"{"version":1,"operation":"capabilities","input":{}}"#;
+            state.capabilities = Some(self.capture(&[OsString::from("api")], request)?);
+        }
+        Ok(state.capabilities.as_ref().expect("negotiated"))
     }
     /// The channel's answer is read like a one-shot process's: an error resource is a failure of
     /// this request only, except `API_SESSION_STALE`, after which Core has closed the session.
