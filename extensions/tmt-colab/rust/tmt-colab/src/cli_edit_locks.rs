@@ -314,14 +314,6 @@ pub fn acquire_patch(
     if !is_agent() {
         return Ok(None);
     }
-    let store = Store::read(layout)?;
-    let view = edit_locks::read(&store, key, page, decoder);
-    let closed = store.close();
-    let view = view?;
-    closed?;
-    if expected.is_some_and(|expected| expected != view.revision) {
-        return Err(Fault::StaleBase.into());
-    }
     let Some(snapshot) = core::caller_snapshot() else {
         return Ok(None);
     };
@@ -332,6 +324,14 @@ pub fn acquire_patch(
         id,
         name: snapshot.name,
     };
+    let store = Store::read(layout)?;
+    let view = edit_locks::read(&store, key, page, decoder);
+    let closed = store.close();
+    let view = view?;
+    closed?;
+    if expected.is_some_and(|expected| expected != view.revision) {
+        return Err(Fault::StaleBase.into());
+    }
     if view
         .locks
         .iter()

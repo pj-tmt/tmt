@@ -12779,23 +12779,25 @@ fn agent_patch_rechecks_a_lock_acquired_after_its_initial_lock_snapshot() {
     ]);
     let page = created["pageId"].as_str().unwrap();
     pilot.call(&["page", "lock", page, "--find", "Elsewhere", "--json"]);
-    fs::write(pilot.root.join("presence"), json!({"identities":[{"id":"50000000-0000-1000-8000-000000000001","presence":"active","session":{"activity":{"state":"idle"}}}]}).to_string()).unwrap();
-    // The caller lookup follows the lock snapshot and precedes content preparation.
-    // Replace a disjoint lock with a whole-page lock through the real CLI at that seam.
+    fs::write(pilot.root.join("presence"), json!({"identities":[{"id":"50000000-0000-1000-8000-000000000001","presence":"active","session":{"activity":{"state":"idle"}}},{"id":"50000000-0000-1000-8000-000000000002","presence":"active","session":{"activity":{"state":"idle"}}}]}).to_string()).unwrap();
+    // The second caller lookup follows the checked patch-lock snapshot. Replace a
+    // disjoint lock then, so the commit fence must retry and observe the whole-page lock.
     let wrapper = pilot.root.join("core-lock-race");
     let script = format!(
         r#"#!/bin/sh
 if [ "$1 $2 $3" = 'identity show --json' ]; then
-if [ ! -f {trigger} ]; then
+if [ -f {observed} ] && [ ! -f {trigger} ]; then
 : > {trigger}
 TMT_EXECUTABLE={core} {binary} page lock {page} --whole --json > {receipt} || exit 9
 fi
+: > {observed}
 printf '%s\n' '{{"identity":{{"name":"Other agent","id":"50000000-0000-1000-8000-000000000002"}}}}'
 exit 0
 fi
 exec {core} "$@"
 "#,
         trigger = quote(pilot.root.join("lock-triggered").to_str().unwrap()),
+        observed = quote(pilot.root.join("caller-observed").to_str().unwrap()),
         core = quote(pilot.root.join("core").to_str().unwrap()),
         binary = quote(BINARY),
         page = quote(page),
