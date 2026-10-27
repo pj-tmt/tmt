@@ -296,6 +296,57 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
     });
   });
 
+  it('proceeds with other providers when agy has a dangling symlink and supports symlinked agy hooks.json', async () => {
+    await withSandbox(async (sandbox) => {
+      await installSetupExtensions(sandbox);
+      const bin = machine(sandbox);
+      writeExecutable(path.join(bin, 'agy'), '#!/bin/sh\ntouch "$HOME/ran-agy"\n', 0o755);
+      const configDir = path.join(sandbox.home, '.gemini', 'config');
+      mkdirSync(configDir, { recursive: true });
+      const hooksLink = path.join(configDir, 'hooks.json');
+      const missingTarget = path.join(sandbox.root, 'missing-hooks.json');
+      symlinkSync(missingTarget, hooksLink);
+
+      // With a dangling symlink at ~/.gemini/config/hooks.json, guided setup and --status still succeed for claude/codex.
+      const statusBroken = await runCli(sandbox, ['setup', '--status', '--json']);
+      expect(statusBroken.status, statusBroken.stderr).toBe(0);
+      const brokenIntegrations = parseWholeStdout(statusBroken).integrations as {
+        provider: string;
+        usage: boolean;
+        diagnostic?: string;
+      }[];
+      const brokenAgy = brokenIntegrations.find((item) => item.provider === 'agy');
+      expect(brokenAgy?.usage).toBe(false);
+      expect(brokenAgy?.diagnostic).toContain('agy');
+
+      const appliedWithDangling = await runCli(sandbox, ['setup', '--yes', '--json']);
+      expect(
+        appliedWithDangling.status,
+        appliedWithDangling.stdout + appliedWithDangling.stderr
+      ).toBe(0);
+      const danglingReport = parseWholeStdout(appliedWithDangling);
+      expect(danglingReport.applied).toBe(true);
+      expect(danglingReport.kept).toEqual([
+        expect.objectContaining({ path: hooksLink, reason: expect.stringContaining('symlink') }),
+      ]);
+      expect(readFileSync(path.join(sandbox.home, '.claude', 'settings.json'), 'utf8')).toContain(
+        '__hook claude'
+      );
+
+      // Once the symlink target exists, guided setup plans and applies agy hooks through the symlink.
+      writeFileSync(missingTarget, '{"hooks":{"BeforeTool":[{"name":"g","command":"true"}]}}\n');
+      const preview = await runCli(sandbox, ['setup']);
+      expect(preview.status).toBe(1);
+      expect(preview.stdout).toContain('~/.gemini/config/hooks.json ->');
+
+      const appliedLinked = await runCli(sandbox, ['setup', '--yes', '--json']);
+      expect(appliedLinked.status, appliedLinked.stdout + appliedLinked.stderr).toBe(0);
+      expect(lstatSync(hooksLink).isSymbolicLink()).toBe(true);
+      expect(readFileSync(missingTarget, 'utf8')).toContain('__hook agy');
+      expect(ran(sandbox)).toEqual([]);
+    });
+  });
+
   it('reports a machine with no agents and changes nothing', async () => {
     await withSandbox(async (sandbox) => {
       await installSetupExtensions(sandbox);

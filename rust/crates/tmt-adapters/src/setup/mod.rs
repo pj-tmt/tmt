@@ -21,7 +21,10 @@ mod refresh_tests;
 
 pub(crate) use document::{compose_launch_hooks, owned_event};
 pub use environment::{SetupEnvironment, provider_settings};
-pub use publication::{BACKUP_DIRECTORY, apply, backup_directory, backup_warning, read_settings};
+pub use publication::{
+    BACKUP_DIRECTORY, apply, backup_directory, backup_warning, read_provider_settings,
+    read_settings, resolve_provider_settings_target,
+};
 
 use crate::drivers::{DriverDefinition, HookFormat};
 use std::path::PathBuf;
@@ -29,6 +32,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileChange {
     pub path: PathBuf,
+    pub resolved_target: Option<PathBuf>,
     pub before: Option<String>,
     pub after: String,
 }
@@ -98,6 +102,9 @@ pub enum PlanError {
     InvalidLauncher,
     TooLarge,
     UnsupportedProvider,
+    /// The settings path is a link that does not resolve to a regular file the user owns; a plan
+    /// that wrote to the link path would replace the link.
+    UnresolvedLink,
 }
 
 impl std::fmt::Display for PlanError {
@@ -108,6 +115,7 @@ impl std::fmt::Display for PlanError {
             Self::InvalidLauncher => "Setup needs an absolute stable TMT launcher path without control characters.",
             Self::TooLarge => "Provider settings exceed the 1 MiB setup limit.",
             Self::UnsupportedProvider => "This provider does not support lifecycle setup.",
+            Self::UnresolvedLink => "Provider settings is a link that does not resolve to a regular file you own; setup will not replace it.",
         })
     }
 }
@@ -135,7 +143,7 @@ fn hook_entry(provider: &DriverDefinition, launcher: &str) -> Result<serde_json:
 /// not installed.
 pub fn start_hook_installed(provider: &DriverDefinition) -> bool {
     provider_settings(provider)
-        .and_then(|path| read_settings(&path))
+        .and_then(|path| read_provider_settings(provider, &path))
         .ok()
         .flatten()
         .is_some_and(|text| document::has_owned_hook(provider, &text, "SessionStart"))
@@ -145,7 +153,7 @@ pub fn start_hook_installed(provider: &DriverDefinition) -> bool {
 /// whatever the usage choice (#4914).
 pub fn stop_hook_installed(provider: &DriverDefinition) -> bool {
     provider_settings(provider)
-        .and_then(|path| read_settings(&path))
+        .and_then(|path| read_provider_settings(provider, &path))
         .ok()
         .flatten()
         .is_some_and(|text| document::has_owned_hook(provider, &text, document::USAGE))
@@ -208,6 +216,8 @@ pub fn plan_with_choice(
             UsageHook::Remove => false,
             UsageHook::Keep => usage_before,
         };
+    let resolved_target =
+        resolve_provider_settings_target(provider, &path).map_err(|_| PlanError::UnresolvedLink)?;
     Ok(SetupPlan {
         provider: provider.name(),
         launcher,
@@ -218,6 +228,7 @@ pub fn plan_with_choice(
         activity: document::activity_events(provider),
         change: FileChange {
             path,
+            resolved_target,
             before,
             after,
         },

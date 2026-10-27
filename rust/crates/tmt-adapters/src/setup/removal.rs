@@ -4,8 +4,8 @@
 //! differs from what setup generates is kept and reported.
 
 use super::{
-    PlanError, SetupPlan, apply, plan, provider_mod, publication::remove_lock, read_settings,
-    record,
+    PlanError, SetupPlan, apply, plan, provider_mod, publication::remove_lock,
+    read_provider_settings, record,
 };
 use crate::{drivers::Registry, skill_installation::ProviderEnvironment};
 use std::{
@@ -60,7 +60,7 @@ pub fn plan_hook_removal(
             steps.push(keep("its driver is not known to this TMT"));
             continue;
         };
-        let before = match read_settings(&settings) {
+        let before = match read_provider_settings(driver, &settings) {
             Ok(before) => before,
             Err(error) => {
                 steps.push(keep(&error.to_string()));
@@ -102,14 +102,15 @@ pub fn mod_target(step: &HookStep) -> Option<PathBuf> {
 }
 
 /// Carries out one step and updates the record. A file that held nothing but
-/// TMT's hooks (`{}` once they are removed) is deleted rather than rewritten.
+/// TMT's hooks (`{}` once they are removed) is deleted rather than rewritten,
+/// unless the settings path is a symlink to a shared file.
 /// Once no TMT hook is left in a directory, setup's lock there goes too.
 pub fn remove_hooks(global: &Path, step: &HookStep) -> io::Result<()> {
     match step {
         HookStep::Remove(planned) => {
             remove_mod(planned.provider, &planned.change.path)?;
-            if planned.change.after == "{}" {
-                if read_settings(&planned.change.path)? != planned.change.before {
+            if planned.change.after == "{}" && planned.change.resolved_target.is_none() {
+                if super::publication::ensure_unchanged(planned).is_err() {
                     return Err(io::Error::other(
                         "Provider settings changed after planning; run uninstall again.",
                     ));

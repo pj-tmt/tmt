@@ -39,6 +39,8 @@ struct Plan {
     hooks: Vec<SetupPlan>,
     /// The managed mod each consenting driver keeps, when it is not as wanted yet (#5187).
     mods: Vec<PendingMod>,
+    /// Present hook-capable drivers whose settings could not be read or planned.
+    kept: Vec<(PathBuf, String)>,
 }
 
 impl Plan {
@@ -107,6 +109,7 @@ fn plan_for(
     }
     let owned = skill_installation::plan_owned(global, &roots).map_err(failure)?;
     let mut hooks = Vec::new();
+    let mut kept = Vec::new();
     for (driver, detection) in &detections {
         if !matches!(detection, Detection::Present { .. }) || driver.descriptor.hooks.is_none() {
             continue;
@@ -115,21 +118,27 @@ fn plan_for(
             .settings_path(driver)
             .map_err(failure)?
             .to_path_buf();
-        let before = setup::read_settings(&path).map_err(failure)?;
+        let before = match setup::read_provider_settings(driver, &path) {
+            Ok(before) => before,
+            Err(error) => {
+                kept.push((path, error.to_string()));
+                continue;
+            }
+        };
         let opted_out = record::usage_opted_out(&recorded, driver.name(), &path);
         let usage = record::usage_policy(&recorded, driver.name(), &path, usage);
-        hooks.push(
-            setup::plan_with_choice(
-                driver,
-                path,
-                before,
-                environment.launcher.clone(),
-                false,
-                usage,
-                opted_out,
-            )
-            .map_err(failure)?,
-        );
+        match setup::plan_with_choice(
+            driver,
+            path.clone(),
+            before,
+            environment.launcher.clone(),
+            false,
+            usage,
+            opted_out,
+        ) {
+            Ok(planned) => hooks.push(planned),
+            Err(error) => kept.push((path, error.to_string())),
+        }
     }
     let mods = hooks
         .iter()
@@ -145,6 +154,7 @@ fn plan_for(
         owned,
         hooks,
         mods,
+        kept,
     })
 }
 
@@ -205,9 +215,13 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
         ]);
     }
     for hooks in plan.hook_changes() {
+        let target_label = match &hooks.change.resolved_target {
+            Some(target) => format!("{} -> {}", home(&hooks.change.path), home(target)),
+            None => home(&hooks.change.path),
+        };
         changes.row([
             Cell::styled("hooks", Token::Dim),
-            Cell::from(home(&hooks.change.path)),
+            Cell::from(target_label),
             Cell::styled(
                 format!(
                     "{}; backups in {} (warning above 32; manual cleanup only)",
@@ -244,6 +258,19 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
             title: "changes",
             count: Some(change_count),
             rows: changes,
+            note: None,
+            hint: None,
+        });
+    }
+    if !plan.kept.is_empty() {
+        let mut kept_rows = Table::new(&[Column::Detail, Column::Detail]);
+        for (path, reason) in &plan.kept {
+            kept_rows.row([Cell::from(home(path)), Cell::from(reason.as_str())]);
+        }
+        sections.push(Section {
+            title: "kept",
+            count: Some(plan.kept.len()),
+            rows: kept_rows,
             note: None,
             hint: None,
         });
@@ -310,7 +337,7 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
         }).collect::<Vec<_>>(),
         "agents": plan.detections.iter().map(|(driver, detection)| json!({"name": driver.name(), "state": state(detection)})).collect::<Vec<_>>(),
         "plan": changes,
-        "kept": [],
+        "kept": plan.kept.iter().map(|(path, reason)| json!({"path": path, "reason": reason})).collect::<Vec<_>>(),
         "applied": applied,
         "skipped": skipped,
     });
@@ -779,6 +806,7 @@ pub(crate) mod tests {
             owned: Vec::new(),
             hooks,
             mods: Vec::new(),
+            kept: Vec::new(),
         };
         std::fs::create_dir_all(paths[0].parent().unwrap()).unwrap();
         std::fs::write(&paths[0], b"user changed this after planning").unwrap();

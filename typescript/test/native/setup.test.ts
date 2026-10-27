@@ -238,6 +238,66 @@ describe('consented provider setup and bounded hook boundary', () => {
     }
   );
 
+  it('applies and removes agy hooks through a symlinked hooks.json while preserving the symlink and gemini-cli hooks', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = path.join(sandbox.root, 'bin');
+      fs.mkdirSync(bin);
+      fs.symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+      sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+      const sharedDir = path.join(sandbox.root, 'dotfiles', 'gemini');
+      const configDir = path.join(sandbox.home, '.gemini', 'config');
+      fs.mkdirSync(sharedDir, { recursive: true });
+      fs.mkdirSync(configDir, { recursive: true });
+      const target = path.join(sharedDir, 'hooks.json');
+      const link = path.join(configDir, 'hooks.json');
+      const original = JSON.stringify(
+        {
+          hooks: {
+            BeforeTool: [{ name: 'gemini-only', command: 'echo gemini' }],
+            SessionStart: [{ name: 'user-start', command: 'echo start' }],
+          },
+        },
+        null,
+        2
+      );
+      fs.writeFileSync(target, original);
+      fs.symlinkSync(target, link);
+
+      const preview = await runCli(sandbox, ['setup', 'agy']);
+      expect(preview.status).toBe(1);
+      expect(preview.stdout).toContain(`${link} -> ${fs.realpathSync(target)}`);
+
+      const applied = await runCli(sandbox, ['setup', 'agy', '--yes', '--json']);
+      expect(applied.status, applied.stderr).toBe(0);
+      const report = JSON.parse(applied.stdout);
+      expect(report).toMatchObject({
+        provider: 'agy',
+        settingsPath: link,
+        changed: true,
+        usage: true,
+      });
+      expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(fs.readlinkSync(link)).toBe(target);
+      expect(fs.readFileSync(report.backup, 'utf8')).toBe(original);
+      // gemini-cli reads only the top-level "hooks" key, which stays as it was; TMT's entries
+      // sit under its own "tmt" key.
+      const updated = JSON.parse(fs.readFileSync(target, 'utf8'));
+      expect(updated.hooks).toEqual(JSON.parse(original).hooks);
+      expect(updated.tmt.SessionStart).toHaveLength(1);
+
+      const status = await runCli(sandbox, ['setup', '--status', '--json']);
+      expect(status.status, status.stderr).toBe(0);
+      expect(JSON.parse(status.stdout).integrations).toContainEqual(
+        expect.objectContaining({ provider: 'agy', settingsPath: link, usage: true })
+      );
+
+      const removed = await runCli(sandbox, ['setup', 'agy', '--remove', '--yes', '--json']);
+      expect(removed.status, removed.stderr).toBe(0);
+      expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(JSON.parse(fs.readFileSync(target, 'utf8'))).toEqual(JSON.parse(original));
+    });
+  });
+
   it('stops before changing settings when the setup record is invalid', async () => {
     await withSandbox(async (sandbox) => {
       const bin = path.join(sandbox.root, 'bin');
