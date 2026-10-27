@@ -109,7 +109,7 @@ export class E2EFixture {
         { cause: error }
       );
     }
-    // The wrapper selects this socket with -L; prove it is private before any server command.
+    // Prove the absolute socket is private before any server command.
     try {
       assertPrivateSocket(this.expectedSocketPath, this.socketRoot);
     } catch (error) {
@@ -148,6 +148,7 @@ export class E2EFixture {
       fs.mkdirSync(this.workspace, { recursive: true });
       fs.mkdirSync(this.globalDir, { recursive: true });
       fs.mkdirSync(this.wrapperDir, { recursive: true });
+      fs.mkdirSync(path.dirname(this.expectedSocketPath), { recursive: true, mode: 0o700 });
       if (options.metadataBarrier) fs.mkdirSync(this.metadataBarrierDirectory);
       fs.writeFileSync(this.peerSocketsPath, '');
       writeExecutable(
@@ -155,9 +156,9 @@ export class E2EFixture {
         `#!/bin/sh
 unset TMUX TMUX_PANE
 export TMUX_TMPDIR=${shellQuote(this.socketRoot)}
-TMT_E2E_SOCKET=${shellQuote(this.socket)}
+TMT_E2E_SOCKET_PATH=${shellQuote(this.expectedSocketPath)}
 # Explicit -S may reach an exact peer socket registered by another live fixture
-# sharing this storage. Default discovery and -L stay on this private namespace.
+# sharing this storage. Socket names (-L) are refused; all calls use -S.
 allowed_socket() {
   [ "${'$'}1" = ${shellQuote(this.expectedSocketPath)} ] && return 0
   while IFS= read -r peer; do
@@ -174,7 +175,7 @@ for arg in "${'$'}@"; do
   if [ -n "${'$'}socket_option" ]; then
     case "${'$'}socket_option" in
       -S) allowed_socket "${'$'}arg" || refuse_socket ;;
-      -L) [ "${'$'}arg" = ${shellQuote(this.socket)} ] || refuse_socket ;;
+      -L) refuse_socket ;;
       -c|-f|-T) socket_option=""; continue ;;
     esac
     socket_option=""
@@ -185,9 +186,7 @@ for arg in "${'$'}@"; do
     -S*)
       allowed_socket "${'$'}{arg#-S}" || refuse_socket
       ;;
-    -L*)
-      [ "${'$'}{arg#-L}" = ${shellQuote(this.socket)} ] || refuse_socket
-      ;;
+    -L*) refuse_socket ;;
     -c*|-f*|-T*) ;;
     -*[cfSLT]*) echo "E2E fixture refuses combined tmux socket options" >&2; exit 97 ;;
     -*) ;;
@@ -248,7 +247,7 @@ elif [ "${'$'}tmux_command" = "if-shell" ]; then
   done
 fi
 if [ -z "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ] && [ -z "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ] && [ -z "${'$'}{TMT_E2E_TRANSPORT_TRACE_FILE:-}" ]; then
-  exec ${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"
+  exec ${shellQuote(this.tmuxPath)} -f /dev/null -S "${'$'}TMT_E2E_SOCKET_PATH" "${'$'}@"
 fi
 metadata_target=0
 if [ "${'$'}{TMT_E2E_METADATA_BARRIER_OPERATION:-publish}" = "clear" ]; then
@@ -297,7 +296,7 @@ fi
 if [ -n "${'$'}transport_stage" ]; then
   trace_transport "${'$'}transport_stage.before" "${'$'}@"
 fi
-${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"
+${shellQuote(this.tmuxPath)} -f /dev/null -S "${'$'}TMT_E2E_SOCKET_PATH" "${'$'}@"
 status=${'$'}?
 if [ -n "${'$'}transport_stage" ]; then
   trace_transport "${'$'}transport_stage.after.${'$'}status" "${'$'}@"
@@ -539,7 +538,7 @@ exit ${'$'}status
     if (!this.started) throw new Error('E2E fixture must be started before attaching a client.');
     const client = spawn(
       this.tmuxPath,
-      ['-f', '/dev/null', '-L', this.socket, '-C', 'attach-session', '-t', session],
+      ['-f', '/dev/null', '-S', this.expectedSocketPath, '-C', 'attach-session', '-t', session],
       { env: this.env, stdio: ['pipe', 'pipe', 'pipe'] }
     );
     let spawnError: Error | undefined;
