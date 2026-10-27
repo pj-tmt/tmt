@@ -209,7 +209,7 @@ check keeps name/pane routing and its existing Digest opportunity.
   `identity` owns canonical UUID spelling and lifetime/create/promote; `identity_metadata`/`identity_status`
   own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
   `binding` owns [identity and pane coordination](.agents/skills/tmt-core-runtime/references/identity-bindings.md).
-  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`.
+  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`, and `tmt ls --detected` embeds the same observation.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is

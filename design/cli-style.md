@@ -188,6 +188,7 @@ or `◌`; `◆` leads a decision row when the reader must act:
 | `◐`        | in review, waiting on someone else (board only)                                           |
 | `✗`        | failed or blocked                                                                         |
 | `!`        | warning                                                                                   |
+| `?`        | a detected pane with no identity, dim (`tmt ls --detected` only)                          |
 | `◆`        | waits on your decision                                                                    |
 | `▾`        | an open foldable pane in a toggle hint (board only)                                       |
 | `▸`        | folded Squad board pane (board only)                                                      |
@@ -217,6 +218,15 @@ same parts.
   (`offline: a · b`); a flag such as `--all` expands them.
 - A section-level `hint:` line comes last, only for a next step that applies to
   the whole section.
+- `tmt ls --detected` adds a `DETECTED` section after the member sections:
+  agent panes that no identity holds. A row is a dim `?`, the host's target, the
+  host's agent name as dim display text in the address column, and the folder.
+  It is never a member name. A row that cannot be adopted has its reason as the
+  dimmed note. A source that is not `ok` is the section's dimmed note, such as
+  `herdr: unknown (timeout)`. After every section comes one
+  `hint: tmt add <pane> <name> --expect <digest> --socket <socket>` per
+  adoptable row, with `<name>` left for the user, then one hint that a changed
+  pane refuses with `PANE_CHANGED`.
 
 ```text
 SAVED 3
@@ -229,6 +239,14 @@ TEMPORARY 2
   ◌  opus-1           tmux:%31         /srv/builds/nightly                       shell
     offline: gemini-helper · night-owl
 hint: tmt ls --all shows offline identities
+```
+
+```text
+DETECTED 2
+  ?  w1:p2  Ada  ~/dev/tmt-local
+  ?  w1:p3  Bob                   native_incarnation_unknown
+hint: tmt add 'w1:p2' <name> --expect 3f9a1c07… --socket '/tmp/herdr.sock'
+hint: a changed pane refuses with PANE_CHANGED; run: tmt ls --detected
 ```
 
 One record is a detail view (`detail::write`): a bold title, then dimmed keys

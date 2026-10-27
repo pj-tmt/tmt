@@ -72,6 +72,15 @@ host handle built from the drivers it read once. Guarded
 add and discovery bypass optional caller learning, workspace capture and hook
 delivery. They install and launch nothing.
 
+`tmt ls --detected` runs the same non-printing scan (`discovery_command::observe`,
+which `tmt discover` prints) after the member listing has closed storage, with
+its own read-only approval read; the rest of `ls` is unchanged. Only with the
+flag, the listing reads `binding_entries()` once after reconciliation and before
+its filters, and the scan hides each candidate whose exact (host, socket, pane
+ID) a stored binding holds. The key is never a name, target or title, so a
+detected row never links to an identity and an Unknown member still hides its
+pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-detected-panes)).
+
 ## Binding evidence
 
 - Binding publication reserves one identity and target pane with a publisher

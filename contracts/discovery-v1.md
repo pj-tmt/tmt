@@ -41,7 +41,8 @@ JSON is `{version:1,observedAtMs,sources,candidates,truncated}`. Each source has
 successful observation. Failed child cleanup is a command failure. An external
 host is `offline` only on its driver's definite "no server" answer; a failing,
 malformed, late or oversized driver answer is `unknown`, never evidence that
-the server is gone.
+the server is gone. `tmt ls --detected` embeds this document, with only the
+agent-like candidates that no stored binding holds ([list detected panes](identity-status-v1.md#list-detected-panes)).
 
 A candidate has `host`, `socket`, `server` (native PID/start and nullable TMT
 server UUID), `session`, `window`, stable `pane`, host `target`, native pane

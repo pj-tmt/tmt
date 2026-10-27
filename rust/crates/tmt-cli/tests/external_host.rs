@@ -17,6 +17,8 @@ mod driver_switch;
 mod hand_resume;
 #[path = "external_host/identity_pin.rs"]
 mod identity_pin;
+#[path = "external_host/ls_detected.rs"]
+mod ls_detected;
 #[path = "external_host/move_session.rs"]
 mod move_session;
 #[path = "external_host/nested_host.rs"]
@@ -75,7 +77,7 @@ use tmt_core::{
 /// Answers from files beside it, records each operation, keeps the marker
 /// `publish` sent and returns it from `snapshot`, as a real host would.
 /// With `two-panes`, a second pane `fake-2` (target `f2`) has its own shell
-/// (`pid-2`) and marker (`marker-2`).
+/// (`pid-2`), marker (`marker-2`) and agent name (`agentname-2`).
 const DRIVER: &str = r#"#!/bin/sh
 d=$(dirname "$0")
 echo "$3" >> "$d/calls"
@@ -186,22 +188,33 @@ case "$3" in
     # much; `target` moves the pane; after `swap-after` snapshots the pane's
     # shell is `pid-swapped`.
     if [ -f "$d/slow-snapshot" ]; then sleep 3; fi
+    if [ -f "$d/bad-snapshot" ]; then printf 'not json'; exit 0; fi
     if [ -f "$d/big-snapshot" ]; then printf '{"ok":{"panes":[{"id":"fake-1","cwd":"'; head -c 1100000 /dev/zero | tr '\0' a; printf '"}]}}'; exit 0; fi
     n=$(( $(cat "$d/snapshot-count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$d/snapshot-count"
     pid=$(cat "$d/pid")
     if [ -f "$d/swap-after" ] && [ "$n" -gt "$(cat "$d/swap-after")" ]; then pid=$(cat "$d/pid-swapped"); fi
+    # A binding probe names its panes; a scan asks for every pane. With
+    # `listing-fails` a probe is refused; with `scan-pid` a scan reports that
+    # shell for fake-1.
+    case "$input" in
+      *'"panes":['*) if [ -f "$d/listing-fails" ]; then printf '{"error":{"code":"failed","message":"probe refused"}}'; exit 0; fi ;;
+      *) if [ -f "$d/scan-pid" ]; then pid=$(cat "$d/scan-pid"); fi ;;
+    esac
     t=$(cat "$d/target" 2>/dev/null); [ -n "$t" ] || t=f1
     m=$(cat "$d/marker" 2>/dev/null); [ -n "$m" ] || m=null
     a=$(cat "$d/agentname" 2>/dev/null); if [ -n "$a" ]; then a=",\"agentName\":\"$a\""; fi
+    # `command` is fake-1's foreground command (default `sh`).
+    c=$(cat "$d/command" 2>/dev/null); [ -n "$c" ] || c=sh
     # `opened` holds true or false when the host reports whether tmt opened the pane.
     o=$(cat "$d/opened" 2>/dev/null); if [ -n "$o" ]; then a="$a,\"openedByTmt\":$o"; fi
     # Only the panes asked about, as the protocol requires.
-    p1=$(printf '{"id":"fake-1","target":"%s","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}' "$t" "$pid" "$m" "$a")
+    p1=$(printf '{"id":"fake-1","target":"%s","cwd":"/src","command":"%s","panePid":%s,"suggestedName":null,"marker":%s%s}' "$t" "$c" "$pid" "$m" "$a")
     case "$input" in *'"panes":["fake-2"]'*) p1= ;; esac
     p2=
     if [ -f "$d/two-panes" ]; then
       m2=$(cat "$d/marker-2" 2>/dev/null); [ -n "$m2" ] || m2=null
-      p2=$(printf '{"id":"fake-2","target":"f2","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s}' "$(cat "$d/pid-2")" "$m2")
+      a2=$(cat "$d/agentname-2" 2>/dev/null); if [ -n "$a2" ]; then a2=",\"agentName\":\"$a2\""; fi
+      p2=$(printf '{"id":"fake-2","target":"f2","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}' "$(cat "$d/pid-2")" "$m2" "$a2")
       case "$input" in *'"panes":["fake-1"]'*) p2= ;; esac
     fi
     if [ -n "$p1" ] && [ -n "$p2" ]; then p1="$p1,"; fi

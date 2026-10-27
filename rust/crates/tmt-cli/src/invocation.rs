@@ -539,12 +539,22 @@ pub struct ParseError {
 
 /// Which identities `tmt ls` shows: one lifetime or both, only the caller's
 /// tmux session, and whether offline identities with nothing to resume are
-/// folded into one line.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// folded into one line. `detected` adds one discovery scan; the other
+/// fields never select what it scans.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ListScope {
     pub lifetime: Option<tmt_core::identity::Lifetime>,
     pub here: bool,
     pub all: bool,
+    pub detected: Option<DetectedScope>,
+}
+
+/// What `tmt ls --detected` scans: discovery's own selection, or the host and
+/// socket given with it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DetectedScope {
+    pub host: Option<String>,
+    pub socket: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchOperation {
