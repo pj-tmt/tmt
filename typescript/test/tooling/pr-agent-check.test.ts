@@ -45,6 +45,9 @@ describe('visible Agent grammar', () => {
     expect(AGENT_PRESETS).toEqual([
       'codex-sol-high',
       'codex-sol-med',
+      'codex-terra-xhigh',
+      'codex-terra-high',
+      'codex-terra-med',
       'codex-luna-med',
       'codex-luna-low',
       'claude-opus-med',
@@ -69,6 +72,7 @@ describe('visible Agent grammar', () => {
     ...AGENT_PRESETS.map((p) => `Agent: infra-1 ${p}`),
     'Agent: ben',
     'Agent: seat-2 vendor Model.2 high_effort',
+    'Agent: infra-1 codex gpt-6.1-terra xhigh',
   ])('accepts %s', (line) => {
     expect(parseAgentLines(line)).toEqual({ agents: [line.slice(7)], findings: [] });
   });
@@ -79,6 +83,8 @@ describe('visible Agent grammar', () => {
     'Agent: Infra-1 codex-sol-high',
     'Agent: -seat codex-sol-high',
     'Agent: seat unknown',
+    'Agent: seat codex-terra-low',
+    'Agent: seat codex-terra',
     'Agent: seat CODEX-SOL-HIGH',
     'agent: seat codex-sol-high',
     'Agent: seat vendor model',
