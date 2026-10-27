@@ -1,4 +1,4 @@
-//! What the list overlay shows of each item: its kind, its title and who added it when.
+//! What the list overlay shows of each item: its status, its link, its title and who added it when.
 use crate::checklist::{
     Preview,
     model::{Id, Stamp},
@@ -11,10 +11,11 @@ pub(super) enum Kind {
 }
 
 impl Kind {
-    pub fn mark(self) -> &'static str {
+    /// The STATUS cell: the mark and its word, so a state never rests on a color alone.
+    pub fn status(self) -> &'static str {
         match self {
-            Self::Link => "↗",
-            Self::Todo => "○",
+            Self::Link => "↗ link",
+            Self::Todo => "○ todo",
         }
     }
 }
@@ -25,23 +26,10 @@ pub(super) struct Row {
     pub kind: Kind,
     pub title: String,
     pub reference: Option<String>,
-    /// The host of a link; empty for a todo.
-    pub host: String,
-    /// `who · age`; empty when nothing is known.
+    /// The LINK cell: the reference in short form, `—` for a todo.
+    pub link: String,
+    /// `who · age`, shown on the cursor row only; empty when nothing is known.
     pub byline: String,
-}
-
-impl Row {
-    /// What the right-hand column shows: the host (cut to `host_cells`) when there is room for
-    /// it, then the byline.
-    pub fn meta(&self, host_cells: usize) -> String {
-        let host = super::super::view::fit(&self.host, host_cells);
-        [host.trim_end(), self.byline.as_str()]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("  ")
-    }
 }
 
 /// Open, nonarchived items in the list's own order.
@@ -63,16 +51,16 @@ pub(super) fn rows(preview: &Preview, now_ms: u64) -> Vec<Row> {
                 .as_ref()
                 .map(|stamp| format!("{} · {}", who(preview, stamp), age(now_ms, stamp)))
                 .unwrap_or_default();
-            let host = match kind {
-                Kind::Link => host(item.content.reference.as_deref().unwrap_or_default()),
-                _ => String::new(),
+            let link = match kind {
+                Kind::Link => link(item.content.reference.as_deref().unwrap_or_default()),
+                Kind::Todo => "—".into(),
             };
             Row {
                 id: item.id.clone(),
                 kind,
                 title: item.content.title.clone(),
                 reference: item.content.reference.clone(),
-                host,
+                link,
                 byline,
             }
         })
@@ -98,15 +86,28 @@ fn age(now_ms: u64, stamp: &Stamp) -> String {
     crate::requests::age(now_ms, stamp.at_ms)
 }
 
-/// The host of a reference: what follows `://` up to the path, or the reference itself.
-fn host(reference: &str) -> String {
+/// A reference in short form. A GitHub issue or pull request reads `owner/repo#N`; any other
+/// address reads `host/…/last-segment` (`host/segment` when it has one, `host` when none).
+fn link(reference: &str) -> String {
     let rest = reference
         .split_once("://")
         .map_or(reference, |(_, rest)| rest);
-    rest.split(['/', '?', '#'])
-        .next()
-        .unwrap_or(rest)
-        .to_owned()
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    let mut parts = rest.split('/').filter(|part| !part.is_empty());
+    let host = parts.next().unwrap_or(rest);
+    let path: Vec<&str> = parts.collect();
+    if host.eq_ignore_ascii_case("github.com")
+        && let [owner, repo, "issues" | "pull", number, ..] = path.as_slice()
+        && !number.is_empty()
+        && number.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return format!("{owner}/{repo}#{number}");
+    }
+    match path.as_slice() {
+        [] => host.to_owned(),
+        [only] => format!("{host}/{only}"),
+        [.., last] => format!("{host}/…/{last}"),
+    }
 }
 
 #[cfg(test)]
