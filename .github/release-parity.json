@@ -1098,9 +1098,7 @@
             "value": "full"
           },
           "coverage": "policy",
-          "tests": [
-            "typescript/test/tooling/native-application-schema.test.ts"
-          ]
+          "tests": ["typescript/test/tooling/native-application-schema.test.ts"]
         }
       ]
     }
