@@ -209,6 +209,7 @@ delivery. They install and launch nothing.
 - Named delivery and diagnostics select the stored UUID and recorded server before
   the existing current-presence reconciliation. Preparation refreshes that same
   endpoint again; no ambient-host fallback, new approval or listing authority is added.
+- Presence reads acquire host evidence outside the database writer lock and recheck their captured records before reconciliation. Changed records never authorize retirement or detachment; unchanged records retain conclusive stale binding cleanup.
 
 ## Sessions and driver state
 
@@ -402,6 +403,7 @@ delivery. They install and launch nothing.
   values (including empty env) win. Conditional metadata updates fence replacement and clear.
   `resume --show` inspects the record; `--forget-launch` clears it without forgetting the
   session. Unnamed resume uses the shared verified caller selector, never a sole-name fallback.
+- Provider end leaves readiness Unknown until fresh start; only proven process loss ends the incarnation. Claude approval notifications set waiting; only admitted events clear it, never a timer.
 
 ## Consumption and context usage
 

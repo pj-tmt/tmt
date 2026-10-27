@@ -54,7 +54,8 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   Bounded calls keep the process owner's spawn classification and cleanup; they never
   mutate the parent environment or insert an environment-launcher child.
 - Completion v1 (`__complete`) runs through the bounded process owner with a one-second
-  deadline and 64 KiB bound; shells quote candidates and never evaluate them.
+  deadline and 64 KiB bound; shells quote candidates and never evaluate them. It is optional and falls back to file
+  completion on any failure.
 
 ## Local API and MCP
 
