@@ -106,7 +106,17 @@ pub trait Backend: Send + Sync {
 
 /// This value is made by the admitted control composition, not deserialized from
 /// a provider row or a JSON consent flag. The Store rechecks browser designation.
-pub struct OwnerActor(pub(super) Actor);
+pub struct OwnerActor(pub(super) Actor, pub(super) Option<OwnerOperation>);
+
+/// Frozen identity of an already adopted, signed browser confirmation. It holds
+/// no invitation code or response capability and is never decoded from JSON.
+pub(crate) struct OwnerOperation {
+    pub(crate) id: String,
+    pub(crate) intent: [u8; 32],
+    pub(crate) offer: String,
+    pub(crate) snapshot: [u8; 32],
+    pub(crate) sending: bool,
+}
 
 pub(super) enum Actor {
     LocalInteractive,
@@ -121,17 +131,46 @@ pub(super) enum Actor {
 impl OwnerActor {
     /// Trusted local control only; the sink still owns admission and rechecks it.
     pub fn local_interactive() -> Self {
-        Self(Actor::LocalInteractive)
+        Self(Actor::LocalInteractive, None)
     }
     pub fn owner_browser(client: String, key: [u8; 32], revision: u64) -> Self {
-        Self(Actor::OwnerBrowser {
-            client,
-            key,
-            revision,
-        })
+        Self(
+            Actor::OwnerBrowser {
+                client,
+                key,
+                revision,
+            },
+            None,
+        )
+    }
+    /// The signed management adapter must adopt this exact intent first. The
+    /// writer independently verifies the adopted row and its member ownership.
+    pub fn owner_browser_confirmation(
+        grant: &Grant,
+        operation_id: String,
+        intent: [u8; 32],
+        snapshot: &Snapshot,
+        sending: bool,
+    ) -> Result<Self, RemoteError> {
+        if !crate::canonical::is_core_id(&operation_id)
+            || operation_id == snapshot.context.offer
+            || grant.kind != "browser"
+        {
+            return Err(super::invalid());
+        }
+        let mut actor =
+            Self::owner_browser(grant.client_id.clone(), grant.public_key, grant.revision);
+        actor.1 = Some(OwnerOperation {
+            id: operation_id,
+            intent,
+            offer: snapshot.context.offer.clone(),
+            snapshot: snapshot.digest,
+            sending,
+        });
+        Ok(actor)
     }
     pub fn automated() -> Self {
-        Self(Actor::Automated)
+        Self(Actor::Automated, None)
     }
     pub(super) fn interactive(&self) -> bool {
         match &self.0 {

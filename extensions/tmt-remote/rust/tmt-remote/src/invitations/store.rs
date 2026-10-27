@@ -131,7 +131,27 @@ impl StoreConfirmation {
         {
             return Err(invalid());
         }
+        let browser_operation = match (&input.actor.0, &input.actor.1) {
+            (_, None) => None,
+            (Actor::OwnerBrowser { client, .. }, Some(operation)) => {
+                crate::management::invitation_outcomes::check(
+                    tx,
+                    client,
+                    operation,
+                    snapshot,
+                    input.sending,
+                    now,
+                )?;
+                Some(operation)
+            }
+            _ => return Err(invalid()),
+        };
         if let Some(record) = original(tx, snapshot, now)? {
+            // Another presenter already committed this offer. A newly adopted
+            // browser operation cannot claim that earlier confirmation as its effect.
+            if browser_operation.is_some() {
+                return Err(conflict());
+            }
             return Ok(record.original);
         }
         let grant = input.grant;
@@ -228,7 +248,10 @@ impl StoreConfirmation {
             ],
         )
         .map_err(database)?;
-        // An expired/cancelled writer rolls back member, grant and receipt alike.
+        if let Some(operation) = browser_operation {
+            crate::management::invitation_outcomes::settle(tx, operation, &committed, &persisted)?;
+        }
+        // An expired/cancelled writer rolls back member, grant and both receipts alike.
         input.io.check().map_err(|_| invalid())?;
         if pairing::now_ms()? >= snapshot.context.expires_at_ms {
             return Err(invalid());

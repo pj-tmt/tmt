@@ -13,6 +13,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+pub(crate) mod invitation_outcomes;
 mod member_journal;
 
 type Result<T> = std::result::Result<T, RemoteError>;
@@ -178,7 +179,7 @@ fn require_writable(connection: &Connection, grant: &Grant) -> Result<()> {
         ))
     }
 }
-fn receipt(connection: &Connection, client: &str, id: &str, now: u64) -> Result<Value> {
+pub(crate) fn receipt(connection: &Connection, client: &str, id: &str, now: u64) -> Result<Value> {
     let row: Option<(String, String, i64)> = connection
         .query_row(
             "SELECT client_id,outcome,deadline_ms FROM management_receipts WHERE id=?1",
@@ -386,6 +387,26 @@ impl Store {
             None
         };
         Ok((rows, next))
+    }
+    /// Adopts only a currently designated owner's signed invitation decision.
+    /// Calling this does not confirm a candidate or persist an offer secret.
+    pub fn adopt_invitation_confirmation(
+        &mut self,
+        grant: &Grant,
+        operation_id: &str,
+        intent: &[u8; 32],
+    ) -> Result<Option<Value>> {
+        if !canonical::is_core_id(operation_id) || grant.kind != "browser" {
+            return Err(invalid());
+        }
+        self.management_adopt(
+            grant,
+            operation_id,
+            "remote.invites.confirm",
+            intent,
+            now_ms()?,
+            Access::Legacy,
+        )
     }
     fn management_adopt(
         &mut self,

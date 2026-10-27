@@ -505,7 +505,14 @@ recovery. The `port` exchanges bounded metadata; it cannot supply consent or cre
 existing `management_receipts` journal in one IMMEDIATE transaction.
 Its transaction-local extension admits backend effects without another opener or nested
 transaction; persisted policy is serialized afterward and backend receipt fields cannot
-replace it. Separate owner sending consent uses the existing member-policy writer after
+replace it. An adopted browser confirmation binds its signed operation ID and intent digest to the
+frozen offer/candidate and sending choice. The Store writer checks the existing
+management row's actor member and immutable deadline, then settles it with the
+invitation receipt and grant in that same transaction. A failed settlement rolls
+all effects back; a terminal winner cannot be claimed by a new browser operation.
+The typed identity alone admits no request; the signed management adapter still
+owns browser-origin and live-Session admission.
+Separate owner sending consent uses the existing member-policy writer after
 the initial off/direct sink in that transaction. A definite sink refusal requires proven
 rollback; uncertain commit/rollback remains original-only. The candidate proof owner uses
 the narrow native signing port and checks returned possession signatures; it never
