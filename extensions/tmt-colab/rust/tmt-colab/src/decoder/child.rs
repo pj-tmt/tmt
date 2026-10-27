@@ -680,13 +680,108 @@ fn rebuild_content(doc: &Doc) -> Result<Vec<u8>, DecodeFault> {
         return Err(DecodeFault::Rejected);
     }
     let txn = candidate.transact();
-    if txn.state_vector() != vector
-        || txn.encode_state_as_update_v1(&StateVector::default()) != encoded
-    {
+    if txn.state_vector() != vector {
         return Err(DecodeFault::Rejected);
     }
+    let replayed = txn.encode_state_as_update_v1(&StateVector::default());
+    equivalent_update(&encoded, &replayed)?;
     Ok(encoded)
 }
+
+mod comparison {
+    use super::{Any, DecodeFault, Update};
+    use yrs::updates::decoder::Decode;
+    /// Comparison-only encoder: yrs 0.28.0 sorts update structs but writes Any maps in hash order.
+    /// Sort nested map keys while preserving every encoded struct, field and delete-set entry. These
+    /// bytes are never published. Update::PartialEq alone is insufficient: it compares Item IDs only.
+    struct ComparisonEncoder(yrs::updates::encoder::EncoderV1);
+    impl yrs::encoding::write::Write for ComparisonEncoder {
+        fn write_all(&mut self, bytes: &[u8]) {
+            yrs::encoding::write::Write::write_all(&mut self.0, bytes);
+        }
+    }
+    impl yrs::updates::encoder::Encoder for ComparisonEncoder {
+        fn to_vec(self) -> Vec<u8> {
+            yrs::updates::encoder::Encoder::to_vec(self.0)
+        }
+        fn reset_ds_cur_val(&mut self) {
+            self.0.reset_ds_cur_val();
+        }
+        fn write_ds_clock(&mut self, clock: u32) {
+            self.0.write_ds_clock(clock);
+        }
+        fn write_ds_len(&mut self, len: u32) {
+            self.0.write_ds_len(len);
+        }
+        fn write_left_id(&mut self, id: &yrs::ID) {
+            self.0.write_left_id(id);
+        }
+        fn write_right_id(&mut self, id: &yrs::ID) {
+            self.0.write_right_id(id);
+        }
+        fn write_client(&mut self, client: yrs::ClientID) {
+            self.0.write_client(client);
+        }
+        fn write_info(&mut self, info: u8) {
+            self.0.write_info(info);
+        }
+        fn write_parent_info(&mut self, is_key: bool) {
+            self.0.write_parent_info(is_key);
+        }
+        fn write_type_ref(&mut self, info: u8) {
+            self.0.write_type_ref(info);
+        }
+        fn write_len(&mut self, len: u32) {
+            self.0.write_len(len);
+        }
+        fn write_any(&mut self, any: &Any) {
+            comparison_any(&mut self.0, any);
+        }
+        fn write_json(&mut self, any: &Any) {
+            self.0.write_json(any);
+        }
+        fn write_key(&mut self, key: &str) {
+            self.0.write_key(key);
+        }
+    }
+    fn comparison_any(encoder: &mut yrs::updates::encoder::EncoderV1, value: &Any) {
+        use yrs::encoding::write::Write as YWrite;
+        match value {
+            Any::Map(map) => {
+                encoder.write_u8(118);
+                encoder.write_var(map.len() as u64);
+                let mut entries = map.iter().collect::<Vec<_>>();
+                entries.sort_unstable_by_key(|(key, _)| *key);
+                for (key, value) in entries {
+                    encoder.write_string(key);
+                    comparison_any(encoder, value);
+                }
+            }
+            Any::Array(items) => {
+                encoder.write_u8(117);
+                encoder.write_var(items.len() as u64);
+                for value in items.iter() {
+                    comparison_any(encoder, value);
+                }
+            }
+            other => other.encode(encoder),
+        }
+    }
+    pub(super) fn equivalent_update(expected: &[u8], actual: &[u8]) -> Result<(), DecodeFault> {
+        use yrs::updates::encoder::{Encode, Encoder, EncoderV1};
+        let normalized = |bytes: &[u8]| -> Result<Vec<u8>, DecodeFault> {
+            let update = Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?;
+            let mut encoder = ComparisonEncoder(EncoderV1::new());
+            update.encode(&mut encoder);
+            Ok(encoder.to_vec())
+        };
+        if normalized(expected)? != normalized(actual)? {
+            return Err(DecodeFault::Rejected);
+        }
+        Ok(())
+    }
+}
+use comparison::equivalent_update;
 
 fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {
     let names: &[&str] = match namespace {
@@ -1334,6 +1429,115 @@ mod projection_reuse_tests {
                 original
             );
         }
+    }
+
+    #[test]
+    fn replay_update_guard_accepts_a_different_any_map_key_order() {
+        use std::{collections::HashMap, sync::Arc};
+        use yrs::encoding::write::Write as YWrite;
+        fn map_bytes(entries: &[(&str, &str)]) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            bytes.write_u8(118);
+            bytes.write_var(entries.len() as u64);
+            for (key, value) in entries {
+                bytes.write_string(key);
+                Any::from(*value).encode(&mut bytes);
+            }
+            bytes
+        }
+        let doc = Doc::with_client_id(54560);
+        let mut fields = HashMap::new();
+        fields.insert("a".to_owned(), Any::from("one"));
+        fields.insert("b".to_owned(), Any::from("two"));
+        doc.get_or_insert_map("meta").insert(
+            &mut doc.transact_mut(),
+            "info",
+            Any::Map(Arc::new(fields)),
+        );
+        let first = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let ascending = map_bytes(&[("a", "one"), ("b", "two")]);
+        let descending = map_bytes(&[("b", "two"), ("a", "one")]);
+        let (position, replacement) =
+            if let Some(pos) = first.windows(ascending.len()).position(|v| v == ascending) {
+                (pos, &descending)
+            } else {
+                (
+                    first
+                        .windows(descending.len())
+                        .position(|v| v == descending)
+                        .expect("encoded map"),
+                    &ascending,
+                )
+            };
+        let mut second = first.clone();
+        second[position..position + replacement.len()].copy_from_slice(replacement);
+        assert_ne!(first, second);
+        assert!(Update::decode_v1(&second).is_ok());
+        assert!(equivalent_update(&first, &second).is_ok());
+    }
+
+    #[test]
+    fn replay_update_guard_rejects_a_different_struct_identity() {
+        let encode = |client| {
+            let doc = Doc::with_client_id(client);
+            doc.get_or_insert_text("html")
+                .insert(&mut doc.transact_mut(), 0, "same");
+            let txn = doc.transact();
+            txn.encode_state_as_update_v1(&StateVector::default())
+        };
+        assert!(matches!(
+            equivalent_update(&encode(54563), &encode(54564)),
+            Err(DecodeFault::Rejected)
+        ));
+    }
+
+    #[test]
+    fn replay_update_guard_rejects_a_dropped_delete_set() {
+        let mut options = yrs::Options::with_client_id(yrs::ClientID::new(54561));
+        options.skip_gc = true;
+        let doc = Doc::with_options(options);
+        let html = doc.get_or_insert_text("html");
+        html.insert(&mut doc.transact_mut(), 0, "abcd");
+        let no_delete = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        html.remove_range(&mut doc.transact_mut(), 0, 4);
+        let deleted = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let before = Update::decode_v1(&no_delete).unwrap();
+        let after = Update::decode_v1(&deleted).unwrap();
+        assert_eq!(before.state_vector(), after.state_vector());
+        assert_eq!(before.insertions(true), after.insertions(true));
+        assert_ne!(before.delete_set(), after.delete_set());
+        assert!(equivalent_update(&deleted, &deleted).is_ok());
+        assert!(matches!(
+            equivalent_update(&deleted, &no_delete),
+            Err(DecodeFault::Rejected)
+        ));
+    }
+
+    #[test]
+    fn replay_update_guard_rejects_changed_struct_at_the_same_clocks() {
+        let encode = |text: &str| {
+            let doc = Doc::with_client_id(54562);
+            doc.get_or_insert_text("html")
+                .insert(&mut doc.transact_mut(), 0, text);
+            let txn = doc.transact();
+            txn.encode_state_as_update_v1(&StateVector::default())
+        };
+        let expected = encode("abcd");
+        let changed = encode("wxyz");
+        let left = Update::decode_v1(&expected).unwrap();
+        let right = Update::decode_v1(&changed).unwrap();
+        assert_eq!(left.state_vector(), right.state_vector());
+        assert_eq!(left.delete_set(), right.delete_set());
+        assert!(matches!(
+            equivalent_update(&expected, &changed),
+            Err(DecodeFault::Rejected)
+        ));
     }
 
     #[test]
