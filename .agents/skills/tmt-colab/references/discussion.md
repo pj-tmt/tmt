@@ -319,3 +319,11 @@ authored blocks, document sizes, chrome and scroll before/after acquisition/rele
 and covers internal scrolling, entity/markup mapping, attribute impostors, presence
 and mobile dark presentation. Its explicit fixture-frame selector and authored
 block count prevent hidden-bootstrap frame false positives.
+
+The CLI patch adapter enforces foreign agent overlap before publication and carries
+that checked own revision into the existing content preparation fence. Its bounded
+stale-base retry rereads locks and source together; explicit expected revisions
+still disable retries. The shared overlap helper and presence projection serve
+both refusal and own-lock cleanup. No browser or server-wide write guard is added.
+Native CLI cases cover people, unrelated/no-op patches, holder release, lifecycle
+observations and a real lock acquired between snapshot and preparation.

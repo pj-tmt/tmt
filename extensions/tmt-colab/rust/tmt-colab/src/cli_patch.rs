@@ -38,7 +38,7 @@ const PATCH: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::HumanAndJson,
-    details: "Changes only the addressed text and writes the minimal change, through serve when running or under its lifecycle lock when stopped, with atomic publication, size limits, markup check (--strict refuses findings in the result), changed:false no-op and lost-reply behavior. Give exactly one form. --find TEXT --replace TEXT (or --find-file/--replace-file): each find must occur exactly once on the original source. Repeat pairs for several changes in one revision; equal counts pair in order, ranges must not overlap and all pairs apply or none do. A patch replacing more than half of the source applies with a warning recommending smaller anchored patches. --lines A:B --range-sha256 HASH --file PATH: lines A..B (1-based, LF-separated; a CR is content) are replaced by the file's exact bytes, only while they still hash to the rangeSha256 page read reported. --diff PATH: a unified diff; each hunk's context and removed lines must match exactly once (or once at the stated line) with no fuzz, and all hunks apply or none do. A missing, ambiguous or changed anchor fails with COLAB_PATCH_CONFLICT naming it and writes nothing; read the page again and patch what it holds now. A concurrent edit elsewhere is merged: when the page moves between reading and committing, the patch is evaluated again on the new page, up to 3 more times. --expected-revision additionally refuses any change to the page since that revision, anywhere, and disables the retries. The result includes update:{count,bytes,minimal}.",
+    details: "Changes only the addressed text and writes the minimal change, through serve when running or under its lifecycle lock when stopped, with atomic publication, size limits, markup check (--strict refuses findings in the result), changed:false no-op and lost-reply behavior. Give exactly one form. --find TEXT --replace TEXT (or --find-file/--replace-file): each find must occur exactly once on the original source. Repeat pairs for several changes in one revision; equal counts pair in order, ranges must not overlap and all pairs apply or none do. A patch replacing more than half of the source applies with a warning recommending smaller anchored patches. --lines A:B --range-sha256 HASH --file PATH: lines A..B (1-based, LF-separated; a CR is content) are replaced by the file's exact bytes, only while they still hash to the rangeSha256 page read reported. --diff PATH: a unified diff; each hunk's context and removed lines must match exactly once (or once at the stated line) with no fuzz, and all hunks apply or none do. A missing, ambiguous or changed anchor fails with COLAB_PATCH_CONFLICT naming it and writes nothing; read the page again and patch what it holds now. Under an agent (TMT_AGENT set), a patch overlapping another identity's live lock fails with COLAB_REGION_LOCKED naming the holder and quote; wait for it to save, patch elsewhere, or unlock --stale if it is gone. People are never blocked by these advisory locks. A concurrent edit elsewhere is merged: when the page moves between reading and committing, the patch is evaluated again on the new page, up to 3 more times. --expected-revision additionally refuses any change to the page since that revision, anywhere, and disables the retries. The result includes update:{count,bytes,minimal}.",
 };
 
 pub fn command() -> Command {
@@ -256,6 +256,14 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             &edited,
             &mut decoder,
         )?;
+        if expected.is_some()
+            && locks
+                .revision
+                .as_deref()
+                .is_some_and(|observed| Some(observed) != expected)
+        {
+            return Err(Fault::StaleBase.into());
+        }
         // The edit was evaluated against `base.source`: the preparation refuses a page whose
         // source is anything else, and the commit refuses a page that moved after it.
         match crate::commit_source(
@@ -264,7 +272,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             store,
             &id,
             &edited,
-            expected,
+            expected.or(locks.revision.as_deref()),
             Some(crypto::digest(base.source.as_bytes())),
             None,
             &mut decoder,
@@ -274,7 +282,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     &layout,
                     &key,
                     &id,
-                    &locks,
+                    &locks.release,
                     &mut decoder,
                     &mut receipt,
                 );

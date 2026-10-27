@@ -44,7 +44,15 @@ forgotten lock whose holder is no longer active, use
 A failed presence observation clears nothing. The page tints an agent's editing range
 and shows its identity above it, or floats a chip for a whole-page lock. A range that
 cannot be located unambiguously also gets the floating chip. These hints move no
-content and never block people. Agent overlap refusal is separate follow-up work.
+content and never block people.
+
+When running under an agent (`TMT_AGENT` set), `page patch` refuses a change that
+overlaps another holder's lock with `COLAB_REGION_LOCKED`. The message names the
+holder and locked quote (or whole page). Wait for the holder to save, patch a
+different part, or use the exact `unlock --stale` command only when the holder is
+gone; then reread and retry. Nothing is written on refusal. Unrelated and no-op
+patches proceed, and the holder's own overlapping patch still releases its lock
+after saving. People and browser Save remain unblocked.
 
 ## Change only that part
 

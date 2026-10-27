@@ -11935,3 +11935,261 @@ fn retired_local_writer_holder_is_hidden_and_can_be_unlocked_by_another_identity
             .is_none()
     );
 }
+
+#[test]
+fn agent_patch_refuses_foreign_overlap_but_people_disjoint_and_noop_edits_proceed() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        let source = "<p>Alpha passage</p><p>Beta passage</p>";
+        fs::write(pilot.root.join("source.html"), source).unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Guarded edit",
+            "--layout",
+            "column",
+            "--file",
+            pilot.root.join("source.html").to_str().unwrap(),
+            "--no-open",
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        let locked = pilot.call(&["page", "lock", page, "--find", "Alpha passage", "--json"]);
+        let lock_id = locked["locks"][0]["lockId"].clone();
+        fs::write(pilot.root.join("presence"), json!({"identities":[{"id":"50000000-0000-1000-8000-000000000001","presence":"active","session":{"activity":{"state":"idle"}}}]}).to_string()).unwrap();
+        fs::write(
+            pilot.root.join("publisher"),
+            json!({"identity":{"name":"Other agent","id":"50000000-0000-1000-8000-000000000002"}})
+                .to_string(),
+        )
+        .unwrap();
+        if serving {
+            pilot.start();
+        }
+        let patch = |find: &str, replace: &str, agent: bool| {
+            let mut command = pilot.command();
+            if agent {
+                command.env("TMT_AGENT", "1");
+            }
+            let output = command
+                .args([
+                    "page",
+                    "patch",
+                    page,
+                    "--find",
+                    find,
+                    "--replace",
+                    replace,
+                    "--json",
+                ])
+                .output()
+                .unwrap();
+            let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+            (output.status.success(), value)
+        };
+        let before = pilot.call(&["page", "read", page, "--json"]);
+        let (ok, denied) = patch("Alpha passage", "Forbidden change", true);
+        assert!(!ok, "{denied}");
+        assert_eq!(denied["error"]["code"], "COLAB_REGION_LOCKED");
+        let message = denied["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("Fixture agent")
+                && message.contains("Alpha passage")
+                && message.contains("patch a different part")
+                && message.contains("--stale")
+                && message.contains("retry"),
+            "{message}"
+        );
+        let after = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(after["source"], source);
+        assert_eq!(after["revision"], before["revision"]);
+        assert_eq!(after["editLocks"][0]["lockId"], lock_id);
+        let (ok, noop) = patch("Alpha passage", "Alpha passage", true);
+        assert!(ok, "{noop}");
+        assert_eq!(
+            pilot.call(&["page", "read", page, "--json"])["source"],
+            source
+        );
+        let (ok, disjoint) = patch("Beta passage", "Other passage", true);
+        assert!(ok, "{disjoint}");
+        let (ok, human) = patch("Alpha passage", "Person's change", false);
+        assert!(ok, "{human}");
+        let read = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(read["source"], "<p>Person's change</p><p>Other passage</p>");
+        assert_eq!(read["editLocks"][0]["lockId"], lock_id);
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+
+#[test]
+fn agent_patch_lock_lifecycle_keeps_unknown_and_failed_presence_but_releases_for_own_patch() {
+    let pilot = Pilot::new(None);
+    fs::write(pilot.root.join("source.html"), "<p>Original</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Lock lifecycle guard",
+        "--layout",
+        "column",
+        "--file",
+        pilot.root.join("source.html").to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let lock = pilot.call(&["page", "lock", page, "--whole", "--json"]);
+    let holder = "50000000-0000-1000-8000-000000000001";
+    fs::write(
+        pilot.root.join("publisher"),
+        json!({"identity":{"name":"Other agent","id":"50000000-0000-1000-8000-000000000002"}})
+            .to_string(),
+    )
+    .unwrap();
+    let patch = |find: &str, replace: &str| {
+        let output = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .args([
+                "page",
+                "patch",
+                page,
+                "--find",
+                find,
+                "--replace",
+                replace,
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        )
+    };
+    for (presence, activity, allowed) in [
+        ("active", "idle", false),
+        ("unknown", "ended", false),
+        ("offline", "idle", true),
+        ("active", "ended", true),
+    ] {
+        fs::write(pilot.root.join("presence"), json!({"identities":[{"id":holder,"presence":presence,"session":{"activity":{"state":activity}}}]}).to_string()).unwrap();
+        let (ok, result) = patch("Original", if allowed { "Temporary" } else { "Denied" });
+        assert_eq!(ok, allowed, "{presence}/{activity}: {result}");
+        if allowed {
+            // Restore as a person; the foreign lock remains and can be observed again.
+            pilot.call(&[
+                "page",
+                "patch",
+                page,
+                "--find",
+                "Temporary",
+                "--replace",
+                "Original",
+                "--json",
+            ]);
+        } else {
+            assert_eq!(result["error"]["code"], "COLAB_REGION_LOCKED");
+        }
+    }
+    fs::write(pilot.root.join("presence-status"), "9").unwrap();
+    let (ok, denied) = patch("Original", "Denied");
+    assert!(!ok, "{denied}");
+    assert_eq!(denied["error"]["code"], "COLAB_REGION_LOCKED");
+    fs::remove_file(pilot.root.join("presence-status")).unwrap();
+    // Removing this machine's holder is the approved retired-identity recovery case.
+    fs::write(pilot.root.join("presence"), "{\"identities\":[]}").unwrap();
+    let (ok, saved) = patch("Original", "Retired holder's page");
+    assert!(ok, "{saved}");
+    fs::write(
+        pilot.root.join("publisher"),
+        json!({"identity":{"name":"Fixture agent","id":holder}}).to_string(),
+    )
+    .unwrap();
+    let (ok, saved) = patch("Retired holder's page", "Holder's own save");
+    assert!(ok, "{saved}");
+    assert_eq!(saved["lockRelease"]["confirmed"], true);
+    assert_eq!(
+        saved["lockRelease"]["released"],
+        json!([lock["locks"][0]["lockId"]])
+    );
+    let read = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(read["source"], "<p>Holder's own save</p>");
+    assert!(read.get("editLocks").is_none());
+}
+
+#[test]
+fn agent_patch_rechecks_a_lock_acquired_after_its_initial_lock_snapshot() {
+    let pilot = Pilot::new(None);
+    fs::write(
+        pilot.root.join("source.html"),
+        "<p>Before</p><p>Elsewhere</p>",
+    )
+    .unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Concurrent lock",
+        "--layout",
+        "column",
+        "--file",
+        pilot.root.join("source.html").to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    pilot.call(&["page", "lock", page, "--find", "Elsewhere", "--json"]);
+    fs::write(pilot.root.join("presence"), json!({"identities":[{"id":"50000000-0000-1000-8000-000000000001","presence":"active","session":{"activity":{"state":"idle"}}}]}).to_string()).unwrap();
+    // The caller lookup follows the lock snapshot and precedes content preparation.
+    // Replace a disjoint lock with a whole-page lock through the real CLI at that seam.
+    let wrapper = pilot.root.join("core-lock-race");
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1 $2 $3" = 'identity show --json' ]; then
+if [ ! -f {trigger} ]; then
+: > {trigger}
+TMT_EXECUTABLE={core} {binary} page lock {page} --whole --json > {receipt} || exit 9
+fi
+printf '%s\n' '{{"identity":{{"name":"Other agent","id":"50000000-0000-1000-8000-000000000002"}}}}'
+exit 0
+fi
+exec {core} "$@"
+"#,
+        trigger = quote(pilot.root.join("lock-triggered").to_str().unwrap()),
+        core = quote(pilot.root.join("core").to_str().unwrap()),
+        binary = quote(BINARY),
+        page = quote(page),
+        receipt = quote(pilot.root.join("concurrent-lock.json").to_str().unwrap())
+    );
+    tmt_test_support::write_executable(&wrapper, script.as_bytes(), 0o700).unwrap();
+    let output = pilot
+        .command()
+        .env("TMT_AGENT", "1")
+        .env("TMT_EXECUTABLE", wrapper)
+        .args([
+            "page",
+            "patch",
+            page,
+            "--find",
+            "Before",
+            "--replace",
+            "Forbidden",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    let refused: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(!output.status.success(), "{refused}");
+    assert_eq!(refused["error"]["code"], "COLAB_REGION_LOCKED");
+    let locked: Value =
+        serde_json::from_slice(&fs::read(pilot.root.join("concurrent-lock.json")).unwrap())
+            .unwrap();
+    let read = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(read["source"], "<p>Before</p><p>Elsewhere</p>");
+    assert_eq!(read["revision"], locked["revision"]);
+    assert_eq!(read["editLocks"][0]["lockId"], locked["locks"][0]["lockId"]);
+}
