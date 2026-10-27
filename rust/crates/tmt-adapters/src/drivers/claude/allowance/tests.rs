@@ -483,3 +483,23 @@ fn the_account_is_named_by_the_root_and_never_by_a_reading() {
     fs::remove_file(pushed.home.path.join(".claude.json")).unwrap();
     assert_eq!(rate_account(&pushed.environment()), None);
 }
+
+#[test]
+fn an_account_waits_for_its_first_push_whatever_the_cache_says() {
+    let pushed = PushedFixture::new(&config());
+    let waiting = |pushed: &PushedFixture| waiting(&pushed.environment(), &pushed.data.path);
+    // The cache already answers, but the mod has pushed nothing: setup still waits for a session.
+    assert!(pushed.read(NOW).is_some());
+    assert!(waiting(&pushed));
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    assert!(!waiting(&pushed));
+    // An entry that has since expired is still a session that started.
+    assert!(!waiting(&pushed) && pushed.read(PUSHED_FIVE_RESET + WEEK_RESET).is_none());
+    // Another account has pushed nothing, and a root with no account cannot have.
+    let mut other = config();
+    other["oauthAccount"]["accountUuid"] = json!("account-b");
+    pushed.config(&other);
+    assert!(waiting(&pushed));
+    pushed.config(&json!({}));
+    assert!(waiting(&pushed));
+}

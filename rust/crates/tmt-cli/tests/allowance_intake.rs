@@ -223,3 +223,65 @@ fn a_directory_that_is_not_tmts_is_left_alone_and_said_so() {
     world.setup(&["setup", "claude", "--remove", "--yes"]);
     assert_eq!(fs::read(foreign.join("hooks/mine.mjs")).unwrap(), b"mine");
 }
+
+#[test]
+fn setup_says_when_the_mod_starts_and_status_waits_for_the_first_session_until_one_pushes() {
+    let waiting = "claude: waiting for the first Claude session since setup";
+    let world = World::new(&["setup", "claude", "--no-usage", "--yes"]);
+    world.account("acct-1");
+
+    // No mod, no wait: nothing was promised.
+    let status = world.setup(&["setup", "claude", "--status", "--json"]);
+    let document: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(document["integrations"][0]["mod"]["state"], "absent");
+    assert!(document["integrations"][0]["mod"]["waitingForFirstSession"].is_null());
+
+    // Installing says, in one line, when usage appears; JSON carries the same sentence.
+    let installed = world.setup(&["setup", "claude", "--usage", "--yes"]);
+    let text = String::from_utf8_lossy(&installed.stdout);
+    assert!(text.contains("Installed the claude mod"), "{text}");
+    let note = text
+        .lines()
+        .find(|line| line.contains("/reload-plugins"))
+        .unwrap_or_else(|| panic!("no activation line: {text}"));
+    assert!(note.contains("start a new one"), "{note}");
+    let status = world.setup(&["setup", "claude", "--status"]);
+    let text = String::from_utf8_lossy(&status.stdout);
+    assert!(text.contains(waiting), "{text}");
+
+    // Nothing to do again: no copy changed, so no promise is repeated.
+    let again = world.setup(&["setup", "claude", "--usage", "--yes"]);
+    let text = String::from_utf8_lossy(&again.stdout);
+    assert!(
+        text.contains("Already current") && !text.contains("/reload-plugins"),
+        "{text}"
+    );
+
+    // A stale copy is refreshed and says it again, in JSON too.
+    fs::write(world.mod_dir().join("hooks/register.mjs"), "changed").unwrap();
+    let refreshed = world.setup(&["setup", "claude", "--usage", "--yes", "--json"]);
+    let document: serde_json::Value = serde_json::from_slice(&refreshed.stdout).unwrap();
+    assert_eq!(document["mod"]["status"], "refreshed");
+    assert!(
+        document["mod"]["note"]
+            .as_str()
+            .unwrap()
+            .contains("/reload-plugins")
+    );
+
+    // The first session pushes: the wait ends.
+    let status = world.setup(&["setup", "claude", "--status", "--json"]);
+    let document: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(document["integrations"][0]["mod"]["state"], "current");
+    assert_eq!(
+        document["integrations"][0]["mod"]["waitingForFirstSession"],
+        true
+    );
+    world.push(PUSH);
+    let status = world.setup(&["setup", "claude", "--status"]);
+    let text = String::from_utf8_lossy(&status.stdout);
+    assert!(!text.contains("waiting for the first"), "{text}");
+    let status = world.setup(&["setup", "claude", "--status", "--json"]);
+    let document: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert!(document["integrations"][0]["mod"]["waitingForFirstSession"].is_null());
+}
