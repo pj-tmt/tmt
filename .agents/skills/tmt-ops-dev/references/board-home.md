@@ -351,7 +351,7 @@ paint; keys retain their selection. The shared modal starts on Cancel, fits its
 content within the existing caps and scrolls overflow in its read region. Its
 confirm label names the frozen operation; whole key hints fit after the controls
 in Esc, Enter, Tab priority. Short terminals use a screen-sized sheet; read
-position uses the shared modal's reserved position row. Confirm requires current geometry.
+position uses the shared modal's reserved position row, painted only while the body overflows. Confirm requires current geometry.
 Pending blocks replay; partial results remain readable without automatic retry.
 The service rechecks the frozen identities and revisions before writes.
 
