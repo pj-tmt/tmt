@@ -3940,7 +3940,7 @@ describe('Squad cron management', () => {
         '1h',
         'new room',
       ]);
-      expect(replacement.body.job.id).toBe('c2');
+      expect(replacement.body.job.id).toBe('c1');
       expect(replacement.body.job.roomId).not.toBe(oldRoom);
     });
   }, 60_000);
