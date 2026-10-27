@@ -4,6 +4,104 @@ use crate::test_support::{replace_stored_jobs, stored_jobs};
 use std::fs;
 
 #[test]
+fn legacy_cron_migration_drops_only_a_missing_counter_and_retains_live_jobs() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    let legacy = json!({
+        "version": 1,
+        "counters": {"product": 7, "retired": 4},
+        "jobs": [{
+            "id": "c3", "squad": "product", "roomId": ROOM, "ownerId": WORKER,
+            "message": "legacy exact text", "revision": 2, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        }]
+    });
+    replace_stored_jobs(&f.directory, legacy.to_string().as_bytes());
+    let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
+    assert_eq!(listed.jobs.len(), 1);
+    assert_eq!(listed.jobs[0].job.message, "legacy exact text");
+    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
+    assert_eq!(migrated["version"], 2, "migration publishes v2");
+    assert_eq!(migrated["counters"][ROOM], 7);
+    assert_eq!(migrated["counters"].as_object().unwrap().len(), 1);
+    assert!(migrated["jobs"][0].get("squad").is_none());
+}
+
+#[test]
+fn legacy_cron_migration_refuses_missing_room_with_jobs_without_changing_bytes() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    let legacy = json!({
+        "version": 1,
+        "counters": {"missing": 1},
+        "jobs": [{
+            "id": "c1", "squad": "missing", "roomId": ROOM, "ownerId": WORKER,
+            "message": "do not lose me", "revision": 1, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        }]
+    });
+    let before = legacy.to_string().into_bytes();
+    replace_stored_jobs(&f.directory, &before);
+    let result = list_jobs(&f.core, &f.config, None, 100);
+    assert!(
+        result.is_err(),
+        "a missing room with jobs must refuse migration"
+    );
+    let error = result.err().unwrap();
+    assert!(
+        error.to_string().contains("missing"),
+        "name the affected squad"
+    );
+    assert!(error.human().1.is_some(), "offer a next step");
+    assert_eq!(stored_jobs(&f.directory), before);
+}
+
+fn refuses_legacy_room_mapping(rooms: Value, counters: Value, affected: &[&str]) {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    let legacy = json!({"version": 1, "counters": counters, "jobs": []});
+    let before = legacy.to_string().into_bytes();
+    replace_stored_jobs(&f.directory, &before);
+    f.change_model(|model| model["roomList"] = rooms);
+    let result = list_jobs(&f.core, &f.config, None, 100);
+    assert!(
+        result.is_err(),
+        "ambiguous or colliding rooms must refuse migration"
+    );
+    let error = result.err().unwrap();
+    assert!(
+        affected.iter().any(|name| error.message.contains(name)),
+        "name an affected squad"
+    );
+    assert!(error.human().1.is_some(), "offer a next step");
+    assert_eq!(stored_jobs(&f.directory), before);
+}
+
+#[test]
+fn legacy_cron_migration_refuses_ambiguous_room_names_without_writes() {
+    refuses_legacy_room_mapping(
+        json!([
+            {"id": ROOM, "name": "squad-product"},
+            {"id": "55555555-5555-4555-8555-555555555555", "name": "squad-product"}
+        ]),
+        json!({"product": 2}),
+        &["product"],
+    );
+}
+
+#[test]
+fn legacy_cron_migration_refuses_two_names_for_one_room_without_writes() {
+    refuses_legacy_room_mapping(
+        json!([
+            {"id": ROOM, "name": "squad-product"},
+            {"id": ROOM, "name": "squad-platform"}
+        ]),
+        json!({"product": 2, "platform": 3}),
+        &["product", "platform"],
+    );
+}
+
+#[test]
 fn missing_squad_owner_is_listed_paused_and_readding_it_does_not_resume() {
     let f = Fixture::new();
     let user = f.actor(USER);
