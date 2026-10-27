@@ -1412,6 +1412,8 @@ describe('component map', () => {
         'injected guide-name fixtures only; never reads the named prose contents',
       'typescript/test/tooling/markdown-links.test.ts':
         'reads inert tracked Markdown link destinations; Code quality runs it on every change',
+      'typescript/test/fixtures/previous-repository-links.json':
+        'per-file old-organization link counts for tracked prose; Code quality runs its test on every change',
       'typescript/test/tooling/pr-agent-check.test.ts':
         'reads the preset table of native-release.md; Code quality runs it on every change',
       '.github/components.json': 'the map names the prose in its own rules',
