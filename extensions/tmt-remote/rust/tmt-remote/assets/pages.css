@@ -932,3 +932,9 @@ body:not(:has(.tmt-ui-shell)) {
   justify-content: center;
   min-width: 1.25em;
 }
+
+/* The invitation presenter composes the shared choice/action roles. */
+.invitation-choices { margin-block: var(--tmt-ui-space-l); }
+.invitation-choices .tmt-ui-choice { padding-block: var(--tmt-ui-space-s); }
+.invitation-actions { display: flex; flex-wrap: wrap; gap: var(--tmt-ui-space-s); }
+#invitation-words { font-family: var(--tmt-ui-font-mono); font-weight: 600; }

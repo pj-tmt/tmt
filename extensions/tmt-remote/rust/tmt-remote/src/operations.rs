@@ -263,6 +263,7 @@ pub struct Operations {
     retry_safe: AtomicBool,
     management: Option<Arc<crate::devices::Devices>>,
     member_observations: Arc<dyn crate::members::observations::MemberObservationSource>,
+    owner_invitations: Arc<dyn crate::management::invitation_requests::OwnerInvitationPort>,
     firestore: Arc<dyn crate::readiness::FirestoreEvidenceSource>,
 }
 impl Operations {
@@ -276,6 +277,7 @@ impl Operations {
             retry_safe: AtomicBool::new(true),
             management: None,
             member_observations: Arc::new(crate::members::observations::NoMemberObservations),
+            owner_invitations: Arc::new(crate::management::invitation_requests::NoOwnerInvitations),
             firestore: Arc::new(crate::readiness::NotConfigured),
         }
     }
@@ -290,6 +292,13 @@ impl Operations {
     }
     pub fn with_management(mut self, devices: Arc<crate::devices::Devices>) -> Self {
         self.management = Some(devices);
+        self
+    }
+    pub fn with_owner_invitations(
+        mut self,
+        source: Arc<dyn crate::management::invitation_requests::OwnerInvitationPort>,
+    ) -> Self {
+        self.owner_invitations = source;
         self
     }
     pub fn with_member_observations(
@@ -390,6 +399,7 @@ impl Operations {
                 self.management.as_deref().ok_or_else(invalid)?,
                 self.firestore.as_ref(),
                 self.member_observations.as_ref(),
+                self.owner_invitations.as_ref(),
             );
         }
         if operation == "capabilities" {
@@ -424,6 +434,8 @@ impl Operations {
                     "remote.members.sending",
                     "remote.members.revoke",
                     "remote.name.set",
+                    "remote.invites.pending",
+                    "remote.invites.confirm",
                 ]);
             }
             return permit.response(&json!({"version":1,"profile":"local-v1","binding":"loopback-http",

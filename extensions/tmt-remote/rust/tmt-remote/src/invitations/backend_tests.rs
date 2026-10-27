@@ -2,6 +2,8 @@
 //! append-only log with delayed visibility. Neither manufactures owner consent.
 mod adoption;
 mod backends;
+mod browser_messages;
+mod browser_outcomes;
 mod claims;
 mod confirmation;
 mod durable;

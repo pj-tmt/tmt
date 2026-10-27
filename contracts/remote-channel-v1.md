@@ -2700,6 +2700,44 @@ explicit owner yes applies sending-on through the member-policy writer immediate
 the sink in the same transaction; no answer or EOF leaves sending off. The receipt always
 serializes the resulting persisted grant. This choice is not an enrollment policy field.
 
+The designated paired owner browser may present that same candidate through
+`remote.invites.pending` (read, `{}`) and `remote.invites.confirm` (effect). These use
+ordinary signed owner-browser Session admission, never agent scope or a browser-admin
+credential. Read and effect recheck the exact key/origin, live grant/Session, current
+member and local designation; a previous read grants no effect lease. The read returns
+`{state:"none"}` or `state:"current"` with `offerId`, `expiresAtMs`, `phase`,
+`localConfirmationKnown`, `cleanup` and `candidate`. The candidate is null except while
+awaiting the owner; then it contains only `clientId`, `name`, four `words` and the
+canonical 32-byte base64url `snapshot` digest. No code, response key, principal or
+provider locator is disclosed. Unavailable current observation refuses with
+`REMOTE_INVITATION_UNAVAILABLE`.
+
+The effect input is exactly `operationId`, `offerId`, `snapshot`, `matched` and optional
+`sending` (default false); a rejected comparison cannot enable sending. The envelope ID
+must equal `operationId`. Adopt that original in the existing management journal with
+M2's actor-member binding before entering the coordinator. Within the existing
+StoreConfirmation writer, bind the original intent to the frozen candidate and settle
+its public invitation outcome in the same transaction as the invitation confirmation
+record, member and grant. The management result contains only an `invitation` with
+`offerId`, `clientId` and `state` (`confirmed` or `refused`); confirmed outcomes also carry
+`memberId` and persisted `sendingEnabled`. Explicit decline is a committed decision
+without a new member. Proven no-effect failures (including unavailable/stale offers,
+a terminal winner or a writer refusal with successful rollback) settle `refused`
+with their code in one IMMEDIATE transaction. `REMOTE_INVITATION_DECIDED` means another
+owner decision already won. Only commit/rollback uncertainty remains `unknown`;
+publication failure after a recorded decision preserves that original outcome.
+`remote.management.operation` reads the original after Session
+reopen, without another confirmation. A new operation cannot claim a terminal winner.
+
+The first coordinator decision wins. When the browser wins, the terminal's word or
+sending prompt stops waiting for keyboard input, reports the actual original outcome
+and exits without another confirmation. Local confirmation and receipt delivery remain
+distinct; the existing worker retains publication/recovery within the original expiry.
+The browser Invites page reads on entry or explicit refresh, never creates a second
+offer or poller, and presents separate unchecked comparison and sending choices. A lost
+answer retains the original operation ID for lookup; navigation or reopening never
+resends that decision. Terminal-only and local automatic-browser pairing remain separate.
+
 Durable confirmation opens one existing Store IMMEDIATE transaction, rechecks authority
 and the frozen invitation/candidate, inserts the member and first grant through the M1
 transaction sink, and saves the immutable original receipt and policy in that same

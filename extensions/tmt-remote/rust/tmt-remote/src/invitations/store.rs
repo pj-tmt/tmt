@@ -88,16 +88,17 @@ impl StoreConfirmation {
         if machine_in(connection)?.id != context.owner || context.owner_key != self.owner_key {
             return Err(invalid());
         }
-        let owner = match &actor.0 {
+        let owner = match &actor.authority {
             Actor::LocalInteractive => members::Owner::LocalOwner,
             Actor::OwnerBrowser {
                 client,
                 key,
                 revision,
             } => {
-                if grant_in(connection, client)?.is_none_or(|grant| grant.public_key != *key) {
-                    return Err(invalid());
-                }
+                let grant = grant_in(connection, client)?
+                    .filter(|grant| grant.public_key == *key)
+                    .ok_or_else(invalid)?;
+                crate::management::require_writable(connection, &grant)?;
                 members::Owner::DesignatedBrowser {
                     client_id: client,
                     revision: *revision,
@@ -131,7 +132,30 @@ impl StoreConfirmation {
         {
             return Err(invalid());
         }
+        let browser_operation = match (&input.actor.authority, &input.actor.operation) {
+            (_, None) => None,
+            (Actor::OwnerBrowser { client, .. }, Some(operation)) => {
+                crate::management::invitation_outcomes::check(
+                    tx,
+                    client,
+                    operation,
+                    snapshot,
+                    OwnerDecision {
+                        matched: true,
+                        enable_sending: input.sending,
+                    },
+                    now,
+                )?;
+                Some(operation)
+            }
+            _ => return Err(invalid()),
+        };
         if let Some(record) = original(tx, snapshot, now)? {
+            // Another presenter already committed this offer. A newly adopted
+            // browser operation cannot claim that earlier confirmation as its effect.
+            if browser_operation.is_some() {
+                return Err(super::service::already_decided());
+            }
             return Ok(record.original);
         }
         let grant = input.grant;
@@ -228,7 +252,10 @@ impl StoreConfirmation {
             ],
         )
         .map_err(database)?;
-        // An expired/cancelled writer rolls back member, grant and receipt alike.
+        if let Some(operation) = browser_operation {
+            crate::management::invitation_outcomes::settle(tx, operation, &committed, &persisted)?;
+        }
+        // An expired/cancelled writer rolls back member, grant and both receipts alike.
         input.io.check().map_err(|_| invalid())?;
         if pairing::now_ms()? >= snapshot.context.expires_at_ms {
             return Err(invalid());
@@ -248,30 +275,41 @@ impl StoreConfirmation {
             .io
             .check()
             .map_err(|_| ConfirmationFailure::Refused(invalid()))?;
-        let mut store = self.lock().map_err(ConfirmationFailure::Refused)?;
-        let tx = store
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)
-            .map_err(ConfirmationFailure::Refused)?;
-        match self.confirm_in(&tx, input, extend) {
-            Ok(committed) => {
-                tx.commit()
-                    .map_err(database)
-                    .map_err(ConfirmationFailure::CommitUnknown)?;
-                Ok(committed)
-            }
-            Err(error) => match tx.rollback() {
-                Ok(()) => Err(ConfirmationFailure::Refused(error)),
-                Err(_) => Err(ConfirmationFailure::CommitUnknown(error)),
-            },
+        self.with_owner_store(input.actor, |store| {
+            let tx = store
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(database)
+                .map_err(ConfirmationFailure::Refused)?;
+            let result = self.confirm_in(&tx, input, extend);
+            finish(tx, result)
+        })
+    }
+    fn with_owner_store<T>(
+        &self,
+        actor: &OwnerActor,
+        action: impl FnOnce(&mut Store) -> std::result::Result<T, ConfirmationFailure>,
+    ) -> std::result::Result<T, ConfirmationFailure> {
+        if let Some(admission) = &actor.admission {
+            admission
+                .with_store(|store| Ok(action(store)))
+                .map_err(ConfirmationFailure::Refused)?
+        } else {
+            let mut store = self.lock().map_err(ConfirmationFailure::Refused)?;
+            action(&mut store)
         }
     }
 }
 
 impl ConfirmationSink for StoreConfirmation {
     fn authorize(&self, context: &Context, actor: &OwnerActor) -> Result<()> {
-        self.owner(&self.lock()?.connection, context, actor, pairing::now_ms()?)
+        if let Some(admission) = &actor.admission {
+            admission.with_store(|store| {
+                self.owner(&store.connection, context, actor, pairing::now_ms()?)
+            })
+        } else {
+            self.owner(&self.lock()?.connection, context, actor, pairing::now_ms()?)
+        }
     }
 
     fn confirm(
@@ -279,6 +317,50 @@ impl ConfirmationSink for StoreConfirmation {
         input: Confirmation<'_>,
     ) -> std::result::Result<Committed, ConfirmationFailure> {
         self.confirm_with(input, |_, _, _| Ok(ConfirmationExtras::default()))
+    }
+
+    fn decline(
+        &self,
+        actor: &OwnerActor,
+        snapshot: &Snapshot,
+        io: &crate::objects::IoBudget<'_>,
+    ) -> std::result::Result<(), ConfirmationFailure> {
+        io.check()
+            .map_err(|_| ConfirmationFailure::Refused(invalid()))?;
+        self.with_owner_store(actor, |store| {
+            let tx = store
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(database)
+                .map_err(ConfirmationFailure::Refused)?;
+            let result = (|| {
+                let now = pairing::now_ms()?;
+                self.owner(&tx, &snapshot.context, actor, now)?;
+                if now < snapshot.context.issued_at_ms || now >= snapshot.context.expires_at_ms {
+                    return Err(invalid());
+                }
+                if let Some(operation) = &actor.operation {
+                    let Actor::OwnerBrowser { client, .. } = &actor.authority else {
+                        return Err(invalid());
+                    };
+                    crate::management::invitation_outcomes::check(
+                        &tx,
+                        client,
+                        operation,
+                        snapshot,
+                        OwnerDecision {
+                            matched: false,
+                            enable_sending: false,
+                        },
+                        now,
+                    )?;
+                    crate::management::invitation_outcomes::decline(&tx, operation, snapshot)?;
+                }
+                io.check().map_err(|_| invalid())?;
+                Ok(())
+            })();
+            finish(tx, result)
+        })
     }
 
     fn original(&self, snapshot: &Snapshot) -> Result<Option<Committed>> {
@@ -401,4 +483,22 @@ fn conflict() -> RemoteError {
         "REMOTE_ID_CONFLICT",
         "This invitation ID already names a different action.",
     )
+}
+
+fn finish<T>(
+    tx: rusqlite::Transaction<'_>,
+    result: Result<T>,
+) -> std::result::Result<T, ConfirmationFailure> {
+    match result {
+        Ok(value) => {
+            tx.commit()
+                .map_err(database)
+                .map_err(ConfirmationFailure::CommitUnknown)?;
+            Ok(value)
+        }
+        Err(error) => match tx.rollback() {
+            Ok(()) => Err(ConfirmationFailure::Refused(error)),
+            Err(_) => Err(ConfirmationFailure::CommitUnknown(error)),
+        },
+    }
 }

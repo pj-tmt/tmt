@@ -42,6 +42,34 @@ pub struct MessagePermit {
     pub(crate) busy: Arc<AtomicBool>,
     pub(crate) binding: PermitBinding,
 }
+/// An admitted browser message can re-enter the existing live -> Store fence
+/// after acquiring the coordinator. It cannot open a Session or admit another ID.
+pub(crate) struct BrowserMessageFence {
+    sessions: Arc<DoorSessions>,
+    grant: Grant,
+    message: SignedMessage,
+}
+impl BrowserMessageFence {
+    pub(crate) fn with_store<T>(
+        &self,
+        action: impl FnOnce(&mut crate::store::Store) -> Result<T, RemoteError>,
+    ) -> Result<T, RemoteError> {
+        let now = now_ms()?;
+        self.sessions
+            .with_store(&self.grant, &self.message, now, |store| {
+                let access = crate::members::service::scope(
+                    &store.connection,
+                    crate::members::service::Caller::Browser(&self.grant),
+                    now,
+                )?;
+                if !access.administrator() {
+                    return Err(crate::members::service::denied());
+                }
+                action(store)
+            })
+            .map(|(value, _)| value)
+    }
+}
 pub(crate) enum PermitBinding {
     Local,
     Cloud,
@@ -57,6 +85,16 @@ impl MessagePermit {
         matches!(self.binding, PermitBinding::Local)
             && self.grant.kind == "browser"
             && self.grant.origin == self.sessions.door_origin()
+    }
+    pub(crate) fn browser_fence(&self) -> Result<BrowserMessageFence, RemoteError> {
+        if !self.owner_browser() {
+            return Err(invalid());
+        }
+        Ok(BrowserMessageFence {
+            sessions: self.sessions.clone(),
+            grant: self.grant.clone(),
+            message: self.message.clone(),
+        })
     }
     pub fn response(&self, payload: &Value) -> Result<Vec<u8>, RemoteError> {
         match self.binding {
@@ -208,6 +246,8 @@ pub(crate) enum RemoteOperation {
     MemberSending,
     MemberRevoke,
     RemoteNameSet,
+    InvitationPending,
+    InvitationConfirm,
 
     AgentsList,
     IdentitiesStatus,
@@ -243,6 +283,8 @@ impl RemoteOperation {
         ("remote.members.sending", Self::MemberSending),
         ("remote.members.revoke", Self::MemberRevoke),
         ("remote.name.set", Self::RemoteNameSet),
+        ("remote.invites.pending", Self::InvitationPending),
+        ("remote.invites.confirm", Self::InvitationConfirm),
         ("agents.list", Self::AgentsList),
         ("identities.status", Self::IdentitiesStatus),
         ("check", Self::Check),
@@ -280,6 +322,8 @@ impl RemoteOperation {
             Self::MemberSending => OperationClass::Effect,
             Self::MemberRevoke => OperationClass::Effect,
             Self::RemoteNameSet => OperationClass::Effect,
+            Self::InvitationPending => OperationClass::Read,
+            Self::InvitationConfirm => OperationClass::Effect,
 
             Self::AgentsList => OperationClass::Read,
             Self::IdentitiesStatus => OperationClass::Read,
@@ -313,6 +357,8 @@ impl RemoteOperation {
             Self::MemberSending => None,
             Self::MemberRevoke => None,
             Self::RemoteNameSet => None,
+            Self::InvitationPending => None,
+            Self::InvitationConfirm => None,
 
             Self::AgentsList => Some("agents.read"),
             Self::IdentitiesStatus => Some("status.read"),

@@ -34,6 +34,31 @@ impl DurableFixture {
             root,
         }
     }
+    pub(super) fn browser(&self) -> crate::store::Grant {
+        let now = crate::pairing::now_ms().unwrap();
+        let grant = crate::store::Grant {
+            client_id: crate::store::uuid_v4().unwrap(),
+            public_key: ed25519_dalek::SigningKey::from_bytes(&[24; 32])
+                .verifying_key()
+                .to_bytes(),
+            kind: "browser".into(),
+            origin: "http://127.0.0.1:49152".into(),
+            name: "Owner".into(),
+            agents: "all".into(),
+            scopes: crate::store::DEFAULT_SCOPES.map(str::to_owned).into(),
+            mode: "direct".into(),
+            issued_at_ms: now,
+            expires_at_ms: None,
+            revision: 1,
+            disabled: false,
+        };
+        let mut store = self.store.lock().unwrap();
+        store.insert_grant(&grant).unwrap();
+        store
+            .designate(&grant.client_id, &grant.origin, now)
+            .unwrap();
+        store.grant(&grant.client_id).unwrap().unwrap()
+    }
     pub(super) fn reopen(&self) {
         let mut store = self.store.lock().unwrap();
         store.connection = rusqlite::Connection::open_in_memory().unwrap();

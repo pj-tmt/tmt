@@ -44,6 +44,27 @@ pub struct Status {
     pub cleanup: ProviderCleanup,
 }
 
+/// Admitted owner-only observation of the existing memory offer; never provider I/O.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnerDecisionSource {
+    Terminal,
+    Browser,
+}
+
+pub(crate) fn already_decided() -> RemoteError {
+    RemoteError::new(
+        "REMOTE_INVITATION_DECIDED",
+        "This invitation already has an owner decision. Check the current invitation.",
+    )
+}
+
+pub struct OwnerOfferObservation {
+    pub status: Status,
+    pub candidate: Option<Snapshot>,
+    pub(crate) decided_by: Option<OwnerDecisionSource>,
+    pub(crate) committed: Option<Committed>,
+}
+
 pub struct Delivery {
     pub context: Context,
     code: [u8; 16],
@@ -85,6 +106,7 @@ struct Offer {
     receipt_done: bool,
     cleanup: ProviderCleanup,
     phase: Phase,
+    decided_by: Option<OwnerDecisionSource>,
 }
 impl Offer {
     fn clear_code(&mut self) {
@@ -224,6 +246,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             receipt_done: false,
             cleanup: ProviderCleanup::NotRequested,
             phase: Phase::Open,
+            decided_by: None,
         };
         drop(code);
         *state = Some(offer);
@@ -264,6 +287,31 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             context: offer.context.clone(),
             code: offer.code,
         })
+    }
+
+    pub fn owner_observation(
+        &self,
+        actor: &OwnerActor,
+        now_ms: u64,
+    ) -> Result<Option<OwnerOfferObservation>, RemoteError> {
+        let mut state = self.lock()?;
+        let Some(offer) = state.as_mut() else {
+            return Ok(None);
+        };
+        offer.expire(now_ms);
+        self.sink.authorize(&offer.context, actor)?;
+        Ok(Some(OwnerOfferObservation {
+            status: offer.status(),
+            decided_by: offer.decided_by,
+            committed: match &offer.phase {
+                Phase::Confirmed(value) => Some(value.clone()),
+                _ => None,
+            },
+            candidate: match &offer.phase {
+                Phase::Candidate(verified) => Some(snapshot(verified)),
+                _ => None,
+            },
+        }))
     }
 
     pub fn candidate(&self, now_ms: u64) -> Result<Option<Snapshot>, RemoteError> {
@@ -407,6 +455,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             now_ms,
             io,
         )
+        .map_err(RemoteError::from)
     }
 
     pub fn confirm_owner_decision(
@@ -417,35 +466,63 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         policy: &PairingPolicy,
         now_ms: u64,
         io: &IoBudget<'_>,
-    ) -> Result<Status, RemoteError> {
+    ) -> Result<Status, OwnerDecisionFailure> {
         check(io)?;
         if !actor.interactive() {
-            return Err(invalid());
+            return Err(invalid().into());
         }
         if policy.talk || policy.hold || policy.agents.is_some() {
             return Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",
                 "New invitations start with sending off and direct delivery. Change member sending after confirmation.",
-            ));
+            ).into());
         }
         let mut state = self.lock()?;
         let offer = state.as_mut().ok_or_else(invalid)?;
         offer.expire(now_ms);
         let Phase::Candidate(verified) = &offer.phase else {
-            return Err(invalid());
+            return Err(if offer.decided_by.is_some() {
+                already_decided()
+            } else {
+                invalid()
+            }
+            .into());
         };
         if snapshot(verified) != *expected {
-            return Err(invalid());
+            return Err(invalid().into());
         }
         self.sink.authorize(&offer.context, actor)?;
+        let source = if actor.operation.is_some() {
+            OwnerDecisionSource::Browser
+        } else {
+            OwnerDecisionSource::Terminal
+        };
         if !decision.matched {
+            match self
+                .sink
+                .decline(actor, expected, &offer_io(io, offer.deadline))
+            {
+                Ok(()) => {}
+                Err(ConfirmationFailure::Refused(error)) => {
+                    return Err(OwnerDecisionFailure::Refused(error));
+                }
+                Err(ConfirmationFailure::CommitUnknown(error)) => {
+                    offer.clear_code();
+                    offer.decided_by = Some(source);
+                    offer.phase = Phase::CommitUnknown(expected.clone());
+                    return Err(OwnerDecisionFailure::CommitUnknown(error));
+                }
+            }
             let context = offer.context.clone();
             offer.clear_code();
+            offer.decided_by = Some(source);
             offer.phase = Phase::End(State::Refused);
             offer.cleanup = ProviderCleanup::Unconfirmed;
             let result = offer.status();
             drop(state);
-            return self.finish_withdrawal(&context, result, io);
+            return self
+                .finish_withdrawal(&context, result, io)
+                .map_err(OwnerDecisionFailure::Recorded);
         }
         let grant = grant(expected, now_ms);
         let transcript = proof::enrollment(&expected.context, &expected.candidate)?;
@@ -463,10 +540,13 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             io: &confirmation_io,
         });
         offer.clear_code();
+        offer.decided_by = Some(source);
         offer.phase = Phase::CommitUnknown(expected.clone());
         let committed = match committed {
             Ok(committed) => committed,
-            Err(ConfirmationFailure::CommitUnknown(error)) => return Err(error),
+            Err(ConfirmationFailure::CommitUnknown(error)) => {
+                return Err(OwnerDecisionFailure::CommitUnknown(error));
+            }
             Err(ConfirmationFailure::Refused(error)) => {
                 let context = offer.context.clone();
                 offer.phase = Phase::End(State::Refused);
@@ -475,20 +555,21 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
                 drop(state);
                 // Physical cleanup must not replace the original refusal.
                 let _ = self.finish_withdrawal(&context, status, io);
-                return Err(error);
+                return Err(OwnerDecisionFailure::Refused(error));
             }
         };
         if !valid_commit(&committed, expected)
             || crypto::verify_server_proof(&receipt_key.0, &committed.receipt, &committed.proof)
                 .is_err()
         {
-            return Err(invalid());
+            return Err(OwnerDecisionFailure::CommitUnknown(invalid()));
         }
         offer.phase = Phase::Confirmed(committed);
         drop(receipt_key);
         drop(state);
-        self.flush(now_ms, io)?;
-        self.status(now_ms)
+        self.flush(now_ms, io)
+            .map_err(OwnerDecisionFailure::Recorded)?;
+        self.status(now_ms).map_err(OwnerDecisionFailure::Recorded)
     }
 
     /// Resume only an exact original held by the private confirmation journal.
@@ -538,6 +619,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             receipt_done: false,
             cleanup: ProviderCleanup::NotRequested,
             phase: Phase::Confirmed(committed),
+            decided_by: None,
         });
         drop(state);
         self.flush(now_ms, io)?;

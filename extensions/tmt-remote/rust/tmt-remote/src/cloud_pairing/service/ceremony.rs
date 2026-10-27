@@ -5,7 +5,7 @@ use crate::cloud_pairing::{confirmation::FirestoreConfirmation, invitation::Fire
 use crate::invitations::{
     BackendBinding, Context,
     port::{OwnerActor, OwnerDecision},
-    service::{Coordinator, State, Status},
+    service::{Coordinator, OwnerDecisionSource, State, Status},
 };
 use std::sync::OnceLock;
 pub(super) type Ceremony = Coordinator<Firestore, FirestoreConfirmation>;
@@ -192,6 +192,7 @@ impl Service {
             deadline,
             cancelled: &self.stop,
         };
+        let mut browser_completed = false;
         let result = (|| {
             let created = coordinator.create(&actor, context.clone(), now, &io);
             // Keep the slot reserved until create has established its state.
@@ -233,39 +234,57 @@ impl Service {
             drop(invite);
             drop(delivery);
             let mut selected = None;
+            let mut terminal_decided = false;
             loop {
-                emit(json!({"event":"waiting"}))?;
+                let answer = emit(json!({"event":"waiting"}))?;
                 let now = crate::pairing::now_ms()?;
+                if self.browser_decided(&coordinator, &actor, now, &mut emit)? {
+                    browser_completed = true;
+                    return Ok(());
+                }
                 if now >= context.expires_at_ms {
                     return Err(self.invitation_incomplete(&coordinator, now)?);
                 }
                 let status = coordinator.observe(now, &io)?;
+                if self.browser_decided(
+                    &coordinator,
+                    &actor,
+                    crate::pairing::now_ms()?,
+                    &mut emit,
+                )? {
+                    browser_completed = true;
+                    return Ok(());
+                }
                 if selected.is_none()
                     && let Some(snapshot) = coordinator.candidate(now)?
                 {
-                    let (matched,sending)=emit(json!({"event":"candidate","name":snapshot.candidate.name,
-                        "words":canonical::fingerprint_words(&snapshot.candidate.public_key).map_err(|_| wire::invalid())?}))?.ok_or_else(wire::invalid)?;
-                    selected = Some(snapshot.clone());
-                    coordinator.confirm_owner_decision(
+                    let answer = emit(json!({"event":"candidate","name":snapshot.candidate.name,
+                        "words":canonical::fingerprint_words(&snapshot.candidate.public_key).map_err(|_| wire::invalid())?}))?;
+                    selected = Some(snapshot);
+                    if let Some(answer) = answer {
+                        self.terminal_decision(
+                            &coordinator,
+                            &actor,
+                            selected.as_ref().unwrap(),
+                            answer,
+                            &io,
+                        )?;
+                        terminal_decided = true;
+                    }
+                } else if !terminal_decided && let Some(answer) = answer {
+                    if self.browser_decided(&coordinator, &actor, now, &mut emit)? {
+                        browser_completed = true;
+                        return Ok(());
+                    }
+                    self.terminal_decision(
+                        &coordinator,
                         &actor,
-                        &snapshot,
-                        OwnerDecision {
-                            matched,
-                            enable_sending: sending,
-                        },
-                        &crate::pairing::PairingPolicy::default(),
-                        crate::pairing::now_ms()?,
+                        selected.as_ref().ok_or_else(wire::invalid)?,
+                        answer,
                         &io,
                     )?;
-                    if !matched {
-                        return Err(RemoteError::new(
-                            "REMOTE_CLOUD_PAIR_REFUSED",
-                            "The owner declined the connection.",
-                        ));
-                    }
+                    terminal_decided = true;
                 } else if status.state == State::Confirmed {
-                    // The exact original snapshot is held by the coordinator;
-                    // the confirmed connection supplies the stable public name.
                     let snapshot = selected.as_ref().ok_or_else(wire::invalid)?;
                     let grant = self
                         .store()?
@@ -281,10 +300,19 @@ impl Service {
                         .ok_or_else(wire::invalid)?
                         .name;
                     emit(
-                        json!({"event":"connected","name":grant.name,"talk":grant.permits_scope("talk"),"clientId":grant.client_id,
-                        "memberId":member.member_id,"remote":reference}),
+                        json!({"event":"connected","name":grant.name,"talk":grant.permits_scope("talk"),
+                        "clientId":grant.client_id,"memberId":member.member_id,"remote":reference}),
                     )?;
                     self.request_reconcile();
+                    return Ok(());
+                }
+                if self.browser_decided(
+                    &coordinator,
+                    &actor,
+                    crate::pairing::now_ms()?,
+                    &mut emit,
+                )? {
+                    browser_completed = true;
                     return Ok(());
                 }
                 if let Err(error) = provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS) {
@@ -299,6 +327,11 @@ impl Service {
                 }
             }
         })();
+        // A browser decision ends this presenter, not the shared ceremony.
+        // The existing worker still owns route/receipt publication and expiry.
+        if browser_completed {
+            return result;
+        }
         let cancel = AtomicBool::new(false);
         let cleanup_io = IoBudget {
             deadline: Instant::now() + crate::limits::CLOUD_RECONCILE_CALL,
@@ -317,6 +350,69 @@ impl Service {
             reservation.release()?;
         }
         result
+    }
+    fn terminal_decision(
+        &self,
+        coordinator: &Ceremony,
+        actor: &OwnerActor,
+        snapshot: &crate::invitations::port::Snapshot,
+        answer: (bool, bool),
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
+        let now = crate::pairing::now_ms()?;
+        let result = coordinator.confirm_owner_decision(
+            actor,
+            snapshot,
+            OwnerDecision {
+                matched: answer.0,
+                enable_sending: answer.1,
+            },
+            &crate::pairing::PairingPolicy::default(),
+            now,
+            io,
+        );
+        if coordinator
+            .owner_observation(actor, now)?
+            .is_some_and(|o| o.decided_by == Some(OwnerDecisionSource::Browser))
+        {
+            return Ok(());
+        }
+        result?;
+        if !answer.0 {
+            return Err(RemoteError::new(
+                "REMOTE_CLOUD_PAIR_REFUSED",
+                "The owner declined the connection.",
+            ));
+        }
+        Ok(())
+    }
+    fn browser_decided(
+        &self,
+        coordinator: &Ceremony,
+        actor: &OwnerActor,
+        now: u64,
+        emit: &mut impl FnMut(Value) -> Result<Option<(bool, bool)>, RemoteError>,
+    ) -> Result<bool, RemoteError> {
+        let Some(observed) = coordinator.owner_observation(actor, now)? else {
+            return Ok(false);
+        };
+        if observed.decided_by != Some(OwnerDecisionSource::Browser) {
+            return Ok(false);
+        }
+        let event = if let Some(committed) = observed.committed {
+            let receipt: Value =
+                serde_json::from_slice(&committed.receipt).map_err(crate::store::database)?;
+            let scopes = receipt["grant"]["scopes"]
+                .as_array()
+                .ok_or_else(wire::invalid)?;
+            json!({"event":"owner-decision","outcome":"confirmed","talk":scopes.iter().any(|scope| scope == "talk"),
+                "memberId":committed.member,"receiptDelivered":observed.status.state == State::Confirmed})
+        } else {
+            json!({"event":"owner-decision","outcome":if observed.status.state == State::Refused { "refused" } else { "unconfirmed" }})
+        };
+        emit(event)?;
+        self.request_reconcile();
+        Ok(true)
     }
     fn invitation_incomplete(
         &self,
