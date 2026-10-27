@@ -21,16 +21,35 @@ const registryEnv = 'TMT_E2E_RUN_REGISTRY';
 const pause = new Int32Array(new SharedArrayBuffer(4));
 
 /** Serialize registration and teardown across Vitest's worker threads. */
-function locked<T>(directory: string, operation: () => T): T {
+function locked<T>(directory: string, operation: () => T, recoverStale = false): T {
   const lock = path.join(directory, '.lock');
   const deadline = Date.now() + 7_000;
+  let recovered = false;
   for (;;) {
     try {
       fs.mkdirSync(lock, { mode: 0o700 });
       break;
     } catch (error) {
       if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
-      if (Date.now() >= deadline) throw new Error(`E2E registry lock did not clear: ${lock}`);
+      if (Date.now() >= deadline) {
+        if (!recoverStale || recovered) throw new Error(`E2E registry lock did not clear: ${lock}`);
+        // Only the main-process teardown takes over after the bounded wait.
+        try {
+          fs.rmdirSync(lock);
+          console.error(`E2E registry stale lock recovered: ${lock}`);
+        } catch (removeError) {
+          if (
+            !(
+              removeError instanceof Error &&
+              'code' in removeError &&
+              removeError.code === 'ENOENT'
+            )
+          )
+            throw removeError;
+        }
+        recovered = true;
+        continue;
+      }
       Atomics.wait(pause, 0, 0, 20);
     }
   }
@@ -342,24 +361,30 @@ export function setup(): () => void {
     if (done) return;
     done = true;
     const failures: string[] = [];
-    locked(directory, () => {
-      fs.writeFileSync(path.join(directory, '.closing'), '');
-      for (const name of fs.readdirSync(directory).filter((item) => item.endsWith('.json'))) {
-        const file = path.join(directory, name);
-        let fixture: OwnedFixture | undefined;
-        try {
-          fixture = JSON.parse(fs.readFileSync(file, 'utf8')) as OwnedFixture;
-          if (suiteEnd)
-            failures.push(`E2E fixture survived suite end: ${fixture.root} ${fixture.socketRoot}`);
-          cleanupFixture(fixture);
-          fs.rmSync(file);
-        } catch (error) {
-          failures.push(
-            `E2E fixture cleanup failed; retained ${fixture?.root ?? file} and ${fixture?.socketRoot ?? file}: ${String(error)}`
-          );
+    locked(
+      directory,
+      () => {
+        fs.writeFileSync(path.join(directory, '.closing'), '');
+        for (const name of fs.readdirSync(directory).filter((item) => item.endsWith('.json'))) {
+          const file = path.join(directory, name);
+          let fixture: OwnedFixture | undefined;
+          try {
+            fixture = JSON.parse(fs.readFileSync(file, 'utf8')) as OwnedFixture;
+            if (suiteEnd)
+              failures.push(
+                `E2E fixture survived suite end: ${fixture.root} ${fixture.socketRoot}`
+              );
+            cleanupFixture(fixture);
+            fs.rmSync(file);
+          } catch (error) {
+            failures.push(
+              `E2E fixture cleanup failed; retained ${fixture?.root ?? file} and ${fixture?.socketRoot ?? file}: ${String(error)}`
+            );
+          }
         }
-      }
-    });
+      },
+      true
+    );
     delete process.env[registryEnv];
     if (!fs.readdirSync(directory).some((item) => item.endsWith('.json')))
       fs.rmSync(directory, { recursive: true, force: true });

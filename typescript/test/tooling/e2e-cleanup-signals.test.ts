@@ -45,6 +45,7 @@ it.each([
   'SIGTERM',
   'foreground SIGINT',
   'foreground SIGTERM',
+  'stale lock SIGTERM',
 ] as const)(
   'cleans the owned fixture on %s',
   async (scenario) => {
@@ -88,6 +89,7 @@ it.each([
         }
         const leader = groupLeader(pid);
         if (!leader) throw new Error('fixture group leader disappeared');
+        if (${JSON.stringify(scenario)} === 'stale lock SIGTERM') fs.mkdirSync(path.join(process.env.TMT_E2E_RUN_REGISTRY, '.lock'));
         fs.writeFileSync(${JSON.stringify(proofFile)}, JSON.stringify({ root: fixture.root, socketRoot: fixture.socketRoot, socket: fixture.socketPath, tmux: fixture.tmuxPath, pid, panePid, started: leader.started, registry: process.env.TMT_E2E_RUN_REGISTRY }));
         if (${JSON.stringify(scenario)} === 'normal') { await fixture.stop(); return; }
         if (${JSON.stringify(scenario)} === 'thrown exit') process.exit(42);
@@ -147,7 +149,8 @@ it.each([
       if (scenario === 'foreground SIGINT' || scenario === 'foreground SIGTERM') {
         expect(proof.pid).not.toBe(proof.panePid);
         child.kill(scenario === 'foreground SIGINT' ? 'SIGINT' : 'SIGTERM');
-      } else if (scenario === 'SIGINT' || scenario === 'SIGTERM') child.kill(scenario);
+      } else if (scenario === 'stale lock SIGTERM') child.kill('SIGTERM');
+      else if (scenario === 'SIGINT' || scenario === 'SIGTERM') child.kill(scenario);
       let timer: ReturnType<typeof setTimeout> | undefined;
       const result = await Promise.race([
         closed,
@@ -158,12 +161,16 @@ it.each([
       const expectedCode =
         scenario === 'SIGINT' || scenario === 'foreground SIGINT'
           ? 130
-          : scenario === 'SIGTERM' || scenario === 'foreground SIGTERM'
+          : scenario === 'SIGTERM' ||
+              scenario === 'foreground SIGTERM' ||
+              scenario === 'stale lock SIGTERM'
             ? 143
             : scenario === 'normal'
               ? 0
               : 1;
       expect(result, output).toEqual({ code: expectedCode, signal: null });
+      if (scenario === 'stale lock SIGTERM')
+        expect(output).toContain('E2E registry stale lock recovered');
       if (
         scenario === 'timeout' ||
         scenario === 'thrown exit' ||
