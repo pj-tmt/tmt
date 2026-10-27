@@ -11,6 +11,7 @@ type Fixture = {
   effects: unknown[];
   originals: string[];
   known: boolean;
+  failLookup: boolean;
 };
 test.beforeAll(async () => {
   const assets = new URL('../../../rust/tmt-remote/assets/', import.meta.url);
@@ -25,14 +26,14 @@ test.beforeAll(async () => {
     import { MembersPage, mountMembersPage } from '/src/members-page.ts';
     const remoteId='11111111-1111-4111-8111-111111111111';
     const member={remoteId,memberId:'person-1',role:'user',displayName:'Guest',sendingEnabled:false,revision:4,createdAtMs:1,revokedAtMs:null};
-    const fixture=window.peopleFixture={admin:true,reads:0,machineReads:0,effects:[],originals:[],external:false,known:false};
+    const fixture=window.peopleFixture={admin:true,reads:0,machineReads:0,effects:[],originals:[],external:false,known:false,failLookup:false};
     const client={clientId:'current',
       async list(){fixture.reads++;return {remoteId,administrator:fixture.admin,displayName:'Remote',members:[{...member}],nextCursor:null,invitation:fixture.admin?{state:'no-current-offer'}:null,routes:{state:'unavailable'}}},
       async machines({memberId}){fixture.machineReads++;return {remoteId,memberId,machines:[{clientId:'browser-1',name:'Laptop',kind:'browser',revision:1,revoked:false,expiresAtMs:null,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:true,lastUsedAtMs:null,thisBrowser:true,liveSessionCount:null,lastActivityAtMs:null},{clientId:'browser-2',name:'Old browser',kind:'browser',revision:1,revoked:false,expiresAtMs:1,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:false,lastUsedAtMs:null,thisBrowser:false,liveSessionCount:0,lastActivityAtMs:null},{clientId:'browser-3',name:'Removed browser',kind:'browser',revision:1,revoked:true,expiresAtMs:null,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:false,lastUsedAtMs:null,thisBrowser:false,liveSessionCount:null,lastActivityAtMs:null}],nextCursor:null}},
       async rename(input){fixture.effects.push({kind:'rename',...input});return {operationId:input.operationId,state:'unknown',reason:'effect_outcome_unconfirmed'}},
       async sending(input){fixture.effects.push({kind:'sending',...input});return {operationId:input.operationId,state:'unknown',reason:'effect_outcome_unconfirmed'}},
       async revoke(input){fixture.effects.push({kind:'revoke',...input});return {operationId:input.operationId,state:'unknown',reason:'effect_outcome_unconfirmed'}},
-      async operation(id){fixture.originals.push(id);const effect=fixture.effects[0];return fixture.known?{operationId:id,state:'committed',result:{member:{...member,sendingEnabled:effect.kind==='sending'?effect.enabled:member.sendingEnabled,displayName:effect.kind==='rename'?effect.name:member.displayName,revision:5}},sessionEnded:false}:{operationId:id,state:'unknown',reason:'effect_outcome_unconfirmed'}}
+      async operation(id){fixture.originals.push(id);if(fixture.failLookup){fixture.failLookup=false;throw new Error('lookup unavailable')}const effect=fixture.effects[0];return fixture.known?{operationId:id,state:'committed',result:{member:{...member,sendingEnabled:effect.kind==='sending'?effect.enabled:member.sendingEnabled,displayName:effect.kind==='rename'?effect.name:member.displayName,revision:5}},sessionEnded:false}:{operationId:id,state:'unknown',reason:'effect_outcome_unconfirmed'}}
     };
     const controller=new AbortController();const page=new MembersPage(client,async()=>client);
     const view=mountMembersPage(document.getElementById('people'),page,controller.signal,()=>fixture.external);
@@ -118,15 +119,57 @@ test('People confirms sending once and reads the original without replay', async
   await expect(send).toBeDisabled();
   await page.getByRole('button', { name: 'Refresh people' }).click();
   await expect(page.getByText(/Original change/)).toBeVisible();
+  const checkOriginal = page.getByRole('button', { name: 'Check original outcome' });
+  await checkOriginal.click();
+  await expect(page.getByText(/This change is unconfirmed/)).toBeVisible();
+  await expect(checkOriginal).toBeEnabled();
+  await expect(send).toBeDisabled();
   await page.evaluate(() => {
     (window as unknown as { peopleFixture: Fixture }).peopleFixture.known = true;
   });
-  await page.getByRole('button', { name: 'Check original outcome' }).click();
+  await checkOriginal.click();
   await expect(page.getByText('The change was saved.')).toBeVisible();
+  await expect(send).toBeEnabled();
   expect(
     await page.evaluate(() => ({
       effects: (window as unknown as { peopleFixture: Fixture }).peopleFixture.effects.length,
-      originals: (window as unknown as { peopleFixture: Fixture }).peopleFixture.originals.length,
+      originals: (window as unknown as { peopleFixture: Fixture }).peopleFixture.originals,
     })),
-  ).toEqual({ effects: 1, originals: 1 });
+  ).toMatchObject({ effects: 1, originals: [expect.any(String), expect.any(String)] });
+  const originals = await page.evaluate(
+    () => (window as unknown as { peopleFixture: Fixture }).peopleFixture.originals,
+  );
+  expect(originals[0]).toBe(originals[1]);
+});
+
+test('People retains its original ID after a failed lookup and permits another check', async ({
+  page,
+}) => {
+  await page.goto(`${origin}/remote/members`);
+  const send = page.getByRole('button', { name: 'Enable sending for Guest' });
+  await expect(send).toBeEnabled();
+  await send.click();
+  await send.click();
+  const original = page.getByText(/Original change/);
+  await expect(original).toBeVisible();
+  const originalText = await original.textContent();
+  await page.evaluate(() => {
+    (window as unknown as { peopleFixture: Fixture }).peopleFixture.failLookup = true;
+  });
+  const check = page.getByRole('button', { name: 'Check original outcome' });
+  await check.click();
+  await expect(original).toHaveText(originalText!);
+  await expect(check).toBeEnabled();
+  await page.evaluate(() => {
+    (window as unknown as { peopleFixture: Fixture }).peopleFixture.known = true;
+  });
+  await check.click();
+  await expect(page.getByText('The change was saved.')).toBeVisible();
+  const facts = await page.evaluate(() => {
+    const f = (window as unknown as { peopleFixture: Fixture }).peopleFixture;
+    return { originals: f.originals, effects: f.effects.length };
+  });
+  expect(facts.effects).toBe(1);
+  expect(facts.originals).toHaveLength(2);
+  expect(facts.originals[0]).toBe(facts.originals[1]);
 });

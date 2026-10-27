@@ -25,7 +25,6 @@ export class MembersPage {
   private cursor: string | null = null;
   private generation = 0;
   private disposed = false;
-  private recoveryAttempted = false;
 
   constructor(
     private client: RemoteMembers,
@@ -39,9 +38,7 @@ export class MembersPage {
   }
 
   get canRecover(): boolean {
-    return (
-      !!this.intent && this.outcome?.state === 'unknown' && !this.busy && !this.recoveryAttempted
-    );
+    return !!this.intent && this.outcome?.state === 'unknown' && !this.busy;
   }
 
   /** Refresh the one visible roster; an access failure must not leave old facts on screen. */
@@ -123,7 +120,6 @@ export class MembersPage {
       input: Object.freeze({ ...intent.input }),
     }) as MemberIntent;
     this.outcome = undefined;
-    this.recoveryAttempted = false;
     this.busy = true;
     const turn = ++this.generation;
     try {
@@ -146,10 +142,9 @@ export class MembersPage {
     }
   }
 
-  /** Reopen once, then read only the frozen original operation; never repeat its effect. */
+  /** Each explicit check reopens and reads only the frozen original; never repeat its effect. */
   async recover(): Promise<void> {
     if (!this.canRecover || this.disposed) return;
-    this.recoveryAttempted = true;
     this.busy = true;
     const turn = ++this.generation;
     try {

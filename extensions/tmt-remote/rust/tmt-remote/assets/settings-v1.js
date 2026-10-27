@@ -3053,7 +3053,6 @@ var MembersPage = class {
 	cursor = null;
 	generation = 0;
 	disposed = false;
-	recoveryAttempted = false;
 	constructor(client, reopen, shouldReopen = () => false, endedAccess = () => false) {
 		this.client = client;
 		this.reopen = reopen;
@@ -3064,7 +3063,7 @@ var MembersPage = class {
 		return this.cursor === null;
 	}
 	get canRecover() {
-		return !!this.intent && this.outcome?.state === "unknown" && !this.busy && !this.recoveryAttempted;
+		return !!this.intent && this.outcome?.state === "unknown" && !this.busy;
 	}
 	/** Refresh the one visible roster; an access failure must not leave old facts on screen. */
 	async refresh(cursor = this.cursor) {
@@ -3138,7 +3137,6 @@ var MembersPage = class {
 			input: Object.freeze({ ...intent.input })
 		});
 		this.outcome = void 0;
-		this.recoveryAttempted = false;
 		this.busy = true;
 		const turn = ++this.generation;
 		try {
@@ -3154,10 +3152,9 @@ var MembersPage = class {
 			if (this.current(turn)) this.busy = false;
 		}
 	}
-	/** Reopen once, then read only the frozen original operation; never repeat its effect. */
+	/** Each explicit check reopens and reads only the frozen original; never repeat its effect. */
 	async recover() {
 		if (!this.canRecover || this.disposed) return;
-		this.recoveryAttempted = true;
 		this.busy = true;
 		const turn = ++this.generation;
 		try {

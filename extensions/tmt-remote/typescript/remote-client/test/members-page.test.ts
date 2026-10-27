@@ -185,7 +185,83 @@ test('a mismatched recovered result stays unknown and cannot authorize another e
   await f.page.recover();
   await assert.rejects(f.page.submit(sending()));
   assert.equal(f.calls().effects, 1);
-  assert.equal(f.calls().originals, 1);
+  assert.equal(f.calls().originals, 2);
+});
+
+test('unknown original can be checked again and a later committed result unlocks changes', async () => {
+  const f = fixture();
+  await f.page.refresh();
+  await f.page.submit(sending());
+  await f.page.recover();
+  assert.equal(f.page.outcome?.state, 'unknown');
+  assert.equal(f.page.intent?.input.operationId, operationId);
+  assert.equal(f.page.canRecover, true);
+  await assert.rejects(f.page.submit(sending()));
+  f.answer({
+    operationId,
+    state: 'committed',
+    result: { member: { ...person, sendingEnabled: true, revision: 5 } },
+    sessionEnded: false,
+  });
+  await f.page.recover();
+  assert.equal(f.page.outcome?.state, 'committed');
+  assert.equal(f.page.canRecover, false);
+  assert.deepEqual(f.calls(), { lists: 1, machines: 0, effects: 1, originals: 2, reopens: 2 });
+});
+
+test('a failed original lookup can be explicitly checked again without replay', async () => {
+  const f = fixture();
+  const original = f.client.operation.bind(f.client);
+  let attempts = 0;
+  const originalIds: string[] = [];
+  f.client.operation = async (id) => {
+    attempts++;
+    originalIds.push(id);
+    if (attempts === 1) throw new Error('lookup unavailable');
+    return original(id);
+  };
+  await f.page.refresh();
+  await f.page.submit(sending());
+  await f.page.recover();
+  assert.equal(f.page.outcome?.state, 'unknown');
+  assert.equal(f.page.intent?.input.operationId, operationId);
+  assert.equal(f.page.access, 'unconfirmed');
+  assert.equal(f.page.canRecover, true);
+  f.answer({
+    operationId,
+    state: 'committed',
+    result: { member: { ...person, sendingEnabled: true, revision: 5 } },
+    sessionEnded: false,
+  });
+  await f.page.recover();
+  assert.equal(f.page.outcome?.state, 'committed');
+  assert.equal(attempts, 2);
+  assert.deepEqual(originalIds, [operationId, operationId]);
+  assert.equal(f.calls().effects, 1);
+  assert.equal(f.calls().reopens, 2);
+  await f.page.refresh();
+  assert.equal(f.page.access, 'live');
+});
+
+test('an in-flight original lookup fences another lookup and every effect', async () => {
+  const f = fixture();
+  let release!: (outcome: MemberOriginalOutcome) => void;
+  f.client.operation = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  await f.page.refresh();
+  await f.page.submit(sending());
+  const pending = f.page.recover();
+  await Promise.resolve();
+  assert.equal(f.page.canRecover, false);
+  await f.page.recover();
+  await assert.rejects(f.page.submit(sending()));
+  release({ operationId, state: 'unknown', reason: 'effect_outcome_unconfirmed' });
+  await pending;
+  assert.equal(f.page.canRecover, true);
+  assert.equal(f.calls().effects, 1);
+  assert.equal(f.calls().reopens, 1);
 });
 
 test('a recovered self-revocation clears the formerly live roster', async () => {
