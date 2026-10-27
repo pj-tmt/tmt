@@ -75,6 +75,7 @@ test('Remote routes separate the global list and current-door tabs without obsol
     [
       '/remote/',
       '/remote/create',
+      '/remote/join',
       '/remote/overview',
       '/remote/members',
       '/remote/invites',

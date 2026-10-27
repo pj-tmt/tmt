@@ -103,7 +103,12 @@ settings browser is Admin; a readable non-designated pairing is Member (M1 brows
 users). Unreadable or unconfirmed access is Role unknown. This display grants no authority.
 Foreign entries show `◌ Not checked` and are never probed. Current access reuses the page's
 existing observation and grants no additional authority. Create a Remote opens the global
-`/remote/create` guide; Join a Remote retains the existing connection guidance.
+`/remote/create` guide; Join a Remote opens the global `/remote/join` guide.
+
+The in-app Join guide uses the same invitation carrier and native command as the standalone
+`/join` instructions. It shows local expiry only and gives terminal steps for comparison and
+confirmation; it does not enroll, check reuse or certify completion. The code remains in the
+current interaction and is cleared on expiry, route departure and pagehide.
 
 The Create guide keeps type/step/project/region inputs in the retained Remote model. It uses the
 same optional saved layers/budget observation and refresh, without another client or admission.

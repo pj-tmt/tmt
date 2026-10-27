@@ -1,5 +1,8 @@
+import { serviceCommands } from './service-commands.js';
+
 /** Instructions only. Parsing is not authentication; native join owns admission. */
 const MAX_BYTES = 12 * 1024;
+export const MAX_INVITATION_INPUT = Math.ceil((MAX_BYTES * 4) / 3) + 2048;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 function valid(condition: unknown): asserts condition {
   if (!condition) throw new Error('This invitation cannot be read. Ask its owner for a new code.');
@@ -104,6 +107,39 @@ export function invitationExpiry(token: string, now = Date.now()): number {
   }
 }
 
+/** Accept a native code or its hosted /join link without fetching or trusting the origin. */
+export function invitationFromInput(
+  input: string,
+  now = Date.now(),
+): { token: string; expiry: number } {
+  try {
+    valid(input.length <= MAX_INVITATION_INPUT);
+    const value = input.trim();
+    let token = value;
+    if (value.includes('://')) {
+      const url = new URL(value);
+      valid(
+        (url.protocol === 'https:' || url.protocol === 'http:') &&
+          !url.username &&
+          !url.password &&
+          url.pathname === '/join' &&
+          !url.search &&
+          url.hash.length > 1,
+      );
+      token = url.hash.slice(1);
+    }
+    return { token, expiry: invitationExpiry(token, now) };
+  } catch {
+    throw new Error('This invitation cannot be read. Ask its owner for a new code.');
+  }
+}
+
+/** Copy the validated native command; this never runs a command or reads the provider. */
+export async function copyInvitation(token: string): Promise<void> {
+  invitationExpiry(token);
+  await navigator.clipboard.writeText(serviceCommands.join.replace('<code>', token));
+}
+
 /** Owns one memory-only interaction; the bootstrap erases the fragment first. */
 export function invitePage(initialToken: string): () => void {
   const button = document.getElementById('invite-copy') as HTMLButtonElement;
@@ -124,8 +160,7 @@ export function invitePage(initialToken: string): () => void {
   const copy = async () => {
     if (disposed) return;
     try {
-      invitationExpiry(token);
-      await navigator.clipboard.writeText(`tmt remote join ${token}`);
+      await copyInvitation(token);
       if (!disposed) feedback.textContent = 'Command copied. Run it in your terminal.';
     } catch {
       if (!disposed)

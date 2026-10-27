@@ -30,7 +30,7 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
       {
         ...item('overview'),
         label: `This Remote · ${view?.text ?? 'Checking'}`,
-        current: showing !== 'remotes' && showing !== 'create',
+        current: showing !== 'remotes' && showing !== 'create' && showing !== 'join',
       },
     ];
     if (view?.action) {

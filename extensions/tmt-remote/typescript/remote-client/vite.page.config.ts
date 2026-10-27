@@ -6,7 +6,7 @@ export default defineConfig({
   build: {
     ...sdk.build,
     lib: {
-      entry: { 'settings-v1': 'src/settings-page.ts', 'invite-v1': 'src/invite-page.ts' },
+      entry: { 'settings-v1': 'src/settings-page.ts' },
       formats: ['es'],
       fileName: (_format, entryName) => `${entryName}.js`,
     },

@@ -1728,6 +1728,7 @@ mod tests {
                 "firebaseInstall",
                 "firebaseLogin",
                 "firebaseVersion",
+                "join",
                 "nodeVersion",
                 "preview",
                 "status"
@@ -1786,6 +1787,24 @@ mod tests {
                 assert!(tmt_remote::deploy_cli::inputs::validate_supplied(&input).is_ok());
             }
         }
+        let argv = tmt_cli_style::Example {
+            command: references["join"],
+            note: "Invitation terminal reference",
+        }
+        .argv()
+        .unwrap();
+        assert_eq!(argv, ["tmt", "remote", "join", "<code>"]);
+        let parsed = grammar()
+            .try_get_matches_from(argv.into_iter().skip(1))
+            .unwrap();
+        assert_eq!(
+            parsed
+                .subcommand_matches("join")
+                .unwrap()
+                .get_one::<String>("code")
+                .unwrap(),
+            "<code>"
+        );
         // External tool references are argv-checked only, never launched by this proof.
         let firebase_tools = format!(
             "firebase-tools@{}",

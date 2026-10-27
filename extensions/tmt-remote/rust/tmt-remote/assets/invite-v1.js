@@ -1,6 +1,21 @@
+//#endregion
+//#region src/service-commands.ts
+/** Copy-only terminal references. Native grammar tests admit the same product catalog. */
+var serviceCommands = Object.freeze({
+	status: "tmt remote status --layers",
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
+	nodeVersion: "node --version",
+	firebaseVersion: "firebase --version",
+	firebaseInstall: "npm install -g firebase-tools@15.29.0",
+	firebaseLogin: "firebase login",
+	join: "tmt remote join <code>"
+});
+//#endregion
 //#region src/invite-page.ts
 /** Instructions only. Parsing is not authentication; native join owns admission. */
 var MAX_BYTES = 12288;
+var MAX_INVITATION_INPUT = Math.ceil(MAX_BYTES * 4 / 3) + 2048;
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 function valid(condition) {
 	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
@@ -86,6 +101,30 @@ function invitationExpiry(token, now = Date.now()) {
 		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
 	}
 }
+/** Accept a native code or its hosted /join link without fetching or trusting the origin. */
+function invitationFromInput(input, now = Date.now()) {
+	try {
+		valid(input.length <= MAX_INVITATION_INPUT);
+		const value = input.trim();
+		let token = value;
+		if (value.includes("://")) {
+			const url = new URL(value);
+			valid((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
+			token = url.hash.slice(1);
+		}
+		return {
+			token,
+			expiry: invitationExpiry(token, now)
+		};
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Copy the validated native command; this never runs a command or reads the provider. */
+async function copyInvitation(token) {
+	invitationExpiry(token);
+	await navigator.clipboard.writeText(serviceCommands.join.replace("<code>", token));
+}
 /** Owns one memory-only interaction; the bootstrap erases the fragment first. */
 function invitePage(initialToken) {
 	const button = document.getElementById("invite-copy");
@@ -106,8 +145,7 @@ function invitePage(initialToken) {
 	const copy = async () => {
 		if (disposed) return;
 		try {
-			invitationExpiry(token);
-			await navigator.clipboard.writeText(`tmt remote join ${token}`);
+			await copyInvitation(token);
 			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
 		} catch {
 			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
@@ -129,4 +167,4 @@ function invitePage(initialToken) {
 	return clear;
 }
 //#endregion
-export { invitationExpiry, invitePage };
+export { MAX_INVITATION_INPUT, copyInvitation, invitationExpiry, invitationFromInput, invitePage };

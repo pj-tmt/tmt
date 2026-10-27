@@ -16,6 +16,13 @@ var REMOTE_ITEMS = [
 		page: "settings"
 	},
 	{
+		id: "join",
+		path: "/remote/join",
+		label: "Join a Remote",
+		title: "Join a Remote",
+		page: "settings"
+	},
+	{
 		id: "overview",
 		path: "/remote/overview",
 		label: "Overview",
@@ -307,7 +314,7 @@ function remoteMenu(actions, shell = void 0) {
 		const remotes = [{
 			...item("overview"),
 			label: `This Remote · ${view?.text ?? "Checking"}`,
-			current: showing !== "remotes" && showing !== "create"
+			current: showing !== "remotes" && showing !== "create" && showing !== "join"
 		}];
 		if (view?.action) {
 			run.set("recover", () => actions.recover(view.action));
@@ -1856,7 +1863,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		}],
 		onSelect: (key) => {
 			if (key === "address") openAdd();
-			else (shell ?? void 0)?.navigate(new URL(remotePath("overview"), location.href).href);
+			else (shell ?? void 0)?.navigate(new URL(remotePath("join"), location.href).href);
 		}
 	});
 	const join = joinHost.querySelector("button");
@@ -2194,6 +2201,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	if (fragment && !["#remotes", "#add-remote"].includes(fragment)) receive(fragment);
 	window.addEventListener("hashchange", () => {
 		const value = location.hash;
+		if (location.pathname === remotePath("join")) return;
 		if (!value || ["#remotes", "#add-remote"].includes(value)) return;
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
@@ -2239,7 +2247,8 @@ var service_commands_default = {
 	nodeVersion: "node --version",
 	firebaseVersion: "firebase --version",
 	firebaseInstall: "npm install -g firebase-tools@15.29.0",
-	firebaseLogin: "firebase login"
+	firebaseLogin: "firebase login",
+	join: "tmt remote join <code>"
 };
 //#endregion
 //#region src/service-commands.ts
@@ -3199,7 +3208,7 @@ async function settingsPage(shell, registry, initial) {
 		if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
 	});
 	function syncBusyMark() {
-		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #remote-create")) markSlot(button);
+		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #remote-create, #remote-join-guide")) markSlot(button);
 		busyMark.set(page.busy);
 	}
 	function saveState(form, hint, changed, valid) {

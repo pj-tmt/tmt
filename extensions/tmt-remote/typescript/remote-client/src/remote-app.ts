@@ -5,6 +5,8 @@ import { REMOTE_ITEMS, remoteItem, remoteTabAccess, type RemoteItem } from './re
 import type { RemoteRegistryView } from './remote-registry.js';
 import type { RemoteShell } from './remote-shell.js';
 import { commandCopy } from './command-copy.js';
+import { joinPage } from './join-page.js';
+import { invitationFromInput } from './invite-page.js';
 import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
 
@@ -27,8 +29,58 @@ export async function remoteApp(
   settingsStyles: () => Promise<void>,
   pages: () => Promise<RemotePages>,
 ): Promise<void> {
+  // The private invitation fragment is erased before registry handoff can inspect it.
+  function takeJoinFragment(): string {
+    if (location.pathname !== '/remote/join' || !location.hash) return '';
+    const secret = location.hash.slice(1);
+    history.replaceState(null, '', location.pathname + location.search);
+    if (location.hash) throw new Error('Could not clear invitation fragment.');
+    return secret;
+  }
+  let initialInvitation = '';
+  let initialInvalid = false;
+  let initialTimer: ReturnType<typeof setTimeout> | undefined;
+  let unsafeFragment = false;
+  const clearInitial = () => {
+    initialInvitation = '';
+    initialInvalid = false;
+    if (initialTimer !== undefined) clearTimeout(initialTimer);
+    initialTimer = undefined;
+  };
+  const capturePending = () => {
+    if (location.pathname !== '/remote/join') {
+      clearInitial();
+      return;
+    }
+    if (!location.hash) return;
+    clearInitial();
+    try {
+      const selected = invitationFromInput(takeJoinFragment());
+      initialInvitation = selected.token;
+      initialTimer = setTimeout(
+        () => {
+          initialInvitation = '';
+          initialInvalid = true;
+        },
+        Math.max(0, selected.expiry - Date.now()),
+      );
+    } catch {
+      clearInitial();
+      initialInvalid = true;
+      // A failed erase must stop before the registry sees the private fragment.
+      unsafeFragment = !!location.hash;
+    }
+  };
+  capturePending();
+  window.addEventListener('hashchange', capturePending, { signal: shell.signal });
+  window.addEventListener('popstate', capturePending, { signal: shell.signal });
+  shell.signal.addEventListener('abort', clearInitial, { once: true });
   await settingsStyles();
   if (shell.signal.aborted) return;
+  capturePending();
+  window.removeEventListener('hashchange', capturePending);
+  window.removeEventListener('popstate', capturePending);
+  if (unsafeFragment) return;
   const models = [...main.querySelectorAll<HTMLElement>(':scope > [data-page]')];
   const registry = remoteRegistryPage(undefined, shell);
   const listActions = main.querySelector<HTMLElement>('.remote-head-actions');
@@ -46,7 +98,7 @@ export async function remoteApp(
   let observed: RemoteRegistryView | undefined;
   let admitted: Session | undefined;
   let observeSession: ((session: Session) => void) | undefined;
-  const tabs = REMOTE_ITEMS.filter((item) => item.id !== 'remotes' && item.id !== 'create');
+  const tabs = REMOTE_ITEMS.filter((item) => !['remotes', 'create', 'join'].includes(item.id));
   const frame = document.createElement('div');
   frame.id = 'remote-context';
   frame.className = `tmt-page remote-context ${c.tabs}`;
@@ -150,7 +202,7 @@ export async function remoteApp(
         : reportedNeeds === 0
           ? 'Nothing needs you.'
           : `${reportedNeeds} ${reportedNeeds === 1 ? 'item needs' : 'items need'} your attention.`;
-    const global = shown.id === 'remotes' || shown.id === 'create';
+    const global = ['remotes', 'create', 'join'].includes(shown.id);
     frame.hidden = global;
     heading.textContent = `${observed?.current.name ?? 'This Remote'} · ${observed?.current.roleLabel ?? 'Role unknown'}`;
     designation.textContent =
@@ -229,11 +281,39 @@ export async function remoteApp(
     }
     return run;
   }
+  let disposeJoin: (() => void) | undefined;
+  shell.signal.addEventListener('abort', () => disposeJoin?.(), { once: true });
   async function show(): Promise<void> {
     const item = remoteItem(location.pathname);
     if (!item) return;
     const changed = shown !== item;
     const first = !shown;
+    if (changed) {
+      disposeJoin?.();
+      disposeJoin = undefined;
+      if (item.id === 'join') {
+        const target = main.querySelector<HTMLElement>('#remote-join-guide');
+        if (target) {
+          let secret = initialInvitation || takeJoinFragment();
+          let invalid = initialInvalid;
+          clearInitial();
+          if (secret) {
+            try {
+              invitationFromInput(secret);
+            } catch {
+              secret = '';
+              invalid = true;
+            }
+          }
+          disposeJoin = joinPage(
+            target,
+            secret,
+            () => shell.navigate(new URL('/remote/', location.href).href),
+            invalid,
+          );
+        }
+      } else clearInitial();
+    }
     shown = item;
     document.documentElement.dataset.tmtPage = item.page;
     layout();
@@ -248,5 +328,19 @@ export async function remoteApp(
     if (!shell.signal.aborted) await start('settings');
   }
   window.addEventListener('popstate', () => void show().catch(() => {}), { signal: shell.signal });
+  window.addEventListener(
+    'hashchange',
+    () => {
+      if (location.pathname !== '/remote/join' || !location.hash) return;
+      const secret = takeJoinFragment();
+      disposeJoin?.();
+      const target = main.querySelector<HTMLElement>('#remote-join-guide');
+      if (target)
+        disposeJoin = joinPage(target, secret, () =>
+          shell.navigate(new URL('/remote/', location.href).href),
+        );
+    },
+    { signal: shell.signal },
+  );
   await show();
 }

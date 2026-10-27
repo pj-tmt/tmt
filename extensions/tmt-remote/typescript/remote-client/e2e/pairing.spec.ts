@@ -4630,6 +4630,290 @@ async function remoteAction(page: Page, name: string, action: 'Rename' | 'Forget
   await page.getByRole('menuitem', { name: action, exact: true }).click();
 }
 
+test('Join guide keeps the invitation in one disposable interaction and copies only native guidance', async () => {
+  await withRegistryWorld(async ({ page, network }) => {
+    const vector = JSON.parse(
+      await readFile(
+        fileURLToPath(
+          new URL(
+            '../../../rust/tmt-remote/tests/fixtures/invitations/invite-v2.json',
+            import.meta.url,
+          ),
+        ),
+        'utf8',
+      ),
+    );
+    const issued = Date.now();
+    vector.invite.context.issued_at_ms = issued;
+    vector.invite.context.expires_at_ms = issued + 600_000;
+    const token = Buffer.from(JSON.stringify(vector.invite)).toString('base64url');
+    await page.goto(`${origin}/remote/join#${token}`);
+    const guide = page.locator('#remote-join-guide');
+    await expect(guide).toBeVisible();
+    await expect(page).toHaveURL(`${origin}/remote/join`);
+    expect(JSON.stringify(network)).not.toContain(token);
+    expect(await page.content()).not.toContain(token);
+    const persisted = await page.evaluate(async () => {
+      const records: unknown[] = [
+        Object.entries(localStorage),
+        Object.entries(sessionStorage),
+        history.state,
+      ];
+      for (const { name } of await indexedDB.databases()) {
+        if (!name) continue;
+        const database = await new Promise<IDBDatabase>((resolve, reject) => {
+          const open = indexedDB.open(name);
+          open.onsuccess = () => resolve(open.result);
+          open.onerror = () => reject(open.error);
+        });
+        for (const store of database.objectStoreNames) {
+          const values = await new Promise<unknown[]>((resolve, reject) => {
+            const read = database.transaction(store).objectStore(store).getAll();
+            read.onsuccess = () => resolve(read.result);
+            read.onerror = () => reject(read.error);
+          });
+          records.push(values);
+        }
+        database.close();
+      }
+      return JSON.stringify(records);
+    });
+    expect(persisted).not.toContain(token);
+    await expect(page.locator('#remote-context')).toBeHidden();
+    const input = guide.getByLabel('Invitation link or code');
+    await expect(input).toHaveValue(token);
+    const captureDir = process.env.CI ? test.info().outputPath('join-guide-captures') : undefined;
+    if (captureDir) await mkdir(captureDir, { recursive: true });
+    const capture = async (name: string) => {
+      if (!captureDir) return;
+      for (const width of [390, 1440]) {
+        for (const colorScheme of ['light', 'dark'] as const) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.emulateMedia({ colorScheme });
+          await settled(page);
+          await page.screenshot({ path: join(captureDir, `${name}-${width}-${colorScheme}.png`) });
+        }
+      }
+    };
+    await capture('invitation');
+    const writes: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST') writes.push(request.url());
+    });
+    await page.evaluate(() => {
+      let fail = true;
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => {
+            if (fail) {
+              fail = false;
+              throw new Error('denied');
+            }
+            (window as unknown as { copied: string }).copied = value;
+          },
+        },
+      });
+    });
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(guide.getByText(/based on the link; not checked with the Remote/)).toBeVisible();
+    await expect(guide.locator('code').first()).not.toContainText(token);
+    await capture('terminal');
+    await guide.getByRole('button', { name: 'Copy join command' }).click();
+    await expect(guide.getByText(/Copy failed/)).toBeVisible();
+    await guide.getByRole('button', { name: 'Copy join command' }).click();
+    await expect(guide.getByText(/Command copied/)).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe(
+      `tmt remote join ${token}`,
+    );
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(guide.getByText(/Sending starts off/)).toBeVisible();
+    await capture('sending');
+    expect(writes).toEqual([]);
+    await guide.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/remote/`);
+    await page.goto(`${origin}/remote/join`);
+    await expect(
+      page.locator('#remote-join-guide').getByLabel('Invitation link or code'),
+    ).toHaveValue('');
+    await expect(page.locator('#remote-join-guide')).not.toContainText(token);
+    const again = page.locator('#remote-join-guide').getByLabel('Invitation link or code');
+    await again.fill('abcde');
+    await again.evaluate((field: HTMLInputElement) => field.setSelectionRange(2, 2));
+    await again.press('x');
+    await expect(again).toHaveValue('abxcde');
+    expect(await again.evaluate((field: HTMLInputElement) => field.selectionStart)).toBe(3);
+    await page.goto(`${origin}/remote/`);
+    await page.getByRole('button', { name: 'Join a Remote', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Join with an invitation', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/remote/join`);
+    await expect(
+      page.locator('#remote-join-guide').getByLabel('Invitation link or code'),
+    ).toHaveValue('');
+  });
+});
+
+test('Join guide clears a locally expired code and ignores a late clipboard result', async () => {
+  await withRegistryWorld(async ({ page }) => {
+    await page.clock.install();
+    const vector = JSON.parse(
+      await readFile(
+        fileURLToPath(
+          new URL(
+            '../../../rust/tmt-remote/tests/fixtures/invitations/invite-v2.json',
+            import.meta.url,
+          ),
+        ),
+        'utf8',
+      ),
+    );
+    const issued = await page.evaluate(() => Date.now());
+    vector.invite.context.issued_at_ms = issued;
+    vector.invite.context.expires_at_ms = issued + 3000;
+    const token = Buffer.from(JSON.stringify(vector.invite)).toString('base64url');
+    await page.goto(`${origin}/remote/join#${token}`);
+    const guide = page.locator('#remote-join-guide');
+    const input = guide.getByLabel('Invitation link or code');
+    await expect(input).toHaveValue(token);
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: () =>
+            new Promise<void>((resolve) => {
+              (window as unknown as { finishCopy: () => void }).finishCopy = resolve;
+            }),
+        },
+      });
+    });
+    await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+    const copy = guide.getByRole('button', { name: 'Copy join command' });
+    await copy.click();
+    await page.clock.fastForward(3001);
+    await expect(copy).toBeDisabled();
+    await expect(input).toHaveValue('');
+    await expect(guide.getByText(/reached its expiry/)).toBeVisible();
+    await page.evaluate(() => (window as unknown as { finishCopy: () => void }).finishCopy());
+    await expect(guide.getByText(/Command copied/)).toHaveCount(0);
+  });
+});
+
+test('Join guide clears an initial fragment that expires while its stylesheet is loading', async () => {
+  await withRegistryWorld(async ({ page }) => {
+    await page.clock.install();
+    const vector = JSON.parse(
+      await readFile(
+        fileURLToPath(
+          new URL(
+            '../../../rust/tmt-remote/tests/fixtures/invitations/invite-v2.json',
+            import.meta.url,
+          ),
+        ),
+        'utf8',
+      ),
+    );
+    const issued = await page.evaluate(() => Date.now());
+    vector.invite.context.issued_at_ms = issued;
+    vector.invite.context.expires_at_ms = issued + 3000;
+    const token = Buffer.from(JSON.stringify(vector.invite)).toString('base64url');
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const requested = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    await page.route('**/sdk/settings.css', async (route) => {
+      entered();
+      await held;
+      await route.continue();
+    });
+    const navigation = page.goto(`${origin}/remote/join#${token}`);
+    try {
+      await requested;
+      await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
+      await page.clock.fastForward(3001);
+    } finally {
+      release();
+    }
+    await navigation;
+    const input = page.locator('#remote-join-guide').getByLabel('Invitation link or code');
+    await expect(input).toBeVisible();
+    await expect(input).toHaveValue('');
+    await expect(
+      page.locator('#remote-join-guide').getByText(/missing, invalid or expired/),
+    ).toBeVisible();
+    await expect(page.locator('#remote-join-guide')).not.toContainText(token);
+  });
+});
+
+test('Join guide explains an invalid direct link without retaining its code', async () => {
+  await withRegistryWorld(async ({ page, network }) => {
+    const token = 'SECRET_CANARY';
+    await page.goto(`${origin}/remote/join#${token}`);
+    const guide = page.locator('#remote-join-guide');
+    await expect(page).toHaveURL(`${origin}/remote/join`);
+    await expect(guide.getByLabel('Invitation link or code')).toHaveValue('');
+    await expect(guide.getByText(/missing, invalid or expired/)).toBeVisible();
+    await expect(guide).not.toContainText(token);
+    expect(JSON.stringify(network)).not.toContain(token);
+  });
+});
+
+test('Join guide replaces a private fragment while its stylesheet is loading', async () => {
+  await withRegistryWorld(async ({ page, network }) => {
+    const vector = JSON.parse(
+      await readFile(
+        fileURLToPath(
+          new URL(
+            '../../../rust/tmt-remote/tests/fixtures/invitations/invite-v2.json',
+            import.meta.url,
+          ),
+        ),
+        'utf8',
+      ),
+    );
+    const issued = Date.now();
+    vector.invite.context.issued_at_ms = issued;
+    vector.invite.context.expires_at_ms = issued + 600_000;
+    const first = Buffer.from(JSON.stringify(vector.invite)).toString('base64url');
+    vector.invite.code[0] ^= 1;
+    const second = Buffer.from(JSON.stringify(vector.invite)).toString('base64url');
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const requested = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    await page.route('**/sdk/settings.css', async (route) => {
+      entered();
+      await held;
+      await route.continue();
+    });
+    const navigation = page.goto(`${origin}/remote/join#${first}`);
+    try {
+      await requested;
+      await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
+      await page.evaluate((value) => {
+        location.hash = value;
+      }, second);
+      await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
+    } finally {
+      release();
+    }
+    await navigation;
+    const guide = page.locator('#remote-join-guide');
+    await expect(guide.getByLabel('Invitation link or code')).toHaveValue(second);
+    expect(JSON.stringify(network)).not.toContain(first);
+    expect(JSON.stringify(network)).not.toContain(second);
+    await expect(guide).not.toContainText(first);
+    await expect(guide).not.toContainText(second);
+  });
+});
+
 test('Create guide keeps prerequisites and completion unchecked and copies only catalog commands', async () => {
   await withRegistryWorld(async ({ page, pairAt, identity, sdk }) => {
     const posts: string[] = [];
