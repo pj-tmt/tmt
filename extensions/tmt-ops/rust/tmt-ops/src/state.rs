@@ -229,6 +229,29 @@ impl Database {
             .map_err(Refusal::from)
     }
 
+    /// Inspect the current document or legacy file without importing or archiving it.
+    /// A second database read covers a concurrent import that moved the legacy file.
+    pub fn inspect<T, E>(
+        &mut self,
+        slot: &Slot,
+        decode: impl FnOnce(Option<&[u8]>) -> Result<T, E>,
+    ) -> Result<T, StateFailure<E>> {
+        let mut stored = self
+            .store
+            .read(|transaction| select(transaction, slot))
+            .map_err(sql_refusal)?;
+        if stored.is_none() {
+            stored = legacy(slot).map_err(Refusal::failed)?;
+            if stored.is_none() {
+                stored = self
+                    .store
+                    .read(|transaction| select(transaction, slot))
+                    .map_err(sql_refusal)?;
+            }
+        }
+        decode(stored.as_deref()).map_err(StateFailure::Change)
+    }
+
     /// Decode the slot's document with `decode`, importing a legacy file on first use.
     pub fn read<T, E>(
         &mut self,

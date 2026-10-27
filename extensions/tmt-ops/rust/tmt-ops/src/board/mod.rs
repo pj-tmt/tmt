@@ -143,6 +143,7 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// with the process, and a read error disconnects the channel.
 pub(in crate::board) enum BoardEvent {
     Migration(Option<String>),
+    CronMigration(String),
     /// The host could not say which agent runs the board, once at startup; the
     /// text is core's own error, shown instead of a bare sender prompt.
     CallerFailed(String),
@@ -266,6 +267,7 @@ impl BoardEvent {
     fn trace_cause(&self) -> &'static str {
         match self {
             Self::Migration(_) => "Migration",
+            Self::CronMigration(_) => "CronMigration",
             Self::CallerFailed(_) => "CallerFailed",
             Self::Recovery(_) => "Recovery",
             Self::Checklist(_) => "Checklist",
@@ -844,6 +846,11 @@ fn session(
                 let effect = match received {
                     Ok(BoardEvent::Migration(notice)) => {
                         app.migration_notice = notice;
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::CronMigration(notice)) => {
+                        app.set_notice(Some(notice), false);
                         dirty = true;
                         Effect::None
                     }

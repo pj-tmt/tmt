@@ -91,6 +91,7 @@ Help, completion, embedded skills and offline layout checks never migrate.
 | `<dataRoot>/ops/ops.db` (+ SQLite `-wal`/`-shm`)                                                                          | Cron and checklist [documents](data-and-state.md#ops-state-database).          |
 | `<dataRoot>/ops/cron/{clock.json,clock.lock,clock.tmp}`                                                                   | Clock lease, stable lock and staging.                                          |
 | `<dataRoot>/ops/cron/jobs.json.migrated-<date>`, `<dataRoot>/ops/checklist/<room-uuid>/items.json.migrated-<date>`        | Previous release's documents after import; kept, never read or deleted.        |
+| `<dataRoot>/ops/cron/jobs-conflict-<timestamp>-<n>.json`                                                                  | Private conflict export; named in one-time notices.                            |
 | `.ops-paths-pending.json`, `.ops-paths-cutover-v1`, `.ops-paths-v1`, `.ops-paths*.tmp`, `.ops-migrate-<name>-<timestamp>` | Migration journal, durable cutover/completion markers and unpublished staging. |
 | `squad.toml.migrated-<timestamp>`, `<dataRoot>/squad.migrated-<timestamp>`                                                | Retained original backups; no reader enumerates them.                          |
 | `$XDG_CACHE_HOME/tmt-ops/{fields,staleness,back}`                                                                         | Disposable observations and navigation.                                        |

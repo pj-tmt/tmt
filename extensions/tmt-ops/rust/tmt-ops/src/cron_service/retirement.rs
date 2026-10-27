@@ -3,7 +3,7 @@ use super::*;
 
 const CONSUMER: &str = "squad-cron";
 fn reference(job: &Job) -> String {
-    format!("{}:{}:{}", job.room_id, job.squad, job.id())
+    format!("{}:{}", job.room_id, job.id())
 }
 fn hook(identity: &str, reference: &str) -> Value {
     json!({"consumer": CONSUMER, "identityId": identity, "reference": reference})
@@ -44,13 +44,19 @@ pub fn drain_retired(
                 .jobs()
                 .iter()
                 .find(|job| {
-                    self::reference(job) == reference && job.owner_id.as_deref() == Some(&id)
+                    let parts: Vec<_> = reference.split(':').collect();
+                    let matches = match parts.as_slice() {
+                        [room, job_id] => *room == job.room_id && *job_id == job.id(),
+                        [room, _legacy_name, job_id] => *room == job.room_id && *job_id == job.id(),
+                        _ => false,
+                    };
+                    matches && job.owner_id.as_deref() == Some(&id)
                 })
                 .cloned()
             else {
                 return Ok(None);
             };
-            let job = jobs.find_mut(&job.squad, &job.id()).expect("matched job");
+            let job = jobs.find_mut(&job.room_id, &job.id()).expect("matched job");
             job.owner_id = None;
             job.pause = Some(Pause {
                 by: id.clone(),
@@ -61,7 +67,7 @@ pub fn drain_retired(
         })?;
         if let Some(job) = changed {
             let notice = (|| {
-                let selected = room(core, &job.squad, &job.room_id)?;
+                let selected = room(core, &job.room_id)?;
                 let roster = selected.roster(core)?;
                 let lead = roster
                     .iter()
@@ -76,9 +82,10 @@ pub fn drain_retired(
                 let name = refs["identities"][0]["name"].as_str().unwrap_or(&id);
                 let message = notices::line(
                     &job,
+                    &selected.name,
                     &format!(
                         "no owner ({name} retired) · reassign with tmt ops sq cron reassign {} {} <member>",
-                        job.squad,
+                        selected.name,
                         job.id()
                     ),
                 );

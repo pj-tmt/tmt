@@ -49,10 +49,10 @@ pub(super) fn send(
     }
     Ok(())
 }
-pub(super) fn line(job: &Job, detail: &str) -> String {
+pub(super) fn line(job: &Job, squad: &str, detail: &str) -> String {
     format!(
         "▚ ⏱ {} {} · {}",
-        job.squad,
+        squad,
         job.id(),
         tmt_cli_style::table::escape(detail)
     )
@@ -62,6 +62,7 @@ pub(super) fn changed(
     actor: &CronActor,
     before: Option<&Job>,
     job: &Job,
+    squad: &str,
     action: &str,
 ) -> Vec<SquadError> {
     let mut warnings = Vec::new();
@@ -120,7 +121,7 @@ pub(super) fn changed(
             job,
             action,
             recipient,
-            &line(job, &detail),
+            &line(job, squad, &detail),
             Some(actor),
         ) {
             warnings.push(error);

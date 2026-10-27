@@ -20,10 +20,10 @@ fn acquired_state(cron: crate::board::cronboard::Cron, failure: Option<String>) 
 fn jobs() -> State {
     let mut a = view("tmt-lead", "merge queue sweep", Some(NOW + 3_600_000));
     a.job.room_id = "room-a".into();
-    a.job.squad = "alpha".into();
+    a.squad = "alpha".into();
     let mut b = view("tmt-ops", "worktree cleanup", None);
     b.job.room_id = "room-b".into();
-    b.job.squad = "beta".into();
+    b.squad = "beta".into();
     acquired_state(cron(vec![a, b], ClockStatus::NoClock), None)
 }
 

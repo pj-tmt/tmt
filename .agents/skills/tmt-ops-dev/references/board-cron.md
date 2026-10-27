@@ -44,10 +44,10 @@ failed observations remain unknown. Re-add/reassign never resumes a paused job.
 Only explicit Resume clears pause. Human list/show and board state distinguish
 `paused · owner missing`; JSON retains `ownerMissing` and `stateLabel`.
 
-Squad rename keeps the room UUID and c-ids, moves jobs' squad field and the counter
-namespace under the store lock, and preserves pause and counters after all jobs
-were deleted. A failed second step is an honest repairable partial result; there
-is no room-name rollback or automatic retry.
+Squad rename keeps the room UUID and c-ids; jobs and counters remain keyed by that
+UUID, including counters after all jobs were deleted. A failed metadata or config
+step is an honest repairable partial result; there is no room-name rollback or
+automatic retry.
 
 ## Controls and row projection
 

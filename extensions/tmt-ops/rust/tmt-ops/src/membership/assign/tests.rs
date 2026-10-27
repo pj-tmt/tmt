@@ -56,7 +56,6 @@ fn move_pauses_source_jobs_before_leave_and_keeps_uuid_counter_and_pause_on_read
         .unwrap();
     let paused = &stored.jobs()[0];
     assert_eq!(paused.room_id, job.room_id);
-    assert_eq!(paused.squad, "product");
     assert_eq!(paused.id(), job.id());
     assert_eq!(paused.owner_id, job.owner_id);
     assert!(paused.pause.is_some());
@@ -67,6 +66,7 @@ fn move_pauses_source_jobs_before_leave_and_keeps_uuid_counter_and_pause_on_read
     );
     let view =
         cron_service::show_job(&f.core, &f.config, &cron_service::JobKey::of(paused), 200).unwrap();
+    assert_eq!(view.squad, "product");
     assert_eq!(view.job.pause, paused.pause);
     assert!(
         f.mutate(&user, &view.job, Mutation::Resume)

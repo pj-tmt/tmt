@@ -371,8 +371,12 @@ own these layers:
   elapsed intervals keep their stored anchor and duration. Day-of-month and day-of-week use
   the standard alternative rule unless either field starts with `*`.
 - `cron::store` keeps the versioned jobs document as the `cron` document of the
-  [Ops state database](#ops-state-database): per-squad counters that survive removal, exact
-  message bytes, room and owner references, schedules, revisions and pause attribution. The
+  [Ops state database](#ops-state-database): per-room UUID counters that survive removal, exact
+  message bytes, owner references, schedules, revisions and pause attribution. The service
+  uses each v1 job's stored room UUID and public room observations for counter-only names.
+  Unresolved counter-only names are dropped. Conflicting jobs are retained in a private
+  full-document export before the conversion commits; affected room counters keep the highest
+  legacy counter. A one-time CLI warning and board notice identify the export. The
   caller supplies the absolute Ops root under `storage.root` and admits core UUID references;
   the store resolves no identities, decides no permissions, dispatches nothing and tracks no
   runs. Reads of an absent store create nothing. A mutation queues for the database's write
@@ -388,7 +392,7 @@ own these layers:
 - `cron_command` composes the management grammar and output; one `cron_service` is shared
   with clock and board callers. `cron_service` owns `list_jobs`/`show_job`/apply,
   explicit user-or-verified `CronActor` admission and room/owner/revision revalidation.
-  Existing mutations carry a `JobKey` (squad name, room UUID, c-id) and an expected revision;
+  Existing mutations carry a `JobKey` (room UUID, c-id) and an expected revision;
   `add` carries its selected room UUID. Admission and stored comparisons run inside the
   stable jobs lock. The user or the squad's current lead may write; an identified
   ordinary member never falls back to the user; reads need no permission. Manual and
@@ -404,7 +408,8 @@ own these layers:
   a failed publication can leave a harmless unused reference. List, show and apply process
   one pending retirement page of at most 16 hooks, and clock ticks call the same drain.
   A still-matching room/job/owner reference becomes paused with no owner and a new revision
-  before hook acknowledgment; obsolete hooks are acknowledged without editing a reassigned or
+  before hook acknowledgment. Both current UUID/c-id and historical UUID/name/c-id hooks
+  match by UUID, c-id and owner; obsolete hooks are acknowledged without editing a reassigned or
   removed job. Projections exclude jobs of retired or replaced rooms while keeping their
   records and counters.
 - Notices: add/edit/pause/resume/remove notify the owner; reassign notifies old and new

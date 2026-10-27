@@ -25,7 +25,7 @@ fn soonest_preview_is_bounded_deduplicated_and_keeps_other_room_ids() {
     jobs.push(jobs[1].clone());
     let mut other = jobs[1].clone();
     other.job.room_id = "other-room".into();
-    other.job.squad = "other".into();
+    other.squad = "other".into();
     other.next_ms = vec![TEST_NOW + 20 * 60_000];
     jobs.push(other);
     app.cron.replace(Ok(test_cron(jobs, running())));

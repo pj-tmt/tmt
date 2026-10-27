@@ -23,6 +23,7 @@ pub enum CronRequest {
     },
     Existing {
         actor: CronActor,
+        squad: String,
         key: JobKey,
         revision: u64,
         op: Op,
@@ -104,6 +105,7 @@ fn run(
         }
         CronRequest::Existing {
             actor,
+            squad,
             key,
             revision,
             op,
@@ -115,7 +117,7 @@ fn run(
                         crate::cron_clock::send_now(core, &key, &actor, revision, &operation)?;
                     return Ok(format!(
                         "Accepted {} {} for its owner (delivery is not confirmed; operation {}).",
-                        key.squad,
+                        squad,
                         key.id,
                         sent["dispatch"]["operationId"]
                             .as_str()
@@ -168,14 +170,14 @@ fn run(
         };
         format!(
             "{verb} {} {} ({}){detail}.",
-            job.squad,
+            applied.job.squad,
             job.id(),
             schedule_text(&job.schedule)
         )
     } else {
         format!(
             "{} {} was already as requested; nothing changed.",
-            job.squad,
+            applied.job.squad,
             job.id()
         )
     };

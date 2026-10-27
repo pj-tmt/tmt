@@ -26,7 +26,7 @@ fn squad_tab() -> App {
     home.workspace.rows.get_mut(&target).unwrap()["name"] = json!("alpha");
     home.workspace.rows.get_mut(&target).unwrap()["squad"] = json!("product");
     let mut job = test_view("someone", "job for u1", Some(TEST_NOW + 3_600_000));
-    job.job.squad = "product".into();
+    job.squad = "product".into();
     job.job.room_id = ROOM.into();
     job.job.owner_id = Some(MEMBER.into());
     app.cron
@@ -270,6 +270,7 @@ mod controls {
     fn existing(key: &JobKey, op: Op) -> Effect {
         Effect::Act(Request::Cron(CronRequest::Existing {
             actor: actor(),
+            squad: "product".into(),
             key: key.clone(),
             revision: 1,
             op,
@@ -366,6 +367,7 @@ mod controls {
             request,
             CronRequest::Existing {
                 actor: actor(),
+                squad: "product".into(),
                 key: key.clone(),
                 revision: 1,
                 op: Op::Edit {

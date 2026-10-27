@@ -24,7 +24,7 @@ pub fn fetch(core: &Core, job: Fetch, now_ms: i64, places: &mut Places) -> Resul
     let mut jobs = listed.jobs;
     jobs.sort_by_key(|view| {
         let key = JobKey::of(&view.job);
-        (key.squad, order(&key.id))
+        (view.squad.clone(), order(&key.id))
     });
     let clock = service::root(core)
         .and_then(|root| Ok(Clock::new(&root)?))

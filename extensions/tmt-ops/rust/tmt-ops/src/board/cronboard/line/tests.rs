@@ -15,13 +15,8 @@ pub(in crate::board) fn view(owner: &str, message: &str, next: Option<i64>) -> J
     )
     .unwrap();
     JobView {
-        job: Job::new(
-            "tmt-core".into(),
-            "room".into(),
-            "owner-id".into(),
-            message.into(),
-            schedule,
-        ),
+        squad: "tmt-core".into(),
+        job: Job::new("room".into(), "owner-id".into(), message.into(), schedule),
         owner_name: Some(owner.into()),
         owner_missing: false,
         next_ms: next.into_iter().collect(),
@@ -40,7 +35,7 @@ pub(in crate::board) fn views(count: usize, squad: &str, room: &str) -> Vec<JobV
                 &format!("job number {index}"),
                 Some(NOW + 3_600_000),
             );
-            job.job.squad = squad.into();
+            job.squad = squad.into();
             job.job.room_id = room.into();
             store.insert(job.job.clone()).unwrap();
             job.job = store.jobs().last().unwrap().clone();

@@ -35,6 +35,15 @@ impl Fixture {
             )
             .unwrap()
     }
+    fn seed_legacy_document(&self, bytes: &[u8]) {
+        drop(Database::open(&self.0.join("ops")).unwrap());
+        self.database()
+            .execute(
+                "INSERT INTO documents(kind, key, body) VALUES('cron', '', ?1)",
+                [bytes],
+            )
+            .unwrap();
+    }
     fn overwrite(&self, bytes: &[u8]) {
         let changed = self
             .database()
@@ -83,8 +92,12 @@ impl Drop for Fixture {
 
 fn job(squad: &str) -> Job {
     Job::new(
-        squad.into(),
-        "room-uuid".into(),
+        (if squad == "infra" {
+            "55555555-5555-4555-8555-555555555555"
+        } else {
+            "44444444-4444-4444-8444-444444444444"
+        })
+        .into(),
         "owner-uuid".into(),
         "literal {time}\n!\0 message".into(),
         Schedule::parse(
@@ -97,6 +110,124 @@ fn job(squad: &str) -> Job {
         )
         .unwrap(),
     )
+}
+
+#[test]
+fn room_identity_scopes_counters_even_when_a_squad_name_is_reused() {
+    let mut jobs = Jobs::default();
+    let mut first = job("product");
+    first.room_id = "11111111-1111-4111-8111-111111111111".into();
+    let mut replacement = job("product");
+    replacement.room_id = "22222222-2222-4222-8222-222222222222".into();
+    assert_eq!(jobs.insert(first).unwrap(), "c1");
+    assert_eq!(jobs.insert(replacement).unwrap(), "c1");
+}
+
+#[test]
+fn room_counter_survives_rename_and_removing_the_last_job() {
+    let mut jobs = Jobs::default();
+    let room = "11111111-1111-4111-8111-111111111111";
+    let mut first = job("product");
+    first.room_id = room.into();
+    assert_eq!(jobs.insert(first).unwrap(), "c1");
+    assert!(jobs.remove(room, "c1").is_some(), "remove by room UUID");
+    let mut renamed = job("platform");
+    renamed.room_id = room.into();
+    assert_eq!(jobs.insert(renamed).unwrap(), "c2");
+}
+
+#[test]
+fn room_uuid_store_accepts_an_empty_v2_document() {
+    let decoded = Jobs::from_document(&json!({"version":2,"counters":{},"jobs":[]}));
+    assert!(decoded.is_ok(), "a valid v2 document must be readable");
+}
+
+#[test]
+fn room_uuid_store_refuses_a_non_uuid_counter_key() {
+    let document = json!({"version": 2, "counters": {"not-a-room-uuid": 3}, "jobs": []});
+    assert!(
+        Jobs::from_document(&document).is_err(),
+        "v2 counter keys must be room UUIDs"
+    );
+}
+
+#[test]
+fn room_uuid_store_allows_the_same_id_in_different_rooms() {
+    let room_a = "11111111-1111-4111-8111-111111111111";
+    let room_b = "22222222-2222-4222-8222-222222222222";
+    let document = json!({
+        "version": 2,
+        "counters": {(room_a): 1, (room_b): 1},
+        "jobs": [
+            {"id":"c1", "roomId":room_a, "ownerId":"owner-uuid", "message":"a",
+             "revision":1, "state":"on", "pause":null,
+             "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}},
+            {"id":"c1", "roomId":room_b, "ownerId":"owner-uuid", "message":"b",
+             "revision":1, "state":"on", "pause":null,
+             "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}}
+        ]
+    });
+    let decoded = Jobs::from_document(&document);
+    assert!(decoded.is_ok(), "distinct rooms may each have a c1");
+    assert_eq!(decoded.unwrap().jobs().len(), 2);
+}
+
+#[test]
+fn migration_preserves_jobs_for_a_room_absent_from_the_inventory() {
+    let room = "44444444-4444-4444-8444-444444444444";
+    let legacy = json!({
+        "version": 1, "counters": {"retired": 7},
+        "jobs": [{"id":"c3", "squad":"retired", "roomId":room,
+            "ownerId":"owner-uuid", "message":"keep", "revision":1,
+            "state":"on", "pause":null,
+            "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}}]
+    });
+    let result = Jobs::migrate_v1(&legacy, &[]);
+    assert!(
+        result.is_ok(),
+        "the stored room UUID is sufficient for jobs"
+    );
+    let document = result.unwrap();
+    assert_eq!(document["counters"][room], 7);
+    assert_eq!(document["jobs"][0]["message"], "keep");
+}
+
+#[test]
+fn migration_rechecks_the_current_document_before_publishing() {
+    let f = Fixture::new();
+    let store = f.store();
+    store.update(|jobs| jobs.insert(job("product"))).unwrap();
+    // The room inventory was observed before another writer added this v1 job.
+    let current = json!({
+        "version": 1, "counters": {"missing": 1},
+        "jobs": [{"id":"c1", "squad":"missing", "roomId":"44444444-4444-4444-8444-444444444444",
+            "ownerId":"owner-uuid", "message":"concurrent", "revision":1,
+            "state":"on", "pause":null,
+            "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}}]
+    })
+    .to_string()
+    .into_bytes();
+    f.overwrite(&current);
+    let rooms = vec![(
+        "product".into(),
+        "44444444-4444-4444-8444-444444444444".into(),
+    )];
+    store.migrate_v1(&rooms).unwrap();
+    let migrated: Value = serde_json::from_slice(&f.stored()).unwrap();
+    assert_eq!(
+        migrated["jobs"][0]["message"], "concurrent",
+        "migration reads the current document under lock"
+    );
+}
+
+#[test]
+fn migrating_an_already_v2_store_is_byte_identical() {
+    let f = Fixture::new();
+    let store = f.store();
+    store.update(|jobs| jobs.insert(job("product"))).unwrap();
+    let before = f.stored();
+    store.migrate_v1(&[]).unwrap();
+    assert_eq!(f.stored(), before);
 }
 
 #[test]
@@ -114,7 +245,8 @@ fn reads_create_nothing_and_commits_preserve_exact_content_and_non_reused_ids() 
     assert_eq!(read.jobs()[0].schedule.document()["anchorMs"], 123);
     store
         .update(|jobs| {
-            jobs.remove("product", "c1").unwrap();
+            jobs.remove("44444444-4444-4444-8444-444444444444", "c1")
+                .unwrap();
             Ok(())
         })
         .unwrap();
@@ -147,7 +279,7 @@ fn rejected_edits_and_corruption_preserve_the_stored_bytes() {
     store.update(|jobs| jobs.insert(job("product"))).unwrap();
     let before = f.stored();
     let fail = store.update(|jobs| {
-        jobs.remove("product", "c1");
+        jobs.remove("44444444-4444-4444-8444-444444444444", "c1");
         Err::<(), _>(corrupt("rejected"))
     });
     assert!(fail.is_err());
@@ -155,7 +287,9 @@ fn rejected_edits_and_corruption_preserve_the_stored_bytes() {
     assert!(
         store
             .update(|jobs| {
-                jobs.find_mut("product", "c1").unwrap().revision = 0;
+                jobs.find_mut("44444444-4444-4444-8444-444444444444", "c1")
+                    .unwrap()
+                    .revision = 0;
                 Ok(())
             })
             .is_err()
@@ -163,10 +297,15 @@ fn rejected_edits_and_corruption_preserve_the_stored_bytes() {
     assert_eq!(f.stored(), before);
     for bytes in [
         b"broken".as_slice(),
-        br#"{"version":2,"counters":{},"jobs":[]}"#,
+        br#"{"version":3,"counters":{},"jobs":[]}"#,
     ] {
         f.overwrite(bytes);
-        assert_eq!(store.read().unwrap_err().code, "SQUAD_CRON_STORE_INVALID");
+        let expected = if bytes == b"broken" {
+            "SQUAD_CRON_STORE_INVALID"
+        } else {
+            "SQUAD_CRON_STORE_NEWER"
+        };
+        assert_eq!(store.read().unwrap_err().code, expected);
         assert!(store.update(|jobs| jobs.insert(job("product"))).is_err());
         assert_eq!(f.stored(), bytes);
     }
@@ -351,7 +490,9 @@ fn parallel_add_remove_enable_disable_and_edit_all_land() {
     }
     store
         .update(|jobs| {
-            jobs.find_mut("product", "c4").unwrap().pause = Some(Pause {
+            jobs.find_mut("44444444-4444-4444-8444-444444444444", "c4")
+                .unwrap()
+                .pause = Some(Pause {
                 by: "owner-uuid".into(),
                 at_ms: 7,
             });
@@ -361,21 +502,23 @@ fn parallel_add_remove_enable_disable_and_edit_all_land() {
     let work: Vec<Work<Result<(), Error>>> = vec![
         Box::new(|s| {
             s.update(|jobs| {
-                jobs.remove("product", "c1")
+                jobs.remove("44444444-4444-4444-8444-444444444444", "c1")
                     .map(drop)
                     .ok_or_else(|| corrupt("c1"))
             })
         }),
         Box::new(|s| {
             s.update(|jobs| {
-                jobs.remove("product", "c2")
+                jobs.remove("44444444-4444-4444-8444-444444444444", "c2")
                     .map(drop)
                     .ok_or_else(|| corrupt("c2"))
             })
         }),
         Box::new(|s| {
             s.update(|jobs| {
-                jobs.find_mut("product", "c3").unwrap().pause = Some(Pause {
+                jobs.find_mut("44444444-4444-4444-8444-444444444444", "c3")
+                    .unwrap()
+                    .pause = Some(Pause {
                     by: "owner-uuid".into(),
                     at_ms: 9,
                 });
@@ -384,13 +527,17 @@ fn parallel_add_remove_enable_disable_and_edit_all_land() {
         }),
         Box::new(|s| {
             s.update(|jobs| {
-                jobs.find_mut("product", "c4").unwrap().pause = None;
+                jobs.find_mut("44444444-4444-4444-8444-444444444444", "c4")
+                    .unwrap()
+                    .pause = None;
                 Ok(())
             })
         }),
         Box::new(|s| {
             s.update(|jobs| {
-                jobs.find_mut("product", "c5").unwrap().message = "edited".into();
+                jobs.find_mut("44444444-4444-4444-8444-444444444444", "c5")
+                    .unwrap()
+                    .message = "edited".into();
                 Ok(())
             })
         }),
@@ -450,7 +597,9 @@ fn ownership_states_and_invalid_counters_are_checked_on_reload() {
     store
         .update(|jobs| {
             let id = jobs.insert(job("product"))?;
-            let j = jobs.find_mut("product", &id).unwrap();
+            let j = jobs
+                .find_mut("44444444-4444-4444-8444-444444444444", &id)
+                .unwrap();
             j.pause = Some(Pause {
                 by: "lead-uuid".into(),
                 at_ms: 1000,
@@ -461,13 +610,15 @@ fn ownership_states_and_invalid_counters_are_checked_on_reload() {
     assert_eq!(store.read().unwrap().jobs()[0].state(), "paused");
     store
         .update(|jobs| {
-            jobs.find_mut("product", "c1").unwrap().owner_id = None;
+            jobs.find_mut("44444444-4444-4444-8444-444444444444", "c1")
+                .unwrap()
+                .owner_id = None;
             Ok(())
         })
         .unwrap();
     assert_eq!(store.read().unwrap().jobs()[0].state(), "no owner");
     let mut document = store.read().unwrap().document();
-    document["counters"]["product"] = json!(0);
+    document["counters"]["44444444-4444-4444-8444-444444444444"] = json!(0);
     f.overwrite(document.to_string().as_bytes());
     assert!(store.read().is_err());
 }
@@ -529,14 +680,18 @@ fn departure_pauses_only_the_original_room_and_never_replaces_a_pause() {
         .update(|jobs| {
             jobs.insert(job("product"))?;
             let mut other = job("other");
-            other.room_id = "other-room".into();
+            other.room_id = "66666666-6666-4666-8666-666666666666".into();
             jobs.insert(other)?;
             Ok(())
         })
         .unwrap();
     assert_eq!(
         store
-            .update(|jobs| jobs.pause_owner("room-uuid", "owner-uuid", 500))
+            .update(|jobs| jobs.pause_owner(
+                "44444444-4444-4444-8444-444444444444",
+                "owner-uuid",
+                500
+            ))
             .unwrap(),
         ["c1"]
     );
@@ -552,7 +707,11 @@ fn departure_pauses_only_the_original_room_and_never_replaces_a_pause() {
     let before = f.stored();
     assert_eq!(
         store
-            .update(|jobs| jobs.pause_owner("room-uuid", "owner-uuid", 900))
+            .update(|jobs| jobs.pause_owner(
+                "44444444-4444-4444-8444-444444444444",
+                "owner-uuid",
+                900
+            ))
             .unwrap(),
         ["c1"]
     );
@@ -561,110 +720,44 @@ fn departure_pauses_only_the_original_room_and_never_replaces_a_pause() {
 }
 
 #[test]
-fn squad_rename_preserves_job_identity_content_pause_and_next_counter() {
+fn a_room_retains_its_counter_and_paused_content_without_a_name_rewrite() {
     let f = Fixture::new();
     let store = f.store();
     store
         .update(|jobs| {
             jobs.insert(job("product"))?;
-            jobs.pause_owner("room-uuid", "owner-uuid", 500)?;
+            jobs.pause_owner("44444444-4444-4444-8444-444444444444", "owner-uuid", 500)?;
             Ok(())
         })
         .unwrap();
-    let before = store.read().unwrap().jobs()[0].clone();
-    assert!(
-        store
-            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
-            .unwrap()
+    let before = f.stored();
+    let paused = store.read().unwrap().jobs()[0].clone();
+    store.update(|_| Ok(())).unwrap();
+    assert_eq!(
+        f.stored(),
+        before,
+        "reading or retaining the room does not rewrite it"
     );
-    let mut expected = before;
-    expected.squad = "renamed".into();
-    assert_eq!(store.read().unwrap().jobs(), &[expected]);
+    assert_eq!(store.read().unwrap().jobs()[0], paused);
     assert_eq!(
         store.update(|jobs| jobs.insert(job("renamed"))).unwrap(),
         "c2"
     );
-    assert!(
-        !store
-            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
-            .unwrap()
-    );
 }
 
 #[test]
-fn rename_moves_the_counter_after_the_last_job_was_deleted() {
+fn a_room_counter_survives_removal_of_its_last_job() {
     let f = Fixture::new();
     let store = f.store();
     store
         .update(|jobs| {
             jobs.insert(job("product"))?;
-            jobs.remove("product", "c1").unwrap();
+            jobs.remove("44444444-4444-4444-8444-444444444444", "c1")
+                .unwrap();
             Ok(())
         })
         .unwrap();
     assert!(store.read().unwrap().jobs().is_empty());
-    assert!(
-        store
-            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
-            .unwrap()
-    );
-    assert_eq!(
-        store.update(|jobs| jobs.insert(job("renamed"))).unwrap(),
-        "c2"
-    );
-}
-
-#[test]
-fn conflicting_namespace_and_room_refuse_without_saving_partial_edits() {
-    let f = Fixture::new();
-    let store = f.store();
-    store
-        .update(|jobs| {
-            jobs.insert(job("product"))?;
-            jobs.insert(job("occupied"))?;
-            Ok(())
-        })
-        .unwrap();
-    let before = f.stored();
-    assert_eq!(
-        store
-            .update(|jobs| jobs.rename_squad("product", "occupied", "room-uuid"))
-            .unwrap_err()
-            .code,
-        "SQUAD_CRON_NAMESPACE_CONFLICT"
-    );
-    assert_eq!(
-        store
-            .update(|jobs| jobs.rename_squad("product", "new", "wrong-room"))
-            .unwrap_err()
-            .code,
-        "SQUAD_CRON_ROOM_CONFLICT"
-    );
-    assert_eq!(f.stored(), before);
-}
-
-#[test]
-fn a_rename_that_fails_after_the_edit_saves_nothing_and_the_explicit_repair_continues_it() {
-    let f = Fixture::new();
-    let store = f.store();
-    store.update(|jobs| jobs.insert(job("product"))).unwrap();
-    let before = f.stored();
-    // The caller's own step after the edit fails: the whole change is discarded, so the
-    // old namespace stays. Explicit repair repeats only this store step.
-    assert!(
-        store
-            .update(|jobs| {
-                jobs.rename_squad("product", "renamed", "room-uuid")?;
-                Err::<(), _>(corrupt("the room step failed"))
-            })
-            .is_err()
-    );
-    assert_eq!(f.stored(), before);
-    assert!(
-        store
-            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
-            .unwrap()
-    );
     assert_eq!(
         store.update(|jobs| jobs.insert(job("renamed"))).unwrap(),
         "c2"
@@ -677,19 +770,24 @@ fn the_pause_is_committed_before_the_departure_and_a_job_added_meanwhile_is_paus
     let store = f.store();
     store.update(|jobs| jobs.insert(job("product"))).unwrap();
     let (paused, effect) = store
-        .pause_owner_then("room-uuid", "owner-uuid", 500, |paused| {
-            assert_eq!(paused, ["c1"]);
-            // Committed already: an independent handle (another process) sees it.
-            assert_eq!(f.store().read().unwrap().jobs()[0].state(), "paused");
-            // Nothing is held across the departure, which runs a core command.
-            assert_eq!(
-                f.store()
-                    .update(|jobs| jobs.insert(job("product")))
-                    .unwrap(),
-                "c2"
-            );
-            Err::<(), _>("leave failed")
-        })
+        .pause_owner_then(
+            "44444444-4444-4444-8444-444444444444",
+            "owner-uuid",
+            500,
+            |paused| {
+                assert_eq!(paused, ["c1"]);
+                // Committed already: an independent handle (another process) sees it.
+                assert_eq!(f.store().read().unwrap().jobs()[0].state(), "paused");
+                // Nothing is held across the departure, which runs a core command.
+                assert_eq!(
+                    f.store()
+                        .update(|jobs| jobs.insert(job("product")))
+                        .unwrap(),
+                    "c2"
+                );
+                Err::<(), _>("leave failed")
+            },
+        )
         .unwrap();
     assert_eq!(paused, ["c1"]);
     // The departure failed, yet the pause it ran beside is kept, and the job the owner
@@ -707,7 +805,12 @@ fn a_departure_that_panics_leaves_the_committed_pause_in_place() {
     store.update(|jobs| jobs.insert(job("product"))).unwrap();
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         store
-            .pause_owner_then("room-uuid", "owner-uuid", 500, |_| panic!("leave exploded"))
+            .pause_owner_then(
+                "44444444-4444-4444-8444-444444444444",
+                "owner-uuid",
+                500,
+                |_| panic!("leave exploded"),
+            )
             .map(drop)
     }));
     assert!(caught.is_err());
@@ -722,7 +825,12 @@ fn a_pause_that_cannot_be_saved_runs_no_departure() {
     f.overwrite(b"broken");
     let mut ran = false;
     let error = store
-        .pause_owner_then("room-uuid", "owner-uuid", 500, |_| ran = true)
+        .pause_owner_then(
+            "44444444-4444-4444-8444-444444444444",
+            "owner-uuid",
+            500,
+            |_| ran = true,
+        )
         .unwrap_err();
     assert_eq!(error.code, "SQUAD_CRON_STORE_INVALID");
     assert!(!ran);
@@ -848,4 +956,159 @@ fn a_commit_that_timed_out_is_reported_as_uncertain_not_as_a_plain_busy() {
         may_not_be_saved: false,
     });
     assert_eq!(busy.code, STORE_BUSY);
+}
+
+#[test]
+fn migration_merges_distinct_jobs_for_one_room_and_keeps_the_highest_counter() {
+    let room = "44444444-4444-4444-8444-444444444444";
+    let make = |id: &str, squad: &str| {
+        json!({
+            "id": id, "squad": squad, "roomId": room, "ownerId": "owner",
+            "message": squad, "revision": 1, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        })
+    };
+    let legacy = json!({"version": 1, "counters": {"first": 7, "second": 12},
+        "jobs": [make("c3", "first"), make("c4", "second")]});
+    let migrated = Jobs::migrate_v1(&legacy, &[]).expect("stored room IDs determine ownership");
+    assert_eq!(migrated["counters"][room], 12);
+    assert_eq!(migrated["jobs"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn migration_drops_an_ambiguous_counter_only_name() {
+    let legacy = json!({"version": 1, "counters": {"ambiguous": 7}, "jobs": []});
+    let rooms = [
+        (
+            "ambiguous".into(),
+            "44444444-4444-4444-8444-444444444444".into(),
+        ),
+        (
+            "ambiguous".into(),
+            "55555555-5555-4555-8555-555555555555".into(),
+        ),
+    ];
+    let migrated =
+        Jobs::migrate_v1(&legacy, &rooms).expect("unresolved counter-only names are dropped");
+    assert!(migrated["counters"].as_object().unwrap().is_empty());
+}
+
+#[test]
+fn migration_exports_conflicts_and_preserves_the_highest_counter() {
+    let f = Fixture::new();
+    let store = f.store();
+    let room = "44444444-4444-4444-8444-444444444444";
+    let make = |id: &str, squad: &str| {
+        json!({
+            "id": id, "squad": squad, "roomId": room, "ownerId": "owner",
+            "message": squad, "revision": 1, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        })
+    };
+    let legacy = json!({"version": 1, "counters": {"first": 7, "second": 12},
+        "jobs": [make("c3", "first"), make("c3", "second"), make("c4", "first")]});
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    f.seed_legacy_document(&bytes);
+    store
+        .migrate_v1(&[])
+        .expect("conflicting jobs are exported, not an operation-wide lock");
+    let migrated: Value = serde_json::from_slice(&f.stored()).unwrap();
+    assert_eq!(migrated["counters"][room], 12);
+    assert_eq!(migrated["jobs"].as_array().unwrap().len(), 1);
+    assert_eq!(migrated["jobs"][0]["id"], "c4");
+    let exports: Vec<_> = fs::read_dir(f.0.join("ops/cron"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("jobs-conflict-")
+        })
+        .collect();
+    assert_eq!(exports.len(), 1);
+    assert_eq!(fs::read(&exports[0]).unwrap(), bytes);
+    assert_eq!(
+        fs::metadata(&exports[0]).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn conflict_export_refusal_leaves_the_legacy_document_unchanged() {
+    let f = Fixture::new();
+    let store = f.store();
+    let room = "44444444-4444-4444-8444-444444444444";
+    let make = |squad: &str| {
+        json!({"id":"c1", "squad":squad, "roomId":room,
+        "ownerId":"owner", "message":squad, "revision":1, "state":"on", "pause":null,
+        "schedule":{"kind":"every", "seconds":1800, "anchorMs":0, "from":null, "zone":"UTC"}})
+    };
+    let legacy = json!({"version":1,"counters":{"first":1,"second":1},
+        "jobs":[make("first"),make("second")]});
+    let before = serde_json::to_vec(&legacy).unwrap();
+    f.seed_legacy_document(&before);
+    symlink(std::env::temp_dir(), f.0.join("ops/cron")).unwrap();
+    assert!(
+        store.migrate_v1(&[]).is_err(),
+        "an unsafe export directory must refuse"
+    );
+    assert_eq!(f.stored(), before, "failed export must not publish v2");
+}
+
+#[test]
+fn mixed_room_legacy_name_reserves_its_counter_in_every_room() {
+    let a = "44444444-4444-4444-8444-444444444444";
+    let b = "55555555-5555-4555-8555-555555555555";
+    let make = |id: &str, room: &str| {
+        json!({"id":id,"squad":"old","roomId":room,
+        "ownerId":"owner","message":id,"revision":1,"state":"on","pause":null,
+        "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}})
+    };
+    let legacy = json!({"version":1,"counters":{"old":12},"jobs":[make("c1",a),make("c2",b)]});
+    let (converted, conflicts) = Jobs::convert_v1(&legacy, &[]).unwrap();
+    assert!(conflicts);
+    assert_eq!(converted["counters"][a], 12);
+    assert_eq!(converted["counters"][b], 12);
+    assert!(converted["jobs"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn migration_commit_failure_retains_original_and_does_not_publish_notice() {
+    let f = Fixture::new();
+    let store = f.store();
+    let room = "44444444-4444-4444-8444-444444444444";
+    let make = |squad: &str| {
+        json!({"id":"c1","squad":squad,"roomId":room,
+        "ownerId":"owner","message":squad,"revision":1,"state":"on","pause":null,
+        "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}})
+    };
+    let before = serde_json::to_vec(&json!({"version":1,"counters":{"first":1,"second":1},
+        "jobs":[make("first"),make("second")]}))
+    .unwrap();
+    f.seed_legacy_document(&before);
+    f.database().execute_batch("CREATE TRIGGER refuse_cron BEFORE UPDATE ON documents WHEN NEW.kind = 'cron' BEGIN SELECT RAISE(FAIL, 'injected failure'); END;").unwrap();
+    assert!(store.migrate_v1(&[]).is_err());
+    assert_eq!(f.stored(), before);
+    let notices: i64 = f
+        .database()
+        .query_row(
+            "SELECT COUNT(*) FROM documents WHERE kind = 'cron-migration-notice'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(notices, 0, "the notice and conversion must commit together");
+    let exports: Vec<_> = fs::read_dir(f.0.join("ops/cron"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("jobs-conflict-")
+        })
+        .collect();
+    assert_eq!(exports.len(), 1);
+    assert_eq!(fs::read(&exports[0]).unwrap(), before);
 }

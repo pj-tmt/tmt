@@ -4,6 +4,116 @@ use crate::test_support::{replace_stored_jobs, stored_jobs};
 use std::fs;
 
 #[test]
+fn legacy_cron_migration_drops_only_a_missing_counter_and_retains_live_jobs() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    let legacy = json!({
+        "version": 1,
+        "counters": {"product": 7, "retired": 4},
+        "jobs": [{
+            "id": "c3", "squad": "product", "roomId": ROOM, "ownerId": WORKER,
+            "message": "legacy exact text", "revision": 2, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        }]
+    });
+    replace_stored_jobs(&f.directory, legacy.to_string().as_bytes());
+    let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
+    assert_eq!(listed.jobs.len(), 1);
+    assert_eq!(listed.jobs[0].job.message, "legacy exact text");
+    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
+    assert_eq!(migrated["version"], 2, "migration publishes v2");
+    assert_eq!(migrated["counters"][ROOM], 7);
+    assert_eq!(migrated["counters"].as_object().unwrap().len(), 1);
+    assert!(migrated["jobs"][0].get("squad").is_none());
+}
+
+#[test]
+fn legacy_jobs_keep_their_room_after_a_name_is_reused() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    let retired = "55555555-5555-4555-8555-555555555555";
+    let legacy = json!({"version": 1, "counters": {"product": 7}, "jobs": [{
+        "id":"c1", "squad":"product", "roomId":retired, "ownerId":WORKER,
+        "message":"original room", "revision":1, "state":"on", "pause":null,
+        "schedule":{"kind":"every", "seconds":1800, "anchorMs":0, "from":null, "zone":"UTC"}
+    }]});
+    replace_stored_jobs(&f.directory, legacy.to_string().as_bytes());
+    let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
+    assert!(
+        listed.jobs.is_empty(),
+        "replacement room must not inherit the old job"
+    );
+    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
+    assert_eq!(migrated["jobs"][0]["roomId"], retired);
+    assert_eq!(migrated["counters"][retired], 7);
+}
+
+#[test]
+fn conflict_export_warns_once_per_cli_and_board_channel() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    let make = |id: &str, squad: &str| {
+        json!({
+            "id":id,"squad":squad,"roomId":ROOM,"ownerId":WORKER,
+            "message":squad,"revision":1,"state":"on","pause":null,
+            "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}
+        })
+    };
+    let legacy = json!({"version":1,"counters":{"product":7,"old-name":12},
+        "jobs":[make("c1","product"),make("c1","old-name"),make("c2","product")]});
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    replace_stored_jobs(&f.directory, &bytes);
+    let _ = read_jobs(&f.core).unwrap();
+    let _ = read_jobs(&f.core).unwrap();
+    let first = list_jobs(&f.core, &f.config, None, 100).unwrap();
+    assert_eq!(first.jobs.len(), 1);
+    assert_eq!(first.jobs[0].job.id(), "c2");
+    assert_eq!(first.warnings.len(), 1);
+    let message = &first.warnings[0].message;
+    let exports: Vec<_> = fs::read_dir(f.directory.join("ops/cron"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("jobs-conflict-")
+        })
+        .collect();
+    assert_eq!(exports.len(), 1);
+    assert!(message.contains(exports[0].to_str().unwrap()));
+    assert_eq!(fs::read(&exports[0]).unwrap(), bytes);
+    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
+    assert_eq!(migrated["counters"][ROOM], 12);
+    assert!(
+        list_jobs(&f.core, &f.config, None, 100)
+            .unwrap()
+            .warnings
+            .is_empty()
+    );
+    f.core.paths.use_board_notices();
+    assert!(
+        list_jobs(&f.core, &f.config, None, 100)
+            .unwrap()
+            .warnings
+            .is_empty()
+    );
+    assert!(
+        f.core
+            .paths
+            .take_cron_notice()
+            .unwrap()
+            .contains(exports[0].to_str().unwrap())
+    );
+    assert!(
+        list_jobs(&f.core, &f.config, None, 100)
+            .unwrap()
+            .warnings
+            .is_empty()
+    );
+}
+
+#[test]
 fn missing_squad_owner_is_listed_paused_and_readding_it_does_not_resume() {
     let f = Fixture::new();
     let user = f.actor(USER);
@@ -187,12 +297,9 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
             .err()
             .unwrap()
             .code,
-        "SQUAD_CRON_ROOM_CONFLICT"
+        "ROOM_NOT_FOUND"
     );
-    assert_eq!(
-        f.add(&user, WORKER).err().unwrap().code,
-        "SQUAD_CRON_ROOM_CONFLICT"
-    );
+    assert_eq!(f.add(&user, WORKER).err().unwrap().code, "ROOM_NOT_FOUND");
     assert_eq!(stored_jobs(&f.directory), before);
     let calls = f.model()["calls"].as_array().unwrap().clone();
     assert!(
@@ -296,6 +403,33 @@ fn change_announcements_declare_automation_and_only_that_refusal_is_retried() {
     let resumed = f.mutate(&user, &paused.job.job, Mutation::Resume).unwrap();
     assert_eq!(resumed.warnings[0].code, "DISPATCH_FAILURE");
     assert_eq!(dispatches(&f), before + 1);
+}
+
+#[test]
+fn legacy_and_current_retirement_hooks_follow_room_after_rename_only_once() {
+    let f = Fixture::new();
+    let original = f.add(&f.actor(USER), WORKER).unwrap().job.job;
+    f.change_model(|model| {
+        model["roomName"] = json!("squad-renamed");
+        model["hooks"].as_array_mut().unwrap().push(json!({
+            "consumer": "squad-cron", "identityId": WORKER,
+            "reference": format!("{}:product:{}", ROOM, original.id())
+        }));
+        model["retired"] = json!([WORKER]);
+    });
+    drain_retired(&f.core, &f.config, 200).unwrap();
+    let stored = Store::new(&f.directory.join("ops"))
+        .unwrap()
+        .read()
+        .unwrap();
+    let job = &stored.jobs()[0];
+    assert_eq!(job.owner_id, None);
+    assert_eq!(
+        job.revision,
+        original.revision + 1,
+        "duplicate hooks change the job once"
+    );
+    assert!(f.model()["hooks"].as_array().unwrap().is_empty());
 }
 
 #[test]

@@ -233,6 +233,9 @@ impl Worker {
                         migration_notice = notice.clone();
                         let _ = events.send(super::BoardEvent::Migration(notice));
                     }
+                    if let Some(notice) = core.paths.take_cron_notice() {
+                        let _ = events.send(super::BoardEvent::CronMigration(notice));
+                    }
                     changes.retarget(Config::locate(&core).ok());
                     if automatic {
                         changes.stamp(&core.cancellable(read_generation.cancellation(generation)))

@@ -36,14 +36,12 @@ pub use crate::management::ManagementActor as CronActor;
 /// Retained selectors never silently follow a reused room name or c-id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobKey {
-    pub squad: String,
     pub room_id: String,
     pub id: String,
 }
 impl JobKey {
     pub fn of(job: &Job) -> Self {
         Self {
-            squad: job.squad.clone(),
             room_id: job.room_id.clone(),
             id: job.id(),
         }
@@ -53,6 +51,7 @@ impl JobKey {
 #[derive(Debug, Clone)]
 pub struct JobView {
     pub job: Job,
+    pub squad: String,
     pub owner_name: Option<String>,
     pub owner_missing: bool,
     pub next_ms: Vec<i64>,
@@ -68,6 +67,7 @@ impl JobView {
     }
     pub fn document(&self) -> Value {
         let mut value = self.job.document();
+        value["squad"] = json!(self.squad);
         value["owner"] = json!(self.owner_name);
         value["ownerMissing"] = json!(self.owner_missing);
         value["stateLabel"] = json!(self.state_label());
@@ -125,7 +125,56 @@ pub fn root(core: &Core) -> Result<PathBuf, SquadError> {
 }
 fn store(core: &Core) -> Result<(Store, crate::migration::LegacyGuard), SquadError> {
     let guard = crate::migration::state_guard(core)?;
-    Ok((Store::new(&root(core)?)?, guard))
+    let store = Store::new(&root(core)?)?;
+    if store.needs_v1_migration()? {
+        store.migrate_v1(&migration_rooms(core)?)?;
+    }
+    Ok((store, guard))
+}
+
+fn migration_rooms(core: &Core) -> Result<Vec<(String, String)>, SquadError> {
+    let squads = Squad::list(core)?;
+    let mut rooms = Vec::with_capacity(squads.len());
+    for squad in squads {
+        if !crate::config::uuid_like(&squad.room_id) {
+            return Err(failure(
+                "SQUAD_CRON_STORE_INVALID",
+                "Core returned an invalid squad room UUID; resolve the room and retry.",
+            ));
+        }
+        rooms.push((squad.name, squad.room_id));
+    }
+    Ok(rooms)
+}
+
+/// A validated in-progress rename journal can prove the former name of its
+/// already-renamed room. Any independently reused name remains ambiguous.
+pub(crate) fn prepare_rename_repair(
+    core: &Core,
+    old: &str,
+    new: &str,
+    room_id: &str,
+) -> Result<(), SquadError> {
+    let _guard = crate::migration::state_guard(core)?;
+    let store = Store::new(&root(core)?)?;
+    if store.needs_v1_migration()? {
+        let mut rooms = migration_rooms(core)?;
+        if !rooms.iter().any(|(name, id)| name == new && id == room_id) {
+            return Err(failure(
+                "SQUAD_CRON_STORE_INVALID",
+                "The renamed room is unavailable; resolve the squad room and retry.",
+            ));
+        }
+        rooms.push((old.into(), room_id.into()));
+        store.migrate_v1(&rooms)?;
+    }
+    Ok(())
+}
+
+/// Read jobs through the service so legacy migration also precedes a clock tick.
+pub(crate) fn read_jobs(core: &Core) -> Result<Jobs, SquadError> {
+    let (store, _migration) = store(core)?;
+    store.read().map_err(Into::into)
 }
 
 pub fn actor(core: &Core, explicit: Option<&str>) -> Result<CronActor, SquadError> {
@@ -140,15 +189,26 @@ fn text(value: &Value, key: &str) -> Result<String, SquadError> {
 fn active_identity(core: &Core, id: &str) -> Result<String, SquadError> {
     crate::management::active_identity(core, id, &crate::management::CRON)
 }
-fn room(core: &Core, name: &str, expected: &str) -> Result<Squad, SquadError> {
-    let selected = Squad::resolve(core, Some(name))?;
-    if selected.room_id != expected {
+fn room(core: &Core, expected: &str) -> Result<Squad, SquadError> {
+    let shown = core.json(&["room", "show", expected])?;
+    let observed = &shown["room"];
+    let current = observed["name"]
+        .as_str()
+        .and_then(|name| name.strip_prefix("squad-"));
+    if observed["id"] != expected
+        || observed["retired"] != false
+        || !crate::config::uuid_like(expected)
+        || current.is_none_or(|name| !crate::squad::valid_name(name))
+    {
         return Err(failure(
             "SQUAD_CRON_ROOM_CONFLICT",
-            "The squad room changed; reload the job list.",
+            "The squad room is unavailable; reload the job list.",
         ));
     }
-    Ok(selected)
+    Ok(Squad {
+        name: current.expect("checked name").into(),
+        room_id: expected.into(),
+    })
 }
 fn admit(core: &Core, selected: &Squad, actor: &CronActor) -> Result<Vec<Member>, SquadError> {
     crate::management::admit(core, selected, actor, &crate::management::CRON)
@@ -169,7 +229,7 @@ fn expected<'a>(
     revision: u64,
 ) -> Result<&'a mut Job, SquadError> {
     let job = jobs
-        .find_mut(&key.squad, &key.id)
+        .find_mut(&key.room_id, &key.id)
         .ok_or_else(|| failure("SQUAD_CRON_NOT_FOUND", "The job no longer exists."))?;
     if job.room_id != key.room_id {
         return Err(failure(
@@ -197,12 +257,12 @@ fn increment(job: &mut Job) -> Result<(), SquadError> {
 
 /// Manual send shares management admission and an immutable locked snapshot.
 /// Dispatch happens after return, never while the jobs lock is held.
-pub fn authorize_write(
+pub(crate) fn authorize_write(
     core: &Core,
     key: &JobKey,
     actor: &CronActor,
     expected_revision: u64,
-) -> Result<Job, SquadError> {
+) -> Result<(Job, String), SquadError> {
     admitted_job(core, key, expected_revision, Some(actor))
 }
 
@@ -213,7 +273,7 @@ pub fn admit_scheduled(
     key: &JobKey,
     expected_revision: u64,
 ) -> Result<Job, SquadError> {
-    let job = admitted_job(core, key, expected_revision, None)?;
+    let (job, _) = admitted_job(core, key, expected_revision, None)?;
     if job.state() != "on" {
         return Err(failure(
             "SQUAD_CRON_NOT_ON",
@@ -227,11 +287,11 @@ fn admitted_job(
     key: &JobKey,
     expected_revision: u64,
     actor: Option<&CronActor>,
-) -> Result<Job, SquadError> {
+) -> Result<(Job, String), SquadError> {
     let (store, _migration) = store(core)?;
     store
         .update(|jobs| {
-            let selected = room(core, &key.squad, &key.room_id).map_err(stored)?;
+            let selected = room(core, &key.room_id).map_err(stored)?;
             let roster = match actor {
                 Some(actor) => admit(core, &selected, actor),
                 None => selected.roster(core),
@@ -254,22 +314,29 @@ fn admitted_job(
                     "The job owner is missing from this squad; the job remains paused.",
                 )));
             }
-            Ok(Ok(job.clone()))
+            Ok(Ok((job.clone(), selected.name)))
         })
         .map_err(SquadError::from)?
 }
 
-fn project(core: &Core, job: Job, count: usize, now_ms: i64) -> Result<JobView, SquadError> {
+fn project(
+    core: &Core,
+    job: Job,
+    squad: String,
+    count: usize,
+    now_ms: i64,
+) -> Result<JobView, SquadError> {
     let owner_name = job
         .owner_id
         .as_deref()
         .map(|id| active_identity(core, id))
         .transpose()?;
     let missing = job.owner_id.is_none();
-    project_with_owner(job, owner_name, missing, count, now_ms)
+    project_with_owner(job, squad, owner_name, missing, count, now_ms)
 }
 fn project_with_owner(
     job: Job,
+    squad: String,
     owner_name: Option<String>,
     owner_missing: bool,
     count: usize,
@@ -287,6 +354,7 @@ fn project_with_owner(
         }
     }
     Ok(JobView {
+        squad,
         job,
         owner_name,
         owner_missing,
@@ -294,40 +362,9 @@ fn project_with_owner(
         warnings: vec![],
     })
 }
-/// Pure preflight over a read snapshot; the real move is repeated under the
-/// store lock only after the room CAS succeeded.
-pub(crate) fn check_rename_namespace(
-    core: &Core,
-    old: &str,
-    new: &str,
-    room_id: &str,
-) -> Result<(), SquadError> {
-    let (store, _migration) = store(core)?;
-    store.read()?.rename_squad(old, new, room_id)?;
-    Ok(())
-}
-
-pub(crate) fn rename_namespace(
-    core: &Core,
-    old: &str,
-    new: &str,
-    room_id: &str,
-) -> Result<(), SquadError> {
-    let (store, _migration) = store(core)?;
-    store.update(|jobs| {
-        if jobs.rename_squad(old, new, room_id)? {
-            // Retirement references include the namespace. Register its new
-            // reference before publishing the move; old hooks remain harmless.
-            for job in jobs
-                .jobs()
-                .iter()
-                .filter(|job| job.room_id == room_id && job.squad == new)
-            {
-                retirement::register(core, job).map_err(stored)?;
-            }
-        }
-        Ok(())
-    })?;
+/// Migrate any legacy timers before the room name can change.
+pub(crate) fn prepare_rename(core: &Core) -> Result<(), SquadError> {
+    let (_store, _migration) = store(core)?;
     Ok(())
 }
 
@@ -346,13 +383,29 @@ pub(crate) fn with_departure_pause<T>(
         .map_err(Into::into)
 }
 
+fn migration_warning(core: &Core, store: &Store) -> Result<Option<SquadError>, SquadError> {
+    let board = core.paths.is_board();
+    let Some(path) = store.take_migration_notice(board)? else {
+        return Ok(None);
+    };
+    let message = format!(
+        "Conflicting timers were retained in {path}; review the export before recreating them."
+    );
+    if board {
+        core.paths.cron_notice(message);
+        Ok(None)
+    } else {
+        Ok(Some(failure("SQUAD_CRON_MIGRATION_CONFLICT", &message)))
+    }
+}
+
 pub fn list_jobs(
     core: &Core,
     config: &Config,
     scope: Option<&str>,
     now_ms: i64,
 ) -> Result<List, SquadError> {
-    let warnings = drain_retired(core, config, now_ms)?;
+    let mut warnings = drain_retired(core, config, now_ms)?;
     let squads = if let Some(name) = scope {
         vec![Squad::resolve(core, Some(name))?]
     } else {
@@ -360,6 +413,7 @@ pub fn list_jobs(
     };
     let (store, _migration) = store(core)?;
     let jobs = owners::project_jobs(core, &store, &squads, 1, now_ms)?;
+    warnings.extend(migration_warning(core, &store)?);
     Ok(List { jobs, warnings })
 }
 pub fn show_job(
@@ -369,15 +423,11 @@ pub fn show_job(
     now_ms: i64,
 ) -> Result<JobView, SquadError> {
     let warnings = drain_retired(core, config, now_ms)?;
-    let squad = room(core, &key.squad, &key.room_id)?;
+    let squad = room(core, &key.room_id)?;
     let (store, _migration) = store(core)?;
     let mut view = owners::project_jobs(core, &store, &[squad], 3, now_ms)?
         .into_iter()
-        .find(|view| {
-            view.job.squad == key.squad
-                && view.job.id() == key.id
-                && view.job.room_id == key.room_id
-        })
+        .find(|view| view.job.id() == key.id && view.job.room_id == key.room_id)
         .ok_or_else(|| {
             failure(
                 "SQUAD_CRON_NOT_FOUND",
@@ -385,6 +435,7 @@ pub fn show_job(
             )
         })?;
     view.warnings.extend(warnings);
+    view.warnings.extend(migration_warning(core, &store)?);
     Ok(view)
 }
 
@@ -397,16 +448,16 @@ pub fn apply(
 ) -> Result<Applied, SquadError> {
     let mut warnings = drain_retired(core, config, now_ms)?;
     let (store, _migration) = store(core)?;
-    let (before, after, action, changed) = store.update(|jobs| {
-        let (name, room_id) = match &change {
-            Change::Add { squad, room_id, .. } => (squad, room_id),
-            Change::Existing { key, .. } => (&key.squad, &key.room_id),
+    let (before, after, action, changed, squad_name) = store.update(|jobs| {
+        let room_id = match &change {
+            Change::Add { room_id, .. } => room_id,
+            Change::Existing { key, .. } => &key.room_id,
         };
-        let selected = room(core, name, room_id).map_err(stored)?;
+        let selected = room(core, room_id).map_err(stored)?;
         let roster = admit(core, &selected, actor).map_err(stored)?;
         match change {
             Change::Add {
-                squad,
+                squad: _,
                 room_id,
                 owner_id,
                 message,
@@ -420,7 +471,7 @@ pub fn apply(
                         "Use a nonempty message of at most 1 MiB.",
                     )));
                 }
-                let mut job = Job::new(squad.clone(), room_id, owner_id, message, schedule);
+                let mut job = Job::new(room_id, owner_id, message, schedule);
                 if paused {
                     job.pause = Some(Pause {
                         by: actor.id.clone(),
@@ -428,9 +479,12 @@ pub fn apply(
                     });
                 }
                 let id = jobs.insert(job)?;
-                let job = jobs.find_mut(&squad, &id).expect("inserted job").clone();
+                let job = jobs
+                    .find_mut(&selected.room_id, &id)
+                    .expect("inserted job")
+                    .clone();
                 retirement::register(core, &job).map_err(stored)?;
-                Ok(Ok((None, job, "added", true)))
+                Ok(Ok((None, job, "added", true, selected.name)))
             }
             Change::Existing {
                 key,
@@ -510,9 +564,9 @@ pub fn apply(
                 }
                 let after = job.clone();
                 if action == "removed" {
-                    jobs.remove(&key.squad, &key.id);
+                    jobs.remove(&key.room_id, &key.id);
                 }
-                Ok(Ok((Some(before), after, action, changed)))
+                Ok(Ok((Some(before), after, action, changed, selected.name)))
             }
         }
     })??;
@@ -522,15 +576,17 @@ pub fn apply(
             actor,
             before.as_ref(),
             &after,
+            &squad_name,
             action,
         ));
     }
     // A committed mutation must not turn into an apparent rollback if a name lookup fails.
-    let job = match project(core, after.clone(), 3, now_ms) {
+    let job = match project(core, after.clone(), squad_name.clone(), 3, now_ms) {
         Ok(view) => view,
         Err(error) => {
             warnings.push(error);
             JobView {
+                squad: squad_name,
                 job: after,
                 owner_name: None,
                 owner_missing: false, // Failed observation is unknown, not absence.
@@ -539,6 +595,11 @@ pub fn apply(
             }
         }
     };
+    // A committed edit must remain a success even if the follow-up notice fails.
+    match migration_warning(core, &store) {
+        Ok(notice) => warnings.extend(notice),
+        Err(error) => warnings.push(error),
+    }
     Ok(Applied {
         job,
         changed,
