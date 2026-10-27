@@ -32,12 +32,13 @@ afterEach(() =>
   roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true }))
 );
 
-function fixture() {
+function fixture(includeHookQueue = true) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schema-carrier-fixture-'));
   roots.push(root);
   const hashes: Record<string, string> = {};
   for (const name of [
     'migrations.rs',
+    ...(includeHookQueue ? ['hook_queue.rs'] : []),
     'migrations/host_names.rs',
     'schema/001.sql',
     'schema/006_indexes.sql',
@@ -143,6 +144,44 @@ function fixture() {
 }
 
 describe('compiled CLI schema carrier', () => {
+  it('admits every source declared by the compiled Rust schema', () => {
+    const source = fs.readFileSync(
+      new URL('../../../rust/crates/tmt-adapters/src/storage/migrations.rs', import.meta.url),
+      'utf8'
+    );
+    const explicit = source.match(/for \(path, bytes\) in \[([\s\S]*?)\] \{/);
+    expect(explicit, 'compiled_schema explicit source list must be readable').not.toBeNull();
+    const direct = [...explicit![1].matchAll(/"([^"]+)"\s*,\s*include_bytes!/g)].map(
+      (match) => match[1]
+    );
+    const migrations = [...source.matchAll(/migration!\(\s*"[^"]*",\s*"([^"]+)"/g)].map(
+      (match) => `rust/crates/tmt-adapters/src/storage/${match[1]}`
+    );
+    expect(direct.length).toBeGreaterThan(0);
+    expect(direct.length).toBe((explicit![1].match(/include_bytes!/g) ?? []).length);
+    expect(migrations.length).toBeGreaterThan(0);
+    expect(migrations.length).toBe((source.match(/migration!\s*\(/g) ?? []).length);
+    const f = fixture(false);
+    for (const name of new Set([...direct, ...migrations])) {
+      if (name in f.snapshot.hashes) continue;
+      const bytes = `Synthetic declared input: ${name}\n`;
+      const file = path.join(f.root, name);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, bytes);
+      f.snapshot.hashes[name] = hash(bytes);
+      f.record.source_files.push({ path: name, sha256: hash(bytes) });
+      f.record.source_files.sort((a, b) => (a.path < b.path ? -1 : 1));
+      try {
+        assertCompiledSource(f.record, f.snapshot, f.root);
+      } catch (error) {
+        throw new Error(`Compiled schema source not admitted: ${name}`, { cause: error });
+      } finally {
+        delete f.snapshot.hashes[name];
+        f.record.source_files = f.record.source_files.filter((entry) => entry.path !== name);
+      }
+    }
+  });
+
   it('binds four records and independently checks the final field, archived bytes and exporter output', () => {
     const f = fixture();
     const before = structuredClone(f.manifest);

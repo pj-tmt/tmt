@@ -255,6 +255,28 @@ describe('release gate parity inventory', () => {
     expect(JSON.stringify(value)).not.toContain('followUp');
   });
 
+  it('maps #5451 compiled schema source closure to pre-merge tooling', () => {
+    expect(manifest().incidents['5451']).toEqual({
+      release: {
+        workflow: 'native-release-prepare.yml',
+        job: 'build',
+        step: 'name:Capture compiled CLI schema from the verified target archive',
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/native-application-schema.test.ts'],
+        },
+      ],
+    });
+    const missing = manifest();
+    delete missing.incidents['5451'];
+    expect(() => checkReleaseParity(missing, { read })).toThrow('release incidents');
+  });
+
   it('maps #4098 live cut budget and uncertain-dispatch policy to pre-merge tooling', () => {
     expect(manifest().incidents['4098']).toEqual({
       release: {

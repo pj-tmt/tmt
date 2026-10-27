@@ -82,6 +82,7 @@ export function assertCompiledSource(record, snapshot, root) {
     .filter(
       (name) =>
         name === `${owner}migrations.rs` ||
+        name === `${owner}hook_queue.rs` ||
         name === `${owner}migrations/host_names.rs` ||
         name.startsWith(`${owner}schema/`)
     )
