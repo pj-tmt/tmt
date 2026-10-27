@@ -24,7 +24,7 @@ pub fn eligible(invocation: &Invocation) -> bool {
 
 pub fn context(socket: Option<&str>) -> Result<(ConfigPaths, String, Host), Failure> {
     let caller = CallerEnvironment::current();
-    let host = Host::for_workspace(&caller, socket.is_some());
+    let host = crate::caller_context::workspace_host(&caller, socket.is_some())?;
     if !host.workspace_supported() {
         return Err(Failure::new(
             "WORKSPACE_HOST_UNSUPPORTED",

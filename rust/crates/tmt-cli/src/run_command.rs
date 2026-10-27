@@ -9,7 +9,7 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    host::{CallerEnvironment, Host},
+    host::CallerEnvironment,
     process::{
         UnixCommandRunner,
         runtime::{ProcessObservation, observe_runtime_process},
@@ -251,7 +251,7 @@ fn run_observed(
     .settings;
     channel::require_enabled(request.channel, settings.experimental_channel)?;
     let environment = CallerEnvironment::current();
-    let host = Host::for_caller(&environment);
+    let host = crate::caller_context::host(&environment)?;
     let explicit = selected_host.and_then(tmt_core::host::HostKind::parse);
     if explicit == Some(tmt_core::host::HostKind::pty())
         && host.kind() != tmt_core::host::HostKind::pty()
@@ -747,7 +747,7 @@ mod tests {
                 assert_eq!(socket.parent(), Some(root.as_path()));
                 assert!(!socket.exists());
                 assert_ne!(socket.file_name(), Some(std::ffi::OsStr::new("default")));
-                let host = Host::for_server_with(
+                let host = tmt_adapters::host::Host::for_server_with(
                     &tmt_core::endpoint::ServerEvidence {
                         host: tmt_core::host::HostKind::Tmux,
                         server_id: tmt_core::operation::new_operation_id(),

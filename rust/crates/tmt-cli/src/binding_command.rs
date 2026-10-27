@@ -288,7 +288,7 @@ fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
 
 fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failure> {
     let environment = CallerEnvironment::current();
-    let caller = Host::for_caller(&environment);
+    let caller = crate::caller_context::host(&environment)?;
     let listed = listed_target(&request)?;
     let pane = preflight(&request, &caller, &environment, listed.pane)?;
     // An explicit target's own host observes it; stored bindings are always
@@ -861,6 +861,7 @@ fn run_guarded<R: tmt_adapters::process::CommandRunner + Clone>(
     let host = match host {
         tmt_core::host::HostKind::Tmux => {
             Host::for_caller_with(&CallerEnvironment::admitted(admitted), runner)
+                .map_err(crate::caller_context::selection_failed)?
         }
         external => Host::for_host(external, runner, admitted.records.clone()),
     };

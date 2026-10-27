@@ -66,8 +66,7 @@ pub fn execute(request: Request<'_>) -> io::Result<u8> {
         }
         let paths = ConfigPaths::discover().map_err(Failure::from)?;
         let mut storage = Storage::open(&paths.database).map_err(storage_failure)?;
-        let host =
-            tmt_adapters::host::Host::for_caller(&tmt_adapters::host::CallerEnvironment::current());
+        let host = crate::caller_context::host(&tmt_adapters::host::CallerEnvironment::current())?;
         let identity = match crate::identity_context::optional(&mut storage, &host, name)? {
             Some(identity) => identity,
             None => {

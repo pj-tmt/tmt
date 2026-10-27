@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     dispatch::encode_receipt,
-    host::{CallerEnvironment, Host},
+    host::CallerEnvironment,
     request_runtime::wall_time_ms,
     storage::{DispatchError, Storage},
 };
@@ -91,7 +91,7 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
         }
         let originator = identity_context::optional(
             &mut storage,
-            &Host::for_caller(&CallerEnvironment::current()),
+            &crate::caller_context::host(&CallerEnvironment::current())?,
             identity.as_deref(),
         )?
         .map_or(Originator::Unknown, |sender| {

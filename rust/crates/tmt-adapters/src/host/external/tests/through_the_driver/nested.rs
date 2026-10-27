@@ -616,10 +616,16 @@ fn a_failed_cleanup_is_an_error_of_its_own() {
 
 /// The host an ordinary command picks for the caller in `world`: the fake
 /// host's variable, whose driver answers `pane`, and the tmux variables `env`.
-fn ordinary(world: &World, pane: Pane, env: TmuxEnv) -> HostKind {
+/// A selection read that fails to clean up is an error and chooses no host.
+fn ordinary_result(world: &World, pane: Pane, env: TmuxEnv) -> Result<HostKind, HostError> {
     with_caller(pane, env, CALLER, false, |environment, records| {
-        crate::host::Host::for_caller_with_drivers(environment, world.clone(), records).primary
+        crate::host::Host::for_caller_with_drivers(environment, world.clone(), records)
+            .map(|host| host.primary)
     })
+}
+
+fn ordinary(world: &World, pane: Pane, env: TmuxEnv) -> HostKind {
+    ordinary_result(world, pane, env).unwrap()
 }
 
 fn herdr() -> HostKind {
@@ -747,11 +753,6 @@ fn a_driver_in_doubt_keeps_tmux() {
             detached().gone(40),
             Pane::Shell(30),
         ),
-        (
-            "a failed cleanup",
-            detached().unclean("link"),
-            Pane::Shell(30),
-        ),
         // One pane process has one host, so the fallback keeps tmux.
         ("both hosts name one pane", tmux_in_herdr(), Pane::Shell(30)),
     ] {
@@ -833,17 +834,18 @@ fn an_ordinary_command_named_by_one_host_or_none_reads_no_pinned_chain() {
         process_id: CALLER,
         driver_env: Default::default(),
     };
-    let host = crate::host::Host::for_caller_with_drivers(&caller, world.clone(), Vec::new());
+    let host =
+        crate::host::Host::for_caller_with_drivers(&caller, world.clone(), Vec::new()).unwrap();
     assert_eq!(host.primary, HostKind::Tmux);
     assert_eq!(world.calls(), Vec::<String>::new());
 }
 
-/// Discovery's selection (#4063): a read that fails to clean up, plain or
-/// nested, is an error that chooses no host, and no inventory or tmux scan
-/// follows it. The same world without the fault admits the fake host; an
-/// ordinary command keeps its fallback to tmux (#3920).
+/// Host selection (#4063, #4449): a read that fails to clean up, plain or
+/// nested, is an error that chooses no host, for discovery and for an ordinary
+/// command alike, and no inventory or tmux scan follows it. The same world
+/// without the fault admits the fake host.
 #[test]
-fn a_failed_cleanup_in_discovery_selection_chooses_no_host() {
+fn a_failed_cleanup_in_host_selection_chooses_no_host() {
     let select = |world: &World, env: TmuxEnv| {
         with_caller(
             Pane::Shell(30),
@@ -878,10 +880,25 @@ fn a_failed_cleanup_in_discovery_selection_chooses_no_host() {
                 || call.starts_with("tmux list-panes")),
             "{read}: {calls:?}"
         );
+        // An ordinary command no longer falls back to tmux: a process the read
+        // started may still be running, so tmux would be a guess.
         assert_eq!(
-            ordinary(&herdr_in_tmux().unclean(read), Pane::Shell(30), env),
-            HostKind::Tmux,
+            ordinary(&herdr_in_tmux(), Pane::Shell(30), env),
+            herdr(),
             "{read}"
+        );
+        let world = herdr_in_tmux().unclean(read);
+        let result = ordinary_result(&world, Pane::Shell(30), env);
+        assert!(
+            matches!(&result, Err(error) if error.cleanup_failed()),
+            "{read}: {result:?}"
+        );
+        let calls = world.calls();
+        assert!(
+            !calls.iter().any(|call| call == "driver server"
+                || call == "driver snapshot"
+                || call.starts_with("tmux list-panes")),
+            "{read}: {calls:?}"
         );
     }
 }

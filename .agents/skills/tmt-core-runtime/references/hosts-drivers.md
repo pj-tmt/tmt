@@ -161,7 +161,11 @@ channels and the driver protocol. The owner map is in
   the entries up to an external pane before it wins. Unlike a hook it keeps its fallback:
   driver doubt, an ancestry that can't be pinned (a reused pid), both hosts naming one pane
   process, a changed entry, or the shared 1 s budget running out keep tmux, and tmux doubt
-  (a stale or partial tmux environment) counts as no tmux pane.
+  (a stale or partial tmux environment) counts as no tmux pane. The one exception is a
+  selection read that fails to clean up: a process it started may still be running, so tmux
+  would be a guess. `Host::for_caller*` return that error, every ordinary command reports it
+  through `caller_context::host` as `CLEANUP_ERROR` (nothing ran; running again is safe), and
+  only the best-effort workspace refresh and `context` observation ignore it.
   The tmux pane check waits 1 s (`OPERATION_TIMEOUT`); `name`, `whoami`, `unbind` and
   `ls --here` (`binding_command::labeled_caller_pane` through `Host::caller_pane_required`)
   wait 5 s once, no retry, when `TMUX` and `TMUX_PANE` both name a pane. A late tmux there

@@ -88,7 +88,8 @@ mod tests {
                 driver_env: Default::default(),
             },
             runner.clone(),
-        );
+        )
+        .unwrap();
         let error = host
             .resolve_target("10.3", OperationOptions::default())
             .unwrap_err();

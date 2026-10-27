@@ -2,7 +2,8 @@
 //! the caller, in either order. One pinned ancestry orders both hosts'
 //! panes, and the nearest located pane owns the caller. A hook refuses on
 //! doubt and never falls back to the other host (#3583); an ordinary
-//! command keeps its fallback to tmux (#3920).
+//! command keeps its fallback to tmux (#3920) on doubt, but not when a
+//! selection read fails to clean up (#4449): that is an error.
 
 use super::{CallerEnvironment, ExternalCaller, Host, HostError, external::Callers};
 use crate::process::{CommandError, CommandRunner, ancestry, runtime::observe_starts};

@@ -10,7 +10,7 @@ use std::{
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     extension_hooks,
-    host::{CallerEnvironment, Host, OperationOptions},
+    host::{CallerEnvironment, OperationOptions},
     notes,
     storage::Storage,
 };
@@ -30,7 +30,9 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
 fn observe() -> Option<serde_json::Value> {
     crate::caller_context::require_independent_host().ok()?;
     let environment = CallerEnvironment::current();
-    let host = Host::for_caller(&environment);
+    // Optional context: a selection that cannot clean up leaves the line out
+    // rather than failing the command that asked for it.
+    let host = crate::caller_context::host(&environment).ok()?;
     let pane = host.caller_pane(&environment).ok()??;
     let snapshot = host
         .observe_snapshot(OperationOptions {

@@ -1140,7 +1140,7 @@ fn a_captured_caller_socket_is_the_only_server_used_by_its_host() {
             .into_bytes(),
         vec![],
     );
-    let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+    let host = crate::host::Host::for_caller_with(&caller, runner.clone()).unwrap();
     assert_eq!(
         host.resolve_target("1.0", OperationOptions::default())
             .unwrap()
@@ -1199,7 +1199,7 @@ fn malformed_captured_caller_sockets_never_reach_a_server() {
             tmux: Some(tmux),
             ..full_environment()
         };
-        let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+        let host = crate::host::Host::for_caller_with(&caller, runner.clone()).unwrap();
         assert!(
             host.resolve_target("1.0", OperationOptions::default())
                 .is_err()
@@ -1219,7 +1219,7 @@ fn an_absent_captured_caller_socket_keeps_default_selection() {
             pane: None,
             ..full_environment()
         };
-        let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+        let host = crate::host::Host::for_caller_with(&caller, runner.clone()).unwrap();
         assert_eq!(
             host.resolve_target("1.0", OperationOptions::default())
                 .unwrap()
@@ -1249,7 +1249,7 @@ fn a_captured_caller_socket_failure_has_no_ambient_fallback() {
         tmux: Some(format!("{socket},321,0").into()),
         ..full_environment()
     };
-    let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+    let host = crate::host::Host::for_caller_with(&caller, runner.clone()).unwrap();
     assert!(
         host.resolve_target("1.0", OperationOptions::default())
             .is_err()
@@ -1279,7 +1279,7 @@ fn an_explicit_workspace_socket_overrides_the_captured_caller() {
             format!("0{}work\n", evidence::SEPARATOR).into_bytes(),
             vec![],
         );
-        let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+        let host = crate::host::Host::for_caller_with(&caller, runner.clone()).unwrap();
         assert_eq!(
             host.workspace_session_names(socket, Instant::now() + Duration::from_secs(1))
                 .unwrap(),

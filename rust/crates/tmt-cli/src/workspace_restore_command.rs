@@ -764,7 +764,8 @@ mod tests {
             pane: None,
             process_id: 10,
             driver_env: Default::default(),
-        });
+        })
+        .unwrap();
         let skipped = revive(
             &paths,
             &saved,
@@ -917,7 +918,8 @@ mod tests {
             pane: None,
             process_id: 10,
             driver_env: Default::default(),
-        });
+        })
+        .unwrap();
         let layout = workspace::restore::LayoutRestore::default();
         let revived = revive(
             &paths,
