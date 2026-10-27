@@ -48,6 +48,13 @@ test('partial and unknown cleanup errors preserve the page message', async ({ pa
   }
 });
 
+test('known attachment allocation is shown without an unused or expiry claim', async ({ page }) => {
+  await page.goto('/test/command-browser.html?storage&history=current&storage-known');
+  const section = page.getByRole('region', { name: 'Storage on this Mac' });
+  await expect(section.getByText('6.1 MB', { exact: true })).toBeVisible();
+  await expect(section.getByText(/unused|removed after 30 days/)).toHaveCount(0);
+});
+
 test('skipped pages are read-only and report no new history', async ({ page }) => {
   await page.goto('/test/command-browser.html?storage&history=current&storage-skipped');
   const dialog = page.getByRole('dialog');

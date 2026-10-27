@@ -47,7 +47,7 @@ const storage = params.has('storage')
           contentBytes: 118000,
           historyBytes: cleaned ? 300000 : 4200000,
           commentsBytes: 84000,
-          attachmentsBytes: null,
+          attachmentsBytes: params.has('storage-known') ? 6100000 : null,
           unusedAttachmentBytes: null,
           totalBytes: null,
           freeable: { history: cleaned || params.has('storage-skipped') ? 0 : 3900000, files: 0 },
