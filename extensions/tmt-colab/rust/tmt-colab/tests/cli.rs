@@ -4330,6 +4330,32 @@ fn writing_the_source_a_page_already_has_publishes_nothing_offline_and_serving()
         }
     }
 }
+fn read_publication_request(client: &mut UnixStream) -> Vec<u8> {
+    let mut request = Vec::new();
+    let mut chunk = [0; 65536];
+    let body_start = loop {
+        let n = client.read(&mut chunk).unwrap();
+        assert!(n > 0, "publication request ended before its complete frame");
+        request.extend_from_slice(&chunk[..n]);
+        if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+            break end + 4;
+        }
+    };
+    let head = String::from_utf8_lossy(&request[..body_start]).to_lowercase();
+    let length: usize = head
+        .lines()
+        .find_map(|l| l.strip_prefix("content-length: "))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    while request.len() < body_start + length {
+        let n = client.read(&mut chunk).unwrap();
+        assert!(n > 0, "publication request ended before its complete frame");
+        request.extend_from_slice(&chunk[..n]);
+    }
+    request
+}
 /// Stands in the serve socket's place and forwards each request to the real server, so a test
 /// can lose the reply (or the request) the way a dying connection would.
 struct Interposer {
@@ -4348,27 +4374,7 @@ impl Interposer {
         let target = real.clone();
         let thread = thread::spawn(move || {
             let (mut client, _) = listener.accept().unwrap();
-            let mut request = Vec::new();
-            let mut chunk = [0; 65536];
-            let body_start = loop {
-                let n = client.read(&mut chunk).unwrap();
-                request.extend_from_slice(&chunk[..n]);
-                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
-                    break end + 4;
-                }
-            };
-            let head = String::from_utf8_lossy(&request[..body_start]).to_lowercase();
-            let length: usize = head
-                .lines()
-                .find_map(|l| l.strip_prefix("content-length: "))
-                .unwrap()
-                .trim()
-                .parse()
-                .unwrap();
-            while request.len() < body_start + length {
-                let n = client.read(&mut chunk).unwrap();
-                request.extend_from_slice(&chunk[..n]);
-            }
+            let request = read_publication_request(&mut client);
             if forward {
                 let mut server = UnixStream::connect(target).unwrap();
                 server.write_all(&request).unwrap();
@@ -11653,110 +11659,619 @@ fn page_edit_lock_cli_replaces_and_unlocks_and_stale_requires_observed_nonactive
     assert_eq!(bad["error"]["code"], "COLAB_INPUT_INVALID");
 }
 
+fn durable_page_locks(pilot: &Pilot, page: &str) -> Vec<tmt_colab::edit_lock::Action> {
+    use tmt_colab::{
+        decoder::Decoder,
+        keyring::{Keyring, Layout},
+        store::Store,
+    };
+    let layout = Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+    let locks = tmt_colab::edit_locks::read(&store, &key, page, &mut decoder)
+        .unwrap()
+        .locks;
+    store.close().unwrap();
+    locks
+}
+
 #[test]
-fn holder_patch_releases_only_its_overlapping_lock_after_saved_source_and_preserves_failed_patch_lock()
- {
+fn holder_patch_releases_a_disjoint_quote_in_the_same_list_item_only_after_success() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);
-        let source = "<h1>Project notes</h1>\n<p>Alpha passage</p>\n<p>Beta passage</p>";
+        let source = "<ul><li><b>System search:</b> Alpha passage</li></ul>";
         fs::write(pilot.root.join("source.html"), source).unwrap();
-        let run = |pilot: &Pilot, args: &[&str]| {
-            let output = pilot.command().args(args).output().unwrap();
-            let value: Value = serde_json::from_slice(&output.stdout)
-                .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&output.stderr)));
-            (output.status.success(), value)
-        };
-        let (ok, created) = run(
-            &pilot,
-            &[
-                "page",
-                "create",
-                "--title",
-                "Patch lock",
-                "--layout",
-                "column",
-                "--file",
-                pilot.root.join("source.html").to_str().unwrap(),
-                "--no-open",
-                "--json",
-            ],
-        );
-        assert!(ok, "{created}");
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Patch lock",
+            "--layout",
+            "column",
+            "--file",
+            pilot.root.join("source.html").to_str().unwrap(),
+            "--no-open",
+            "--json",
+        ]);
         let page = created["pageId"].as_str().unwrap();
         if serving {
             pilot.start();
         }
-        let (ok, locked) = run(
-            &pilot,
-            &["page", "lock", page, "--find", "Alpha passage", "--json"],
-        );
-        assert!(ok, "{locked}");
+        let locked = pilot.call(&[
+            "page",
+            "lock",
+            page,
+            "--find",
+            "<b>System search:</b>",
+            "--json",
+        ]);
         let lock = locked["locks"][0]["lockId"].as_str().unwrap();
-        let (ok, outside) = run(
-            &pilot,
-            &[
-                "page",
-                "patch",
-                page,
-                "--find",
-                "Beta passage",
-                "--replace",
-                "Gamma passage",
-                "--json",
-            ],
-        );
-        assert!(ok, "{outside}");
-        assert!(outside.get("lockRelease").is_none());
-        let (ok, failed) = run(
-            &pilot,
-            &[
-                "page",
-                "patch",
-                page,
-                "--find",
-                "missing",
-                "--replace",
-                "no",
-                "--json",
-            ],
-        );
-        assert!(!ok);
+        let patch = |find: &str, replace: &str| {
+            let output = pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .args([
+                    "page",
+                    "patch",
+                    page,
+                    "--find",
+                    find,
+                    "--replace",
+                    replace,
+                    "--json",
+                ])
+                .output()
+                .unwrap();
+            (
+                output.status.success(),
+                serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+            )
+        };
+        let (ok, failed) = patch("missing", "no");
+        assert!(!ok, "{failed}");
         assert_eq!(failed["error"]["code"], "COLAB_PATCH_CONFLICT");
-        let (ok, read) = run(&pilot, &["page", "read", page, "--json"]);
-        assert!(ok);
-        assert_eq!(read["editLocks"][0]["lockId"], lock);
-        let (ok, patched) = run(
-            &pilot,
-            &[
-                "page",
-                "patch",
-                page,
-                "--find",
-                "Alpha passage",
-                "--replace",
-                "Delta passage",
-                "--json",
-            ],
-        );
+        let kept = durable_page_locks(&pilot, page);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].lock_id, lock);
+        assert!(!kept[0].released);
+        let (ok, patched) = patch("Alpha passage", "Beta passage");
         assert!(ok, "{patched}");
+        assert_eq!(patched["lockRelease"]["confirmed"], true);
         assert_eq!(patched["lockRelease"]["released"], json!([lock]));
         assert!(patched["lockRelease"].get("warning").is_none());
         assert_ne!(
             patched["operationId"],
             patched["lockRelease"]["operationId"]
         );
-        let (ok, read) = run(&pilot, &["page", "read", page, "--json"]);
-        assert!(ok);
+        let released = durable_page_locks(&pilot, page);
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].lock_id, lock);
+        assert!(released[0].released);
+        let read = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(read["source"], source.replace("Alpha", "Beta"));
         assert!(read.get("editLocks").is_none());
-        assert_eq!(
-            read["source"],
-            source.replace("Alpha", "Delta").replace("Beta", "Gamma")
-        );
         assert_eq!(read["revision"], patched["revision"]);
         if serving {
             pilot.stop();
         }
     }
+}
+
+#[test]
+fn agent_patch_auto_lock_publishes_acquisition_before_content_and_release_after_commit() {
+    for serving in [false, true] {
+        for form in [
+            "find",
+            "find-file",
+            "lines",
+            "diff",
+            "long-find",
+            "pairs",
+            "noop",
+        ] {
+            let mut pilot = Pilot::new(None);
+            let find = if form == "long-find" {
+                "x".repeat(tmt_colab::limits::COMMENT_BODY_BYTES + 1)
+            } else {
+                "Before".into()
+            };
+            let source = format!("<p>{find}</p>\n<p>Elsewhere</p>\n");
+            fs::write(pilot.root.join("source.html"), &source).unwrap();
+            let created = pilot.call(&[
+                "page",
+                "create",
+                "--title",
+                "Auto lock",
+                "--layout",
+                "column",
+                "--file",
+                pilot.root.join("source.html").to_str().unwrap(),
+                "--no-open",
+                "--json",
+            ]);
+            let page = created["pageId"].as_str().unwrap();
+            if serving {
+                pilot.start();
+            }
+            // Identity observation is an existing seam before content preparation. Read through
+            // the real CLI there with the original fixture core, so no recursive wrapper or timer.
+            let wrapper = pilot.root.join("core-lock-observer");
+            let captured = pilot.root.join("before-content.json");
+            let script = format!(
+                r#"#!/bin/sh
+if [ "$1 $2 $3" = 'identity show --json' ]; then
+TMT_EXECUTABLE={core} {binary} page read {page} --json > {captured} || exit 9
+fi
+exec {core} "$@"
+"#,
+                core = quote(pilot.root.join("core").to_str().unwrap()),
+                binary = quote(BINARY),
+                page = quote(page),
+                captured = quote(captured.to_str().unwrap())
+            );
+            tmt_test_support::write_executable(&wrapper, script.as_bytes(), 0o700).unwrap();
+            let mut args = vec![
+                "page".to_owned(),
+                "patch".into(),
+                page.into(),
+                "--json".into(),
+            ];
+            match form {
+                "lines" => {
+                    let read = pilot.call(&["page", "read", page, "--lines", "1:1", "--json"]);
+                    fs::write(pilot.root.join("replacement"), "<p>After</p>\n").unwrap();
+                    args.extend([
+                        "--lines".into(),
+                        "1:1".into(),
+                        "--range-sha256".into(),
+                        read["rangeSha256"].as_str().unwrap().into(),
+                        "--file".into(),
+                        pilot.root.join("replacement").display().to_string(),
+                    ]);
+                }
+                "diff" => {
+                    fs::write(
+                        pilot.root.join("patch.diff"),
+                        "@@ -1 +1 @@\n-<p>Before</p>\n+<p>After</p>\n",
+                    )
+                    .unwrap();
+                    args.extend([
+                        "--diff".into(),
+                        pilot.root.join("patch.diff").display().to_string(),
+                    ]);
+                }
+                "find-file" => {
+                    fs::write(pilot.root.join("find"), &find).unwrap();
+                    args.extend([
+                        "--find-file".into(),
+                        pilot.root.join("find").display().to_string(),
+                        "--replace".into(),
+                        "After".into(),
+                    ]);
+                }
+                _ => {
+                    args.extend([
+                        "--find".into(),
+                        find.clone(),
+                        "--replace".into(),
+                        if form == "noop" {
+                            find.clone()
+                        } else {
+                            "After".into()
+                        },
+                    ]);
+                    if form == "pairs" {
+                        args.extend([
+                            "--find".into(),
+                            "Elsewhere".into(),
+                            "--replace".into(),
+                            "Also changed".into(),
+                        ]);
+                    }
+                }
+            }
+            // A caller's revision remains valid through this command's own acquisition.
+            let before = pilot.call(&["page", "read", page, "--json"]);
+            args.extend([
+                "--expected-revision".into(),
+                before["revision"].as_str().unwrap().into(),
+            ]);
+            let output = pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .env("TMT_EXECUTABLE", wrapper)
+                .args(&args)
+                .output()
+                .unwrap();
+            let saved: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert!(output.status.success(), "{form}/{serving}: {saved}");
+            let acquired: Value = serde_json::from_slice(&fs::read(captured).unwrap()).unwrap();
+            assert_eq!(acquired["source"], source);
+            let lock = &acquired["editLocks"][0];
+            assert_eq!(lock["released"], false, "{acquired}");
+            if matches!(form, "find" | "find-file" | "noop") {
+                assert_eq!(lock["target"]["exact"], find);
+            } else {
+                assert_eq!(lock["target"], json!({"whole":true}));
+            }
+            assert_eq!(saved["lockRelease"]["confirmed"], true);
+            assert_eq!(saved["lockRelease"]["released"], json!([lock["lockId"]]));
+            let released = durable_page_locks(&pilot, page);
+            assert_eq!(released.len(), 1);
+            assert!(released[0].released);
+            assert_eq!(released[0].lock_id, lock["lockId"].as_str().unwrap());
+            assert_eq!(released[0].revision, "2");
+            let read = pilot.call(&["page", "read", page, "--json"]);
+            let expected = source.replace(&find, if form == "noop" { &find } else { "After" });
+            assert_eq!(saved["changed"], form != "noop");
+            assert_eq!(
+                read["source"],
+                if form == "pairs" {
+                    expected.replace("Elsewhere", "Also changed")
+                } else {
+                    expected
+                }
+            );
+            assert_eq!(read["revision"], saved["revision"]);
+            if serving {
+                pilot.stop();
+            }
+        }
+    }
+}
+
+#[test]
+fn agent_patch_auto_lock_is_visible_during_evaluation_and_released_when_evaluation_fails() {
+    for strict in [false, true] {
+        let mut pilot = Pilot::new(None);
+        fs::write(pilot.root.join("source.html"), "<p>Before</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Failed patch lock",
+            "--layout",
+            "column",
+            "--file",
+            pilot.root.join("source.html").to_str().unwrap(),
+            "--no-open",
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        pilot.start();
+        let path = pilot.root.join("selected/colab/door.sock");
+        let real = pilot.root.join("selected/colab/real.sock");
+        fs::rename(&path, &real).unwrap();
+        let listener = UnixListener::bind(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let mut observe = pilot.command();
+        observe.args(["page", "read", page, "--json"]);
+        let observer = thread::spawn(move || {
+            let (mut client, _) = listener.accept().unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request = read_publication_request(&mut client);
+            let mut server = UnixStream::connect(&real).unwrap();
+            server
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            server.write_all(&request).unwrap();
+            server.shutdown(std::net::Shutdown::Write).unwrap();
+            let mut reply = Vec::new();
+            server.read_to_end(&mut reply).unwrap();
+            assert!(reply.starts_with(b"HTTP/1.1 200"));
+            // Acquisition is committed, but its reply has not reached the patch. This
+            // real read therefore observes the lock before evaluation can begin.
+            let output = observe.output().unwrap();
+            assert!(output.status.success());
+            let acquired: Value = serde_json::from_slice(&output.stdout).unwrap();
+            fs::remove_file(&path).unwrap();
+            fs::rename(&real, &path).unwrap();
+            client.write_all(&reply).unwrap();
+            acquired
+        });
+        let dirty = dirty_page();
+        let mut command = pilot.command();
+        command.env("TMT_AGENT", "1").args([
+            "page",
+            "patch",
+            page,
+            "--find",
+            if strict { "Before" } else { "missing" },
+            "--replace",
+            if strict { &dirty } else { "no" },
+            "--json",
+        ]);
+        if strict {
+            command.arg("--strict");
+        }
+        let output = command.output().unwrap();
+        let acquired = observer.join().unwrap();
+        let failed: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(!output.status.success(), "{failed}");
+        assert_eq!(
+            failed["error"]["code"],
+            if strict {
+                "COLAB_PAGE_CHECK"
+            } else {
+                "COLAB_PATCH_CONFLICT"
+            }
+        );
+        if strict {
+            assert!(!failed["findings"].as_array().unwrap().is_empty());
+        }
+        let lock = &acquired["editLocks"][0];
+        assert_eq!(lock["released"], false);
+        assert_eq!(lock["revision"], "1");
+        assert_eq!(acquired["source"], "<p>Before</p>");
+        let released = durable_page_locks(&pilot, page);
+        assert_eq!(released.len(), 1);
+        assert!(released[0].released);
+        assert_eq!(released[0].revision, "2");
+        assert_eq!(released[0].lock_id, lock["lockId"].as_str().unwrap());
+        assert_eq!(
+            pilot.call(&["page", "read", page, "--json"])["source"],
+            "<p>Before</p>"
+        );
+        // The same failure must preserve a lock announced before this command.
+        let explicit = pilot.call(&["page", "lock", page, "--whole", "--json"]);
+        let mut command = pilot.command();
+        command.env("TMT_AGENT", "1").args([
+            "page",
+            "patch",
+            page,
+            "--find",
+            if strict { "Before" } else { "missing" },
+            "--replace",
+            if strict { &dirty } else { "no" },
+            "--json",
+        ]);
+        if strict {
+            command.arg("--strict");
+        }
+        let output = command.output().unwrap();
+        let failed: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(!output.status.success(), "{failed}");
+        assert_eq!(
+            failed["error"]["code"],
+            if strict {
+                "COLAB_PAGE_CHECK"
+            } else {
+                "COLAB_PATCH_CONFLICT"
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(durable_page_locks(&pilot, page)).unwrap(),
+            explicit["locks"]
+        );
+        assert_eq!(
+            pilot.call(&["page", "read", page, "--json"])["source"],
+            "<p>Before</p>"
+        );
+        pilot.stop();
+    }
+}
+
+#[test]
+fn agent_patch_reports_failed_automatic_cleanup_without_hiding_the_original_error() {
+    for json_output in [false, true] {
+        let mut pilot = Pilot::new(None);
+        fs::write(pilot.root.join("source.html"), "<p>Before</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Cleanup failure",
+            "--layout",
+            "column",
+            "--file",
+            pilot.root.join("source.html").to_str().unwrap(),
+            "--no-open",
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        pilot.start();
+        let path = pilot.root.join("selected/colab/door.sock");
+        let real = pilot.root.join("selected/colab/displaced.sock");
+        let wrapper = pilot.root.join("core-displace-socket");
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1 $2 $3" = 'identity show --json' ]; then
+if [ -f {observed} ] && [ ! -f {displaced} ]; then
+: > {displaced}
+mv {path} {real} || exit 9
+fi
+: > {observed}
+fi
+exec {core} "$@"
+"#,
+            core = quote(pilot.root.join("core").to_str().unwrap()),
+            path = quote(path.to_str().unwrap()),
+            real = quote(real.to_str().unwrap()),
+            observed = quote(pilot.root.join("observed").to_str().unwrap()),
+            displaced = quote(pilot.root.join("displaced").to_str().unwrap())
+        );
+        tmt_test_support::write_executable(&wrapper, script.as_bytes(), 0o700).unwrap();
+        let mut command = pilot.command();
+        command
+            .env("TMT_AGENT", "1")
+            .env("TMT_EXECUTABLE", wrapper)
+            .args([
+                "page",
+                "patch",
+                page,
+                "--find",
+                "Before",
+                "--replace",
+                "After",
+            ]);
+        if json_output {
+            command.arg("--json");
+        }
+        let output = command.output().unwrap();
+        fs::rename(real, path).unwrap();
+        assert!(!output.status.success());
+        let kept = durable_page_locks(&pilot, page);
+        assert_eq!(kept.len(), 1);
+        assert!(!kept[0].released);
+        let unlock = format!("tmt colab page unlock {page} {}", kept[0].lock_id);
+        let message = if json_output {
+            let failed: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(failed["error"]["code"], "COLAB_UNAVAILABLE");
+            assert_eq!(failed["lockRelease"]["confirmed"], false);
+            assert_eq!(failed["lockRelease"]["released"], json!([]));
+            assert!(
+                failed["lockRelease"]["warning"]
+                    .as_str()
+                    .unwrap()
+                    .contains(&unlock)
+            );
+            failed["error"]["message"].as_str().unwrap().to_owned()
+        } else {
+            String::from_utf8(output.stderr).unwrap()
+        };
+        assert!(message.contains("no offline fallback"), "{message}");
+        assert!(
+            message.contains("automatic lock release was not confirmed"),
+            "{message}"
+        );
+        assert!(message.contains(&unlock), "{message}");
+        assert!(message.contains("Do not repeat the patch"), "{message}");
+        assert_eq!(
+            pilot.call(&["page", "read", page, "--json"])["source"],
+            "<p>Before</p>"
+        );
+        pilot.stop();
+    }
+}
+
+#[test]
+fn agent_patch_auto_lock_refuses_stale_input_and_never_replays_an_uncertain_acquisition() {
+    let mut pilot = Pilot::new(None);
+    fs::write(pilot.root.join("source.html"), "<p>Before</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Acquisition failure",
+        "--layout",
+        "column",
+        "--file",
+        pilot.root.join("source.html").to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let before = pilot.call(&["page", "read", page, "--json"]);
+    let args = [
+        "page",
+        "patch",
+        page,
+        "--find",
+        "Before",
+        "--replace",
+        "After",
+        "--json",
+    ];
+    let stale = format!("v1:{}", "0".repeat(64));
+    let output = pilot
+        .command()
+        .env("TMT_AGENT", "1")
+        .args(args)
+        .args(["--expected-revision", &stale])
+        .output()
+        .unwrap();
+    let refused: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(!output.status.success(), "{refused}");
+    assert_eq!(refused["error"]["code"], "COLAB_STALE_BASE");
+    assert_eq!(pilot.call(&["page", "read", page, "--json"]), before);
+    assert!(durable_page_locks(&pilot, page).is_empty());
+    pilot.start();
+    // The existing interposer drops the first request without forwarding it. The
+    // lost automatic acquisition must stop the command, never fall back to local
+    // publication or proceed to content while the real serving writer is available.
+    let interposer = Interposer::start(&pilot, false);
+    let output = pilot
+        .command()
+        .env("TMT_AGENT", "1")
+        .args(args)
+        .output()
+        .unwrap();
+    interposer.finish();
+    let unknown: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(!output.status.success(), "{unknown}");
+    assert_eq!(unknown["error"]["code"], "COLAB_OUTCOME_UNKNOWN");
+    assert!(
+        unknown["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("operation ")
+    );
+    assert_eq!(pilot.call(&["page", "read", page, "--json"]), before);
+    assert!(durable_page_locks(&pilot, page).is_empty());
+    pilot.stop();
+}
+
+#[test]
+fn agent_patch_keeps_source_and_its_disjoint_lock_when_caller_observation_is_lost() {
+    let pilot = Pilot::new(None);
+    fs::write(pilot.root.join("source.html"), "<p>Locked</p><p>Before</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Lost caller",
+        "--layout",
+        "column",
+        "--file",
+        pilot.root.join("source.html").to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let locked = pilot.call(&["page", "lock", page, "--find", "Locked", "--json"]);
+    let wrapper = pilot.root.join("core-lost-caller");
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1 $2 $3" = 'identity show --json' ]; then
+if [ -f {observed} ]; then exit 9; fi
+: > {observed}
+fi
+exec {core} "$@"
+"#,
+        core = quote(pilot.root.join("core").to_str().unwrap()),
+        observed = quote(pilot.root.join("caller-observed").to_str().unwrap())
+    );
+    tmt_test_support::write_executable(&wrapper, script.as_bytes(), 0o700).unwrap();
+    let output = pilot
+        .command()
+        .env("TMT_AGENT", "1")
+        .env("TMT_EXECUTABLE", wrapper)
+        .args([
+            "page",
+            "patch",
+            page,
+            "--find",
+            "Before",
+            "--replace",
+            "After",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    let refused: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(!output.status.success(), "{refused}");
+    assert_eq!(refused["error"]["code"], "COLAB_IDENTITY_REQUIRED");
+    assert_eq!(
+        pilot.call(&["page", "read", page, "--json"])["source"],
+        "<p>Locked</p><p>Before</p>"
+    );
+    let kept = durable_page_locks(&pilot, page);
+    assert_eq!(serde_json::to_value(kept).unwrap(), locked["locks"]);
 }
 
 #[test]
@@ -12004,7 +12519,17 @@ fn agent_patch_refuses_foreign_overlap_but_people_disjoint_and_noop_edits_procee
         );
         let after = pilot.call(&["page", "read", page, "--json"]);
         assert_eq!(after["source"], source);
-        assert_eq!(after["revision"], before["revision"]);
+        assert_ne!(after["revision"], before["revision"]);
+        assert_eq!(after["editLocks"], before["editLocks"]);
+        // The public presence fixture lists only the foreign holder, so its read
+        // projection hides this local caller. Verify acquisition in durable state.
+        let locks = durable_page_locks(&pilot, page);
+        assert_eq!(locks.len(), 2);
+        let own = serde_json::to_value(&locks[1]).unwrap();
+        assert_eq!(own["holder"]["id"], "50000000-0000-1000-8000-000000000002");
+        assert_eq!(own["target"]["exact"], "Alpha passage");
+        assert_eq!(own["released"], true);
+        assert_eq!(own["revision"], "2");
         assert_eq!(after["editLocks"][0]["lockId"], lock_id);
         let (ok, noop) = patch("Alpha passage", "Alpha passage", true);
         assert!(ok, "{noop}");
@@ -12191,8 +12716,15 @@ exec {core} "$@"
             .unwrap();
     let read = pilot.call(&["page", "read", page, "--json"]);
     assert_eq!(read["source"], "<p>Before</p><p>Elsewhere</p>");
-    assert_eq!(read["revision"], locked["revision"]);
-    assert_eq!(read["editLocks"][0]["lockId"], locked["locks"][0]["lockId"]);
+    assert_ne!(read["revision"], locked["revision"]);
+    assert_eq!(read["editLocks"].as_array().unwrap().len(), 1);
+    assert_eq!(read["editLocks"][0], locked["locks"][0]);
+    let locks = durable_page_locks(&pilot, page);
+    assert_eq!(locks.len(), 2);
+    let own = serde_json::to_value(&locks[1]).unwrap();
+    assert_eq!(own["holder"]["id"], "50000000-0000-1000-8000-000000000002");
+    assert_eq!(own["released"], true);
+    assert_eq!(own["revision"], "2");
 }
 
 #[test]

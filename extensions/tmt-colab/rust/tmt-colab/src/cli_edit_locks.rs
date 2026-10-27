@@ -27,7 +27,7 @@ const LOCK: CommandSpec = CommandSpec {
         note: "Lock the exact passage before a multi-step edit",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Publishes a signed identity-bound advisory edit lock. Give --find TEXT (one exact source passage) or --whole. One identity has one effective lock per page; a new lock replaces its previous target. The holder's overlapping patch releases it after the content commits. Offline or ended holder presence hides a lock, unknown presence keeps it. A missing local-writer holder is retired; an absent foreign holder stays unknown. People are never blocked. Locks do not expire, open a browser or dispatch requests.",
+    details: "Publishes a signed identity-bound advisory edit lock. Give --find TEXT (one exact source passage) or --whole. One identity has one effective lock per page; a new lock replaces its previous target. The holder's successful patch on this page releases it after the content commits; a failed patch keeps this explicitly announced lock. Offline or ended holder presence hides a lock, unknown presence keeps it. A missing local-writer holder is retired; an absent foreign holder stays unknown. People are never blocked. Locks do not expire, open a browser or dispatch requests.",
 };
 const UNLOCK: CommandSpec = CommandSpec {
     name: "unlock",
@@ -296,6 +296,74 @@ pub fn run(root: &Path, mode: &str, args: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
+pub struct PatchAcquisition {
+    pub revision: String,
+    pub lock_id: String,
+}
+
+/// Announce an agent's edit before evaluating it. A caller-supplied revision is checked
+/// before this own publication; the returned revision fences its confirmed acquisition.
+pub fn acquire_patch(
+    layout: &Layout,
+    key: &Keyring,
+    page: &str,
+    patch: &page::patch::Patch,
+    expected: Option<&str>,
+    decoder: &mut Decoder,
+) -> Result<Option<PatchAcquisition>> {
+    if !is_agent() {
+        return Ok(None);
+    }
+    let store = Store::read(layout)?;
+    let view = edit_locks::read(&store, key, page, decoder);
+    let closed = store.close();
+    let view = view?;
+    closed?;
+    if expected.is_some_and(|expected| expected != view.revision) {
+        return Err(Fault::StaleBase.into());
+    }
+    let holder = caller()?;
+    if view
+        .locks
+        .iter()
+        .any(|lock| !lock.released && lock.holder.id == holder.id)
+    {
+        return Ok(None);
+    }
+    // A single named find is already the quote. Several pairs, line ranges, diffs,
+    // and quotes over the existing byte bound use the conservative whole-page target.
+    let target = match patch {
+        page::patch::Patch::Replace(pairs)
+            if pairs.len() == 1
+                && !pairs[0].0.is_empty()
+                && pairs[0].0.len() <= tmt_colab::limits::COMMENT_BODY_BYTES =>
+        {
+            Target::Quote(QuoteSelector {
+                exact: pairs[0].0.clone(),
+                prefix: String::new(),
+                suffix: String::new(),
+            })
+        }
+        _ => Target::Whole(Whole { whole: true }),
+    };
+    let (actions, receipt) = publish(
+        layout,
+        key,
+        page,
+        &view.revision,
+        &[Change::Acquire { holder, target }],
+        decoder,
+    )?;
+    Ok(receipt.map(|receipt| PatchAcquisition {
+        revision: receipt.revision,
+        lock_id: actions[0].lock_id.clone(),
+    }))
+}
+
+fn is_agent() -> bool {
+    std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty())
+}
+
 /// Capture before committing the source, so a later lock never becomes this patch's cleanup.
 /// Agent patches fence the checked own state as well as source; retries recheck both.
 pub struct PatchLocks {
@@ -311,7 +379,7 @@ pub fn patch_locks(
     decoder: &mut Decoder,
 ) -> Result<PatchLocks> {
     let view = edit_locks::read(store, key, page, decoder)?;
-    let agent = std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty());
+    let agent = is_agent();
     let mut captured = PatchLocks {
         revision: agent.then_some(view.revision),
         release: vec![],
@@ -319,7 +387,11 @@ pub fn patch_locks(
     if !view.locks.iter().any(|lock| !lock.released) {
         return Ok(captured);
     }
-    let holder = core::caller_snapshot().and_then(|caller| caller.agent_id);
+    let holder = if agent {
+        Some(caller()?.id)
+    } else {
+        core::caller_snapshot().and_then(|caller| caller.agent_id)
+    };
     let overlaps = view
         .locks
         .iter()
@@ -355,14 +427,16 @@ pub fn patch_locks(
             }
         }
     }
-    captured.release = overlaps
-        .into_iter()
-        .filter(|lock| holder.as_deref() == Some(lock.holder.id.as_str()))
+    captured.release = view
+        .locks
+        .iter()
+        .filter(|lock| !lock.released && holder.as_deref() == Some(lock.holder.id.as_str()))
+        .filter(|lock| agent || tmt_colab::edit_lock::overlaps(&lock.target, old, new))
         .map(|lock| lock.lock_id.clone())
         .collect();
     Ok(captured)
 }
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchRelease {
     pub confirmed: bool,
@@ -385,23 +459,7 @@ pub fn release_patch(
     if ids.is_empty() {
         return None;
     }
-    let release = (|| -> Result<(Vec<Action>, Option<page::Receipt>)> {
-        let store = Store::read(layout)?;
-        let view = edit_locks::read(&store, key, page, decoder);
-        let closed = store.close();
-        let view = view?;
-        closed?;
-        let changes = view
-            .locks
-            .iter()
-            .filter(|lock| !lock.released && ids.contains(&lock.lock_id))
-            .map(|lock| Change::Release {
-                holder_id: lock.holder.id.clone(),
-                lock_id: lock.lock_id.clone(),
-            })
-            .collect::<Vec<_>>();
-        publish(layout, key, page, &view.revision, &changes, decoder)
-    })();
+    let release = release_ids(layout, key, page, ids, decoder);
     match release {
         Ok((actions, result)) => {
             if let Some(result) = &result {
@@ -427,6 +485,88 @@ pub fn release_patch(
                     .collect::<Vec<_>>()
                     .join("; ")
             )),
+        }),
+    }
+}
+
+/// Releases only captured IDs. Both successful edits and failed command-owned edits
+/// use this owner; replacement locks and uncertain publications are never replayed.
+fn release_ids(
+    layout: &Layout,
+    key: &Keyring,
+    page: &str,
+    ids: &[String],
+    decoder: &mut Decoder,
+) -> Result<(Vec<Action>, Option<page::Receipt>)> {
+    let store = Store::read(layout)?;
+    let view = edit_locks::read(&store, key, page, decoder);
+    let closed = store.close();
+    let view = view?;
+    closed?;
+    let changes = view
+        .locks
+        .iter()
+        .filter(|lock| !lock.released && ids.contains(&lock.lock_id))
+        .map(|lock| Change::Release {
+            holder_id: lock.holder.id.clone(),
+            lock_id: lock.lock_id.clone(),
+        })
+        .collect::<Vec<_>>();
+    publish(layout, key, page, &view.revision, &changes, decoder)
+}
+
+#[derive(Debug)]
+pub struct PatchFailure {
+    pub cause: Box<dyn std::error::Error + Send + Sync>,
+    pub release: PatchRelease,
+}
+impl std::fmt::Display for PatchFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {}",
+            self.cause,
+            self.release.warning.as_deref().unwrap_or_default()
+        )
+    }
+}
+impl std::error::Error for PatchFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cause.as_ref())
+    }
+}
+
+/// Failure unwinds the command's automatic acquisitions only. Keep the original
+/// error and its structured details, adding a recovery warning if cleanup is uncertain.
+pub fn release_failed_patch(
+    layout: &Layout,
+    key: &Keyring,
+    page: &str,
+    ids: &[String],
+    decoder: &mut Decoder,
+    cause: Box<dyn std::error::Error + Send + Sync>,
+) -> Box<dyn std::error::Error + Send + Sync> {
+    if ids.is_empty() {
+        return cause;
+    }
+    match release_ids(layout, key, page, ids, decoder) {
+        Ok(_) => cause,
+        Err(error) => Box::new(PatchFailure {
+            cause,
+            release: PatchRelease {
+                confirmed: false,
+                released: vec![],
+                operation_id: error
+                    .downcast_ref::<page::OutcomeUnknown>()
+                    .map(|error| error.operation_id.clone()),
+                warning: Some(format!(
+                    "The automatic lock release was not confirmed. Read the page, then run {} if its old lock remains. Do not repeat the patch to recover its lock release.",
+                    ids.iter()
+                        .map(|id| format!("`tmt colab page unlock {page} {id}`"))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )),
+            },
         }),
     }
 }

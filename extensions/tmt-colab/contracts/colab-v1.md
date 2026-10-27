@@ -6370,16 +6370,42 @@ identity. `--stale` lets anyone release a holder not observed active, including
 unknown, but requires a successful fresh observation. A selected active holder is
 refused. LOCK is a unique lowercase UUID prefix of at least eight characters.
 
-The holder's successful overlapping `page patch` captures its current lock ID before
-committing content and releases only that ID in a follow-up own publication after
-confirmed content success. Unrelated, failed and no-op patches keep the lock. Whole
-locks cover every source change; quote locks use the existing content hunks, with
-missing or ambiguous quotes conservatively covering the page. If release fails,
+A successful agent `page patch` captures every current lock ID held by its caller
+identity on that page, independently of overlap, and releases only those captured
+IDs in a follow-up own publication after confirmed content success. A successful
+source no-op also completes the edit and releases them. Failed patches keep locks
+held before the command; automatic acquisitions follow the failure cleanup below.
+A later lock is never included in an earlier patch's cleanup. Non-agent
+patches retain the overlapping-holder release behavior. If release fails,
 the content stays saved. JSON includes `lockRelease:{confirmed:false,released:[],warning}`
 and any uncertain release operation ID; the warning gives the exact unlock command
 for the captured ID. Never replay the source patch to recover release. Successful
 release reports `confirmed:true`, released IDs and its publication operation ID;
 the receipt revision includes that follow-up publication.
+
+An agent patch with no unreleased lock for its caller identity on the page first
+publishes a signed acquisition through the existing own-publication path, before
+evaluating the patch or checking its resulting markup. A single `--find` or
+`--find-file` uses that exact text as a quote with empty context; text over the
+existing quote byte limit uses `{whole:true}`. Multiple find/replace pairs,
+`--lines` and `--diff` also use `{whole:true}`.
+The acquisition is independently observable before content commits. Failure or
+uncertainty in acquisition stops evaluation and never replays the publication.
+If evaluation, markup checks or content publication fail, the command makes one
+best-effort release of only the automatic lock IDs it acquired and confirmed.
+Explicit locks held before the command remain in place. Cleanup uses the same
+own-publication path and cannot release a later replacement lock. A cleanup
+failure preserves the original error code and details, adds `lockRelease` with
+`confirmed:false`, and includes the exact unlock command and any uncertain release
+operation ID. Human errors include the same recovery warning. Neither source nor
+release publications are replayed to recover cleanup. A confirmed source success
+uses only the normal post-commit release path, even if printing its result fails.
+
+An explicit `--expected-revision` is checked before acquisition. The confirmed
+acquisition's revision replaces that fence for this command only, so its own lock
+does not invalidate the caller's expected revision. Later changes still refuse
+without retry. Unfenced stale-base retries remain bounded, reread locks and reuse
+the holder's current lock. No uncertain operation is retried.
 
 ### Browser edit-lock overlay (#5294)
 
@@ -6417,9 +6443,9 @@ are never blocked by a lock.
 
 Public presence uses the same lifecycle projection as reads: offline/ended and a
 successfully observed missing local-writer identity hide the lock; unknown,
-foreign-writer absence and failed observations keep it. A refusal writes nothing
-and returns `COLAB_REGION_LOCKED`, naming the holder and locked quote (or whole
-page), with directions to wait for its save, patch another part, or explicitly
+foreign-writer absence and failed observations keep it. A refusal writes no source
+and returns `COLAB_REGION_LOCKED` after attempting automatic-lock cleanup, naming
+the holder and locked quote (or whole page), with directions to wait for its save, patch another part, or explicitly
 `unlock --stale` when the holder is gone before retrying.
 
 The CLI carries the checked lock snapshot's complete revision into content
