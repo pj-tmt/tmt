@@ -145,7 +145,7 @@ fn digest_frame_timing() {
             app.usage_report
                 .apply(crate::board::usage_report::Delivery {
                     since: app.tok_range(),
-                    result: Ok(exchanges.clone()),
+                    result: Ok(exchanges),
                 });
             key(&mut app, KeyCode::Char('2'));
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
@@ -163,7 +163,12 @@ fn digest_frame_timing() {
             // Each immutable receipt then invalidates the existing projection key.
             let mut samples = Vec::new();
             for _ in 0..100 {
-                let next = exchanges.clone();
+                // What production holds: the app's retained report and the acquisition's fresh clone.
+                let next = (*app
+                    .usage_report
+                    .retained_report(app.tok_range())
+                    .expect("the report is retained"))
+                .clone();
                 samples.push(measure(&mut app, &mut terminal, |app, _| {
                     app.usage_report
                         .apply(crate::board::usage_report::Delivery {

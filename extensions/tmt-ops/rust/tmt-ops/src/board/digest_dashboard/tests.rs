@@ -150,6 +150,65 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
     );
 }
 
+fn empty_report() -> crate::board::usage_report::Report {
+    crate::board::usage_report::Report {
+        since: crate::config::TokRange::default(),
+        observed_at_ms: 1,
+        window_from_ms: None,
+        seats: vec![],
+        unavailable: vec![],
+        exchange: None,
+        warnings: vec![],
+    }
+}
+
+fn cache_key(report: &std::sync::Arc<crate::board::usage_report::Report>) -> super::Key {
+    super::Key {
+        query: String::new(),
+        visibility: Default::default(),
+        range: crate::config::TokRange::default(),
+        report: Some(report.clone()),
+    }
+}
+
+#[test]
+fn a_new_projection_is_built_after_the_stale_one_and_its_report_are_released() {
+    let old = std::sync::Arc::new(empty_report());
+    let weak = std::sync::Arc::downgrade(&old);
+    let mut cache = super::Cache {
+        held: Some((
+            cache_key(&old),
+            super::Projection {
+                rows: std::rc::Rc::from([]),
+                exchanges: std::rc::Rc::from([]),
+            },
+        )),
+    };
+    drop(old);
+    assert_eq!(
+        weak.strong_count(),
+        1,
+        "the stale key alone pins the old report"
+    );
+    let new = std::sync::Arc::new(empty_report());
+    let mut built = false;
+    cache.rebuild(cache_key(&new), || {
+        assert_eq!(
+            weak.strong_count(),
+            0,
+            "the old report must not be alive while rows and ranking are built"
+        );
+        built = true;
+        super::Projection {
+            rows: std::rc::Rc::from([]),
+            exchanges: std::rc::Rc::from([]),
+        }
+    });
+    assert!(built);
+    let (key, _) = cache.held.as_ref().expect("the new projection is held");
+    assert!(std::sync::Arc::ptr_eq(key.report.as_ref().unwrap(), &new));
+}
+
 fn paint(app: &mut crate::board::app::App, width: u16, height: u16) -> String {
     use ratatui::{Terminal, backend::TestBackend};
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();

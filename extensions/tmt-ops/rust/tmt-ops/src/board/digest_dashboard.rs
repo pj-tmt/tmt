@@ -50,6 +50,15 @@ impl Cache {
     pub fn clear(&mut self) {
         self.held = None;
     }
+
+    /// Holds the projection `build` makes for `key`. The stale one is released first: it pins
+    /// the previous usage report through its key, and rows plus ranking are built while the
+    /// new report is held, so keeping it would put both generations on the heap at once.
+    fn rebuild(&mut self, key: Key, build: impl FnOnce() -> Projection) -> Projection {
+        self.held = None;
+        let projection = build();
+        self.held.insert((key, projection.clone())).1.clone()
+    }
 }
 
 /// Cursor changes reuse admitted facts. Snapshot/preferences reconciliation
@@ -62,11 +71,12 @@ fn projection(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Projection {
         report: app.usage_report.retained_report(app.tok_range()),
     };
     let mut cache = app.digest_rows.borrow_mut();
-    if !cache
-        .held
-        .as_ref()
-        .is_some_and(|(old, _)| old.matches(&key))
+    if let Some((old, held)) = &cache.held
+        && old.matches(&key)
     {
+        return held.clone();
+    }
+    cache.rebuild(key, || {
         let rows: Rc<[OpsTreeRow]> = projected_rows(app, snapshot, None).into();
         let exchanges = crate::board::exchange_matrix::by_traffic(
             rows.iter()
@@ -80,9 +90,8 @@ fn projection(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Projection {
             metrics::report(app).and_then(|report| report.exchange.as_ref()),
         )
         .into();
-        cache.held = Some((key, Projection { rows, exchanges }));
-    }
-    cache.held.as_ref().unwrap().1.clone()
+        Projection { rows, exchanges }
+    })
 }
 
 pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[OpsTreeRow]> {
