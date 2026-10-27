@@ -16,6 +16,7 @@ use crate::board::{
     },
     refresh::SelectedRead,
 };
+use crate::look::Look;
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -329,20 +330,41 @@ fn a_wide_character_is_drawn_whole_or_not_at_all() {
 
 #[test]
 fn the_program_sets_the_colours_and_a_lost_stream_dims_them() {
-    let app = reader();
+    // Pinned, never `app.look()`: that reads NO_COLOR and COLORTERM of the process.
+    let look = Look::default();
     let mut screen = Screen::new(12, 1);
     screen.feed(b"\x1b[31mred\x1b[0m \x1b[1mbold\x1b[0m");
     let frame = screen.frame();
     let mut live = buffer(12, 1);
-    paint::cells(&mut live, Rect::new(0, 0, 12, 1), &frame, false, app.look());
+    paint::cells(&mut live, Rect::new(0, 0, 12, 1), &frame, false, look);
     assert_eq!(live[(0, 0)].fg, ratatui::style::Color::Indexed(1));
     assert!(live[(4, 0)].modifier.contains(Modifier::BOLD));
     assert!(!live[(0, 0)].modifier.contains(Modifier::DIM));
     let mut dim = buffer(12, 1);
-    paint::cells(&mut dim, Rect::new(0, 0, 12, 1), &frame, true, app.look());
+    paint::cells(&mut dim, Rect::new(0, 0, 12, 1), &frame, true, look);
     assert_eq!(dim[(0, 0)].fg, ratatui::style::Color::Indexed(1));
     assert!(dim[(0, 0)].modifier.contains(Modifier::DIM));
     assert!(dim[(4, 0)].modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn no_colour_leaves_the_program_colours_unpainted() {
+    let look = Look {
+        depth: tmt_cli_style::Depth::None,
+        ..Look::default()
+    };
+    let mut screen = Screen::new(12, 1);
+    screen.feed(b"\x1b[31mred\x1b[0m \x1b[1mbold\x1b[0m");
+    let mut drawn = buffer(12, 1);
+    paint::cells(
+        &mut drawn,
+        Rect::new(0, 0, 12, 1),
+        &screen.frame(),
+        false,
+        look,
+    );
+    assert_eq!(drawn[(0, 0)].fg, ratatui::style::Color::Reset);
+    assert!(drawn[(4, 0)].modifier.contains(Modifier::BOLD));
 }
 
 #[test]
