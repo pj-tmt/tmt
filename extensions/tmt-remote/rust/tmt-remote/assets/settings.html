@@ -37,15 +37,15 @@
         <p class="settings-intro">Choose a connection type, then follow the steps on this machine. Work stays in your terminal or provider console.</p>
       </section>
       <section id="remote-join-guide" class="create-guide join-guide" data-view="join" hidden></section>
-      <section id="people" class="tmt-ui-section" data-view="members" aria-labelledby="people-heading">
-        <h2 id="people-heading" class="tmt-ui-section-heading" data-variant="title">People</h2>
+      <section id="people" class="tmt-ui-section" data-view="members" aria-label="People">
         <div id="people-content">Checking people…</div>
       </section>
       <section id="owner-invitation" class="sheet tmt-ui-notice" data-tone="neutral" data-view="members" aria-labelledby="invitation-heading">
         <div class="sheet-body tmt-ui-notice-body">
-          <h2 id="invitation-heading" class="tmt-ui-notice-heading">Confirm an invitation</h2>
+          <h2 id="invitation-heading" class="tmt-ui-section-heading">Confirm an invitation</h2>
           <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. This browser must be locally designated to confirm.</p>
           <p id="invitation-status" role="status">Check access to read the current invitation.</p>
+          <p id="people-observation" role="status" hidden></p>
           <button id="invitation-refresh" class="tmt-ui-action" type="button" disabled>Check invitation</button>
           <div id="invitation-candidate" hidden>
             <h3 id="invitation-name"></h3>

@@ -217,6 +217,20 @@ export class MembersPage {
   }
 }
 
+/** Optional pending/unknown observations; no recorded work is not a cleanup success. */
+export function pendingMemberObservations(view: MemberRoster | undefined): string {
+  if (!view) return '';
+  const notices: string[] = [];
+  if (view.invitation?.state === 'current' && view.invitation.cleanup === 'unconfirmed')
+    notices.push('Invitation cleanup is unconfirmed.');
+  if (view.routes.state === 'unavailable') notices.push('Access update status is unavailable.');
+  if (view.routes.state === 'recorded') {
+    if (view.routes.publicationPending) notices.push('An access update is awaiting delivery.');
+    if (view.routes.removalPending) notices.push('An access removal is awaiting cleanup.');
+  }
+  return notices.join(' ');
+}
+
 /** Mount the People presentation around the retained member view and its original-outcome owner. */
 export function mountMembersPage(
   root: HTMLElement,
@@ -224,6 +238,7 @@ export function mountMembersPage(
   signal: AbortSignal,
   otherBusy: () => boolean,
   changed: () => void = () => {},
+  observations?: HTMLElement | null,
 ): { render: () => void; refresh: () => Promise<void>; heldBy: () => string } {
   const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '') => {
     const value = document.createElement(tag);
@@ -332,7 +347,13 @@ export function mountMembersPage(
   }
   function confirm(memberId: string, kind: 'sending' | 'revoke'): void {
     const member = page.roster?.members.find((item) => item.memberId === memberId);
-    if (!member || !page.roster?.administrator || !available() || member.revokedAtMs !== null)
+    if (
+      !member ||
+      member.role === 'owner' ||
+      !page.roster?.administrator ||
+      !available() ||
+      member.revokedAtMs !== null
+    )
       return;
     const enabled = kind === 'sending' ? !member.sendingEnabled : undefined;
     if (
@@ -360,18 +381,22 @@ export function mountMembersPage(
     item.className = 'people-person';
     const summary = node('p');
     summary.className = 'people-person-summary';
+    const field = node('div');
+    field.className = 'tmt-ui-field';
     const label = node('label', 'Person name');
     label.className = 'tmt-ui-field-label';
     const input = node('input');
+    input.id = `people-name-${memberId}`;
+    label.htmlFor = input.id;
     input.className = 'tmt-ui-field-control';
     input.value = name;
     input.required = true;
     input.maxLength = 64;
-    label.append(input);
+    field.append(label, input);
     const nameActions = node('div');
-    nameActions.className = 'people-actions';
+    nameActions.className = 'people-name-actions';
     const memberActions = node('div');
-    memberActions.className = 'people-actions';
+    memberActions.className = 'people-member-actions';
     const save = button('Save name');
     const restore = button('Restore name');
     const send = button('Enable sending');
@@ -397,7 +422,7 @@ export function mountMembersPage(
       confirmation: confirmText,
       cancel,
     };
-    nameActions.append(label, save, restore);
+    nameActions.append(field, save, restore);
     memberActions.append(send, revoke, expand);
     item.append(summary, nameActions, memberActions, machines, confirmText, cancel);
     restore.addEventListener(
@@ -523,17 +548,14 @@ export function mountMembersPage(
           view.administrator
             ? ''
             : 'Only a designated admin can change sending or remove people. Use tmt remote members on this machine.',
-          view.invitation === null
-            ? ''
-            : view.invitation.state === 'current'
-              ? `Invitation: ${view.invitation.phase}; ${view.invitation.cleanup === 'acknowledged' ? 'cleanup acknowledged' : view.invitation.cleanup === 'unconfirmed' ? 'cleanup unconfirmed' : 'cleanup not requested'}.`
-              : `Invitation: ${view.invitation.state === 'unavailable' ? 'not available' : 'none current'}.`,
-          view.routes.state === 'recorded'
-            ? `Route publication ${view.routes.publicationPending ? 'pending' : 'not pending'}; removal ${view.routes.removalPending ? 'pending' : 'not pending'}.`
-            : `Route cleanup: ${view.routes.state === 'unavailable' ? 'not available' : 'not recorded'}.`,
         ]
           .filter(Boolean)
           .join(' ');
+    facts.hidden = !facts.textContent;
+    if (observations) {
+      observations.textContent = pendingMemberObservations(view);
+      observations.hidden = !observations.textContent;
+    }
     const current = new Set(view?.members.map((member) => member.memberId) ?? []);
     for (const [id, row] of rows) {
       if (!current.has(id)) {
@@ -570,7 +592,9 @@ export function mountMembersPage(
       );
       row.revoke.setAttribute('aria-label', `Remove ${member.displayName}`);
       row.expand.setAttribute('aria-label', `Show machines for ${member.displayName}`);
-      row.send.disabled = row.revoke.disabled = !editable || !view!.administrator;
+      row.send.hidden = row.revoke.hidden = member.role === 'owner';
+      row.send.disabled = row.revoke.disabled =
+        member.role === 'owner' || !editable || !view!.administrator;
       row.send.textContent = member.sendingEnabled ? 'Disable sending' : 'Enable sending';
       row.expand.disabled = !available();
       row.expand.textContent = selected === member.memberId ? 'Refresh machines' : 'Show machines';

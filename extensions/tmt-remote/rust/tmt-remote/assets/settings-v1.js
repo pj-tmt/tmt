@@ -3211,8 +3211,20 @@ var MembersPage = class {
 		return intent.kind === "rename" ? member.displayName === intent.input.name : intent.kind === "sending" ? member.sendingEnabled === intent.input.enabled : member.revokedAtMs !== null && !member.sendingEnabled;
 	}
 };
+/** Optional pending/unknown observations; no recorded work is not a cleanup success. */
+function pendingMemberObservations(view) {
+	if (!view) return "";
+	const notices = [];
+	if (view.invitation?.state === "current" && view.invitation.cleanup === "unconfirmed") notices.push("Invitation cleanup is unconfirmed.");
+	if (view.routes.state === "unavailable") notices.push("Access update status is unavailable.");
+	if (view.routes.state === "recorded") {
+		if (view.routes.publicationPending) notices.push("An access update is awaiting delivery.");
+		if (view.routes.removalPending) notices.push("An access removal is awaiting cleanup.");
+	}
+	return notices.join(" ");
+}
 /** Mount the People presentation around the retained member view and its original-outcome owner. */
-function mountMembersPage(root, page, signal, otherBusy, changed = () => {}) {
+function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, observations) {
 	const node = (tag, text = "") => {
 		const value = document.createElement(tag);
 		value.textContent = text;
@@ -3287,7 +3299,7 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}) {
 	}
 	function confirm(memberId, kind) {
 		const member = page.roster?.members.find((item) => item.memberId === memberId);
-		if (!member || !page.roster?.administrator || !available() || member.revokedAtMs !== null) return;
+		if (!member || member.role === "owner" || !page.roster?.administrator || !available() || member.revokedAtMs !== null) return;
 		const enabled = kind === "sending" ? !member.sendingEnabled : void 0;
 		if (confirmation?.memberId === memberId && confirmation.kind === kind && confirmation.revision === member.revision && confirmation.enabled === enabled) {
 			const input = {
@@ -3321,18 +3333,22 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}) {
 		item.className = "people-person";
 		const summary = node("p");
 		summary.className = "people-person-summary";
+		const field = node("div");
+		field.className = "tmt-ui-field";
 		const label = node("label", "Person name");
 		label.className = "tmt-ui-field-label";
 		const input = node("input");
+		input.id = `people-name-${memberId}`;
+		label.htmlFor = input.id;
 		input.className = "tmt-ui-field-control";
 		input.value = name;
 		input.required = true;
 		input.maxLength = 64;
-		label.append(input);
+		field.append(label, input);
 		const nameActions = node("div");
-		nameActions.className = "people-actions";
+		nameActions.className = "people-name-actions";
 		const memberActions = node("div");
-		memberActions.className = "people-actions";
+		memberActions.className = "people-member-actions";
 		const save = button("Save name");
 		const restore = button("Restore name");
 		const send = button("Enable sending");
@@ -3358,7 +3374,7 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}) {
 			confirmation: confirmText,
 			cancel
 		};
-		nameActions.append(label, save, restore);
+		nameActions.append(field, save, restore);
 		memberActions.append(send, revoke, expand);
 		item.append(summary, nameActions, memberActions, machines, confirmText, cancel);
 		restore.addEventListener("click", () => {
@@ -3429,12 +3445,12 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}) {
 		first.hidden = page.onFirstPage;
 		more.hidden = !view?.nextCursor;
 		first.disabled = more.disabled = !available() || !!draftReason();
-		facts.textContent = !view ? "" : [
-			view.members.length ? "" : "No people in this page.",
-			view.administrator ? "" : "Only a designated admin can change sending or remove people. Use tmt remote members on this machine.",
-			view.invitation === null ? "" : view.invitation.state === "current" ? `Invitation: ${view.invitation.phase}; ${view.invitation.cleanup === "acknowledged" ? "cleanup acknowledged" : view.invitation.cleanup === "unconfirmed" ? "cleanup unconfirmed" : "cleanup not requested"}.` : `Invitation: ${view.invitation.state === "unavailable" ? "not available" : "none current"}.`,
-			view.routes.state === "recorded" ? `Route publication ${view.routes.publicationPending ? "pending" : "not pending"}; removal ${view.routes.removalPending ? "pending" : "not pending"}.` : `Route cleanup: ${view.routes.state === "unavailable" ? "not available" : "not recorded"}.`
-		].filter(Boolean).join(" ");
+		facts.textContent = !view ? "" : [view.members.length ? "" : "No people in this page.", view.administrator ? "" : "Only a designated admin can change sending or remove people. Use tmt remote members on this machine."].filter(Boolean).join(" ");
+		facts.hidden = !facts.textContent;
+		if (observations) {
+			observations.textContent = pendingMemberObservations(view);
+			observations.hidden = !observations.textContent;
+		}
 		const current = new Set(view?.members.map((member) => member.memberId) ?? []);
 		for (const [id, row] of rows) if (!current.has(id)) {
 			if (row.input.value === row.baseline) {
@@ -3465,7 +3481,8 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}) {
 			row.send.setAttribute("aria-label", `${member.sendingEnabled ? "Disable" : "Enable"} sending for ${member.displayName}`);
 			row.revoke.setAttribute("aria-label", `Remove ${member.displayName}`);
 			row.expand.setAttribute("aria-label", `Show machines for ${member.displayName}`);
-			row.send.disabled = row.revoke.disabled = !editable || !view.administrator;
+			row.send.hidden = row.revoke.hidden = member.role === "owner";
+			row.send.disabled = row.revoke.disabled = member.role === "owner" || !editable || !view.administrator;
 			row.send.textContent = member.sendingEnabled ? "Disable sending" : "Enable sending";
 			row.expand.disabled = !available();
 			row.expand.textContent = selected === member.memberId ? "Refresh machines" : "Show machines";
@@ -4238,7 +4255,7 @@ async function settingsPage(shell, registry, initial) {
 			].includes(error.code), accessRefused);
 			peopleView = mountMembersPage(peopleRoot, people, shell.signal, () => page.access !== "live" || page.busy || page.outcome?.state === "unknown" || !!ownerInvitations?.heldBy(), () => {
 				if (page) render();
-			});
+			}, document.getElementById("people-observation"));
 		}
 		await run(() => refreshView());
 		if (page.access === "live") {

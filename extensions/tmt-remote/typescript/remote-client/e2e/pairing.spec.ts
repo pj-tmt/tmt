@@ -6214,7 +6214,18 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     );
     await expect(page.locator('#owner-invitation')).toBeVisible();
     await expect(page.locator('#invitation-status')).toContainText('No current invitation');
-    await expect(page.locator('#people-heading')).toBeVisible();
+    await expect(page.locator('#people-content')).toBeVisible();
+    await expect(page.locator('#people').getByRole('heading', { name: 'People' })).toHaveCount(0);
+    await expect(page.locator('#people-content')).not.toContainText('Invitation:');
+    await expect(page.locator('#people-content')).not.toContainText('Route cleanup:');
+    const ownerRow = page
+      .locator('#people-content .people-person')
+      .filter({ hasText: ' · Owner · ' });
+    await expect(ownerRow).toHaveCount(1);
+    await expect(ownerRow.getByRole('button', { name: /^(Enable|Disable) sending/ })).toHaveCount(
+      0,
+    );
+    await expect(ownerRow.getByRole('button', { name: /^Remove / })).toHaveCount(0);
     await captureState(
       page,
       'remote-people-admin',

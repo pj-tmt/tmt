@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vite-plus/test';
-import { MembersPage, type MemberIntent } from '../src/members-page.js';
+import { MembersPage, pendingMemberObservations, type MemberIntent } from '../src/members-page.js';
 import type {
   MemberOriginalOutcome,
   MemberOutcome,
@@ -360,4 +360,25 @@ test('a failed explicit machine read keeps the admitted roster without inventing
   assert.equal(f.page.machineAccess, 'unconfirmed');
   assert.equal(f.page.machines, undefined);
   assert.equal(f.page.roster?.members[0]?.memberId, person.memberId);
+});
+
+test('pending and unavailable cleanup observations stay separate from idle invitation copy', () => {
+  const view = roster();
+  view.routes = { state: 'not-recorded' };
+  assert.equal(pendingMemberObservations(view), '');
+  view.routes = { state: 'unavailable' };
+  assert.equal(pendingMemberObservations(view), 'Access update status is unavailable.');
+  view.routes = { state: 'recorded', publicationPending: true, removalPending: true };
+  view.invitation = {
+    state: 'current',
+    expiresAtMs: null,
+    phase: 'unconfirmed',
+    localConfirmationKnown: false,
+    cleanup: 'unconfirmed',
+  };
+  assert.equal(
+    pendingMemberObservations(view),
+    'Invitation cleanup is unconfirmed. An access update is awaiting delivery. An access removal is awaiting cleanup.',
+  );
+  assert.equal(pendingMemberObservations(undefined), '');
 });

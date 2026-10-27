@@ -913,6 +913,7 @@ export async function settingsPage(
         () => {
           if (page) render();
         },
+        document.getElementById('people-observation'),
       );
     }
     await run(() => refreshView());

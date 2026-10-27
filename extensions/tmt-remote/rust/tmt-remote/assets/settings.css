@@ -85,23 +85,16 @@
 .settings-page :is(.device, .people-person) p {
   overflow-wrap: anywhere;
 }
-.settings-page .people-actions {
+.settings-page :is(.device form, .people-name-actions, .people-member-actions) {
   display: flex;
   align-items: end;
   flex-wrap: wrap;
   gap: 8px 12px;
   margin-top: 12px;
 }
-.settings-page .people-actions label {
-  flex: 1 1 220px;
+.settings-page .people-name-actions > .tmt-ui-field {
+  flex: 0 1 320px;
   min-width: 0;
-}
-.settings-page .device form {
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  margin-top: 12px;
 }
 .settings-page .device form > .tmt-ui-field {
   flex: 1 1 220px;

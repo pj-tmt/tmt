@@ -12,6 +12,10 @@ type Fixture = {
   originals: string[];
   known: boolean;
   failLookup: boolean;
+  role: 'owner' | 'user';
+  routes:
+    | { state: 'unavailable' | 'not-recorded' }
+    | { state: 'recorded'; publicationPending: boolean; removalPending: boolean };
 };
 test.beforeAll(async () => {
   const assets = new URL('../../../rust/tmt-remote/assets/', import.meta.url);
@@ -22,13 +26,13 @@ test.beforeAll(async () => {
     )) +
     '\n' +
     (await readFile(new URL('settings.css', assets), 'utf8'));
-  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><main class="tmt-page"><h1>People</h1><div id="people"></div></main><script type="module">
+  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><main class="tmt-page settings-page"><h1>People</h1><div id="people"></div><p id="observations" hidden></p></main><script type="module">
     import { MembersPage, mountMembersPage } from '/src/members-page.ts';
     const remoteId='11111111-1111-4111-8111-111111111111';
     const member={remoteId,memberId:'person-1',role:'user',displayName:'Guest',sendingEnabled:false,revision:4,createdAtMs:1,revokedAtMs:null};
-    const fixture=window.peopleFixture={admin:true,reads:0,machineReads:0,effects:[],originals:[],external:false,known:false,failLookup:false};
+    const fixture=window.peopleFixture={admin:true,reads:0,machineReads:0,effects:[],originals:[],external:false,known:false,failLookup:false,role:'user',routes:{state:'not-recorded'}};
     const client={clientId:'current',
-      async list(){fixture.reads++;return {remoteId,administrator:fixture.admin,displayName:'Remote',members:[{...member}],nextCursor:null,invitation:fixture.admin?{state:'no-current-offer'}:null,routes:{state:'unavailable'}}},
+      async list(){fixture.reads++;return {remoteId,administrator:fixture.admin,displayName:'Remote',members:[{...member,role:fixture.role}],nextCursor:null,invitation:fixture.admin?{state:'no-current-offer'}:null,routes:fixture.routes}},
       async machines({memberId}){fixture.machineReads++;return {remoteId,memberId,machines:[{clientId:'browser-1',name:'Laptop',kind:'browser',revision:1,revoked:false,expiresAtMs:null,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:true,lastUsedAtMs:null,thisBrowser:true,liveSessionCount:null,lastActivityAtMs:null},{clientId:'browser-2',name:'Old browser',kind:'browser',revision:1,revoked:false,expiresAtMs:1,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:false,lastUsedAtMs:null,thisBrowser:false,liveSessionCount:0,lastActivityAtMs:null},{clientId:'browser-3',name:'Removed browser',kind:'browser',revision:1,revoked:true,expiresAtMs:null,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:false,lastUsedAtMs:null,thisBrowser:false,liveSessionCount:null,lastActivityAtMs:null}],nextCursor:null}},
       async rename(input){fixture.effects.push({kind:'rename',...input});return {operationId:input.operationId,state:'unknown',reason:'effect_outcome_unconfirmed'}},
       async sending(input){fixture.effects.push({kind:'sending',...input});return {operationId:input.operationId,state:'unknown',reason:'effect_outcome_unconfirmed'}},
@@ -36,7 +40,7 @@ test.beforeAll(async () => {
       async operation(id){fixture.originals.push(id);if(fixture.failLookup){fixture.failLookup=false;throw new Error('lookup unavailable')}const effect=fixture.effects[0];return fixture.known?{operationId:id,state:'committed',result:{member:{...member,sendingEnabled:effect.kind==='sending'?effect.enabled:member.sendingEnabled,displayName:effect.kind==='rename'?effect.name:member.displayName,revision:5}},sessionEnded:false}:{operationId:id,state:'unknown',reason:'effect_outcome_unconfirmed'}}
     };
     const controller=new AbortController();const page=new MembersPage(client,async()=>client);
-    const view=mountMembersPage(document.getElementById('people'),page,controller.signal,()=>fixture.external);
+    const view=mountMembersPage(document.getElementById('people'),page,controller.signal,()=>fixture.external,()=>{},document.getElementById('observations'));
     fixture.refresh=()=>view.refresh();fixture.paint=()=>view.render();fixture.stop=()=>controller.abort();view.refresh();
   </script></body></html>`;
   server = await createServer({
@@ -172,4 +176,73 @@ test('People retains its original ID after a failed lookup and permits another c
   expect(facts.effects).toBe(1);
   expect(facts.originals).toHaveLength(2);
   expect(facts.originals[0]).toBe(facts.originals[1]);
+});
+
+test('owner rows do not offer sending or removal, while a member retains both', async ({
+  page,
+}) => {
+  await page.goto(`${origin}/remote/members`);
+  await expect(page.getByRole('button', { name: 'Enable sending for Guest' })).toBeEnabled();
+  await page.evaluate(() => {
+    (window as unknown as { peopleFixture: Fixture }).peopleFixture.role = 'owner';
+  });
+  await page.getByRole('button', { name: 'Refresh people' }).click();
+  await expect(page.getByText('Guest · Owner · Sending off')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Enable sending for Guest' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove Guest' })).toHaveCount(0);
+  await page.locator('.people-person button[aria-label="Remove Guest"]').evaluate((button) => {
+    (button as HTMLButtonElement).click();
+  });
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { peopleFixture: Fixture }).peopleFixture.effects.length,
+    ),
+  ).toBe(0);
+});
+
+test('person name is stacked and the save action stays next to the field on wide screens', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${origin}/remote/members`);
+  const input = page.getByRole('textbox', { name: 'Person name for Guest' });
+  const label = page.locator('.people-name-actions label');
+  const save = page.getByRole('button', { name: 'Save name for Guest' });
+  await expect(input).toBeVisible();
+  const boxes = await Promise.all([label.boundingBox(), input.boundingBox(), save.boundingBox()]);
+  expect(boxes.every(Boolean)).toBe(true);
+  expect(boxes[0]!.y + boxes[0]!.height).toBeLessThanOrEqual(boxes[1]!.y + 1);
+  expect(boxes[2]!.x - (boxes[1]!.x + boxes[1]!.width)).toBeGreaterThanOrEqual(0);
+  expect(boxes[2]!.x - (boxes[1]!.x + boxes[1]!.width)).toBeLessThanOrEqual(16);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+
+test('pending and unavailable access observations stay distinct without an idle duplicate', async ({
+  page,
+}) => {
+  await page.goto(`${origin}/remote/members`);
+  await expect(page.getByText('People visible to this browser.')).toBeVisible();
+  const observation = page.locator('#observations');
+  await expect(observation).toBeHidden();
+  await page.evaluate(() => {
+    (window as unknown as { peopleFixture: Fixture }).peopleFixture.routes = {
+      state: 'recorded',
+      publicationPending: true,
+      removalPending: true,
+    };
+  });
+  await page.getByRole('button', { name: 'Refresh people' }).click();
+  await expect(observation).toHaveText(
+    'An access update is awaiting delivery. An access removal is awaiting cleanup.',
+  );
+  await page.evaluate(() => {
+    (window as unknown as { peopleFixture: Fixture }).peopleFixture.routes = {
+      state: 'unavailable',
+    };
+  });
+  await page.getByRole('button', { name: 'Refresh people' }).click();
+  await expect(observation).toHaveText('Access update status is unavailable.');
 });

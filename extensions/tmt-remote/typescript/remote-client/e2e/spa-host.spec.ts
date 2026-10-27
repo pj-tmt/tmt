@@ -425,7 +425,7 @@ test.describe('the app in a browser', () => {
       path: '/remote/members',
       id: 'members',
       h1: 'People',
-      shown: '#people-heading',
+      shown: '#people-content',
       hidden: '#opening-title',
     },
     {
