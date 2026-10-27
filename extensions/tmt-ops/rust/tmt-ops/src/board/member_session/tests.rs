@@ -308,12 +308,13 @@ fn unbound_dialog_fits_its_content_and_keeps_position_for_overflow() {
     );
     assert!(map.areas.outer.height < 32);
     assert!(
-        text.contains("1–2 of 2"),
-        "the surface retains its position line: {text}"
+        !text.contains("1–2 of 2"),
+        "a dialog that fits paints no position: {text}"
     );
     drop(ui);
-    paint(&app, 80, 8);
+    let narrow = paint(&app, 80, 8);
     assert!(controller.ui.borrow().picker.list.scroll.limit() > 0);
+    assert!(narrow.contains(" of 2"), "{narrow}");
     paint(&app, 160, 36);
     assert_eq!(controller.ui.borrow().picker.list.scroll.limit(), 0);
 }

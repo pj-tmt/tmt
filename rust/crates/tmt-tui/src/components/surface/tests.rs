@@ -115,6 +115,70 @@ fn opaque_reference_box_preserves_outside_base_and_anchors_footer_and_status() {
 }
 
 #[test]
+fn the_read_position_is_painted_only_while_the_body_overflows() {
+    let scene = scene(&model());
+    let shown = |buffer: &Buffer, map: &FrameMap| {
+        line(buffer, map.areas.position, map.areas.position.y)
+            .trim()
+            .to_owned()
+    };
+    // A tall modal fits the whole body: the reserved row stays and is blank.
+    let mut scroll = ScrollState::default();
+    let (buffer, map) = draw(&scene, &mut scroll, 120, 40);
+    assert_eq!(map.areas.position.height, 1);
+    assert_eq!(shown(&buffer, &map), "");
+    let rows: usize = scroll
+        .position()
+        .rsplit(" of ")
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    // Footer and status take a line each; the modal demands the body, 3 rows of chrome
+    // and both slots. Exactly that height still fits the body ...
+    let mut scroll = ScrollState::default();
+    let (buffer, map) = draw(&scene, &mut scroll, 120, rows as u16 + 5);
+    assert_eq!(usize::from(map.areas.content.height), rows);
+    assert_eq!(
+        shown(&buffer, &map),
+        "",
+        "an exact fit has nothing to locate"
+    );
+    // ... and one row less leaves one row of the body out of view.
+    let mut scroll = ScrollState::default();
+    let (buffer, map) = draw(&scene, &mut scroll, 120, rows as u16 + 4);
+    assert_eq!(usize::from(map.areas.content.height), rows - 1);
+    assert_eq!(
+        shown(&buffer, &map),
+        format!("1–{} of {rows} · 1 more ↓", rows - 1)
+    );
+    // Scrolled to the end it still says where the body is.
+    scroll.step(Step::Bottom);
+    let (buffer, map) = draw(&scene, &mut scroll, 120, rows as u16 + 4);
+    assert_eq!(shown(&buffer, &map), format!("2–{rows} of {rows}"));
+}
+
+#[test]
+fn a_scroll_state_reports_a_position_only_when_its_content_overflows() {
+    let mut scroll = ScrollState::default();
+    assert_eq!(scroll.overflow_position(), None, "nothing measured");
+    for (height, content, expected) in [
+        (10, 0, None),
+        (10, 9, None),
+        (10, 10, None),
+        (10, 11, Some("1–10 of 11 · 1 more ↓")),
+        (0, 5, None),
+    ] {
+        scroll.update(Rect::new(0, 0, 20, height), content, None);
+        assert_eq!(
+            scroll.overflow_position().as_deref(),
+            expected,
+            "{content} rows in {height}"
+        );
+    }
+}
+
+#[test]
 fn wrapped_fixed_slots_reserve_lines_before_scroll_and_remeasure_on_resize() {
     let markup = MARKUP
         .replace("slot=\"status\"", "slot=\"status\" wrap=\"true\"")

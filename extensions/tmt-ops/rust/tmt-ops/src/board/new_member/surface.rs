@@ -369,14 +369,11 @@ impl Controller {
                     paint(line, row, Role::Text);
                 }
                 complete &= scroll.offset() + usize::from(content.height) >= lines.len();
-                if scroll.limit() > 0 {
+                if let Some(position) = scroll.overflow_position() {
                     strip::paint_left(
                         frame.buffer_mut(),
                         areas.position,
-                        Line::styled(
-                            format!("Read · {}", scroll.position()),
-                            look.role(Role::Muted),
-                        ),
+                        Line::styled(format!("Read · {position}"), look.role(Role::Muted)),
                     );
                 }
             }
