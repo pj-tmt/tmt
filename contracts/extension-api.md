@@ -48,7 +48,9 @@ discovery. If another process migrates the database, the next request returns
 `{"error":{"code":"API_SESSION_STALE","message":"..."}}` and the session
 closes with exit 1 without executing that request or any following queued request.
 Consumers reopen using the current executable; normal consent and operation-ID
-recovery rules still apply. A session adds no listener, socket or daemon.
+recovery rules still apply. A session adds no listener, socket or daemon. A consumer admits the
+mode through `capabilities`, opens it lazily, closes it after a failed exchange and never replays
+a request whose reply is missing; the Ops UIs and the Digest tick are such consumers.
 
 Official executable installation is a local CLI operation (`tmt extension
 install|upgrade|rm`), separate from this process API and its `skills.install`

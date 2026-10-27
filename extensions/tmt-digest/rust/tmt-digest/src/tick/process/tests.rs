@@ -27,19 +27,18 @@ impl Fixture {
         let fixture = Self(root);
         let script = r#"#!/bin/sh
 cd '__ROOT__' || exit 9
-case "$*" in
- 'identity ls --json') cat inventory.json ;;
- 'api') input=$(cat); printf '%s\n' "$input" >> calls
+printf '%s %s\n' "$$" "$*" >> launches
+reply() { input=$1; printf '%s\n' "$input" >> calls
    case "$input" in
     *'"operation":"capabilities"'*) cat capabilities.json ;;
     *'"operation":"orchestration.read"'*)
       if test -f slow-receiving-read; then sleep 2.1; fi
       printf '%s\n' '{"receivingRevision":0}' ;;
     *'"operation":"digest.receiving.sync"'*)
-      if test -f sync-fails; then printf '%s\n' '{"error":{"code":"ORCH_CONFLICT","message":"changed"}}'; exit 5; fi
+      if test -f sync-fails; then printf '%s\n' '{"error":{"code":"ORCH_CONFLICT","message":"changed"}}'; return 5; fi
       cat receiving.json ;;
     *'"operation":"digest.wake.step"'*)
-      if test -f wake-fails; then printf '%s\n' '{"error":{"code":"WAKE_FAILED","message":"inspect claim"}}'; exit 1; fi
+      if test -f wake-fails; then printf '%s\n' '{"error":{"code":"WAKE_FAILED","message":"inspect claim"}}'; return 1; fi
       cat wake.json ;;
     *'"operation":"digest.checklist.history"'*) cat history.json ;;
     *'"operation":"digest.policy.show"'*) cat policies.json ;;
@@ -49,7 +48,11 @@ case "$*" in
       if test -f check-fails; then state=uncertain; else state=not_idle; fi
       cat flush-$state.json ;;
     *) printf '%s\n' '{"ok":true}' ;;
-   esac ;;
+   esac; }
+case "$*" in
+ 'identity ls --json') cat inventory.json ;;
+ 'api') reply "$(cat)"; exit $? ;;
+ 'api --session') while IFS= read -r line; do out=$(reply "$line"); printf '%s\n' "$out"; done ;;
  *) exit 9 ;;
 esac
 "#
@@ -1137,4 +1140,71 @@ fn an_advertised_wake_error_ends_the_observation_without_legacy_fallback() {
     assert_eq!(offers(&f, "digest.wake.step"), 1);
     assert_eq!(offers(&f, "digest.checklist.flush"), 0);
     assert!(f.calls().last().unwrap().contains("digest.wake.step"));
+}
+
+#[test]
+fn a_persistent_tick_reads_through_one_session_process_and_leaves_no_child() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "capabilities.json",
+        json!({"operations":["digest.receiving.sync"],"session":{"framing":"ndjson"}}),
+    );
+    let mut port = TickProcess::new(
+        Core::fixture(fixture.0.join("core")).persistent(),
+        fixture.0.join("digest.toml"),
+        super::super::now_ms().unwrap() + 60_000,
+        Instant::now() + Duration::from_secs(60),
+    );
+    for _ in 0..3 {
+        assert_eq!(port.observe().unwrap()[0].identity_id, MEMBER);
+    }
+    drop(port);
+    let launches = fs::read_to_string(fixture.0.join("launches")).unwrap();
+    let launched = |suffix: &str| {
+        launches
+            .lines()
+            .filter(|line| line.ends_with(suffix))
+            .count()
+    };
+    assert_eq!(
+        launched(" api"),
+        1,
+        "only the capabilities admission is a one-shot request"
+    );
+    assert_eq!(launched(" api --session"), 1, "{launches}");
+    assert_eq!(
+        launched("identity ls --json"),
+        3,
+        "the roster is not an API operation"
+    );
+    let operations = fixture
+        .calls()
+        .iter()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|row| row["operation"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    for operation in [
+        "digest.receiving.sync",
+        "digest.policy.show",
+        "digest.stats.show",
+    ] {
+        assert_eq!(
+            operations.iter().filter(|name| *name == operation).count(),
+            3,
+            "{operation}: {operations:?}"
+        );
+    }
+    let session = launches
+        .lines()
+        .find(|line| line.ends_with(" api --session"))
+        .unwrap();
+    let pid = session.split(' ').next().unwrap();
+    assert!(
+        !std::process::Command::new("kill")
+            .args(["-0", pid])
+            .status()
+            .unwrap()
+            .success(),
+        "the session child {pid} must not outlive the tick"
+    );
 }
