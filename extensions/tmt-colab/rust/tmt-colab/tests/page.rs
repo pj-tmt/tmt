@@ -474,14 +474,15 @@ impl Fixture {
     fn command(&self) -> Command {
         let core = core_fixture::link(&self.root, "core", core_fixture::Program::DataRoot);
         let mut c = Command::new(BINARY);
-        // Opening a browser is never what these commands check: no agent opens one, and the
-        // `PATH` holds no real opener.
+        // These read/source-publication scenarios exercise the non-agent path, with no
+        // identity in their data-root-only Core. Identity-aware agent lock lifecycles live
+        // in cli.rs. The opener guard still makes a host browser unreachable.
         c.env("TMT_EXECUTABLE", core)
             .env(
                 "TMT_COLAB_TEST_REPLY",
                 json!({"dataRoot":self.root}).to_string(),
             )
-            .env("TMT_AGENT", "1")
+            .env_remove("TMT_AGENT")
             .env("PATH", core_fixture::opener_guard(&self.root))
             .current_dir(&self.root);
         c
