@@ -6523,11 +6523,12 @@ includes `version`, `space`, those DB values and `pages`. The object wire does n
 per-object local inventory, so attachment totals and unused bytes are null when not established,
 and the additive total is null when any part is unknown. No attachments are removed here (#5284).
 
-`freeable:{history,files}` is a conservative lower bound on payload bytes selected by the same
-paired, confirmed and unpinned predicates used by Store pruning, limited to streams with an active
-tail that compaction can process; history never exceeds
-`historyBytes`, speculative GC savings are zero, and `files` is zero. It is neither a guarantee
-of physical file shrink nor an estimate of signed-cut/pinned/shared payloads. A preview does not
+`freeable:{history,files}` estimates the bytes the next cleanup is expected to remove; the result
+reports what was actually freed. It selects current prune candidates using the same paired,
+confirmed and unpinned predicates and the existing owner-fold admission for active-tail streams;
+non-owner and refused streams are excluded. History never exceeds `historyBytes`, speculative GC
+savings are zero, and `files` is zero. It does not estimate signed-cut, pinned or shared payloads
+and does not guarantee physical file shrink. A preview does not
 create the serve lock, write checkpoints, metadata, timestamps, attachments or run vacuum. An actual reclaim reuses the
 existing isolated rebuild and source/metadata/own equality fence, then runs incremental vacuum
 best effort; vacuum failure does not roll back a committed prune. Current-history/public-policy

@@ -91,8 +91,11 @@ pub fn read_page(
     } else {
         Some(page::read(store, key, id, decoder)?.title)
     };
-    let history = if skipped.is_none() {
-        bytes.eligible_history
+    let history = if skipped.is_none() && bytes.eligible_history > 0 {
+        let streams = page::owner_fold::eligible_streams(store, key, id)?;
+        store
+            .eligible_history_for_streams(id, &streams)?
+            .min(bytes.history)
     } else {
         0
     };
@@ -139,7 +142,7 @@ pub struct ReclaimError {
     pub message: String,
 }
 
-/// Apply the existing verified compaction, or report only already-proven prune candidates.
+/// Apply verified compaction, or estimate already-eligible prune candidates.
 pub fn reclaim(
     store: &mut Store,
     key: &Keyring,

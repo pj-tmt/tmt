@@ -21,7 +21,7 @@ fn spec(name: &'static str, summary: &'static str) -> Command {
             note: "Show storage on this machine",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Reports retained bytes and conservative reclaimable history. Comments and signed history stay protected. Attachments are not removed.",
+        details: "Reports retained bytes and estimated reclaimable history. Comments and signed history stay protected. Attachments are not removed.",
     })
 }
 fn dry_run() -> Arg {

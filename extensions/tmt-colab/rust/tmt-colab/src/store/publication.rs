@@ -406,12 +406,20 @@ pub(super) fn has_active_tail(c: &Connection, s: StreamScope<'_>) -> StoreResult
 }
 
 /// Proven currently eligible content bytes, evaluated inside the caller's read snapshot.
-pub(super) fn eligible_history_bytes(c: &Connection, page: &str) -> StoreResult<u64> {
+pub(super) fn eligible_history_bytes(
+    c: &Connection,
+    page: &str,
+    allowed: Option<&std::collections::BTreeSet<String>>,
+) -> StoreResult<u64> {
     bounded_id(page)?;
+    let allowed_json = allowed
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|_| Fault::Invalid)?;
     let mut query = c.prepare(
-        "SELECT s.epoch,s.stream FROM streams s JOIN pages p ON p.page=s.page AND p.epoch=s.epoch WHERE s.page=?1"
+        "SELECT s.epoch,s.stream FROM streams s JOIN pages p ON p.page=s.page AND p.epoch=s.epoch WHERE s.page=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) AS allowed WHERE allowed.value=s.stream))"
     )?;
-    let rows = query.query_map([page], |r| {
+    let rows = query.query_map(params![page, allowed_json], |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
     })?;
     let mut total = 0u64;
@@ -435,10 +443,22 @@ pub(super) fn eligible_history_bytes(c: &Connection, page: &str) -> StoreResult<
     Ok(total)
 }
 impl Store {
+    /// Existing prune candidates belonging only to already-admitted compactable streams.
+    pub(crate) fn eligible_history_for_streams(
+        &self,
+        page: &str,
+        streams: &std::collections::BTreeSet<String>,
+    ) -> StoreResult<u64> {
+        let tx = self.connection.unchecked_transaction()?;
+        let total = eligible_history_bytes(&tx, page, Some(streams))?;
+        tx.commit()?;
+        Ok(total)
+    }
+
     /// Proven presently eligible content payloads; excludes speculative rebuild savings.
     pub fn eligible_history_bytes(&self, page: &str) -> StoreResult<u64> {
         let tx = self.connection.unchecked_transaction()?;
-        let total = eligible_history_bytes(&tx, page)?;
+        let total = eligible_history_bytes(&tx, page, None)?;
         tx.commit()?;
         Ok(total)
     }

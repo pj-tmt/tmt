@@ -288,7 +288,7 @@ impl Store {
             .checked_add(baseline_current)
             .ok_or(Fault::Capacity)?;
         history = history.checked_add(baseline_old).ok_or(Fault::Capacity)?;
-        let eligible_history = publication::eligible_history_bytes(&tx, page)?;
+        let eligible_history = publication::eligible_history_bytes(&tx, page, None)?;
         tx.commit()?;
         Ok(PageStorageBytes {
             content: u64::try_from(content).map_err(|_| Fault::Invalid)?,

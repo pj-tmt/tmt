@@ -2055,6 +2055,111 @@ sys.stdout.write(json.dumps(reply))
 }
 
 #[test]
+fn reclaim_estimate_excludes_a_non_owner_stream_even_with_an_active_tail() {
+    let mut f = Fixture::new();
+    let head = f
+        .store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap();
+    f.store
+        .owner_transaction(
+            &f.key.space_id,
+            &f.key.owner_public(),
+            Mutation {
+                operation_id: "40000000-0000-4000-8000-000000000092",
+                digest: [92; 32],
+                expected_revision: head.revision,
+            },
+            |tx| {
+                tx.append_statement(&f.key.sign_statement(
+                    tx.head(),
+                    "page.history",
+                    &serde_json::to_vec(&json!({"pageId": PAGE, "mode": "current"}))?,
+                )?)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    let raw: Vec<u8> = f
+        .sql()
+        .query_row(
+            "SELECT payload FROM receipts WHERE stream=?1 AND seq=?2",
+            rusqlite::params![DEVICE, format!("{:020}", 1)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let envelope = object::Envelope::from_json(&raw).unwrap();
+    let header = object::Header::decode(envelope.header()).unwrap();
+    let signing = SigningKey::from_bytes(&[9; 32]);
+    let plain = object::open(
+        &envelope,
+        &header.context,
+        &[11; 32],
+        signing.verifying_key().as_bytes(),
+    )
+    .unwrap();
+    let doc = Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&plain).unwrap())
+        .unwrap();
+    let mut device = OwnerDevice {
+        id: DEVICE,
+        signing,
+        doc,
+    };
+    let scope = StreamScope {
+        page: PAGE,
+        epoch: 1,
+        stream: DEVICE,
+    };
+    let (_, head) = f.store.stream_head(scope).unwrap().unwrap();
+    for held in device.checkpoint_pair(&f, 1, head) {
+        f.store.checkpoint(&held_envelope(scope, 1, &held)).unwrap();
+    }
+    f.sql()
+        .execute(
+            "UPDATE receipts SET payload=?1 WHERE stream=?2 AND seq=?3",
+            rusqlite::params![raw, DEVICE, format!("{:020}", 1)],
+        )
+        .unwrap();
+    device.type_text(&mut f, " member tail");
+    assert!(
+        f.store.eligible_history_bytes(PAGE).unwrap() > 0,
+        "the raw prune selection must find a candidate"
+    );
+    let mut decoder = f.decoder();
+    let rows = tmt_colab::storage::read(&f.store, &f.key, &f.layout, &mut decoder).unwrap();
+    let row = rows.pages.iter().find(|row| row.page_id == PAGE).unwrap();
+    assert!(row.history_bytes > 0);
+    assert_eq!(
+        row.freeable.history, 0,
+        "the owner cannot fold a member device stream"
+    );
+    let result =
+        tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, false).unwrap();
+    assert_eq!(result.freed.history, Some(0));
+}
+
+#[test]
+fn reclaim_estimate_includes_admitted_owner_stream_with_an_active_tail() {
+    let (mut f, _) = deleted_owner_history("current", false);
+    let mut device = f.owner_device("30000000-0000-4000-8000-000000000093", 93);
+    let (seq, head) = device.type_text(&mut f, "owner history");
+    let raw: Vec<u8> = f.sql().query_row("SELECT payload FROM receipts WHERE stream=?1 AND seq=?2", rusqlite::params![device.id, format!("{seq:020}")], |r| r.get(0)).unwrap();
+    let scope = StreamScope { page: PAGE, epoch: 1, stream: device.id };
+    for held in device.checkpoint_pair(&f, seq, head) { f.store.checkpoint(&held_envelope(scope, seq, &held)).unwrap(); }
+    f.sql().execute("UPDATE receipts SET payload=?1 WHERE stream=?2 AND seq=?3", rusqlite::params![raw, device.id, format!("{seq:020}")]).unwrap();
+    device.type_text(&mut f, " new owner tail");
+    let mut decoder = f.decoder();
+    let preview = tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, true).unwrap();
+    assert!(preview.freeable.history > 0, "an admitted owner candidate must be included");
+    let result = tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, false).unwrap();
+    assert!(result.error.is_none());
+    assert!(result.freed.history.unwrap() > 0);
+}
+
+#[test]
 fn reclaim_no_tail_reports_no_freeable_bytes_and_keeps_history() {
     let (mut f, _) = deleted_owner_history("current", false);
     let stream = "30000000-0000-4000-8000-000000000091";
