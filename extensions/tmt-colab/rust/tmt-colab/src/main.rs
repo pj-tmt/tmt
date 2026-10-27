@@ -1398,12 +1398,14 @@ fn main() -> ExitCode {
     };
     match run(&matches) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
+        Err(reported_error) => {
+            let patch_failure = reported_error.downcast_ref::<cli_edit_locks::PatchFailure>();
+            let error =
+                patch_failure.map_or(reported_error.as_ref(), |failure| failure.cause.as_ref());
             let cli_failure = error.downcast_ref::<cli_management::ManagementFault>();
             let start = error.downcast_ref::<serve::StartFault>();
-            let code =
-                start.map_or_else(|| error_code(error.as_ref()), |fault| fault.code.as_str());
-            let schema = schema_fault(error.as_ref());
+            let code = start.map_or_else(|| error_code(error), |fault| fault.code.as_str());
+            let schema = schema_fault(error);
             let next = schema.and_then(tmt_colab::store::Fault::next);
             let hint = start
                 .and_then(|fault| fault.hint.as_deref())
@@ -1420,7 +1422,10 @@ fn main() -> ExitCode {
                 if let Some(recovery) = error.downcast_ref::<cli_proposal::RecoveryFault>() {
                     value = recovery.correlation.clone();
                 }
-                value["error"] = json!({"code":code,"message":error.to_string()});
+                value["error"] = json!({"code":code,"message":reported_error.to_string()});
+                if let Some(failure) = patch_failure {
+                    value["lockRelease"] = json!(failure.release);
+                }
                 if let Some(hint) = hint {
                     value["error"]["hint"] = json!(hint);
                 }
@@ -1458,8 +1463,12 @@ fn main() -> ExitCode {
             } else {
                 let mut output = tmt_cli_style::stream::stderr();
                 let terminal = output.terminal();
-                let _ =
-                    tmt_cli_style::message::error(&mut output, terminal, &error.to_string(), hint);
+                let _ = tmt_cli_style::message::error(
+                    &mut output,
+                    terminal,
+                    &reported_error.to_string(),
+                    hint,
+                );
             }
             ExitCode::FAILURE
         }

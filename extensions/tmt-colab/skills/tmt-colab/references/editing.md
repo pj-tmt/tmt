@@ -34,17 +34,20 @@ Locks belong to the identity UUID, including after restart. They never block peo
 and have no timer. Any successful agent `page patch` on that page releases the
 identity's captured page locks, even if its hunks do not touch the locked quote or
 the source is unchanged. Release is a separate publication after confirmed source
-success. Check `lockRelease.confirmed`:
+success. On a successful patch, check `lockRelease.confirmed`:
 if false, the source is saved; follow the exact unlock command in its warning and
-never repeat the patch. A failed patch keeps its lock; correct the edit and retry,
-or use `page unlock` to abandon it.
+never repeat the patch. A failed patch keeps an explicit lock announced before
+the command; correct the edit and retry, or use `page unlock` to abandon it.
 
 An agent patch without a held page lock automatically publishes a lock before
-evaluating the patch, then releases it after confirmed success. One bounded
+evaluating the patch, then releases it after success or failure. One bounded
 `--find` or `--find-file` locks that exact quote. Multiple find/replace pairs,
 quotes over the quote byte limit, `--lines` and `--diff` lock the whole page.
 Use explicit `page lock` to announce an edit earlier, before composing it. A failed
 automatic acquisition stops the patch; an uncertain outcome never replays it.
+If a failed patch cannot confirm release of its automatic lock, its original error
+includes a cleanup warning and the exact unlock command. Read back and unlock that
+captured lock if it remains; never repeat the patch just to clear its marker.
 
 Offline or ended presence hides a lock; unknown presence keeps it. An absent holder
 of this machine's local-writer lock is retired and hidden; a foreign-writer holder
@@ -60,8 +63,8 @@ When running under an agent (`TMT_AGENT` set), `page patch` refuses a change tha
 overlaps another holder's lock with `COLAB_REGION_LOCKED`. The message names the
 holder and locked quote (or whole page). Wait for the holder to save, patch a
 different part, or use the exact `unlock --stale` command only when the holder is
-gone; then reread and retry. No source is written on refusal; an automatically
-acquired lock remains.
+gone; then reread and retry. No source is written on refusal; the command releases
+its automatic acquisition before returning, or reports the cleanup failure.
 Unrelated and no-op patches proceed, and a successful agent patch releases its
 captured page locks after saving. People and browser Save remain unblocked.
 

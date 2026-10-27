@@ -38,7 +38,7 @@ const PATCH: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::HumanAndJson,
-    details: "Changes only the addressed text and writes the minimal change, through serve when running or under its lifecycle lock when stopped, with atomic publication, size limits, markup check (--strict refuses findings in the result), changed:false no-op and lost-reply behavior. Give exactly one form. --find TEXT --replace TEXT (or --find-file/--replace-file): each find must occur exactly once on the original source. Repeat pairs for several changes in one revision; equal counts pair in order, ranges must not overlap and all pairs apply or none do. A patch replacing more than half of the source applies with a warning recommending smaller anchored patches. --lines A:B --range-sha256 HASH --file PATH: lines A..B (1-based, LF-separated; a CR is content) are replaced by the file's exact bytes, only while they still hash to the rangeSha256 page read reported. --diff PATH: a unified diff; each hunk's context and removed lines must match exactly once (or once at the stated line) with no fuzz, and all hunks apply or none do. A missing, ambiguous or changed anchor fails with COLAB_PATCH_CONFLICT naming it and writes no source; read the page again and patch what it holds now. Under an agent (TMT_AGENT set), a patch overlapping another identity's live lock fails with COLAB_REGION_LOCKED naming the holder and quote; wait for it to save, patch elsewhere, or unlock --stale if it is gone. Without a held page lock, an agent patch publishes its own lock before evaluation. A single bounded find locks that quote; multiple finds, oversized quotes, line ranges and diffs lock the whole page. Any successful agent patch releases its captured page locks after confirmed content success, even for a no-op. A failed patch keeps them. People are never blocked by these advisory locks. A concurrent edit elsewhere is merged: when the page moves between reading and committing, the patch is evaluated again on the new page, up to 3 more times. --expected-revision additionally refuses any change to the page since that revision, anywhere, and disables the retries. The result includes update:{count,bytes,minimal}.",
+    details: "Changes only the addressed text and writes the minimal change, through serve when running or under its lifecycle lock when stopped, with atomic publication, size limits, markup check (--strict refuses findings in the result), changed:false no-op and lost-reply behavior. Give exactly one form. --find TEXT --replace TEXT (or --find-file/--replace-file): each find must occur exactly once on the original source. Repeat pairs for several changes in one revision; equal counts pair in order, ranges must not overlap and all pairs apply or none do. A patch replacing more than half of the source applies with a warning recommending smaller anchored patches. --lines A:B --range-sha256 HASH --file PATH: lines A..B (1-based, LF-separated; a CR is content) are replaced by the file's exact bytes, only while they still hash to the rangeSha256 page read reported. --diff PATH: a unified diff; each hunk's context and removed lines must match exactly once (or once at the stated line) with no fuzz, and all hunks apply or none do. A missing, ambiguous or changed anchor fails with COLAB_PATCH_CONFLICT naming it and writes no source; read the page again and patch what it holds now. Under an agent (TMT_AGENT set), a patch overlapping another identity's live lock fails with COLAB_REGION_LOCKED naming the holder and quote; wait for it to save, patch elsewhere, or unlock --stale if it is gone. Without a held page lock, an agent patch publishes its own lock before evaluation. A single bounded find locks that quote; multiple finds, oversized quotes, line ranges and diffs lock the whole page. Any successful agent patch releases its captured page locks after confirmed content success, even for a no-op. A failed patch releases only automatic locks acquired by that command; an explicit lock stays. If cleanup cannot be confirmed, the error includes its unlock recovery command without replaying the patch. People are never blocked by these advisory locks. A concurrent edit elsewhere is merged: when the page moves between reading and committing, the patch is evaluated again on the new page, up to 3 more times. --expected-revision additionally refuses any change to the page since that revision, anywhere, and disables the retries. The result includes update:{count,bytes,minimal}.",
 };
 
 pub fn command() -> Command {
@@ -226,111 +226,128 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let mut expected = args.get_one::<String>("expected-revision").cloned();
     let mut retries = 0;
-    loop {
-        match crate::cli_edit_locks::acquire_patch(
-            &layout,
-            &key,
-            &id,
-            &patch,
-            expected.as_deref(),
-            &mut decoder,
-        ) {
-            Ok(Some(revision)) => {
-                // Our own acquisition advances the revision without changing source. Explicit
-                // callers now fence that exact publication, not an unrelated later snapshot.
-                if expected.is_some() {
-                    expected = Some(revision);
+    let mut automatic = Vec::new();
+    let result = (|| {
+        loop {
+            match crate::cli_edit_locks::acquire_patch(
+                &layout,
+                &key,
+                &id,
+                &patch,
+                expected.as_deref(),
+                &mut decoder,
+            ) {
+                Ok(Some(acquired)) => {
+                    automatic.push(acquired.lock_id);
+                    // Our own acquisition advances the revision without changing source. Explicit
+                    // callers now fence that exact publication, not an unrelated later snapshot.
+                    if expected.is_some() {
+                        expected = Some(acquired.revision);
+                    }
+                    store.close()?;
+                    (store, id) = open(&layout, &key, operand)?;
                 }
-                store.close()?;
-                (store, id) = open(&layout, &key, operand)?;
+                Ok(None) => {}
+                Err(error)
+                    if expected.is_none()
+                        && retries < RETRIES
+                        && crate::error_code(error.as_ref()) == Fault::StaleBase.code() =>
+                {
+                    retries += 1;
+                    store.close()?;
+                    (store, id) = open(&layout, &key, operand)?;
+                    continue;
+                }
+                Err(error) => return Err(error),
             }
-            Ok(None) => {}
-            Err(error)
-                if expected.is_none()
-                    && retries < RETRIES
-                    && crate::error_code(error.as_ref()) == Fault::StaleBase.code() =>
+            let base = page::read(&store, &key, &id, &mut decoder)?;
+            let edited = match patch.apply(&base.source) {
+                Ok(edited) => edited,
+                Err(fault) => {
+                    let _ = store.close();
+                    return Err(coded(fault));
+                }
+            };
+            // The markup check runs on the result, before the write takes its snapshot.
+            let warnings = crate::cli_page_check::gate(
+                &edited,
+                args,
+                crate::cli_page_check::Attachments::Page {
+                    store: &store,
+                    key: &key,
+                    page: &id,
+                    decoder: &mut decoder,
+                },
+            )?;
+            let locks = crate::cli_edit_locks::patch_locks(
+                &store,
+                &key,
+                &id,
+                &base.source,
+                &edited,
+                &mut decoder,
+            )?;
+            if expected.is_some()
+                && locks
+                    .revision
+                    .as_deref()
+                    .is_some_and(|observed| Some(observed) != expected.as_deref())
             {
-                retries += 1;
-                store.close()?;
-                (store, id) = open(&layout, &key, operand)?;
-                continue;
+                return Err(Fault::StaleBase.into());
             }
-            Err(error) => return Err(error),
-        }
-        let base = page::read(&store, &key, &id, &mut decoder)?;
-        let edited = match patch.apply(&base.source) {
-            Ok(edited) => edited,
-            Err(fault) => {
-                let _ = store.close();
-                return Err(coded(fault));
+            // The edit was evaluated against `base.source`: the preparation refuses a page whose
+            // source is anything else, and the commit refuses a page that moved after it.
+            match crate::commit_source(
+                &layout,
+                &key,
+                store,
+                &id,
+                &edited,
+                expected.as_deref().or(locks.revision.as_deref()),
+                Some(crypto::digest(base.source.as_bytes())),
+                None,
+                &mut decoder,
+            ) {
+                Ok(mut receipt) => {
+                    // Confirmed source success has its own release path. An output error must
+                    // never cause a second cleanup attempt after an uncertain release.
+                    automatic.clear();
+                    let released = crate::cli_edit_locks::release_patch(
+                        &layout,
+                        &key,
+                        &id,
+                        &locks.release,
+                        &mut decoder,
+                        &mut receipt,
+                    );
+                    return crate::print_receipt(
+                        receipt,
+                        &warnings,
+                        args.get_flag("json"),
+                        "PAGE PATCHED",
+                        released.as_ref(),
+                    );
+                }
+                Err(error)
+                    if expected.is_none()
+                        && retries < RETRIES
+                        && crate::error_code(error.as_ref()) == Fault::StaleBase.code() =>
+                {
+                    retries += 1;
+                    (store, id) = open(&layout, &key, operand)?;
+                }
+                Err(error) => return Err(error),
             }
-        };
-        // The markup check runs on the result, before the write takes its snapshot.
-        let warnings = crate::cli_page_check::gate(
-            &edited,
-            args,
-            crate::cli_page_check::Attachments::Page {
-                store: &store,
-                key: &key,
-                page: &id,
-                decoder: &mut decoder,
-            },
-        )?;
-        let locks = crate::cli_edit_locks::patch_locks(
-            &store,
-            &key,
-            &id,
-            &base.source,
-            &edited,
-            &mut decoder,
-        )?;
-        if expected.is_some()
-            && locks
-                .revision
-                .as_deref()
-                .is_some_and(|observed| Some(observed) != expected.as_deref())
-        {
-            return Err(Fault::StaleBase.into());
         }
-        // The edit was evaluated against `base.source`: the preparation refuses a page whose
-        // source is anything else, and the commit refuses a page that moved after it.
-        match crate::commit_source(
+    })();
+    result.map_err(|error| {
+        crate::cli_edit_locks::release_failed_patch(
             &layout,
             &key,
-            store,
             &id,
-            &edited,
-            expected.as_deref().or(locks.revision.as_deref()),
-            Some(crypto::digest(base.source.as_bytes())),
-            None,
+            &automatic,
             &mut decoder,
-        ) {
-            Ok(mut receipt) => {
-                let released = crate::cli_edit_locks::release_patch(
-                    &layout,
-                    &key,
-                    &id,
-                    &locks.release,
-                    &mut decoder,
-                    &mut receipt,
-                );
-                return crate::print_receipt(
-                    receipt,
-                    &warnings,
-                    args.get_flag("json"),
-                    "PAGE PATCHED",
-                    released.as_ref(),
-                );
-            }
-            Err(error)
-                if expected.is_none()
-                    && retries < RETRIES
-                    && crate::error_code(error.as_ref()) == Fault::StaleBase.code() =>
-            {
-                retries += 1;
-                (store, id) = open(&layout, &key, operand)?;
-            }
-            Err(error) => return Err(error),
-        }
-    }
+            error,
+        )
+    })
 }
