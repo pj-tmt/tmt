@@ -484,7 +484,10 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             })
             .map_err(|error| match feedback {
                 app::CopyFeedback::Destination => error,
-                app::CopyFeedback::Selection => format!("Could not copy: {error}"),
+                app::CopyFeedback::Selection if !error.starts_with("Copy failed: ") => {
+                    format!("Could not copy: {error}")
+                }
+                app::CopyFeedback::Selection => error,
             }),
         Request::Run(argv) => effects::spawn(&argv).map(|()| format!("Started {}.", argv[0])),
         Request::PreparedRun { action, row, ops } => core

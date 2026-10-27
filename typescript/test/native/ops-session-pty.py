@@ -97,7 +97,7 @@ def command_copied(expected):
 
 
 COPIED_TOAST = "Copied with the configured clipboard program"
-COPY_FAILED_TOASTS = ("did not finish in time", "nothing was copied", "Could not start", "Could not talk to", "printed more than expected")
+COPY_FAILED_TOASTS = ("Copy failed:", "did not finish in time", "nothing was copied", "Could not start", "Could not talk to", "printed more than expected")
 
 
 def wait_copied(expected, label):

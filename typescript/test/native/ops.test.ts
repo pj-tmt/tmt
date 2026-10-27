@@ -5376,21 +5376,21 @@ describe('large board responsiveness', () => {
           await vi.waitFor(
             () => {
               const frame = screen();
-              expect(
-                frame.includes('Copied 16 characters') || frame.includes('Could not copy')
-              ).toBe(true);
+              expect(frame.includes('Copied 16 characters') || frame.includes('Copy failed:')).toBe(
+                true
+              );
               copyVerdict = frame;
             },
             { timeout: 10_000, interval: 50 }
           );
-          if (copyVerdict.includes('Could not copy')) {
+          if (copyVerdict.includes('Copy failed:')) {
             throw new Error(`The board reported a copy failure:\n${copyVerdict}`);
           }
           expect(readFileSync(copied, 'utf8')).toBe('first **styled**');
           capture('copied');
           writeFileSync(fail, 'fail');
           tmux(['send-keys', '-t', pane, 'y']);
-          await vi.waitFor(() => expect(screen()).toContain('Could not copy'), {
+          await vi.waitFor(() => expect(screen()).toContain('Copy failed:'), {
             timeout: 10_000,
             interval: 50,
           });

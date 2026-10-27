@@ -344,6 +344,25 @@ fn copy_through_tmux(program: &Path, socket: &str, text: &str) -> Result<Copied,
     })
 }
 
+fn clipboard_failure(program: &str, cause: &str) -> String {
+    let name = Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("clipboard");
+    format!("Copy failed: {cause} ({name})")
+}
+
+fn clipboard_unfinished(program: &str, error: RunError) -> String {
+    let cause = match error {
+        RunError::Spawn => "won't start",
+        RunError::Timeout => "timed out",
+        RunError::OutputLimit => "too long",
+        RunError::Io => "I/O failed",
+        RunError::Cancelled => "cancelled",
+    };
+    clipboard_failure(program, cause)
+}
+
 /// A configured program wins; inside tmux the text goes through tmux's own
 /// buffer and clipboard path; otherwise OSC 52 goes straight to the terminal.
 pub fn copy(
@@ -355,11 +374,14 @@ pub fn copy(
         let (name, args) = argv.split_first().ok_or("no clipboard program")?;
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let finished = runner::run(Path::new(name), &args, text.as_bytes(), TIMEOUT, 64 * 1024)
-            .map_err(|error| unfinished(name, error))?;
+            .map_err(|error| clipboard_unfinished(name, error))?;
         return if finished.success {
             Ok(Copied::Program)
         } else {
-            Err(format!("{name} failed; nothing was copied."))
+            let cause = finished
+                .code
+                .map_or_else(|| "terminated".to_owned(), |code| format!("exit {code}"));
+            Err(clipboard_failure(name, &cause))
         };
     }
     if let Some(socket) = tmux_socket {
@@ -706,6 +728,33 @@ if [ -e "$root/fail" ]; then exit 1; fi
         let _ = std::fs::remove_file(out);
         let failing = vec!["/bin/sh".to_owned(), "-c".to_owned(), "exit 3".to_owned()];
         assert!(copy("x", Some(&failing), None).is_err());
+    }
+
+    #[test]
+    fn clipboard_failures_put_the_cause_before_a_short_program_name() {
+        let missing = "/a/very/long/configured/clipboard/program/path/missing-copy";
+        let error = copy("x", Some(&[missing.to_owned()]), None).unwrap_err();
+        assert_eq!(error, "Copy failed: won't start (missing-copy)");
+        let failing = vec!["/bin/sh".to_owned(), "-c".to_owned(), "exit 7".to_owned()];
+        let error = copy("x", Some(&failing), None).unwrap_err();
+        assert_eq!(error, "Copy failed: exit 7 (sh)");
+    }
+
+    #[test]
+    fn clipboard_runner_failures_have_short_distinct_causes() {
+        let program = "/a/long/clipboard/path/clip";
+        for (error, cause) in [
+            (RunError::Spawn, "won't start"),
+            (RunError::Timeout, "timed out"),
+            (RunError::OutputLimit, "too long"),
+            (RunError::Io, "I/O failed"),
+            (RunError::Cancelled, "cancelled"),
+        ] {
+            assert_eq!(
+                clipboard_unfinished(program, error),
+                format!("Copy failed: {cause} (clip)")
+            );
+        }
     }
 
     #[test]
