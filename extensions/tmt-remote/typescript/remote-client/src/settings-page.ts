@@ -684,8 +684,7 @@ export async function settingsPage(
       const destination =
         currentView === 'settings' && device.thisBrowser && ownName ? ownName : devices;
       if (row.parentElement !== destination) destination.append(row);
-      row.hidden =
-        (currentView === 'my-devices' || currentView === 'settings') && !device.thisBrowser;
+      row.hidden = currentView === 'settings' && !device.thisBrowser;
       for (const action of row.querySelectorAll<HTMLElement>('[data-action]'))
         action.hidden = currentView === 'settings';
     }

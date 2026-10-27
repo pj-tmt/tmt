@@ -4055,7 +4055,7 @@ async function settingsPage(shell, registry, initial) {
 			if (!row) continue;
 			const destination = currentView === "settings" && device.thisBrowser && ownName ? ownName : devices;
 			if (row.parentElement !== destination) destination.append(row);
-			row.hidden = (currentView === "my-devices" || currentView === "settings") && !device.thisBrowser;
+			row.hidden = currentView === "settings" && !device.thisBrowser;
 			for (const action of row.querySelectorAll("[data-action]")) action.hidden = currentView === "settings";
 		}
 		const ownMissing = document.getElementById("current-browser-name-missing");

@@ -1249,8 +1249,8 @@ Settings consolidates Browser opening, Session limit per device, the origin-loca
 (labelled Name in this browser) and the admitted current browser/device name (labelled with that scope).
 A Remote-wide name has no browser setter here. Catalog naming reuses the existing
 browser-local CAS/import controller; device naming retains signed designated-browser admission.
-The same bounded device-page forms move between My devices and Settings without cloning
-controls or resetting drafts/original outcomes. People uses the member service for person names and
+My devices shows the admitted bounded device page; Settings shows the current browser form.
+The same forms move without cloning controls or resetting drafts/original outcomes. People uses the member service for person names and
 policies; its labels and observed activity grant no authority. A current browser missing from that admitted page is
 not invented. Service & upgrade reuses the read-only recorded Firestore section and terminal guidance;
 it never executes deploy or upgrade. The additive public SDK exports remain `FirestoreSettingsView`,
