@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     clearMocks: false,
     pool: 'threads',
+    globalSetup: ['test/e2e/harness/lifecycle.ts'],
     include: ['test/e2e/**/*.e2e.test.ts'],
     exclude: ['node_modules', 'dist'],
     fileParallelism: false,

@@ -1,4 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  FixtureRegistration,
+  groupLeader,
+  registerFixture,
+  setup,
+  stopOwnedGroups,
+} from '../e2e/harness/lifecycle.js';
 import { killAndWait } from '../e2e/harness/cleanup.js';
 
 const gone = Object.assign(new Error('group gone'), { code: 'ESRCH' });
@@ -51,5 +62,98 @@ describe('bounded E2E process group cleanup', () => {
     expect(await killAndWait([95403], 'owned worker', (error) => errors.push(error))).toEqual([]);
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('Could not kill E2E owned worker process group 95403');
+  });
+});
+
+describe('run-owned E2E fixture registry', () => {
+  it('publishes allocations atomically and keeps a closing run from starting another', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-registry-test-'));
+    try {
+      const owned = {
+        root: '/private/fixture-root',
+        socketRoot: '/private/fixture-socket-root',
+        socketPath: '/private/fixture-socket-root/tmux-501/owned',
+        tmuxPath: '/usr/bin/tmux',
+        serverPid: 0,
+        paneGroups: [],
+        cliGroups: [],
+      };
+      const registration = new FixtureRegistration(directory, owned);
+      expect(
+        registration.allocate(
+          () => 123,
+          (pid) => (owned.serverPid = pid)
+        )
+      ).toBe(123);
+      const files = fs.readdirSync(directory);
+      expect(files).toHaveLength(1);
+      expect(JSON.parse(fs.readFileSync(path.join(directory, files[0]), 'utf8'))).toEqual(owned);
+      fs.writeFileSync(path.join(directory, '.closing'), '');
+      const allocate = vi.fn(() => 456);
+      expect(() => registration.allocate(allocate, () => {})).toThrow('E2E run is closing');
+      expect(allocate).not.toHaveBeenCalled();
+      registration.remove();
+      expect(fs.readdirSync(directory)).toEqual(['.closing']);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('E2E suite survivor check', () => {
+  it('passes a clean run and reports a retained fixture by its own roots', () => {
+    expect(() => setup()()).not.toThrow();
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-e2e-unit-'));
+    const socketParent =
+      process.platform === 'darwin'
+        ? fs.realpathSync('/private/tmp')
+        : fs.realpathSync(os.tmpdir());
+    const socketRoot = fs.mkdtempSync(path.join(socketParent, 'te2e-unit-'));
+    try {
+      const teardown = setup();
+      registerFixture({
+        root,
+        socketRoot,
+        socketPath: path.join(socketRoot, 'private.sock'),
+        tmuxPath: '/usr/bin/tmux',
+        serverPid: 0,
+        paneGroups: [],
+        cliGroups: [],
+      });
+      expect(teardown).toThrow(root);
+      expect(fs.existsSync(root)).toBe(false);
+      expect(fs.existsSync(socketRoot)).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(socketRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('E2E group identity', () => {
+  it('does not wait for or signal a reused process-group ID', async () => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+      const pid = child.pid!;
+      const leader = groupLeader(pid);
+      expect(leader).toBeDefined();
+      const before = performance.now();
+      stopOwnedGroups([{ pid, started: 'not the original start time' }]);
+      expect(performance.now() - before).toBeLessThan(1_000);
+      expect(groupLeader(pid)).toEqual(leader);
+    } finally {
+      if (child.pid && child.exitCode === null && child.signalCode === null) {
+        process.kill(-child.pid, 'SIGKILL');
+      }
+      await closed;
+    }
   });
 });

@@ -6,7 +6,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TMUX_COMMAND_INSPECTION } from '../tmux-command-inspection.js';
 import { resolveCliExecutables, type CliExecutables } from '../../support/cli-executable.mjs';
-import { assertPrivateSocket } from '../../support/private-tmux.js';
+import { assertPrivateSocket, stopPrivateTmuxSocket } from '../../support/private-tmux.js';
+import {
+  groupLeader,
+  paneOwnedGroups,
+  registerFixture,
+  stopOwnedGroups,
+  type FixtureRegistration,
+  type OwnedGroup,
+} from './lifecycle.js';
 
 import type {
   CliResult,
@@ -50,6 +58,7 @@ function shellQuote(value: string): string {
 export class E2EFixture {
   private static readonly peers = new Set<E2EFixture>();
   private peerGroup = '';
+  private readonly registration: FixtureRegistration;
   readonly executables: CliExecutables;
   readonly root: string;
   readonly socketRoot: string;
@@ -68,7 +77,6 @@ export class E2EFixture {
   serverPid = 0;
   socketPath = '';
   private started = false;
-  private serverStarted = false;
   private env: NodeJS.ProcessEnv = {};
   private panePids: number[] = [];
   private attachedClients: ReturnType<typeof spawn>[] = [];
@@ -109,9 +117,18 @@ export class E2EFixture {
         { cause: error }
       );
     }
-    // The wrapper selects this socket with -L; prove it is private before any server command.
+    // Prove the absolute socket is private before any server command.
     try {
       assertPrivateSocket(this.expectedSocketPath, this.socketRoot);
+      this.registration = registerFixture({
+        root: this.root,
+        socketRoot: this.socketRoot,
+        socketPath: this.expectedSocketPath,
+        tmuxPath: this.tmuxPath,
+        serverPid: 0,
+        paneGroups: [],
+        cliGroups: [],
+      });
     } catch (error) {
       fs.rmSync(this.root, { recursive: true, force: true });
       fs.rmSync(this.socketRoot, { recursive: true, force: true });
@@ -148,6 +165,7 @@ export class E2EFixture {
       fs.mkdirSync(this.workspace, { recursive: true });
       fs.mkdirSync(this.globalDir, { recursive: true });
       fs.mkdirSync(this.wrapperDir, { recursive: true });
+      fs.mkdirSync(path.dirname(this.expectedSocketPath), { recursive: true, mode: 0o700 });
       if (options.metadataBarrier) fs.mkdirSync(this.metadataBarrierDirectory);
       fs.writeFileSync(this.peerSocketsPath, '');
       writeExecutable(
@@ -155,9 +173,9 @@ export class E2EFixture {
         `#!/bin/sh
 unset TMUX TMUX_PANE
 export TMUX_TMPDIR=${shellQuote(this.socketRoot)}
-TMT_E2E_SOCKET=${shellQuote(this.socket)}
+TMT_E2E_SOCKET_PATH=${shellQuote(this.expectedSocketPath)}
 # Explicit -S may reach an exact peer socket registered by another live fixture
-# sharing this storage. Default discovery and -L stay on this private namespace.
+# sharing this storage. Socket names (-L) are refused; all calls use -S.
 allowed_socket() {
   [ "${'$'}1" = ${shellQuote(this.expectedSocketPath)} ] && return 0
   while IFS= read -r peer; do
@@ -174,7 +192,7 @@ for arg in "${'$'}@"; do
   if [ -n "${'$'}socket_option" ]; then
     case "${'$'}socket_option" in
       -S) allowed_socket "${'$'}arg" || refuse_socket ;;
-      -L) [ "${'$'}arg" = ${shellQuote(this.socket)} ] || refuse_socket ;;
+      -L) refuse_socket ;;
       -c|-f|-T) socket_option=""; continue ;;
     esac
     socket_option=""
@@ -185,9 +203,7 @@ for arg in "${'$'}@"; do
     -S*)
       allowed_socket "${'$'}{arg#-S}" || refuse_socket
       ;;
-    -L*)
-      [ "${'$'}{arg#-L}" = ${shellQuote(this.socket)} ] || refuse_socket
-      ;;
+    -L*) refuse_socket ;;
     -c*|-f*|-T*) ;;
     -*[cfSLT]*) echo "E2E fixture refuses combined tmux socket options" >&2; exit 97 ;;
     -*) ;;
@@ -248,7 +264,7 @@ elif [ "${'$'}tmux_command" = "if-shell" ]; then
   done
 fi
 if [ -z "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ] && [ -z "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ] && [ -z "${'$'}{TMT_E2E_TRANSPORT_TRACE_FILE:-}" ]; then
-  exec ${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"
+  exec ${shellQuote(this.tmuxPath)} -f /dev/null -S "${'$'}TMT_E2E_SOCKET_PATH" "${'$'}@"
 fi
 metadata_target=0
 if [ "${'$'}{TMT_E2E_METADATA_BARRIER_OPERATION:-publish}" = "clear" ]; then
@@ -297,7 +313,7 @@ fi
 if [ -n "${'$'}transport_stage" ]; then
   trace_transport "${'$'}transport_stage.before" "${'$'}@"
 fi
-${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"
+${shellQuote(this.tmuxPath)} -f /dev/null -S "${'$'}TMT_E2E_SOCKET_PATH" "${'$'}@"
 status=${'$'}?
 if [ -n "${'$'}transport_stage" ]; then
   trace_transport "${'$'}transport_stage.after.${'$'}status" "${'$'}@"
@@ -373,7 +389,11 @@ exit ${'$'}status
       this.started = true;
       this.registerPeerSocket(true);
     } catch (error) {
-      await this.stop();
+      try {
+        await this.stop();
+      } catch (cleanup) {
+        console.error('E2E fixture startup cleanup failed:', cleanup);
+      }
       throw new Error(
         `E2E fixture failed to start its private tmux server: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
@@ -423,13 +443,22 @@ exit ${'$'}status
     if (options.transportTrace || options.transportFault) {
       env.TMT_E2E_TRANSPORT_TRACE_FILE = this.transportTracePath;
     }
-    const child = spawn(this.executables.cli.executable, [...this.executables.cli.args, ...args], {
-      cwd: options.cwd ?? this.workspace,
-      env,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    if (child.pid) this.cliProcessPids.add(child.pid);
+    const child = this.registration.allocate(
+      () =>
+        spawn(this.executables.cli.executable, [...this.executables.cli.args, ...args], {
+          cwd: options.cwd ?? this.workspace,
+          env,
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }),
+      (process) => {
+        if (!process.pid) return;
+        this.cliProcessPids.add(process.pid);
+        const recorded = { pid: process.pid, started: '' };
+        this.registration.fixture.cliGroups.push(recorded);
+        recorded.started = groupLeader(process.pid)?.started ?? '';
+      }
+    );
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     let stdout = '';
@@ -512,35 +541,54 @@ exit ${'$'}status
   private createPane(name: string, command: string, workspace: string): MockPane {
     if (!this.started) throw new Error('E2E fixture must be started before creating panes.');
     fs.mkdirSync(workspace, { recursive: true });
-    const pane = this.tmux([
-      'new-window',
-      '-d',
-      '-P',
-      '-F',
-      '#{pane_id}',
-      '-t',
-      'e2e',
-      '-n',
-      name,
-      '-c',
-      workspace,
-      command,
-    ]).trim();
-    const pid = Number(this.tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']).trim());
-    if (!pane || !Number.isInteger(pid) || pid <= 0) {
-      throw new Error(`E2E fixture could not create pane '${name}'.`);
-    }
-    this.panePids.push(pid);
-    return { pane, pid, workspace };
+    return this.registration.allocate(
+      () => {
+        const pane = this.tmux([
+          'new-window',
+          '-d',
+          '-P',
+          '-F',
+          '#{pane_id}',
+          '-t',
+          'e2e',
+          '-n',
+          name,
+          '-c',
+          workspace,
+          command,
+        ]).trim();
+        const pid = Number(this.tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']).trim());
+        if (!pane || !Number.isInteger(pid) || pid <= 0) {
+          throw new Error(`E2E fixture could not create pane '${name}'.`);
+        }
+        return { pane, pid, workspace };
+      },
+      (created) => {
+        this.panePids.push(created.pid);
+        const recorded = { pid: created.pid, started: '' };
+        this.registration.fixture.paneGroups.push(recorded);
+        recorded.started = groupLeader(created.pid)?.started ?? '';
+      }
+    );
   }
 
   /** Attach a real control-mode tmux client to the disposable fixture server. */
   async attachSessionClient(session: string): Promise<void> {
     if (!this.started) throw new Error('E2E fixture must be started before attaching a client.');
-    const client = spawn(
-      this.tmuxPath,
-      ['-f', '/dev/null', '-L', this.socket, '-C', 'attach-session', '-t', session],
-      { env: this.env, stdio: ['pipe', 'pipe', 'pipe'] }
+    const client = this.registration.allocate(
+      () =>
+        spawn(
+          this.tmuxPath,
+          ['-f', '/dev/null', '-S', this.expectedSocketPath, '-C', 'attach-session', '-t', session],
+          { env: this.env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] }
+        ),
+      (process) => {
+        this.attachedClients.push(process);
+        if (!process.pid) return;
+        const recorded = { pid: process.pid, started: '' };
+        this.registration.fixture.cliGroups.push(recorded);
+        recorded.started = groupLeader(process.pid)?.started ?? '';
+      }
     );
     let spawnError: Error | undefined;
     client.once('error', (error) => {
@@ -548,7 +596,6 @@ exit ${'$'}status
     });
     client.stdout?.resume();
     client.stderr?.resume();
-    this.attachedClients.push(client);
     await this.waitFor(
       () => {
         if (spawnError) {
@@ -584,7 +631,6 @@ exit ${'$'}status
     } catch {
       // The server may have exited between the test operation and restart.
     }
-    this.serverStarted = false;
 
     await this.waitFor(
       () => !this.processRuns(previousServerPid),
@@ -596,39 +642,49 @@ exit ${'$'}status
   }
 
   private async launchPrivateServer(): Promise<MockPane> {
-    this.tmux([
-      'new-session',
-      '-d',
-      '-s',
-      'e2e',
-      '-x',
-      '160',
-      '-y',
-      '50',
-      '-c',
-      this.workspace,
-      `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
-    ]);
-    this.serverStarted = true;
-    this.tmux(['set-option', '-gw', 'pane-border-status', 'top']);
-    this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
-    this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
-    this.pane = this.tmux(['display-message', '-p', '-t', 'e2e:0.0', '#{pane_id}']).trim();
-    this.panePid = Number(
-      this.tmux(['display-message', '-p', '-t', this.pane, '#{pane_pid}']).trim()
+    this.registration.allocate(
+      () => {
+        this.tmux([
+          'new-session',
+          '-d',
+          '-s',
+          'e2e',
+          '-x',
+          '160',
+          '-y',
+          '50',
+          '-c',
+          this.workspace,
+          `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
+        ]);
+        this.tmux(['set-option', '-gw', 'pane-border-status', 'top']);
+        this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
+        this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
+        this.pane = this.tmux(['display-message', '-p', '-t', 'e2e:0.0', '#{pane_id}']).trim();
+        this.panePid = Number(
+          this.tmux(['display-message', '-p', '-t', this.pane, '#{pane_pid}']).trim()
+        );
+        if (!this.socketPath || !this.pane) {
+          throw new Error('E2E fixture could not determine private server socket and pane ID.');
+        }
+        if (this.socketPath !== this.expectedSocketPath) {
+          throw new Error('E2E fixture selected a socket outside its private server.');
+        }
+        if (!Number.isInteger(this.panePid) || this.panePid <= 0) {
+          throw new Error('E2E fixture could not determine mock-agent pane process ID.');
+        }
+        if (!Number.isInteger(this.serverPid) || this.serverPid <= 0) {
+          throw new Error('E2E fixture could not determine private tmux server process ID.');
+        }
+        return { pid: this.serverPid, panePid: this.panePid };
+      },
+      (started) => {
+        this.registration.fixture.serverPid = started.pid;
+        const recorded = { pid: started.panePid, started: '' };
+        this.registration.fixture.paneGroups.push(recorded);
+        recorded.started = groupLeader(started.panePid)?.started ?? '';
+      }
     );
-    if (!this.socketPath || !this.pane) {
-      throw new Error('E2E fixture could not determine private server socket and pane ID.');
-    }
-    if (this.socketPath !== this.expectedSocketPath) {
-      throw new Error('E2E fixture selected a socket outside its private server.');
-    }
-    if (!Number.isInteger(this.panePid) || this.panePid <= 0) {
-      throw new Error('E2E fixture could not determine mock-agent pane process ID.');
-    }
-    if (!Number.isInteger(this.serverPid) || this.serverPid <= 0) {
-      throw new Error('E2E fixture could not determine private tmux server process ID.');
-    }
     await this.waitForEvent((event) => event.event === 'ready' && event.pid === this.panePid);
     this.panePids.push(this.panePid);
     return { pane: this.pane, pid: this.panePid, workspace: this.workspace };
@@ -727,9 +783,9 @@ exit ${'$'}status
 
   /**
    * Remove everything this fixture owns, then throw one error that aggregates every
-   * cleanup failure (a survivor, a timeout or an unknown process state). Files are
-   * deleted even when cleanup failed; callers that already have a primary failure
-   * must not let this error replace it (see `withE2EFixture`).
+   * cleanup failure (a survivor, a timeout or an unknown process state). Retain
+   * the owned roots on failure for the suite-end check. Callers with a primary
+   * failure must not let this error replace it (see `withE2EFixture`).
    */
   async stop(): Promise<void> {
     const cliPids = [...this.cliProcessPids];
@@ -775,15 +831,89 @@ exit ${'$'}status
     }
     const attachedClients = this.attachedClients.splice(0);
     await stopAttachedClients(attachedClients, recordCleanupError);
-    if (this.serverStarted) {
+    const paneGroups: OwnedGroup[] = [...this.registration.fixture.paneGroups];
+    if (
+      this.serverPid > 0 &&
+      processState(this.serverPid) === 'absent' &&
+      fs.existsSync(this.expectedSocketPath)
+    ) {
+      assertPrivateSocket(this.expectedSocketPath, this.socketRoot);
+      if (!fs.lstatSync(this.expectedSocketPath).isSocket())
+        throw new Error(`E2E socket changed type: ${this.expectedSocketPath}`);
+      fs.unlinkSync(this.expectedSocketPath);
+    }
+    if (fs.existsSync(this.expectedSocketPath)) {
       try {
-        this.tmux(['kill-server']);
-      } catch {
-        // The server may already have exited; cleanup remains best effort.
+        for (const line of this.tmux(['list-panes', '-a', '-F', '#{pane_pid}'])
+          .split('\n')
+          .filter(Boolean)) {
+          const pid = Number(line);
+          if (!Number.isSafeInteger(pid) || pid <= 1)
+            throw new Error(`Invalid E2E pane PID: ${line}`);
+          for (const group of paneOwnedGroups(pid)) {
+            if (!paneGroups.some((item) => item.pid === group.pid)) paneGroups.push(group);
+          }
+        }
+      } catch (error) {
+        recordCleanupError(
+          new Error(
+            `Could not record E2E pane groups at ${this.expectedSocketPath}: ${String(error)}`,
+            { cause: error }
+          )
+        );
       }
     }
-    this.serverStarted = false;
+    if (
+      fs.existsSync(this.expectedSocketPath) &&
+      (this.serverPid === 0 || processState(this.serverPid) !== 'absent')
+    ) {
+      try {
+        const stopped = stopPrivateTmuxSocket(
+          this.expectedSocketPath,
+          this.socketRoot,
+          this.tmuxPath,
+          this.env
+        );
+        if (stopped.error || stopped.status !== 0) {
+          throw new Error(String(stopped.error ?? stopped.stderr));
+        }
+      } catch (error) {
+        recordCleanupError(
+          new Error(`Could not stop E2E server at ${this.expectedSocketPath}: ${String(error)}`, {
+            cause: error,
+          })
+        );
+      }
+    }
     this.started = false;
+    try {
+      stopOwnedGroups(paneGroups);
+    } catch (error) {
+      recordCleanupError(
+        new Error(`E2E pane group cleanup failed: ${String(error)}`, { cause: error })
+      );
+    }
+    if (this.serverPid > 0) {
+      const serverExit = await waitForProcessExit([this.serverPid], processState);
+      if (serverExit.outcome !== 'exited') {
+        recordCleanupError(
+          new Error(`E2E server ${this.serverPid} did not exit: ${this.expectedSocketPath}.`)
+        );
+      }
+    }
+    if (
+      fs.existsSync(this.expectedSocketPath) &&
+      this.serverPid > 0 &&
+      processState(this.serverPid) === 'absent'
+    ) {
+      assertPrivateSocket(this.expectedSocketPath, this.socketRoot);
+      if (!fs.lstatSync(this.expectedSocketPath).isSocket())
+        throw new Error(`E2E socket changed type: ${this.expectedSocketPath}`);
+      fs.unlinkSync(this.expectedSocketPath);
+    }
+    if (fs.existsSync(this.expectedSocketPath)) {
+      recordCleanupError(new Error(`E2E socket survived cleanup: ${this.expectedSocketPath}.`));
+    }
     const paneExit = await waitForProcessExit(this.panePids, processState);
     if (paneExit.outcome === 'timed-out') {
       recordCleanupError(
@@ -804,14 +934,16 @@ exit ${'$'}status
       );
     }
     this.registerPeerSocket(false);
-    fs.rmSync(this.root, { recursive: true, force: true });
-    fs.rmSync(this.socketRoot, { recursive: true, force: true });
     if (failures.length > 0) {
       throw new AggregateError(
         failures,
-        `E2E fixture cleanup failed: ${failures.map((failure) => failure.message).join(' ')}`
+        `E2E fixture cleanup failed; retained ${this.root} and ${this.socketRoot}: ${failures.map((failure) => failure.message).join(' ')}`
       );
     }
+    this.registration.finish(() => {
+      fs.rmSync(this.root, { recursive: true, force: true });
+      fs.rmSync(this.socketRoot, { recursive: true, force: true });
+    });
   }
 
   serverIsRunning(): boolean {

@@ -14,6 +14,7 @@ import {
   assertPrivateSocket,
   hostSocketDirectories,
   privateTmux,
+  stopPrivateTmuxSocket,
   PrivateTmuxRefused,
 } from '../support/private-tmux.js';
 
@@ -64,6 +65,24 @@ const options = (fixture: Fixture, extra: Record<string, unknown> = {}) => ({
   executable: fixture.stub,
   ambient: {} as NodeJS.ProcessEnv,
   ...extra,
+});
+
+describe('stopping an existing private tmux socket', () => {
+  it('revalidates the exact socket and strips inherited tmux state', async () => {
+    await withFixture((fixture) => {
+      const socket = path.join(fixture.root, 'existing.sock');
+      const env = { PATH: '/usr/bin:/bin', TMUX: '/host/default,1,0', TMUX_PANE: '%9' };
+      const stopped = stopPrivateTmuxSocket(socket, fixture.root, fixture.stub, env, {});
+      expect(stopped.status).toBe(0);
+      expect(fixture.calls()).toEqual([
+        { argv: `-f /dev/null -S ${socket} kill-server`, tmux: 'unset', pane: 'unset' },
+      ]);
+      expect(() =>
+        stopPrivateTmuxSocket('/tmp/tmux-501/default', fixture.root, fixture.stub, env, {})
+      ).toThrow();
+      expect(fixture.calls()).toHaveLength(1);
+    });
+  });
 });
 
 describe('privateTmux', () => {

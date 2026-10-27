@@ -468,7 +468,9 @@ Adapters' default-off `test-isolation` feature admits private discovery paths in
 `typescript/scripts/private-world.mjs` runs suite commands in a private HOME/XDG/TMPDIR world
 (under `/tmp` when the temporary directory is too long for sockets) and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
 Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
-and peers. Host tmux, provider installs and global environment mutation are not evidence.
+and peers. The E2E run lifecycle owns registered fixture cleanup at suite end
+and on catchable main-process signals. Host tmux, provider installs and global environment
+mutation are not evidence.
 
 Cleanup confirms owned child/group absence before deleting fixture state;
 unknown inspection, leaks and false positives fail. Signals target only verified
