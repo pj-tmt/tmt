@@ -108,7 +108,7 @@ fn run(
                 .settings_path(provider)
                 .map_err(failure)?
                 .to_path_buf();
-            let before = setup::read_settings(&path).map_err(failure)?;
+            let before = setup::read_provider_settings(provider, &path).map_err(failure)?;
             let opted_out = record::usage_opted_out(&recorded, provider.name(), &path);
             let usage = record::usage_policy(&recorded, provider.name(), &path, usage);
             setup::plan_with_choice(
@@ -135,8 +135,12 @@ fn run(
         provider_mod::pending(plan.provider, &plan.change.path, !remove && plan.usage)
             .map_err(failure)?;
     if !mode.json {
+        let target_location = match &plan.change.resolved_target {
+            Some(target) => format!("{} -> {}", plan.change.path.display(), target.display()),
+            None => plan.change.path.display().to_string(),
+        };
         writeln!(output, "{} {} {} in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
-            if removing { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.events(), plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
+            if removing { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.events(), target_location, plan.launcher.display()).map_err(failure)?;
         if plan.change.before.is_some() && plan.change.changed() {
             writeln!(
                 output,
@@ -322,36 +326,50 @@ fn show_status(
     let recorded = record::read(&paths.global_dir).map_err(failure)?;
     for driver in selected {
         let path = setup::provider_settings(driver).map_err(failure)?;
-        let before = setup::read_settings(&path).map_err(failure)?;
-        // Keep validates installed entries without proposing a usage opt-in; the turn-end hook
-        // may be there with usage turned off, which only the setup record says.
-        let plan = setup::plan_with_choice(
-            driver,
-            path.clone(),
-            before,
-            std::path::PathBuf::from("/"),
-            false,
-            UsageHook::Keep,
-            record::usage_opted_out(&recorded, driver.name(), &path),
-        )
-        .map_err(failure)?;
+        let evaluated = setup::read_provider_settings(driver, &path)
+            .map_err(|error| error.to_string())
+            .and_then(|before| {
+                // Keep validates installed entries without proposing a usage opt-in; the turn-end hook
+                // may be there with usage turned off, which only the setup record says.
+                setup::plan_with_choice(
+                    driver,
+                    path.clone(),
+                    before,
+                    std::path::PathBuf::from("/"),
+                    false,
+                    UsageHook::Keep,
+                    record::usage_opted_out(&recorded, driver.name(), &path),
+                )
+                .map_err(|error| error.to_string())
+            });
         let mut row = json!({"provider": driver.name(), "settingsPath": path});
-        collection_document(&mut row, driver.name(), plan.usage_before);
-        if let Some(state) = provider_mod::state(driver.name(), &path).map_err(failure)? {
-            row["mod"] = json!({"state": state.label()});
-            // Read-only: an installed mod that has pushed nothing yet is not broken, it is
-            // waiting for a provider session to start with it.
-            if plan.usage_before
-                && state.installed()
-                && ProviderEnvironment::capture().is_ok_and(|environment| {
-                    provider_mod::waiting_for_first_session(
-                        driver.name(),
-                        &environment,
-                        &paths.global_dir,
-                    )
-                })
-            {
-                row["mod"]["waitingForFirstSession"] = json!(true);
+        match evaluated {
+            Ok(plan) => {
+                collection_document(&mut row, driver.name(), plan.usage_before);
+                if let Some(state) = provider_mod::state(driver.name(), &path).map_err(failure)? {
+                    row["mod"] = json!({"state": state.label()});
+                    // Read-only: an installed mod that has pushed nothing yet is not broken, it
+                    // is waiting for a provider session to start with it.
+                    if plan.usage_before
+                        && state.installed()
+                        && ProviderEnvironment::capture().is_ok_and(|environment| {
+                            provider_mod::waiting_for_first_session(
+                                driver.name(),
+                                &environment,
+                                &paths.global_dir,
+                            )
+                        })
+                    {
+                        row["mod"]["waitingForFirstSession"] = json!(true);
+                    }
+                }
+            }
+            Err(reason) => {
+                if provider.is_some() {
+                    return Err(Failure::new("SETUP_ERROR", reason, 1));
+                }
+                row["usage"] = json!(false);
+                row["diagnostic"] = json!(format!("{}: {reason}", driver.name()));
             }
         }
         integrations.push(row);
@@ -364,6 +382,8 @@ fn show_status(
             let provider = row["provider"].as_str().expect("driver name");
             if row["usage"] == true {
                 writeln!(output, "{provider}: consumption collection is on").map_err(failure)?;
+            } else if let Some(diagnostic) = row["diagnostic"].as_str() {
+                writeln!(output, "{diagnostic}").map_err(failure)?;
             } else {
                 writeln!(output, "{}", collection_off(provider)).map_err(failure)?;
             }

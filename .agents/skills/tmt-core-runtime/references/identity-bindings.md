@@ -506,8 +506,16 @@ delivery. They install and launch nothing.
   binding's endpoint and session compare-and-set; a shared client exit is unknown.
 - `tmt-adapters::setup` replaces or removes only exact owned hook entries, keeps user values as
   raw JSON, compares the plan again under the setup lock and keeps a byte-exact owner-only
-  backup in `.tmt-setup-backups` (more than 32 warns, none is deleted automatically). Final
-  settings symlinks are refused, never resolved. `<global>/setup-record.json` records driver,
+  backup in `.tmt-setup-backups` (more than 32 warns, none is deleted automatically). A final
+  settings symlink is refused, never resolved, except for a driver whose file another tool
+  shares (`HookFormat::NamedHooksJson`, agy's `~/.gemini/config/hooks.json`, #4976): its link
+  must resolve to a regular file the user owns, the approval shows `path -> target`, the
+  backup is the target's bytes beside the link, the new file is staged in the target's
+  directory (probed first) and renamed over the target so the link stays, and a link that
+  points elsewhere by the time of publication is refused. Removal rewrites such a file rather
+  than deleting it. A present provider whose file cannot be read or planned is listed under
+  `kept` with its reason by guided setup and `--status` while the others proceed (exit 0);
+  a targeted setup of that provider still fails. `<global>/setup-record.json` records driver,
   settings file and launcher; hooks found without a record are adopted only on an exact match; an
   invalid record stops setup before any provider file changes. Codex setup owns only `hooks.json`
   under `CODEX_HOME`.

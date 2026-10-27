@@ -68,6 +68,11 @@ fn plans_with(
                 UsageHook::Default,
                 Some(driver.name()),
             )?;
+            // A provider whose settings cannot be read is reported for approval, as before; guided
+            // setup keeps it listed and goes on, an upgrade offer never does.
+            if let Some((_, reason)) = plan.kept.first() {
+                return Err(failure(io::Error::other(reason.clone())));
+            }
             plan.owned.clear(); // Each consented extension owns publication of its bundled skills.
             plan.mods.clear(); // A provider mod follows an explicit setup, never an upgrade offer.
             plan.core
