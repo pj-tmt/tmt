@@ -95,14 +95,13 @@ impl Review {
         let mut lines = match &self.task.request {
             CronRequest::Add {
                 squad,
-                room_id,
                 owner,
                 message,
                 schedule,
                 zone,
                 ..
             } => vec![
-                format!("Create timer in {squad} · room {room_id}"),
+                format!("Create timer in {squad}"),
                 format!("Owner: {owner}"),
                 format!("Message: {message}"),
                 format!("Schedule: {schedule} · timezone {zone}"),
@@ -115,7 +114,7 @@ impl Review {
                 ..
             } => {
                 let mut lines = vec![
-                    format!("Timer {} in {} · room {}", key.id, squad, key.room_id),
+                    format!("Timer {} in {}", key.id, squad),
                     format!("Viewed revision: {revision}; a changed timer will be refused."),
                 ];
                 match op {
@@ -437,6 +436,46 @@ mod tests {
             message: "do this".into(),
             schedule: "every 30m".into(),
             zone: "UTC".into(),
+        }
+    }
+    #[test]
+    fn the_review_names_the_squad_and_never_the_room_id() {
+        const ROOM: &str = "6f1d2c3a-0b4e-4c55-9a7d-123456789abc";
+        let actor = super::super::test_cron(vec![], tmt_ops::cron::ClockStatus::NoClock)
+            .actor
+            .unwrap();
+        let requests = [
+            CronRequest::Add {
+                actor: actor.clone(),
+                squad: "product".into(),
+                room_id: ROOM.into(),
+                owner: "owner".into(),
+                message: "do this".into(),
+                schedule: "every 30m".into(),
+                zone: "UTC".into(),
+            },
+            CronRequest::Existing {
+                actor,
+                squad: "product".into(),
+                key: crate::cron_service::JobKey {
+                    room_id: ROOM.into(),
+                    id: "job-1".into(),
+                },
+                revision: 3,
+                op: super::super::Op::Pause,
+            },
+        ];
+        for request in requests {
+            let mut app = crate::board::app::workspace::tests::board();
+            let Effect::Act(Request::CronPreview(task)) = app.cron_review_request(request) else {
+                panic!("preview")
+            };
+            let (task, result) = run(*task, 0);
+            app.cron_review_ready(task, result);
+            let lines = app.cron_review.as_ref().unwrap().lines();
+            let text = lines.join("\n");
+            assert!(text.contains("in product"), "{text}");
+            assert!(!text.contains(ROOM) && !text.contains("room"), "{text}");
         }
     }
     #[test]

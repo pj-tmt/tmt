@@ -214,7 +214,7 @@ impl App {
                     .find(|squad| &squad.room_id == room)
             {
                 lines.push(format!(
-                    "Link fields scope: squad {} · room {room} · member {identity_id}",
+                    "Link fields scope: squad {} · member {identity_id}",
                     squad.name
                 ));
                 lines.push(format!(
