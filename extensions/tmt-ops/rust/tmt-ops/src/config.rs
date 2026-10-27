@@ -2532,11 +2532,11 @@ fn empty_table_without_comments(item: &Item) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::split::Split;
+    use crate::{split::Split, test_support::Scratch};
 
     #[test]
     fn link_handlers_are_explicit_validated_run_bindings() {
-        let path = temp("links");
+        let (_scratch, path) = temp("links");
         fs::write(&path, "[links]\ngh='run gh issue view {path}'").unwrap();
         let handlers = Config::read(path.clone()).unwrap().links().unwrap();
         let handler = &handlers["gh"];
@@ -2561,12 +2561,11 @@ mod tests {
             fs::write(&path, format!("[links]\n{value}")).unwrap();
             assert!(Config::read(path.clone()).is_err(), "{value}");
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn reminders_are_per_squad_team_enabled_by_default_and_bounded() {
-        let path = temp("reminders-valid");
+        let (_scratch, path) = temp("reminders-valid");
         fs::write(
             &path,
             "[squad.product.reminders]\nenabled = true\nstale_after = \"30m\"\n",
@@ -2608,12 +2607,11 @@ mod tests {
             );
             assert!(config.reminders("product").unwrap().enabled);
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn invalid_reminders_never_mutate_config() {
-        let path = temp("reminders-invalid");
+        let (_scratch, path) = temp("reminders-invalid");
         for setting in [
             "enabled = 1",
             "enabled = \"true\"",
@@ -2645,14 +2643,13 @@ mod tests {
                 .reminders("product")
                 .is_err()
         );
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn theme_base_edits_keep_the_exact_surrounding_document_and_tokens() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::{Base, Depth, Role};
-        let path = temp("theme-base-preservation");
+        let (_scratch, path) = temp("theme-base-preservation");
         let original = "# personal board\nopaque = { future = 42 }\n\n[board]\nrefresh = \"off\" # manual\n\n[board.theme] # colors\nbase = \"tmt\" # dark\naccent = \"blue\"\n\n[squad.product.theme]\nwaiting = \"red\" # attention\n";
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
@@ -2680,14 +2677,13 @@ mod tests {
         );
         assert_eq!(config.theme_source("product").unwrap(), "default");
         assert!(!config.remove_theme_base(&ThemeScope::Board).unwrap());
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn theme_layers_resolve_each_token_and_report_the_base_source() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::{Base, Depth, Role, Theme};
-        let path = temp("theme-three-layers");
+        let (_scratch, path) = temp("theme-three-layers");
         fs::write(&path, "[board.theme]\nbase = \"terminal\"\naccent = \"green\"\n[squad.product.theme]\nbase = \"mono\"\nwaiting = \"blue\"\n").unwrap();
         let mut config = Config::read(path.clone()).unwrap();
         config.global_theme(&serde_json::json!({"resolved":{"theme":{"base":"tmt-light", "accent":"red", "blocked":"yellow"}}}));
@@ -2720,12 +2716,12 @@ mod tests {
         config.global_theme(&serde_json::json!({"resolved":{"theme":{"base":"invalid"}}}));
         assert_eq!(config.theme_source("product").unwrap(), "default");
         assert!(config.theme("product").unwrap().1.is_some());
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn legacy_byte_cas_alone_refuses_archival_without_recreating_old_config() {
-        let path = temp("legacy-cas").with_file_name("squad.toml");
+        let (_scratch, path) = temp("legacy-cas");
+        let path = path.with_file_name("squad.toml");
         fs::write(&path, "[board.theme]\nbase='tmt'\n").unwrap();
         let mut old = Config::read(path.clone()).unwrap();
         // No completion marker: exercise the byte CAS used by the old binary.
@@ -2737,14 +2733,13 @@ mod tests {
             "SQUAD_CONFIG_CHANGED"
         );
         assert!(!path.exists());
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn theme_writes_refuse_changed_files_even_for_an_identical_base() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
-        let path = temp("theme-stale-write");
+        let (_scratch, path) = temp("theme-stale-write");
         fs::write(&path, "[board.theme]\nbase = \"mono\"\n").unwrap();
         let mut config = Config::read(path.clone()).unwrap();
         let original_document = config.document.to_string();
@@ -2770,14 +2765,13 @@ mod tests {
         );
         assert_eq!(fs::read(&path).unwrap(), changed_bytes);
         assert_eq!(config.document.to_string(), original_document);
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn failed_publication_keeps_config_and_does_not_leak_the_draft_into_a_later_write() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
-        let path = temp("theme-failed-publish");
+        let (_scratch, path) = temp("theme-failed-publish");
         let original = "[board.theme]\nbase = \"tmt\"\n";
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
@@ -2800,14 +2794,13 @@ mod tests {
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.contains(original), "{written}");
         assert!(!written.contains("mono"), "{written}");
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn eight_editors_racing_from_one_read_never_overwrite_each_other() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
-        let path = temp("eight-editors");
+        let (_scratch, path) = temp("eight-editors");
         fs::write(&path, "[board.theme]\nbase = \"tmt\"\n").unwrap();
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
         let threads: Vec<_> = (0..8)
@@ -2852,14 +2845,13 @@ mod tests {
             .filter(|name| name.starts_with('.'))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn theme_noop_preserves_quoted_bytes_and_does_not_publish() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
-        let path = temp("theme-noop");
+        let (_scratch, path) = temp("theme-noop");
         let original = "[board.theme]\nbase = 'mono' # untouched\n";
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
@@ -2876,14 +2868,13 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn theme_edits_create_valid_tables_and_preserve_inline_overrides() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
-        let path = temp("theme-create-inline");
+        let (_scratch, path) = temp("theme-create-inline");
         let mut config = Config::read(path.clone()).unwrap();
         assert!(!config.remove_theme_base(&ThemeScope::Board).unwrap());
         assert!(!path.exists());
@@ -2901,14 +2892,13 @@ mod tests {
             fs::read_to_string(&path).unwrap(),
             "board = { theme = { base = \"terminal\", accent = \"blue\" }, refresh = \"off\" } # inline\n"
         );
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn invalid_board_theme_is_not_hidden_by_a_squad_override_or_written() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
-        let path = temp("theme-invalid-board");
+        let (_scratch, path) = temp("theme-invalid-board");
         for bad in [
             "waiting = \"orange\"",
             "waiting = 42",
@@ -2933,12 +2923,11 @@ mod tests {
             );
             assert_eq!(fs::read_to_string(&path).unwrap(), original);
         }
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn obsolete_home_replies_is_ignored_with_one_notice_and_preserves_authored_toml() {
-        let path = temp("obsolete-home-replies");
+        let (_scratch, path) = temp("obsolete-home-replies");
         for value in ["false", "true", "'obsolete'", "42"] {
             let body = format!("# keep this comment\n[board]\nhome_replies={value}\n");
             fs::write(&path, &body).unwrap();
@@ -2983,12 +2972,11 @@ mod tests {
             "other unknown board keys remain errors"
         );
         assert!(config.obsolete_board_notice().is_none());
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn ask_lead_layers_and_writer_validate_before_publication() {
-        let path = temp("ask-lead");
+        let (_scratch, path) = temp("ask-lead");
         std::fs::write(&path, "[board]\nask_lead = 'Global question'\n[squad.x.board]\nask_lead = 'Scoped question'\n").unwrap();
         let mut config = Config::read(path.clone()).unwrap();
         assert_eq!(config.ask_lead("x").unwrap(), "Scoped question");
@@ -3014,19 +3002,18 @@ mod tests {
                 .preview_setting(None, "board.ask_lead", &"q".repeat(4001))
                 .is_err()
         );
-        std::fs::remove_file(path).unwrap();
     }
 
-    fn temp(name: &str) -> PathBuf {
-        let directory = std::env::temp_dir().join(format!("tmt-ops-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(&directory).unwrap();
-        directory.join("ops.toml")
+    /// A private directory and the `ops.toml` path inside it; the directory goes with the guard.
+    fn temp(name: &str) -> (Scratch, PathBuf) {
+        let scratch = Scratch::new(name);
+        let path = scratch.join("ops.toml");
+        (scratch, path)
     }
 
     #[test]
     fn reset_drops_only_an_empty_comment_free_parent_and_preserves_siblings() {
-        let path = temp("reset-empty-parent");
+        let (_scratch, path) = temp("reset-empty-parent");
         for (prefix, suffix, sibling, keep_parent) in [
             ("", "", "", false),
             ("# keep meter note\n", "", "", true),
@@ -3068,12 +3055,11 @@ mod tests {
             );
             assert!(!reopened.has_setting_override("x", "board.token_rate.window"));
         }
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn settings_view_preview_and_save_share_the_catalog_writer_and_custom_refusal() {
-        let path = temp("settings-view");
+        let (_scratch, path) = temp("settings-view");
         fs::write(&path, "# preserved\n[squad.x]\nlayout='crew'\n").unwrap();
         let mut config = Config::read(path.clone()).unwrap();
         let before = fs::read(&path).unwrap();
@@ -3109,12 +3095,11 @@ mod tests {
         );
         assert!(config.preview_setting(None, "board.view", "team").is_ok());
         assert!(!config.board("x").unwrap().members);
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn settings_edits_use_existing_scopes_and_keep_custom_structure() {
-        let path = temp("setting-scopes");
+        let (_scratch, path) = temp("setting-scopes");
         fs::write(&path, "[squad.x.board]\ndirection='left-right'\n[squad.x.states.working]\nsort=7 # preserve rank\n[squad.x.columns]\nshow=['member','state','task','pr_link']\npr_link={width=12}\n").unwrap();
         let config = Config::read(path.clone()).unwrap();
         let draft = config
@@ -3221,12 +3206,11 @@ mod tests {
             config.board("x").unwrap()
         );
         assert_eq!(config.document.to_string(), before);
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn setting_drafts_preserve_grids_and_refuse_invalid_or_changed_files() {
-        let path = temp("setting-edits");
+        let (_scratch, path) = temp("setting-edits");
         let original = "# kept\nopaque='keep me'\n[squad.x.rows]\ncolumns=[{name='member'},{name='state'},{name='task'},{name='pr_link'}]\nlines=[['member','state',{field='task',span=2}],[{field='member',span=4}]]\n[squad.x.board]\nrefresh='5s' # retain\n";
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
@@ -3284,12 +3268,11 @@ mod tests {
             "SQUAD_CONFIG_CHANGED"
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "# external editor\n");
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn clearing_me_removes_only_me_and_its_id() {
-        let path = temp("clear-me");
+        let (_scratch, path) = temp("clear-me");
         let user = "# my board\n[squad.product]\nlayout = \"pr-queue\" # queue\n";
         fs::write(
             &path,
@@ -3310,12 +3293,11 @@ mod tests {
         fs::write(&path, "me = \"Someone\"\n").unwrap();
         assert_eq!(config.clear_me().unwrap_err().code, "SQUAD_CONFIG_CHANGED");
         assert_eq!(fs::read_to_string(&path).unwrap(), "me = \"Someone\"\n");
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn invalid_documents_and_values_are_rejected_before_use() {
-        let path = temp("invalid");
+        let (_scratch, path) = temp("invalid");
         assert_eq!(Config::read(path.clone()).unwrap().me().unwrap(), None);
         for text in [
             "me = 3\n",
@@ -3331,12 +3313,11 @@ mod tests {
         fs::write(&path, "[squad.x]\nlayout = \"kanban\"\n").unwrap();
         let config = Config::read(path.clone()).unwrap();
         assert_eq!(config.layout("x").unwrap_err().code, "SQUAD_CONFIG_INVALID");
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn sections_are_optional_ordered_and_strictly_validated() {
-        let path = temp("sections");
+        let (_scratch, path) = temp("sections");
         fs::write(
             &path,
             r#"[squad.product]
@@ -3394,12 +3375,11 @@ sort = ["state", "-name"]
                 .map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn programs_are_argv_arrays_that_never_need_a_shell() {
-        let path = temp("programs");
+        let (_scratch, path) = temp("programs");
         fs::write(
             &path,
             "opener = [\"firefox\", \"--new-tab\"]\nclipboard = [\"/usr/bin/xclip\", \"-selection\", \"clipboard\"]\n",
@@ -3431,12 +3411,11 @@ sort = ["state", "-name"]
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn label_sources_default_to_one_extension_and_an_empty_list_turns_labels_off() {
-        let path = temp("label-sources");
+        let (_scratch, path) = temp("label-sources");
         for (body, expected) in [
             ("", vec!["digest"]),
             ("[labels]\n", vec!["digest"]),
@@ -3469,12 +3448,11 @@ sort = ["state", "-name"]
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn tmux_keys_default_to_s_and_b_and_back_and_lead_are_opt_in() {
-        let path = temp("tmux-keys");
+        let (_scratch, path) = temp("tmux-keys");
         fs::write(&path, "").unwrap();
         let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
         assert_eq!(
@@ -3519,12 +3497,11 @@ sort = ["state", "-name"]
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn bind_overrides_the_host_preset_and_rejects_bad_actions_at_load() {
-        let path = temp("bind");
+        let (_scratch, path) = temp("bind");
         fs::write(
             &path,
             "[bind]\nenter = \"open {pr_link}\"\nf5 = \"refresh\"\n",
@@ -3582,12 +3559,11 @@ sort = ["state", "-name"]
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn host_tables_in_bind_parse_apart_from_the_flat_table_with_located_errors() {
-        let path = temp("bind-hosts");
+        let (_scratch, path) = temp("bind-hosts");
         fs::write(
             &path,
             "[bind]\nf5 = \"copy\"\n\n[bind.tmux]\nenter = \"run tmux switch-client -t {pane}\"\n\n\
@@ -3658,12 +3634,11 @@ sort = ["state", "-name"]
             let config = Config::read(path.clone()).unwrap();
             assert!(config.configured_bindings().is_err(), "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn configured_group_toggle_preserves_overrides_and_rejects_duplicate_or_unknown_panes() {
-        let path = temp("toggle-group");
+        let (_scratch, path) = temp("toggle-group");
         let panes = [Pane::Detail, Pane::Replies];
         for line in ["toggle detail replies", "toggle notes"] {
             fs::write(&path, format!("[bind]\nd = \"{line}\"\n")).unwrap();
@@ -3686,13 +3661,12 @@ sort = ["state", "-name"]
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
             assert!(error.message.contains("bind.d"));
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn the_board_theme_layers_the_squad_over_the_global_one() {
         use tmt_cli_style::{Base, Role};
-        let path = temp("theme");
+        let (_scratch, path) = temp("theme");
         fs::write(
             &path,
             "[squad.product.theme]\nwaiting = \"#010203\"\n[squad.bad.theme]\nwaiting = \"orange\"\n\
@@ -3754,12 +3728,11 @@ sort = ["state", "-name"]
         );
         // A bad squad theme stays this file's error under either global one.
         assert!(error(&config, "bad").contains("`squad.bad.theme.waiting`"));
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn columns_and_state_colors_default_by_layout_and_override_strictly() {
-        let path = temp("board");
+        let (_scratch, path) = temp("board");
         fs::write(
             &path,
             "[squad.product.columns]\nshow = [\"member\", \"state\", \"note\"]\nnote = { title = \"WHY\", width = 30 }\n\
@@ -3822,7 +3795,6 @@ sort = ["state", "-name"]
                 .map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -3859,7 +3831,7 @@ sort = ["state", "-name"]
 
     #[test]
     fn refresh_is_per_squad_then_global_then_five_seconds() {
-        let path = temp("refresh");
+        let (_scratch, path) = temp("refresh");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
             Config::read(path.clone()).unwrap()
@@ -3900,12 +3872,11 @@ sort = ["state", "-name"]
                 .map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn members_are_default_and_workflow_presets_keep_their_overrides() {
-        let path = temp("team");
+        let (_scratch, path) = temp("team");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
             Config::read(path.clone()).unwrap()
@@ -4045,12 +4016,11 @@ panes = ["rows", "notes"]
             invalid.reminders("x").unwrap_err().code,
             "SQUAD_CONFIG_INVALID"
         );
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn board_presets_overrides_and_validation() {
-        let path = temp("panes");
+        let (_scratch, path) = temp("panes");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
             Config::read(path.clone()).unwrap()
@@ -4143,12 +4113,11 @@ panes = ["rows", "notes"]
             let code = read(body).board("x").err().map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn state_sort_overrides_reorder_known_and_new_states() {
-        let path = temp("order");
+        let (_scratch, path) = temp("order");
         fs::write(
             &path,
             "[squad.x.states]\nblocked = { color = \"amber\", sort = 0 }\nparked = { sort = 3 }\n",
@@ -4170,12 +4139,11 @@ panes = ["rows", "notes"]
         );
         assert!(states.rank(Some("blocked")) < states.rank(Some("working")));
         assert!(states.rank(Some("unknown")) > states.rank(Some("hold")));
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn notes_render_defaults_to_markdown_and_accepts_plain() {
-        let path = temp("notes");
+        let (_scratch, path) = temp("notes");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
             Config::read(path.clone()).unwrap().notes_render("x")
@@ -4196,12 +4164,11 @@ panes = ["rows", "notes"]
                 "{body}"
             );
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn saving_the_tab_order_keeps_the_rest_of_the_file_and_reads_back() {
-        let path = temp("tab-order");
+        let (_scratch, path) = temp("tab-order");
         let original = "# my board\n[tabs] # arranged by hand\nhide = [\"quiet\"]\n\n[bind]\no = \"open {pr_link}\"\n";
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
@@ -4249,12 +4216,11 @@ panes = ["rows", "notes"]
             config.set_tab_order(&keys).unwrap_err().code,
             "SQUAD_CONFIG_INVALID"
         );
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn tabs_read_order_hide_colors_and_the_leads_bindings() {
-        let path = temp("tabs");
+        let (_scratch, path) = temp("tabs");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
             Config::read(path.clone()).and_then(|config| config.tabs())
@@ -4299,11 +4265,10 @@ panes = ["rows", "notes"]
                 "{body}"
             );
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
     #[test]
     fn home_defaults_respect_explicit_empty_order_pin_and_hide() {
-        let path = temp("home-defaults");
+        let (_scratch, path) = temp("home-defaults");
         let squads = ["product".into(), "infra".into()];
         for (body, expected, pinned) in [
             ("", vec!["@all", "@leads", "product", "infra"], 1),
@@ -4346,12 +4311,11 @@ panes = ["rows", "notes"]
                 "reading never writes"
             );
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn user_tabs_validate_eagerly_and_keep_distinct_squad_keys() {
-        let path = temp("user-tabs");
+        let (_scratch, path) = temp("user-tabs");
         let body = r#"[tabs]
 order = ["tab:needs-me", "needs-me", "all"]
 pin = ["tab:needs-me"]
@@ -4406,12 +4370,11 @@ filter = "not pending"
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
             assert!(error.message.contains(place), "{error:?}");
         }
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
     fn implicit_team_preserves_simple_board_configs_and_explicit_team_is_strict() {
-        let path = temp("layout-resolution");
+        let (_scratch, path) = temp("layout-resolution");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
             Config::read(path.clone()).unwrap()
@@ -4453,12 +4416,11 @@ filter = "not pending"
                     .contains("partially override the resolved arrangement")
             );
         }
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn fold_below_validates_width_panes_and_mode_with_placed_errors() {
-        let path = temp("fold-below");
+        let (_scratch, path) = temp("fold-below");
         for (value, suffix) in [
             ("{ width = 0, panes = [] }", "width"),
             ("{ width = 1001, panes = [] }", "width"),
@@ -4506,12 +4468,11 @@ filter = "not pending"
             }
         );
         assert_eq!(board.collapsed, [Pane::Notes].into());
-        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn collapsed_is_strict_and_validates_the_resolved_board_before_use() {
-        let path = temp("collapsed");
+        let (_scratch, path) = temp("collapsed");
         for layout in [
             "panes = [\"rows\", \"detail\"]\n",
             "layout = { direction = \"left-right\", panes = [\"rows\", { direction = \"top-bottom\", panes = [\"detail\", \"notes\"] }] }\n",
@@ -4564,15 +4525,13 @@ filter = "not pending"
                 .collapsed
                 .is_empty()
         );
-        fs::remove_file(path).unwrap();
     }
     #[test]
     fn token_rate_defaults_and_layered_overrides_are_strict() {
         let read = |text: &str, name: &str| {
-            let path = temp("token-rate");
+            let (_scratch, path) = temp("token-rate");
             fs::write(&path, text).unwrap();
             let config = Config::read(path.clone()).unwrap();
-            fs::remove_file(path).unwrap();
             config.token_rate(name)
         };
         assert!(read("", "p").unwrap().enabled);
@@ -4610,7 +4569,7 @@ filter = "not pending"
     }
     #[test]
     fn crew_sampling_policy_publishes_hidden_windows_and_active_column_priority() {
-        let path = temp("crew-window-policy");
+        let (_scratch, path) = temp("crew-window-policy");
         for enabled in [false, true] {
             fs::write(
                 &path,
@@ -4645,12 +4604,11 @@ filter = "not pending"
                 assert_eq!(metadata.get("hidden_columns").is_some(), !enabled);
             }
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn sampled_preset_model_and_usage_columns_keep_their_published_source_policy() {
-        let path = temp("model-track-sizing");
+        let (_scratch, path) = temp("model-track-sizing");
         for layout in ["crew", "team"] {
             fs::write(
                 &path,
@@ -4676,12 +4634,11 @@ filter = "not pending"
                 );
             }
         }
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn tok_windows_validate_masked_layers_and_report_the_source() {
-        let path = temp("tok-windows");
+        let (_scratch, path) = temp("tok-windows");
         for text in [
             "1m/1m/60m",
             "5m/1m/60m",
@@ -4732,11 +4689,10 @@ filter = "not pending"
         );
         assert_eq!(config.token_rate("other").unwrap().window, windows[0]);
         assert_eq!(config.rows("p").unwrap().columns[0].title, "OBSERVED");
-        fs::remove_file(path).unwrap();
     }
     #[test]
     fn startup_tab_setting_saves_through_the_existing_writer_and_keeps_comments() {
-        let path = temp("startup-tab");
+        let (_scratch, path) = temp("startup-tab");
         fs::write(
             &path,
             "# keep\n[board]\nstartup_tab = 'last' # choice\nrefresh = '2s'\n",
@@ -4769,11 +4725,10 @@ filter = "not pending"
             Config::read(path.clone()).unwrap().startup_tab().0,
             StartupTab::Agents
         );
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
     #[test]
     fn checklist_enter_setting_saves_through_the_existing_writer_and_keeps_comments() {
-        let path = temp("checklist-enter");
+        let (_scratch, path) = temp("checklist-enter");
         fs::write(
             &path,
             "# keep\n[board]\nchecklist_enter = 'open' # choice\nrefresh = '2s'\n",
@@ -4802,6 +4757,5 @@ filter = "not pending"
             "the setting is global"
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), saved);
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }

@@ -28,14 +28,14 @@ fn a_rebound_checklist_key_shows_on_the_chip_footer_and_help() {
         before.contains("C  Checklist") && before.contains("C checklist"),
         "{before}"
     );
-    let path = std::env::temp_dir().join(format!("ops-rekey-{}.toml", std::process::id()));
+    let scratch = crate::test_support::Scratch::new("rekey");
+    let path = scratch.join("ops.toml");
     std::fs::write(&path, "# mine\n").unwrap();
     let mut config = crate::config::Config::read(path.clone()).unwrap();
     config
         .set_setting(None, "keys.member-checklist", "K")
         .unwrap();
-    let saved = crate::config::Config::read(path.clone()).unwrap();
-    std::fs::remove_file(path).unwrap();
+    let saved = crate::config::Config::read(path).unwrap();
     app.view
         .as_mut()
         .unwrap()

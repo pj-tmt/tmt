@@ -1,15 +1,12 @@
 //! Reader demand, failure retention and lifecycle. Acquisition admission and
 //! batching use public Core-shaped fixtures in acquire/tests.rs.
 use super::{Delivery, Reader, Report, Since, State, Timing, View};
-use crate::{core::Core, test_support::write_ready_executable};
-use serde_json::json;
-use std::{
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc,
-    },
-    time::Duration,
+use crate::{
+    core::Core,
+    test_support::{Scratch, write_ready_executable},
 };
+use serde_json::json;
+use std::{path::Path, sync::mpsc, time::Duration};
 
 fn empty(range: Since) -> Report {
     Report {
@@ -53,42 +50,25 @@ fn failed_refresh_retains_evidence_and_exposes_staleness_only_for_its_range() {
     assert_eq!(state.refresh_error(Since::Day), None);
 }
 
-pub(super) struct Scratch(pub(super) std::path::PathBuf);
-impl Scratch {
-    pub(super) fn new() -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "ops-usage-report-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-    /// A stand-in for `tmt` that logs each call and prints `report.json`, or fails.
-    fn core(&self) -> Core {
-        let script = self.0.join("tmt");
-        write_ready_executable(
-            &script,
-            &format!(
-                "#!/bin/sh\necho \"$*\" >> '{dir}/calls'\n\
-                 if [ -f '{dir}/fail' ]; then echo '{{\"error\":{{\"code\":\"X\",\"message\":\"supplier down\"}}}}'; exit 1; fi\n\
-                 cat '{dir}/report.json'\n",
-                dir = self.0.display()
-            ),
-        );
-        Core::at(script)
-    }
-    pub(super) fn calls(&self) -> Vec<String> {
-        std::fs::read_to_string(self.0.join("calls"))
-            .map(|calls| calls.lines().map(str::to_owned).collect())
-            .unwrap_or_default()
-    }
+/// A stand-in for `tmt` that logs each call and prints `report.json`, or fails.
+fn fake_core(scratch: &Path) -> Core {
+    let script = scratch.join("tmt");
+    write_ready_executable(
+        &script,
+        &format!(
+            "#!/bin/sh\necho \"$*\" >> '{dir}/calls'\n\
+             if [ -f '{dir}/fail' ]; then echo '{{\"error\":{{\"code\":\"X\",\"message\":\"supplier down\"}}}}'; exit 1; fi\n\
+             cat '{dir}/report.json'\n",
+            dir = scratch.display()
+        ),
+    );
+    Core::at(script)
 }
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
+
+pub(super) fn recorded_calls(scratch: &Path) -> Vec<String> {
+    std::fs::read_to_string(scratch.join("calls"))
+        .map(|calls| calls.lines().map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 fn quick() -> Timing {
@@ -107,22 +87,27 @@ fn next(received: &mpsc::Receiver<Delivery>) -> Delivery {
 
 #[test]
 fn the_reader_reads_only_while_wanted_and_for_the_wanted_window() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("usage-report");
     std::fs::write(
-        scratch.0.join("report.json"),
+        scratch.join("report.json"),
         json!({"sinceMs":1,"observedAtMs":2,"rows":[]}).to_string(),
     )
     .unwrap();
     let (sender, received) = mpsc::channel();
-    let reader = Reader::spawn(&scratch.core(), quick(), move |d| sender.send(d).is_ok());
+    let reader = Reader::spawn(&fake_core(&scratch), quick(), move |d| {
+        sender.send(d).is_ok()
+    });
     let wants = reader.wants();
     // Nothing is read before the panel is wanted.
     std::thread::sleep(Duration::from_millis(150));
-    assert!(scratch.calls().is_empty());
+    assert!(recorded_calls(&scratch).is_empty());
     wants.set(Some(super::Request::new(crate::config::TokRange::Day, [])));
     let first = next(&received);
     assert_eq!((first.since, first.result.is_ok()), (Since::Day, true));
-    assert_eq!(scratch.calls()[0], "x flow --since 1d --bucket 1d --json");
+    assert_eq!(
+        recorded_calls(&scratch)[0],
+        "x flow --since 1d --bucket 1d --json"
+    );
     // It repeats while wanted, and a new window reads at once for that window.
     let again = next(&received);
     assert_eq!(again.since, Since::Day);
@@ -134,8 +119,7 @@ fn the_reader_reads_only_while_wanted_and_for_the_wanted_window() {
         }
     }
     assert!(
-        scratch
-            .calls()
+        recorded_calls(&scratch)
             .iter()
             .any(|call| call == "x flow --since 7d --bucket 7d --json")
     );
@@ -143,10 +127,10 @@ fn the_reader_reads_only_while_wanted_and_for_the_wanted_window() {
     wants.set(None);
     std::thread::sleep(Duration::from_millis(150));
     while received.try_recv().is_ok() {}
-    let settled = scratch.calls().len();
+    let settled = recorded_calls(&scratch).len();
     std::thread::sleep(Duration::from_millis(250));
     assert_eq!(
-        scratch.calls().len(),
+        recorded_calls(&scratch).len(),
         settled,
         "no read while the panel is off screen"
     );
@@ -155,18 +139,20 @@ fn the_reader_reads_only_while_wanted_and_for_the_wanted_window() {
 
 #[test]
 fn a_failing_supplier_is_delivered_as_a_message_and_a_malformed_document_is_refused() {
-    let scratch = Scratch::new();
-    std::fs::write(scratch.0.join("fail"), "").unwrap();
+    let scratch = Scratch::new("usage-report");
+    std::fs::write(scratch.join("fail"), "").unwrap();
     let (sender, received) = mpsc::channel();
-    let reader = Reader::spawn(&scratch.core(), quick(), move |d| sender.send(d).is_ok());
+    let reader = Reader::spawn(&fake_core(&scratch), quick(), move |d| {
+        sender.send(d).is_ok()
+    });
     reader
         .wants()
         .set(Some(super::Request::new(crate::config::TokRange::Week, [])));
     let failed = next(&received);
     assert_eq!(failed.since, Since::Week);
     assert_eq!(failed.result.unwrap_err(), "supplier down");
-    std::fs::remove_file(scratch.0.join("fail")).unwrap();
-    std::fs::write(scratch.0.join("report.json"), "{\"version\":2}").unwrap();
+    std::fs::remove_file(scratch.join("fail")).unwrap();
+    std::fs::write(scratch.join("report.json"), "{\"version\":2}").unwrap();
     loop {
         let delivery = next(&received);
         if let Err(message) = delivery.result
@@ -189,13 +175,13 @@ fn reached(path: &std::path::Path) {
 
 #[test]
 fn a_changed_demand_cancels_the_inflight_window_and_delivers_the_new_range_promptly() {
-    let scratch = Scratch::new();
-    let script = scratch.0.join("barrier-core");
+    let scratch = Scratch::new("usage-report");
+    let script = scratch.join("barrier-core");
     write_ready_executable(
         &script,
         &format!(
             "#!/bin/sh\nif [ \"$4\" = '1d' ]; then\n : > '{dir}/started'\n exec sleep 30\nfi\nprintf '%s' '{{\"sinceMs\":1,\"observedAtMs\":2,\"rows\":[]}}'\n",
-            dir = scratch.0.display()
+            dir = scratch.display()
         ),
     );
     let (sender, received) = mpsc::channel();
@@ -209,7 +195,7 @@ fn a_changed_demand_cancels_the_inflight_window_and_delivers_the_new_range_promp
     );
     let wants = reader.wants();
     wants.set(Some(super::Request::new(Since::Day, [])));
-    reached(&scratch.0.join("started"));
+    reached(&scratch.join("started"));
     // Repeating the same demand must leave the blocked read running.
     wants.set(Some(super::Request::new(Since::Day, [])));
     assert!(received.recv_timeout(Duration::from_millis(100)).is_err());
@@ -231,13 +217,13 @@ fn a_changed_demand_cancels_the_inflight_window_and_delivers_the_new_range_promp
 
 #[test]
 fn dropping_the_reader_cancels_an_inflight_public_read_and_joins() {
-    let scratch = Scratch::new();
-    let script = scratch.0.join("blocked-core");
+    let scratch = Scratch::new("usage-report");
+    let script = scratch.join("blocked-core");
     write_ready_executable(
         &script,
         &format!(
             "#!/bin/sh\n: > '{dir}/started'\nexec sleep 30\n",
-            dir = scratch.0.display()
+            dir = scratch.display()
         ),
     );
     let (sender, received) = mpsc::channel();
@@ -252,7 +238,7 @@ fn dropping_the_reader_cancels_an_inflight_public_read_and_joins() {
     reader
         .wants()
         .set(Some(super::Request::new(Since::Day, [])));
-    reached(&scratch.0.join("started"));
+    reached(&scratch.join("started"));
     let start = std::time::Instant::now();
     drop(reader);
     assert!(

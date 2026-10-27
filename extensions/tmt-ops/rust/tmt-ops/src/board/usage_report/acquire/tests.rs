@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_support::write_ready_executable;
+use crate::test_support::{Scratch, write_ready_executable};
 
 const ID: &str = "10000000-0000-4000-8000-000000000001";
 const NOW: u64 = 1_800_000_000_000;
@@ -74,17 +74,17 @@ fn echoed_closed_window_bounds_are_not_rederived_from_a_local_resolution() {
 #[test]
 fn a_changed_or_future_activity_cut_keeps_totals_but_never_admits_its_series() {
     for cut in [NOW - 5_000, NOW + 5_000] {
-        let scratch = super::super::tests::Scratch::new();
+        let scratch = Scratch::new("usage-acquire");
         let (totals, mut series) = histories(TokRange::Hour);
         series["throughMs"] = json!(cut);
-        std::fs::write(scratch.0.join("totals.json"), totals.to_string()).unwrap();
-        std::fs::write(scratch.0.join("series.json"), series.to_string()).unwrap();
-        let script = scratch.0.join("core");
+        std::fs::write(scratch.join("totals.json"), totals.to_string()).unwrap();
+        std::fs::write(scratch.join("series.json"), series.to_string()).unwrap();
+        let script = scratch.join("core");
         write_ready_executable(
             &script,
             &format!(
                 "#!/bin/sh\ncase \"$1\" in\nx) printf '%s' '{{\"sinceMs\":0,\"observedAtMs\":{NOW},\"rows\":[]}}';;\napi) payload=$(cat); case \"$payload\" in *'\"maxBuckets\":1'*) cat '{root}/totals.json';; *) cat '{root}/series.json';; esac;;\n*) exit 77;;\nesac\n",
-                root = scratch.0.display()
+                root = scratch.display()
             ),
         );
         let report = read(
@@ -133,7 +133,7 @@ fn flow_keeps_unknown_participants_and_counts_messages_without_reads_or_acknowle
 
 #[test]
 fn acquired_roster_drives_batched_public_reads_without_digest_or_per_row_processes() {
-    let scratch = super::super::tests::Scratch::new();
+    let scratch = Scratch::new("usage-acquire");
     let ids: Vec<_> = (0..35)
         .map(|index| format!("10000000-0000-4000-8000-{index:012}"))
         .collect();
@@ -158,14 +158,14 @@ fn acquired_roster_drives_batched_public_reads_without_digest_or_per_row_process
             })
             .collect(),
     );
-    std::fs::write(scratch.0.join("totals.json"), totals.to_string()).unwrap();
-    std::fs::write(scratch.0.join("series.json"), series.to_string()).unwrap();
-    let script = scratch.0.join("core");
+    std::fs::write(scratch.join("totals.json"), totals.to_string()).unwrap();
+    std::fs::write(scratch.join("series.json"), series.to_string()).unwrap();
+    let script = scratch.join("core");
     write_ready_executable(
         &script,
         &format!(
             "#!/bin/sh\ncase \"$1\" in\nx) printf '%s\\n' 'flow' >> '{root}/calls'; printf '%s' '{{\"sinceMs\":0,\"observedAtMs\":{NOW},\"rows\":[]}}';;\napi) payload=$(cat); printf '%s\\n' \"$payload\" >> '{root}/calls'; case \"$payload\" in *'\"maxBuckets\":1'*) cat '{root}/totals.json';; *) cat '{root}/series.json';; esac;;\n*) exit 77;;\nesac\n",
-            root = scratch.0.display()
+            root = scratch.display()
         ),
     );
     let request = Request::new(TokRange::Hour, ids);
@@ -175,10 +175,10 @@ fn acquired_roster_drives_batched_public_reads_without_digest_or_per_row_process
         35,
         "first unavailable: {:?}; calls: {:?}",
         report.unavailable.first(),
-        scratch.calls()
+        super::super::tests::recorded_calls(&scratch)
     );
     assert!(report.unavailable.is_empty());
-    let calls = scratch.calls();
+    let calls = super::super::tests::recorded_calls(&scratch);
     assert_eq!(
         calls.len(),
         5,
@@ -238,7 +238,7 @@ fn skewed_batch_clocks_keep_the_all_row_total_and_activity_on_one_cut() {
         }
     }
     for range in TokRange::ALL {
-        let scratch = super::super::tests::Scratch::new();
+        let scratch = Scratch::new("usage-acquire");
         let ids: Vec<_> = (0..35)
             .map(|index| format!("10000000-0000-4000-8000-{index:012}"))
             .collect();
@@ -266,7 +266,7 @@ fn skewed_batch_clocks_keep_the_all_row_total_and_activity_on_one_cut() {
             ("late-series", series.clone()),
         ] {
             document["asOfMs"] = json!(NOW + 10_000);
-            std::fs::write(scratch.0.join(format!("{name}.json")), document.to_string()).unwrap();
+            std::fs::write(scratch.join(format!("{name}.json")), document.to_string()).unwrap();
         }
         shift(
             &mut totals,
@@ -288,14 +288,14 @@ fn skewed_batch_clocks_keep_the_all_row_total_and_activity_on_one_cut() {
             ("pinned-total", totals),
             ("pinned-series", series),
         ] {
-            std::fs::write(scratch.0.join(format!("{name}.json")), document.to_string()).unwrap();
+            std::fs::write(scratch.join(format!("{name}.json")), document.to_string()).unwrap();
         }
-        let script = scratch.0.join("skewed-core");
+        let script = scratch.join("skewed-core");
         write_ready_executable(
             &script,
             &format!(
                 "#!/bin/sh\ncase \"$1\" in\nx) printf '%s' '{{\"sinceMs\":0,\"observedAtMs\":{NOW},\"rows\":[]}}';;\napi) payload=$(cat); printf '%s\\n' \"$payload\" >> '{root}/calls'\nif [ ! -f '{root}/first-read' ]; then : > '{root}/first-read'; cat '{root}/first.json'; exit; fi\ncase \"$payload\" in *'\"throughMs\":{CUT}'*) prefix=pinned;; *) prefix=late;; esac\ncase \"$payload\" in *'\"maxBuckets\":1'*) cat '{root}/'\"$prefix\"'-total.json';; *) cat '{root}/'\"$prefix\"'-series.json';; esac;;\n*) exit 77;;\nesac\n",
-                root = scratch.0.display()
+                root = scratch.display()
             ),
         );
         let report = read(
@@ -317,8 +317,7 @@ fn skewed_batch_clocks_keep_the_all_row_total_and_activity_on_one_cut() {
                 .iter()
                 .all(|seat| Some(seat.from_ms) == report.window_from_ms)
         );
-        let calls: Vec<Value> = scratch
-            .calls()
+        let calls: Vec<Value> = super::super::tests::recorded_calls(&scratch)
             .iter()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();

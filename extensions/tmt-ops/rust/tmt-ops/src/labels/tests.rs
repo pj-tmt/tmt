@@ -1,12 +1,8 @@
 //! Reader and action seam against the supplier's frozen vectors and a fake extension.
 use super::*;
-use crate::test_support::write_ready_executable;
+use crate::test_support::{Scratch, write_ready_executable};
 use serde_json::json;
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::{fs, path::Path};
 
 const VECTORS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -46,55 +42,30 @@ pub(crate) fn with_savings(window: &str, values: &[(u64, u64, u64)]) -> Value {
     document
 }
 
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new() -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let directory = std::env::temp_dir().join(format!(
-            "ops-labels-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&directory).unwrap();
-        Self(directory)
-    }
-
-    fn path(&self, name: &str) -> PathBuf {
-        self.0.join(name)
-    }
-
-    /// A stand-in for `tmt` that answers `digest status --json` from `status.json`
-    /// after running `before`, and logs every invocation to `calls`.
-    fn fake(&self, before: &str) -> Core {
-        let script = self.path("tmt");
-        write_ready_executable(
-            &script,
-            &format!(
-                "#!/bin/sh\necho \"$$ $*\" >> '{dir}/calls'\n{before}\n\
-                 [ \"$1 $2 $3\" = 'digest status --json' ] || exit 2\n\
-                 cat '{dir}/status.json'\n",
-                dir = self.0.display()
-            ),
-        );
-        Core::at(script)
-    }
-
-    fn status(&self, document: &Value) {
-        fs::write(self.path("status.json"), document.to_string()).unwrap();
-    }
-
-    fn calls(&self) -> Vec<String> {
-        fs::read_to_string(self.path("calls"))
-            .map(|calls| calls.lines().map(str::to_owned).collect())
-            .unwrap_or_default()
-    }
+/// A stand-in for `tmt` that answers `digest status --json` from `status.json`
+/// after running `before`, and logs every invocation to `calls`.
+fn fake_core(scratch: &Path, before: &str) -> Core {
+    let script = scratch.join("tmt");
+    write_ready_executable(
+        &script,
+        &format!(
+            "#!/bin/sh\necho \"$$ $*\" >> '{dir}/calls'\n{before}\n\
+             [ \"$1 $2 $3\" = 'digest status --json' ] || exit 2\n\
+             cat '{dir}/status.json'\n",
+            dir = scratch.display()
+        ),
+    );
+    Core::at(script)
 }
 
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
+fn write_status(scratch: &Path, document: &Value) {
+    fs::write(scratch.join("status.json"), document.to_string()).unwrap();
+}
+
+fn recorded_calls(scratch: &Path) -> Vec<String> {
+    fs::read_to_string(scratch.join("calls"))
+        .map(|calls| calls.lines().map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
@@ -213,12 +184,15 @@ fn unknown_additive_fields_are_ignored() {
 
 #[test]
 fn a_ready_source_is_delivered_once_and_never_read_twice_at_the_same_time() {
-    let scratch = Scratch::new();
-    scratch.status(&status_document());
-    let core = scratch.fake(&format!(
-        "echo start >> '{0}/trace'; sleep 0.05; echo end >> '{0}/trace'",
-        scratch.0.display()
-    ));
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &status_document());
+    let core = fake_core(
+        &scratch,
+        &format!(
+            "echo start >> '{0}/trace'; sleep 0.05; echo end >> '{0}/trace'",
+            scratch.display()
+        ),
+    );
     let (reader, received) = reader(&core, quick());
     let supplied = next(&received);
     let mixed = parse(NAMESPACE, &status_document()).unwrap();
@@ -230,11 +204,11 @@ fn a_ready_source_is_delivered_once_and_never_read_twice_at_the_same_time() {
             .collect::<Vec<_>>(),
         vec![NAMESPACE; mixed[id].len()]
     );
-    eventually("repeated reads", || scratch.calls().len() >= 3);
+    eventually("repeated reads", || recorded_calls(&scratch).len() >= 3);
     // The answer did not change, so nothing more is delivered.
     assert!(received.try_recv().is_err());
     drop(reader);
-    let trace = fs::read_to_string(scratch.path("trace")).unwrap();
+    let trace = fs::read_to_string(scratch.join("trace")).unwrap();
     let lines: Vec<_> = trace.lines().collect();
     assert!(
         lines
@@ -246,12 +220,12 @@ fn a_ready_source_is_delivered_once_and_never_read_twice_at_the_same_time() {
 
 #[test]
 fn a_changed_answer_is_delivered_again() {
-    let scratch = Scratch::new();
-    scratch.status(&vectors()["status"][1]["response"]);
-    let core = scratch.fake("");
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &vectors()["status"][1]["response"]);
+    let core = fake_core(&scratch, "");
     let (_reader, received) = reader(&core, quick());
     let first = next(&received);
-    scratch.status(&vectors()["status"][2]["response"]);
+    write_status(&scratch, &vectors()["status"][2]["response"]);
     let second = next(&received);
     assert_ne!(first, second);
     assert!(second.0[0].1.rows.is_empty());
@@ -260,16 +234,16 @@ fn a_changed_answer_is_delivered_again() {
 
 #[test]
 fn one_read_supplies_labels_and_typed_status_and_numeric_changes_are_delivered() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("labels");
     let mut document = status_document();
-    scratch.status(&document);
+    write_status(&scratch, &document);
     let timing = Timing {
         every: Duration::from_secs(3600),
         ..quick()
     };
-    let (reader, received) = reader(&scratch.fake(""), timing);
+    let (reader, received) = reader(&fake_core(&scratch, ""), timing);
     let first = next(&received);
-    assert_eq!(scratch.calls().len(), 1);
+    assert_eq!(recorded_calls(&scratch).len(), 1);
     let (status, stale) = first.digest().unwrap();
     assert!(!stale);
     let id = document["members"][0]["identityId"].as_str().unwrap();
@@ -277,18 +251,17 @@ fn one_read_supplies_labels_and_typed_status_and_numeric_changes_are_delivered()
     assert_eq!(first.of(id).next().unwrap().1.text, "Auto");
     // A new source observation matters even when the labels are identical.
     document["observedAtMs"] = json!(status.observed_at_ms + 1);
-    scratch.status(&document);
+    write_status(&scratch, &document);
     reader.refresher().now();
     let second = next(&received);
-    assert_eq!(scratch.calls().len(), 2);
+    assert_eq!(recorded_calls(&scratch).len(), 2);
     assert_eq!(
         second.digest().unwrap().0.observed_at_ms,
         status.observed_at_ms + 1
     );
     assert_eq!(first.0[0].1.rows, second.0[0].1.rows);
     assert!(
-        scratch
-            .calls()
+        recorded_calls(&scratch)
             .iter()
             .all(|call| call.ends_with("digest status --json"))
     );
@@ -305,18 +278,19 @@ fn invalid_typed_status_does_not_invent_fields_or_discard_valid_generic_labels()
 
 #[test]
 fn a_slow_source_is_cut_at_the_deadline_and_delivers_nothing() {
-    let scratch = Scratch::new();
-    scratch.status(&status_document());
-    let core = scratch.fake("sleep 30");
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &status_document());
+    let core = fake_core(&scratch, "sleep 30");
     let timing = Timing {
         deadline: Duration::from_millis(100),
         ..quick()
     };
     let (reader, received) = reader(&core, timing);
-    eventually("a retry after the deadline", || scratch.calls().len() >= 2);
+    eventually("a retry after the deadline", || {
+        recorded_calls(&scratch).len() >= 2
+    });
     assert!(received.try_recv().is_err(), "a cut read showed labels");
-    let pids: Vec<i32> = scratch
-        .calls()
+    let pids: Vec<i32> = recorded_calls(&scratch)
         .iter()
         .filter_map(|call| call.split(' ').next()?.parse().ok())
         .collect();
@@ -330,20 +304,23 @@ fn a_slow_source_is_cut_at_the_deadline_and_delivers_nothing() {
 
 #[test]
 fn failing_and_absent_sources_stay_unavailable_without_error() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("labels");
     // Exits non-zero with no document, then with a structured error.
-    let failing = scratch.fake("exit 1");
+    let failing = fake_core(&scratch, "exit 1");
     let (reader_one, received) = reader(&failing, quick());
-    eventually("retries", || scratch.calls().len() >= 2);
+    eventually("retries", || recorded_calls(&scratch).len() >= 2);
     assert!(received.try_recv().is_err());
     drop(reader_one);
-    scratch.status(&json!({"error":{"code":"SQUAD_CORE_UNAVAILABLE","message":"no"}}));
-    let erroring = scratch.fake("");
+    write_status(
+        &scratch,
+        &json!({"error":{"code":"SQUAD_CORE_UNAVAILABLE","message":"no"}}),
+    );
+    let erroring = fake_core(&scratch, "");
     let (reader_two, received) = reader(&erroring, quick());
     std::thread::sleep(Duration::from_millis(150));
     assert!(received.try_recv().is_err());
     drop(reader_two);
-    let missing = Core::at(scratch.path("absent"));
+    let missing = Core::at(scratch.join("absent"));
     let (reader_three, received) = reader(&missing, quick());
     std::thread::sleep(Duration::from_millis(150));
     assert!(received.try_recv().is_err());
@@ -352,9 +329,12 @@ fn failing_and_absent_sources_stay_unavailable_without_error() {
 
 #[test]
 fn failures_back_off_and_the_last_good_answer_stands_in_only_briefly() {
-    let scratch = Scratch::new();
-    scratch.status(&vectors()["status"][1]["response"]);
-    let core = scratch.fake(&format!("[ -e '{0}/down' ] && exit 1", scratch.0.display()));
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &vectors()["status"][1]["response"]);
+    let core = fake_core(
+        &scratch,
+        &format!("[ -e '{0}/down' ] && exit 1", scratch.display()),
+    );
     let timing = Timing {
         keep: Duration::from_millis(250),
         ..quick()
@@ -370,7 +350,7 @@ fn failures_back_off_and_the_last_good_answer_stands_in_only_briefly() {
             .next()
             .is_some()
     );
-    fs::write(scratch.path("down"), "").unwrap();
+    fs::write(scratch.join("down"), "").unwrap();
     let stale = next(&received);
     assert!(stale.digest().unwrap().1);
     assert_eq!(stale.digest().unwrap().0, good.digest().unwrap().0);
@@ -380,18 +360,22 @@ fn failures_back_off_and_the_last_good_answer_stands_in_only_briefly() {
         Supplied::default(),
         "stale labels outlived their keep"
     );
-    let before = scratch.calls().len();
+    let before = recorded_calls(&scratch).len();
     std::thread::sleep(Duration::from_millis(400));
     // 80 ms at the slowest, so a few more reads, not one per 20 ms tick.
-    assert!(scratch.calls().len() - before <= 8, "{:?}", scratch.calls());
+    assert!(
+        recorded_calls(&scratch).len() - before <= 8,
+        "{:?}",
+        recorded_calls(&scratch)
+    );
 }
 
 #[test]
 fn no_configured_source_starts_no_reader() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("labels");
     assert!(
         Reader::spawn(
-            &scratch.fake(""),
+            &fake_core(&scratch, ""),
             Vec::new(),
             quick(),
             crate::config::DigestWindow::Day,
@@ -399,21 +383,21 @@ fn no_configured_source_starts_no_reader() {
         )
         .is_none()
     );
-    assert!(scratch.calls().is_empty());
+    assert!(recorded_calls(&scratch).is_empty());
 }
 
 #[test]
 fn a_refresh_reads_again_at_once_instead_of_waiting_for_the_cadence() {
-    let scratch = Scratch::new();
-    scratch.status(&vectors()["status"][1]["response"]);
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &vectors()["status"][1]["response"]);
     let timing = Timing {
         every: Duration::from_secs(3600),
         ..quick()
     };
-    let (reader, received) = reader(&scratch.fake(""), timing);
+    let (reader, received) = reader(&fake_core(&scratch, ""), timing);
     let refresh = reader.refresher();
     let first = next(&received);
-    scratch.status(&vectors()["status"][2]["response"]);
+    write_status(&scratch, &vectors()["status"][2]["response"]);
     assert!(
         received.recv_timeout(Duration::from_millis(200)).is_err(),
         "the cadence is an hour"
@@ -424,7 +408,11 @@ fn a_refresh_reads_again_at_once_instead_of_waiting_for_the_cadence() {
     assert_ne!(first, second);
     // Two requests while idle are one read each time they are served, never a storm.
     std::thread::sleep(Duration::from_millis(200));
-    assert!(scratch.calls().len() <= 3, "{:?}", scratch.calls());
+    assert!(
+        recorded_calls(&scratch).len() <= 3,
+        "{:?}",
+        recorded_calls(&scratch)
+    );
     drop(reader);
     // A handle outlives the reader harmlessly.
     refresh.now();
@@ -432,14 +420,14 @@ fn a_refresh_reads_again_at_once_instead_of_waiting_for_the_cadence() {
 
 #[test]
 fn dropping_the_reader_stops_the_thread() {
-    let scratch = Scratch::new();
-    scratch.status(&vectors()["status"][1]["response"]);
-    let (reader, received) = reader(&scratch.fake(""), quick());
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &vectors()["status"][1]["response"]);
+    let (reader, received) = reader(&fake_core(&scratch, ""), quick());
     next(&received);
     drop(reader);
-    let calls = scratch.calls().len();
+    let calls = recorded_calls(&scratch).len();
     std::thread::sleep(Duration::from_millis(100));
-    assert_eq!(scratch.calls().len(), calls);
+    assert_eq!(recorded_calls(&scratch).len(), calls);
 }
 
 #[test]
@@ -480,26 +468,26 @@ fn an_action_ops_will_not_offer_leaves_its_label_display_only() {
 
 #[test]
 fn a_savings_window_change_reuses_the_one_reader_and_its_source_argv() {
-    let scratch = Scratch::new();
-    scratch.status(&status_document());
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &status_document());
     let timing = Timing {
         every: Duration::from_secs(3600),
         ..quick()
     };
     let week = with_savings("7d", &[(100, 1000, 42)]);
-    fs::write(scratch.path("week.json"), week.to_string()).unwrap();
+    fs::write(scratch.join("week.json"), week.to_string()).unwrap();
     let before = format!(
         "if [ \"$*\" = 'digest status --window 7d --json' ]; then cat '{}'; exit 0; fi",
-        scratch.path("week.json").display()
+        scratch.join("week.json").display()
     );
-    let (reader, received) = reader(&scratch.fake(&before), timing);
+    let (reader, received) = reader(&fake_core(&scratch, &before), timing);
     let first = next(&received);
-    assert_eq!(scratch.calls().len(), 1);
+    assert_eq!(recorded_calls(&scratch).len(), 1);
     reader.refresher().window(crate::config::DigestWindow::Week);
     eventually("one read after the selected window changes", || {
-        scratch.calls().len() >= 2
+        recorded_calls(&scratch).len() >= 2
     });
-    let calls = scratch.calls();
+    let calls = recorded_calls(&scratch);
     assert!(calls[0].ends_with("digest status --json"));
     assert!(
         calls[1].ends_with("digest status --window 7d --json"),
@@ -527,11 +515,11 @@ fn a_savings_window_change_reuses_the_one_reader_and_its_source_argv() {
 
 #[test]
 fn a_window_change_discards_the_previous_inflight_estimate_before_delivery() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("labels");
     let doc = |window: &str, tokens: u64| with_savings(window, &[(100, 1000, tokens)]);
-    scratch.status(&doc("24h", 10));
-    fs::write(scratch.path("late.json"), doc("24h", 999).to_string()).unwrap();
-    fs::write(scratch.path("week.json"), doc("7d", 42).to_string()).unwrap();
+    write_status(&scratch, &doc("24h", 10));
+    fs::write(scratch.join("late.json"), doc("24h", 999).to_string()).unwrap();
+    fs::write(scratch.join("week.json"), doc("7d", 42).to_string()).unwrap();
     let before = format!(
         r#"
 if [ "$*" = 'digest status --window 7d --json' ]; then cat '{dir}/week.json'; exit 0; fi
@@ -541,13 +529,13 @@ if [ -f '{dir}/block' ]; then
   cat '{dir}/late.json'; exit 0
 fi
 "#,
-        dir = scratch.0.display()
+        dir = scratch.display()
     );
     let timing = Timing {
         every: Duration::from_secs(3600),
         ..quick()
     };
-    let (reader, received) = reader(&scratch.fake(&before), timing);
+    let (reader, received) = reader(&fake_core(&scratch, &before), timing);
     let first = next(&received);
     assert_eq!(
         first
@@ -564,13 +552,13 @@ fi
             .tokens,
         Some(10)
     );
-    fs::write(scratch.path("block"), "").unwrap();
+    fs::write(scratch.join("block"), "").unwrap();
     reader.refresher().now();
     eventually("old-window read reached its barrier", || {
-        scratch.path("started").exists()
+        scratch.join("started").exists()
     });
     reader.refresher().window(crate::config::DigestWindow::Week);
-    fs::write(scratch.path("release"), "").unwrap();
+    fs::write(scratch.join("release"), "").unwrap();
     let next = next(&received);
     let savings = next
         .digest()
@@ -592,15 +580,15 @@ fi
 
 #[test]
 fn a_restored_window_is_used_on_the_first_read_without_a_default_probe() {
-    let scratch = Scratch::new();
-    scratch.status(&status_document());
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &status_document());
     let before = format!(
         "if [ \"$*\" = 'digest status --window 7d --json' ]; then cat '{}'; exit 0; fi",
-        scratch.path("status.json").display()
+        scratch.join("status.json").display()
     );
     let (sender, received) = mpsc::channel();
     let reader = Reader::spawn(
-        &scratch.fake(&before),
+        &fake_core(&scratch, &before),
         vec![NAMESPACE.into()],
         Timing {
             every: Duration::from_secs(3600),
@@ -611,7 +599,7 @@ fn a_restored_window_is_used_on_the_first_read_without_a_default_probe() {
     )
     .unwrap();
     next(&received);
-    let calls = scratch.calls();
+    let calls = recorded_calls(&scratch);
     assert_eq!(calls.len(), 1);
     assert!(
         calls[0].ends_with("digest status --window 7d --json"),
