@@ -3,7 +3,6 @@ import {
   useEffect,
   useLayoutEffect,
   useReducer,
-  useState,
   useId,
   useRef,
   type ComponentProps,
@@ -73,22 +72,11 @@ export const richInputExtension = defineExtension({
 
 /** The shared editing lifetime. Callers own token plugins and every effect outside editing. */
 export function RichInput<Edit extends RichInputEdit>(props: RichInputProps<Edit>) {
-  // Each mount starts with its supplied document, including decorators. A later
-  // effect would expose an empty editor on its first visible frame.
-  const [extension] = useState(() =>
-    defineExtension({
-      name: 'Colab/InitialRichInput',
-      dependencies: [props.extension ?? richInputExtension],
-      $initialEditorState: () => props.document.replace(props.edit),
-    }),
-  );
-  // Attaching ContentEditable creates Lexical's decorator hosts during commit.
-  // Read their external-store snapshot again before paint, rather than waiting
-  // for the passive subscription to notice those hosts after the first frame.
-  const [, refreshDecorators] = useReducer((revision: number) => revision + 1, 0);
-  useLayoutEffect(refreshDecorators, [refreshDecorators]);
   return (
-    <LexicalExtensionComposer extension={extension} contentEditable={null}>
+    <LexicalExtensionComposer
+      extension={props.extension ?? richInputExtension}
+      contentEditable={null}
+    >
       <EditingLifetime {...props} />
       {props.children ?? <RichInputControl {...props} />}
     </LexicalExtensionComposer>
@@ -119,7 +107,7 @@ function EditingLifetime<Edit extends RichInputEdit>(props: RichInputProps<Edit>
     )
       editor.focus();
   }, [editor, props.disabled, props.autoFocus]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const explicit = reset.current !== props.resetKey;
     reset.current = props.resetKey;
     const value = editor.getEditorState().read(() => props.document.read(props.edit));
@@ -134,6 +122,11 @@ function EditingLifetime<Edit extends RichInputEdit>(props: RichInputProps<Edit>
       editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
     }
   }, [editor, props.edit, props.document, props.resetKey]);
+  // Attaching ContentEditable creates Lexical's decorator hosts during commit.
+  // Read their external-store snapshot again before paint, rather than waiting
+  // for the passive subscription to notice those hosts after the first frame.
+  const [, refreshDecorators] = useReducer((revision: number) => revision + 1, 0);
+  useLayoutEffect(refreshDecorators, [refreshDecorators]);
   useEffect(
     () =>
       editor.registerUpdateListener(({ editorState, tags, dirtyElements, dirtyLeaves }) => {

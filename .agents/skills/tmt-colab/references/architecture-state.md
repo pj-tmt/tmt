@@ -212,11 +212,12 @@ editor is a separate editing mode. Reader and recovery entries have no composer.
 `ComposerEdit` emits one atomic snapshot of exact plaintext and mention references
 with UTF16 ranges. A metadata creator reference has an agent UUID and an optional
 machine UUID until a unique current-directory match supplies the pair; directory
-arrival normalizes the node in place without changing its original token.
+arrival normalizes the node in place without changing its original token or
+selecting the editor; background normalization cannot reclaim focus.
 Paragraphs serialize with one LF, retaining blank and trailing lines. Parent echoes preserve history/selection;
-explicit reset keys end a draft's editing lifetime. The shared input initializes
-the editor from the supplied document so the initial creator chip is visible
-immediately. Mention-node identity follows edits and undo; removing/replacing an atomic decorator chip invalidates its binding.
+explicit reset keys end a draft's editing lifetime. The shared input synchronizes
+the supplied document and decorator snapshot before paint, retaining the existing
+root, selection and history guards so the initial creator chip is visible immediately. Mention-node identity follows edits and undo; removing/replacing an atomic decorator chip invalidates its binding.
 `message-mention-chip.tsx` renders presence/removal from the composer's directory context;
 only the node's original token contributes to plaintext and UTF16 offsets. `mentionQuery`
 opens completion at `@` or full-width `＠` after non-address-like text, including CJK;

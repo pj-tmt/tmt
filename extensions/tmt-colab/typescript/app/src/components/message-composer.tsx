@@ -9,6 +9,7 @@ import {
   HISTORY_PUSH_TAG,
   KEY_DOWN_COMMAND,
   COMMAND_PRIORITY_HIGH,
+  SKIP_DOM_SELECTION_TAG,
 } from 'lexical';
 import { resolveMessageMentions } from '../message-recipient.js';
 import { Listbox } from './listbox.js';
@@ -17,6 +18,7 @@ import { MessageMentionContext } from './message-mention-chip.js';
 import { AgentChip } from './agent-chip.js';
 import {
   $bindMessageMentions,
+  $resolvePendingMessageMentions,
   $insertMentionTrigger,
   $messageCaret,
   $messageMentions,
@@ -135,9 +137,9 @@ function MessageField(props: MessageComposerProps) {
     if (candidates)
       editor.update(
         () => {
-          $bindMessageMentions(candidates);
+          $resolvePendingMessageMentions(candidates);
         },
-        { discrete: true },
+        { discrete: true, tag: SKIP_DOM_SELECTION_TAG },
       );
   }, [editor, props.candidates]);
   const candidates = fuzzyMessageCandidates(props.candidates ?? [], query?.query ?? '');

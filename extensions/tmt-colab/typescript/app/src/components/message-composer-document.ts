@@ -221,10 +221,8 @@ export function $toggleMessageMention(key: RecipientKey, label: string) {
   if (!$removeMessageMentions(key)) $prependMessageMention(key, label);
 }
 
-/** Replace only newly completed tokens, keeping the caret, surrounding nodes and history. */
-export function $bindMessageMentions(agents: readonly AgentDestination[], includeEnd = false) {
-  // Resolve an identity-only creator reference in place. Never rewrite its original token,
-  // replace its node or retarget an already bound machine/agent pair.
+/** Resolve identity-only references without changing text, node identity or selection. */
+export function $resolvePendingMessageMentions(agents: readonly AgentDestination[]) {
   for (const { node } of $richInputTokens(
     (node): node is MessageMentionNode => node instanceof MessageMentionNode,
   )) {
@@ -233,6 +231,11 @@ export function $bindMessageMentions(agents: readonly AgentDestination[], includ
     if (matches.length === 1)
       node.getWritable().__recipient = { machine: matches[0].machine, agent: matches[0].agent };
   }
+}
+
+/** Replace only newly completed tokens, keeping the caret, surrounding nodes and history. */
+export function $bindMessageMentions(agents: readonly AgentDestination[], includeEnd = false) {
+  $resolvePendingMessageMentions(agents);
   const value = $messageText(),
     existing = $messageMentions(),
     caret = $messageCaret();
