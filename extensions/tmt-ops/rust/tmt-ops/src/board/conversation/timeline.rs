@@ -381,9 +381,11 @@ impl Session {
         // Only an own input after everything the frame already painted can be the
         // optimistic body's twin; an older page brings historical inputs before it.
         let last_painted = self.rendered.as_ref().and_then(|frame| {
+            let painted: HashSet<&str> =
+                frame.timeline_entries.iter().map(String::as_str).collect();
             page.entries
                 .iter()
-                .rposition(|entry| frame.timeline_entries.contains(&entry.id))
+                .rposition(|entry| painted.contains(entry.id.as_str()))
         });
         let mut inputs: &[model::Entry] = &[];
         let mut painted_inputs = HashSet::new();
