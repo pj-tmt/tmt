@@ -322,7 +322,16 @@ pub fn acquire_patch(
     if expected.is_some_and(|expected| expected != view.revision) {
         return Err(Fault::StaleBase.into());
     }
-    let holder = caller()?;
+    let Some(snapshot) = core::caller_snapshot() else {
+        return Ok(None);
+    };
+    let Some(id) = snapshot.agent_id else {
+        return Ok(None);
+    };
+    let holder = Holder {
+        id,
+        name: snapshot.name,
+    };
     if view
         .locks
         .iter()
@@ -387,11 +396,7 @@ pub fn patch_locks(
     if !view.locks.iter().any(|lock| !lock.released) {
         return Ok(captured);
     }
-    let holder = if agent {
-        Some(caller()?.id)
-    } else {
-        core::caller_snapshot().and_then(|caller| caller.agent_id)
-    };
+    let holder = core::caller_snapshot().and_then(|caller| caller.agent_id);
     let overlaps = view
         .locks
         .iter()

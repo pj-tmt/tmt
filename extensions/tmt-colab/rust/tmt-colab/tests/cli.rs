@@ -11761,6 +11761,116 @@ fn holder_patch_releases_a_disjoint_quote_in_the_same_list_item_only_after_succe
 }
 
 #[test]
+fn agent_patch_without_canonical_identity_skips_acquisition_and_releases_nothing() {
+    for serving in [false, true] {
+        for missing_id in [false, true] {
+            for held in [false, true] {
+                let mut pilot = Pilot::new(None);
+                fs::write(pilot.root.join("source.html"), "<p>Locked</p><p>Before</p>").unwrap();
+                let created = pilot.call(&[
+                    "page",
+                    "create",
+                    "--title",
+                    "Unresolved patch caller",
+                    "--layout",
+                    "column",
+                    "--file",
+                    pilot.root.join("source.html").to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ]);
+                let page = created["pageId"].as_str().unwrap();
+                if held {
+                    pilot.call(&["page", "lock", page, "--find", "Locked", "--json"]);
+                    fs::write(
+                        pilot.root.join("presence"),
+                        json!({"identities":[{
+                            "id":"50000000-0000-1000-8000-000000000001", "presence":"active",
+                            "session":{"activity":{"state":"idle"}}
+                        }]})
+                        .to_string(),
+                    )
+                    .unwrap();
+                }
+                let before = serde_json::to_value(durable_page_locks(&pilot, page)).unwrap();
+                if serving {
+                    pilot.start();
+                }
+                if missing_id {
+                    fs::write(
+                        pilot.root.join("publisher"),
+                        json!({"identity":{"name":"Display only"}}).to_string(),
+                    )
+                    .unwrap();
+                } else {
+                    fs::remove_file(pilot.root.join("publisher")).unwrap();
+                }
+                let output = pilot
+                    .command()
+                    .env("TMT_AGENT", "1")
+                    .args([
+                        "page",
+                        "patch",
+                        page,
+                        "--find",
+                        "Before",
+                        "--replace",
+                        "After",
+                        "--json",
+                    ])
+                    .output()
+                    .unwrap();
+                let patched: Value = serde_json::from_slice(&output.stdout).unwrap();
+                assert!(
+                    output.status.success(),
+                    "serving={serving}, missing_id={missing_id}, held={held}: {patched}"
+                );
+                assert!(patched.get("lockRelease").is_none(), "{patched}");
+                assert_eq!(
+                    pilot.call(&["page", "read", page, "--json"])["source"],
+                    "<p>Locked</p><p>After</p>"
+                );
+                assert_eq!(
+                    serde_json::to_value(durable_page_locks(&pilot, page)).unwrap(),
+                    before
+                );
+                if held {
+                    let output = pilot
+                        .command()
+                        .env("TMT_AGENT", "1")
+                        .args([
+                            "page",
+                            "patch",
+                            page,
+                            "--find",
+                            "Locked",
+                            "--replace",
+                            "Changed",
+                            "--json",
+                        ])
+                        .output()
+                        .unwrap();
+                    let refused: Value = serde_json::from_slice(&output.stdout).unwrap();
+                    assert!(!output.status.success(), "{refused}");
+                    assert_eq!(refused["error"]["code"], "COLAB_REGION_LOCKED");
+                    assert_eq!(
+                        pilot.call(&["page", "read", page, "--json"])["source"],
+                        "<p>Locked</p><p>After</p>"
+                    );
+                    assert_eq!(
+                        serde_json::to_value(durable_page_locks(&pilot, page)).unwrap(),
+                        before
+                    );
+                }
+                if serving {
+                    pilot.stop();
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn agent_patch_auto_lock_publishes_acquisition_before_content_and_release_after_commit() {
     for serving in [false, true] {
         for form in [
@@ -12217,7 +12327,7 @@ fn agent_patch_auto_lock_refuses_stale_input_and_never_replays_an_uncertain_acqu
 }
 
 #[test]
-fn agent_patch_keeps_source_and_its_disjoint_lock_when_caller_observation_is_lost() {
+fn agent_patch_keeps_its_disjoint_lock_when_caller_observation_is_lost() {
     let pilot = Pilot::new(None);
     fs::write(pilot.root.join("source.html"), "<p>Locked</p><p>Before</p>").unwrap();
     let created = pilot.call(&[
@@ -12263,12 +12373,12 @@ exec {core} "$@"
         ])
         .output()
         .unwrap();
-    let refused: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(!output.status.success(), "{refused}");
-    assert_eq!(refused["error"]["code"], "COLAB_IDENTITY_REQUIRED");
+    let patched: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(output.status.success(), "{patched}");
+    assert!(patched.get("lockRelease").is_none());
     assert_eq!(
         pilot.call(&["page", "read", page, "--json"])["source"],
-        "<p>Locked</p><p>Before</p>"
+        "<p>Locked</p><p>After</p>"
     );
     let kept = durable_page_locks(&pilot, page);
     assert_eq!(serde_json::to_value(kept).unwrap(), locked["locks"]);
