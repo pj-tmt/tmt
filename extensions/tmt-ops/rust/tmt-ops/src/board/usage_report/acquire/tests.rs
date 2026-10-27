@@ -124,7 +124,10 @@ fn flow_keeps_unknown_participants_and_counts_messages_without_reads_or_acknowle
         {"senderIdentityId":ID,"recipientIdentityId":null,"kind":"result","bucketStartMs":0,"count":100},
         {"senderIdentityId":ID,"recipientIdentityId":null,"kind":"ack","bucketStartMs":0,"count":100}]});
     let flow = traffic(&document).unwrap();
-    assert_eq!(flow.messages[&Some(ID.into())][&None], 7);
+    let sent = flow.recipients_of(Some(ID));
+    assert_eq!(sent.len(), 1, "one flow to the unknown recipient");
+    assert!(sent[0].recipient.is_none());
+    assert_eq!(sent[0].count, 7);
     assert_eq!(flow.maximum, 7);
     let mut malformed = document;
     malformed["rows"][0]["bucketStartMs"] = json!(NOW + 1);

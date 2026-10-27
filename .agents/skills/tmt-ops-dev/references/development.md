@@ -102,16 +102,12 @@ CARGO_BUILD_JOBS=2 cargo +1.98.1 test --release --locked -p tmt-ops workspace_an
   process must have whole-process peak RSS ≤70 MB; use `--test-threads=2` for both
   matched revisions. This leaves at least 4.5 MB above the
   [measured baseline maximum](https://github.com/pj-tmt/tmt/issues/4324#issuecomment-6331627671).
-  The populated Digest probe (`digest_frame_timing`) has its own explicit limit of
-  **90 MB** whole-process peak RSS: its 10,000-agent stage also holds a 10,000-pair flow
-  report, its ranked projection and the refresh double buffer, which the conversation and
-  ANSI probes do not. Measured with this method (3 interleaved pairs, Rust 1.98.1): main
-  87.2 / 89.6 / 87.2 MB, with the cache and probe fixes 81.8 / 84.6 / 81.7 MB (peak
-  footprint 76.8 to 79.2 and 64.1 to 68.3 MB). The 90 MB is the measured head maximum plus
-  the 4.5 MB headroom rule, rounded; the conversation and ANSI probes keep 70 MB. The
-  attribution is in [#4844](https://github.com/tmt-ninja/tmt/issues/4844#issuecomment-6441007162);
-  [#5441](https://github.com/tmt-ninja/tmt/issues/5441) (a flat `Traffic` representation) is
-  expected to bring this probe to 80 MB and lowers the limit when it lands.
+  The populated Digest probe (`digest_frame_timing`) holds the same 70 MB: with the cache
+  release of [#4844](https://github.com/tmt-ninja/tmt/issues/4844#issuecomment-6441007162)
+  and the flat `Traffic` flow of [#5441](https://github.com/tmt-ninja/tmt/issues/5441) it
+  measures 66.4 to 67.5 MB (3 interleaved pairs, Rust 1.98.1; main 83.2 to 86.1 MB). A flow
+  report of 10,000 senders is under 1 MB in that representation; do not reintroduce a
+  per-sender map node there without re-measuring this probe.
   An overage is not cleared by being within a percentage of main. Run
   main and candidate once, back to back on the same quiet machine and build mode;
   the ANSI probe's candidate whole-process user+system CPU must be
