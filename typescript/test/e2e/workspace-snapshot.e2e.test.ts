@@ -1014,6 +1014,7 @@ type LayoutRestore = {
     native: string | null;
     restoredAs: string | null;
     retainedBootstrap: string | null;
+    retainedReason?: string;
   }>;
   windows: Array<{ recorded: string; native: string }>;
   panes: Array<{ recorded: string; native: string }>;
@@ -1986,18 +1987,28 @@ describe('layout-only workspace restore', () => {
           ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
           { outsideTmux: true, locale: 'C' }
         );
-        expect(result.code).toBe(1);
-        expect(result.json!.status).toBe('partial');
         // The live session is in use, so the saved one is created beside it and owns the window;
         // the first session sharing it needs the bootstrap pane that the fault retains.
-        const partial = result.json!.sessions.find((session) => session.name === 'restore-first')!;
-        expect(partial.action).toBe('partial');
-        expect(partial.retainedBootstrap).toMatch(/^%\d+$/);
+        const first = result.json!.sessions.find((session) => session.name === 'restore-first')!;
+        if (fault === 'link') {
+          // Linking failed, so the session is part restored.
+          expect(result.code).toBe(1);
+          expect(result.json!.status).toBe('partial');
+          expect(first.action).toBe('partial');
+        } else {
+          // Every window was linked, so the session is whole; the placeholder shell that is no
+          // longer provably tmt's is kept and says why instead of failing the restore.
+          expect(result.code).toBe(0);
+          expect(result.json!.status).toBe('completed');
+          expect(first.action).toBe('created');
+          expect(first.retainedReason).toBe('its shell, command or terminal changed');
+        }
+        expect(first.retainedBootstrap).toMatch(/^%\d+$/);
         const panes = fixture
           .tmux(['-u', 'list-panes', '-s', '-t', 'restore-first', '-F', '#{pane_id}'])
           .trim()
           .split('\n');
-        expect(panes).toContain(partial.retainedBootstrap);
+        expect(panes).toContain(first.retainedBootstrap);
         expect(panes).toHaveLength(fault === 'link' ? 1 : 2);
         expect(fs.readFileSync(trace, 'utf8')).toContain('"link-window"');
         if (fault === 'pid') expect(fs.readFileSync(trace, 'utf8')).toContain('pane_tty');
@@ -2015,12 +2026,17 @@ describe('layout-only workspace restore', () => {
           ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
           { outsideTmux: true, locale: 'C' }
         );
-        // A finished session is skipped; one left part restored is never taken for finished, and
-        // is left as it is while the repeat restores beside it (the fault is still injected).
+        // A finished session (a kept placeholder included) is skipped; one left part restored is
+        // never taken for finished, and is left as it is while the repeat restores beside it
+        // (the fault is still injected).
         const sessionsByName = (name: string) =>
           again.json!.sessions.find((session) => session.name === name)!;
         expect(sessionsByName('e2e').action).toBe('skip_existing');
-        expect(sessionsByName('restore-first').action).not.toBe('skip_existing');
+        if (fault === 'link') {
+          expect(sessionsByName('restore-first').action).not.toBe('skip_existing');
+        } else {
+          expect(sessionsByName('restore-first').action).toBe('skip_existing');
+        }
         expect(
           fixture
             .tmux(['-u', 'list-panes', '-s', '-t', 'restore-first', '-F', '#{pane_id}'])

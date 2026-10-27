@@ -44,6 +44,9 @@ pub struct RestoredSession {
     /// session in use, or the fresh default session the windows were added to.
     pub restored_as: Option<String>,
     pub retained_bootstrap: Option<String>,
+    /// Why the placeholder shell was left in a session that is otherwise whole.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retained_reason: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

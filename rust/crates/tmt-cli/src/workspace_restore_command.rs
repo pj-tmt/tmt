@@ -264,6 +264,39 @@ fn prepare(
         .collect()
 }
 
+/// The session that keeps a pane from being revived: the first one its window belongs to,
+/// when none of them was restored whole. A window linked into a whole session is revived
+/// there, whatever happened to its other sessions.
+fn incomplete_session<'a>(
+    snapshot: &'a WorkspaceSnapshot,
+    layout: &workspace::restore::LayoutRestore,
+    pane: &str,
+) -> Option<&'a str> {
+    let window = &snapshot.panes.iter().find(|saved| saved.id == pane)?.window;
+    let action = |session: &tmt_core::workspace::WorkspaceSession| {
+        layout
+            .sessions
+            .iter()
+            .find(|restored| restored.recorded == session.id)
+            .map(|restored| restored.action.as_str())
+    };
+    let sessions = snapshot
+        .sessions
+        .iter()
+        .filter(|session| session.windows.iter().any(|link| &link.window == window))
+        .collect::<Vec<_>>();
+    if sessions
+        .iter()
+        .any(|session| matches!(action(session), Some("created" | "merged")))
+    {
+        return None;
+    }
+    sessions
+        .iter()
+        .find(|session| matches!(action(session), Some("partial" | "not_attempted")))
+        .map(|session| session.name.as_str())
+}
+
 fn revive(
     paths: &ConfigPaths,
     snapshot: &WorkspaceSnapshot,
@@ -283,14 +316,15 @@ fn revive(
                 .iter()
                 .find(|mapped| mapped.recorded == pane.recorded);
             pane.native = mapped.map(|mapped| mapped.native.clone());
-            if layout.partial() || mapped.is_none() {
+            // One refused session leaves the sessions restored whole to revive; only a
+            // pane that has no whole session to live in waits.
+            let incomplete = incomplete_session(snapshot, layout, &pane.recorded);
+            if incomplete.is_some() || mapped.is_none() {
                 pane.status = "skipped";
-                pane.message = if layout.partial() {
-                    "skipped (layout incomplete)"
-                } else {
-                    "skipped (existing session)"
-                }
-                .into();
+                pane.message = match incomplete {
+                    Some(name) => format!("skipped (session {name:?} incomplete)"),
+                    None => "skipped (existing session)".into(),
+                };
                 return pane;
             }
             let Some(argv) = pane.argv.take() else {
@@ -598,12 +632,21 @@ pub fn execute(
                 fallback.pane, fallback.used, fallback.wanted
             )?;
         }
-        for session in result.sessions.iter().filter(|_| layout_only) {
-            if session.restored_as.is_none() {
+        for session in &result.sessions {
+            if layout_only && session.restored_as.is_none() {
                 writeln!(output, "  {:?}: {}", session.name, session.action)?;
             }
-            if let Some(pane) = &session.retained_bootstrap {
-                writeln!(output, "    Bootstrap retained: {pane}")?;
+            // A placeholder kept in a whole session is said in every mode, with why.
+            match (&session.retained_bootstrap, &session.retained_reason) {
+                (Some(pane), Some(why)) => writeln!(
+                    output,
+                    "  {:?}: its placeholder shell {pane} was left in place ({why}); close it yourself",
+                    session.name
+                )?,
+                (Some(pane), None) if layout_only => {
+                    writeln!(output, "    Bootstrap retained: {pane}")?
+                }
+                _ => (),
             }
         }
         for pane in &revival {
@@ -703,9 +746,12 @@ mod tests {
             ["/selected/tmt", "resume", "--", "Original"]
         );
         assert_eq!(pane.message, "resume started");
+        let mut saved = saved;
+        saved.sessions = vec![session("$1", "work", "@1")];
         let mut layout = workspace::restore::LayoutRestore::default();
         layout.failures.push("layout stopped".into());
-        // An incomplete layout cannot reach storage or host startup, even with
+        layout.sessions = vec![restored("$1", "work", "partial")];
+        // A pane in an incomplete session cannot reach storage or host startup, even with
         // eligible commands. Empty mappings likewise mean existing sessions.
         let paths = ConfigPaths::resolve(
             std::path::Path::new("/unused/cwd"),
@@ -726,8 +772,9 @@ mod tests {
             &layout,
             prepare(&saved, &records, "/selected/tmt"),
         );
-        assert_eq!(skipped[0].message, "skipped (layout incomplete)");
+        assert_eq!(skipped[0].message, "skipped (session \"work\" incomplete)");
         layout.failures.clear();
+        layout.sessions = vec![restored("$1", "work", "skip_existing")];
         let skipped = revive(
             &paths,
             &saved,
@@ -736,6 +783,71 @@ mod tests {
             prepare(&saved, &records, "/selected/tmt"),
         );
         assert_eq!(skipped[0].message, "skipped (existing session)");
+    }
+
+    fn session(id: &str, name: &str, window: &str) -> WorkspaceSession {
+        WorkspaceSession {
+            id: id.into(),
+            name: name.into(),
+            windows: vec![WindowLink {
+                index: 0,
+                window: window.into(),
+                active: true,
+            }],
+        }
+    }
+
+    fn restored(recorded: &str, name: &str, action: &str) -> workspace::restore::RestoredSession {
+        workspace::restore::RestoredSession {
+            recorded: recorded.into(),
+            name: name.into(),
+            action: action.into(),
+            native: None,
+            restored_as: None,
+            retained_bootstrap: None,
+            retained_reason: None,
+        }
+    }
+
+    #[test]
+    fn a_refused_session_leaves_the_sessions_restored_whole_to_revive() {
+        let (mut saved, _) = input();
+        saved.sessions = vec![session("$1", "work", "@1"), session("$2", "managers", "@2")];
+        saved.panes.push(WorkspacePane {
+            id: "%2".into(),
+            window: "@2".into(),
+            identity: None,
+            ..saved.panes[0].clone()
+        });
+        let mut layout = workspace::restore::LayoutRestore::default();
+        layout
+            .failures
+            .push("Session \"managers\": tmux no longer matched %44".into());
+        layout.sessions = vec![
+            restored("$1", "work", "created"),
+            restored("$2", "managers", "partial"),
+        ];
+        // The layout is partial, yet the pane in the whole session is not held back.
+        assert!(layout.partial());
+        assert_eq!(incomplete_session(&saved, &layout, "%1"), None);
+        assert_eq!(incomplete_session(&saved, &layout, "%2"), Some("managers"));
+        // A session never attempted behind the failure holds its own panes back the same way.
+        layout.sessions[1].action = "not_attempted".into();
+        assert_eq!(incomplete_session(&saved, &layout, "%2"), Some("managers"));
+        // A window linked into a whole session and a refused one is revived in the whole one.
+        saved.sessions[0].windows.push(WindowLink {
+            index: 1,
+            window: "@2".into(),
+            active: false,
+        });
+        assert_eq!(incomplete_session(&saved, &layout, "%2"), None);
+        // Merged sessions count as whole; sessions restored earlier hold nothing back.
+        layout.sessions = vec![
+            restored("$1", "work", "merged"),
+            restored("$2", "managers", "skip_existing"),
+        ];
+        assert_eq!(incomplete_session(&saved, &layout, "%1"), None);
+        assert_eq!(incomplete_session(&saved, &layout, "%2"), None);
     }
 
     // A tiled shell %2 and %1 floating above it, in the producer's shape (#4405).

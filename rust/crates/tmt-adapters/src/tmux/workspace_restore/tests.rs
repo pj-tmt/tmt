@@ -293,6 +293,7 @@ fn successful_link_is_required_before_bootstrap_removal_and_failed_link_retains_
         native: None,
         restored_as: None,
         retained_bootstrap: None,
+        retained_reason: None,
     };
     assert!(
         owner
@@ -341,14 +342,20 @@ fn bootstrap_pid_or_process_mismatch_removes_nothing() {
     let mut owner = restore(&tmux);
     let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
     tmux.runner.replaced.set(true);
-    assert!(owner.remove_bootstrap(&created).is_err());
+    assert!(matches!(
+        owner.remove_bootstrap(&created),
+        Ok(Removal::Kept(_))
+    ));
     assert!(tmux.runner.scripted.calls.borrow().is_empty());
     tmux.runner.replaced.set(false);
     tmux.runner.scripted.push_output(
         format!("%4{SEP}99{SEP}/dev/tty{SEP}/bin/sh -i\n").into_bytes(),
         vec![],
     );
-    assert!(owner.remove_bootstrap(&created).is_err());
+    assert!(matches!(
+        owner.remove_bootstrap(&created),
+        Ok(Removal::Kept(_))
+    ));
     assert_eq!(tmux.runner.scripted.calls.borrow().len(), 1);
     assert_eq!(
         tmux.runner.scripted.calls.borrow()[0].args[8],
@@ -441,7 +448,10 @@ fn bootstrap_with_a_different_start_command_is_retained_before_terminal_or_kill_
         format!("%4{SEP}20{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
         vec![],
     );
-    assert!(owner.remove_bootstrap(&created).is_err());
+    assert!(matches!(
+        owner.remove_bootstrap(&created),
+        Ok(Removal::Kept(_))
+    ));
     assert_eq!(tmux.runner.scripted.calls.borrow().len(), 1);
 }
 
@@ -651,6 +661,7 @@ fn a_failed_session_says_how_to_clear_what_it_left() {
         native: None,
         restored_as: None,
         retained_bootstrap: None,
+        retained_reason: None,
     };
     assert_eq!(partial_note(&record, false), "");
     record.native = Some("$4".into());
@@ -669,7 +680,11 @@ fn the_placeholder_shell_is_proven_without_its_name() {
     let tmux = Tmux::new(Runner::default());
     let mut owner = restore(&tmux);
     let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
-    let checks = bootstrap_checks(&created).join(" ");
+    let checks = bootstrap_checks(&created)
+        .into_iter()
+        .map(|(_, test)| test)
+        .collect::<Vec<_>>()
+        .join(" ");
     assert!(!checks.contains("pane_current_command"), "{checks}");
     for proof in [
         "pane_pid",
@@ -685,7 +700,10 @@ fn the_placeholder_shell_is_proven_without_its_name() {
         format!("%4{SEP}20{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
         vec![],
     );
-    assert!(owner.remove_bootstrap(&created).is_err());
+    assert!(matches!(
+        owner.remove_bootstrap(&created),
+        Ok(Removal::Kept(_))
+    ));
     let calls = tmux.runner.scripted.calls.borrow();
     assert!(
         !calls[0]
@@ -695,4 +713,75 @@ fn the_placeholder_shell_is_proven_without_its_name() {
         "{:?}",
         calls[0].args
     );
+}
+
+/// What a refused placeholder removal is told apart by: the eleven conditions are asked one
+/// by one, read-only, and the ones that no longer hold are named.
+#[test]
+fn a_refused_placeholder_removal_names_what_no_longer_holds() {
+    let refused = || b"tmt-workspace-effect-refused\n".to_vec();
+    let kill_pane = |attached: bool, gone: bool| {
+        let tmux = Tmux::new(Runner::default());
+        let mut owner = restore(&tmux);
+        let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+        tmux.runner.scripted.push_output(refused(), vec![]);
+        let checks = bootstrap_checks(&created);
+        for (label, _) in &checks {
+            if gone {
+                tmux.runner
+                    .scripted
+                    .results
+                    .borrow_mut()
+                    .push_back(Err(failure(false)));
+                break;
+            }
+            let holds = !(attached && label.contains("attached"));
+            tmux.runner.scripted.push_output(
+                if holds {
+                    b"1\n".to_vec()
+                } else {
+                    b"0\n".to_vec()
+                },
+                vec![],
+            );
+        }
+        let result = owner.kill_bootstrap(&created);
+        let calls = tmux.runner.scripted.calls.borrow().len();
+        (result, calls, checks.len())
+    };
+    // A client attached to the new session: kept, and the report says so.
+    let (result, calls, checks) = kill_pane(true, false);
+    let Ok(Removal::Kept(why)) = result else {
+        panic!("a refused removal keeps the placeholder")
+    };
+    assert_eq!(why, "a client is attached to its session");
+    assert_eq!(
+        calls,
+        1 + checks,
+        "one guarded kill, then one question each"
+    );
+    // Every condition holds again by the time they are asked: still kept, still said.
+    let (result, _, _) = kill_pane(false, false);
+    assert!(matches!(result, Ok(Removal::Kept(why)) if why.contains("changed it")));
+    // A pane that is gone by then needs no removal.
+    let (result, calls, _) = kill_pane(false, true);
+    assert!(matches!(result, Ok(Removal::Removed)));
+    assert_eq!(calls, 2);
+}
+
+#[test]
+fn an_accepted_placeholder_removal_kills_it_under_every_condition() {
+    let tmux = Tmux::new(Runner::default());
+    let mut owner = restore(&tmux);
+    let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+    tmux.runner.scripted.push_output(Vec::new(), vec![]);
+    assert!(matches!(
+        owner.kill_bootstrap(&created),
+        Ok(Removal::Removed)
+    ));
+    let calls = tmux.runner.scripted.calls.borrow();
+    assert_eq!(calls.len(), 1);
+    let guard = calls[0].args.join(" ");
+    assert!(guard.contains("session_attached"), "{guard}");
+    assert!(guard.contains(&command(&["kill-pane".into(), "-t".into(), "%4".into()])));
 }
