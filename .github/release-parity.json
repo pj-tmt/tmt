@@ -1081,6 +1081,28 @@
           "coverage": "runtime"
         }
       ]
+    },
+    "5451": {
+      "release": {
+        "workflow": "native-release-prepare.yml",
+        "job": "build",
+        "step": "name:Capture compiled CLI schema from the verified target archive"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/native-application-schema.test.ts"
+          ]
+        }
+      ]
     }
   }
 }
