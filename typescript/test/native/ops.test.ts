@@ -6844,9 +6844,11 @@ describe('Ops selected conversation latency probe', () => {
           await identity(sandbox, member);
           expect((await squad(sandbox, ['add', member])).status).toBe(0);
         }
-        for (const suffix of ['a', 'b']) {
+        const targetIds: string[] = [];
+        for (let index = 0; index < 40; index++) {
+          const suffix = String(index).padStart(2, '0');
           const member = `probe-target-${suffix}`;
-          await identity(sandbox, member);
+          targetIds.push(await identity(sandbox, member));
           expect((await squad(sandbox, ['add', member])).status).toBe(0);
           const sent = await runCli(sandbox, [
             'talk',
@@ -6877,7 +6879,7 @@ describe('Ops selected conversation latency probe', () => {
             '--receipt',
             JSON.parse(incoming.stdout).exchange.reply.receipt,
             '--message',
-            `MEASURED-REPLY-${suffix.toUpperCase()}`,
+            `MEASURED-REPLY-${suffix}`,
             '--json',
           ]);
           expect(reply.status, reply.stderr).toBe(0);
@@ -6929,6 +6931,7 @@ async function send(text, newline) {
       fs.writeFileSync(path.join(dir,'unblocked'),'');
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
+  record({event:'request',operation,identityId:input.identityId});
   outstanding.push({operation,backgroundPage,started:process.hrtime.bigint()});
   if (newline) child.stdin.write(text+'\\n'); else child.stdin.end(text);
 }
@@ -6998,9 +7001,10 @@ child.on('close',(code,signal)=>{record({event:'exit',pid:child.pid,code,signal}
             timeout: 10000,
             interval: 25,
           });
-          // With answers acknowledged, target names sort last and stay adjacent.
-          tmux(['send-keys', '-t', pane, 'End']);
-          await vi.waitFor(() => expect(screen()).toContain('MEASURED-REPLY-B'), {
+          // Acknowledged targets sort after the six seed members. Start on the
+          // last seed member, so every subsequent Down selects a new target.
+          tmux(['send-keys', '-t', pane, 'Home', ...Array(6).fill('Down')]);
+          await vi.waitFor(() => expect(screen()).toContain('⏎ to message probe-member-5'), {
             timeout: 30000,
             interval: 10,
           });
@@ -7031,7 +7035,9 @@ child.on('close',(code,signal)=>{record({event:'exit',pid:child.pid,code,signal}
           const samples: { condition: string; target: string; ms: number }[] = [];
           for (const condition of ['unheld', 'held']) {
             for (let i = 0; i < 20; i++) {
-              const target = i % 2 === 0 ? 'A' : 'B';
+              const index = (condition === 'held' ? 20 : 0) + i;
+              const target = String(index).padStart(2, '0');
+              const identityId = targetIds[index]!;
               if (condition === 'held') {
                 for (const file of ['arm', 'claimed', 'blocked', 'release', 'unblocked']) {
                   try {
@@ -7047,8 +7053,15 @@ child.on('close',(code,signal)=>{record({event:'exit',pid:child.pid,code,signal}
                   { timeout: 10000, interval: 10 }
                 );
               }
+              const beforeTimeline = events().filter(
+                (event) =>
+                  event.view === 'product' &&
+                  event.event === 'request' &&
+                  event.operation === 'responses.timeline' &&
+                  event.identityId === identityId
+              ).length;
               const started = performance.now();
-              tmux(['send-keys', '-t', pane, target === 'A' ? 'Up' : 'End']);
+              tmux(['send-keys', '-t', pane, 'Down']);
               // Observe immediately: main can paint before the intentional
               // hold ends. The marker proves the background call is in flight.
               const release =
@@ -7065,7 +7078,19 @@ child.on('close',(code,signal)=>{record({event:'exit',pid:child.pid,code,signal}
                   timeout: 30000,
                   interval: 10,
                 });
-                samples.push({ condition, target, ms: performance.now() - started });
+                const elapsed = performance.now() - started;
+                const afterTimeline = events().filter(
+                  (event) =>
+                    event.view === 'product' &&
+                    event.event === 'request' &&
+                    event.operation === 'responses.timeline' &&
+                    event.identityId === identityId
+                ).length;
+                expect(
+                  afterTimeline,
+                  `selection ${target} must admit its own responses.timeline`
+                ).toBeGreaterThan(beforeTimeline);
+                samples.push({ condition, target, ms: elapsed });
               } finally {
                 await release;
               }
@@ -7080,6 +7105,40 @@ child.on('close',(code,signal)=>{record({event:'exit',pid:child.pid,code,signal}
               }
             }
           }
+          // These two targets were already opened above. Record only selections
+          // whose own request body is retained and needs no responses.timeline.
+          const warmSamples: { target: string; ms: number; timelineRead: boolean }[] = [];
+          for (let i = 0; i < 20; i++) {
+            const index = i % 2 === 0 ? 38 : 39;
+            const identityId = targetIds[index]!;
+            const beforeTimeline = events().filter(
+              (event) =>
+                event.view === 'product' &&
+                event.event === 'request' &&
+                event.operation === 'responses.timeline' &&
+                event.identityId === identityId
+            ).length;
+            const started = performance.now();
+            tmux(['send-keys', '-t', pane, index === 38 ? 'Up' : 'End']);
+            await vi.waitFor(() => expect(screen()).toContain(`MEASURED-REPLY-${index}`), {
+              timeout: 30000,
+              interval: 10,
+            });
+            const ms = performance.now() - started;
+            const afterTimeline = events().filter(
+              (event) =>
+                event.view === 'product' &&
+                event.event === 'request' &&
+                event.operation === 'responses.timeline' &&
+                event.identityId === identityId
+            ).length;
+            warmSamples.push({
+              target: String(index),
+              ms,
+              timelineRead: afterTimeline > beforeTimeline,
+            });
+          }
+          expect(warmSamples.filter((sample) => !sample.timelineRead).length).toBeGreaterThan(0);
           const navigation = boards.find((board) => board.view === 'product')!.navigation;
           const selections = () =>
             readFileSync(navigation, 'utf8')
@@ -7136,6 +7195,7 @@ child.on('close',(code,signal)=>{record({event:'exit',pid:child.pid,code,signal}
                 rapidReopens,
                 rapidSelectionCount: selections().length - beforeRapid,
                 samples,
+                warmSamples,
                 traces: boards.map(({ view, trace }) => ({
                   view,
                   trace: readFileSync(trace, 'utf8'),
