@@ -548,13 +548,13 @@ fn detected_section(document: &Value, home: Option<&Path>) -> DetectedSection {
         .map_or(&[][..], Vec::as_slice)
         .iter()
         .filter(|source| source["status"] != "ok")
-        .map(|source| match source["reason"].as_str() {
-            Some(reason) => format!(
-                "{}: {} ({reason})",
-                text(&source["host"]),
-                text(&source["status"])
-            ),
-            None => format!("{}: {}", text(&source["host"]), text(&source["status"])),
+        .map(|source| {
+            // A selection that failed before it chose a host names none.
+            let host = source["host"].as_str().unwrap_or("scan");
+            match source["reason"].as_str() {
+                Some(reason) => format!("{host}: {} ({reason})", text(&source["status"])),
+                None => format!("{host}: {}", text(&source["status"])),
+            }
         })
         .collect();
     DetectedSection {

@@ -194,8 +194,10 @@ A scan child that is not cleaned up makes a **partial list**, the only
 non-zero outcome the scan can add. The command writes exactly one document and
 exits 1: the shared error envelope `error: {code: "CLEANUP_ERROR", message}`,
 `status: "partial"`, the complete `identities`, and `detected` with that source
-`unknown` (`cleanup_failed`), `candidates: []` and `truncated: true`. `status`
-is absent otherwise. This partial list is not the guarded add `partial`
+`unknown` (`cleanup_failed`), `candidates: []` and `truncated: true`. When an
+implicit selection fails before it chooses a host, that source has
+`host: null` (text: `scan: unknown (cleanup_failed)`); an explicit `--host` or
+`--socket` names its host. `status` is absent otherwise. This partial list is not the guarded add `partial`
 ([discovery v1](discovery-v1.md#guarded-existing-binder)).
 
 Human `ls --detected` adds a `DETECTED` section after `SAVED` and `TEMPORARY`

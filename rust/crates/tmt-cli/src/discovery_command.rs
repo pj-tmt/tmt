@@ -201,6 +201,11 @@ fn observe_with<R: CommandRunner + Clone>(
     let mut selected = match selected {
         Ok(selected) => selected,
         Err(error) => {
+            // An implicit selection failed before it chose a host: the
+            // source names none rather than a guess (#4471).
+            if selected_host.is_none() && socket.is_none() {
+                source["host"] = Value::Null;
+            }
             let (document, message) = unclean(document, source, error);
             return scan(document, Vec::new(), Some(message));
         }
@@ -543,8 +548,9 @@ esac
 
     /// A scan of the fake host whose `read` child is not cleaned up: the
     /// driver's `caller` call while selecting the caller's own server, or its
-    /// `snapshot` call on an explicit socket. Nothing runs tmux.
-    pub(crate) fn unclean_scan(read: &'static str) -> Scan {
+    /// `snapshot` call on an explicit socket. `host` is the explicit host, or
+    /// `None` for implicit selection from the fake pane. Nothing runs tmux.
+    pub(crate) fn unclean_scan(read: &'static str, host: Option<&str>) -> Scan {
         // Tests run in parallel in this process: one private root per call.
         static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -576,7 +582,7 @@ esac
             read,
             programs: Default::default(),
         };
-        let scan = observe_with(runner, &admitted, &caller, Some("fake"), socket);
+        let scan = observe_with(runner, &admitted, &caller, host, socket);
         let _ = std::fs::remove_dir_all(&root);
         scan
     }
@@ -587,15 +593,20 @@ esac
     /// the split.
     #[test]
     fn an_unreaped_scan_child_offers_no_row_and_discover_prints_only_its_error() {
-        for read in ["caller", "snapshot"] {
-            let scan = unclean_scan(read);
+        // An implicit selection names no host it did not choose.
+        for (read, host, named) in [
+            ("caller", Some("fake"), json!("fake")),
+            ("caller", None, Value::Null),
+            ("snapshot", Some("fake"), json!("fake")),
+        ] {
+            let scan = unclean_scan(read, host);
             let message = scan.cleanup_failure.clone().expect(read);
             assert!(message.contains("cleanup failed"), "{read}: {message}");
             assert_eq!(
                 scan.document["sources"],
-                json!([{"host": "fake", "socket": (read == "snapshot").then_some("/tmp/fake.sock"),
+                json!([{"host": named, "socket": (read == "snapshot").then_some("/tmp/fake.sock"),
                     "status": "unknown", "reason": "cleanup_failed"}]),
-                "{read}"
+                "{read} {host:?}"
             );
             assert_eq!(scan.document["candidates"], json!([]), "{read}");
             assert_eq!(scan.document["truncated"], true, "{read}");

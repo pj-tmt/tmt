@@ -1150,7 +1150,7 @@ fn a_source_that_is_not_ok_is_one_note_and_an_empty_member_list_still_shows_the_
 #[test]
 fn an_unreaped_scan_child_makes_one_partial_list_with_the_complete_members() {
     for read in ["caller", "snapshot"] {
-        let scan = crate::discovery_command::tests::unclean_scan(read);
+        let scan = crate::discovery_command::tests::unclean_scan(read, Some("fake"));
         let report = Report::Listed {
             rows: vec![running_row("codex", CODEX)],
             scope: ListScope::default(),
@@ -1223,4 +1223,43 @@ fn a_truncated_row_offers_no_add_and_a_quoted_socket_reads_back_whole() {
     assert!(!listed.contains("tmt add"), "{listed}");
     assert!(!listed.contains("PANE_CHANGED"), "{listed}");
     assert_eq!(listed.matches("scan_truncated").count(), 2, "{listed}");
+}
+
+/// S1 (#4471): the partial list exits 1 and, in text mode, names its error
+/// on stderr; a complete scan, or no scan, exits 0 and writes nothing there.
+#[test]
+fn a_partial_list_exits_one_with_its_error_on_stderr() {
+    use super::super::{status, write_partial};
+    let listed = |detected| Report::Listed {
+        rows: vec![running_row("codex", CODEX)],
+        scope: ListScope::default(),
+        bound: Vec::new(),
+        detected,
+    };
+    let stderr = |report: &Report| {
+        let mut output = Vec::new();
+        write_partial(&mut output, Terminal::PLAIN, report).unwrap();
+        String::from_utf8(output).unwrap()
+    };
+    let scan = crate::discovery_command::tests::unclean_scan("caller", None);
+    let partial = listed(Some(super::super::detected::from_scan(scan, &[])));
+    assert_eq!(status(&partial), 1);
+    let error = stderr(&partial);
+    assert!(error.starts_with("error: "), "{error}");
+    assert!(error.contains("cleanup failed"), "{error}");
+    let mut output = Vec::new();
+    text(&mut output, Terminal::PLAIN, &partial).unwrap();
+    let listed_text = String::from_utf8(output).unwrap();
+    assert!(
+        listed_text.ends_with("DETECTED 0\n    scan: unknown (cleanup_failed)\n"),
+        "{listed_text}"
+    );
+    let complete = listed(Some(super::super::detected::Detected {
+        document: detected_scan("unknown", Some("timeout")),
+        cleanup_failure: None,
+    }));
+    for report in [complete, listed(None)] {
+        assert_eq!(status(&report), 0);
+        assert_eq!(stderr(&report), "");
+    }
 }

@@ -810,13 +810,6 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     {
         *detected = Some(detected::scan(scope, bound));
     }
-    let partial = match &report {
-        Report::Listed {
-            detected: Some(detected),
-            ..
-        } => detected.failure(),
-        _ => None,
-    };
     let completion = match &report {
         Report::Bound(result) => Some(session::complete(result)),
         _ => None,
@@ -850,10 +843,8 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     drop(stdout);
     if !mode.json {
         let mut stderr = tmt_cli_style::stream::stderr();
-        if let Some(failure) = &partial {
-            let terminal = stderr.terminal();
-            failure.write_human(&mut stderr, terminal)?;
-        }
+        let terminal = stderr.terminal();
+        write_partial(&mut stderr, terminal, &report)?;
         presentation::warnings(&mut stderr, &report)?;
         if let Some(warning) = completion.as_ref().and_then(|value| value.warning.as_ref()) {
             let terminal = stderr.terminal();
@@ -897,7 +888,36 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         let host = Host::for_server(&binding.server);
         tmt_adapters::workspace::refresh_server(&paths, &host, &binding.server);
     }
-    Ok(partial.map_or(0, |failure| failure.status))
+    Ok(status(&report))
+}
+
+/// The one error of a partial list, whose scan child was not reaped.
+fn partial(report: &Report) -> Option<Failure> {
+    match report {
+        Report::Listed {
+            detected: Some(detected),
+            ..
+        } => detected.failure(),
+        _ => None,
+    }
+}
+
+/// The exit status after the output: the partial list's, else 0.
+fn status(report: &Report) -> u8 {
+    partial(report).map_or(0, |failure| failure.status)
+}
+
+/// In text mode, a partial list's error on stderr; the JSON document
+/// carries it instead.
+fn write_partial(
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    report: &Report,
+) -> io::Result<()> {
+    match partial(report) {
+        Some(failure) => failure.write_human(output, terminal),
+        None => Ok(()),
+    }
 }
 
 // Source-checked command samples for the printed-command guard.
