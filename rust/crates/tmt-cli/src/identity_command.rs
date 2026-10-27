@@ -13,7 +13,7 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    host::{CallerEnvironment, Host},
+    host::CallerEnvironment,
     storage::{Storage, StorageError},
 };
 use tmt_core::{
@@ -186,7 +186,7 @@ fn pinned(storage: &mut Storage, id: &str, expected: &str) -> Result<Report, Fai
     let identity = identity_context::pinned_identity(storage, id, expected)?;
     // Presence is read as `tmt ls <name>` reads it, so a host that cannot answer is "unknown",
     // never a reason to refuse an identity that still has its name.
-    let host = Host::for_caller(&CallerEnvironment::current());
+    let host = crate::caller_context::host(&CallerEnvironment::current())?;
     let presence = match binding::name_presence(storage, &mut host.session(), &identity.name) {
         Ok(observed) if observed.identity.id == id => observed.presence.as_str(),
         Ok(_) | Err(BindingError::NameNotFound(_)) => {

@@ -282,7 +282,9 @@ impl DispatchMarker {
                     process_id: pid,
                     driver_env: Default::default(),
                 };
-                let host = Host::for_caller_with(&caller, UnixCommandRunner);
+                // No driver environment, so selection reads nothing that could fail to
+                // clean up; optional marker preparation still skips on any error.
+                let host = Host::for_caller_with(&caller, UnixCommandRunner).ok()?;
                 Some((paths, caller, host, UnixCommandRunner))
             },
         )

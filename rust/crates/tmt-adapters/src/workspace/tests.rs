@@ -94,7 +94,7 @@ fn dispatch_context(
         process_id: 42,
         driver_env: Default::default(),
     };
-    let host = Host::for_caller_with(&caller, runner.clone());
+    let host = Host::for_caller_with(&caller, runner.clone()).unwrap();
     (paths(directory), caller, host, runner)
 }
 
@@ -482,7 +482,7 @@ fn command_without_selected_tmux_pane_creates_no_snapshot_or_database() {
         process_id: 20,
         driver_env: Default::default(),
     };
-    let host = Host::for_caller_with(&caller, crate::process::UnixCommandRunner);
+    let host = Host::for_caller_with(&caller, crate::process::UnixCommandRunner).unwrap();
     assert!(!refresh_command(&paths, &host, &caller, Instant::now() + CAPTURE_BUDGET).unwrap());
     assert!(!paths.global_dir.exists());
     assert!(!paths.database.exists());

@@ -84,7 +84,7 @@ fn run(
     mode: OutputMode,
 ) -> Result<FocusResult, Failure> {
     // A focus changes the invoking user's own view: the caller's host.
-    let host = Host::for_caller(&CallerEnvironment::current());
+    let host = crate::caller_context::host(&CallerEnvironment::current())?;
     // A tmux view needs the invoking client; an external host focuses
     // through its driver, which owns which view moves.
     let swap_invoker = if into.is_some() {
@@ -199,7 +199,7 @@ fn run(
 /// anything or opening storage.
 pub fn client(mode: OutputMode) -> io::Result<u8> {
     let view = match invoker().and_then(|invoker| {
-        Host::for_caller(&CallerEnvironment::current())
+        crate::caller_context::host(&CallerEnvironment::current())?
             .invoker_client(&invoker, OperationOptions::default())
             .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
     }) {

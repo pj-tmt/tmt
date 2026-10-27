@@ -574,7 +574,7 @@ fn run(
         )
     })?;
     // The originator is caller-scoped; the recipient's own host delivers.
-    let host = Host::for_caller(&CallerEnvironment::current());
+    let host = crate::caller_context::host(&CallerEnvironment::current())?;
     let mut cleanup_correlation = None;
     let pending = preparation::prepare(&mut storage, &host, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
         cleanup_correlation = Some(prepared.correlation.clone());

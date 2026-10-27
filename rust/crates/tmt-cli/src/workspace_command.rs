@@ -5,11 +5,7 @@ use crate::invocation::{
     PreambleRequest, RoleOperation, RoomOperation,
 };
 use std::{io::Write, time::Instant};
-use tmt_adapters::{
-    config::ConfigPaths,
-    host::{CallerEnvironment, Host},
-    workspace,
-};
+use tmt_adapters::{config::ConfigPaths, host::CallerEnvironment, workspace};
 
 /// A command that changes state or talks to a pane keeps the snapshot fresh. A
 /// pure read never makes its caller wait for the optional capture, whatever its
@@ -76,8 +72,11 @@ pub(crate) fn refresh(output: &mut impl Write) {
         {
             return;
         }
-        if let Ok(paths) = ConfigPaths::discover() {
-            let host = Host::for_caller(&caller);
+        // A background capture is best effort: a host selection that cannot
+        // clean up captures nothing this time instead of failing the command.
+        if let Ok(paths) = ConfigPaths::discover()
+            && let Ok(host) = crate::caller_context::host(&caller)
+        {
             let _ = workspace::refresh_command(
                 &paths,
                 &host,

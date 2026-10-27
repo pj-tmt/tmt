@@ -16,7 +16,7 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    host::{CallerEnvironment, Host},
+    host::CallerEnvironment,
     process::{CommandRunner, UnixCommandRunner},
     remote_message::{self, RemoteMessage, RemoteMessageOutcome},
     reply_receipt::encode_route_receipt,
@@ -198,7 +198,7 @@ fn send(
     runner: &dyn CommandRunner,
     budget: Duration,
 ) -> Result<Report, Failure> {
-    let host = Host::for_caller(&CallerEnvironment::current());
+    let host = crate::caller_context::host(&CallerEnvironment::current())?;
     let (originator, sender) =
         identity_context::optional(storage, &host, input.originator.as_deref())?
             .map(|identity| {

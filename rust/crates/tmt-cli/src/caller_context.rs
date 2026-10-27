@@ -1,7 +1,10 @@
 //! Compose runtime evidence before allowing implicit host attribution.
 
 use crate::output::Failure;
-use tmt_adapters::drivers::Registry;
+use tmt_adapters::{
+    drivers::Registry,
+    host::{CallerEnvironment, Host, HostError},
+};
 use tmt_core::driver::{ActionResult, caller::RuntimeCaller};
 
 /// Automatic install offers require human terminal evidence. A marker, runtime
@@ -18,6 +21,33 @@ fn offer_eligible(
     human: impl FnOnce() -> bool,
 ) -> bool {
     !interaction.json && interaction.stdin && interaction.stdout && !marked && human()
+}
+
+/// The caller's host for an ordinary command. A selection read that fails to
+/// clean up is an error: a process it started may still be running, so naming
+/// tmux would be a guess about where the caller is. Doubt keeps tmux.
+pub fn host(environment: &CallerEnvironment) -> Result<Host, Failure> {
+    Host::for_caller(environment).map_err(selection_failed)
+}
+
+/// [`host`] for workspace recovery: an explicit socket selects the built-in
+/// host and reads no caller evidence.
+pub fn workspace_host(
+    environment: &CallerEnvironment,
+    explicit_socket: bool,
+) -> Result<Host, Failure> {
+    Host::for_workspace(environment, explicit_socket).map_err(selection_failed)
+}
+
+/// The failure for a host selection whose read could not clean up. Nothing
+/// ran, so running the command again is safe.
+pub fn selection_failed(error: HostError) -> Failure {
+    Failure::new(
+        "CLEANUP_ERROR",
+        "Could not tell which host this command runs in: a process started to look for the caller's pane could not be stopped. Nothing was changed; run the command again.",
+        1,
+    )
+    .caused_by(error)
 }
 
 /// Explicit identity and endpoint selectors do not use implicit host evidence.
@@ -173,5 +203,26 @@ mod tests {
         );
         assert!(allow_host(ActionResult::Failed("unavailable")).is_err());
         assert!(allow_host::<()>(ActionResult::Unsupported).is_ok());
+    }
+
+    #[test]
+    fn a_failed_host_selection_cleanup_is_a_retryable_cleanup_error() {
+        let failure = selection_failed(HostError::Unavailable("probe survived".into()));
+        assert_eq!(
+            (failure.code.as_str(), failure.status),
+            ("CLEANUP_ERROR", 1)
+        );
+        let message = failure.document()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            message.contains("could not be stopped") && message.contains("run the command again"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("probe survived"),
+            "the cause is not the message"
+        );
     }
 }

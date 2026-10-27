@@ -82,7 +82,7 @@ pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
         return Ok(Selector::Explicit(name.to_owned()));
     }
     select(
-        &Host::for_caller(&CallerEnvironment::current()),
+        &crate::caller_context::host(&CallerEnvironment::current())?,
         None,
         false,
     )?
@@ -94,7 +94,7 @@ pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
 pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Failure> {
     selected(
         storage,
-        || Host::for_caller(&CallerEnvironment::current()),
+        || crate::caller_context::host(&CallerEnvironment::current()),
         selector,
     )?
     .ok_or_else(required_failure)
@@ -106,7 +106,7 @@ pub fn optional(
     explicit: Option<&str>,
 ) -> Result<Option<Identity>, Failure> {
     match select(host, explicit, true)? {
-        Some(selector) => selected(storage, || host, selector),
+        Some(selector) => selected(storage, || Ok(host), selector),
         None => Ok(None),
     }
 }
@@ -145,7 +145,7 @@ fn select(
 
 fn selected<H: std::borrow::Borrow<Host>>(
     storage: &mut Storage,
-    host: impl FnOnce() -> H,
+    host: impl FnOnce() -> Result<H, Failure>,
     selector: Selector,
 ) -> Result<Option<Identity>, Failure> {
     match selector {
@@ -174,7 +174,7 @@ fn selected<H: std::borrow::Borrow<Host>>(
             selected.ok_or_else(|| identity_missing(&name)).map(Some)
         }
         Selector::Pane(pane) => {
-            let host = host();
+            let host = host()?;
             let host = host.borrow();
             host.resolve_servers(storage).map_err(endpoint_failure)?;
             let observed = binding::pane_presence(storage, &mut host.session(), &pane)

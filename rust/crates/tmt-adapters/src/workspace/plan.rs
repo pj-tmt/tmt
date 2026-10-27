@@ -126,6 +126,7 @@ mod tests {
             },
             PlanRunner(std::rc::Rc::new(runner)),
         )
+        .unwrap()
     }
 
     #[test]

@@ -556,8 +556,9 @@ impl Host {
 
     /// The host a caller-scoped command runs in: the host whose pane shell is
     /// the caller's nearest ancestor. Its captured tmux locator selects the
-    /// server; without one, tmux keeps its ordinary default selection.
-    pub fn for_caller(environment: &CallerEnvironment) -> Self {
+    /// server; without one, tmux keeps its ordinary default selection. A
+    /// selection read that fails to clean up is an error, not a guess.
+    pub fn for_caller(environment: &CallerEnvironment) -> Result<Self, HostError> {
         Self::for_caller_with_drivers(environment, UnixCommandRunner, external::approved())
     }
 
@@ -569,9 +570,12 @@ impl Host {
 
     /// An explicit recovery socket selects the built-in host even outside its pane.
     /// Implicit recovery keeps the caller's ordinary host selection.
-    pub fn for_workspace(environment: &CallerEnvironment, explicit_socket: bool) -> Self {
+    pub fn for_workspace(
+        environment: &CallerEnvironment,
+        explicit_socket: bool,
+    ) -> Result<Self, HostError> {
         if explicit_socket {
-            Self::for_workspace_socket()
+            Ok(Self::for_workspace_socket())
         } else {
             Self::for_caller(environment)
         }
@@ -601,28 +605,31 @@ impl Host {
 }
 
 impl<R: CommandRunner + Clone> Host<R> {
-    /// The caller's host with no driver approved: tmux, on the captured locator.
-    /// The `_with` constructors approve no driver.
-    pub fn for_caller_with(environment: &CallerEnvironment, runner: R) -> Self {
+    /// The caller's host with no driver approved: tmux, on the captured locator,
+    /// unless a built-in pty pane names the caller. The `_with` constructors
+    /// approve no driver.
+    pub fn for_caller_with(environment: &CallerEnvironment, runner: R) -> Result<Self, HostError> {
         Self::for_caller_with_drivers(environment, runner, Vec::new())
     }
 
     /// The caller's host, external ones included: the nearest verified pane
-    /// wins. Without a verified external pane the host is tmux. An ordinary
-    /// command keeps tmux even when a selection read fails to clean up.
+    /// wins. Without a verified external pane the host is tmux. Doubt keeps
+    /// tmux; only a selection read that fails to clean up is an error, and it
+    /// chooses no host, because a process this read started may still be
+    /// running and tmux would be a guess about where the caller is.
     pub fn for_caller_with_drivers(
         environment: &CallerEnvironment,
         runner: R,
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
-    ) -> Self {
+    ) -> Result<Self, HostError> {
         let deadline = Instant::now() + Duration::from_secs(1);
-        Self::for_caller_within(environment, runner.clone(), records.clone(), deadline)
-            .unwrap_or_else(|_| Self::of(HostKind::Tmux, runner).with_drivers(records))
+        Self::for_caller_within(environment, runner, records, deadline)
     }
 
-    /// [`Host::for_caller_with_drivers`] for discovery, spending at most
-    /// until `deadline` on finding the caller's pane. Doubt keeps tmux; only
-    /// a failed cleanup is an error, and it chooses no host.
+    /// [`Host::for_caller_with_drivers`] spending at most until `deadline` on
+    /// finding the caller's pane (discovery bounds it by its own budget).
+    /// Doubt keeps tmux; only a failed cleanup is an error, and it chooses no
+    /// host.
     pub fn for_caller_within(
         environment: &CallerEnvironment,
         runner: R,

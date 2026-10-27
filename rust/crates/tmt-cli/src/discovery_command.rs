@@ -73,10 +73,10 @@ fn select<R: CommandRunner + Clone>(
     let within = deadline.min(Instant::now() + Duration::from_secs(1));
     Ok(match selected_host {
         Some(name) if name == HostKind::Tmux.as_str() => {
-            Selected::Host(Box::new(Host::for_caller_with(caller, runner)), None)
+            Selected::Host(Box::new(Host::for_caller_with(caller, runner)?), None)
         }
         None if socket.is_some() => {
-            Selected::Host(Box::new(Host::for_caller_with(caller, runner)), None)
+            Selected::Host(Box::new(Host::for_caller_with(caller, runner)?), None)
         }
         Some(name) => {
             let host = HostName::new(name)
