@@ -147,8 +147,8 @@ from `assets/*.html` and loading Colab's module from the composed shell's `entry
 page stays its own document and mounts the rail only.
 Remote’s `remote-routes.ts` is the one browser route/menu declaration. My Remotes is the global
 origin-local list; its Open enters the selected door’s Overview. One current-door frame owns the
-Overview, Members, Invites, My devices, Settings and Service & upgrade tabs, with no Remote ID in
-the path. The native page allowlist mirrors that explicit set, and old machine/devices/connect
+Overview, People, My devices, Settings and Service & upgrade tabs, with no Remote ID in
+the path. The native page allowlist mirrors that explicit set, and old machine/devices/connect/invites
 paths have no shims. The [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes)
 owns the exact paths. The rail links to the list and current Remote rather than duplicating the tabs.
 `remote-app.ts` keeps both markup models and persistent tab panels mounted, moving the same form
@@ -159,7 +159,7 @@ is created. The verified landing Session initializes management once; unavailabl
 initializes read-only without another discovery. Manual connection rechecks do not trigger an
 extra management admission; later management reads retain their bounded identity-checked recovery. Member admin-only tabs stay visible with lock word/mark, reason and a copy-only request.
 Unknown access has its own text. The existing composed-shell observation supplies Needs-you counts.
-`invitation-page.ts` retains the Invites decision model under that verified Session.
+`invitation-page.ts` retains the People invitation decision model under that verified Session.
 Entry/explicit refresh reads the shared current candidate; it creates no offer or poller.
 Comparison and sending start unchecked and are separate choices. An explicit decision
 uses the SDK's existing signing lane and one original operation ID. Uncertainty keeps

@@ -3,7 +3,7 @@ import { channelFor } from './session-channel.js';
 import { verifiedSessionRequest } from './operations.js';
 import { parseManagementOutcome, type ManagementOutcome } from './management.js';
 import { managementMutation } from './management-mutation.js';
-import { exact, input, integer, object, valid } from './management-codec.js';
+import { exact, input, integer, memberName, object, valid } from './management-codec.js';
 
 export interface RemoteMember {
   remoteId: string;
@@ -104,14 +104,6 @@ const cursor = (v: unknown) =>
 const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 const revision = (v: unknown) => integer(v) && (v as number) > 0;
 const time = (v: unknown) => v === null || integer(v);
-function name(v: unknown): v is string {
-  return (
-    typeof v === 'string' &&
-    v.trim().length > 0 &&
-    new TextEncoder().encode(v).length <= 64 &&
-    ![...v].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)
-  );
-}
 function inputKeys(value: object, keys: string[]) {
   input(Object.keys(value).length === keys.length && keys.every((k) => Object.hasOwn(value, k)));
 }
@@ -135,7 +127,7 @@ function person(value: unknown): RemoteMember {
       V4.test(row.remoteId) &&
       id(row.memberId) &&
       ['owner', 'user'].includes(row.role as string) &&
-      name(row.displayName) &&
+      memberName(row.displayName) &&
       typeof row.sendingEnabled === 'boolean' &&
       revision(row.revision) &&
       integer(row.createdAtMs) &&
@@ -199,7 +191,7 @@ function machine(value: unknown, caller: string): MemberMachine {
   ]);
   valid(
     id(row.clientId) &&
-      name(row.name) &&
+      memberName(row.name) &&
       ['browser', 'addon', 'cli'].includes(row.kind as string) &&
       revision(row.revision) &&
       typeof row.revoked === 'boolean' &&
@@ -239,7 +231,7 @@ function original(value: unknown, operationId: string): MemberOriginalOutcome {
     valid(
       typeof remote.remoteId === 'string' &&
         V4.test(remote.remoteId) &&
-        name(remote.displayName) &&
+        memberName(remote.displayName) &&
         row.sessionEnded === false,
     );
   }
@@ -318,7 +310,7 @@ export function members(session: Session, options: { timeoutMs?: number } = {}):
         valid(
           row.remoteId === remoteId &&
             typeof row.administrator === 'boolean' &&
-            (row.displayName === null || name(row.displayName)) &&
+            (row.displayName === null || memberName(row.displayName)) &&
             Array.isArray(row.members) &&
             row.members.length <= frozen.limit &&
             cursor(row.nextCursor),
@@ -362,7 +354,7 @@ export function members(session: Session, options: { timeoutMs?: number } = {}):
     rename: (change) => {
       inputKeys(change, ['operationId', 'remoteId', 'memberId', 'memberRevision', 'name']);
       target(change);
-      input(name(change.name));
+      input(memberName(change.name));
       return mutate('remote.members.rename', { ...change }, 'member');
     },
     sending: (change) => {
@@ -378,7 +370,7 @@ export function members(session: Session, options: { timeoutMs?: number } = {}):
     },
     renameRemote: (change) => {
       inputKeys(change, ['operationId', 'remoteId', 'name']);
-      input(name(change.name));
+      input(memberName(change.name));
       return mutate('remote.name.set', { ...change }, 'remote');
     },
     operation: (operationId) => {

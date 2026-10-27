@@ -78,14 +78,19 @@ test('Remote routes separate the global list and current-door tabs without obsol
       '/remote/join',
       '/remote/overview',
       '/remote/members',
-      '/remote/invites',
       '/remote/my-devices',
       '/remote/settings',
       '/remote/service',
     ],
   );
   assert.equal(remoteItem('/remote')?.id, 'remotes');
-  for (const old of ['/remote/machine', '/remote/devices', '/remote/connect', '/remote/unknown'])
+  for (const old of [
+    '/remote/machine',
+    '/remote/devices',
+    '/remote/connect',
+    '/remote/invites',
+    '/remote/unknown',
+  ])
     assert.equal(remoteItem(old), undefined);
   assert.equal(new Set(REMOTE_PATHS).size, REMOTE_PATHS.length);
   assert.equal(REMOTE_PATHS.at(-1), '/remote/');
@@ -103,19 +108,18 @@ test('Remote routes separate the global list and current-door tabs without obsol
 
 test('one pairing guidance owner preserves uncertainty and verified-refusal boundaries', async () => {
   const { pairingGuidance } = await import('../src/remote-state.js');
-  assert.equal(pairingGuidance('missing', false, false).pair, true);
-  assert.equal(pairingGuidance('different', false, false).pair, true);
-  assert.deepEqual(pairingGuidance('refused', true, false), {
+  assert.equal(pairingGuidance('missing', false).pair, true);
+  assert.equal(pairingGuidance('different', false).pair, true);
+  assert.deepEqual(pairingGuidance('refused', true), {
     pair: true,
     members: true,
     status: false,
   });
   for (const state of ['unreadable', 'checking', 'connected', 'refused'])
-    assert.equal(pairingGuidance(state, false, false).pair, false);
-  assert.deepEqual(pairingGuidance('unconfirmed', false, false), {
+    assert.equal(pairingGuidance(state, false).pair, false);
+  assert.deepEqual(pairingGuidance('unconfirmed', false), {
     pair: false,
     members: false,
     status: true,
   });
-  assert.equal(pairingGuidance('connected', false, true).pair, true);
 });

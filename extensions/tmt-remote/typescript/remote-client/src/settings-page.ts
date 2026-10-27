@@ -3,11 +3,18 @@ import { managementRole } from './remote-state.js';
 import { settingsChoice } from './settings-controls.js';
 import { remoteRegistryPage, type RemoteRegistryPage } from './remote-registry-page.js';
 import type { RemoteShell } from './remote-shell.js';
-import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
+import {
+  invitationPage,
+  management,
+  members,
+  reopenSession,
+  RefusalError,
+} from 'remote-browser-sdk';
 import type { Session } from './device.js';
 import { renderFirestore } from './firestore-page.js';
 import { createPage } from './create-page.js';
-import { ManagementPage, type PageIntent } from './management-page.js';
+import { accessRefused, ManagementPage, type PageIntent } from './management-page.js';
+import { MembersPage, mountMembersPage } from './members-page.js';
 import { browserUiClasses, createActionMark } from '@tmt/browser-ui/static';
 import { createBusyMarkGate } from '@tmt/browser-ui/busy-mark';
 
@@ -78,7 +85,47 @@ export async function settingsPage(
     return false;
   }
   let page: ManagementPage;
+  let people: MembersPage | undefined;
+  let peopleView: ReturnType<typeof mountMembersPage> | undefined;
+  let invitationAttached = false;
+  let invitationSession: Session | undefined;
   const registryState = registry ?? remoteRegistryPage(undefined, shell);
+  const invitationRoot = shell && document.getElementById('owner-invitation');
+  const ownerInvitations = invitationRoot
+    ? invitationPage(
+        invitationRoot,
+        shell?.signal,
+        undefined,
+        () =>
+          !!page &&
+          (page.access !== 'live' ||
+            people?.roster?.administrator !== true ||
+            page.busy ||
+            page.outcome?.state === 'unknown' ||
+            !!people?.busy ||
+            people?.outcome?.state === 'unknown'),
+        () => {
+          if (!page) return;
+          render();
+          if (
+            remoteItem(location.pathname)?.id === 'members' &&
+            page.access === 'live' &&
+            peopleView &&
+            !people?.roster &&
+            !people?.busy &&
+            !ownerInvitations?.heldBy()
+          )
+            void peopleView.refresh();
+        },
+      )
+    : undefined;
+  const otherHold = (): string =>
+    ownerInvitations?.heldBy() ||
+    (people?.busy
+      ? 'A People request is in progress.'
+      : people?.outcome?.state === 'unknown'
+        ? 'A People change is unconfirmed. Check its original outcome first.'
+        : '');
   const guideTarget = shell && document.getElementById('remote-create');
   const guide =
     shell && guideTarget
@@ -99,6 +146,8 @@ export async function settingsPage(
     if (page.busy) return 'A request is in progress. Wait for its outcome.';
     if (page.outcome?.state === 'unknown')
       return 'Another change is still unconfirmed. Check the saved value first.';
+    const peopleReason = peopleView?.heldBy() || ownerInvitations?.heldBy();
+    if (peopleReason) return peopleReason;
     for (const device of page.devices?.devices ?? []) {
       const name = rows.get(device.clientId)?.querySelector<HTMLInputElement>('input');
       if (name && name.value !== device.name)
@@ -140,7 +189,7 @@ export async function settingsPage(
   /** Busy is not disabled: only an unavailable control is disabled. A busy one keeps its look and
    * focus and is fenced by aria-disabled; every activation handler already refuses while busy. */
   function fence(button: HTMLButtonElement, unavailable: boolean): void {
-    button.disabled = unavailable;
+    button.disabled = unavailable || !!otherHold();
     if (page.busy && !unavailable) button.setAttribute('aria-disabled', 'true');
     else button.removeAttribute('aria-disabled');
   }
@@ -162,7 +211,7 @@ export async function settingsPage(
     for (const button of document.querySelectorAll<HTMLElement>('button.tmt-ui-action'))
       if (
         !button.closest(
-          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #remote-create, #remote-join-guide',
+          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #remote-create, #remote-join-guide, #owner-invitation, #people',
         )
       )
         markSlot(button);
@@ -264,6 +313,29 @@ export async function settingsPage(
   }
 
   function render(): void {
+    if (people && page.access === 'lost' && people.access !== 'lost') people.invalidateAccess(true);
+    else if (people && page.access !== 'live' && ['checking', 'live'].includes(people.access))
+      people.invalidateAccess();
+    const mayInvite = page.access === 'live' && people?.roster?.administrator === true;
+    if (!mayInvite && invitationAttached) {
+      invitationAttached = false;
+      ownerInvitations?.();
+    } else if (mayInvite && !invitationAttached && invitationSession) {
+      invitationAttached = true;
+      ownerInvitations?.(invitationSession);
+    }
+    if (!mayInvite && invitationRoot && !ownerInvitations?.heldBy()) {
+      const status = invitationRoot.querySelector<HTMLElement>('#invitation-status');
+      if (status)
+        status.textContent =
+          page.access === 'live' &&
+          people?.access === 'live' &&
+          people.roster?.administrator === false
+            ? 'Only a designated admin can confirm an invitation. Use tmt remote members on this machine.'
+            : 'Invitation access is unconfirmed. Use tmt remote members on this machine.';
+    }
+    ownerInvitations?.update();
+    peopleView?.render();
     registryState(
       page.access === 'live'
         ? 'Connected'
@@ -319,22 +391,23 @@ export async function settingsPage(
           : 'blocked';
     const reason =
       capacity ??
-      (!editable
-        ? page.access === 'live'
-          ? ''
-          : 'Current browser access could not be confirmed.'
-        : page.outcome?.state === 'unknown'
-          ? 'Another change is still unconfirmed. Check the saved value first.'
-          : page.outcome?.state === 'refused' &&
-              page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
-            ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
-            : '');
+      (otherHold() ||
+        (!editable
+          ? page.access === 'live'
+            ? ''
+            : 'Current browser access could not be confirmed.'
+          : page.outcome?.state === 'unknown'
+            ? 'Another change is still unconfirmed. Check the saved value first.'
+            : page.outcome?.state === 'refused' &&
+                page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
+              ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
+              : ''));
     element('controls-reason').textContent = reason;
     element('controls-reason').hidden = !reason;
     for (const button of document.querySelectorAll<HTMLButtonElement>('button')) {
       if (
         button.closest(
-          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked',
+          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #owner-invitation, #people',
         )
       )
         continue;
@@ -623,6 +696,7 @@ export async function settingsPage(
     syncBusyMark();
   }
   async function run(action: () => Promise<void>, owner: HTMLElement = refresh): Promise<void> {
+    if (otherHold()) return;
     cancelConfirmation();
     // A mark already showing stays on its action until it hides.
     if (!busyMark.shown()) markOwner = owner;
@@ -642,6 +716,7 @@ export async function settingsPage(
     if (page.access === 'live') void page.observeFirestore().then(renderService);
   }
   async function change(intent: PageIntent, owner: HTMLElement): Promise<void> {
+    if (otherHold()) return;
     await run(() => page.submit(intent), owner);
     if (page.outcome?.state === 'committed' && !page.outcome.sessionEnded)
       await run(() => refreshView(), owner);
@@ -786,21 +861,69 @@ export async function settingsPage(
     window.addEventListener(
       'popstate',
       () => {
-        if (page) render();
+        if (!page) return;
+        render();
+        if (
+          remoteItem(location.pathname)?.id === 'members' &&
+          page.access === 'live' &&
+          peopleView &&
+          !people?.roster &&
+          !people?.busy &&
+          !ownerInvitations?.heldBy()
+        )
+          void peopleView.refresh();
       },
       { signal: shell?.signal },
     );
   async function initialize(session: Session): Promise<void> {
     if (page) return;
     shell?.observedSession?.(session);
-    page = new ManagementPage(management(session), async () => {
-      session = await reopenSession(session, { retry: 'bounded' });
+    invitationSession = session;
+    const reopen = async (): Promise<Session> => {
+      const next = await reopenSession(session, { retry: 'bounded' });
+      if (management(next).clientId !== page.clientId)
+        throw new Error('The paired browser changed.');
+      session = next;
+      invitationSession = session;
       shell?.observedSession?.(session);
-      return management(session);
-    });
+      if (invitationAttached) ownerInvitations?.(session);
+      return session;
+    };
+    page = new ManagementPage(management(session), async () => management(await reopen()));
+    const peopleRoot = shell && document.getElementById('people-content');
+    if (shell && peopleRoot) {
+      people = new MembersPage(
+        members(session),
+        async () => members(await reopen()),
+        (error) =>
+          error instanceof RefusalError &&
+          ['REMOTE_GRANT_CHANGED', 'REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(
+            error.code,
+          ),
+        accessRefused,
+      );
+      peopleView = mountMembersPage(
+        peopleRoot,
+        people,
+        shell.signal,
+        () =>
+          page.access !== 'live' ||
+          page.busy ||
+          page.outcome?.state === 'unknown' ||
+          !!ownerInvitations?.heldBy(),
+        () => {
+          if (page) render();
+        },
+      );
+    }
     await run(() => refreshView());
+    if (page.access === 'live') {
+      if (remoteItem(location.pathname)?.id === 'members') await peopleView?.refresh();
+    }
   }
   function unavailable(error: unknown, report = true): void {
+    invitationAttached = false;
+    ownerInvitations?.();
     guide?.observe('unconfirmed');
     const capacity = capacityCopy(error instanceof RefusalError ? error : undefined);
     const ended =
@@ -845,5 +968,10 @@ export async function settingsPage(
     // A landing recheck must not trigger a second management admission. Its retained port
     // recovers through the existing identity-checked path when management is read again.
     if (!page) void initialize(session).catch(unavailable);
+    else if (page.access === 'live') {
+      invitationSession = session;
+      if (invitationAttached) ownerInvitations?.(session);
+      else render();
+    }
   };
 }

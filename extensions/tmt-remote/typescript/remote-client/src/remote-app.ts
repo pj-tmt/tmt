@@ -234,7 +234,7 @@ export async function remoteApp(
     // Move the same retained models, never clone/restart their forms or original outcomes.
     for (const model of models) {
       if (model.parentElement !== panel) panel.append(model);
-      model.hidden = model.dataset.page !== shown.page || (access.locked && shown.id === 'invites');
+      model.hidden = model.dataset.page !== shown.page;
     }
     for (const part of main.querySelectorAll<HTMLElement>('[data-view]'))
       part.hidden = !part.dataset.view!.split(' ').includes(shown.id);

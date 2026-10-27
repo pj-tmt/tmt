@@ -54,30 +54,7 @@
           </details>
         </div>
       </section>
-      <section id="owner-invitation" class="sheet tmt-ui-notice" data-tone="neutral" data-view="invites" aria-labelledby="invitation-heading">
-        <div class="sheet-body tmt-ui-notice-body">
-          <h2 id="invitation-heading" class="tmt-ui-notice-heading">Confirm an invitation</h2>
-          <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. This browser must be locally designated to confirm.</p>
-          <p id="invitation-status" role="status">Check access to read the current invitation.</p>
-          <button id="invitation-refresh" class="tmt-ui-action" type="button" disabled>Check invitation</button>
-          <div id="invitation-candidate" hidden>
-            <h3 id="invitation-name"></h3>
-            <p id="invitation-words" class="entry-command"></p>
-            <p id="invitation-expires" class="entry-note"></p>
-            <fieldset class="tmt-ui-choices invitation-choices">
-              <legend class="tmt-ui-choices-legend">Your decision</legend>
-              <label class="tmt-ui-choice" for="invitation-compared"><input id="invitation-compared" class="tmt-ui-checkbox" type="checkbox"><span class="tmt-ui-choice-text">I compared these four words with the person joining; they match.</span></label>
-              <label class="tmt-ui-choice" for="invitation-sending"><input id="invitation-sending" class="tmt-ui-checkbox" type="checkbox"><span class="tmt-ui-choice-text"><span>Allow this member to send messages to your agents.</span><span class="tmt-ui-choice-description">Sending stays off unless you choose to allow it.</span></span></label>
-            </fieldset>
-            <div class="invitation-actions"><button id="invitation-confirm" class="tmt-ui-action" data-variant="primary" type="button" disabled>Confirm invitation</button><button id="invitation-decline" class="tmt-ui-action" type="button">Decline invitation</button></div>
-          </div>
-          <div id="invitation-original" hidden>
-            <p>Original decision: <code id="invitation-original-id"></code></p>
-            <button id="invitation-recover" class="tmt-ui-action" type="button">Check original outcome</button>
-          </div>
-        </div>
-      </section>
-      <div data-view="overview invites"><section id="remote-guidance" class="sheet tmt-ui-notice" data-tone="neutral" hidden>
+      <div data-view="overview"><section id="remote-guidance" class="sheet tmt-ui-notice" data-tone="neutral" hidden>
         <div class="sheet-body tmt-ui-notice-body">
           <h2 id="remote-guidance-heading" class="tmt-ui-notice-heading">Connect a browser</h2>
           <p>Run commands on the machine that runs this Remote.</p>

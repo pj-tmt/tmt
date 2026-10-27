@@ -2,6 +2,8 @@
 declare module 'remote-browser-sdk' {
   export const budget: typeof import('./browser.js').budget;
   export const invitations: typeof import('./browser.js').invitations;
+  export const invitationPage: typeof import('./browser.js').invitationPage;
+  export const members: typeof import('./browser.js').members;
   export const management: typeof import('./browser.js').management;
   export const reopenSession: typeof import('./browser.js').reopenSession;
   export const ClientError: typeof import('./browser.js').ClientError;

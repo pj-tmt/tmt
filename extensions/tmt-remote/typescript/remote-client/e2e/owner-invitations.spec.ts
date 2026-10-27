@@ -18,7 +18,7 @@ type Fixture = {
 };
 test.beforeAll(async () => {
   const assets = new URL('../../../rust/tmt-remote/assets/', import.meta.url);
-  const document = await readFile(new URL('landing.html', assets), 'utf8');
+  const document = await readFile(new URL('settings.html', assets), 'utf8');
   const start = document.indexOf('<section id="owner-invitation"');
   const end = document.indexOf('</section>', start) + '</section>'.length;
   if (start < 0 || end < start) throw new Error('Missing actual invitation markup');
@@ -50,7 +50,7 @@ test.beforeAll(async () => {
     server: { host: '127.0.0.1', port: 0 },
   });
   server.middlewares.use((request, response, next) => {
-    if (request.url !== '/remote/invites') return next();
+    if (request.url !== '/remote/members') return next();
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.end(html);
   });
@@ -66,7 +66,7 @@ test.afterAll(async () => {
 test('words require explicit comparison; sending defaults off and the decision is submitted once', async ({
   page,
 }, info) => {
-  await page.goto(`${origin}/remote/invites`);
+  await page.goto(`${origin}/remote/members`);
   await expect(page.getByText('apple birch cedar dawn')).toBeVisible();
   const confirm = page.getByRole('button', { name: 'Confirm invitation', exact: true });
   await expect(confirm).toBeDisabled();
@@ -90,7 +90,7 @@ test('words require explicit comparison; sending defaults off and the decision i
 test('decline needs no word or sending consent and both choices reset on a new read', async ({
   page,
 }) => {
-  await page.goto(`${origin}/remote/invites`);
+  await page.goto(`${origin}/remote/members`);
   await page.getByRole('checkbox', { name: 'Allow this member' }).check();
   await page.getByRole('button', { name: 'Check invitation', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Allow this member' })).not.toBeChecked();
@@ -105,7 +105,7 @@ test('decline needs no word or sending consent and both choices reset on a new r
 test('lost answer survives tab changes and explicit lookup without resending or another admission', async ({
   page,
 }) => {
-  await page.goto(`${origin}/remote/invites`);
+  await page.goto(`${origin}/remote/members`);
   await expect(page.getByText('apple birch cedar dawn')).toBeVisible();
   await page.evaluate(() => {
     (window as unknown as { invitationFixture: Fixture }).invitationFixture.mode = 'lost';
@@ -116,7 +116,7 @@ test('lost answer survives tab changes and explicit lookup without resending or 
   await page.evaluate(() => {
     history.pushState({}, '', '/remote/overview');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    history.pushState({}, '', '/remote/invites');
+    history.pushState({}, '', '/remote/members');
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
   await page.getByRole('button', { name: 'Check original outcome' }).click();
@@ -137,7 +137,7 @@ test('refused access and departed late reads disclose no candidate or decision c
   page,
 }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${origin}/remote/invites`);
+  await page.goto(`${origin}/remote/members`);
   await expect(page.getByText('apple birch cedar dawn')).toBeVisible();
   await page.screenshot({
     path: info.outputPath('owner-invitation-mobile.png'),
@@ -179,7 +179,7 @@ test('a definite terminal-winner refusal unlocks refresh and shows its confirmed
   page,
 }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${origin}/remote/invites`);
+  await page.goto(`${origin}/remote/members`);
   await expect(page.getByText('apple birch cedar dawn')).toBeVisible();
   await page.evaluate(() => {
     (window as unknown as { invitationFixture: Fixture }).invitationFixture.mode = 'terminal-won';

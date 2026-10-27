@@ -245,7 +245,7 @@ export class ManagementPage {
   }
 }
 
-function accessRefused(error: unknown): boolean {
+export function accessRefused(error: unknown): boolean {
   if (error instanceof ReopenSessionError)
     return error.reason === 'revoked' || error.reason === 'expired';
   return (
