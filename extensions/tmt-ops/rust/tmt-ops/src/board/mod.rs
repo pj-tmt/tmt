@@ -773,13 +773,18 @@ fn session(
             )
         });
         if demand != history_demand {
-            history_demand = demand;
             // A chart/window change reads history for the published workspace;
             // it neither reloads that workspace nor fences its selected lane.
-            if let Some(job) = refresh::HistoryJob::requested(app, history) {
+            let job = refresh::HistoryJob::requested(app, history);
+            // A loading view cannot supply a job yet: leave the demand pending
+            // so the next loop retries it after the workspace is published.
+            if job.is_some() || !app.loading() {
+                history_demand = demand;
+                dirty = true;
+            }
+            if let Some(job) = job {
                 history_read(job);
             }
-            dirty = true;
         }
         if dirty {
             observe_navigation(app, (), |_| Some("Paint"), |app, ()| draw(app))?;
@@ -2012,6 +2017,112 @@ mod tests {
             "a visible member starts on its independent lane"
         );
         assert!(held_history.borrow().is_some());
+    }
+
+    #[test]
+    fn a_history_demand_declined_during_loading_retries_once_after_publication() {
+        use std::cell::{Cell, RefCell};
+        let mut app = app::workspace::tests::board();
+        app.view.as_mut().unwrap().refresh = None;
+        add_history_source(&mut app);
+        app.set_body_width(160);
+        app.usage_chart
+            .borrow_mut()
+            .restore_chart_controls(360, Default::default());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 50)).unwrap();
+        terminal.draw(|frame| view::render(frame, &app)).unwrap();
+        let expected = app.history_demand().expect("the chart requests history");
+        // Keep the painted workspace while a different target's reload is pending.
+        app.current = Some("loading-target".into());
+        assert!(app.loading());
+        let mut published = app::workspace::tests::board();
+        published.view.as_mut().unwrap().refresh = None;
+        add_history_source(&mut published);
+        let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
+        snapshot.view = Ok(published.view.take().unwrap());
+        let (events, input) = channel();
+        events.send(snapshot_event(snapshot)).unwrap();
+        let first_draw = Cell::new(true);
+        let loaded_draw = Cell::new(false);
+        let reads = RefCell::new(Vec::new());
+        let selected_cancel = Cell::new(false);
+        session_with_history(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| panic!("history demand must not request a snapshot"),
+            |_, selected| {
+                if selected.is_none() {
+                    selected_cancel.set(true);
+                }
+            },
+            |_| {},
+            no_io,
+            |app| {
+                terminal.draw(|frame| view::render(frame, app)).unwrap();
+                if first_draw.replace(false) {
+                    // The accepted snapshot arrives for the target selected by the reload.
+                    app.current = Some(ALL.into());
+                } else if !app.loading() && !loaded_draw.replace(true) {
+                    events.send(key(KeyCode::Char('q'))).unwrap();
+                }
+                Ok(())
+            },
+            |job| reads.borrow_mut().push(job.test_owner_and_demand().1),
+        )
+        .unwrap();
+        assert_eq!(
+            &*reads.borrow(),
+            &[Some(expected)],
+            "the declined demand must retry exactly once"
+        );
+        assert!(
+            !selected_cancel.get(),
+            "history must not cancel the selected lane"
+        );
+    }
+
+    #[test]
+    fn history_demand_without_enabled_sources_is_observed_without_spinning() {
+        let mut app = app::workspace::tests::board();
+        app.view.as_mut().unwrap().refresh = None;
+        app.set_body_width(160);
+        app.usage_chart
+            .borrow_mut()
+            .restore_chart_controls(360, Default::default());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 50)).unwrap();
+        terminal.draw(|frame| view::render(frame, &app)).unwrap();
+        assert!(app.history_demand().is_some());
+        assert!(refresh::HistoryJob::requested(&app, app.history_demand()).is_none());
+        let (events, input) = channel();
+        for _ in 0..3 {
+            events.send(BoardEvent::ViewStatePublished).unwrap();
+        }
+        events.send(key(KeyCode::Char('q'))).unwrap();
+        let draws = std::cell::Cell::new(0);
+        session_with_history(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| panic!("disabled history must not request a snapshot"),
+            |_, _| {},
+            |_| {},
+            no_io,
+            |app| {
+                draws.set(draws.get() + 1);
+                terminal.draw(|frame| view::render(frame, app)).unwrap();
+                Ok(())
+            },
+            |_| panic!("disabled history must not dispatch"),
+        )
+        .unwrap();
+        assert_eq!(
+            draws.get(),
+            1,
+            "an unchanged unavailable demand must not repaint on each loop"
+        );
     }
 
     #[test]

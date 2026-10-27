@@ -331,7 +331,9 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   demand through the same history owner. The Agents tab's visible quota requests a separate fixed four-hour window
   at five-minute resolution (48 buckets), independent of chart Each/Range. The
   quota cache remains independent of token interval/range pairs;
-  inactive demand releases its corresponding cache. Quota choice changes require no source
+  inactive demand releases its corresponding cache. If a workspace is loading, the session
+  retries a declined demand on the first loop after publication; non-loading views without
+  eligible history sources are recorded as observed. Quota choice changes require no source
   read. No additional reader thread or persistent history store is created.
   A new generation reacquires history even when queued tab switches coalesce
   back to the previous name; ordinary same-generation reloads do not acquire it.
