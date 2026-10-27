@@ -12,7 +12,7 @@ use crate::board::{
     home_leads::{Kind, LeadPreview},
 };
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use tmt_ops::cron::ClockStatus;
 
 const DAY: u64 = 86_400_000;
@@ -1228,11 +1228,156 @@ fn dump_crud_dialog_oracle() {
     .unwrap();
 }
 
+// Intern repeated painted rows. Existing dictionary IDs remain stable across
+// recordings; unused rows stay reserved, and new rows append in first-seen order.
+fn encode_oracle(mut oracle: Value, previous: Option<&Value>) -> Value {
+    let mut lines = prior_dictionary(previous, "line_dictionary");
+    let mut styles = prior_dictionary(previous, "style_row_dictionary");
+    let mut line_ids = dictionary_ids(&lines);
+    let mut style_ids = dictionary_ids(&styles);
+    for frame in oracle["frames"].as_array_mut().expect("oracle frames") {
+        intern_rows(&mut frame["lines"], &mut line_ids, &mut lines);
+        intern_rows(&mut frame["styles"], &mut style_ids, &mut styles);
+    }
+    oracle["line_dictionary"] = json!(lines);
+    oracle["style_row_dictionary"] = json!(styles);
+    oracle
+}
+
+fn prior_dictionary(previous: Option<&Value>, name: &str) -> Vec<String> {
+    previous
+        .and_then(|value| value.get(name))
+        .map(|value| {
+            value
+                .as_array()
+                .expect("oracle dictionary array")
+                .iter()
+                .map(|row| row.as_str().expect("oracle dictionary text").to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn dictionary_ids(dictionary: &[String]) -> HashMap<String, usize> {
+    let mut ids = HashMap::new();
+    for (id, row) in dictionary.iter().enumerate() {
+        assert!(
+            ids.insert(row.clone(), id).is_none(),
+            "duplicate oracle row"
+        );
+    }
+    ids
+}
+
+fn intern_rows(rows: &mut Value, ids: &mut HashMap<String, usize>, dictionary: &mut Vec<String>) {
+    for row in rows.as_array_mut().expect("oracle rows") {
+        let text = row.as_str().expect("oracle row text");
+        let id = match ids.get(text) {
+            Some(id) => *id,
+            None => {
+                let id = dictionary.len();
+                dictionary.push(text.to_owned());
+                ids.insert(text.to_owned(), id);
+                id
+            }
+        };
+        *row = json!(id);
+    }
+}
+
+fn decode_oracle(mut oracle: Value) -> Value {
+    let object = oracle.as_object_mut().expect("oracle object");
+    let lines = object.remove("line_dictionary").expect("line dictionary");
+    let styles = object
+        .remove("style_row_dictionary")
+        .expect("style row dictionary");
+    let lines = lines.as_array().expect("line dictionary array");
+    let styles = styles.as_array().expect("style dictionary array");
+    for frame in oracle["frames"].as_array_mut().expect("oracle frames") {
+        expand_rows(&mut frame["lines"], lines);
+        expand_rows(&mut frame["styles"], styles);
+    }
+    oracle
+}
+
+fn expand_rows(rows: &mut Value, dictionary: &[Value]) {
+    for row in rows.as_array_mut().expect("oracle row indexes") {
+        let id = row.as_u64().expect("oracle row index");
+        let id = usize::try_from(id).expect("oracle row index fits usize");
+        *row = dictionary
+            .get(id)
+            .expect("oracle row index in bounds")
+            .clone();
+        assert!(row.is_string(), "oracle dictionary entry must be a string");
+    }
+}
+
+#[test]
+fn oracle_format_b_interns_in_first_seen_order_and_round_trips() {
+    let expanded = json!({
+        "styles": {"s0": "plain"},
+        "frames": [
+            {"lines": ["b", "a", "b"], "styles": ["x", "y", "x"], "width": 2},
+            {"lines": ["a", "c"], "styles": ["y", "z"], "width": 1}
+        ]
+    });
+    let encoded = encode_oracle(expanded.clone(), None);
+    assert_eq!(encoded["line_dictionary"], json!(["b", "a", "c"]));
+    assert_eq!(encoded["style_row_dictionary"], json!(["x", "y", "z"]));
+    assert_eq!(encoded["frames"][1]["lines"], json!([1, 2]));
+    assert_eq!(encoded, encode_oracle(expanded.clone(), None));
+    assert_eq!(decode_oracle(encoded), expanded);
+}
+
+#[test]
+fn oracle_format_b_preserves_ids_and_keeps_unused_rows() {
+    let old =
+        json!({"frames": [{"lines": ["old", "keep"], "styles": ["old-style", "keep-style"]}]});
+    let before = encode_oracle(old, None);
+    let changed =
+        json!({"frames": [{"lines": ["new", "keep"], "styles": ["new-style", "keep-style"]}]});
+    let after = encode_oracle(changed.clone(), Some(&before));
+    assert_eq!(after["line_dictionary"], json!(["old", "keep", "new"]));
+    assert_eq!(
+        after["style_row_dictionary"],
+        json!(["old-style", "keep-style", "new-style"])
+    );
+    assert_eq!(after["frames"][0]["lines"], json!([2, 1]));
+    assert_eq!(after["frames"][0]["styles"], json!([2, 1]));
+    assert_eq!(decode_oracle(after.clone()), changed);
+    let compact = encode_oracle(decode_oracle(after), None);
+    assert_eq!(compact["line_dictionary"], json!(["new", "keep"]));
+    assert_eq!(
+        compact["style_row_dictionary"],
+        json!(["new-style", "keep-style"])
+    );
+    assert_eq!(decode_oracle(compact), changed);
+}
+
+#[test]
+#[should_panic(expected = "oracle row index in bounds")]
+fn oracle_format_b_rejects_invalid_row_index() {
+    decode_oracle(json!({
+        "line_dictionary": ["one"], "style_row_dictionary": [],
+        "frames": [{"lines": [1], "styles": []}]
+    }));
+}
+
+#[test]
+#[ignore = "compares the re-encoding with the approved expanded oracle at HOME_ORACLE_PREVIOUS"]
+fn oracle_format_b_matches_approved_expanded_oracle() {
+    let path = std::env::var("HOME_ORACLE_PREVIOUS").expect("approved expanded oracle path");
+    let previous: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    let encoded: Value = serde_json::from_str(include_str!("oracle.json")).unwrap();
+    assert_eq!(decode_oracle(encoded.clone()), previous);
+    assert_eq!(encoded, encode_oracle(previous, Some(&encoded)));
+}
+
 #[test]
 fn home_oracle_keeps_every_cell_style_and_hit() {
     assert_eq!(
         captures(),
-        serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap()
+        decode_oracle(serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap())
     );
 }
 
@@ -1310,7 +1455,39 @@ fn record_home_oracle() {
             env!("CARGO_MANIFEST_DIR"),
             "/src/board/home/tests/oracle.json"
         ),
-        serde_json::to_string_pretty(&captures()).unwrap() + "\n",
+        serde_json::to_string_pretty(&encode_oracle(
+            captures(),
+            Some(&serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap()),
+        ))
+        .unwrap()
+            + "\n",
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "compacts unused HOME oracle rows; separate commit after decoded-equality review"]
+fn compact_home_oracle() {
+    let encoded = serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap();
+    let compact = encode_oracle(decode_oracle(encoded), None);
+    fs::write(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/board/home/tests/oracle.json"
+        ),
+        serde_json::to_string_pretty(&compact).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "decodes the frozen HOME oracle to $HOME_ORACLE_OUT without recording"]
+fn dump_frozen_home_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let encoded = serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap();
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&decode_oracle(encoded)).unwrap() + "\n",
     )
     .unwrap();
 }

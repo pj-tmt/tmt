@@ -138,6 +138,16 @@ CARGO_BUILD_JOBS=2 cargo +1.98.1 test --release --locked -p tmt-ops workspace_an
   Frozen HOME and row parity follow the owning
   [board parity gate](../../tmt-tui/references/development.md#board-parity-baseline),
   including decoded evidence and approval before the separate attributed recorder commit.
+  HOME captures export expanded JSON with the ignored `dump_home_oracle` test and
+  `HOME_ORACLE_OUT`; after approval, the ignored `record_home_oracle` test writes
+  the compact fixture with stable line and style-row indexes: existing IDs stay
+  reserved and new rows append in first-seen order. The normal oracle
+  test decodes it before comparing cells, styles and hits. Reviewers can decode
+  the frozen fixture to `HOME_ORACLE_OUT` with the ignored `dump_frozen_home_oracle`
+  test and compare it with the expanded current capture before approval.
+  If unused dictionary entries accumulate, the ignored `compact_home_oracle` test
+  reassigns first-seen indexes in a separate commit; verify an empty decoded diff
+  against the approved fixture before committing that compaction.
 - Settings editor changes: cover live preview, focus and age-evidence restoration on cancel,
   invalid input, read-only command entries and stale-file refusal (native edits verify shared
   staleness after reload, including the disabled no-publication path); capture normal and
