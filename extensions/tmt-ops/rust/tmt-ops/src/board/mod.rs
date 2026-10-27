@@ -1792,9 +1792,9 @@ pub fn run(
     stopped?;
     acknowledgments?;
     if let Some(resume) = app.restart.take() {
-        // The terminal is restored and the loop has ended. Stop the refresh worker,
-        // then become the new board: this returns only when that failed.
+        // Reap the API session before exec, which does not run destructors.
         drop(worker);
+        drop(core);
         return Err(app.reload.restart(&resume, crate::status::now_ms()));
     }
     if signal.is_none()
@@ -1803,6 +1803,7 @@ pub fn run(
         // Same pane and inherited stdio: every board worker is stopped and
         // terminal modes are restored before Core takes the foreground.
         drop(worker);
+        drop(core);
         // A signal arriving during cleanup cancels the handoff too.
         if let Some(signal) = terminal::stop_signal(&stop) {
             return Ok(Some(signal));

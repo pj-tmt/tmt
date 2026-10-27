@@ -5036,13 +5036,14 @@ describe('Ops path migration with unchanged Squad commands', () => {
 
 describe('member session foreground handoff', () => {
   it.each([
-    { move: false, host: 'tmux', unbound: undefined },
-    { move: true, host: 'tmux', unbound: undefined },
-    { move: false, host: 'tmux', unbound: true },
-    { move: false, host: 'herdr', unbound: true },
+    { move: false, host: 'tmux', unbound: undefined, reload: false },
+    { move: true, host: 'tmux', unbound: undefined, reload: false },
+    { move: false, host: 'tmux', unbound: true, reload: false },
+    { move: false, host: 'herdr', unbound: true, reload: false },
+    { move: false, host: 'tmux', unbound: undefined, reload: true },
   ])(
     'copies or confirms the exact UUID command with restored modes: %j',
-    async ({ move, host, unbound }) => {
+    async ({ move, host, unbound, reload }) => {
       await withSandbox(async (sandbox) => {
         const bin = installSquad(sandbox);
         await identity(sandbox, 'Ben');
@@ -5092,13 +5093,23 @@ describe('member session foreground handoff', () => {
               move,
               host,
               unbound,
+              reload,
             }),
           ],
           { cwd: sandbox.cwd, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 1024 * 1024 }
         );
         expect(result.status, result.stdout + result.stderr).toBe(0);
         const proof = JSON.parse(result.stdout);
-        if (unbound) {
+        if (reload) {
+          expect(proof).toMatchObject({
+            mode: 'reload',
+            samePid: true,
+            freshSession: true,
+            oldSessionGone: true,
+            oldPipesGone: true,
+            boardExit: 0,
+          });
+        } else if (unbound) {
           expect(proof).toMatchObject({
             mode: 'copy',
             copyOnly: true,
@@ -5120,7 +5131,9 @@ describe('member session foreground handoff', () => {
             coreExit: 23,
           });
         }
-        expect(proof.argv).toEqual(['resume', ...(move ? ['--move'] : []), '--', recipient]);
+        if (!reload) {
+          expect(proof.argv).toEqual(['resume', ...(move ? ['--move'] : []), '--', recipient]);
+        }
       });
     },
     120_000

@@ -141,6 +141,32 @@ fn stale_or_missing_response_is_never_replayed_and_only_later_work_reopens() {
 }
 
 #[test]
+fn buffering_session_times_out_without_replay_and_later_work_opens_a_new_child() {
+    let fixture = Fixture::new();
+    let core = session_fixture(&fixture);
+    let error = core
+        .api_within("block", json!({}), Duration::from_secs(2))
+        .unwrap_err();
+    assert_eq!(error.code, "SQUAD_CORE_UNAVAILABLE");
+    assert!(error.message.contains("did not finish in time"));
+    assert!(fixture.0.join("admitted").exists());
+    assert_eq!(core.api("later", json!({})).unwrap()["operation"], "later");
+    drop(core);
+    let requests: Vec<Value> = lines(fixture.0.join("requests"))
+        .iter()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        requests
+            .iter()
+            .map(|value| value["operation"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["block", "later"]
+    );
+    assert_eq!(lines(fixture.0.join("launches")).len(), 3);
+}
+
+#[test]
 fn old_core_is_negotiated_once_and_keeps_the_existing_one_shot_door() {
     let fixture = Fixture::new();
     fs::write(fixture.0.join("legacy"), b"").unwrap();

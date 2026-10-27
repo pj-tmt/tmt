@@ -14,7 +14,8 @@
   never the submitted request. `tmt-invoke::LineChannel` owns bounded byte frames, stderr,
   deadlines and child-group cleanup. Other public commands retain their existing runner.
   Shutdown restores the terminal, drains admitted actions, cancels and joins readers, then
-  the last Core handle closes stdin and reaps the session child.
+  the last Core handle closes stdin and reaps the session child. Foreground and
+  reload handoffs release that handle before exec; a new board opens lazily.
 - Timer: the input loop requests a reload at the shown squad's `refresh` interval, which each
   snapshot carries, so a squad that failed to load retries at the default. The timer always runs.
 - Change detection: between requests the worker checks `board::changes` every `CHECK_EVERY` (1 s)

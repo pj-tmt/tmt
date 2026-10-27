@@ -12,6 +12,21 @@ root = pathlib.Path(spec["root"])
 proof = root / "handoff.json"
 
 
+def leaked_pipes(pipes):
+    leaked = []
+    for name in os.listdir("/dev/fd"):
+        try:
+            fd = int(name)
+            if fd < 3:
+                continue
+            stat = os.fstat(fd)
+            if (stat.st_dev, stat.st_ino) in {tuple(item) for item in pipes}:
+                leaked.append(fd)
+        except OSError:
+            pass
+    return leaked
+
+
 def modes(fd):
     value = termios.tcgetattr(fd)
     value[-1] = [v.hex() if isinstance(v, bytes) else v for v in value[-1]]
@@ -35,9 +50,11 @@ if args and args[0] == "resume":
             active.append(int(entry.name))
         except ProcessLookupError:
             pass
+    session = json.loads((root / "session.json").read_text())
+    leaked = leaked_pipes(session["pipes"])
     packet = {"argv": args, "pid": os.getpid(), "tty": [os.isatty(fd) for fd in (0, 1, 2)],
               "modes": modes(0), "foreground": os.tcgetpgrp(0) == os.getpgrp(),
-              "activeReads": active}
+              "activeReads": active, "sessionPid": session["pid"], "leakedSessionFds": leaked}
     proof.write_text(json.dumps(packet))
     print("FOREGROUND_SESSION_REFUSAL", flush=True)
     # A real Core refusal must retain its own exit; no provider is ever started.
@@ -47,6 +64,25 @@ assert not proof.exists(), "a Core read started after the foreground handoff"
 active = root / "active" / str(os.getpid())
 active.write_text("read")
 try:
+    if args[:2] == ["api", "--session"]:
+        # The session owns stdin until board shutdown. Forward its pipes rather
+        # than waiting for EOF before starting the real Core process.
+        pipes = [[os.fstat(fd).st_dev, os.fstat(fd).st_ino] for fd in (0, 1)]
+        marker = root / "session.json"
+        previous = json.loads(marker.read_text()) if marker.exists() else None
+        prior_alive = False
+        if previous:
+            try:
+                os.kill(previous["pid"], 0)
+                prior_alive = True
+            except ProcessLookupError:
+                pass
+        data = {"pid": os.getpid(), "pipes": pipes, "priorAlive": prior_alive,
+                "priorLeakedFds": leaked_pipes(previous["pipes"]) if previous else []}
+        staged = root / "session.stage"
+        staged.write_text(json.dumps(data))
+        staged.replace(marker)
+        sys.exit(subprocess.run(spec["cli"] + args).returncode)
     result = subprocess.run(spec["cli"] + args, input=sys.stdin.buffer.read(),
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
     if args and args[0] == "ls" and "--json" in args and result.returncode == 0:
