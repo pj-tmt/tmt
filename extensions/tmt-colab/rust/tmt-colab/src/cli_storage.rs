@@ -12,14 +12,11 @@ use tmt_colab::{
     store::{Store, owner::size},
 };
 
-fn spec(name: &'static str, summary: &'static str) -> Command {
+fn spec(name: &'static str, summary: &'static str, examples: &'static [Example]) -> Command {
     tmt_cli_style::command(&CommandSpec {
         name,
         summary,
-        examples: &[Example {
-            command: "tmt colab storage --json",
-            note: "Show storage on this machine",
-        }],
+        examples,
         outputs: OutputModes::HumanAndJson,
         details: "Reports retained bytes and estimated reclaimable history. Comments and signed history stay protected. Attachments are not removed.",
     })
@@ -31,14 +28,38 @@ fn dry_run() -> Arg {
         .help("Estimate without changing state")
 }
 pub fn command() -> Command {
-    spec("storage", "Show local storage for each page")
-        .mut_arg("json", |arg| arg.global(true))
-        .subcommand(spec("reclaim", "Clean up eligible page history").arg(dry_run()))
+    spec(
+        "storage",
+        "Show local storage for each page",
+        &[Example {
+            command: "tmt colab storage --json",
+            note: "Show storage on this machine",
+        }],
+    )
+    .mut_arg("json", |arg| arg.global(true))
+    .subcommand(
+        spec(
+            "reclaim",
+            "Clean up eligible page history",
+            &[Example {
+                command: "tmt colab storage reclaim --dry-run",
+                note: "Preview cleanup",
+            }],
+        )
+        .arg(dry_run()),
+    )
 }
 pub fn page_command() -> Command {
-    spec("reclaim", "Clean up this page's eligible history")
-        .arg(crate::cli_grammar::page())
-        .arg(dry_run())
+    spec(
+        "reclaim",
+        "Clean up this page's eligible history",
+        &[Example {
+            command: "tmt colab page reclaim 10000000-0000-4000-8000-000000000001 --dry-run",
+            note: "Preview cleanup for one page",
+        }],
+    )
+    .arg(crate::cli_grammar::page())
+    .arg(dry_run())
 }
 fn human(bytes: u64) -> String {
     size(usize::try_from(bytes).unwrap_or(usize::MAX))
