@@ -178,7 +178,9 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   which prunes the covered prefix once the namespaces are paired. Write limits count only the updates
   after checkpoints; the page budget (gzipped, `fold::gzip_over_budget`) applies to larger states.
   `compact::request` runs it on demand for `page compact` and reports the page's `PageUsage`
-  before and after. A browser device combines only its own stream (`writer.ts` `OwnCompaction`);
+  before and after. Owner storage reclaim reuses this path and its notifications; its dry-run
+  counts only the Store's already-proven prune candidates, excluding speculative GC savings.
+  A browser device combines only its own stream (`writer.ts` `OwnCompaction`);
   its updates on other devices' streams stay in the tail (`otherDeviceUpdates`).
 - CLI create/patch obtains an optional caller display label from the fixed public
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's

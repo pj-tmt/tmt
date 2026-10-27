@@ -234,12 +234,22 @@ fn history_pass(
     };
     *after = Some(page.clone());
     let due = crate::page::compact::history_due(&view.store, &view.keyring, &page, trigger)?;
+    let layout = view.layout.clone();
     drop(view);
     if !due {
         return Ok(None);
     }
     // Reuse the serving writer's lock, equality checks, publication fence and notifications.
-    Ok(Some(sync.compact_page(&page, Instant::now())?))
+    let report = sync.compact_page(&page, Instant::now())?;
+    if report.compacted
+        && let Ok(now) = crate::registration::now_ms()
+        && let Ok(mut store) = crate::store::Store::write_existing(&layout)
+    {
+        // This local display hint is best effort: failure cannot undo the already committed work.
+        let _ = store.record_auto_cleaned(&page, now);
+        let _ = store.close();
+    }
+    Ok(Some(report))
 }
 /// One round over every page whose epoch has advanced; whether anything is still waiting.
 fn pass(
@@ -424,6 +434,14 @@ mod tests {
         );
         assert_eq!(after.usage.updates, 0);
         assert!(after.usage.checkpoint_bytes > 0);
+        assert!(
+            fixture
+                .store
+                .page_storage_bytes(PAGE)
+                .unwrap()
+                .last_auto_cleaned_at_ms
+                .is_some()
+        );
     }
 
     #[test]

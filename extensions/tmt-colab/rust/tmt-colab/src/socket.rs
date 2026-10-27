@@ -538,6 +538,70 @@ fn serve(
         let _ = response(&mut socket, status, text.as_bytes(), false);
         return;
     }
+    if matches!(
+        request.path.as_str(),
+        crate::storage_ipc::LOCAL_READ
+            | crate::storage_ipc::LOCAL_RECLAIM
+            | crate::storage_ipc::BROWSER_READ
+            | crate::storage_ipc::BROWSER_RECLAIM
+    ) {
+        let browser = matches!(
+            request.path.as_str(),
+            crate::storage_ipc::BROWSER_READ | crate::storage_ipc::BROWSER_RECLAIM
+        );
+        let reclaim = matches!(
+            request.path.as_str(),
+            crate::storage_ipc::LOCAL_RECLAIM | crate::storage_ipc::BROWSER_RECLAIM
+        );
+        let result = (|| -> Result<(u16, Vec<u8>)> {
+            if (!browser && local_denied(&request)) || (browser && request.event.is_some()) {
+                return Err(crate::page::Fault::Denied.into());
+            }
+            if request.method != "POST" || request.upgrade {
+                return Err(crate::page::Fault::Invalid.into());
+            }
+            let input = crate::storage_ipc::parse(&request.body)?;
+            let server = sync.ok_or(crate::page::Fault::Unavailable)?;
+            if reclaim {
+                let report = server.reclaim_storage(
+                    &input.page,
+                    request.context.as_deref(),
+                    browser,
+                    input.dry_run,
+                    request.received,
+                )?;
+                let status = if report.error.is_some() { 503 } else { 200 };
+                Ok((status, serde_json::to_vec(&report)?))
+            } else {
+                let mut row =
+                    server.read_storage(&input.page, request.context.as_deref(), browser)?;
+                // Admission is complete and the sync lock is released before this optional read.
+                let source = registration.and_then(|service| service.lock().ok()?.save_source());
+                if let Some(source) = source {
+                    let deadline =
+                        std::time::Instant::now() + std::time::Duration::from_millis(500);
+                    row.apply_attachment_usage(objects.storage_usage(
+                        &input.page,
+                        &source,
+                        deadline,
+                    ));
+                }
+                Ok((200, serde_json::to_vec(&row)?))
+            }
+        })();
+        match result {
+            Ok((status, bytes)) => {
+                let _ = response_as(&mut socket, status, &bytes, "application/json");
+            }
+            Err(error) => {
+                let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
+                if let Ok(bytes) = serde_json::to_vec(&failure) {
+                    let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
+                }
+            }
+        }
+        return;
+    }
     if request.path == crate::page::ipc::PATH {
         let result = (|| -> Result<Vec<u8>> {
             if local_denied(&request) {
@@ -1777,6 +1841,10 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
             | crate::page::compact_ipc::PATH
+            | crate::storage_ipc::LOCAL_READ
+            | crate::storage_ipc::LOCAL_RECLAIM
+            | crate::storage_ipc::BROWSER_READ
+            | crate::storage_ipc::BROWSER_RECLAIM
             | crate::attachments::ipc::PATH
             | control::STOP_PATH
             | crate::readers::CHALLENGE_PATH

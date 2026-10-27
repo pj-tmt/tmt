@@ -69,7 +69,7 @@ fn progress(
         confirmed_seq: confirmed.parse().map_err(|_| Fault::Invalid)?,
     }))
 }
-fn paired(c: &Connection, s: StreamScope<'_>) -> StoreResult<Option<u64>> {
+pub(super) fn paired(c: &Connection, s: StreamScope<'_>) -> StoreResult<Option<u64>> {
     let seq: Option<String> = c.query_row(
         "SELECT max(a.seq) FROM checkpoints a JOIN checkpoints b
          ON a.page=b.page AND a.epoch=b.epoch AND a.stream=b.stream AND a.seq=b.seq
@@ -320,7 +320,21 @@ fn set_confirmed(c: &Connection, s: StreamScope<'_>, seq: u64) -> StoreResult<()
     )?;
     Ok(())
 }
-pub(super) fn prune(c: &Connection, s: StreamScope<'_>, paired_seq: &str) -> StoreResult<()> {
+// Both the read-only estimate and committed prune use these exact candidates.
+const RECEIPT_CANDIDATES: &str =
+    "page=?1 AND epoch=?2 AND stream=?3 AND seq<=?4 AND (seq<>?5 OR NOT ?6)";
+const CHECKPOINT_CANDIDATES: &str = "page=?1 AND epoch=?2 AND stream=?3 AND seq<?4 AND pinned=0";
+
+struct PruneBounds {
+    cut: String,
+    latest: String,
+    anchored: bool,
+}
+fn prune_bounds(
+    c: &Connection,
+    s: StreamScope<'_>,
+    paired_seq: &str,
+) -> StoreResult<Option<PruneBounds>> {
     let confirmed: Option<String> = c
         .query_row(
             "SELECT confirmed_seq FROM cloud_publications WHERE page=? AND epoch=? AND stream=?",
@@ -334,31 +348,143 @@ pub(super) fn prune(c: &Connection, s: StreamScope<'_>, paired_seq: &str) -> Sto
         Some(paired_seq.to_owned())
     };
     let Some(latest) = latest else {
-        // One namespace cannot replace the protected paired bootstrap.
-        return Ok(());
+        return Ok(None);
     };
     let cut = confirmed
         .as_deref()
-        .map_or(latest.as_str(), |seq| seq.min(latest.as_str()));
-    // An owner fold binds the update at its sequence, and a reader admits the fold only with that
-    // update (the anchor), so the update a retained fold covers through is kept; the next
-    // checkpoint or fold supersedes both.
-    let anchored: bool = c.query_row(
+        .map_or(latest.as_str(), |seq| seq.min(latest.as_str()))
+        .to_owned();
+    // An owner fold binds the retained update at its sequence; keep that anchor.
+    let anchored = c.query_row(
         "SELECT EXISTS(SELECT 1 FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq=?4
          AND signer IS NOT NULL AND payload IS NOT NULL)",
-        params![s.page, s.epoch.to_string(), s.stream, latest],
+        params![s.page, s.epoch.to_string(), s.stream, latest], |r| r.get(0),
+    )?;
+    Ok(Some(PruneBounds {
+        cut,
+        latest,
+        anchored,
+    }))
+}
+fn candidate_history_bytes(
+    c: &Connection,
+    s: StreamScope<'_>,
+    bounds: &PruneBounds,
+) -> StoreResult<u64> {
+    let receipt_sql = format!(
+        "SELECT COALESCE(sum(length(payload)),0) FROM receipts WHERE {RECEIPT_CANDIDATES} AND namespace='content'"
+    );
+    let checkpoint_sql = format!(
+        "SELECT COALESCE(sum(length(payload)),0) FROM checkpoints WHERE {CHECKPOINT_CANDIDATES} AND namespace='content'"
+    );
+    let receipts: i64 = c.query_row(
+        &receipt_sql,
+        params![
+            s.page,
+            s.epoch.to_string(),
+            s.stream,
+            bounds.cut,
+            bounds.latest,
+            bounds.anchored
+        ],
         |r| r.get(0),
     )?;
-    c.execute(
-        "UPDATE receipts SET payload=NULL WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq<=?4
-         AND (seq<>?5 OR NOT ?6)",
-        params![s.page, s.epoch.to_string(), s.stream, cut, latest, anchored],
+    let checkpoints: i64 = c.query_row(
+        &checkpoint_sql,
+        params![s.page, s.epoch.to_string(), s.stream, bounds.latest],
+        |r| r.get(0),
     )?;
-    // The latest paired original supersedes historical checkpoints. Even when
-    // it is unconfirmed, it stays retained with all unconfirmed updates.
+    let sum = receipts.checked_add(checkpoints).ok_or(Fault::Capacity)?;
+    u64::try_from(sum).map_err(|_| Fault::Invalid)
+}
+/// Whether a stream has an update after its latest checkpoint in that namespace.
+pub(super) fn has_active_tail(c: &Connection, s: StreamScope<'_>) -> StoreResult<bool> {
+    Ok(c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM receipts r WHERE r.page=?1 AND r.epoch=?2 AND r.stream=?3 AND r.payload IS NOT NULL AND r.seq>COALESCE((SELECT max(c.seq) FROM checkpoints c WHERE c.page=r.page AND c.epoch=r.epoch AND c.stream=r.stream AND c.namespace=r.namespace), '00000000000000000000'))",
+        params![s.page, s.epoch.to_string(), s.stream], |r| r.get(0),
+    )?)
+}
+
+/// Proven currently eligible content bytes, evaluated inside the caller's read snapshot.
+pub(super) fn eligible_history_bytes(
+    c: &Connection,
+    page: &str,
+    allowed: Option<&std::collections::BTreeSet<String>>,
+) -> StoreResult<u64> {
+    bounded_id(page)?;
+    let allowed_json = allowed
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|_| Fault::Invalid)?;
+    let mut query = c.prepare(
+        "SELECT s.epoch,s.stream FROM streams s JOIN pages p ON p.page=s.page AND p.epoch=s.epoch WHERE s.page=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) AS allowed WHERE allowed.value=s.stream))"
+    )?;
+    let rows = query.query_map(params![page, allowed_json], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })?;
+    let mut total = 0u64;
+    for row in rows {
+        let (epoch, stream) = row?;
+        let epoch = epoch.parse().map_err(|_| Fault::Invalid)?;
+        let scope = StreamScope {
+            page,
+            epoch,
+            stream: &stream,
+        };
+        if has_active_tail(c, scope)?
+            && let Some(seq) = paired(c, scope)?
+            && let Some(bounds) = prune_bounds(c, scope, &sequence(seq))?
+        {
+            total = total
+                .checked_add(candidate_history_bytes(c, scope, &bounds)?)
+                .ok_or(Fault::Capacity)?;
+        }
+    }
+    Ok(total)
+}
+impl Store {
+    /// Existing prune candidates belonging only to already-admitted compactable streams.
+    pub(crate) fn eligible_history_for_streams(
+        &self,
+        page: &str,
+        streams: &std::collections::BTreeSet<String>,
+    ) -> StoreResult<u64> {
+        let tx = self.connection.unchecked_transaction()?;
+        let total = eligible_history_bytes(&tx, page, Some(streams))?;
+        tx.commit()?;
+        Ok(total)
+    }
+
+    /// Proven presently eligible content payloads; excludes speculative rebuild savings.
+    pub fn eligible_history_bytes(&self, page: &str) -> StoreResult<u64> {
+        let tx = self.connection.unchecked_transaction()?;
+        let total = eligible_history_bytes(&tx, page, None)?;
+        tx.commit()?;
+        Ok(total)
+    }
+}
+pub(super) fn prune(c: &Connection, s: StreamScope<'_>, paired_seq: &str) -> StoreResult<()> {
+    let Some(bounds) = prune_bounds(c, s, paired_seq)? else {
+        return Ok(());
+    };
+    let receipt_sql = format!("UPDATE receipts SET payload=NULL WHERE {RECEIPT_CANDIDATES}");
     c.execute(
-        "UPDATE checkpoints SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND seq<? AND pinned=0",
-        params![s.page,s.epoch.to_string(),s.stream,latest],
+        &receipt_sql,
+        params![
+            s.page,
+            s.epoch.to_string(),
+            s.stream,
+            bounds.cut,
+            bounds.latest,
+            bounds.anchored
+        ],
+    )?;
+    // The latest paired original and every pinned checkpoint stay retained.
+    let checkpoint_sql =
+        format!("UPDATE checkpoints SET payload=NULL WHERE {CHECKPOINT_CANDIDATES}");
+    c.execute(
+        &checkpoint_sql,
+        params![s.page, s.epoch.to_string(), s.stream, bounds.latest],
     )?;
     Ok(())
 }

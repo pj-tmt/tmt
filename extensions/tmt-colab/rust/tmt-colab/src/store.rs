@@ -195,11 +195,144 @@ fn now_ms() -> StoreResult<u64> {
     tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
     Ok(now)
 }
+/// Retained encrypted payload bytes in the local page store, excluding SQLite overhead.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct PageStorageBytes {
+    pub content: u64,
+    pub history: u64,
+    pub comments: u64,
+    pub eligible_history: u64,
+    pub has_active_tail: bool,
+    pub last_auto_cleaned_at_ms: Option<u64>,
+}
+
 pub struct Store {
     connection: Connection,
     clock: Arc<Clock>,
 }
 impl Store {
+    /// Classify every retained content payload once, using the same paired cut as bootstrap.
+    pub fn page_storage_bytes(&self, page: &str) -> StoreResult<PageStorageBytes> {
+        bounded_id(page)?;
+        let tx = self.connection.unchecked_transaction()?;
+        let (current_epoch, at): (String, Option<i64>) = tx.query_row(
+            "SELECT epoch,(SELECT at_ms FROM page_auto_cleaned WHERE page=p.page) FROM pages p WHERE page=?1",
+            [page], |r| Ok((r.get(0)?,r.get(1)?)),
+        )?;
+        let streams = {
+            let mut query = tx.prepare("SELECT epoch,stream FROM streams WHERE page=?1")?;
+            let rows = query.query_map([page], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        let mut content = 0i64;
+        let mut history = 0i64;
+        let mut comments = 0i64;
+        let mut has_active_tail = false;
+        for (epoch, stream) in streams {
+            let epoch_number = epoch.parse().map_err(|_| Fault::Invalid)?;
+            let scope = StreamScope {
+                page,
+                epoch: epoch_number,
+                stream: &stream,
+            };
+            let cut = publication::paired(&tx, scope)?.map(sequence);
+            let anchored: bool = if let Some(ref seq) = cut {
+                tx.query_row("SELECT EXISTS(SELECT 1 FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq=?4 AND signer IS NOT NULL AND payload IS NOT NULL)",
+                    params![page,epoch,stream,seq], |r| r.get(0))?
+            } else {
+                false
+            };
+            let active = epoch == current_epoch;
+            if active && publication::has_active_tail(&tx, scope)? {
+                has_active_tail = true;
+            }
+            let (receipt_live, receipt_old, receipt_own): (i64, i64, i64) = tx.query_row(
+                "SELECT
+                 COALESCE(sum(CASE WHEN namespace='content' AND ?4 AND (?5 IS NULL OR seq>?5 OR (seq=?5 AND ?6)) THEN length(payload) ELSE 0 END),0),
+                 COALESCE(sum(CASE WHEN namespace='content' AND NOT (?4 AND (?5 IS NULL OR seq>?5 OR (seq=?5 AND ?6))) THEN length(payload) ELSE 0 END),0),
+                 COALESCE(sum(CASE WHEN namespace='own' THEN length(payload) ELSE 0 END),0)
+                 FROM receipts WHERE page=?1 AND epoch=?2 AND stream=?3",
+                params![page,epoch,stream,active,cut,anchored], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+            )?;
+            let (checkpoint_live, checkpoint_old, checkpoint_own): (i64, i64, i64) = tx.query_row(
+                "SELECT
+                 COALESCE(sum(CASE WHEN namespace='content' AND ?4 AND seq=?5 THEN length(payload) ELSE 0 END),0),
+                 COALESCE(sum(CASE WHEN namespace='content' AND NOT (?4 AND seq IS ?5) THEN length(payload) ELSE 0 END),0),
+                 COALESCE(sum(CASE WHEN namespace='own' THEN length(payload) ELSE 0 END),0)
+                 FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3",
+                params![page,epoch,stream,active,cut], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+            )?;
+            content = content
+                .checked_add(receipt_live)
+                .and_then(|n| n.checked_add(checkpoint_live))
+                .ok_or(Fault::Capacity)?;
+            history = history
+                .checked_add(receipt_old)
+                .and_then(|n| n.checked_add(checkpoint_old))
+                .ok_or(Fault::Capacity)?;
+            comments = comments
+                .checked_add(receipt_own)
+                .and_then(|n| n.checked_add(checkpoint_own))
+                .ok_or(Fault::Capacity)?;
+        }
+        // Baselines use zero-padded epoch keys; page/stream epochs use decimal strings.
+        let baseline_epoch = sequence(current_epoch.parse().map_err(|_| Fault::Invalid)?);
+        let (baseline_current, baseline_old): (i64,i64) = tx.query_row(
+            "SELECT COALESCE(sum(CASE WHEN epoch=?2 THEN length(envelope) ELSE 0 END),0),
+             COALESCE(sum(CASE WHEN epoch<>?2 THEN length(envelope) ELSE 0 END),0) FROM baselines WHERE page=?1",
+            params![page,baseline_epoch], |r| Ok((r.get(0)?,r.get(1)?)),
+        )?;
+        content = content
+            .checked_add(baseline_current)
+            .ok_or(Fault::Capacity)?;
+        history = history.checked_add(baseline_old).ok_or(Fault::Capacity)?;
+        let eligible_history = publication::eligible_history_bytes(&tx, page, None)?;
+        tx.commit()?;
+        Ok(PageStorageBytes {
+            content: u64::try_from(content).map_err(|_| Fault::Invalid)?,
+            history: u64::try_from(history).map_err(|_| Fault::Invalid)?,
+            comments: u64::try_from(comments).map_err(|_| Fault::Invalid)?,
+            eligible_history: eligible_history
+                .min(u64::try_from(history).map_err(|_| Fault::Invalid)?),
+            has_active_tail,
+            last_auto_cleaned_at_ms: at
+                .map(u64::try_from)
+                .transpose()
+                .map_err(|_| Fault::Invalid)?,
+        })
+    }
+
+    /// SQLite free-list capacity, separate from page payload accounting.
+    pub fn free_page_bytes(&self) -> StoreResult<u64> {
+        let pages: i64 = self
+            .connection
+            .pragma_query_value(None, "freelist_count", |r| r.get(0))?;
+        let size: i64 = self
+            .connection
+            .pragma_query_value(None, "page_size", |r| r.get(0))?;
+        let bytes = pages.checked_mul(size).ok_or(Fault::Capacity)?;
+        u64::try_from(bytes).map_err(|_| Fault::Invalid)
+    }
+
+    /// Return SQLite free pages best-effort; an error never undoes an earlier committed prune.
+    pub fn reclaim_free_pages(&mut self) {
+        schema::reclaim(&self.connection);
+    }
+
+    /// Record a completed automatic cleanup, not a scan, manual run, or preview.
+    pub(crate) fn record_auto_cleaned(&mut self, page: &str, at_ms: u64) -> StoreResult<()> {
+        bounded_id(page)?;
+        let at = i64::try_from(at_ms).map_err(|_| Fault::Invalid)?;
+        self.connection.execute(
+            "INSERT INTO page_auto_cleaned(page,at_ms) VALUES(?1,?2)
+             ON CONFLICT(page) DO UPDATE SET at_ms=excluded.at_ms",
+            params![page, at],
+        )?;
+        Ok(())
+    }
+
     pub fn open(layout: &Layout) -> Result<Self> {
         layout.file("space.db")?.sync_all()?;
         std::fs::File::open(&layout.directory)?.sync_all()?;

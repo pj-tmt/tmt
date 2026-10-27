@@ -44,6 +44,8 @@ pub mod settings;
 pub mod shell;
 pub mod short_links;
 pub mod socket;
+pub mod storage;
+pub mod storage_ipc;
 pub mod store;
 pub mod summary;
 pub mod summary_lines;

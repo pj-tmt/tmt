@@ -13,6 +13,7 @@ mod cli_pins;
 mod cli_projects;
 mod cli_proposal;
 mod cli_read;
+mod cli_storage;
 mod cli_template;
 mod cli_threads;
 mod cli_work;
@@ -382,6 +383,7 @@ fn grammar() -> Command {
             .subcommand(cli_threads::command())
             .subcommand(cli_proposal::command())
             .subcommand(cli_attachments::command())
+            .subcommand(cli_storage::command())
             .subcommand(cli_projects::command())
             .subcommands(cli_pins::commands())
             .subcommand(cli_dashboard::command())
@@ -406,6 +408,7 @@ fn grammar() -> Command {
                     )
                     .subcommand(cli_page_check::command())
                     .subcommand(cli_compact::command())
+                    .subcommand(cli_storage::page_command())
                     .subcommand(cli_read::command())
                     .subcommand(
                         tmt_cli_style::command(&WRITE)
@@ -502,6 +505,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     let root = core::data_root(&stop)?;
     if command == "page" {
         return page(&root, args);
+    }
+    if command == "storage" {
+        return cli_storage::run(&root, args);
     }
     if command == "threads" {
         return cli_threads::run(&root, args);
@@ -920,6 +926,9 @@ fn print_receipt(
 fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     use tmt_colab::{decoder::Decoder, page::Fault};
     let (command, args) = args.subcommand().expect("required page command");
+    if command == "reclaim" {
+        return cli_storage::page(root, args);
+    }
     if command == "creator" {
         return cli_metadata::run(root, "creator", args);
     }

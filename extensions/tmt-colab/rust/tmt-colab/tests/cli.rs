@@ -1446,7 +1446,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -6851,7 +6851,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6947,7 +6947,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -9926,6 +9926,7 @@ fn the_skill_and_its_editing_reference_name_only_flags_the_cli_ships() {
         "page lock",
         "page unlock",
         "page compact",
+        "page reclaim",
         "export",
         "page create",
     ]
@@ -12232,4 +12233,228 @@ fn page_compact_history_current_preserves_native_edits() {
     assert!(
         after["usage"]["updates"].as_u64().unwrap() < before["usage"]["updates"].as_u64().unwrap()
     );
+}
+
+#[test]
+fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("storage-source.html");
+    fs::write(&file, "<p>Keep this page</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Storage",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let before = pilot.call(&["page", "read", page, "--json"]);
+    let storage = pilot.call(&["storage", "--json"]);
+    let human = pilot.command().args(["storage"]).output().unwrap();
+    assert!(human.status.success());
+    let human = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        human.contains(&format!("SPACE  {}", storage["space"].as_str().unwrap())),
+        "{human}"
+    );
+    let row = storage["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["pageId"] == page)
+        .unwrap();
+    assert!(row["contentBytes"].as_u64().unwrap() > 0, "{row}");
+    assert!(row["historyBytes"].is_u64(), "{row}");
+    assert!(row["commentsBytes"].is_u64(), "{row}");
+    assert!(
+        row["attachmentsBytes"].is_null(),
+        "unknown object inventory must not become zero: {row}"
+    );
+    assert!(row["unusedAttachmentBytes"].is_null(), "{row}");
+    assert!(row["totalBytes"].is_null(), "{row}");
+    assert!(
+        row["freeable"]["history"].as_u64().unwrap() <= row["historyBytes"].as_u64().unwrap(),
+        "{row}"
+    );
+    let db = pilot.root.join("selected/colab/space.db");
+    let lock = pilot.root.join("selected/colab/serve.lock");
+    if lock.exists() {
+        fs::remove_file(&lock).unwrap();
+    }
+    let persisted = fs::read(&db).unwrap();
+    let preview = pilot.call(&["page", "reclaim", page, "--dry-run", "--json"]);
+    assert!(!lock.exists(), "dry-run created the serve lock");
+    assert_eq!(
+        fs::read(&db).unwrap(),
+        persisted,
+        "dry-run changed the database"
+    );
+    assert_eq!(preview["page"], page);
+    assert_eq!(preview["dryRun"], true);
+    assert!(preview["freeable"]["history"].is_u64(), "{preview}");
+    assert_eq!(preview["freeable"]["files"], 0);
+    let after = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(before["source"], after["source"]);
+    assert_eq!(before["revision"], after["revision"]);
+}
+
+#[test]
+fn storage_reclaim_space_dry_run_reports_pages_without_mutating_them() {
+    let pilot = Pilot::new(None);
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Space preview",
+        "--layout",
+        "column",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let before = pilot.call(&["page", "read", page, "--json"]);
+    let lock = pilot.root.join("selected/colab/serve.lock");
+    if lock.exists() {
+        fs::remove_file(&lock).unwrap();
+    }
+    let report = pilot.call(&["storage", "reclaim", "--dry-run", "--json"]);
+    assert!(!lock.exists(), "dry-run created the serve lock");
+    assert_eq!(report["dryRun"], true, "{report}");
+    assert!(report["freeable"]["history"].is_u64(), "{report}");
+    assert!(
+        report["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["page"] == page)
+    );
+    let after = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(before["source"], after["source"]);
+    assert_eq!(before["revision"], after["revision"]);
+}
+
+#[test]
+fn storage_reclaim_keeps_page_source_and_reports_actual_result_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("reclaim-source.html");
+        fs::write(&source, "<p>First source</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Reclaim",
+            "--layout",
+            "column",
+            "--file",
+            source.to_str().unwrap(),
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        pilot.call(&["share", "history", page, "current", "--json"]);
+        for value in ["Second source", "Final source"] {
+            fs::write(&source, format!("<p>{value}</p>")).unwrap();
+            pilot.patch_call(page, &["--file", source.to_str().unwrap(), "--json"]);
+        }
+        let before = pilot.call(&["page", "read", page, "--json"]);
+        let preview = pilot.call(&["page", "reclaim", page, "--dry-run", "--json"]);
+        assert_eq!(preview["dryRun"], true, "{preview}");
+        assert_eq!(
+            pilot.call(&["page", "read", page, "--json"])["revision"],
+            before["revision"]
+        );
+        let result = pilot.call(&["page", "reclaim", page, "--json"]);
+        assert_eq!(result["dryRun"], false, "{result}");
+        assert!(result["freed"]["history"].is_u64(), "{result}");
+        assert_eq!(result["freed"]["files"], 0);
+        assert!(result["skipped"].is_null(), "{result}");
+        let after = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(after["source"], before["source"]);
+        assert!(
+            after["usage"]["updates"].as_u64().unwrap()
+                < before["usage"]["updates"].as_u64().unwrap()
+        );
+    }
+}
+
+#[test]
+fn storage_reclaim_failure_reports_the_measured_result() {
+    let pilot = Pilot::new(None);
+    let source = pilot.root.join("failed-reclaim.html");
+    fs::write(&source, "<p>Original</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Failed reclaim",
+        "--layout",
+        "column",
+        "--file",
+        source.to_str().unwrap(),
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    pilot.call(&["share", "history", page, "current", "--json"]);
+    fs::write(&source, "<p>Changed</p>").unwrap();
+    pilot.patch_call(page, &["--file", source.to_str().unwrap(), "--json"]);
+    let before = pilot.call(&["page", "read", page, "--json"]);
+    let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_checkpoint BEFORE INSERT ON checkpoints BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "reclaim", page, "--json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["error"]["code"], "COLAB_UNAVAILABLE");
+    assert_eq!(result["page"], page);
+    assert_eq!(result["freed"]["history"], 0);
+    let batch = pilot
+        .command()
+        .args(["storage", "reclaim", "--json"])
+        .output()
+        .unwrap();
+    assert!(!batch.status.success(), "{batch:?}");
+    let batch: Value = serde_json::from_slice(&batch.stdout).unwrap();
+    assert_eq!(batch["error"]["code"], "COLAB_UNAVAILABLE");
+    assert_eq!(batch["freed"]["history"], 0);
+    assert_eq!(batch["pages"][0]["page"], page);
+    assert_eq!(batch["pages"][0]["error"]["code"], "COLAB_UNAVAILABLE");
+    let after = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(before["source"], after["source"]);
+}
+
+#[test]
+fn storage_reclaim_skips_shared_history_and_keeps_page_revision() {
+    let pilot = Pilot::new(None);
+    let source = pilot.root.join("shared-history.html");
+    fs::write(&source, "<p>Original</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Shared history",
+        "--layout",
+        "column",
+        "--file",
+        source.to_str().unwrap(),
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    fs::write(&source, "<p>New content</p>").unwrap();
+    pilot.patch_call(page, &["--file", source.to_str().unwrap(), "--json"]);
+    let before = pilot.call(&["page", "read", page, "--json"]);
+    let reclaimed = pilot.call(&["page", "reclaim", page, "--json"]);
+    assert_eq!(reclaimed["skipped"], "shared-history", "{reclaimed}");
+    assert_eq!(reclaimed["freed"]["history"], 0);
+    let after = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(before["source"], after["source"]);
+    assert_eq!(before["revision"], after["revision"]);
 }

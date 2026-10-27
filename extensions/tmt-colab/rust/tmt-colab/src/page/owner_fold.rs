@@ -103,20 +103,16 @@ fn stopped(mut folds: Folds, to_do: usize) -> Folds {
     folds
 }
 
-/// Fold the streams of other devices of `page` that this machine's local writer may combine, one
-/// bounded step. Nothing is written unless the folded page equals the page as it is.
-pub fn fold_others(
-    store: &mut Store,
+/// Apply the same read-only candidate and signed-fold admission used by compaction.
+fn admitted_candidates(
+    store: &Store,
     key: &Keyring,
     page: &str,
-    decoder: &mut Decoder,
-    trigger: Trigger,
-) -> Result<Folds> {
-    let mut s = snapshot(store, key, page, true)?;
-    let (signer, ..) = key.local_writer()?;
+    s: &mut crate::fold::Snapshot,
+    signer: &str,
+) -> Result<(Vec<Candidate>, Folds)> {
     let revision = s.authority.head.revision;
     let mut folds = Folds::default();
-
     // The streams with a tail to combine, and the namespaces still behind each one's head.
     let mut heads: BTreeMap<&str, (u64, [u8; 32])> = BTreeMap::new();
     for cut in s.cuts.iter().filter(|cut| cut.stream != signer) {
@@ -175,10 +171,6 @@ pub fn fold_others(
             anchor: anchor.bytes,
         });
     }
-    if candidates.is_empty() {
-        return Ok(folds);
-    }
-
     let mut eligible = Vec::new();
     for candidate in candidates {
         // The fold must verify as the readers will check it: seal an empty one for this stream and
@@ -187,7 +179,7 @@ pub fn fold_others(
         let mut why = None;
         for (name, ..) in &candidate.namespaces {
             let probe = key.seal_fold(
-                &context(key, page, s.epoch, revision, &signer, &candidate, name),
+                &context(key, page, s.epoch, revision, signer, &candidate, name),
                 &candidate.stream,
                 &s.secret,
                 &[],
@@ -220,6 +212,40 @@ pub fn fold_others(
             None => eligible.push(candidate),
         }
     }
+
+    Ok((eligible, folds))
+}
+
+/// Streams whose existing prune candidates a manual compact is allowed to reach.
+pub(crate) fn eligible_streams(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+) -> Result<std::collections::BTreeSet<String>> {
+    let mut s = snapshot(store, key, page, true)?;
+    let (signer, ..) = key.local_writer()?;
+    let (eligible, _) = admitted_candidates(store, key, page, &mut s, &signer)?;
+    let mut streams = eligible
+        .into_iter()
+        .map(|candidate| candidate.stream)
+        .collect::<std::collections::BTreeSet<_>>();
+    streams.insert(signer);
+    Ok(streams)
+}
+
+/// Fold the streams of other devices of `page` that this machine's local writer may combine, one
+/// bounded step. Nothing is written unless the folded page equals the page as it is.
+pub fn fold_others(
+    store: &mut Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+    trigger: Trigger,
+) -> Result<Folds> {
+    let mut s = snapshot(store, key, page, true)?;
+    let (signer, ..) = key.local_writer()?;
+    let revision = s.authority.head.revision;
+    let (eligible, mut folds) = admitted_candidates(store, key, page, &mut s, &signer)?;
 
     // Merge, within the step's bounds.
     struct Pending {

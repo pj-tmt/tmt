@@ -163,6 +163,12 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE edit_decisions ADD COLUMN result TEXT;
     "#,
+    // Schema 20: local evidence of a successful automatic page cleanup; never synced.
+    r#"
+    CREATE TABLE page_auto_cleaned(page TEXT PRIMARY KEY, at_ms INTEGER NOT NULL
+        CHECK(typeof(at_ms)='integer' AND at_ms>=0 AND at_ms<=9007199254740991),
+        FOREIGN KEY(page) REFERENCES pages(page) ON DELETE CASCADE) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// How many pre-update copies stay: the one just taken and the newest other by the schema it was

@@ -114,6 +114,19 @@ impl ChannelOwner {
         Ok(unfinished)
     }
 
+    /// Read this page's namespace allocation without making it a reclaim dependency.
+    pub(crate) fn storage_usage(
+        &self,
+        page: &str,
+        source: &SourceOpener,
+        deadline: Instant,
+    ) -> attachments::UsageDetails {
+        match self.client() {
+            Some(client) => client.usage_details(page, source, deadline),
+            None => attachments::UsageDetails::Unknown,
+        }
+    }
+
     pub(crate) fn remove_page_namespace(
         &self,
         page: &str,
