@@ -449,11 +449,14 @@ smaller. The Sender distinguishes fresh-write refusals from original-request rec
 missing/invalid owner answers unconfirmed. Core preparation, receipts and replay ownership do not move.
 The [contract activation section](../../../../contracts/remote-channel-v1.md#public-native-agent-activation)
 owns the handoff and uncertainty boundary.
-Agent `check` reuses that UUID-pinned query after resolving the admitted UUID's name.
-Both queries and `check --capture-only --json` share one deadline; `--` keeps the frozen
-name literal. Expected-name refusal prevents capture and capture-only prevents Digest
-input. The later query-to-capture window remains until Core #5154 and Remote #5254;
-there is no before/after observation or retry that claims to close it.
+Agent `check` sends the admitted canonical UUID directly to Core's public
+`check --capture-only --json [--lines N] -- <uuid>` in one bounded subprocess.
+Core selects its recorded binding without name resolution; unknown or retired UUIDs
+refuse before capture, even if another live identity has that UUID as its name.
+`NAME_NOT_FOUND` maps to `REMOTE_AGENT_NOT_FOUND`; `IDENTITY_CHANGED` maps to
+`REMOTE_AGENT_STALE`. The single deadline, cancellation/output bounds and capture-only
+Digest fence remain; there is no name-capture fallback or retry. The generated CLI
+floor pins the published UUID-capture support through Remote's `requiresCliSha`.
 No enrolled peer means no provider poll. Legacy reciprocal discovery keeps one negative timestamp
 per project/peer in existing `cloud_transport` checkpoint storage. A missing machine row is read
 at most once per `limits::CLOUD_PEER_DISCOVERY_RETRY_MS` (24 hours), including after reopen; a later

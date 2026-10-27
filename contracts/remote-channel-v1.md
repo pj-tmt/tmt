@@ -1564,14 +1564,17 @@ the [public dispatch readiness and input-safety contract](extension-api.md#dispa
 owns the shipped guarantees and limits. Diagnostic `check` capture and presence never prove
 safe input.
 
-For `check`, Remote resolves the admitted agent UUID with public `identity show`, freezes
-its current name, and verifies it with `identity show --expect-name=<name> -- <uuid>`
-before the capture-only call. A changed name refuses with `REMOTE_AGENT_STALE` before
-capture; missing UUIDs return `REMOTE_AGENT_NOT_FOUND`. Resolution, the pinned query
-and capture share one Core-call deadline. Capture uses the frozen name and never
-flushes Digest input. A later rename or name reassignment can still race the
-name-addressed capture: atomic UUID + expected-name capture depends on Core #5154,
-with Remote adoption tracked in #5254.
+For `check`, Remote passes the admitted canonical agent UUID directly to
+`tmt check --capture-only --json [--lines N] -- <uuid>` in one bounded Core call.
+Core selects that UUID's recorded binding without a name lookup or fallback to a
+UUID-shaped display name. An unknown or retired UUID refuses before capture;
+`NAME_NOT_FOUND` maps to `REMOTE_AGENT_NOT_FOUND`, and `IDENTITY_CHANGED` maps to
+`REMOTE_AGENT_STALE`. Names grant no authority: renaming the same UUID does not
+redirect the capture to a same-name successor. The call retains the Core-call
+deadline, cancellation and output limits; it never flushes Digest input or retries
+capture. Remote's generated minimum-CLI declaration requires the published Core
+support for UUID-only capture. Remote provides no compatibility fallback for an
+unsupported Core.
 
 Optional `runningDriver` uses Core's [List runtime driver](identity-status-v1.md#list-runtime-driver)
 provenance. Remote forwards only nonempty strings of at most 32 bytes in `[a-z0-9-]`; otherwise

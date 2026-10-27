@@ -377,95 +377,85 @@ fn check_pins_permitted_uuid_and_preserves_capture() {
         ("Renamed", Some(10)),
         ("--json", Some(0)),
     ] {
-        let identity = json!({"identity":{"id":id,"name":name,"presence":"offline"}});
-        let capture = json!({"target":name,"pane":"%9","lines":lines.unwrap_or(20),"output":"actual capture\n","identity":{"name":name,"canonicalName":name.to_lowercase()}});
+        let capture = json!({"target":id,"pane":"%9","lines":lines.unwrap_or(20),"output":"actual capture\n","identity":{"name":name,"canonicalName":name.to_lowercase()}});
         let fixture = Fixture::new(&format!(
-            "printf '%s\\n' \"$*\" >> calls; cat > input; case \"$1\" in identity) printf '%s' '{identity}';; check) printf '%s' '{capture}';; *) exit 9;; esac"
+            "printf '%s\\n' \"$@\" > argv; cat > input; case \"$1\" in check) printf '%s' '{capture}';; *) exit 9;; esac"
         ));
         assert_eq!(fixture.client().check(id, lines, &stop).unwrap(), capture);
-        let count = lines.map(|n| format!(" --lines {n}")).unwrap_or_default();
+        let count = lines.map(|n| format!("--lines\n{n}\n")).unwrap_or_default();
         assert_eq!(
-            fs::read_to_string(fixture.0.join("calls")).unwrap(),
-            format!(
-                "identity show --json -- {id}\nidentity show --json --expect-name={name} -- {id}\ncheck --capture-only --json{count} -- {name}\n"
-            )
+            fs::read_to_string(fixture.0.join("argv")).unwrap(),
+            format!("check\n--capture-only\n--json\n{count}--\n{id}\n")
         );
         assert!(fs::read(fixture.0.join("input")).unwrap().is_empty());
     }
 }
 
-#[test]
-fn check_never_captures_missing_retired_or_invalid_uuid_evidence() {
+fn assert_atomic_check_refusal(core_code: &str, exit: u8, remote_code: &str) {
     let id = "11111111-1111-4111-8111-111111111111";
-    for (answer, exit, code) in [
-        (
-            json!({"error":{"code":"NAME_NOT_FOUND","message":"absent"}}),
-            3,
-            "REMOTE_AGENT_NOT_FOUND",
-        ),
-        (
-            json!({"error":{"code":"NAME_AMBIGUOUS","message":"ambiguous"}}),
-            5,
-            "NAME_AMBIGUOUS",
-        ),
-        (
-            json!({"identity":{"id":id,"name":"Current","retired":true}}),
-            0,
-            "REMOTE_CORE_UNAVAILABLE",
-        ),
-        (
-            json!({"identity":{"id":"22222222-2222-4222-8222-222222222222","name":"Current"}}),
-            0,
-            "REMOTE_CORE_UNAVAILABLE",
-        ),
-        (
-            json!({"identity":{"id":id,"name":""}}),
-            0,
-            "REMOTE_CORE_UNAVAILABLE",
-        ),
-        (
-            json!({"identity":{"id":id,"name":"bad\nname"}}),
-            0,
-            "REMOTE_CORE_UNAVAILABLE",
-        ),
-        (json!({"identities":[]}), 0, "REMOTE_CORE_UNAVAILABLE"),
-    ] {
-        let fixture = Fixture::new(&format!(
-            "printf '%s\\n' \"$*\" >> calls; cat > input; if [ \"$1\" = check ]; then touch captured; fi; printf '%s' '{answer}'; exit {exit}"
-        ));
-        assert_eq!(
-            fixture
-                .client()
-                .check(id, None, &AtomicBool::new(false))
-                .unwrap_err()
-                .code,
-            code
-        );
-        assert_eq!(
-            fs::read_to_string(fixture.0.join("calls")).unwrap(),
-            format!("identity show --json -- {id}\n")
-        );
-        assert!(!fixture.0.join("captured").exists());
-    }
+    let answer = json!({"error":{"code":core_code,"message":"Capture refused."}});
+    let fixture = Fixture::new(&format!(
+        "printf '%s\\n' \"$*\" >> calls; cat > input; if [ \"$*\" != 'check --capture-only --json -- {id}' ]; then touch captured; fi; printf '%s' '{answer}'; exit {exit}"
+    ));
+    assert_eq!(
+        fixture
+            .client()
+            .check(id, None, &AtomicBool::new(false))
+            .unwrap_err()
+            .code,
+        remote_code
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("calls")).unwrap(),
+        format!("check --capture-only --json -- {id}\n")
+    );
+    assert!(!fixture.0.join("captured").exists());
 }
 
 #[test]
-fn check_refuses_invalid_pinned_evidence_before_capture() {
-    let id = "11111111-1111-4111-8111-111111111111";
-    let initial = json!({"identity":{"id":id,"name":"Current"}});
-    for pinned in [
-        json!({"identity":{"id":id,"name":"Current"}}),
-        json!({"identity":{"id":id,"name":"Current","presence":"invented"}}),
-        json!({"identity":{"id":id,"name":"Current","presence":"offline","retired":true}}),
-        json!({"identity":{"id":"22222222-2222-4222-8222-222222222222","name":"Current","presence":"active"}}),
+fn check_unknown_uuid_returns_not_found_without_name_lookup_or_capture() {
+    assert_atomic_check_refusal("NAME_NOT_FOUND", 3, "REMOTE_AGENT_NOT_FOUND");
+}
+
+#[test]
+fn check_retired_uuid_returns_not_found_without_name_lookup_or_capture() {
+    // Core's UUID-only retired-identity refusal is NAME_NOT_FOUND, even if a live
+    // identity has that UUID as its name; Core's external-host test owns that fence.
+    assert_atomic_check_refusal("NAME_NOT_FOUND", 3, "REMOTE_AGENT_NOT_FOUND");
+}
+
+#[test]
+fn check_maps_changed_identity_and_preserves_other_core_errors() {
+    assert_atomic_check_refusal("IDENTITY_CHANGED", 5, "REMOTE_AGENT_STALE");
+    assert_atomic_check_refusal("RECONCILIATION_FAILED", 1, "RECONCILIATION_FAILED");
+    let fixture = Fixture::new("printf 'not-json'");
+    assert_eq!(
+        fixture
+            .client()
+            .check(
+                "11111111-1111-4111-8111-111111111111",
+                None,
+                &AtomicBool::new(false)
+            )
+            .unwrap_err()
+            .code,
+        "REMOTE_CORE_UNAVAILABLE"
+    );
+}
+
+#[test]
+fn check_rejects_non_uuid_selectors_without_invoking_core() {
+    for selector in [
+        "Current",
+        "--json",
+        "11111111-1111-4111-8111-11111111111G",
+        "%9",
     ] {
-        let fixture = Fixture::new(&format!(
-            "cat > input; case \"$1\" in check) touch captured;; esac; case \"$*\" in *--expect-name=*) printf '%s' '{pinned}';; *) printf '%s' '{initial}';; esac"
-        ));
+        let fixture = Fixture::new("touch captured; printf '{}'");
         assert_eq!(
             fixture
                 .client()
-                .check(id, None, &AtomicBool::new(false))
+                .check(selector, None, &AtomicBool::new(false))
                 .unwrap_err()
                 .code,
             "REMOTE_CORE_UNAVAILABLE"
@@ -475,12 +465,9 @@ fn check_refuses_invalid_pinned_evidence_before_capture() {
 }
 
 #[test]
-fn check_shares_one_deadline_and_cancellation_across_queries_and_capture() {
+fn check_obeys_one_deadline_and_cancellation_without_another_call() {
     let id = "11111111-1111-4111-8111-111111111111";
-    let initial = json!({"identity":{"id":id,"name":"Current"}});
-    let fixture = Fixture::new(&format!(
-        "case \"$1\" in check) touch captured;; esac; case \"$*\" in *--expect-name=*) touch pinned; exec /bin/sleep 10;; esac; printf '%s' '{initial}'"
-    ));
+    let fixture = Fixture::new("printf '%s\\n' \"$*\" >> calls; touch started; exec /bin/sleep 10");
     let began = Instant::now();
     assert!(
         fixture
@@ -494,15 +481,23 @@ fn check_shares_one_deadline_and_cancellation_across_queries_and_capture() {
             .is_err()
     );
     assert!(began.elapsed() < Duration::from_secs(3));
-    assert!(fixture.0.join("pinned").exists());
-    assert!(!fixture.0.join("captured").exists());
+    assert!(fixture.0.join("started").exists());
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("calls")).unwrap(),
+        format!("check --capture-only --json -- {id}\n")
+    );
+    fs::remove_file(fixture.0.join("started")).unwrap();
     assert!(
         fixture
             .client()
             .check(id, None, &AtomicBool::new(true))
             .is_err()
     );
-    assert!(!fixture.0.join("captured").exists());
+    assert!(!fixture.0.join("started").exists());
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("calls")).unwrap(),
+        format!("check --capture-only --json -- {id}\n")
+    );
 }
 
 #[test]
@@ -631,20 +626,4 @@ fn cloud_identity_show_pins_public_argv_and_maps_core_refusals() {
             "REMOTE_CORE_UNAVAILABLE"
         );
     }
-}
-
-#[test]
-fn check_refuses_a_name_change_at_the_pinned_query_without_capturing() {
-    let id = "11111111-1111-4111-8111-111111111111";
-    let identity = json!({"id":id,"name":"Current","presence":"active","retired":false});
-    let directory = json!({"identities":[{"id":id,"name":"Current","canonicalName":"current"}]});
-    let fixture = Fixture::new(&format!(
-        "printf '%s\\n' \"$*\" >> calls; cat > input; case \"$1:$2\" in identity:list) printf '%s' '{directory}';; identity:show) case \"$*\" in *--expect-name=*) printf '%s' '{{\"error\":{{\"code\":\"IDENTITY_CHANGED\",\"message\":\"renamed before pin\"}}}}'; exit 5;; *) printf '%s' '{{\"identity\":{identity}}}';; esac;; check:*) touch captured; printf '%s' '{{\"output\":\"wrong recipient capture\"}}';; *) exit 9;; esac"
-    ));
-    let result = fixture.client().check(id, None, &AtomicBool::new(false));
-    assert!(
-        !fixture.0.join("captured").exists(),
-        "a changed UUID/name must refuse before capture"
-    );
-    assert_eq!(result.unwrap_err().code, "REMOTE_AGENT_STALE");
 }
