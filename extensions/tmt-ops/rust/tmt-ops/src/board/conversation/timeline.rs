@@ -42,6 +42,8 @@ struct Paint<'a> {
     notes: note_source::Map,
     bodies: Vec<BodySpan>,
     inputs: Vec<String>,
+    /// Ids of the committed entries painted, whatever their kind.
+    entries: Vec<String>,
     feedback: Vec<(Range<usize>, u64)>,
     pane_start: Option<usize>,
     next_mention: usize,
@@ -60,6 +62,7 @@ impl<'a> Paint<'a> {
             notes: Default::default(),
             bodies: Vec::new(),
             inputs: Vec::new(),
+            entries: Vec::new(),
             feedback: Vec::new(),
             pane_start: None,
             next_mention: 0,
@@ -216,6 +219,7 @@ impl<'a> Paint<'a> {
             anchor_text: self.anchors.join("\n"),
             timeline_spans: self.bodies,
             timeline_inputs: self.inputs,
+            timeline_entries: self.entries,
             feedback: self.feedback,
             copy: self.copy,
             note_sources: self.notes,
@@ -359,6 +363,13 @@ impl Session {
                 paint.notice(caption);
             }
         }
+        // Only an own input after everything the frame already painted can be the
+        // optimistic body's twin; an older page brings historical inputs before it.
+        let last_painted = self.rendered.as_ref().and_then(|frame| {
+            page.entries
+                .iter()
+                .rposition(|entry| frame.timeline_entries.contains(&entry.id))
+        });
         let mut inputs: &[model::Entry] = &[];
         let mut painted_inputs = HashSet::new();
         let blocks = committed::blocks(&page.entries);
@@ -393,7 +404,9 @@ impl Session {
                             || self.rendered.as_ref().is_some_and(|frame| {
                                 frame.timeline_inputs.contains(&input.request)
                             });
-                        if own && pending && !known {
+                        let trailing =
+                            last_painted.is_none_or(|last| range.start + input_index > last);
+                        if own && pending && !known && trailing {
                             if !local_pending_painted {
                                 for send in self.outgoing.iter().filter(|send| send.pending()) {
                                     self.timeline_local(&mut paint, send);
@@ -404,6 +417,7 @@ impl Session {
                         }
                         painted_inputs.insert(input.request.as_str());
                         paint.inputs.push(input.request.clone());
+                        paint.entries.push(entry.id.clone());
                         let sender = if own {
                             context.reader.clone()
                         } else {
@@ -490,6 +504,7 @@ impl Session {
                 }
                 committed::Block::Final(index) | committed::Block::Reply(index) => {
                     let entry = &page.entries[*index];
+                    paint.entries.push(entry.id.clone());
                     let attributed =
                         attribution(entry, inputs, context.viewer.as_deref(), inventory);
                     let muted = attributed.is_some();
@@ -601,7 +616,8 @@ impl Session {
                         paint.caption("○ reply text unavailable");
                     }
                 }
-                committed::Block::Failure(_) => {
+                committed::Block::Failure(index) => {
+                    paint.entries.push(page.entries[*index].id.clone());
                     paint.caption("✗ reply not captured · see the agent's pane")
                 }
             }

@@ -408,6 +408,66 @@ fn a_slow_receipt_keeps_one_local_input_without_holding_other_inputs_or_replies(
     });
 }
 
+const SLOW: &str = "The slow local message";
+
+/// Draws `incident()`, starts a send whose receipt never comes, admits `document` and
+/// returns the screen.
+fn admitted_during_a_slow_send(document: Value) -> String {
+    let mut screen = String::new();
+    crate::status::with_now_ms(NOW, || {
+        let mut app = setup(incident(), false);
+        draw(&app, 160);
+        app.perform(&crate::action::Action::parse("talk").unwrap());
+        app.paste(SLOW);
+        let Effect::Act(_) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) else {
+            panic!("send")
+        };
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        draw(&app, 160);
+        app.conversation.borrow_mut().refresh_pane_output();
+        let read = app.pane_output_plan().unwrap();
+        let timeline = model::parse(MEMBER, &document).unwrap();
+        app.apply_answer_read(
+            &read,
+            Observation::Observed(Arc::new(Page {
+                timeline: Some(timeline),
+                ..Default::default()
+            })),
+        );
+        screen = draw(&app, 160);
+    });
+    screen
+}
+
+#[test]
+fn an_older_page_during_a_slow_send_keeps_its_own_inputs_painted_once() {
+    const OLDER: &str = "An older own message";
+    const BETWEEN: &str = "An own input between a painted input and a painted reply";
+    let mut older = incident();
+    older["entries"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, input("older-own", VIEWER, "Ben", OLDER));
+    let screen = admitted_during_a_slow_send(older);
+    assert_eq!(screen.matches(OLDER).count(), 1, "{screen}");
+    assert_eq!(screen.matches(SLOW).count(), 1, "{screen}");
+    assert_eq!(screen.matches(QUESTION).count(), 1, "{screen}");
+    assert!(
+        screen.find(OLDER).unwrap() < screen.find(QUESTION).unwrap()
+            && screen.find(QUESTION).unwrap() < screen.find(SLOW).unwrap(),
+        "{screen}"
+    );
+
+    let mut between = incident();
+    between["entries"]
+        .as_array_mut()
+        .unwrap()
+        .insert(1, input("between-own", VIEWER, "Ben", BETWEEN));
+    let screen = admitted_during_a_slow_send(between);
+    assert_eq!(screen.matches(BETWEEN).count(), 1, "{screen}");
+    assert_eq!(screen.matches(SLOW).count(), 1, "{screen}");
+}
+
 #[test]
 fn unlinked_retained_history_is_not_erased_when_the_timeline_is_admitted() {
     crate::status::with_now_ms(NOW, || {

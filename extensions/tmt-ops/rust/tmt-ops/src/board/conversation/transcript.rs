@@ -380,6 +380,7 @@ pub(super) struct RenderedTranscript {
     pub anchor_text: String,
     pub timeline_spans: Vec<super::timeline::BodySpan>,
     pub timeline_inputs: Vec<String>,
+    pub timeline_entries: Vec<String>,
     pub feedback: Vec<(std::ops::Range<usize>, u64)>,
     pub copy: super::copy::Map,
     pub note_sources: super::note_source::Map,
