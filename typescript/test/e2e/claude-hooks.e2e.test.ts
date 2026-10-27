@@ -177,6 +177,8 @@ describe(
             const command = [
               'env',
               `TMT_HOME=${fixture.globalDir}`,
+              // Step timing of every pane, for a failure message (#5354).
+              `TMT_TEST_HOOK_TRACE=${file('trace.jsonl')}`,
               '/opt/tmt-tests/claude',
               ...(inner === undefined
                 ? main
@@ -207,13 +209,14 @@ describe(
                   observed_provider_session_id: string | null;
                   provider_session_id: string | null;
                   remembered_harness: string | null;
+                  runtime_start_refusal: string | null;
                 }
               | undefined;
             try {
               row = database
                 .prepare(
                   `SELECT b.runtime_state, b.runtime_pid, b.observed_provider_session_id,
-                          p.provider_session_id, p.remembered_harness
+                          p.provider_session_id, p.remembered_harness, b.runtime_start_refusal
                    FROM bindings b LEFT JOIN identity_session_preferences p
                      ON p.identity_id = b.identity_id
                    WHERE b.identity_id = ?`
@@ -223,7 +226,15 @@ describe(
               database.close();
             }
             if (inner === undefined) {
-              expect(results[1].stderr, name).toBe('');
+              // An unmanaged pane keeps no session-learning diagnostic: the
+              // stored refusal and the panes' step timing say why a start failed.
+              const traces = Object.fromEntries(
+                cases.map((item) => {
+                  const trace = path.join(fixture.root, `${item.name}-trace.jsonl`);
+                  return [item.name, fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8') : null];
+                })
+              );
+              expect(results[1].stderr, `${name}: ${JSON.stringify({ row, traces })}`).toBe('');
               expect(
                 JSON.parse(results[1].stdout).hookSpecificOutput.additionalContext,
                 name

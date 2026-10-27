@@ -112,7 +112,7 @@ pub(crate) fn movable_process(
     .ok()?;
     let text = std::str::from_utf8(&snapshot.stdout).ok()?;
     let parsed = rows(text)?;
-    if Path::new(parsed.get(&recorded.pid())?.1).file_name()
+    if Path::new(row(&parsed, recorded.pid())?.1).file_name()
         != Some(std::ffi::OsStr::new(executable))
     {
         return None;
@@ -161,7 +161,7 @@ fn placement(text: &str, recorded: u64, pane: u64) -> RecordedRuntime {
     let Some(rows) = rows(text) else {
         return RecordedRuntime::Unknown;
     };
-    if !rows.contains_key(&recorded) {
+    if row(&rows, recorded).is_none() {
         return RecordedRuntime::Unknown;
     }
     // The pane process itself may be the provider after a shell exec.
@@ -175,7 +175,7 @@ fn placement(text: &str, recorded: u64, pane: u64) -> RecordedRuntime {
         if !seen.insert(pid) {
             return RecordedRuntime::Unknown;
         }
-        let Some((parent, command)) = rows.get(&pid) else {
+        let Some((parent, command)) = row(&rows, pid) else {
             return RecordedRuntime::Unknown;
         };
         if pid == pane {
@@ -189,10 +189,10 @@ fn placement(text: &str, recorded: u64, pane: u64) -> RecordedRuntime {
         if pid == 1 {
             return RecordedRuntime::ProvenNonMain;
         }
-        if *parent == 0 {
+        if parent == 0 {
             return RecordedRuntime::Unknown;
         }
-        pid = *parent;
+        pid = parent;
     }
     RecordedRuntime::Unknown
 }
@@ -210,24 +210,30 @@ fn ancestor(text: &str, caller: u64, pane: u64, executable: &str) -> Option<u64>
     named_ancestor(text, caller, pane, executable, false)
 }
 
-/// One `pid=,ppid=,comm=` row per PID; a malformed line or a repeated PID
-/// makes the whole snapshot unusable.
-fn rows(text: &str) -> Option<HashMap<u64, (u64, &str)>> {
+/// One `pid=,ppid=,comm=` row per PID. A line that does not start with a PID
+/// makes the whole snapshot unusable. A PID whose row is malformed or repeated
+/// has no usable row (`None`): a walk that reaches it proves nothing, and a walk
+/// that does not is unaffected by it, since other processes start and exit
+/// while ps reads the table (#5354).
+fn rows(text: &str) -> Option<HashMap<u64, Option<(u64, &str)>>> {
     let mut rows = HashMap::new();
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let (pid, tail) = line.trim().split_once(char::is_whitespace)?;
-        let (parent, command) = tail.trim_start().split_once(char::is_whitespace)?;
-        if rows
-            .insert(
-                pid.parse::<u64>().ok()?,
-                (parent.parse::<u64>().ok()?, command.trim()),
-            )
-            .is_some()
-        {
-            return None;
-        }
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let (pid, tail) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+        let pid = pid.parse::<u64>().ok()?;
+        let row = tail
+            .trim_start()
+            .split_once(char::is_whitespace)
+            .and_then(|(parent, command)| Some((parent.parse::<u64>().ok()?, command.trim())));
+        rows.entry(pid)
+            .and_modify(|repeated| *repeated = None)
+            .or_insert(row);
     }
     Some(rows)
+}
+
+/// The PID's one well-formed row, if it has one.
+fn row<'a>(rows: &HashMap<u64, Option<(u64, &'a str)>>, pid: u64) -> Option<(u64, &'a str)> {
+    rows.get(&pid).copied().flatten()
 }
 
 fn named_ancestor(
@@ -245,7 +251,7 @@ fn named_ancestor(
         if !seen.insert(pid) {
             return None;
         }
-        let (parent, command) = rows.get(&pid)?;
+        let (parent, command) = row(&rows, pid)?;
         if (include_caller || pid != caller)
             && Path::new(command)
                 .file_name()
@@ -257,10 +263,10 @@ fn named_ancestor(
         if pid == pane {
             return runtime;
         }
-        if *parent <= 1 {
+        if parent <= 1 {
             return None;
         }
-        pid = *parent;
+        pid = parent;
     }
     None
 }
@@ -406,11 +412,20 @@ mod tests {
         );
         assert_eq!(placement("30 40 claude\n40 30 claude\n", 40, 10), Unknown);
         assert_eq!(placement("30 40 sh\n40 30 claude\n", 40, 10), Unknown);
-        for malformed in ["x 1 sh\n", "50 y sh\n", "50\n", "40 1 claude\n"] {
+        // A line that is not a PID row, or a second row for a walked PID.
+        for malformed in ["x 1 sh\n", "40 1 claude\n"] {
             assert_eq!(
                 placement(&format!("{DAEMON}{malformed}"), 40, 10),
                 Unknown,
                 "{malformed}"
+            );
+        }
+        // A bad row of a process off the walk changes nothing (#5354).
+        for unrelated in ["50 y sh\n", "50\n"] {
+            assert_eq!(
+                placement(&format!("{DAEMON}{unrelated}"), 40, 10),
+                ProvenNonMain,
+                "{unrelated}"
             );
         }
     }
@@ -495,6 +510,91 @@ mod tests {
             Unknown
         );
         assert!(runner.calls.borrow().is_empty());
+    }
+
+    /// Pane 10, its main provider 20, the hook 30 and its worker 40.
+    const HOOK: &str = "1 0 init\n10 1 sh\n20 10 claude\n30 20 tmt\n40 30 tmt\n";
+
+    fn answers(outputs: &[&str]) -> crate::scripted_runner::ScriptedRunner {
+        let runner = crate::scripted_runner::ScriptedRunner::default();
+        for output in outputs {
+            runner.push_output(output.as_bytes().to_vec(), Vec::new());
+        }
+        runner
+    }
+
+    #[test]
+    fn a_bad_row_of_a_process_off_the_walk_leaves_the_main_provider_found() {
+        // Other processes start and exit while ps reads the table (#5354).
+        for unrelated in [
+            "90 1\n",
+            "90 x sh\n",
+            "91 1 sh\n91 1 sh\n",
+            "92 1 claude\n92 10 sh\n",
+        ] {
+            let text = format!("{HOOK}{unrelated}");
+            assert_eq!(
+                main_ancestor(&text, 40, 10, "claude"),
+                Some(20),
+                "{unrelated:?}"
+            );
+            assert_eq!(placement(&text, 20, 10), Main, "{unrelated:?}");
+            assert_eq!(
+                observe_main_in_pane(&answers(&[&text, LIVE]), 40, 10, soon(), "claude"),
+                Some(recorded(20)),
+                "{unrelated:?}"
+            );
+            assert_eq!(
+                movable_process(
+                    &answers(&[&text, LIVE]),
+                    &recorded(20),
+                    10,
+                    soon(),
+                    "claude"
+                ),
+                Some(recorded(20)),
+                "{unrelated:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bad_or_missing_row_on_the_walk_still_proves_nothing() {
+        let row = |pid: u64| {
+            HOOK.lines()
+                .find(|line| line.starts_with(&format!("{pid} ")))
+                .unwrap()
+                .to_owned()
+        };
+        // The worker, the hook, the provider and the pane are each on the walk.
+        for pid in [40, 30, 20, 10] {
+            let line = row(pid);
+            for text in [
+                HOOK.replace(&format!("{line}\n"), ""),
+                HOOK.replace(&line, &format!("{pid} 1")),
+                HOOK.replace(&line, &format!("{pid} x claude")),
+                format!("{HOOK}{line}\n"),
+            ] {
+                assert_eq!(main_ancestor(&text, 40, 10, "claude"), None, "{text:?}");
+                assert_eq!(
+                    observe_main_in_pane(&answers(&[&text]), 40, 10, soon(), "claude"),
+                    None,
+                    "{text:?}"
+                );
+                if pid <= 20 {
+                    assert_eq!(placement(&text, 20, 10), Unknown, "{text:?}");
+                    assert_eq!(
+                        movable_process(&answers(&[&text]), &recorded(20), 10, soon(), "claude"),
+                        None,
+                        "{text:?}"
+                    );
+                }
+            }
+        }
+        // A line that is not a PID row cannot be placed, so no row is trusted.
+        let text = format!("{HOOK}x 1 sh\n");
+        assert_eq!(main_ancestor(&text, 40, 10, "claude"), None);
+        assert_eq!(placement(&text, 20, 10), Unknown);
     }
 
     #[test]
