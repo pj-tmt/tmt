@@ -154,7 +154,7 @@ impl StoreConfirmation {
             // Another presenter already committed this offer. A newly adopted
             // browser operation cannot claim that earlier confirmation as its effect.
             if browser_operation.is_some() {
-                return Err(conflict());
+                return Err(super::service::already_decided());
             }
             return Ok(record.original);
         }

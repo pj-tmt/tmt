@@ -2721,8 +2721,12 @@ its public invitation outcome in the same transaction as the invitation confirma
 record, member and grant. The management result contains only an `invitation` with
 `offerId`, `clientId` and `state` (`confirmed` or `refused`); confirmed outcomes also carry
 `memberId` and persisted `sendingEnabled`. Explicit decline is a committed decision
-without a new member. Writer/rollback uncertainty remains `unknown`; failure is not
-proof of a refusal. `remote.management.operation` reads the original after Session
+without a new member. Proven no-effect failures (including unavailable/stale offers,
+a terminal winner or a writer refusal with successful rollback) settle `refused`
+with their code in one IMMEDIATE transaction. `REMOTE_INVITATION_DECIDED` means another
+owner decision already won. Only commit/rollback uncertainty remains `unknown`;
+publication failure after a recorded decision preserves that original outcome.
+`remote.management.operation` reads the original after Session
 reopen, without another confirmation. A new operation cannot claim a terminal winner.
 
 The first coordinator decision wins. When the browser wins, the terminal's word or

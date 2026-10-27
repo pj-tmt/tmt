@@ -184,3 +184,26 @@ test('authenticated but mismatched invitation outcome is uncertainty, not confir
     ),
   );
 });
+
+test('proven invitation refusals decode and recover without blocking or resending', async () => {
+  for (const reason of [
+    'REMOTE_INVITATION_UNAVAILABLE',
+    'REMOTE_INVITATION_INVALID',
+    'REMOTE_INVITATION_STOPPED',
+    'REMOTE_INVITATION_DECIDED',
+    'REMOTE_ALREADY_PAIRED',
+    'REMOTE_STATE_UNAVAILABLE',
+  ] as const) {
+    const { client, door } = await ready();
+    const change = input();
+    const result = { operationId: change.operationId, state: 'refused', reason };
+    door.managementReply = () => result;
+    assert.deepEqual(await client.decide(change), result);
+    assert.deepEqual(await client.operation(change.operationId), result);
+    assert.equal(
+      door.calls.filter((call) => call.envelope.operation === 'remote.invites.confirm').length,
+      1,
+    );
+    assert.equal(door.opens, 1);
+  }
+});

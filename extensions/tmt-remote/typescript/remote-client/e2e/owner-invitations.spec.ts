@@ -10,7 +10,7 @@ type Fixture = {
   reads: number;
   decisions: Record<string, unknown>[];
   lookups: number;
-  mode: 'normal' | 'lost' | 'refused' | 'late';
+  mode: 'normal' | 'lost' | 'refused' | 'late' | 'terminal-won';
   original: 'unknown' | 'confirmed';
   release?: () => void;
   attach: () => void;
@@ -37,8 +37,8 @@ test.beforeAll(async () => {
     const result = input => ({operationId:input.operationId,state:'committed',sessionEnded:false,result:{invitation:input.matched ? {offerId:input.offerId,clientId:candidate.clientId,memberId:'member',state:'confirmed',sendingEnabled:input.sending} : {offerId:input.offerId,clientId:candidate.clientId,state:'refused'}}});
     const controller = new AbortController();
     const attach = invitationPage(document.getElementById('owner-invitation'),controller.signal,() => ({
-      async pending() { fixture.reads++; if(fixture.mode==='late') await new Promise(resolve=>fixture.release=resolve); if(fixture.mode==='refused') throw new RefusalError('REMOTE_MANAGEMENT_READ_ONLY'); return {state:'current',offerId:'11111111-1111-4111-8111-111111111111',expiresAtMs:Date.now()+60000,phase:'awaiting-owner',localConfirmationKnown:false,cleanup:'not-requested',candidate}; },
-      async decide(input) { fixture.decisions.push(structuredClone(input)); if(fixture.mode==='lost') throw new Error('lost answer'); return result(input); },
+      async pending() { fixture.reads++; if(fixture.mode==='terminal-won') return {state:'current',offerId:'11111111-1111-4111-8111-111111111111',expiresAtMs:Date.now()+60000,phase:'confirmed',localConfirmationKnown:true,cleanup:'not-requested',candidate:null}; if(fixture.mode==='late') await new Promise(resolve=>fixture.release=resolve); if(fixture.mode==='refused') throw new RefusalError('REMOTE_MANAGEMENT_READ_ONLY'); return {state:'current',offerId:'11111111-1111-4111-8111-111111111111',expiresAtMs:Date.now()+60000,phase:'awaiting-owner',localConfirmationKnown:false,cleanup:'not-requested',candidate}; },
+      async decide(input) { fixture.decisions.push(structuredClone(input)); if(fixture.mode==='terminal-won') return {operationId:input.operationId,state:'refused',reason:'REMOTE_INVITATION_DECIDED'}; if(fixture.mode==='lost') throw new Error('lost answer'); return result(input); },
       async operation(id) { fixture.lookups++; return fixture.original==='unknown' ? {operationId:id,state:'unknown',reason:'effect_outcome_unconfirmed'} : result(fixture.decisions[0]); },
     }));
     fixture.attach=()=>attach({}); fixture.end=()=>controller.abort(); fixture.attach();
@@ -173,4 +173,38 @@ test('refused access and departed late reads disclose no candidate or decision c
       () => (window as unknown as { invitationFixture: Fixture }).invitationFixture.decisions,
     ),
   ).toHaveLength(0);
+});
+
+test('a definite terminal-winner refusal unlocks refresh and shows its confirmed outcome', async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${origin}/remote/invites`);
+  await expect(page.getByText('apple birch cedar dawn')).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { invitationFixture: Fixture }).invitationFixture.mode = 'terminal-won';
+  });
+  await page.getByRole('checkbox', { name: 'I compared' }).check();
+  await page.getByRole('button', { name: 'Confirm invitation', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('already decided');
+  await page.screenshot({
+    path: info.outputPath('f1-terminal-won-refused.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await expect(page.getByRole('button', { name: 'Check original outcome' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Check invitation', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Check invitation', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('confirmed and its receipt was delivered');
+  await page.screenshot({
+    path: info.outputPath('f1-terminal-won-current.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  expect(
+    await page.evaluate(() => {
+      const f = (window as unknown as { invitationFixture: Fixture }).invitationFixture;
+      return { reads: f.reads, decisions: f.decisions.length, lookups: f.lookups };
+    }),
+  ).toEqual({ reads: 2, decisions: 1, lookups: 0 });
 });

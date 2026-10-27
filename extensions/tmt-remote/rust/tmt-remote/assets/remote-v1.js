@@ -615,6 +615,10 @@ function remoteError(value, address) {
 		"REMOTE_MANAGEMENT_READ_ONLY",
 		"REMOTE_MANAGEMENT_UNAVAILABLE",
 		"REMOTE_INVITATION_UNAVAILABLE",
+		"REMOTE_INVITATION_INVALID",
+		"REMOTE_INVITATION_STOPPED",
+		"REMOTE_INVITATION_DECIDED",
+		"REMOTE_ALREADY_PAIRED",
 		"REMOTE_GRANT_EXPIRED",
 		"REMOTE_DEVICE_REVOKED",
 		"REMOTE_DEVICE_NOT_FOUND",
@@ -1350,6 +1354,11 @@ function device(value, activity = false) {
 	return row;
 }
 var refusalCodes = /* @__PURE__ */ new Set([
+	"REMOTE_INVITATION_UNAVAILABLE",
+	"REMOTE_INVITATION_INVALID",
+	"REMOTE_INVITATION_STOPPED",
+	"REMOTE_INVITATION_DECIDED",
+	"REMOTE_ALREADY_PAIRED",
 	"REMOTE_SCOPE_DENIED",
 	"REMOTE_INPUT_INVALID",
 	"REMOTE_RATE_LIMITED",
@@ -1666,7 +1675,7 @@ function invitationPage(root, lifetime, clientForSession = invitations) {
 			uncertain();
 			return;
 		}
-		if (outcome.state === "refused") status.textContent = `Decision refused (${outcome.reason}). Check the current invitation before deciding again.`;
+		if (outcome.state === "refused") status.textContent = outcome.reason === "REMOTE_INVITATION_DECIDED" ? "This invitation was already decided. Choose Check invitation to read the current outcome." : "This decision was refused. Choose Check invitation before deciding again.";
 		else {
 			const result = outcome.result.invitation;
 			if (!unresolved || result.offerId !== unresolved.offerId || result.clientId !== unresolved.clientId || result.state !== (unresolved.matched ? "confirmed" : "refused") || result.state === "confirmed" && result.sendingEnabled !== unresolved.sending) throw new Error("Mismatched invitation outcome.");

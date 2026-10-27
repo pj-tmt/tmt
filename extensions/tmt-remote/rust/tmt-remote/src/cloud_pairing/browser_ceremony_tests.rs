@@ -183,6 +183,19 @@ fn signed_browser_wins_the_live_terminal_offer_and_recovers_one_original() {
                         assert!(pending.get("code").is_none());
                         let input = json!({"operationId":crate::store::uuid_v4().unwrap(),"offerId":pending["offerId"],
                             "snapshot":pending["candidate"]["snapshot"],"matched":true,"sending":sending});
+                        for wrong in ["offerId", "snapshot"] {
+                            let mut stale = input.clone();
+                            stale["operationId"] = json!(crate::store::uuid_v4().unwrap());
+                            stale[wrong] = if wrong == "offerId" { json!(crate::store::uuid_v4().unwrap()) }
+                                else { json!(canonical::base64url(&[6;32])) };
+                            let refused = browser.request(&owner, "remote.invites.confirm", stale.clone()).0;
+                            assert_eq!(refused["state"], "refused");
+                            assert_eq!(refused["reason"], "REMOTE_INVITATION_INVALID");
+                            assert_eq!(browser.request(&owner,"remote.management.operation",json!({"operationId":stale["operationId"]})).0,refused);
+                            assert_eq!(owner.store().unwrap().grants().unwrap().len(),1);
+                        }
+                        // The already-recorded browser outcome survives a lost publication answer.
+                        wire.receipt_answers.lose_next.store(sending, Ordering::Release);
                         let result = browser.request(&owner, "remote.invites.confirm", input.clone()).0;
                         assert_eq!(result["state"], "committed");
                         assert_eq!(result["result"]["invitation"]["state"], "confirmed");
@@ -237,4 +250,143 @@ fn signed_browser_wins_the_live_terminal_offer_and_recovers_one_original() {
         drop(peer_lease);
         drop(owner_lease);
     }
+}
+
+#[test]
+fn signed_browser_unavailable_offer_settles_definite_refusal() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::browser_ceremony_tests::signed_browser_unavailable_offer_settles_definite_refusal",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let (owner, lease) = service(
+        &core.root.join("owner"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports,
+        },
+    );
+    let mut browser = Browser::new(&owner);
+    assert_eq!(
+        browser
+            .request(&owner, "remote.invites.pending", json!({}))
+            .0,
+        json!({"state":"none"})
+    );
+    let id = crate::store::uuid_v4().unwrap();
+    let input = json!({"operationId":id,"offerId":crate::store::uuid_v4().unwrap(),"snapshot":canonical::base64url(&[3;32]),"matched":true,"sending":false});
+    let result = browser
+        .request(&owner, "remote.invites.confirm", input.clone())
+        .0;
+    assert_eq!(
+        result["state"], "refused",
+        "an unavailable offer is a definite no-effect decision"
+    );
+    assert_eq!(result["reason"], "REMOTE_INVITATION_UNAVAILABLE");
+    assert_eq!(
+        browser
+            .request(
+                &owner,
+                "remote.management.operation",
+                json!({"operationId":id})
+            )
+            .0,
+        result
+    );
+    assert_eq!(
+        browser.request(&owner, "remote.invites.confirm", input).0,
+        result
+    );
+    assert_eq!(owner.store().unwrap().grants().unwrap().len(), 1);
+    assert!(wire.commits.lock().unwrap().is_empty());
+    assert_eq!(core.sends(), 0);
+    drop(owner);
+    drop(lease);
+}
+#[test]
+fn signed_browser_terminal_winner_is_refused_and_refresh_shows_confirmed() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::browser_ceremony_tests::signed_browser_terminal_winner_is_refused_and_refresh_shows_confirmed",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (owner, owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    let (peer, peer_lease) = service(&core.root.join("peer"), &core, make_ports());
+    let mut browser = Browser::new(&owner);
+    let worker = owner.worker().unwrap();
+    let (tx, rx) = mpsc::sync_channel(1);
+    let mut input = None;
+    std::thread::scope(|scope| {
+        let _cancel = Cancel(vec![peer.stop.clone()]);
+        let inviter=scope.spawn(||{
+            let _panic=StopOnPanic(vec![owner.stop.clone(),peer.stop.clone()]);
+            owner.invite_selected(PROJECT,config(),|event|{
+                if event["event"]=="invite"{tx.send(event["code"].as_str().unwrap().to_owned()).unwrap();}
+                if event["event"]=="candidate"{
+                    let pending=browser.request(&owner,"remote.invites.pending",json!({})).0;
+                    input=Some(json!({"operationId":crate::store::uuid_v4().unwrap(),"offerId":pending["offerId"],"snapshot":pending["candidate"]["snapshot"],"matched":true,"sending":false}));
+                    return Ok(Some((true,false)));
+                }
+                Ok(None)
+            })
+        });
+        let code = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        peer.join(&code, |_| Ok(Some(false))).unwrap();
+        inviter.join().unwrap().unwrap();
+    });
+    let input = input.unwrap();
+    let before = wire.commits.lock().unwrap().clone();
+    let result = browser
+        .request(&owner, "remote.invites.confirm", input.clone())
+        .0;
+    assert_eq!(
+        result["state"], "refused",
+        "a later browser decision cannot turn a terminal winner into uncertainty"
+    );
+    assert_eq!(result["reason"], "REMOTE_INVITATION_DECIDED");
+    assert_eq!(
+        browser
+            .request(
+                &owner,
+                "remote.management.operation",
+                json!({"operationId":input["operationId"]})
+            )
+            .0,
+        result
+    );
+    let current = browser
+        .request(&owner, "remote.invites.pending", json!({}))
+        .0;
+    assert_eq!(current["phase"], "confirmed");
+    assert_eq!(current["localConfirmationKnown"], true);
+    assert_eq!(owner.store().unwrap().grants().unwrap().len(), 2);
+    assert_eq!(
+        *wire.commits.lock().unwrap(),
+        before,
+        "a refused browser replay published again"
+    );
+    drop(worker);
+    drop(peer);
+    drop(owner);
+    drop(peer_lease);
+    drop(owner_lease);
 }

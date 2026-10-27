@@ -64,7 +64,10 @@ export function invitationPage(
       return;
     }
     if (outcome.state === 'refused') {
-      status.textContent = `Decision refused (${outcome.reason}). Check the current invitation before deciding again.`;
+      status.textContent =
+        outcome.reason === 'REMOTE_INVITATION_DECIDED'
+          ? 'This invitation was already decided. Choose Check invitation to read the current outcome.'
+          : 'This decision was refused. Choose Check invitation before deciding again.';
     } else {
       const result = outcome.result.invitation;
       if (

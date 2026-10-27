@@ -510,6 +510,10 @@ frozen offer/candidate and sending choice. The Store writer checks the existing
 management row's actor member and immutable deadline, then settles it with the
 invitation receipt and grant in that same transaction. A failed settlement rolls
 all effects back; a terminal winner cannot be claimed by a new browser operation.
+The coordinator distinguishes a proven no-effect refusal, commit uncertainty and a
+recorded decision whose publication failed. The adapter settles only the first as
+refused in an IMMEDIATE transaction over the adopted actor/intent/deadline; the other
+two read their immutable original. A refusal never overwrites a recorded result.
 The typed identity alone admits no request; the signed management adapter still
 owns browser-origin and live-Session admission, and the captured Session fence is
 rechecked while entering the same Store writer. Explicit browser decline settles its

@@ -177,3 +177,49 @@ impl<S: ConfirmationSink> ConfirmationSink for AdmissionRace<S> {
         self.sink.acknowledge(record, part)
     }
 }
+
+/// A lost writer answer, on either side of the real Store commit boundary.
+#[derive(Clone)]
+pub(super) struct UncertainConfirmation {
+    pub(super) sink: crate::invitations::store::StoreConfirmation,
+    pub(super) committed: bool,
+}
+impl ConfirmationSink for UncertainConfirmation {
+    fn authorize(
+        &self,
+        context: &Context,
+        actor: &OwnerActor,
+    ) -> Result<(), crate::error::RemoteError> {
+        self.sink.authorize(context, actor)
+    }
+    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, ConfirmationFailure> {
+        if self.committed {
+            self.sink.confirm(input)?;
+        }
+        Err(ConfirmationFailure::CommitUnknown(invalid()))
+    }
+    fn decline(
+        &self,
+        actor: &OwnerActor,
+        snapshot: &Snapshot,
+        io: &IoBudget<'_>,
+    ) -> Result<(), ConfirmationFailure> {
+        self.sink.decline(actor, snapshot, io)
+    }
+    fn original(
+        &self,
+        snapshot: &Snapshot,
+    ) -> Result<Option<Committed>, crate::error::RemoteError> {
+        self.sink.original(snapshot)
+    }
+    fn claim(&self, committed: &Committed, part: Part) -> Result<Claim, crate::error::RemoteError> {
+        self.sink.claim(committed, part)
+    }
+    fn acknowledge(
+        &self,
+        committed: &Committed,
+        part: Part,
+    ) -> Result<bool, crate::error::RemoteError> {
+        self.sink.acknowledge(committed, part)
+    }
+}

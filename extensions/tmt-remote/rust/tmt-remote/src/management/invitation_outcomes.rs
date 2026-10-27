@@ -22,25 +22,60 @@ pub(crate) fn check(
     }
     let grant = grant_in(tx, client)?.ok_or_else(invalid)?;
     require_writable(tx, &grant)?;
-    let row: Option<(String, String, Vec<u8>)> = tx
-        .query_row(
-            "SELECT client_id,operation,digest FROM management_receipts WHERE id=?1",
-            [&operation.id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .optional()
-        .map_err(database)?;
-    if row.as_ref().is_none_or(|(actor, kind, digest)| {
-        actor != client || kind != CONFIRM || digest.as_slice() != operation.intent
-    }) {
-        return Err(conflict());
-    }
-    // This also checks the immutable lookup deadline and M2 actor incarnation.
-    // A settled or differently owned original is never overwritten by an effect.
-    if receipt(tx, client, &operation.id, now)? != unknown(&operation.id) {
+    if adopted(tx, client, &operation.id, &operation.intent, now)? != unknown(&operation.id) {
         return Err(conflict());
     }
     Ok(())
+}
+
+fn adopted(
+    tx: &Transaction<'_>,
+    client: &str,
+    id: &str,
+    intent: &[u8; 32],
+    now: u64,
+) -> Result<Value> {
+    let row: Option<(String, String, Vec<u8>)> = tx
+        .query_row(
+            "SELECT client_id,operation,digest FROM management_receipts WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(database)?;
+    if row.as_ref().is_none_or(|(actor, operation, digest)| {
+        actor != client || operation != CONFIRM || digest.as_slice() != intent
+    }) {
+        return Err(conflict());
+    }
+    // Existing public lookup owns the immutable deadline and actor-member fence.
+    receipt(tx, client, id, now)
+}
+impl Store {
+    /// Records only a proven no-effect original, without restoring lost authority.
+    /// An already recorded outcome remains immutable; no grant or provider work runs.
+    pub(crate) fn refuse_invitation_confirmation(
+        &mut self,
+        grant: &Grant,
+        id: &str,
+        intent: &[u8; 32],
+        code: &str,
+    ) -> Result<Value> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let previous = adopted(&tx, &grant.client_id, id, intent, now_ms()?)?;
+        let outcome = if previous == unknown(id) {
+            let outcome = refused(id, code);
+            super::settle(&tx, id, &outcome)?;
+            outcome
+        } else {
+            previous
+        };
+        tx.commit().map_err(database)?;
+        Ok(outcome)
+    }
 }
 
 pub(crate) fn settle(

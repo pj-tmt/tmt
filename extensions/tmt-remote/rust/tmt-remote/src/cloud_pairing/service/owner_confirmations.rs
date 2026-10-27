@@ -5,7 +5,7 @@ use crate::{
     canonical,
     error::RemoteError,
     invitations::{
-        port::{OwnerActor, OwnerDecision},
+        port::{OwnerActor, OwnerDecision, OwnerDecisionFailure},
         service::{ProviderCleanup, State},
     },
     management::invitation_requests::{self, BrowserInvitationInput, OwnerInvitationPort},
@@ -95,7 +95,7 @@ impl OwnerInvitationPort for Service {
         })? {
             return Ok(previous);
         }
-        let result = (|| {
+        let result: Result<(), OwnerDecisionFailure> = (|| {
             let current = self
                 .invitation
                 .lock()
@@ -106,13 +106,17 @@ impl OwnerInvitationPort for Service {
             let observed = current
                 .owner_observation(&actor(permit)?, crate::pairing::now_ms()?)?
                 .ok_or_else(invitation_requests::unavailable)?;
-            let snapshot = observed
-                .candidate
-                .ok_or_else(invitation_requests::unavailable)?;
+            let snapshot = observed.candidate.ok_or_else(|| {
+                if observed.decided_by.is_some() {
+                    crate::invitations::service::already_decided()
+                } else {
+                    invitation_requests::unavailable()
+                }
+            })?;
             if snapshot.context.offer != input.offer_id
                 || canonical::base64url(&snapshot.digest) != input.snapshot
             {
-                return Err(super::wire::invalid());
+                return Err(crate::invitations::invalid().into());
             }
             let decision = OwnerDecision {
                 matched: input.matched,
@@ -136,9 +140,21 @@ impl OwnerInvitationPort for Service {
             )?;
             Ok(())
         })();
-        // An effect error cannot establish a refusal. The existing original
-        // journal is the only outcome, including commit/rollback uncertainty.
-        let _ = result;
+        match result {
+            Err(OwnerDecisionFailure::Refused(error)) => {
+                // This operation made no effect. Preserve its adopted actor,
+                // intent/deadline and any already recorded outcome.
+                self.store()?.refuse_invitation_confirmation(
+                    &permit.grant,
+                    &input.operation_id,
+                    &intent,
+                    &error.code,
+                )?;
+            }
+            Ok(())
+            | Err(OwnerDecisionFailure::CommitUnknown(_) | OwnerDecisionFailure::Recorded(_)) => {}
+        }
+        // Recorded decisions and uncertain commits recover only their original.
         permit.with_store(|store| {
             crate::management::receipt(
                 &store.connection,

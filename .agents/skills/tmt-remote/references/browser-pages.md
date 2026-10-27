@@ -159,7 +159,9 @@ Entry/explicit refresh reads the shared current candidate; it creates no offer o
 Comparison and sending start unchecked and are separate choices. An explicit decision
 uses the SDK's existing signing lane and one original operation ID. Uncertainty keeps
 that ID for read-only lookup across tab/Session changes, disables another decision and
-never retries the effect. Route departure clears candidate/comparison state and fences
+never retries the effect. A proven refusal clears that pending decision and offers
+Check invitation; a terminal-winner refresh shows the actual current outcome.
+Route departure clears candidate/comparison state and fences
 late painting; native designation and Session checks remain the authority owner.
 A document-level registry modal remains visible from every tab and is removed on route abort;
 late validation cannot write or reopen it. `/p/<id>` still answers 308 to `/colab/p/<id>`.

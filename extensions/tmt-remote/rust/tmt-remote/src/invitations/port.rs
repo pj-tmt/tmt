@@ -307,6 +307,28 @@ pub enum ConfirmationFailure {
     CommitUnknown(RemoteError),
 }
 
+/// Whether this decision may settle a no-effect refusal or must read its original.
+#[derive(Debug)]
+pub enum OwnerDecisionFailure {
+    Refused(RemoteError),
+    CommitUnknown(RemoteError),
+    /// The decision is recorded; only its provider publication failed.
+    Recorded(RemoteError),
+}
+impl From<RemoteError> for OwnerDecisionFailure {
+    fn from(error: RemoteError) -> Self {
+        Self::Refused(error)
+    }
+}
+impl From<OwnerDecisionFailure> for RemoteError {
+    fn from(error: OwnerDecisionFailure) -> Self {
+        match error {
+            OwnerDecisionFailure::Refused(error)
+            | OwnerDecisionFailure::CommitUnknown(error)
+            | OwnerDecisionFailure::Recorded(error) => error,
+        }
+    }
+}
 /// The concrete implementation belongs on the existing Store. Confirmation
 /// rechecks owner/expiry/candidate and inserts member, grant, original receipt
 /// and policy in ONE IMMEDIATE transaction. Publication claims also persist
