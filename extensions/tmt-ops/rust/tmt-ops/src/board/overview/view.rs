@@ -207,15 +207,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 .intersection(slot),
                 Choice::TokMoney,
             ));
-            app.workspace_state_cells.borrow_mut().push(
-                Rect::new(
-                    slot.x.saturating_add(AGENT_STATE_X as u16),
-                    slot.y,
-                    state_width(slot.width, widest),
-                    1,
-                )
-                .intersection(slot),
-            );
+            let state_cell = Rect::new(
+                slot.x.saturating_add(AGENT_STATE_X as u16),
+                slot.y,
+                state_width(slot.width, widest),
+                1,
+            )
+            .intersection(slot);
+            app.workspace_state_cells.borrow_mut().push(state_cell);
+            app.push_unread_row_hit(state_cell, &row.target);
             app.hits.borrow_mut().push(Hit {
                 x: slot.x,
                 y: slot.y,

@@ -18,6 +18,21 @@ pub(in crate::board) fn plain(title: &str, width: usize) -> String {
     crate::board::view::fit(&format!("{title}{}", "─".repeat(tail)), width)
 }
 
+/// Where `line` puts a note of `note_width` cells in `area`, when it fits beside the title.
+pub(in crate::board) fn note_area(title: &str, note_width: usize, area: Rect) -> Option<Rect> {
+    let heading = format!("── {} ", crate::board::notes::single_line(title));
+    if note_width == 0 || heading.width() + note_width + 4 + 1 > usize::from(area.width) {
+        return None;
+    }
+    let width = note_width as u16;
+    Some(Rect::new(
+        area.right().saturating_sub(3 + width),
+        area.y,
+        width,
+        1,
+    ))
+}
+
 pub(in crate::board) fn line(
     title: &str,
     note: Line<'static>,

@@ -819,6 +819,8 @@ pub struct App {
     pub(in crate::board) usage_controls: bool,
     pub(super) quota_details: Option<RefCell<super::home::quota_detail::Details>>,
     pub(super) unread_overlay: Option<super::unread_overlay::Overlay>,
+    /// The painted unread counts a press opens the overlay from, rebuilt every frame.
+    pub(in crate::board) unread_hits: RefCell<Vec<super::unread_overlay::Hit>>,
     /// How many Unread overlays were opened; a read belongs to one opening.
     pub(super) unread_session: u64,
     pub help: bool,
@@ -4246,6 +4248,7 @@ impl App {
         self.cron_scope_hits.borrow_mut().clear();
         self.workspace_strip_hits.borrow_mut().clear();
         self.workspace_state_cells.borrow_mut().clear();
+        self.unread_hits.borrow_mut().clear();
         if let Some(details) = &self.monitor_details {
             details.invalidate();
         }
@@ -4533,6 +4536,9 @@ impl App {
         if self.mention_mouse(event) {
             return Effect::None;
         }
+        if let Some(effect) = self.unread_count_mouse(event) {
+            return effect;
+        }
         let unread = self
             .composer
             .unread_hit
@@ -4550,11 +4556,9 @@ impl App {
             {
                 return self.say("The painted unread count changed; repaint before marking read.");
             }
-            return if self.mark_read(&hit.key.1) {
-                Effect::None
-            } else {
-                self.say("Nothing unread here.")
-            };
+            return self.open_unread(&crate::board::unread_overlay::Scope::Member(
+                hit.key.1.clone(),
+            ));
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
             let send = self

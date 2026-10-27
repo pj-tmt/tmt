@@ -90,7 +90,7 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
             let (version, ops) = versions.named();
             (Some(version), ops, Some(versions.compact()))
         });
-    let control = crate::board::top_bar::paint_with_control(
+    let painted = crate::board::top_bar::paint_attention(
         buffer,
         area,
         crate::board::top_bar::Caption {
@@ -108,7 +108,10 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
             0
         },
     );
-    if let Some(area) = control {
+    if let Some(area) = painted.unread {
+        app.push_unread_hit(area, None);
+    }
+    if let Some(area) = painted.control {
         let label_text = label.to_string();
         let enabled = app.workspace_strip_enabled();
         let painted = crate::board::buttons::paint(

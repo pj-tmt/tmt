@@ -615,6 +615,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     frame, app, area, &model, &displayed, false,
                 );
             }
+            if let Some(area) = painted.state {
+                app.push_unread_row_hit(area, &row.target);
+            }
             app.workspace_state_cells
                 .borrow_mut()
                 .extend(painted.state.into_iter().chain(painted.task));
@@ -1103,6 +1106,7 @@ fn roster_preview(
                     };
                     let style = if *field == RosterField::State {
                         app.workspace_state_cells.borrow_mut().push(cell);
+                        app.push_unread_row_hit(cell, &row.target);
                         columns::state_style(app, &row)
                     } else {
                         look.role(Role::Text)

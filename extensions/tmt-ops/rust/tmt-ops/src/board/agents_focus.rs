@@ -216,6 +216,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ..area
         },
     );
+    if matches!(selected, OpsTarget::Member { .. })
+        && let Some(area) = section_rule::note_area(title, note.width(), title_rule)
+    {
+        app.push_unread_row_hit(area, selected);
+    }
     section_rule::paint(
         frame.buffer_mut(),
         title_rule,

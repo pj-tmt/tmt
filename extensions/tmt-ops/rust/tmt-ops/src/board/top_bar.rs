@@ -30,6 +30,14 @@ impl Attention {
     fn line(&self, look: Look) -> Line<'static> {
         self.with_words(look, true)
     }
+    /// Where the unread count sits in the line painted with or without words: its offset from
+    /// the line's start and its width.
+    fn unread_extent(&self, look: Look, words: bool) -> Option<(u16, u16)> {
+        let unread = super::state_cell::unread(self.unread, look)?;
+        let line = self.with_words(look, words);
+        let before: usize = line.spans[..3].iter().map(Span::width).sum();
+        Some((before as u16, unread.width() as u16))
+    }
     fn with_words(&self, look: Look, words: bool) -> Line<'static> {
         let mut spans = vec![
             Span::styled(
@@ -143,10 +151,40 @@ pub(in crate::board) struct Caption<'a> {
     pub compact: Option<&'a str>,
 }
 
+/// What a painted caption and attention strip leaves for the caller.
+pub(in crate::board) struct Painted {
+    /// The control's rectangle, for the caller to paint.
+    pub control: Option<Rect>,
+    /// Where the unread count was painted, when the strip shows one.
+    pub unread: Option<Rect>,
+}
+
 /// Paints the caption and attention strip. A control of `control_width` columns takes the right
 /// end of the caption side when the stage keeps the whole caption beside it; its rectangle is
 /// returned for the caller to paint.
 pub(in crate::board) fn paint_with_control(
+    buffer: &mut Buffer,
+    area: Rect,
+    caption: Caption<'_>,
+    attention: Option<&Attention>,
+    observations: Option<&Observations<'_>>,
+    look: Look,
+    control_width: u16,
+) -> Option<Rect> {
+    paint_attention(
+        buffer,
+        area,
+        caption,
+        attention,
+        observations,
+        look,
+        control_width,
+    )
+    .control
+}
+
+/// `paint_with_control`, and where the unread count went.
+pub(in crate::board) fn paint_attention(
     buffer: &mut Buffer,
     area: Rect,
     Caption {
@@ -159,7 +197,7 @@ pub(in crate::board) fn paint_with_control(
     observations: Option<&Observations<'_>>,
     look: Look,
     control_width: u16,
-) -> Option<Rect> {
+) -> Painted {
     // Whole semantic segments yield in the approved order. Never fit a partial
     // percentage or token count into the space between the two owners. The version
     // yields first, in this order: the Ops build's, the control, the full CLI version
@@ -272,12 +310,21 @@ pub(in crate::board) fn paint_with_control(
             },
             caption,
         );
+        let mut unread = None;
         if let Some(right) = right {
+            let width = right.width() as u16;
+            unread = attention
+                .and_then(|value| value.unread_extent(look, words))
+                .filter(|_| width <= area.width)
+                .map(|(offset, count)| Rect::new(area.right() - width + offset, area.y, count, 1));
             strip::paint_right(buffer, area, right);
         }
-        return control;
+        return Painted { control, unread };
     }
-    None
+    Painted {
+        control: None,
+        unread: None,
+    }
 }
 
 #[cfg(test)]

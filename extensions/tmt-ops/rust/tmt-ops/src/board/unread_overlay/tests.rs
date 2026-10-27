@@ -6,7 +6,7 @@ use crate::board::{
 use ratatui::{
     Terminal,
     backend::TestBackend,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -65,7 +65,7 @@ fn replies(member: &str, items: &[(&str, &str)]) -> Observation {
 }
 
 fn draw(app: &App, height: u16) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(120, height)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(160, height)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, app))
         .unwrap();
@@ -326,4 +326,81 @@ fn nothing_unread_opens_nothing_and_says_so() {
     app.workspace_unread();
     assert!(app.unread_overlay.is_none());
     assert_eq!(app.notice.as_deref(), Some("Nothing unread here."));
+}
+
+#[test]
+fn every_painted_unread_count_opens_the_overlay_for_what_it_counts() {
+    crate::status::with_now_ms(10_000_000, || {
+        let mut app = app_with_two_members();
+        install(
+            &mut app,
+            &[
+                (MEMBER, "w", 8_000_000, "final"),
+                (OTHER, "c", 9_000_000, "final"),
+            ],
+        );
+        app.workspace.expanded.insert(ROOM.into());
+        app.workspace.selected = Some(OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        });
+        draw(&app, 51);
+        let hits: Vec<_> = app
+            .unread_hits
+            .borrow()
+            .iter()
+            .map(|hit| (hit.area, hit.target.clone()))
+            .collect();
+        let of = |wanted: &dyn Fn(&Option<OpsTarget>) -> bool| {
+            hits.iter().filter(|(_, target)| wanted(target)).count()
+        };
+        assert_eq!(
+            of(&|target| target.is_none()),
+            1,
+            "the header strip: {hits:?}"
+        );
+        assert!(
+            of(&|target| matches!(target, Some(OpsTarget::Squad(_)))) >= 1,
+            "{hits:?}"
+        );
+        assert!(
+            of(
+                &|target| matches!(target, Some(OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER)
+            ) >= 2,
+            "the list row and the conversation header: {hits:?}"
+        );
+        for (area, target) in &hits {
+            let expected: Vec<String> = match target {
+                None | Some(OpsTarget::Squad(_)) => vec![MEMBER.into(), OTHER.into()],
+                Some(OpsTarget::Member { identity_id, .. }) => vec![identity_id.clone()],
+                other => panic!("unexpected target {other:?}"),
+            };
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: area.x,
+                    row: area.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            );
+            let overlay = app
+                .unread_overlay
+                .as_ref()
+                .unwrap_or_else(|| panic!("{area:?} {target:?}"));
+            assert_eq!(overlay.members, expected, "{area:?} {target:?}");
+            press(&mut app, KeyCode::Esc);
+            assert!(app.unread_overlay.is_none());
+        }
+    });
+}
+
+#[test]
+fn the_composer_chip_opens_the_overlay_and_the_mark_read_action_still_marks() {
+    crate::status::with_now_ms(10_000_000, || {
+        let mut app = board();
+        install(&mut app, &[(MEMBER, "w", 8_000_000, "final")]);
+        assert!(app.mark_read(MEMBER), "the explicit action is kept");
+        assert!(app.unread.writer.offer().is_some());
+    });
 }

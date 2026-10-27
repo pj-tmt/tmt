@@ -31,6 +31,13 @@ pub(super) enum Scope {
     Group(Vec<String>),
 }
 
+/// A painted unread count that opens the overlay when pressed: the target it belongs to, or
+/// everyone for the header strip's count.
+pub(in crate::board) struct Hit {
+    pub area: Rect,
+    pub target: Option<OpsTarget>,
+}
+
 /// What a body read gave for one answer.
 enum Text<'a> {
     /// The member's answers have not been read yet, or the read is still running.
@@ -509,20 +516,53 @@ impl App {
         members
     }
 
-    /// The `u` key: the selected agent, the selected squad or the Common pool when one is
-    /// selected in the list, otherwise everyone.
-    pub(in crate::board) fn workspace_unread(&mut self) -> Effect {
-        let selected = self
-            .workspace_selection_visible()
-            .then(|| self.workspace.selected.clone())
-            .flatten();
-        let scope = match (selected, self.workspace_snapshot()) {
-            (Some(OpsTarget::Member { identity_id, .. }), _) => Scope::Member(identity_id),
+    /// Records a painted unread count of `target` (or of everyone) as a target for a press.
+    pub(in crate::board) fn push_unread_hit(&self, area: Rect, target: Option<&OpsTarget>) {
+        if area.is_empty() {
+            return;
+        }
+        self.unread_hits.borrow_mut().push(Hit {
+            area,
+            target: target.cloned(),
+        });
+    }
+
+    /// A row's STATE count, when it has one.
+    pub(in crate::board) fn push_unread_row_hit(&self, area: Rect, target: &OpsTarget) {
+        if self.unread_target(target).total > 0 {
+            self.push_unread_hit(area, Some(target));
+        }
+    }
+
+    /// A left press on a painted unread count opens the overlay for what it counts.
+    pub(in crate::board) fn unread_count_mouse(
+        &mut self,
+        event: ratatui::crossterm::event::MouseEvent,
+    ) -> Option<Effect> {
+        use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+        if event.kind != MouseEventKind::Down(MouseButton::Left) {
+            return None;
+        }
+        let at = (event.column, event.row).into();
+        let target = self
+            .unread_hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.area.contains(at))
+            .map(|hit| hit.target.clone())?;
+        let scope = self.unread_scope_of(target.as_ref());
+        Some(self.open_unread(&scope))
+    }
+
+    /// What a count belongs to: an agent, a squad or the Common pool, or everyone.
+    fn unread_scope_of(&self, target: Option<&OpsTarget>) -> Scope {
+        match (target, self.workspace_snapshot()) {
+            (Some(OpsTarget::Member { identity_id, .. }), _) => Scope::Member(identity_id.clone()),
             (Some(OpsTarget::Squad(room)), Some(snapshot)) => snapshot
                 .roster
                 .squads
                 .iter()
-                .find(|squad| squad.room_id == room)
+                .find(|squad| &squad.room_id == room)
                 .map_or(Scope::All, |squad| Scope::Group(squad.members.to_vec())),
             (Some(OpsTarget::Pool), Some(snapshot)) => Scope::Group(
                 snapshot
@@ -532,7 +572,17 @@ impl App {
                     .collect(),
             ),
             _ => Scope::All,
-        };
+        }
+    }
+
+    /// The `u` key: the selected agent, the selected squad or the Common pool when one is
+    /// selected in the list, otherwise everyone.
+    pub(in crate::board) fn workspace_unread(&mut self) -> Effect {
+        let selected = self
+            .workspace_selection_visible()
+            .then(|| self.workspace.selected.clone())
+            .flatten();
+        let scope = self.unread_scope_of(selected.as_ref());
         self.open_unread(&scope)
     }
 

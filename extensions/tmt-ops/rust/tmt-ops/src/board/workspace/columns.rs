@@ -666,6 +666,7 @@ pub fn paint_activity(
     let mut states = app.workspace_state_cells.borrow_mut();
     if width > 0 {
         states.push(Rect::new(cell.x, cell.y, width, 1));
+        app.push_unread_row_hit(Rect::new(cell.x, cell.y, width, 1), &row.target);
     }
     if task_width > 0 {
         states.push(Rect::new(cell.x + width, cell.y, task_width, 1));
