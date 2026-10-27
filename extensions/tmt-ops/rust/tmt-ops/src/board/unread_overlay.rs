@@ -94,6 +94,8 @@ pub(in crate::board) struct Overlay {
     /// The answers whose text is inside the viewport of the last paint.
     painted: RefCell<Vec<Body>>,
     top: Cell<Option<usize>>,
+    /// Core holds back older unread answers than the page the board keeps.
+    more: bool,
 }
 
 impl Overlay {
@@ -111,6 +113,7 @@ impl Overlay {
             built: RefCell::default(),
             painted: RefCell::default(),
             top: Cell::new(None),
+            more: false,
         }
     }
 
@@ -128,7 +131,9 @@ impl Overlay {
                     .or_insert_with(|| answer.clone());
             }
         }
-        if self.items.len() != before {
+        let more = page.next_before.is_some();
+        if self.items.len() != before || self.more != more {
+            self.more = more;
             self.bump();
         }
     }
@@ -316,6 +321,13 @@ impl Overlay {
                 rows: start..end,
                 body: if has_text { body_start..end } else { 0..0 },
             });
+        }
+        if self.more && !lines.is_empty() {
+            lines.push(Line::default());
+            lines.push(caption(
+                "○ Older unread answers are not loaded · they appear as these are read",
+                look,
+            ));
         }
         Built {
             width,

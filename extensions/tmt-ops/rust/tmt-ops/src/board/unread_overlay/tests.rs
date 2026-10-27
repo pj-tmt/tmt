@@ -452,6 +452,26 @@ fn a_press_inside_the_overlay_never_reaches_the_board_under_it_and_outside_close
 }
 
 #[test]
+fn older_answers_held_back_by_core_are_said_so() {
+    crate::status::with_now_ms(10_000_000, || {
+        let mut app = app_with_two_members();
+        let mut page = answers(&[(MEMBER, "w", 8_000_000, "final")]);
+        page["nextBefore"] = json!({"answeredAtMs": 7_000_000, "requestId": "older"});
+        app.home_leads
+            .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page);
+        app.overview_rows.borrow_mut().clear();
+        app.open_unread(&Scope::Member(MEMBER.into()));
+        arrive(&mut app, MEMBER, replies(MEMBER, &[("w", "The answer")]));
+        let screen = draw(&app, 40);
+        assert!(screen.contains("The answer"), "{screen}");
+        assert!(
+            screen.contains("Older unread answers are not loaded"),
+            "{screen}"
+        );
+    });
+}
+
+#[test]
 fn nothing_unread_opens_nothing_and_says_so() {
     let mut app = board();
     install(&mut app, &[]);
@@ -538,7 +558,8 @@ fn the_composer_chip_opens_the_overlay_and_the_mark_read_action_still_marks() {
 }
 
 /// Opt-in local release-mode P02 evidence, never a CI threshold: the overlay open over many
-/// unread answers, with every body loaded, against the conversation view's profile.
+/// unread answers (50 across 10 agents, the most the board holds: `ANSWERS_LIMIT`), with every
+/// body loaded, against the conversation view's profile.
 #[test]
 #[ignore = "local release-mode timing evidence; no CI threshold"]
 fn unread_overlay_frame_timing() {
@@ -557,7 +578,7 @@ fn unread_overlay_frame_timing() {
             .cloned()
             .collect();
         assert_eq!(members.len(), 10);
-        let per_member = 20;
+        let per_member = 5;
         let mut items = Vec::new();
         for (index, member) in members.iter().enumerate() {
             for n in 0..per_member {
