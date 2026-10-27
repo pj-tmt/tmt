@@ -135,7 +135,7 @@ fn usage_rechecks_the_exact_namespace_and_retains_all_accounting_fields() {
     let state = Fixture::new();
     let source = source(&state);
     let (channel, remote) = pair();
-    let client = channel.client();
+    let owner = owner(channel);
     let backend = thread::spawn(move || {
         let request = receive(&remote);
         assert!(matches!(
@@ -165,7 +165,24 @@ fn usage_rechecks_the_exact_namespace_and_retains_all_accounting_fields() {
         );
         finish(&remote, request, Outcome::Success(Success::Usage(usage)));
     });
-    let details = client.usage_details(PAGE, &source, limit());
+    let details = owner.storage_usage(PAGE, &source, limit());
+    let mut row = crate::storage::PageStorage {
+        page_id: PAGE.into(),
+        title: None,
+        content_bytes: 10,
+        history_bytes: 20,
+        comments_bytes: 5,
+        attachments_bytes: None,
+        unused_attachment_bytes: None,
+        total_bytes: None,
+        freeable: Default::default(),
+        last_cleaned_automatically_at_ms: None,
+        skipped: None,
+    };
+    row.apply_attachment_usage(details.clone());
+    assert_eq!(row.attachments_bytes, Some(2048));
+    assert_eq!(row.total_bytes, Some(2083));
+    assert_eq!(row.unused_attachment_bytes, None);
     assert_eq!(
         serde_json::to_value(&details).unwrap(),
         serde_json::json!({"state":"known","chargedBytes":2048,"entries":1,"activeUploads":2,"retainedIdentities":3})
@@ -174,6 +191,37 @@ fn usage_rechecks_the_exact_namespace_and_retains_all_accounting_fields() {
         details.to_string(),
         "Storage is full. Charged 2 KB (1 file, 2 uploading, small fixed records). This is a conservative allocation, not disk or billing bytes."
     );
+    backend.join().unwrap();
+}
+
+#[test]
+fn storage_usage_is_unknown_without_an_object_channel() {
+    let state = Fixture::new();
+    let source = source(&state);
+    let owner = ChannelOwner::new(Arc::new(|| None));
+    assert!(matches!(
+        owner.storage_usage(PAGE, &source, limit()),
+        crate::attachments::UsageDetails::Unknown
+    ));
+}
+
+#[test]
+fn storage_usage_times_out_without_waiting_for_a_stalled_object_backend() {
+    let state = Fixture::new();
+    let source = source(&state);
+    let (channel, remote) = pair();
+    let owner = owner(channel);
+    let (release, wait) = std::sync::mpsc::channel();
+    let backend = thread::spawn(move || {
+        let request = receive(&remote);
+        assert!(matches!(request.call, Call::Usage(_)));
+        wait.recv_timeout(Duration::from_secs(3)).unwrap();
+    });
+    let started = Instant::now();
+    let result = owner.storage_usage(PAGE, &source, started + Duration::from_millis(100));
+    assert!(matches!(result, crate::attachments::UsageDetails::Unknown));
+    assert!(started.elapsed() < Duration::from_secs(2));
+    release.send(()).unwrap();
     backend.join().unwrap();
 }
 

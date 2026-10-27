@@ -33,6 +33,27 @@ pub struct PageStorage {
     pub skipped: Option<String>,
 }
 
+impl PageStorage {
+    /// Remote's namespace allocation is a display estimate; unknown never becomes zero.
+    pub fn apply_attachment_usage(&mut self, usage: crate::attachments::UsageDetails) {
+        let bytes = match usage {
+            crate::attachments::UsageDetails::Known { charged_bytes, .. } => Some(charged_bytes),
+            crate::attachments::UsageDetails::Unknown
+            | crate::attachments::UsageDetails::Unsupported { .. } => None,
+        };
+        self.apply_attachment_bytes(bytes);
+    }
+    pub fn apply_attachment_bytes(&mut self, bytes: Option<u64>) {
+        self.attachments_bytes = bytes;
+        self.total_bytes = bytes.and_then(|attachments| {
+            self.content_bytes
+                .checked_add(self.history_bytes)?
+                .checked_add(self.comments_bytes)?
+                .checked_add(attachments)
+        });
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Storage {
@@ -248,6 +269,40 @@ fn measure_freed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn attachment_usage_reports_known_charged_bytes_and_unknown_separately() {
+        let mut row = PageStorage {
+            page_id: "page".into(),
+            title: None,
+            content_bytes: 10,
+            history_bytes: 20,
+            comments_bytes: 5,
+            attachments_bytes: None,
+            unused_attachment_bytes: None,
+            total_bytes: None,
+            freeable: Bytes::default(),
+            last_cleaned_automatically_at_ms: None,
+            skipped: None,
+        };
+        row.apply_attachment_usage(crate::attachments::UsageDetails::Known {
+            charged_bytes: 2048,
+            entries: 1,
+            active_uploads: 0,
+            retained_identities: 0,
+        });
+        assert_eq!(row.attachments_bytes, Some(2048));
+        assert_eq!(row.total_bytes, Some(2083));
+        assert_eq!(row.unused_attachment_bytes, None);
+        row.apply_attachment_usage(crate::attachments::UsageDetails::Unknown);
+        assert_eq!(row.attachments_bytes, None);
+        assert_eq!(row.total_bytes, None);
+        row.apply_attachment_usage(crate::attachments::UsageDetails::Unsupported {
+            hint: "unsupported".into(),
+        });
+        assert_eq!(row.attachments_bytes, None);
+        assert_eq!(row.total_bytes, None);
+    }
+
     #[test]
     fn space_reclaim_sums_partial_results_and_propagates_unknown() {
         let mut space = SpaceReclaim::new(false);

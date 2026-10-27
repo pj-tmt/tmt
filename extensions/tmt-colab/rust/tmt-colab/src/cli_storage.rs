@@ -137,8 +137,21 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let report = storage::read(&store, &key, &layout, &mut decoder)?;
+    let mut report = storage::read(&store, &key, &layout, &mut decoder)?;
     store.close()?;
+    // The active owner service can supply per-page Remote namespace allocation. A missing or
+    // slow service leaves it unknown; storage reporting never starts a service.
+    if layout.running().unwrap_or(false) {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        for row in &mut report.pages {
+            let Some(wait) = until.checked_duration_since(std::time::Instant::now()) else {
+                break;
+            };
+            if let Ok(remote) = tmt_colab::storage_ipc::read(&layout, &row.page_id, wait) {
+                row.apply_attachment_bytes(remote.attachments_bytes);
+            }
+        }
+    }
     let json_output = args.get_flag("json");
     let mut out = tmt_cli_style::stream::stdout(json_output);
     if json_output {
@@ -146,7 +159,8 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     } else {
         writeln!(
             out,
-            "SPACE  default   space.db {} ({} free inside, returned on next cleanup)",
+            "SPACE  {}   space.db {} ({} free inside, returned on next cleanup)",
+            tmt_cli_style::table::escape(&report.space),
             human(report.db_bytes),
             human(report.db_free_bytes)
         )?;

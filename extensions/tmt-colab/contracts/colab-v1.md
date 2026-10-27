@@ -6519,9 +6519,14 @@ other retained content payloads and earlier baselines are history. Every counted
 in exactly one row. Own-namespace payloads are comments, including status and proposal records.
 SQLite receipt/hash ledgers, indexes, and physical overhead are outside these row counts; `dbBytes`
 and `dbFreeBytes` separately report physical DB size and SQLite free pages. The `space` response
-includes `version`, `space`, those DB values and `pages`. The object wire does not expose a complete
-per-object local inventory, so attachment totals and unused bytes are null when not established,
-and the additive total is null when any part is unknown. No attachments are removed here (#5284).
+includes `version`, `space`, those DB values and `pages`. When the active local object channel
+supports namespace usage, `attachmentsBytes` is its per-page `chargedBytes`: a conservative
+allocation that can include uploading and retained object identities, not an exact filesystem
+measurement. Unsupported, unavailable or timed-out usage is null. The object wire does not expose
+a complete per-object local inventory, so `unusedAttachmentBytes` is null; `totalBytes` sums known
+page payload bytes and the attachment allocation and is null when that allocation is unknown.
+Storage reads use a short bounded object-channel deadline without holding the sync lock. Reclaim
+never waits for object usage. No attachments are removed here (#5284).
 
 `freeable:{history,files}` estimates the bytes the next cleanup is expected to remove; the result
 reports what was actually freed. It selects current prune candidates using the same paired,

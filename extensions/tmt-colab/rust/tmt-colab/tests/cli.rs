@@ -12253,6 +12253,13 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
     let page = created["pageId"].as_str().unwrap();
     let before = pilot.call(&["page", "read", page, "--json"]);
     let storage = pilot.call(&["storage", "--json"]);
+    let human = pilot.command().args(["storage"]).output().unwrap();
+    assert!(human.status.success());
+    let human = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        human.contains(&format!("SPACE  {}", storage["space"].as_str().unwrap())),
+        "{human}"
+    );
     let row = storage["pages"]
         .as_array()
         .unwrap()

@@ -6977,3 +6977,134 @@ fn storage_reclaim_failure_returns_a_measured_error_to_owner_and_local_client() 
     assert!(report.error.is_some());
     assert_eq!(report.freed.history, Some(0));
 }
+
+#[test]
+fn storage_read_returns_charged_namespace_usage_to_owner_and_local_client() {
+    use tmt_extension_objects::{
+        Admit, AdmitInput, Budgets, Bus, Call, Caps, Checkpoint, Context, Counter, Decision,
+        Disclosure, Frame, Offer, Operation, Outcome, ResultFrame, Success, Usage, Uuid4,
+        negotiate,
+    };
+    let (probe, _passes) = std::sync::mpsc::channel();
+    let server = Running::start_with_rekey_probe(Tunnels::PRODUCT, None, None, Some(probe));
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO epoch_secrets VALUES (?,?,?)",
+            rusqlite::params![PAGE, format!("{:020}", 1), [8u8; 32].as_slice()],
+        )
+        .unwrap();
+    let frozen = prepare_write(&layout, &key, "<p>storage usage</p>");
+    tmt_colab::page::ipc::publish(&layout, &key, &frozen)
+        .unwrap()
+        .unwrap();
+    let link = negotiate(Instant::now() + Duration::from_secs(3), || {
+        Ok((
+            server.connect(),
+            Offer {
+                host: "127.0.0.1:51234".into(),
+                mount: "/r/fixture/x/colab/".into(),
+                generation: Uuid4::parse("40000000-0000-4000-8000-000000000095").unwrap(),
+            },
+        ))
+    })
+    .unwrap();
+    let bus = Bus::start(link, Budgets::contract(), Caps::contract(), None).unwrap();
+    let remote = std::thread::spawn(move || {
+        for turn in 0..3 {
+            let Frame::Request(request) = bus
+                .recv(Some(Instant::now() + Duration::from_secs(5)))
+                .unwrap()
+            else {
+                panic!("usage request");
+            };
+            let Call::Usage(scope) = request.call else {
+                panic!("namespace usage");
+            };
+            let usage = Usage {
+                charged_bytes: 2048,
+                entries: 1,
+                active_uploads: 0,
+                retained_identities: 0,
+            };
+            for (offset, boundary, disclosure) in [
+                (1, Checkpoint::Acquire, None),
+                (2, Checkpoint::Disclose, Some(Disclosure::Usage(usage))),
+            ] {
+                bus.send(&Frame::Admit(Admit {
+                    generation: request.generation,
+                    callback_id: Counter::new(turn * 2 + offset).unwrap(),
+                    request_id: request.request_id,
+                    boundary,
+                    context: Context::LocalExtension,
+                    operation: Operation {
+                        input: AdmitInput::Usage(scope),
+                        disclosure,
+                    },
+                }))
+                .unwrap();
+                let Frame::Admission(answer) = bus
+                    .recv(Some(Instant::now() + Duration::from_secs(5)))
+                    .unwrap()
+                else {
+                    panic!("admission reply");
+                };
+                assert_eq!(answer.decision, Decision::Allow);
+            }
+            bus.send(&Frame::Result(ResultFrame {
+                generation: request.generation,
+                request_id: request.request_id,
+                method: Call::Usage(scope).method(),
+                transfer_id: None,
+                outcome: Outcome::Success(Success::Usage(usage)),
+            }))
+            .unwrap();
+        }
+    });
+    let body = format!(r#"{{"version":1,"page":"{PAGE}","dryRun":false}}"#);
+    let response = server.event("/api/storage", &format!("{}\r\n", owner(DEVICE)), &body);
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    let value: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(value["attachmentsBytes"], 2048);
+    assert!(value["unusedAttachmentBytes"].is_null());
+    let row = tmt_colab::storage_ipc::read(&layout, PAGE, Duration::from_secs(2)).unwrap();
+    assert_eq!(row.attachments_bytes, Some(2048));
+    assert_eq!(
+        row.total_bytes,
+        Some(row.content_bytes + row.history_bytes + row.comments_bytes + 2048)
+    );
+    // The root-local storage CLI uses the live owner service for the same bounded usage.
+    let _serve_lock = layout.serve_lock().unwrap();
+    let core = server.root.join("storage-test-core");
+    tmt_test_support::write_executable(
+        &core,
+        b"#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' \"$TMT_COLAB_TEST_REPLY\"\n",
+        0o700,
+    )
+    .unwrap();
+    let reply = json!({"dataRoot": server.root}).to_string();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tmt-colab"))
+        .args(["storage", "--json"])
+        .env_clear()
+        .env("HOME", &server.root)
+        .env("TMT_HOME", &server.root)
+        .env("TMT_EXECUTABLE", &core)
+        .env("TMT_COLAB_TEST_REPLY", reply)
+        .env("PATH", "/usr/bin:/bin")
+        .env("TMT_AGENT", "1")
+        .env("BROWSER", "/usr/bin/false")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let cli: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let row = cli["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["pageId"] == PAGE)
+        .unwrap();
+    assert_eq!(row["attachmentsBytes"], 2048, "{row}");
+    remote.join().unwrap();
+}

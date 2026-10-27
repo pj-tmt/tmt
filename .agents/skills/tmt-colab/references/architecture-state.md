@@ -723,7 +723,8 @@ is added.
   confirmed-publication pruning stays the only payload-pruning owner; no broad old-epoch delete
   or epoch reset is added.
 - `storage.rs` reports additive retained payload bytes separately from SQLite file/free-page bytes;
-  `store/publication.rs` shares the exact prune predicates with its conservative read-only estimate.
+  `store/publication.rs` shares the exact prune predicates with its read-only estimate; an optional
+  bounded object-channel namespace usage reports charged attachment allocation without blocking reclaim.
   The owner-only storage routes use current device admission and the existing sync compaction path;
   the local automatic-clean timestamp is written best-effort only after a successful real pass.
   Unknown attachment inventory remains null, not a fabricated zero; object removal stays in #5284.

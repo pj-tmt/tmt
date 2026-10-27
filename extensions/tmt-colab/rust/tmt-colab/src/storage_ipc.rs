@@ -24,6 +24,30 @@ pub(crate) fn parse(body: &[u8]) -> Result<Request> {
     values::generated_id(&request.page).map_err(|_| Fault::Invalid)?;
     Ok(request)
 }
+/// Read one owner-local row, including any bounded namespace usage from the active serve.
+pub fn read(
+    layout: &Layout,
+    page: &str,
+    wait: std::time::Duration,
+) -> Result<storage::PageStorage> {
+    let body = serde_json::to_vec(&Request {
+        version: 1,
+        page: page.into(),
+        dry_run: false,
+    })?;
+    let socket = crate::ipc::send(layout, LOCAL_READ, &body).map_err(|_| Fault::Unavailable)?;
+    let (code, body) = crate::ipc::receive(socket, wait).map_err(|_| Fault::Unavailable)?;
+    if code != 200 {
+        return Err(Fault::Unavailable.into());
+    }
+    let row: storage::PageStorage =
+        serde_json::from_slice(&body).map_err(|_| Fault::Unavailable)?;
+    if row.page_id != page {
+        return Err(Fault::Unavailable.into());
+    }
+    Ok(row)
+}
+
 /// Reclaim through the active owner service; an uncertain reply remains unavailable.
 pub fn reclaim(layout: &Layout, page: &str, dry_run: bool) -> Result<storage::Reclaim> {
     let body = serde_json::to_vec(&Request {

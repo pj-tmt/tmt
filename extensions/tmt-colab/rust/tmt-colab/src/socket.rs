@@ -573,14 +573,20 @@ fn serve(
                 let status = if report.error.is_some() { 503 } else { 200 };
                 Ok((status, serde_json::to_vec(&report)?))
             } else {
-                Ok((
-                    200,
-                    serde_json::to_vec(&server.read_storage(
+                let mut row =
+                    server.read_storage(&input.page, request.context.as_deref(), browser)?;
+                // Admission is complete and the sync lock is released before this optional read.
+                let source = registration.and_then(|service| service.lock().ok()?.save_source());
+                if let Some(source) = source {
+                    let deadline =
+                        std::time::Instant::now() + std::time::Duration::from_millis(500);
+                    row.apply_attachment_usage(objects.storage_usage(
                         &input.page,
-                        request.context.as_deref(),
-                        browser,
-                    )?)?,
-                ))
+                        &source,
+                        deadline,
+                    ));
+                }
+                Ok((200, serde_json::to_vec(&row)?))
             }
         })();
         match result {
