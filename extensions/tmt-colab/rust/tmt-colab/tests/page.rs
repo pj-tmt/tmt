@@ -2146,15 +2146,40 @@ fn reclaim_estimate_includes_admitted_owner_stream_with_an_active_tail() {
     let (mut f, _) = deleted_owner_history("current", false);
     let mut device = f.owner_device("30000000-0000-4000-8000-000000000093", 93);
     let (seq, head) = device.type_text(&mut f, "owner history");
-    let raw: Vec<u8> = f.sql().query_row("SELECT payload FROM receipts WHERE stream=?1 AND seq=?2", rusqlite::params![device.id, format!("{seq:020}")], |r| r.get(0)).unwrap();
-    let scope = StreamScope { page: PAGE, epoch: 1, stream: device.id };
-    for held in device.checkpoint_pair(&f, seq, head) { f.store.checkpoint(&held_envelope(scope, seq, &held)).unwrap(); }
-    f.sql().execute("UPDATE receipts SET payload=?1 WHERE stream=?2 AND seq=?3", rusqlite::params![raw, device.id, format!("{seq:020}")]).unwrap();
+    let raw: Vec<u8> = f
+        .sql()
+        .query_row(
+            "SELECT payload FROM receipts WHERE stream=?1 AND seq=?2",
+            rusqlite::params![device.id, format!("{seq:020}")],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let scope = StreamScope {
+        page: PAGE,
+        epoch: 1,
+        stream: device.id,
+    };
+    for held in device.checkpoint_pair(&f, seq, head) {
+        f.store
+            .checkpoint(&held_envelope(scope, seq, &held))
+            .unwrap();
+    }
+    f.sql()
+        .execute(
+            "UPDATE receipts SET payload=?1 WHERE stream=?2 AND seq=?3",
+            rusqlite::params![raw, device.id, format!("{seq:020}")],
+        )
+        .unwrap();
     device.type_text(&mut f, " new owner tail");
     let mut decoder = f.decoder();
-    let preview = tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, true).unwrap();
-    assert!(preview.freeable.history > 0, "an admitted owner candidate must be included");
-    let result = tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, false).unwrap();
+    let preview =
+        tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, true).unwrap();
+    assert!(
+        preview.freeable.history > 0,
+        "an admitted owner candidate must be included"
+    );
+    let result =
+        tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, false).unwrap();
     assert!(result.error.is_none());
     assert!(result.freed.history.unwrap() > 0);
 }
