@@ -115,6 +115,14 @@ impl ScrollState {
         true
     }
 
+    /// The read position, only while the body overflows its viewport: a body that fits has
+    /// nothing to locate, so every modal paints no position for it.
+    pub fn overflow_position(&self) -> Option<String> {
+        (self.limit() > 0)
+            .then(|| self.position())
+            .filter(|position| !position.is_empty())
+    }
+
     pub fn position(&self) -> String {
         if self.content == 0 || self.area.height == 0 {
             return String::new();

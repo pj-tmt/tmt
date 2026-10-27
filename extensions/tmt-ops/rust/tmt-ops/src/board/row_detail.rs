@@ -1177,17 +1177,22 @@ pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
             );
         }
     }
-    strip::paint_left(
-        frame.buffer_mut(),
-        areas.position,
-        Line::styled(
-            reader.selection.as_ref().map_or_else(
-                || scroll.position(),
-                |selection| format!("source {} · {}", selection.key.request, scroll.position()),
-            ),
-            look.role(Role::Muted),
-        ),
-    );
+    // The selection's source is always named; the position only while the body overflows.
+    let position = scroll.overflow_position();
+    let label = match (&reader.selection, position) {
+        (Some(selection), Some(position)) => {
+            Some(format!("source {} · {position}", selection.key.request))
+        }
+        (Some(selection), None) => Some(format!("source {}", selection.key.request)),
+        (None, position) => position,
+    };
+    if let Some(label) = label {
+        strip::paint_left(
+            frame.buffer_mut(),
+            areas.position,
+            Line::styled(label, look.role(Role::Muted)),
+        );
+    }
     strip::paint_left(
         frame.buffer_mut(),
         areas.footer,

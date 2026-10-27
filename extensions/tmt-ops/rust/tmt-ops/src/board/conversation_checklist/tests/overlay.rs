@@ -803,10 +803,26 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
 
 #[test]
 fn the_counter_counts_items_not_headings_and_an_empty_list_has_none() {
+    // A list that fits has nothing to locate.
     let (app, _) = opened(vec![link(1), todo(2), todo(3), done(4), done(5)]);
     let screen = paint(&app);
-    assert!(screen.contains("1–3 of 3"), "{screen}");
-    assert!(!screen.contains("of 7"));
+    assert!(
+        !screen.contains(" of 3") && !screen.contains("of 7"),
+        "{screen}"
+    );
+    // One that overflows counts its 30 open items, not the headings between the groups.
+    let (app, _) = opened(
+        (1..=30)
+            .map(todo)
+            .chain((31..=40).map(done))
+            .collect::<Vec<_>>(),
+    );
+    let screen = paint(&app);
+    assert!(screen.contains(" of 30"), "{screen}");
+    assert!(
+        !screen.contains("of 31") && !screen.contains("of 32"),
+        "{screen}"
+    );
     let (app, _) = opened(vec![]);
     let screen = paint(&app);
     assert!(screen.contains("No items yet"), "{screen}");

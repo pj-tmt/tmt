@@ -710,11 +710,13 @@ fn render_inner(
         };
         paint_node(child, area, buffer, theme, depth, &mut *selection)?;
     }
+    // The read position locates a body that overflows; a body that fits paints none and the
+    // reserved row stays blank.
     let mut position = scene.position.clone();
-    position.text = Some(
-        list.as_ref()
-            .map_or_else(|| scroll.position(), selectable_position),
-    );
+    position.text = Some(match scroll.overflow_position() {
+        None => String::new(),
+        Some(read) => list.as_ref().map_or(read, selectable_position),
+    });
     paint_node(
         &position,
         areas.position,

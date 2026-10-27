@@ -73,6 +73,30 @@ fn open_response(app: &mut App) {
 }
 
 #[test]
+fn the_reader_names_its_position_only_while_the_body_overflows() {
+    let located = |body: String| {
+        let mut app = response_workspace();
+        app.view.as_mut().unwrap().replies = vec![json!({
+            "recipientId":crate::board::app::workspace::tests::MEMBER,
+            "requestId":"r1", "response":body
+        })];
+        open_response(&mut app);
+        let screen = text(&draw(&app, 80, 24));
+        screen.contains("more ↓") || screen.contains(" of ")
+    };
+    assert!(!located("One short line.".into()), "a body that fits");
+    assert!(
+        located(
+            (0..60)
+                .map(|n| format!("line {n}"))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        ),
+        "a body that overflows"
+    );
+}
+
+#[test]
 fn pending_workspace_reader_rejects_late_bodies_after_request_or_membership_changes() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM};
     for change in ["request", "reply", "membership"] {

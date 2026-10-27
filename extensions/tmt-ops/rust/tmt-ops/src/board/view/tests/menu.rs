@@ -42,7 +42,10 @@ fn the_menu_is_shared_overlay_chrome_with_its_keys_on_the_last_inside_line() {
     assert!(screen[top].contains('┐'), "{screen:#?}");
     assert!(screen[top + 1].contains("│ y        ›copy"), "{screen:#?}");
     assert!(screen[top + 2].contains("│ backspace back"), "{screen:#?}");
-    assert!(screen[top + 3].contains("1–2 of 2"), "{screen:#?}");
+    assert!(
+        !screen[top + 3].contains(" of "),
+        "a menu that fits paints no position, the row stays: {screen:#?}"
+    );
     assert!(
         screen[top + 4].contains("Enter runs · Esc closes"),
         "{screen:#?}"
