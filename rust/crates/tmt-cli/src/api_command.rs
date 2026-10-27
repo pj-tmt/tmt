@@ -154,6 +154,47 @@ mod tests {
     };
 
     #[test]
+    fn a_session_answers_pipelined_requests_split_across_writes_in_order() {
+        // Each write ends inside the next frame, so every boundary leaves buffered input.
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let worker = thread::spawn(move || {
+            let mut seen = Vec::new();
+            let result = serve_session(&server, &server, |payload| {
+                seen.push(payload.to_vec());
+                Response {
+                    status: 0,
+                    body: [b"{\"echo\":".as_slice(), payload, b"}"].concat(),
+                    stale: false,
+                }
+            });
+            (result, seen)
+        });
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        let mut next = || {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            line
+        };
+        client.write_all(b"{\"n\":1}\n{\"n\"").unwrap();
+        assert_eq!(next(), "{\"echo\":{\"n\":1}}\n");
+        client.write_all(b":2}\n{\"n\":3}\n{").unwrap();
+        assert_eq!(next(), "{\"echo\":{\"n\":2}}\n");
+        assert_eq!(next(), "{\"echo\":{\"n\":3}}\n");
+        client.write_all(b"\"n\":4}\n").unwrap();
+        assert_eq!(next(), "{\"echo\":{\"n\":4}}\n");
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let (result, seen) = worker.join().unwrap();
+        assert_eq!(result.unwrap(), 0);
+        assert_eq!(
+            seen,
+            [r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#, r#"{"n":4}"#].map(|s| s.as_bytes().to_vec())
+        );
+    }
+
+    #[test]
     fn a_session_flushes_before_eof_and_ends_after_one_stale_response() {
         let (mut client, server) = UnixStream::pair().unwrap();
         client

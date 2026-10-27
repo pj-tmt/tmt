@@ -127,8 +127,10 @@ independently of JSON escaping. These are transport ceilings, not permissions
 to enlarge any underlying command's resource.
 
 The server waits indefinitely between frames. Once the first byte of a frame
-arrives, acquisition has a five-second deadline; publishing a response has a
-separate five-second deadline. Oversize or stalled framing terminates the server.
+arrives, acquisition has a five-second deadline. Bytes already buffered behind a
+complete frame start that deadline when the server begins reading the next frame,
+so request handling time never counts. Publishing a response has a separate
+five-second deadline. Oversize or stalled framing terminates the server.
 There are no detached workers, listeners or persistent open database handles.
 Reads retain ordinary storage opening, migration, expiry and retention behavior;
 they never acknowledge an attention revision or submit a final.

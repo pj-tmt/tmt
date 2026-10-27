@@ -26,7 +26,9 @@ newlines must be escaped. Ordinary request errors, including malformed JSON on a
 complete line, produce their normal error resource and leave the session usable.
 
 The process waits for idle input without a timer. Once a partial frame arrives it
-has five seconds to finish; each response also has a five-second write bound.
+has five seconds to finish. Bytes pipelined behind a complete request start those
+five seconds when the process begins reading that next frame, so request handling
+time never counts. Each response also has a five-second write bound.
 Incomplete EOF, an oversized frame, terminal stdio or failed/timed-out transport
 ends the process with a nonzero status and a stderr diagnostic. Earlier complete
 response lines remain valid; a missing response does not authorize replaying a
