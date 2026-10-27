@@ -274,3 +274,34 @@ it('persists v1 mention bytes without creator provenance and restores them as ma
   });
   expect(draft.mentions?.[0].defaultCreator).toBe(true);
 });
+
+it('keeps an edited pending creator reference without losing an existing v1 paired draft', async () => {
+  const { seal } = await import('../src/local-seal.js');
+  const previous = {
+    value: '@old Kept',
+    edited: true,
+    mentions: [
+      { key: { machine: 'old-machine', agent: 'old-agent' }, range: { start: 0, end: 4 } },
+    ],
+  };
+  const bytes = new TextEncoder().encode(
+    JSON.stringify({ v: 1, drafts: [{ target: 'old', edit: previous }] }),
+  );
+  stored.set(
+    RECORD,
+    await seal(await draftKey('device'), ['tmt-colab-drafts-v1', 'space', 'device', 'page'], bytes),
+  );
+  expect((await store().load('page'))?.get('old')).toEqual(previous);
+  const pending = {
+    value: '@creator My draft',
+    edited: true,
+    mentions: [{ key: { agent: 'creator-id' }, range: { start: 0, end: 8 }, defaultCreator: true }],
+  } as ComposerEdit;
+  expect(await store().apply('page', new Map([['chat', pending]]))).toBe(true);
+  const loaded = await store().load('page');
+  expect(loaded?.get('old')).toEqual(previous);
+  expect(loaded?.get('chat')).toEqual({
+    ...pending,
+    mentions: [{ key: { agent: 'creator-id' }, range: { start: 0, end: 8 } }],
+  });
+});

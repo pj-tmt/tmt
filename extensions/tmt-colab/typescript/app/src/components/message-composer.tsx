@@ -130,6 +130,16 @@ function MessageField(props: MessageComposerProps) {
       discrete: true,
     });
   }, [editor, props.creatorDefault, props.disabled]);
+  useEffect(() => {
+    const candidates = props.candidates;
+    if (candidates)
+      editor.update(
+        () => {
+          $bindMessageMentions(candidates);
+        },
+        { discrete: true },
+      );
+  }, [editor, props.candidates]);
   const candidates = fuzzyMessageCandidates(props.candidates ?? [], query?.query ?? '');
   const options = candidates.map((agent) => ({
     value: `${agent.machine}:${agent.agent}`,

@@ -32,7 +32,10 @@ import type { PageCreator } from '../src/question-registry.js';
 it('routing uses the editable creator ID and never falls back to the old creator or a display label', () => {
   const legacy = { agentId: 'old-agent', machineId: 'old-machine' };
   const creator = { agent: { id: 'new-agent', name: 'A name' } } as PageCreator;
-  expect(creatorTarget({ creator, creationRecipient: legacy })).toEqual({ agentId: 'new-agent' });
+  expect(creatorTarget({ creator, creationRecipient: legacy })).toEqual({
+    agentId: 'new-agent',
+    label: 'A name',
+  });
   expect(creatorTarget({ creationRecipient: legacy })).toEqual(legacy);
   expect(creatorTarget({})).toBeUndefined();
 });

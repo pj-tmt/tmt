@@ -1,6 +1,9 @@
 import { BrowserField } from '@tmt/browser-ui/react';
 import {
   useEffect,
+  useLayoutEffect,
+  useReducer,
+  useState,
   useId,
   useRef,
   type ComponentProps,
@@ -70,11 +73,22 @@ export const richInputExtension = defineExtension({
 
 /** The shared editing lifetime. Callers own token plugins and every effect outside editing. */
 export function RichInput<Edit extends RichInputEdit>(props: RichInputProps<Edit>) {
+  // Each mount starts with its supplied document, including decorators. A later
+  // effect would expose an empty editor on its first visible frame.
+  const [extension] = useState(() =>
+    defineExtension({
+      name: 'Colab/InitialRichInput',
+      dependencies: [props.extension ?? richInputExtension],
+      $initialEditorState: () => props.document.replace(props.edit),
+    }),
+  );
+  // Attaching ContentEditable creates Lexical's decorator hosts during commit.
+  // Read their external-store snapshot again before paint, rather than waiting
+  // for the passive subscription to notice those hosts after the first frame.
+  const [, refreshDecorators] = useReducer((revision: number) => revision + 1, 0);
+  useLayoutEffect(refreshDecorators, [refreshDecorators]);
   return (
-    <LexicalExtensionComposer
-      extension={props.extension ?? richInputExtension}
-      contentEditable={null}
-    >
+    <LexicalExtensionComposer extension={extension} contentEditable={null}>
       <EditingLifetime {...props} />
       {props.children ?? <RichInputControl {...props} />}
     </LexicalExtensionComposer>
