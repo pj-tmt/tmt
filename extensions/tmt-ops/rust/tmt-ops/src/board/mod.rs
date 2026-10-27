@@ -38,6 +38,7 @@ mod key_value;
 mod keycap;
 mod lane;
 mod limits;
+mod local_time;
 mod member_session;
 mod new_member;
 mod switch_tool;

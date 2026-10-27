@@ -51,23 +51,9 @@ pub(in crate::board) fn clock(
     }
 }
 
-/// A future instant in the schedule's stored zone: the time today, else with its date.
+/// An instant in the schedule's stored zone, by the zone's name.
 pub(in crate::board) fn time(slot_ms: i64, now_ms: i64, zone: &str) -> Option<String> {
-    let zone = jiff::tz::TimeZone::get(zone).ok()?;
-    let slot = jiff::Timestamp::from_millisecond(slot_ms)
-        .ok()?
-        .to_zoned(zone.clone());
-    let now = jiff::Timestamp::from_millisecond(now_ms)
-        .ok()?
-        .to_zoned(zone);
-    Some(
-        slot.strftime(if slot.date() == now.date() {
-            "%H:%M"
-        } else {
-            "%a %m-%d %H:%M"
-        })
-        .to_string(),
-    )
+    crate::board::local_time::time_in(slot_ms, now_ms, &jiff::tz::TimeZone::get(zone).ok()?)
 }
 
 pub(in crate::board) fn zone(view: &JobView) -> String {
