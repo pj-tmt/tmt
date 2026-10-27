@@ -331,7 +331,7 @@ export async function settingsPage(
           page.access === 'live' &&
           people?.access === 'live' &&
           people.roster?.administrator === false
-            ? 'Only a designated admin can confirm an invitation. Use tmt remote members on this machine.'
+            ? 'To confirm an invitation in a browser, use the owner browser set up on this machine. Use tmt remote members on this machine.'
             : 'Invitation access is unconfirmed. Use tmt remote members on this machine.';
     }
     ownerInvitations?.update();

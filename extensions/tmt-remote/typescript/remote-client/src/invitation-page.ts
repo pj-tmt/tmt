@@ -84,7 +84,7 @@ export function invitationPage(
         throw new Error('Mismatched invitation outcome.');
       status.textContent =
         result.state === 'confirmed'
-          ? `Confirmed; sending ${result.sendingEnabled ? 'on' : 'off'}. The terminal will show this decision. Delivery of the invitation receipt is observed separately.`
+          ? `Confirmed; sending ${result.sendingEnabled ? 'on' : 'off'}. The terminal will show this decision.`
           : 'Invitation declined. No member was created by this decision.';
     }
     unresolved = undefined;
@@ -113,7 +113,7 @@ export function invitationPage(
         get('invitation-name').textContent = value.candidate.name;
         get('invitation-words').textContent = value.candidate.words.join(' ');
         get('invitation-expires').textContent =
-          `Expires ${new Date(value.expiresAtMs).toLocaleTimeString()}.`;
+          `Expires ${new Date(value.expiresAtMs).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}.`;
         status.textContent =
           'Compare these four words with the person joining. The terminal and this browser show the same candidate; the first decision wins.';
         form.hidden = false;
@@ -138,7 +138,7 @@ export function invitationPage(
       if (!here() || generation !== turn) return;
       status.textContent =
         error instanceof RefusalError
-          ? 'This browser cannot read the invitation. Use the designated owner browser or confirm in the terminal.'
+          ? 'This browser cannot read the invitation. Use the owner browser set up on this machine or confirm in the terminal.'
           : 'The current invitation could not be verified. Check access on Overview and try again.';
     } finally {
       busy = false;
@@ -175,7 +175,7 @@ export function invitationPage(
     };
     busy = true;
     controls();
-    status.textContent = 'Submitting this decision once…';
+    status.textContent = 'Sending your decision…';
     try {
       const outcome = await client.decide(input);
       if (here() && generation === turn) showOutcome(outcome);

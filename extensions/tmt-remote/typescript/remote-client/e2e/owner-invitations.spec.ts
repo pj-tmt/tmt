@@ -8,9 +8,10 @@ let server: ViteDevServer;
 let origin: string;
 type Fixture = {
   reads: number;
+  expiresAtMs: number;
   decisions: Record<string, unknown>[];
   lookups: number;
-  mode: 'normal' | 'lost' | 'refused' | 'late' | 'terminal-won';
+  mode: 'normal' | 'lost' | 'refused' | 'late' | 'terminal-won' | 'slow-decision';
   original: 'unknown' | 'confirmed';
   release?: () => void;
   attach: () => void;
@@ -32,13 +33,13 @@ test.beforeAll(async () => {
   const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><main class="tmt-page">${document.slice(start, end)}</main><script type="module">
     import { invitationPage } from '/src/invitation-page.ts';
     import { RefusalError } from '/src/operations.ts';
-    const fixture = window.invitationFixture = {reads:0,decisions:[],lookups:0,mode:'normal',original:'unknown'};
+    const fixture = window.invitationFixture = {reads:0,expiresAtMs:Date.UTC(2030,0,2,13,42,35),decisions:[],lookups:0,mode:'normal',original:'unknown'};
     const candidate = {clientId:'22222222-2222-4222-8222-222222222222',name:'Guest',words:['apple','birch','cedar','dawn'],snapshot:'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc'};
     const result = input => ({operationId:input.operationId,state:'committed',sessionEnded:false,result:{invitation:input.matched ? {offerId:input.offerId,clientId:candidate.clientId,memberId:'member',state:'confirmed',sendingEnabled:input.sending} : {offerId:input.offerId,clientId:candidate.clientId,state:'refused'}}});
     const controller = new AbortController();
     const attach = invitationPage(document.getElementById('owner-invitation'),controller.signal,() => ({
-      async pending() { fixture.reads++; if(fixture.mode==='terminal-won') return {state:'current',offerId:'11111111-1111-4111-8111-111111111111',expiresAtMs:Date.now()+60000,phase:'confirmed',localConfirmationKnown:true,cleanup:'not-requested',candidate:null}; if(fixture.mode==='late') await new Promise(resolve=>fixture.release=resolve); if(fixture.mode==='refused') throw new RefusalError('REMOTE_MANAGEMENT_READ_ONLY'); return {state:'current',offerId:'11111111-1111-4111-8111-111111111111',expiresAtMs:Date.now()+60000,phase:'awaiting-owner',localConfirmationKnown:false,cleanup:'not-requested',candidate}; },
-      async decide(input) { fixture.decisions.push(structuredClone(input)); if(fixture.mode==='terminal-won') return {operationId:input.operationId,state:'refused',reason:'REMOTE_INVITATION_DECIDED'}; if(fixture.mode==='lost') throw new Error('lost answer'); return result(input); },
+      async pending() { fixture.reads++; if(fixture.mode==='terminal-won') return {state:'current',offerId:'11111111-1111-4111-8111-111111111111',expiresAtMs:Date.now()+60000,phase:'confirmed',localConfirmationKnown:true,cleanup:'not-requested',candidate:null}; if(fixture.mode==='late') await new Promise(resolve=>fixture.release=resolve); if(fixture.mode==='refused') throw new RefusalError('REMOTE_MANAGEMENT_READ_ONLY'); return {state:'current',offerId:'11111111-1111-4111-8111-111111111111',expiresAtMs:fixture.expiresAtMs,phase:'awaiting-owner',localConfirmationKnown:false,cleanup:'not-requested',candidate}; },
+      async decide(input) { fixture.decisions.push(structuredClone(input)); if(fixture.mode==='slow-decision') await new Promise(resolve=>fixture.release=resolve); if(fixture.mode==='terminal-won') return {operationId:input.operationId,state:'refused',reason:'REMOTE_INVITATION_DECIDED'}; if(fixture.mode==='lost') throw new Error('lost answer'); return result(input); },
       async operation(id) { fixture.lookups++; return fixture.original==='unknown' ? {operationId:id,state:'unknown',reason:'effect_outcome_unconfirmed'} : result(fixture.decisions[0]); },
     }));
     fixture.attach=()=>attach({}); fixture.end=()=>controller.abort(); fixture.attach();
@@ -68,6 +69,21 @@ test('words require explicit comparison; sending defaults off and the decision i
 }, info) => {
   await page.goto(`${origin}/remote/members`);
   await expect(page.getByText('apple birch cedar dawn')).toBeVisible();
+  const expiry = await page.evaluate(() => {
+    const { expiresAtMs } = (window as unknown as { invitationFixture: Fixture }).invitationFixture;
+    return `Expires ${new Date(expiresAtMs).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}.`;
+  });
+  await expect(page.locator('#invitation-expires')).toHaveText(expiry);
+  expect(
+    await page
+      .locator('#invitation-candidate')
+      .evaluate((candidate) =>
+        Boolean(
+          candidate.compareDocumentPosition(document.querySelector('#invitation-refresh')!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ),
+  ).toBe(true);
   const confirm = page.getByRole('button', { name: 'Confirm invitation', exact: true });
   await expect(confirm).toBeDisabled();
   await expect(page.getByRole('checkbox', { name: 'Allow this member' })).not.toBeChecked();
@@ -79,13 +95,42 @@ test('words require explicit comparison; sending defaults off and the decision i
     animations: 'disabled',
   });
   await confirm.click();
-  await expect(page.getByRole('status')).toContainText('Confirmed; sending off.');
+  await expect(page.getByRole('status')).toHaveText(
+    'Confirmed; sending off. The terminal will show this decision.',
+  );
   const decisions = await page.evaluate(
     () => (window as unknown as { invitationFixture: Fixture }).invitationFixture.decisions,
   );
   expect(decisions).toHaveLength(1);
   expect(decisions[0]).toMatchObject({ matched: true, sending: false });
   await expect(page.getByRole('button', { name: 'Check original outcome' })).toBeHidden();
+});
+test('sending status keeps the decision controls fenced while the answer is pending', async ({
+  page,
+}) => {
+  await page.goto(`${origin}/remote/members`);
+  await expect(page.getByText('apple birch cedar dawn')).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { invitationFixture: Fixture }).invitationFixture.mode = 'slow-decision';
+  });
+  await page.getByRole('checkbox', { name: 'I compared' }).check();
+  const confirm = page.getByRole('button', { name: 'Confirm invitation', exact: true });
+  await confirm.click();
+  await expect(page.getByRole('status')).toHaveText('Sending your decision…');
+  await expect(confirm).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Check invitation', exact: true })).toBeDisabled();
+  await page.evaluate(() => {
+    (window as unknown as { invitationFixture: Fixture }).invitationFixture.release?.();
+  });
+  await expect(page.getByRole('status')).toHaveText(
+    'Confirmed; sending off. The terminal will show this decision.',
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { invitationFixture: Fixture }).invitationFixture.decisions.length,
+    ),
+  ).toBe(1);
 });
 test('decline needs no word or sending consent and both choices reset on a new read', async ({
   page,
@@ -207,4 +252,60 @@ test('a definite terminal-winner refusal unlocks refresh and shows its confirmed
       return { reads: f.reads, decisions: f.decisions.length, lookups: f.lookups };
     }),
   ).toEqual({ reads: 2, decisions: 1, lookups: 0 });
+});
+
+// These captures use the real owner markup, styles and presenter with a local mock port.
+// Authority and signed effects are tested separately by the native ceremony tests.
+test('invitation presentation at wide and narrow sizes in both themes', async ({ page }, info) => {
+  for (const width of [390, 1440]) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' });
+      await page.goto(`${origin}/remote/members`);
+      await expect(page.getByText('apple birch cedar dawn')).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      const wordsSize = await page
+        .locator('#invitation-words')
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(wordsSize).toBeGreaterThanOrEqual(19);
+      const gap = await page.locator('#invitation-refresh').evaluate((refresh) => {
+        const actions = document.querySelector('.invitation-actions')!;
+        return refresh.getBoundingClientRect().top - actions.getBoundingClientRect().bottom;
+      });
+      expect(gap).toBeGreaterThanOrEqual(8);
+      await page.screenshot({
+        path: info.outputPath(`invitation-${width}-${theme}-candidate.png`),
+        fullPage: true,
+        animations: 'disabled',
+      });
+      await page.evaluate(() => {
+        (window as unknown as { invitationFixture: Fixture }).invitationFixture.mode = 'refused';
+      });
+      await page.getByRole('button', { name: 'Check invitation', exact: true }).click();
+      await expect(page.getByRole('status')).toContainText('cannot read the invitation');
+      await expect(page.locator('#invitation-candidate')).toBeHidden();
+      await page.mouse.move(0, 0);
+      await page.screenshot({
+        path: info.outputPath(`invitation-${width}-${theme}-refused.png`),
+        fullPage: true,
+        animations: 'disabled',
+      });
+      await page.evaluate(() => {
+        (window as unknown as { invitationFixture: Fixture }).invitationFixture.mode =
+          'terminal-won';
+      });
+      await page.getByRole('button', { name: 'Check invitation', exact: true }).click();
+      await expect(page.getByRole('status')).toContainText(
+        'confirmed and its receipt was delivered',
+      );
+      await page.mouse.move(0, 0);
+      await page.screenshot({
+        path: info.outputPath(`invitation-${width}-${theme}-current.png`),
+        fullPage: true,
+        animations: 'disabled',
+      });
+    }
+  }
 });

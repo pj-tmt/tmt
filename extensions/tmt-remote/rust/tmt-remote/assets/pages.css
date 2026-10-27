@@ -937,4 +937,6 @@ body:not(:has(.tmt-ui-shell)) {
 .invitation-choices { margin-block: var(--tmt-ui-space-l); }
 .invitation-choices .tmt-ui-choice { padding-block: var(--tmt-ui-space-s); }
 .invitation-actions { display: flex; flex-wrap: wrap; gap: var(--tmt-ui-space-s); }
-#invitation-words { font-family: var(--tmt-ui-font-mono); font-weight: 600; }
+#invitation-heading + p { margin-block-start: var(--tmt-ui-space-xs); }
+#invitation-candidate:not([hidden]) + #invitation-refresh { margin-block-start: var(--tmt-ui-space-s); }
+#invitation-words { font-family: var(--tmt-ui-font-mono); font-size: var(--tmt-ui-card-title-size); font-weight: 600; }
