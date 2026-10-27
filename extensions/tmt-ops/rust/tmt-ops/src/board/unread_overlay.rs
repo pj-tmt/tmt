@@ -729,4 +729,4 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

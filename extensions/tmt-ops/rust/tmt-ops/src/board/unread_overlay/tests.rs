@@ -104,6 +104,56 @@ fn arrive(app: &mut App, member: &str, observation: Observation) {
     app.unread_overlay_arrived(session, &read, observation);
 }
 
+/// The overlay scenes the home oracle records.
+pub(in crate::board) const SCENES: &[&str] = &[
+    "unread-overlay-all",
+    "unread-overlay-agent",
+    "unread-overlay-loading",
+    "unread-overlay-failed",
+];
+
+/// An opened overlay: two agents' unread answers, the way `scene` names.
+pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
+    let now = crate::status::now_ms();
+    let mut app = app_with_two_members();
+    app.view.as_mut().unwrap().look = look;
+    install(
+        &mut app,
+        &[
+            (MEMBER, "w-old", now - 2_000_000, "final"),
+            (MEMBER, "w-new", now - 600_000, "final"),
+            (OTHER, "c-one", now - 900_000, "final"),
+        ],
+    );
+    let scope = if scene == "unread-overlay-agent" {
+        Scope::Member(MEMBER.into())
+    } else {
+        Scope::All
+    };
+    app.open_unread(&scope);
+    let worker = replies(
+        MEMBER,
+        &[
+            ("w-old", "Rebased the branch.\n\nThe checks are green."),
+            ("w-new", "Opened the pull request."),
+        ],
+    );
+    let core = replies(OTHER, &[("c-one", "The migration is in.")]);
+    match scene {
+        "unread-overlay-loading" => {}
+        "unread-overlay-failed" => {
+            arrive(&mut app, MEMBER, worker);
+            arrive(&mut app, OTHER, Observation::Unavailable);
+        }
+        "unread-overlay-agent" => arrive(&mut app, MEMBER, worker),
+        _ => {
+            arrive(&mut app, MEMBER, worker);
+            arrive(&mut app, OTHER, core);
+        }
+    }
+    app
+}
+
 #[test]
 fn the_overlay_lists_unread_answers_by_agent_oldest_first_with_a_count_per_group() {
     crate::status::with_now_ms(10_000_000, || {

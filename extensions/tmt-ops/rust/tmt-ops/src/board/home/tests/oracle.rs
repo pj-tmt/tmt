@@ -1024,6 +1024,17 @@ fn quota_details_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// The Unread overlay: both scopes, loading and a failed agent read.
+fn unread_overlay_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::unread_overlay::tests::SCENES,
+        |_| grid(&[100, 60], &[36]),
+        |scene, look, _, _| crate::board::unread_overlay::tests::capture_case(scene, look),
+        |_, _| {},
+    )
+}
+
 const NOW: u64 = 1_791_600_000_000;
 
 fn captures() -> Value {
@@ -1073,6 +1084,7 @@ fn captures() -> Value {
         frames.extend(terminal_tab_frames(&mut styles));
         frames.extend(settings_keys_frames(&mut styles));
         frames.extend(quota_details_frames(&mut styles));
+        frames.extend(unread_overlay_frames(&mut styles));
         let styles = styles
             .0
             .into_iter()
