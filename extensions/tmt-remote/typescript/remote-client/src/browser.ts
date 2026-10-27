@@ -1,7 +1,6 @@
-import { invitationPage } from './invitation-page.js';
+export { invitationPage } from './invitation-page.js';
 import { pairingGuidance } from './remote-state.js';
 export { invitePage } from './invite-page.js';
-import { remoteItem } from './remote-routes.js';
 export {
   bindSyncContext,
   syncDocumentPath,
@@ -459,8 +458,6 @@ export async function landingPage(
     );
   }
   const registryState = registry ?? remoteRegistryPage();
-  const invitationRoot = document.getElementById('owner-invitation');
-  const ownerInvitations = invitationRoot ? invitationPage(invitationRoot, lifetime) : undefined;
   const button = element('check') as HTMLButtonElement;
   let attempt = 0;
   let departed = false;
@@ -479,8 +476,7 @@ export async function landingPage(
   let guidanceState: EntryState = 'checking';
   let guidanceEnded = false;
   function showGuidance(): void {
-    const invite = remoteItem(location.pathname)?.id === 'invites';
-    const guidance = pairingGuidance(guidanceState, guidanceEnded, invite);
+    const guidance = pairingGuidance(guidanceState, guidanceEnded);
     element('remote-guidance').hidden = !Object.values(guidance).some(Boolean);
     element('remote-guidance-heading').textContent = guidance.pair
       ? 'Connect a browser'
@@ -490,7 +486,6 @@ export async function landingPage(
   }
   window.addEventListener('popstate', showGuidance, { signal: lifetime });
   const render = (state: EntryState, validated = false, refusalCode?: string): void => {
-    if (state !== 'connected') ownerInvitations?.();
     const authorityEnded = ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED'].includes(
       refusalCode ?? '',
     );
@@ -682,7 +677,6 @@ export async function landingPage(
         timeStyle: 'short',
       }).format(new Date());
       render('connected');
-      ownerInvitations?.(session!);
       connected?.(session!);
     } catch (error) {
       if (!currentPage()) return;

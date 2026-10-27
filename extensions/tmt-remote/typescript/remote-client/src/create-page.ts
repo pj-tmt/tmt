@@ -271,7 +271,7 @@ export function createPage(
   refresh.setAttribute('aria-describedby', refreshReason.id);
   refresh.disabled = true;
   const overview = action('Open this Remote', () => options.navigate('/remote/overview'));
-  const invites = action('Invite someone', () => options.navigate('/remote/invites'), true);
+  const invites = action('Invite someone', () => options.navigate('/remote/members'), true);
   resultCard.append(
     completion,
     localState,

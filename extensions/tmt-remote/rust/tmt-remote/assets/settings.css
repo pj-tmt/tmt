@@ -78,25 +78,29 @@
   gap: 8px 12px;
   min-width: 0;
 }
-.settings-page .device {
+.settings-page :is(.device, .people-person) {
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   padding: 14px 0;
 }
-.settings-page .device p {
+.settings-page :is(.device, .people-person) p {
   overflow-wrap: anywhere;
 }
-.settings-page .device form {
+.settings-page :is(.device form, .people-name-actions, .people-member-actions) {
   display: flex;
   align-items: end;
   flex-wrap: wrap;
   gap: 8px 12px;
   margin-top: 12px;
 }
+.settings-page .people-name-actions > .tmt-ui-field {
+  flex: 0 1 320px;
+  min-width: 0;
+}
 .settings-page .device form > .tmt-ui-field {
   flex: 1 1 220px;
   min-width: 0;
 }
-.settings-page .device input {
+.settings-page :is(.device, .people-person) input {
   margin: 0;
 }
 .settings-page .device .change-feedback {

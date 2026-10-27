@@ -14,3 +14,13 @@ export function exact(value: Record<string, unknown>, keys: string[]): void {
   );
 }
 export const integer = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0;
+
+/** The signed member service accepts nonblank names of at most 64 UTF-8 bytes. */
+export function memberName(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.trim().length > 0 &&
+    new TextEncoder().encode(value).length <= 64 &&
+    ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+  );
+}

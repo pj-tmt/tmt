@@ -107,7 +107,7 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
-`/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
+`/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
 `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
 `/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
@@ -140,7 +140,7 @@ browser-local. It adds no native read, endpoint, provider call or automatic comp
 terminal owns comparison, confirmation and enrollment; the page does not check availability,
 reuse or completion. The current interaction clears its private code on expiry, departure or
 pagehide and never persists it or sends it to a provider.
-The current door's persistent tabs are `/remote/overview`, `/remote/members`, `/remote/invites`,
+The current door's persistent tabs are `/remote/overview`, `/remote/members`,
 `/remote/my-devices`, `/remote/settings` and `/remote/service`; no Remote ID appears in a path.
 `remote-routes.ts` owns their browser route/menu declaration; native page admission mirrors the explicit
 set. Reload, Back and Forward select the same tab without replacing its retained form/draft models.
@@ -1247,10 +1247,11 @@ The Remote-owned management tabs use the existing page CSP, origin checks and no
 `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not embed another signer/channel implementation.
 Settings consolidates Browser opening, Session limit per device, the origin-local catalog name
 (labelled Name in this browser) and the admitted current browser/device name (labelled with that scope).
-A Remote-wide name or person display name has no browser setter here. Catalog naming reuses the existing
+A Remote-wide name has no browser setter here. Catalog naming reuses the existing
 browser-local CAS/import controller; device naming retains signed designated-browser admission.
-The same bounded device-page forms move between Members, My devices and Settings without cloning
-controls or resetting drafts/original outcomes. A current browser missing from that admitted page is
+My devices shows the admitted bounded device page; Settings shows the current browser form.
+The same forms move without cloning controls or resetting drafts/original outcomes. People uses the member service for person names and
+policies; its labels and observed activity grant no authority. A current browser missing from that admitted page is
 not invented. Service & upgrade reuses the read-only recorded Firestore section and terminal guidance;
 it never executes deploy or upgrade. The additive public SDK exports remain `FirestoreSettingsView`,
 `budget.parsePublishedLimits` and `budget.publishedLimitRows`. Effective values, sources, warnings and

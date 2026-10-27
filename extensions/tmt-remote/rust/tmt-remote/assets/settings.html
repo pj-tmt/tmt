@@ -37,6 +37,33 @@
         <p class="settings-intro">Choose a connection type, then follow the steps on this machine. Work stays in your terminal or provider console.</p>
       </section>
       <section id="remote-join-guide" class="create-guide join-guide" data-view="join" hidden></section>
+      <section id="people" class="tmt-ui-section" data-view="members" aria-label="People">
+        <div id="people-content">Checking people…</div>
+      </section>
+      <section id="owner-invitation" class="sheet tmt-ui-notice" data-tone="neutral" data-view="members" aria-labelledby="invitation-heading">
+        <div class="sheet-body tmt-ui-notice-body">
+          <h2 id="invitation-heading" class="tmt-ui-section-heading">Confirm an invitation</h2>
+          <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. This browser must be locally designated to confirm.</p>
+          <p id="invitation-status" role="status">Check access to read the current invitation.</p>
+          <p id="people-observation" role="status" hidden></p>
+          <button id="invitation-refresh" class="tmt-ui-action" type="button" disabled>Check invitation</button>
+          <div id="invitation-candidate" hidden>
+            <h3 id="invitation-name"></h3>
+            <p id="invitation-words" class="entry-command"></p>
+            <p id="invitation-expires" class="entry-note"></p>
+            <fieldset class="tmt-ui-choices invitation-choices">
+              <legend class="tmt-ui-choices-legend">Your decision</legend>
+              <label class="tmt-ui-choice" for="invitation-compared"><input id="invitation-compared" class="tmt-ui-checkbox" type="checkbox"><span class="tmt-ui-choice-text">I compared these four words with the person joining; they match.</span></label>
+              <label class="tmt-ui-choice" for="invitation-sending"><input id="invitation-sending" class="tmt-ui-checkbox" type="checkbox"><span class="tmt-ui-choice-text"><span>Allow this member to send messages to your agents.</span><span class="tmt-ui-choice-description">Sending stays off unless you choose to allow it.</span></span></label>
+            </fieldset>
+            <div class="invitation-actions"><button id="invitation-confirm" class="tmt-ui-action" data-variant="primary" type="button" disabled>Confirm invitation</button><button id="invitation-decline" class="tmt-ui-action" type="button">Decline invitation</button></div>
+          </div>
+          <div id="invitation-original" hidden>
+            <p>Original decision: <code id="invitation-original-id"></code></p>
+            <button id="invitation-recover" class="tmt-ui-action" type="button">Check original outcome</button>
+          </div>
+        </div>
+      </section>
       <section
         id="access-notice"
         class="tmt-ui-notice"
@@ -103,7 +130,7 @@
       <section class="tmt-ui-section" data-divided data-view="settings" aria-labelledby="browser-name-heading">
         <div class="settings-summary"><h2 id="browser-name-heading" class="tmt-ui-section-heading" data-variant="title">This browser's device name</h2>
           <p>This is the paired browser/device name, not a person's display name.</p></div>
-        <p id="current-browser-name-missing">This browser is not reported on the current device page. Open Members to check its paired devices.</p>
+        <p id="current-browser-name-missing">This browser is not reported on the current device page. Open My devices to check its paired devices.</p>
         <div id="current-browser-name"></div>
       </section>
       <section class="tmt-ui-section" data-divided data-view="settings" aria-labelledby="opening-title">
@@ -315,7 +342,7 @@
           <div id="firestore-content">Checking service status…</div>
         </div>
       </section>
-      <section class="tmt-ui-section" data-divided data-view="members my-devices" aria-labelledby="devices-title">
+      <section class="tmt-ui-section" data-divided data-view="my-devices" aria-labelledby="devices-title">
         <div class="settings-section-body">
           <h2 id="devices-title" class="tmt-ui-section-heading" data-variant="title">Paired devices</h2>
           <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>

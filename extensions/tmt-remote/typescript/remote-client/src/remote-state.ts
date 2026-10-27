@@ -69,15 +69,10 @@ export function currentRemote(
 export function pairingGuidance(
   state: string,
   authorityEnded: boolean,
-  invite: boolean,
 ): { pair: boolean; members: boolean; status: boolean } {
   return {
-    pair:
-      invite ||
-      state === 'missing' ||
-      state === 'different' ||
-      (state === 'refused' && authorityEnded),
-    members: state === 'refused' && authorityEnded && !invite,
-    status: state === 'unconfirmed' && !invite,
+    pair: state === 'missing' || state === 'different' || (state === 'refused' && authorityEnded),
+    members: state === 'refused' && authorityEnded,
+    status: state === 'unconfirmed',
   };
 }

@@ -13,7 +13,9 @@ export function invitationPage(
   root: HTMLElement,
   lifetime?: AbortSignal,
   clientForSession: typeof invitations = invitations,
-): (session?: Session) => void {
+  heldElsewhere: () => boolean = () => false,
+  changed: () => void = () => {},
+): ((session?: Session) => void) & { heldBy: () => string; update: () => void } {
   const get = <T extends HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!;
   const status = get('invitation-status');
   const refresh = get<HTMLButtonElement>('invitation-refresh');
@@ -33,14 +35,16 @@ export function invitationPage(
   const here = () =>
     !lifetime?.aborted &&
     root.isConnected &&
-    location.pathname.replace(/\/$/, '') === '/remote/invites';
-  const controls = () => {
-    refresh.disabled = busy || !client;
-    confirm.disabled = busy || !current || !!unresolved || !compared.checked;
-    decline.disabled = busy || !current || !!unresolved;
-    compared.disabled = busy || !!unresolved;
-    sending.disabled = busy || !!unresolved;
-    recover.disabled = busy || !client;
+    location.pathname.replace(/\/$/, '') === '/remote/members';
+  const controls = (notify = true) => {
+    const held = heldElsewhere();
+    refresh.disabled = busy || !client || held;
+    confirm.disabled = busy || !current || !!unresolved || !compared.checked || held;
+    decline.disabled = busy || !current || !!unresolved || held;
+    compared.disabled = busy || !!unresolved || held;
+    sending.disabled = busy || !!unresolved || held;
+    recover.disabled = busy || !client || held;
+    if (notify) changed();
   };
   const clear = () => {
     current = undefined;
@@ -88,7 +92,7 @@ export function invitationPage(
     clear();
   };
   const check = async () => {
-    if (!here() || !client || busy) return;
+    if (!here() || !client || busy || heldElsewhere()) return;
     if (unresolved) {
       uncertain();
       return;
@@ -142,7 +146,15 @@ export function invitationPage(
     }
   };
   const decide = async (matched: boolean) => {
-    if (!here() || busy || !client || !current || unresolved || (matched && !compared.checked))
+    if (
+      !here() ||
+      busy ||
+      !client ||
+      !current ||
+      unresolved ||
+      heldElsewhere() ||
+      (matched && !compared.checked)
+    )
       return;
     const turn = ++generation;
     unresolved = {
@@ -181,7 +193,7 @@ export function invitationPage(
     },
     { signal: lifetime },
   );
-  compared.addEventListener('change', controls, { signal: lifetime });
+  compared.addEventListener('change', () => controls(), { signal: lifetime });
   confirm.addEventListener(
     'click',
     () => {
@@ -199,7 +211,7 @@ export function invitationPage(
   recover.addEventListener(
     'click',
     () => {
-      if (!here() || busy || !client || !unresolved) return;
+      if (!here() || busy || !client || !unresolved || heldElsewhere()) return;
       const turn = ++generation;
       busy = true;
       controls();
@@ -240,13 +252,24 @@ export function invitationPage(
     { once: true },
   );
   controls();
-  return (session) => {
-    generation++;
-    client = session ? clientForSession(session) : undefined;
-    clear();
-    if (here()) {
-      if (unresolved) uncertain();
-      else void check();
-    }
-  };
+  return Object.assign(
+    (session?: Session) => {
+      generation++;
+      client = session ? clientForSession(session) : undefined;
+      clear();
+      if (here()) {
+        if (unresolved) uncertain();
+        else void check();
+      }
+    },
+    {
+      heldBy: () =>
+        busy
+          ? 'An invitation request is in progress.'
+          : unresolved
+            ? 'An invitation decision is unconfirmed. Check its original outcome first.'
+            : '',
+      update: () => controls(false),
+    },
+  );
 }

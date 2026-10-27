@@ -1041,6 +1041,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'budget',
     'certifyKey',
     'firebaseRemote',
+    'invitationPage',
     'invitations',
     'invitePage',
     'landingPage',
@@ -2335,7 +2336,7 @@ test('agents list carries only verified runtime evidence through the served SDK'
 /** Exercise the real retained management tabs, without unhiding inactive product views. */
 async function gotoSettings(
   page: Page,
-  options?: { waitUntil?: 'commit'; tab?: 'settings' | 'members' | 'service' },
+  options?: { waitUntil?: 'commit'; tab?: 'settings' | 'my-devices' | 'service' },
 ): Promise<void> {
   const tab = options?.tab ?? 'settings';
   await page.goto(
@@ -2348,7 +2349,10 @@ async function gotoSettings(
     { timeout: 30000 },
   );
 }
-async function managementTab(page: Page, tab: 'settings' | 'members' | 'service'): Promise<void> {
+async function managementTab(
+  page: Page,
+  tab: 'settings' | 'my-devices' | 'service',
+): Promise<void> {
   if (new URL(page.url()).pathname === `/remote/${tab}`) return;
   await page.locator(`#remote-tab-${tab}`).click();
   await expect(page).toHaveURL(`${origin}/remote/${tab}`);
@@ -2382,7 +2386,7 @@ test('bare pairing is read only and settings explicitly enables audited sending'
   const device = inventory.devices[0]!;
   expect(device.scopes).toEqual(['agents.read', 'check.read', 'results.read', 'status.read']);
   execFileSync(BINARY, ['devices', 'designate', device.clientId, '--json'], { env });
-  await gotoSettings(page, { tab: 'members' });
+  await gotoSettings(page, { tab: 'my-devices' });
   await expect(page.locator('#access')).toContainText('confirmed');
   await expect(
     page.getByRole('button', { name: 'Enable sending for Settings browser', exact: true }),
@@ -2664,7 +2668,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'settings-designated-default',
     'Designated browser; unset unlimited default and admitted controls',
   );
-  await managementTab(page, 'members');
+  await managementTab(page, 'my-devices');
   // Explicit self scope changes use the same original-only recovery, never a resend.
   await page
     .getByRole('button', { name: 'Disable sending for Settings browser', exact: true })
@@ -2985,7 +2989,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'settings-rename-recovered',
     'Fresh live Session reads committed original; next-name draft retained',
   );
-  await managementTab(page, 'members');
+  await managementTab(page, 'my-devices');
   // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
   const revoke = page.getByRole('button', { name: 'Remove Renamed browser', exact: true });
   await page.evaluate(() => {
@@ -3078,7 +3082,7 @@ test('settings pagination retains later-page drafts across refresh and guards na
     join(root, 'state/remote/remote.db'),
     origin,
   ]);
-  await gotoSettings(page, { tab: 'members' });
+  await gotoSettings(page, { tab: 'my-devices' });
   await expect(page.locator('.device')).toHaveCount(25);
   await page.click('#more');
   const name = page.locator('#name-00000000-0000-4000-8000-000000000026');
@@ -3114,7 +3118,7 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await expect(page.locator('#original')).toBeHidden();
   await expect(name).toHaveValue('Unsent later-page name');
   expect(settingCalls).toBe(1);
-  await managementTab(page, 'members');
+  await managementTab(page, 'my-devices');
   // Both directions refuse to discard a dirty UUID-bound form, keeping it focused.
   await page.click('#more');
   await expect(page.locator('#outcome')).toContainText('Save or restore');
@@ -3917,7 +3921,7 @@ async function feedbackFixture(width: number, theme: 'light' | 'dark') {
     join(root, 'state/remote/remote.db'),
     origin,
   ]);
-  await gotoSettings(page, { tab: 'members' });
+  await gotoSettings(page, { tab: 'my-devices' });
   await expect(page.locator('#access')).toContainText('confirmed');
   await expect(page.locator('.device')).toHaveCount(3);
   return { context, page, clientId };
@@ -4076,7 +4080,7 @@ for (const [width, theme] of [
         .sessionsPerDeviceSource,
     ).toBe('default');
 
-    await managementTab(page, 'members');
+    await managementTab(page, 'my-devices');
     const name = row.locator('input');
     await name.fill('Renamed device');
     await row.evaluate((form) => scrollTo(0, form.getBoundingClientRect().top + scrollY - 70));
@@ -4108,7 +4112,7 @@ for (const [width, theme] of [
     await chooseSetting(page, 'opening', 'on');
     await expect(openingSave).toBeDisabled();
 
-    await managementTab(page, 'members');
+    await managementTab(page, 'my-devices');
     execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
     await name.fill('Refused draft');
     await row.evaluate((form) => scrollTo(0, form.getBoundingClientRect().top + scrollY - 70));
@@ -4343,7 +4347,7 @@ for (const [width, theme] of [
     }
     await gatedRefresh(false);
     await gatedRefresh(true);
-    await managementTab(page, 'members');
+    await managementTab(page, 'my-devices');
     const own = page.locator(`#name-${clientId}`);
     await expect(own).toHaveAccessibleName('Device name for Feedback browser');
     await expect(
@@ -5524,8 +5528,8 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     );
     // The device names are the Devices view's: the unsent draft is held while the page moves on.
     await page.getByRole('link', { name: 'Open studio', exact: true }).click();
-    await page.getByRole('tab', { name: 'Members', exact: true }).click();
-    await expect(page).toHaveURL(`${origin}/remote/members`);
+    await page.getByRole('tab', { name: 'My devices', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/remote/my-devices`);
     const ownName = page.getByRole('textbox', { name: /^Device name for Registry A$/ });
     await ownName.fill('Unsent Remote name');
     // The settings route opened in the same document, so the pointer is still on the menu; leave
@@ -5545,7 +5549,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
         link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })),
       ),
     ).toBe(false);
-    await expect(page).toHaveURL(`${origin}/remote/members`);
+    await expect(page).toHaveURL(`${origin}/remote/my-devices`);
     await ownName.fill('Registry A');
     await page.mouse.move(1000, 600);
     await menu.hover();
@@ -6041,7 +6045,7 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
       String(count),
     ]);
   seed(1, 60);
-  await gotoSettings(page, { tab: 'members' });
+  await gotoSettings(page, { tab: 'my-devices' });
   await expect(page.locator('#designation-code')).toHaveText(
     `tmt remote members designate ${keeper}`,
   );
@@ -6096,7 +6100,7 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
   ).toEqual(['offer']);
   pair = undefined;
   expect(inventory().devices.filter((row) => row.clientId === keeper)).toHaveLength(1);
-  await gotoSettings(page, { tab: 'members' });
+  await gotoSettings(page, { tab: 'my-devices' });
   await expect(page.locator('#remove-others')).toBeEnabled();
   let commits = 0;
   page.on('request', (request) => {
@@ -6160,38 +6164,40 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     );
     const current = await identity();
     const tabs = page.getByRole('tablist', { name: 'This Remote' });
-    await expect(tabs.getByRole('tab')).toHaveCount(6);
-    await tabs.getByRole('tab', { name: 'Locked · Invites', exact: true }).click();
-    await expect(page).toHaveURL(`${origin}/remote/invites`);
-    await expect(page.locator('#remote-locked')).toContainText(
-      'Only an admin can invite people to this Remote.',
-    );
+    await expect(tabs.getByRole('tab')).toHaveCount(5);
+    await tabs.getByRole('tab', { name: 'People', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/remote/members`);
+    await expect(page.locator('#invitation-status')).toContainText('Only a designated admin');
+    await expect(page.locator('#invitation-confirm')).toBeDisabled();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await tabs.getByRole('tab', { name: 'Locked · Service & upgrade', exact: true }).click();
+    await expect(page.locator('#remote-locked')).toContainText(
+      "Only an admin can manage this Remote's service and upgrade steps.",
+    );
     await page
-      .getByRole('button', { name: 'Copy Please invite me to this Remote.', exact: true })
+      .getByRole('button', {
+        name: "Copy Please review this Remote's service and upgrade options with me.",
+        exact: true,
+      })
       .click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toBe('Please invite me to this Remote.');
+      .toBe("Please review this Remote's service and upgrade options with me.");
     const capture =
       process.env.TMT_REMOTE_TABS_CAPTURE_DIR ??
       (process.env.CI ? test.info().outputPath('remote-tabs-captures') : undefined);
     await captureState(
       page,
-      'remote-invites-locked',
-      'Member sees the tab and reason; Copy requests help without executing anything.',
+      'remote-service-locked',
+      'Member sees the locked service tab and can copy a request without executing it.',
       [1440, 390],
       ['light', 'dark'],
       undefined,
       capture,
     );
-    await tabs.getByRole('tab', { name: 'Locked · Service & upgrade', exact: true }).click();
-    await expect(page.locator('#remote-locked')).toContainText(
-      "Only an admin can manage this Remote's service and upgrade steps.",
-    );
     await page.goBack();
-    await expect(page).toHaveURL(`${origin}/remote/invites`);
-    await expect(tabs.getByRole('tab', { name: 'Locked · Invites', exact: true })).toHaveAttribute(
+    await expect(page).toHaveURL(`${origin}/remote/members`);
+    await expect(tabs.getByRole('tab', { name: 'People', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',
     );
@@ -6202,12 +6208,33 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
       'This browser manages this Remote.',
     );
     await expect(page.locator('#remote-locked')).toBeHidden();
-    await expect(tabs.getByRole('tab', { name: 'Invites', exact: true })).toHaveAttribute(
+    await expect(tabs.getByRole('tab', { name: 'People', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',
     );
-    await expect(page.locator('#remote-guidance')).toBeVisible();
-    await expect(page.locator('#copy-guide-pair')).toHaveCount(1);
+    await expect(page.locator('#owner-invitation')).toBeVisible();
+    await expect(page.locator('#invitation-status')).toContainText('No current invitation');
+    await expect(page.locator('#people-content')).toBeVisible();
+    await expect(page.locator('#people').getByRole('heading', { name: 'People' })).toHaveCount(0);
+    await expect(page.locator('#people-content')).not.toContainText('Invitation:');
+    await expect(page.locator('#people-content')).not.toContainText('Route cleanup:');
+    const ownerRow = page
+      .locator('#people-content .people-person')
+      .filter({ hasText: ' · Owner · ' });
+    await expect(ownerRow).toHaveCount(1);
+    await expect(ownerRow.getByRole('button', { name: /^(Enable|Disable) sending/ })).toHaveCount(
+      0,
+    );
+    await expect(ownerRow.getByRole('button', { name: /^Remove / })).toHaveCount(0);
+    await captureState(
+      page,
+      'remote-people-admin',
+      'People and the existing invitation presenter in the designated browser.',
+      [1440, 390],
+      ['light', 'dark'],
+      undefined,
+      capture,
+    );
     await tabs.getByRole('tab', { name: 'Overview', exact: true }).click();
     await expect(page.locator('#state-label')).toHaveText('Connected');
     await captureState(

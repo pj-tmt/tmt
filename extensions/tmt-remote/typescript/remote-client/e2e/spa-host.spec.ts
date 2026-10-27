@@ -90,7 +90,6 @@ const APP_ROUTES = [
   '/remote/join',
   '/remote/overview',
   '/remote/members',
-  '/remote/invites',
   '/remote/my-devices',
   '/remote/service',
   '/remote/settings',
@@ -107,6 +106,7 @@ const APP_ROUTES = [
 const NOT_APP_ROUTES = [
   '/nope',
   '/remote/other',
+  '/remote/invites',
   '/ops/x',
   '/digest/x',
   '/settings/x',
@@ -424,16 +424,9 @@ test.describe('the app in a browser', () => {
     {
       path: '/remote/members',
       id: 'members',
-      h1: 'Members',
-      shown: '#devices-title',
+      h1: 'People',
+      shown: '#people-content',
       hidden: '#opening-title',
-    },
-    {
-      path: '/remote/invites',
-      id: 'invites',
-      h1: 'Invites',
-      shown: '#remote-locked',
-      hidden: '#heading',
     },
     {
       path: '/remote/my-devices',

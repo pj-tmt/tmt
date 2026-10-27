@@ -145,8 +145,10 @@ shared static tab semantics add no authority. Browser-local naming reuses regist
 the existing signed owner. The document-level modal closes on route abort and fences late validation.
 The global Join guide reuses the standalone invitation carrier and catalog command; `remote-app`
 erases private fragments before registry handoff, and `join-page` owns interaction cleanup.
-Neither guide admission nor local expiry creates enrollment authority. The public contract owns
-exact paths and locked-tab behavior.
+Neither guide admission nor local expiry creates enrollment authority. The People page retains one
+member roster and an explicitly opened machine page under the verified Session. Member decisions use the existing signed journal and original-ID lookup; the I5 presenter
+retains its own original decision without replay. The public contract owns exact paths and locked-tab
+behavior.
 
 `shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
 confined Colab import per entry and a disposable route/session registry; Navigation comes from

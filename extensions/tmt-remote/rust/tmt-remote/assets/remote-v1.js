@@ -893,6 +893,10 @@ function exact(value, keys) {
 	valid$6(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
 }
 var integer = (value) => Number.isSafeInteger(value) && value >= 0;
+/** The signed member service accepts nonblank names of at most 64 UTF-8 bytes. */
+function memberName(value) {
+	return typeof value === "string" && value.trim().length > 0 && new TextEncoder().encode(value).length <= 64 && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+}
 //#endregion
 //#region src/service-commands.ts
 /** Copy-only terminal references. Native grammar tests admit the same product catalog. */
@@ -1630,7 +1634,7 @@ function invitations(session, options = {}) {
 //#endregion
 //#region src/invitation-page.ts
 /** One retained presenter. Only explicit decisions write; navigation never repeats one. */
-function invitationPage(root, lifetime, clientForSession = invitations) {
+function invitationPage(root, lifetime, clientForSession = invitations, heldElsewhere = () => false, changed = () => {}) {
 	const get = (id) => root.querySelector(`#${id}`);
 	const status = get("invitation-status");
 	const refresh = get("invitation-refresh");
@@ -1647,14 +1651,16 @@ function invitationPage(root, lifetime, clientForSession = invitations) {
 	let busy = false;
 	let current;
 	let unresolved;
-	const here = () => !lifetime?.aborted && root.isConnected && location.pathname.replace(/\/$/, "") === "/remote/invites";
-	const controls = () => {
-		refresh.disabled = busy || !client;
-		confirm.disabled = busy || !current || !!unresolved || !compared.checked;
-		decline.disabled = busy || !current || !!unresolved;
-		compared.disabled = busy || !!unresolved;
-		sending.disabled = busy || !!unresolved;
-		recover.disabled = busy || !client;
+	const here = () => !lifetime?.aborted && root.isConnected && location.pathname.replace(/\/$/, "") === "/remote/members";
+	const controls = (notify = true) => {
+		const held = heldElsewhere();
+		refresh.disabled = busy || !client || held;
+		confirm.disabled = busy || !current || !!unresolved || !compared.checked || held;
+		decline.disabled = busy || !current || !!unresolved || held;
+		compared.disabled = busy || !!unresolved || held;
+		sending.disabled = busy || !!unresolved || held;
+		recover.disabled = busy || !client || held;
+		if (notify) changed();
 	};
 	const clear = () => {
 		current = void 0;
@@ -1690,7 +1696,7 @@ function invitationPage(root, lifetime, clientForSession = invitations) {
 		clear();
 	};
 	const check = async () => {
-		if (!here() || !client || busy) return;
+		if (!here() || !client || busy || heldElsewhere()) return;
 		if (unresolved) {
 			uncertain();
 			return;
@@ -1731,7 +1737,7 @@ function invitationPage(root, lifetime, clientForSession = invitations) {
 		}
 	};
 	const decide = async (matched) => {
-		if (!here() || busy || !client || !current || unresolved || matched && !compared.checked) return;
+		if (!here() || busy || !client || !current || unresolved || heldElsewhere() || matched && !compared.checked) return;
 		const turn = ++generation;
 		unresolved = {
 			operationId: crypto.randomUUID(),
@@ -1765,7 +1771,7 @@ function invitationPage(root, lifetime, clientForSession = invitations) {
 	refresh.addEventListener("click", () => {
 		check();
 	}, { signal: lifetime });
-	compared.addEventListener("change", controls, { signal: lifetime });
+	compared.addEventListener("change", () => controls(), { signal: lifetime });
 	confirm.addEventListener("click", () => {
 		decide(true);
 	}, { signal: lifetime });
@@ -1773,7 +1779,7 @@ function invitationPage(root, lifetime, clientForSession = invitations) {
 		decide(false);
 	}, { signal: lifetime });
 	recover.addEventListener("click", () => {
-		if (!here() || busy || !client || !unresolved) return;
+		if (!here() || busy || !client || !unresolved || heldElsewhere()) return;
 		const turn = ++generation;
 		busy = true;
 		controls();
@@ -1800,7 +1806,7 @@ function invitationPage(root, lifetime, clientForSession = invitations) {
 		client = void 0;
 	}, { once: true });
 	controls();
-	return (session) => {
+	return Object.assign((session) => {
 		generation++;
 		client = session ? clientForSession(session) : void 0;
 		clear();
@@ -1808,7 +1814,10 @@ function invitationPage(root, lifetime, clientForSession = invitations) {
 			if (unresolved) uncertain();
 			else check();
 		}
-	};
+	}, {
+		heldBy: () => busy ? "An invitation request is in progress." : unresolved ? "An invitation decision is unconfirmed. Check its original outcome first." : "",
+		update: () => controls(false)
+	});
 }
 //#endregion
 //#region src/remote-state.ts
@@ -1915,11 +1924,11 @@ function currentRemote(entry, address, pageUrl) {
 	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
 }
 /** Guidance never treats transport uncertainty or unreadable storage as permission to re-pair. */
-function pairingGuidance(state, authorityEnded, invite) {
+function pairingGuidance(state, authorityEnded) {
 	return {
-		pair: invite || state === "missing" || state === "different" || state === "refused" && authorityEnded,
-		members: state === "refused" && authorityEnded && !invite,
-		status: state === "unconfirmed" && !invite
+		pair: state === "missing" || state === "different" || state === "refused" && authorityEnded,
+		members: state === "refused" && authorityEnded,
+		status: state === "unconfirmed"
 	};
 }
 //#endregion
@@ -2076,109 +2085,6 @@ function invitePage(initialToken) {
 		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
 	}
 	return clear;
-}
-//#endregion
-//#region src/remote-routes.ts
-var REMOTE_ITEMS = [
-	{
-		id: "remotes",
-		path: "/remote/",
-		label: "My Remotes",
-		title: "My Remotes",
-		page: "settings"
-	},
-	{
-		id: "create",
-		path: "/remote/create",
-		label: "Create a Remote",
-		title: "Create a Remote",
-		page: "settings"
-	},
-	{
-		id: "join",
-		path: "/remote/join",
-		label: "Join a Remote",
-		title: "Join a Remote",
-		page: "settings"
-	},
-	{
-		id: "overview",
-		path: "/remote/overview",
-		label: "Overview",
-		title: "Overview",
-		page: "landing"
-	},
-	{
-		id: "members",
-		path: "/remote/members",
-		label: "Members",
-		title: "Members",
-		page: "settings"
-	},
-	{
-		id: "invites",
-		path: "/remote/invites",
-		label: "Invites",
-		title: "Invites",
-		page: "landing",
-		adminOnly: true
-	},
-	{
-		id: "my-devices",
-		path: "/remote/my-devices",
-		label: "My devices",
-		title: "My devices",
-		page: "settings"
-	},
-	{
-		id: "settings",
-		path: "/remote/settings",
-		label: "Settings",
-		title: "Settings",
-		page: "settings"
-	},
-	{
-		id: "service",
-		path: "/remote/service",
-		label: "Service & upgrade",
-		title: "Service & upgrade",
-		page: "settings",
-		adminOnly: true
-	}
-];
-var REMOTE_PATHS = [
-	"/remote",
-	...REMOTE_ITEMS.filter((item) => item.id !== "remotes").map((item) => item.path),
-	remotePath("remotes")
-];
-function remotePath(id) {
-	return REMOTE_ITEMS.find((item) => item.id === id).path;
-}
-/** Removed pre-launch paths have no alias or redirect. */
-function remoteItem(pathname) {
-	return REMOTE_ITEMS.find((item) => item.path === pathname || pathname === "/remote" && item.id === "remotes");
-}
-/** Display-only locking: signed management remains the authority for every effect. */
-function remoteTabAccess(item, role) {
-	if (!item.adminOnly || role === "owner") return {
-		locked: false,
-		reason: "",
-		request: ""
-	};
-	if (role !== "user") return {
-		locked: true,
-		reason: "Access is not confirmed. Check again before making changes.",
-		request: ""
-	};
-	return item.id === "invites" ? {
-		locked: true,
-		reason: "Only an admin can invite people to this Remote. Ask the person who manages this Remote.",
-		request: "Please invite me to this Remote."
-	} : {
-		locked: true,
-		reason: "Only an admin can manage this Remote's service and upgrade steps. Ask the person who manages this Remote.",
-		request: "Please review this Remote's service and upgrade options with me."
-	};
 }
 //#endregion
 //#region src/firebase-bootstrap.ts
@@ -2422,7 +2328,7 @@ function parseSyncMapping(value) {
 //#endregion
 //#region src/firebase-declaration.ts
 /** Release-supplied data, bound to its exact bytes; no extension-specific resource names. */
-var name$2 = /^[a-z][a-z0-9-]{0,31}$/;
+var name$1 = /^[a-z][a-z0-9-]{0,31}$/;
 var field$2 = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
 function require$1(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
@@ -2450,7 +2356,7 @@ async function verifyHostedDeclaration(input) {
 			"admission",
 			...Object.hasOwn(row, "hosting") ? ["hosting"] : []
 		]);
-		require$1(row.version === 1 && row.backend === "firestore" && typeof row.extension === "string" && name$2.test(row.extension));
+		require$1(row.version === 1 && row.backend === "firestore" && typeof row.extension === "string" && name$1.test(row.extension));
 		require$1(Array.isArray(row.resources) && row.resources.length <= 64);
 		const names = /* @__PURE__ */ new Set();
 		for (const value of row.resources) {
@@ -2466,7 +2372,7 @@ async function verifyHostedDeclaration(input) {
 			]);
 			const sync = r.sync === void 0 ? void 0 : parseSyncMapping(r.sync);
 			require$1(!["log", "blob"].includes(String(r.kind)) || !sync?.writeModes?.includes("put"));
-			require$1(typeof r.name === "string" && name$2.test(r.name) && !names.has(r.name));
+			require$1(typeof r.name === "string" && name$1.test(r.name) && !names.has(r.name));
 			names.add(r.name);
 			require$1(typeof r.kind === "string" && [
 				"log",
@@ -2726,6 +2632,97 @@ async function writeRegistry(expected, text) {
 			} else objects.put(text, REGISTRY);
 		};
 	}).finally(() => transaction.db.close());
+}
+//#endregion
+//#region src/remote-routes.ts
+var REMOTE_ITEMS = [
+	{
+		id: "remotes",
+		path: "/remote/",
+		label: "My Remotes",
+		title: "My Remotes",
+		page: "settings"
+	},
+	{
+		id: "create",
+		path: "/remote/create",
+		label: "Create a Remote",
+		title: "Create a Remote",
+		page: "settings"
+	},
+	{
+		id: "join",
+		path: "/remote/join",
+		label: "Join a Remote",
+		title: "Join a Remote",
+		page: "settings"
+	},
+	{
+		id: "overview",
+		path: "/remote/overview",
+		label: "Overview",
+		title: "Overview",
+		page: "landing"
+	},
+	{
+		id: "members",
+		path: "/remote/members",
+		label: "People",
+		title: "People",
+		page: "settings"
+	},
+	{
+		id: "my-devices",
+		path: "/remote/my-devices",
+		label: "My devices",
+		title: "My devices",
+		page: "settings"
+	},
+	{
+		id: "settings",
+		path: "/remote/settings",
+		label: "Settings",
+		title: "Settings",
+		page: "settings"
+	},
+	{
+		id: "service",
+		path: "/remote/service",
+		label: "Service & upgrade",
+		title: "Service & upgrade",
+		page: "settings",
+		adminOnly: true
+	}
+];
+var REMOTE_PATHS = [
+	"/remote",
+	...REMOTE_ITEMS.filter((item) => item.id !== "remotes").map((item) => item.path),
+	remotePath("remotes")
+];
+function remotePath(id) {
+	return REMOTE_ITEMS.find((item) => item.id === id).path;
+}
+/** Removed pre-launch paths have no alias or redirect. */
+function remoteItem(pathname) {
+	return REMOTE_ITEMS.find((item) => item.path === pathname || pathname === "/remote" && item.id === "remotes");
+}
+/** Display-only locking: signed management remains the authority for every effect. */
+function remoteTabAccess(item, role) {
+	if (!item.adminOnly || role === "owner") return {
+		locked: false,
+		reason: "",
+		request: ""
+	};
+	if (role !== "user") return {
+		locked: true,
+		reason: "Access is not confirmed. Check again before making changes.",
+		request: ""
+	};
+	return {
+		locked: true,
+		reason: "Only an admin can manage this Remote's service and upgrade steps. Ask the person who manages this Remote.",
+		request: "Please review this Remote's service and upgrade options with me."
+	};
 }
 //#endregion
 //#region src/remote-shell.ts
@@ -3936,14 +3933,14 @@ function fields(value, keys) {
 	valid(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
 	return object;
 }
-function name$1(value) {
+function name(value) {
 	valid(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
 }
 function target(entry) {
 	return new URL(entry.url).href;
 }
 async function reference(alias, address) {
-	name$1(alias);
+	name(alias);
 	valid(typeof address === "string" && address.length <= LIMIT);
 	let url;
 	try {
@@ -4084,7 +4081,7 @@ async function mergeImport(plan, choices) {
 	for (const [index, row] of checked.rows.entries()) {
 		const alias = choices[index];
 		if (alias === null || row.status === "duplicate") continue;
-		name$1(alias);
+		name(alias);
 		if (entries.some((old) => old.name === alias)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", `You already have a remote named ${alias}`);
 		entries.push({
 			...row.entry,
@@ -4140,7 +4137,7 @@ var remoteRegistry = {
 		await remoteRegistry.confirmImport(plan, [alias]);
 	},
 	async rename(previous, alias) {
-		name$1(alias);
+		name(alias);
 		const latest = await snapshot();
 		valid(latest.catalog.entries.some((entry) => entry.name === previous));
 		valid(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
@@ -5653,10 +5650,10 @@ function startShellHost(root, routes, options = {}) {
 var home_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"home\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Home · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Home</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page tmt-home\">\n      <section class=\"tmt-ui-section\" aria-labelledby=\"home-needs-heading\">\n        <h2 id=\"home-needs-heading\" class=\"tmt-ui-section-heading\">◆ Needs you</h2>\n        <ul id=\"home-needs\" class=\"tmt-ui-list\"></ul>\n        <p id=\"home-needs-note\" class=\"home-note\" role=\"status\">Checking…</p>\n      </section>\n      <section id=\"home-recent-block\" class=\"tmt-ui-section\" aria-labelledby=\"home-recent-heading\" hidden>\n        <h2 id=\"home-recent-heading\" class=\"tmt-ui-section-heading\">Recent pages</h2>\n        <ul id=\"home-recent\" class=\"tmt-ui-list\"></ul>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/landing.html?raw
-var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landing\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Remote connection · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/landing.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote connection\">\n      <h1 class=\"header-title tmt-ui-title\">Remote connection</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page\">\n      <section\n        id=\"notice\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"overview\"\n        aria-labelledby=\"heading\"\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <div class=\"tmt-ui-notice-mark\">\n            <span id=\"mark\" class=\"state-mark\" aria-hidden=\"true\">◌</span\n            ><span id=\"state-label\">Checking</span>\n          </div>\n          <h2 id=\"heading\" class=\"tmt-ui-notice-heading\">Checking the connection…</h2>\n          <p id=\"status\" role=\"status\">Reading this browser's pairing.</p>\n          <button id=\"check\" class=\"tmt-ui-action\" type=\"button\" aria-describedby=\"status\" disabled>\n            Check again\n          </button>\n          <details class=\"tmt-ui-disclosure\" data-divided>\n            <summary>Details</summary>\n            <dl class=\"entry-status\">\n              <dt>Machine ID</dt>\n              <dd id=\"machine-id\">Not available</dd>\n              <dt>Last checked</dt>\n              <dd id=\"checked-time\">Not checked</dd>\n              <dt>Address</dt>\n              <dd id=\"protocol-address\">Not available</dd>\n              <dt>Fingerprint</dt>\n              <dd id=\"trust-pin\">Not available</dd>\n            </dl>\n            <p class=\"entry-note\">\n              Pairing gives this browser its own access. It does not make this browser a\n              settings administrator.\n            </p>\n          </details>\n        </div>\n      </section>\n      <section id=\"owner-invitation\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" data-view=\"invites\" aria-labelledby=\"invitation-heading\">\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"invitation-heading\" class=\"tmt-ui-notice-heading\">Confirm an invitation</h2>\n          <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. This browser must be locally designated to confirm.</p>\n          <p id=\"invitation-status\" role=\"status\">Check access to read the current invitation.</p>\n          <button id=\"invitation-refresh\" class=\"tmt-ui-action\" type=\"button\" disabled>Check invitation</button>\n          <div id=\"invitation-candidate\" hidden>\n            <h3 id=\"invitation-name\"></h3>\n            <p id=\"invitation-words\" class=\"entry-command\"></p>\n            <p id=\"invitation-expires\" class=\"entry-note\"></p>\n            <fieldset class=\"tmt-ui-choices invitation-choices\">\n              <legend class=\"tmt-ui-choices-legend\">Your decision</legend>\n              <label class=\"tmt-ui-choice\" for=\"invitation-compared\"><input id=\"invitation-compared\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\">I compared these four words with the person joining; they match.</span></label>\n              <label class=\"tmt-ui-choice\" for=\"invitation-sending\"><input id=\"invitation-sending\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\"><span>Allow this member to send messages to your agents.</span><span class=\"tmt-ui-choice-description\">Sending stays off unless you choose to allow it.</span></span></label>\n            </fieldset>\n            <div class=\"invitation-actions\"><button id=\"invitation-confirm\" class=\"tmt-ui-action\" data-variant=\"primary\" type=\"button\" disabled>Confirm invitation</button><button id=\"invitation-decline\" class=\"tmt-ui-action\" type=\"button\">Decline invitation</button></div>\n          </div>\n          <div id=\"invitation-original\" hidden>\n            <p>Original decision: <code id=\"invitation-original-id\"></code></p>\n            <button id=\"invitation-recover\" class=\"tmt-ui-action\" type=\"button\">Check original outcome</button>\n          </div>\n        </div>\n      </section>\n      <div data-view=\"overview invites\"><section id=\"remote-guidance\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" hidden>\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"remote-guidance-heading\" class=\"tmt-ui-notice-heading\">Connect a browser</h2>\n          <p>Run commands on the machine that runs this Remote.</p>\n          <p id=\"remote-guide-members\" hidden>Check the saved member before changing access:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote members</code><button id=\"copy-guide-members\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote members\">Copy</button><span id=\"copy-feedback-guide-members\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <p id=\"remote-guide-status\" hidden>Check whether Remote is running:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote status</code><button id=\"copy-guide-status\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote status\">Copy</button><span id=\"copy-feedback-guide-status\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <div id=\"remote-guide-pair\" hidden>\n            <ol class=\"entry-steps\">\n              <li>Run <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code><button id=\"copy-guide-pair\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote pair\">Copy</button><span id=\"copy-feedback-guide-pair\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span></li>\n              <li>Open the link it prints in the browser you want to connect.</li>\n              <li>Name the browser and check the four words.</li><li>Confirm in the terminal.</li>\n            </ol>\n            <p id=\"pairing-note\" class=\"entry-note\">Pair links are private and work once.</p><p class=\"entry-note\">Pairing does not make a browser an admin.</p>\n          </div>\n        </div>\n      </section></div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landing\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Remote connection · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/landing.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote connection\">\n      <h1 class=\"header-title tmt-ui-title\">Remote connection</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page\">\n      <section\n        id=\"notice\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"overview\"\n        aria-labelledby=\"heading\"\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <div class=\"tmt-ui-notice-mark\">\n            <span id=\"mark\" class=\"state-mark\" aria-hidden=\"true\">◌</span\n            ><span id=\"state-label\">Checking</span>\n          </div>\n          <h2 id=\"heading\" class=\"tmt-ui-notice-heading\">Checking the connection…</h2>\n          <p id=\"status\" role=\"status\">Reading this browser's pairing.</p>\n          <button id=\"check\" class=\"tmt-ui-action\" type=\"button\" aria-describedby=\"status\" disabled>\n            Check again\n          </button>\n          <details class=\"tmt-ui-disclosure\" data-divided>\n            <summary>Details</summary>\n            <dl class=\"entry-status\">\n              <dt>Machine ID</dt>\n              <dd id=\"machine-id\">Not available</dd>\n              <dt>Last checked</dt>\n              <dd id=\"checked-time\">Not checked</dd>\n              <dt>Address</dt>\n              <dd id=\"protocol-address\">Not available</dd>\n              <dt>Fingerprint</dt>\n              <dd id=\"trust-pin\">Not available</dd>\n            </dl>\n            <p class=\"entry-note\">\n              Pairing gives this browser its own access. It does not make this browser a\n              settings administrator.\n            </p>\n          </details>\n        </div>\n      </section>\n      <div data-view=\"overview\"><section id=\"remote-guidance\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" hidden>\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"remote-guidance-heading\" class=\"tmt-ui-notice-heading\">Connect a browser</h2>\n          <p>Run commands on the machine that runs this Remote.</p>\n          <p id=\"remote-guide-members\" hidden>Check the saved member before changing access:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote members</code><button id=\"copy-guide-members\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote members\">Copy</button><span id=\"copy-feedback-guide-members\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <p id=\"remote-guide-status\" hidden>Check whether Remote is running:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote status</code><button id=\"copy-guide-status\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote status\">Copy</button><span id=\"copy-feedback-guide-status\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <div id=\"remote-guide-pair\" hidden>\n            <ol class=\"entry-steps\">\n              <li>Run <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code><button id=\"copy-guide-pair\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote pair\">Copy</button><span id=\"copy-feedback-guide-pair\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span></li>\n              <li>Open the link it prints in the browser you want to connect.</li>\n              <li>Name the browser and check the four words.</li><li>Confirm in the terminal.</li>\n            </ol>\n            <p id=\"pairing-note\" class=\"entry-note\">Pair links are private and work once.</p><p class=\"entry-note\">Pairing does not make a browser an admin.</p>\n          </div>\n        </div>\n      </section></div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/settings.html?raw
-var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>My Remotes · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · My Remotes\">\n      <h1 class=\"header-title tmt-ui-title\">My Remotes</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page settings-page\">\n      <div id=\"remote-head\" class=\"remote-head\" data-view=\"remotes\">\n        <div class=\"remote-head-copy\">\n          <h2 class=\"settings-title\">My Remotes</h2>\n          <p class=\"settings-intro\">Names and addresses stay in this browser. Forgetting a row leaves access unchanged.</p>\n        </div>\n        <div class=\"remote-head-actions\">\n          <a class=\"tmt-ui-action\" data-variant=\"primary\" href=\"/remote/create\"><span class=\"tmt-ui-action-label\">Create a Remote</span></a>\n          <span id=\"remote-join\"></span>\n        </div>\n      </div>\n      <section id=\"remote-create\" class=\"create-guide\" data-view=\"create\" hidden>\n        <p class=\"settings-intro\">Choose a connection type, then follow the steps on this machine. Work stays in your terminal or provider console.</p>\n      </section>\n      <section id=\"remote-join-guide\" class=\"create-guide join-guide\" data-view=\"join\" hidden></section>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"members my-devices settings service\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote members</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\" data-view=\"members my-devices settings service remotes\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section id=\"remote-local-name\" class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"local-name-heading\">\n        <div class=\"settings-section-body\"><div class=\"settings-summary\">\n          <h2 id=\"local-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Name in this browser</h2>\n          <p id=\"remote-local-name-value\">This machine</p><p>This name stays in this browser. It does not rename the Remote for anyone else.</p>\n        </div><div class=\"settings-fields\"><button id=\"remote-local-rename\" class=\"tmt-ui-action\" type=\"button\"><span class=\"tmt-ui-action-label\">Remember this Remote</span></button></div></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"browser-name-heading\">\n        <div class=\"settings-summary\"><h2 id=\"browser-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">This browser's device name</h2>\n          <p>This is the paired browser/device name, not a person's display name.</p></div>\n        <p id=\"current-browser-name-missing\">This browser is not reported on the current device page. Open Members to check its paired devices.</p>\n        <div id=\"current-browser-name\"></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"service\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Service &amp; upgrade</h2>\n          <p>Review this Remote’s service status. Make changes in this machine’s terminal or the provider console.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking service status…</div>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"members my-devices\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"tmt-ui-notice\" hidden>\n            <p id=\"remove-others-consequence\" class=\"tmt-ui-notice-body\" role=\"status\"></p>\n            <div class=\"tmt-ui-notice-actions\">\n              <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">\n                <span class=\"tmt-ui-action-label\">Cancel</span>\n              </button>\n            </div>\n          </div>\n          <div id=\"devices\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"tmt-ui-section\" data-view=\"remotes\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\" class=\"tmt-ui-visually-hidden\">Remote list</h2>\n        <ul id=\"remote-list\" class=\"tmt-ui-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>My Remotes · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · My Remotes\">\n      <h1 class=\"header-title tmt-ui-title\">My Remotes</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page settings-page\">\n      <div id=\"remote-head\" class=\"remote-head\" data-view=\"remotes\">\n        <div class=\"remote-head-copy\">\n          <h2 class=\"settings-title\">My Remotes</h2>\n          <p class=\"settings-intro\">Names and addresses stay in this browser. Forgetting a row leaves access unchanged.</p>\n        </div>\n        <div class=\"remote-head-actions\">\n          <a class=\"tmt-ui-action\" data-variant=\"primary\" href=\"/remote/create\"><span class=\"tmt-ui-action-label\">Create a Remote</span></a>\n          <span id=\"remote-join\"></span>\n        </div>\n      </div>\n      <section id=\"remote-create\" class=\"create-guide\" data-view=\"create\" hidden>\n        <p class=\"settings-intro\">Choose a connection type, then follow the steps on this machine. Work stays in your terminal or provider console.</p>\n      </section>\n      <section id=\"remote-join-guide\" class=\"create-guide join-guide\" data-view=\"join\" hidden></section>\n      <section id=\"people\" class=\"tmt-ui-section\" data-view=\"members\" aria-label=\"People\">\n        <div id=\"people-content\">Checking people…</div>\n      </section>\n      <section id=\"owner-invitation\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" data-view=\"members\" aria-labelledby=\"invitation-heading\">\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"invitation-heading\" class=\"tmt-ui-section-heading\">Confirm an invitation</h2>\n          <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. This browser must be locally designated to confirm.</p>\n          <p id=\"invitation-status\" role=\"status\">Check access to read the current invitation.</p>\n          <p id=\"people-observation\" role=\"status\" hidden></p>\n          <button id=\"invitation-refresh\" class=\"tmt-ui-action\" type=\"button\" disabled>Check invitation</button>\n          <div id=\"invitation-candidate\" hidden>\n            <h3 id=\"invitation-name\"></h3>\n            <p id=\"invitation-words\" class=\"entry-command\"></p>\n            <p id=\"invitation-expires\" class=\"entry-note\"></p>\n            <fieldset class=\"tmt-ui-choices invitation-choices\">\n              <legend class=\"tmt-ui-choices-legend\">Your decision</legend>\n              <label class=\"tmt-ui-choice\" for=\"invitation-compared\"><input id=\"invitation-compared\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\">I compared these four words with the person joining; they match.</span></label>\n              <label class=\"tmt-ui-choice\" for=\"invitation-sending\"><input id=\"invitation-sending\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\"><span>Allow this member to send messages to your agents.</span><span class=\"tmt-ui-choice-description\">Sending stays off unless you choose to allow it.</span></span></label>\n            </fieldset>\n            <div class=\"invitation-actions\"><button id=\"invitation-confirm\" class=\"tmt-ui-action\" data-variant=\"primary\" type=\"button\" disabled>Confirm invitation</button><button id=\"invitation-decline\" class=\"tmt-ui-action\" type=\"button\">Decline invitation</button></div>\n          </div>\n          <div id=\"invitation-original\" hidden>\n            <p>Original decision: <code id=\"invitation-original-id\"></code></p>\n            <button id=\"invitation-recover\" class=\"tmt-ui-action\" type=\"button\">Check original outcome</button>\n          </div>\n        </div>\n      </section>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"members my-devices settings service\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote members</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\" data-view=\"members my-devices settings service remotes\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section id=\"remote-local-name\" class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"local-name-heading\">\n        <div class=\"settings-section-body\"><div class=\"settings-summary\">\n          <h2 id=\"local-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Name in this browser</h2>\n          <p id=\"remote-local-name-value\">This machine</p><p>This name stays in this browser. It does not rename the Remote for anyone else.</p>\n        </div><div class=\"settings-fields\"><button id=\"remote-local-rename\" class=\"tmt-ui-action\" type=\"button\"><span class=\"tmt-ui-action-label\">Remember this Remote</span></button></div></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"browser-name-heading\">\n        <div class=\"settings-summary\"><h2 id=\"browser-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">This browser's device name</h2>\n          <p>This is the paired browser/device name, not a person's display name.</p></div>\n        <p id=\"current-browser-name-missing\">This browser is not reported on the current device page. Open My devices to check its paired devices.</p>\n        <div id=\"current-browser-name\"></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"service\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Service &amp; upgrade</h2>\n          <p>Review this Remote’s service status. Make changes in this machine’s terminal or the provider console.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking service status…</div>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"my-devices\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"tmt-ui-notice\" hidden>\n            <p id=\"remove-others-consequence\" class=\"tmt-ui-notice-body\" role=\"status\"></p>\n            <div class=\"tmt-ui-notice-actions\">\n              <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">\n                <span class=\"tmt-ui-action-label\">Cancel</span>\n              </button>\n            </div>\n          </div>\n          <div id=\"devices\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"tmt-ui-section\" data-view=\"remotes\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\" class=\"tmt-ui-visually-hidden\">Remote list</h2>\n        <ul id=\"remote-list\" class=\"tmt-ui-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/tmt-settings.html?raw
 var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"tmt-settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>TMT settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">TMT settings</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main id=\"tmt-settings-page\" class=\"tmt-page tmt-settings\">\n      <p id=\"tmt-settings-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"tmt-settings-section\" class=\"tmt-settings-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
@@ -8753,7 +8750,7 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 		const panel = global ? globalPanel : panels.get(shown.id);
 		for (const model of models) {
 			if (model.parentElement !== panel) panel.append(model);
-			model.hidden = model.dataset.page !== shown.page || access.locked && shown.id === "invites";
+			model.hidden = model.dataset.page !== shown.page;
 		}
 		for (const part of main.querySelectorAll("[data-view]")) part.hidden = !part.dataset.view.split(" ").includes(shown.id);
 		if (access.locked) {
@@ -10963,9 +10960,6 @@ var cursor = (v) => v === null || typeof v === "string" && /^[A-Za-z0-9_-]{54}$/
 var id = (v) => typeof v === "string" && v.length > 0;
 var revision = (v) => integer(v) && v > 0;
 var time = (v) => v === null || integer(v);
-function name(v) {
-	return typeof v === "string" && v.trim().length > 0 && new TextEncoder().encode(v).length <= 64 && ![...v].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
-}
 function inputKeys(value, keys) {
 	input(Object.keys(value).length === keys.length && keys.every((k) => Object.hasOwn(value, k)));
 }
@@ -10984,7 +10978,7 @@ function person(value) {
 		"createdAtMs",
 		"revokedAtMs"
 	]);
-	valid$6(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && name(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
+	valid$6(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
 	return row;
 }
 function invitation(value) {
@@ -11045,7 +11039,7 @@ function machine(value, caller) {
 		"liveSessionCount",
 		"lastActivityAtMs"
 	]);
-	valid$6(id(row.clientId) && name(row.name) && [
+	valid$6(id(row.clientId) && memberName(row.name) && [
 		"browser",
 		"addon",
 		"cli"
@@ -11073,7 +11067,7 @@ function original(value, operationId) {
 		exact(result, ["remote"]);
 		const remote = object$3(result.remote);
 		exact(remote, ["remoteId", "displayName"]);
-		valid$6(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && name(remote.displayName) && row.sessionEnded === false);
+		valid$6(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
 	}
 	return row;
 }
@@ -11120,7 +11114,7 @@ function members(session, options = {}) {
 					"invitation",
 					"routes"
 				]);
-				valid$6(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || name(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
+				valid$6(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.members) {
 					const member = person(entry);
@@ -11169,7 +11163,7 @@ function members(session, options = {}) {
 				"name"
 			]);
 			target(change);
-			input(name(change.name));
+			input(memberName(change.name));
 			return mutate("remote.members.rename", { ...change }, "member");
 		},
 		sending: (change) => {
@@ -11200,7 +11194,7 @@ function members(session, options = {}) {
 				"remoteId",
 				"name"
 			]);
-			input(name(change.name));
+			input(memberName(change.name));
 			return mutate("remote.name.set", { ...change }, "remote");
 		},
 		operation: (operationId) => {
@@ -11754,8 +11748,6 @@ async function entryPairing() {
 async function landingPage(lifetime, registry, connected) {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	const registryState = registry ?? remoteRegistryPage();
-	const invitationRoot = document.getElementById("owner-invitation");
-	const ownerInvitations = invitationRoot ? invitationPage(invitationRoot, lifetime) : void 0;
 	const button = element("check");
 	let attempt = 0;
 	let departed = false;
@@ -11774,15 +11766,13 @@ async function landingPage(lifetime, registry, connected) {
 	let guidanceState = "checking";
 	let guidanceEnded = false;
 	function showGuidance() {
-		const invite = remoteItem(location.pathname)?.id === "invites";
-		const guidance = pairingGuidance(guidanceState, guidanceEnded, invite);
+		const guidance = pairingGuidance(guidanceState, guidanceEnded);
 		element("remote-guidance").hidden = !Object.values(guidance).some(Boolean);
 		element("remote-guidance-heading").textContent = guidance.pair ? "Connect a browser" : "Check access";
 		for (const command of commandActions) element(`remote-guide-${command}`).hidden = !guidance[command];
 	}
 	window.addEventListener("popstate", showGuidance, { signal: lifetime });
 	const render = (state, validated = false, refusalCode) => {
-		if (state !== "connected") ownerInvitations?.();
 		const authorityEnded = ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(refusalCode ?? "");
 		const copy = {
 			missing: [
@@ -11938,7 +11928,6 @@ async function landingPage(lifetime, registry, connected) {
 				timeStyle: "short"
 			}).format(/* @__PURE__ */ new Date());
 			render("connected");
-			ownerInvitations?.(session);
 			connected?.(session);
 		} catch (error) {
 			if (!currentPage()) return;
@@ -12234,4 +12223,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitationPage, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
