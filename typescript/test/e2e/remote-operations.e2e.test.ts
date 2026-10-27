@@ -338,9 +338,9 @@ describe('Remote owner-device operations (#1055)', () => {
           ).toMatchObject({ identities: [{ id: allowed, found: true }] });
           const check = await session.append('check', { agentId: allowed, lines: 10 });
           const localCheck = expectJsonResult(
-            await fixture.runJsonCli(['check', 'remote-read', '--lines', '10'])
+            await fixture.runJsonCli(['check', '--capture-only', '--lines', '10', '--', allowed])
           );
-          expect(check).toMatchObject({ target: 'remote-read', lines: 10 });
+          expect(check).toMatchObject({ target: allowed, lines: 10 });
           expect(check).toEqual(localCheck);
           // A pending result carries Core's message state; a cli device never sees `canSendNow`.
           expect(await session.append('result', { requestId })).toEqual({
