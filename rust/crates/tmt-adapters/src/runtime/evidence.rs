@@ -69,6 +69,11 @@ pub(crate) fn observe_replacement(
     )
     .ok()?;
     let text = std::str::from_utf8(&snapshot.stdout).ok()?;
+    // Uniqueness is proved by absence: a bad row could hide a second runtime,
+    // so this reader keeps the strict rule that every row is good (#5354).
+    if rows(text)?.values().any(Option::is_none) {
+        return None;
+    }
     let mut candidates = Vec::new();
     for line in text.lines() {
         let (pid, tail) = line.trim().split_once(char::is_whitespace)?;
@@ -214,7 +219,8 @@ fn ancestor(text: &str, caller: u64, pane: u64, executable: &str) -> Option<u64>
 /// makes the whole snapshot unusable. A PID whose row is malformed or repeated
 /// has no usable row (`None`): a walk that reaches it proves nothing, and a walk
 /// that does not is unaffected by it, since other processes start and exit
-/// while ps reads the table (#5354).
+/// while ps reads the table (#5354). A reader that proves something by the
+/// absence of rows, as replacement discovery does, must refuse any `None`.
 fn rows(text: &str) -> Option<HashMap<u64, Option<(u64, &str)>>> {
     let mut rows = HashMap::new();
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
@@ -556,6 +562,36 @@ mod tests {
                 "{unrelated:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_replacement_is_unique_only_on_a_snapshot_with_no_bad_row() {
+        // Pane 10 and provider 20. A second provider 21 sits under shell 22, so
+        // 20 is not unique; a bad row must not hide 21 (#5354 review).
+        let competing = "1 0 init\n10 1 sh\n20 10 claude\n21 22 claude\n22 10 sh\n";
+        assert_eq!(
+            observe_replacement(&answers(&[competing]), 10, soon(), "claude"),
+            None
+        );
+        for text in [
+            format!("{competing}22 10 sh\n"),
+            format!("{competing}21 22 claude\n"),
+            competing.replace("21 22 claude", "21 x claude"),
+            format!("{competing}90 1\n"),
+        ] {
+            // A live answer is ready, so a wrongly admitted 20 shows as Some.
+            assert_eq!(
+                observe_replacement(&answers(&[&text, LIVE]), 10, soon(), "claude"),
+                None,
+                "{text:?}"
+            );
+        }
+        // With no bad row, the one provider under the pane is the replacement.
+        let single = "1 0 init\n10 1 sh\n20 10 claude\n22 10 sh\n";
+        assert_eq!(
+            observe_replacement(&answers(&[single, LIVE]), 10, soon(), "claude"),
+            Some(recorded(20))
+        );
     }
 
     #[test]
