@@ -1103,66 +1103,207 @@ fn target_pane<'a, R, O>(
     Ok(pane)
 }
 
+/// A staged mutation may commit only while both the captured row and its
+/// identity/pane publication fences are unchanged and unreserved.
+fn entry_is_unchanged_and_unreserved<R>(
+    records: &dyn BindingRecords<Error = R>,
+    entry: &BindingEntry,
+) -> Result<bool, R> {
+    if records.entry_by_id(&entry.identity.id)?.as_ref() != Some(entry)
+        || records
+            .reservation_by_identity(&entry.identity.id)?
+            .is_some()
+    {
+        return Ok(false);
+    }
+    if let Some(binding) = &entry.binding
+        && records
+            .reservation_by_pane(
+                binding.server.host,
+                &binding.server.server_id,
+                &binding.pane_id,
+            )?
+            .is_some()
+    {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+#[derive(Clone, Copy)]
+enum Ending {
+    Unbind,
+    Remove,
+    FailedAutomatic,
+}
+
+/// Non-atomic hosts keep the exact pane reserved until their clear finishes.
+/// The ordinary publication lease and deadline protect the normal case; the
+/// documented lease-expiry limitation remains for an indefinitely paused host.
+fn end_captured_binding<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    entry: &BindingEntry,
+    evidence: &BindingEvidence,
+    ending: Ending,
+) -> Result<bool, BindingError<R::Error, O::Error>> {
+    let active = matches!(evidence, BindingEvidence::Active(_));
+    let binding = entry.binding.as_ref();
+    let conditional = if active {
+        endpoint
+            .conditional_clear(binding.expect("active evidence has a binding"))
+            .map_err(BindingError::Endpoint)?
+    } else {
+        true
+    };
+    let mut cleanup_error = None;
+    let reservation = if active && !conditional {
+        let binding = binding.expect("active evidence has a binding");
+        let owner = endpoint
+            .publication_owner()
+            .map_err(BindingError::Endpoint)?
+            .ok_or(BindingError::Unverified)?;
+        let now = endpoint
+            .publication_time_ms()
+            .ok_or(BindingError::Unverified)?;
+        let expires_at_ms = now
+            .checked_add(10_000)
+            .filter(|value| *value <= crate::limits::MAX_JS_SAFE_INTEGER)
+            .ok_or(BindingError::Unverified)?;
+        let mut target = binding.clone();
+        target.session = Default::default();
+        let reservation = BindingReservation {
+            target,
+            old_binding_id: None,
+            expected_binding_id: Some(binding.id.clone()),
+            publisher: owner,
+            created_at_ms: now,
+            expires_at_ms,
+        };
+        let acquired = repository.with_binding_transaction::<_, R::Error>(|records| {
+            if !entry_is_unchanged_and_unreserved(records, entry)?
+                || matches!(ending, Ending::FailedAutomatic)
+                    && !records.is_auto_named(&entry.identity.id)?
+            {
+                return Ok(false);
+            }
+            records.begin_binding_reservation(&reservation)?;
+            Ok(true)
+        })?;
+        if !acquired {
+            return if matches!(ending, Ending::FailedAutomatic) {
+                Ok(false)
+            } else {
+                Err(BindingError::Unverified)
+            };
+        }
+        let now = endpoint.publication_time_ms();
+        if now.is_some_and(|now| {
+            publication_can_start(&reservation, now, endpoint.budget_available())
+        }) && let Err(error) = endpoint.clear(binding, &entry.identity)
+            && endpoint.cleanup_failed(&error)
+        {
+            cleanup_error = Some(error);
+        }
+        Some(reservation)
+    } else {
+        None
+    };
+    let changed = repository.with_binding_transaction::<_, R::Error>(|records| {
+        let unchanged = records.entry_by_id(&entry.identity.id)?.as_ref() == Some(entry)
+            && (!matches!(ending, Ending::FailedAutomatic)
+                || records.is_auto_named(&entry.identity.id)?);
+        let allowed = match &reservation {
+            Some(reservation) => {
+                records
+                    .reservation_by_target(&reservation.target.id)?
+                    .as_ref()
+                    == Some(reservation)
+            }
+            None => entry_is_unchanged_and_unreserved(records, entry)?,
+        };
+        if let Some(reservation) = &reservation
+            && !records.finish_binding_reservation(reservation)?
+        {
+            return Ok(false);
+        }
+        if !unchanged || !allowed {
+            return Ok(false);
+        }
+        match ending {
+            Ending::Unbind if entry.identity.lifetime == Lifetime::Temporary => {
+                records.retire_identity(&entry.identity, false)?
+            }
+            Ending::Unbind => {
+                if let Some(binding) = binding {
+                    records.detach_binding(&binding.id)?;
+                }
+            }
+            Ending::Remove | Ending::FailedAutomatic => {
+                records.retire_identity(&entry.identity, true)?
+            }
+        }
+        Ok(true)
+    })?;
+    if !changed {
+        return if matches!(ending, Ending::FailedAutomatic) {
+            Ok(false)
+        } else {
+            Err(BindingError::Unverified)
+        };
+    }
+    if active
+        && conditional
+        && let Err(error) = endpoint.clear_if_owned(
+            binding.expect("active evidence has a binding"),
+            &entry.identity,
+        )
+        && endpoint.cleanup_failed(&error)
+    {
+        cleanup_error = Some(error);
+    }
+    if let Some(error) = cleanup_error {
+        return Err(BindingError::Endpoint(error));
+    }
+    Ok(true)
+}
+
 pub fn unbind_identity<R: BindingRepository, O: BindingEndpoint>(
     repository: &mut R,
     endpoint: &mut O,
     pane_id: &str,
 ) -> Result<Option<UnboundIdentity>, BindingError<R::Error, O::Error>> {
-    repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
-        let snapshot = endpoint
-            .current_snapshot(&[pane_id.into()])
-            .map_err(BindingError::Endpoint)?;
-        if !snapshot.panes.iter().any(|pane| pane.id == pane_id) {
-            return Err(BindingError::PaneNotFound(pane_id.into()));
-        }
-        let Some(entry) =
-            records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?
-        else {
-            return Ok(None);
-        };
-        let evidence = evaluate_binding(&entry, &EndpointProbe::Live(snapshot));
-        clear_observed(endpoint, &entry, &evidence)?;
-        let retired = entry.identity.lifetime == Lifetime::Temporary;
-        if retired {
-            records.retire_identity(&entry.identity, false)?;
-        } else if let Some(binding) = &entry.binding {
-            records.detach_binding(&binding.id)?;
-        }
-        deadline(endpoint)?;
-        let binding = matches!(evidence, BindingEvidence::Active(_))
-            .then_some(entry.binding)
-            .flatten();
-        Ok(Some(UnboundIdentity {
-            identity: entry.identity,
-            retired,
-            binding,
-        }))
-    })
-}
-
-fn clear_observed<R, O: BindingEndpoint>(
-    endpoint: &mut O,
-    entry: &BindingEntry,
-    evidence: &BindingEvidence,
-) -> Result<(), BindingError<R, O::Error>> {
-    match (evidence, &entry.binding) {
-        (BindingEvidence::Unknown, Some(_)) => Err(BindingError::Unverified),
-        (BindingEvidence::Active(_), Some(binding)) => {
-            // Clear under the SQL write lock to serialize replacement binds (publication-race.e2e.test.ts).
-            if endpoint
-                .clear(binding, &entry.identity)
-                .map_err(BindingError::Endpoint)?
-            {
-                Ok(())
-            } else {
-                Err(BindingError::Unverified)
-            }
-        }
-        // A mismatched marker belongs to neither this binding nor its removal.
-        // Explicit retirement may detach the obsolete row but never erase it.
-        _ => Ok(()),
+    let candidates = repository.with_binding_transaction::<_, R::Error>(|records| {
+        records.entries_for_pane(endpoint.current_host(), pane_id)
+    })?;
+    endpoint.begin_coordination();
+    let snapshot = endpoint
+        .current_snapshot(&[pane_id.into()])
+        .map_err(BindingError::Endpoint)?;
+    target_pane(&snapshot, pane_id, None)?;
+    let Some(entry) = candidates.into_iter().find(|entry| {
+        entry
+            .binding
+            .as_ref()
+            .is_some_and(|binding| binding.server.server_id == snapshot.server.server_id)
+    }) else {
+        return Ok(None);
+    };
+    let evidence = evaluate_binding(&entry, &EndpointProbe::Live(snapshot));
+    if entry.binding.is_some() && evidence == BindingEvidence::Unknown {
+        return Err(BindingError::Unverified);
     }
+    deadline(endpoint)?;
+    let retired = entry.identity.lifetime == Lifetime::Temporary;
+    end_captured_binding(repository, endpoint, &entry, &evidence, Ending::Unbind)?;
+    let binding = matches!(evidence, BindingEvidence::Active(_))
+        .then(|| entry.binding.clone())
+        .flatten();
+    Ok(Some(UnboundIdentity {
+        identity: entry.identity,
+        retired,
+        binding,
+    }))
 }
 
 pub fn remove_identity<R: BindingRepository, O: BindingEndpoint>(
@@ -1171,28 +1312,29 @@ pub fn remove_identity<R: BindingRepository, O: BindingEndpoint>(
     name: &str,
     force: bool,
 ) -> Result<BindingEntry, BindingError<R::Error, O::Error>> {
-    repository.with_binding_transaction(|records| {
-        let entry = selected_entry(records, name)?
-            .ok_or_else(|| BindingError::NameNotFound(name.into()))?;
-        if entry.identity.lifetime == Lifetime::Saved && !force {
-            return Err(BindingError::ConfirmationRequired);
-        }
-        endpoint.begin_coordination();
-        let mut cleared_binding = None;
-        if entry.binding.is_some() {
-            let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
-            let evidence = evaluate_binding(&entry, &probe);
-            clear_observed(endpoint, &entry, &evidence)?;
-            if matches!(evidence, BindingEvidence::Active(_)) {
-                cleared_binding = entry.binding.clone();
-            }
-        }
-        records.retire_identity(&entry.identity, true)?;
-        deadline(endpoint)?;
-        Ok(BindingEntry {
-            identity: entry.identity,
-            binding: cleared_binding,
-        })
+    let entry = repository.with_binding_transaction(|records| {
+        selected_entry(records, name)?.ok_or_else(|| BindingError::NameNotFound(name.into()))
+    })?;
+    if entry.identity.lifetime == Lifetime::Saved && !force {
+        return Err(BindingError::ConfirmationRequired);
+    }
+    endpoint.begin_coordination();
+    let evidence = if entry.binding.is_some() {
+        let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
+        evaluate_binding(&entry, &probe)
+    } else {
+        BindingEvidence::EndpointLost
+    };
+    if entry.binding.is_some() && evidence == BindingEvidence::Unknown {
+        return Err(BindingError::Unverified);
+    }
+    deadline(endpoint)?;
+    end_captured_binding(repository, endpoint, &entry, &evidence, Ending::Remove)?;
+    Ok(BindingEntry {
+        identity: entry.identity,
+        binding: matches!(evidence, BindingEvidence::Active(_))
+            .then_some(entry.binding)
+            .flatten(),
     })
 }
 
@@ -1260,8 +1402,8 @@ fn rename_entry<R, O>(
     })
 }
 
-/// Name only the verified caller's auto-named identity. Verification, collision
-/// checks, promotion and provenance consumption share one write transaction.
+/// Name only the verified caller's auto-named identity. Observe the host outside
+/// the writer, then recheck ownership, provenance and collisions before promotion.
 /// Ordinary panes return None and retain the existing bind policy.
 pub fn name_auto_identity<R: BindingRepository, O: BindingEndpoint>(
     repository: &mut R,
@@ -1271,25 +1413,41 @@ pub fn name_auto_identity<R: BindingRepository, O: BindingEndpoint>(
     save: bool,
 ) -> Result<Option<BoundIdentity>, BindingError<R::Error, O::Error>> {
     let name = crate::names::validate_name(new).map_err(BindingError::InvalidName)?;
+    let candidates = repository.with_binding_transaction::<_, R::Error>(|records| {
+        records
+            .entries_for_pane(endpoint.current_host(), pane_id)?
+            .into_iter()
+            .map(|entry| Ok((records.is_auto_named(&entry.identity.id)?, entry)))
+            .collect::<Result<Vec<_>, R::Error>>()
+    })?;
+    endpoint.begin_coordination();
+    let snapshot = endpoint
+        .current_snapshot(&[pane_id.into()])
+        .map_err(BindingError::Endpoint)?;
+    target_pane(&snapshot, pane_id, None)?;
+    let Some((automatic, entry)) = candidates.into_iter().find(|(_, entry)| {
+        entry
+            .binding
+            .as_ref()
+            .is_some_and(|binding| binding.server.server_id == snapshot.server.server_id)
+    }) else {
+        return Ok(None);
+    };
+    if !automatic {
+        return Ok(None);
+    }
+    let BindingEvidence::Active(pane) = evaluate_binding(&entry, &EndpointProbe::Live(snapshot))
+    else {
+        return Err(BindingError::Unverified);
+    };
+    deadline(endpoint)?;
     repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
-        let snapshot = endpoint
-            .current_snapshot(&[pane_id.into()])
-            .map_err(BindingError::Endpoint)?;
-        target_pane(&snapshot, pane_id, None)?;
-        let Some(entry) =
-            records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?
-        else {
-            return Ok(None);
-        };
+        if !entry_is_unchanged_and_unreserved(records, &entry)? {
+            return Err(BindingError::Unverified);
+        }
         if !records.is_auto_named(&entry.identity.id)? {
             return Ok(None);
         }
-        let BindingEvidence::Active(pane) =
-            evaluate_binding(&entry, &EndpointProbe::Live(snapshot))
-        else {
-            return Err(BindingError::Unverified);
-        };
         if records
             .find_identity(name.canonical_name())?
             .is_some_and(|other| other.id != entry.identity.id)
@@ -1300,7 +1458,6 @@ pub fn name_auto_identity<R: BindingRepository, O: BindingEndpoint>(
         if save && identity.lifetime == Lifetime::Temporary {
             identity = records.save_identity(&identity)?;
         }
-        deadline(endpoint)?;
         Ok(Some(BoundIdentity {
             presence: IdentityPresence {
                 identity,
@@ -1320,20 +1477,34 @@ pub fn retire_failed_auto_launch<R: BindingRepository, O: BindingEndpoint>(
     endpoint: &mut O,
     binding: &Binding,
 ) -> Result<(), BindingError<R::Error, O::Error>> {
-    repository.with_binding_transaction(|records| {
+    let entry = repository.with_binding_transaction::<_, R::Error>(|records| {
         let Some(entry) = records.entry_by_id(&binding.identity_id)? else {
-            return Ok(());
+            return Ok(None);
         };
         if entry.identity.lifetime != Lifetime::Temporary
             || entry.binding.as_ref() != Some(binding)
             || !records.is_auto_named(&entry.identity.id)?
         {
-            return Ok(());
+            return Ok(None);
         }
-        endpoint.begin_coordination();
-        let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
-        clear_observed(endpoint, &entry, &evaluate_binding(&entry, &probe))?;
-        records.retire_identity(&entry.identity, true)?;
-        deadline(endpoint)
-    })
+        Ok(Some(entry))
+    })?;
+    let Some(entry) = entry else {
+        return Ok(());
+    };
+    endpoint.begin_coordination();
+    let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
+    let evidence = evaluate_binding(&entry, &probe);
+    if evidence == BindingEvidence::Unknown {
+        return Err(BindingError::Unverified);
+    }
+    deadline(endpoint)?;
+    end_captured_binding(
+        repository,
+        endpoint,
+        &entry,
+        &evidence,
+        Ending::FailedAutomatic,
+    )?;
+    Ok(())
 }

@@ -618,6 +618,20 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
             _ => Err(error("the supervisor did not confirm marker publication")),
         }
     }
+    fn conditional_clear(&mut self, binding: &Binding) -> Result<bool, HostError> {
+        match call(
+            &binding.server.socket_path,
+            &binding.pane_id,
+            Control::Capabilities,
+            self.deadline,
+        ) {
+            Ok(ControlReply::Applied(value)) => Ok(value),
+            Err(HostError::Pty(cause)) if cause.kind() == io::ErrorKind::UnexpectedEof => Ok(false),
+            Err(cause) => Err(cause),
+            _ => Err(error("the supervisor returned invalid capabilities")),
+        }
+    }
+
     fn clear(&mut self, binding: &Binding, _: &Identity) -> Result<bool, HostError> {
         match call(
             &binding.server.socket_path,
@@ -758,7 +772,7 @@ mod tests {
             let deadline = Instant::now() + Duration::from_secs(20);
             let mut marker = None;
             let mut seen_legacy = false;
-            for step in 0..4 {
+            for step in 0..5 {
                 let (mut stream, _) = loop {
                     match listener.accept() {
                         Ok(value) => break value,
@@ -805,7 +819,9 @@ mod tests {
                     decoder.push(&buf[..n]).unwrap();
                 };
                 let answer = match request {
-                    ClientMessage::Control(Control::Capabilities) if step == 0 => continue,
+                    ClientMessage::Control(Control::Capabilities) if step == 0 || step == 4 => {
+                        continue;
+                    }
                     ClientMessage::Control(Control::Inspect) if step == 1 || step == 3 => {
                         ControlReply::State {
                             supervisor_pid,
@@ -867,6 +883,7 @@ mod tests {
         assert!(driver.publish_if(&binding, &identity, None).unwrap());
         let observed = state(&binding.server.socket_path, &binding.pane_id, deadline).unwrap();
         assert_eq!(observed.marker.unwrap().binding_id, "binding");
+        assert!(!driver.conditional_clear(&binding).unwrap());
         handle.join().unwrap();
     }
 

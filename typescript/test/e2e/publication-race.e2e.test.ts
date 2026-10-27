@@ -1,7 +1,6 @@
 import { unknownActivity, withoutAddress } from './cli-assertions.js';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vite-plus/test';
-import fs from 'node:fs';
 import path from 'node:path';
 import { E2EFixture, withE2EFixture, type CliProcess, type CliResult } from './harness.js';
 
@@ -348,7 +347,7 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
     });
   }, 12_000);
 
-  it('serializes unbind metadata removal against a replacement bind', async () => {
+  it('keeps a replacement marker when an earlier unbind clear resumes', async () => {
     await withE2EFixture(async (fixture) => {
       expect((await fixture.runJsonCli(['name', 'OldIdentity'])).code).toBe(0);
       const profile = await fixture.runJsonCli(['role', 'set', 'Retain during replacement']);
@@ -356,27 +355,22 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
       const identityBefore = durableIdentity(fixture, 'oldidentity');
       const profileBefore = durableProfile(fixture, identityBefore.id);
 
-      fixture.enableMetadataBarrier({ phase: 'after', operation: 'clear' });
+      fixture.enableMetadataBarrier({ phase: 'before', operation: 'clear' });
       const unbinder = fixture.runCliProcess(['--json', 'unbind']);
-      await fixture.waitForMetadataBarrier('applied');
-      expect(fixture.paneMetadata()).toBe('');
-      expect(durableCounts(fixture)).toMatchObject({ bindings: 1, profiles: 1 });
-      expect(writerIsLocked(fixture)).toBe(true);
+      await fixture.waitForMetadataBarrier('entered', { child: unbinder });
+      expect(fixture.paneMetadata()).toContain('OldIdentity');
+      expect(durableCounts(fixture)).toMatchObject({ bindings: 0, profiles: 1 });
+      expect(writerIsLocked(fixture)).toBe(false);
 
-      const contenderProgress = path.join(fixture.root, 'replacement-started');
-      const replacement = fixture.runCliProcess(['--json', 'name', 'NewIdentity'], {
-        progressFile: contenderProgress,
-      });
-      await fixture.waitFor(
-        () => fs.existsSync(contenderProgress),
-        900,
-        'replacement binder to invoke tmux'
-      );
+      const replacement = fixture.runCliProcess(['--json', 'name', 'NewIdentity']);
+      await waitForSuccess(replacement);
+      expect(durableCounts(fixture)).toMatchObject({ bindings: 1, profiles: 1 });
+      expect(fixture.paneMetadata()).toContain('NewIdentity');
 
       fixture.releaseMetadataBarrier();
       const unbound = await waitForSuccess(unbinder);
       expect(unbound).toMatchObject({ unbound: true, name: 'OldIdentity' });
-      await waitForSuccess(replacement);
+      expect(fixture.paneMetadata()).toContain('NewIdentity');
       expect(durableCounts(fixture)).toMatchObject({ bindings: 1, profiles: 1 });
 
       const whoami = await fixture.runJsonCli<{ bound: boolean; name: string }>(['whoami']);

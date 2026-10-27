@@ -354,6 +354,11 @@ pub trait BindingEndpoint {
     ) -> Result<bool, Self::Error> {
         Ok(false)
     }
+    /// Whether clearing this binding is an atomic exact-ID compare-and-swap.
+    /// Unknown and legacy hosts conservatively use a reservation.
+    fn conditional_clear(&mut self, _binding: &Binding) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
     /// Clears this binding's marker. `identity` is the binding's identity, so
     /// a host with agent names takes away only the name that equals its name.
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error>;

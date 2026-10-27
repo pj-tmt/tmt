@@ -383,6 +383,10 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         self.publish_marker(binding, identity, None, Some(expected_raw))
     }
 
+    fn conditional_clear(&mut self, _: &Binding) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+
     fn clear_if_owned(&mut self, binding: &Binding, _: &Identity) -> Result<bool, Self::Error> {
         self.clear_owned_marker(binding)
     }

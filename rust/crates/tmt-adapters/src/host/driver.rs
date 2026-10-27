@@ -57,6 +57,11 @@ pub trait HostDriver {
         self.publish(binding, identity).map(|()| true)
     }
 
+    /// Whether clear atomically compares this binding's ID.
+    fn conditional_clear(&mut self, _binding: &Binding) -> Result<bool, HostError> {
+        Ok(false)
+    }
+
     /// Removes the binding's marker if the pane still carries it.
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, HostError>;
 

@@ -165,6 +165,9 @@ impl<F: FnOnce()> BindingEndpoint for HeldHost<F> {
         }
         self.inner.publish_if(binding, identity, expected)
     }
+    fn conditional_clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {
+        self.inner.conditional_clear(binding)
+    }
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error> {
         self.hold();
         self.inner.clear(binding, identity)
@@ -176,19 +179,6 @@ impl<F: FnOnce()> BindingEndpoint for HeldHost<F> {
     ) -> Result<Option<String>, Self::Error> {
         self.inner.pane_incarnation(server, pid)
     }
-}
-
-// The hook opened with the full production writer wait. Admission then
-// waits under a 10 s safety bound instead, because a loaded runner can
-// delay the writer's commit past that wait (#5136).
-fn wait_for_commit(connection: &rusqlite::Connection, wait_ms: i64) {
-    // Pins the designed 500 ms writer wait (#1759), not HOOK_WRITER_WAIT:
-    // a deliberate change of that bound must also change this test.
-    assert_eq!(
-        Duration::from_millis(wait_ms.try_into().unwrap()),
-        Duration::from_millis(500)
-    );
-    connection.busy_timeout(Duration::from_secs(10)).unwrap();
 }
 
 fn launched_hook(storage: &mut Storage, endpoint: &mut FakeEndpoint, pane: &str) -> Binding {
@@ -278,9 +268,11 @@ fn a_held_binding_publication_does_not_hold_the_sqlite_writer() {
             mutation: Mutation::Bind,
             gate: Some(|| {
                 start_tx.send(()).unwrap();
+                // Publication remains held until the receive returns, so a
+                // writer blocked by it cannot satisfy this assertion.
                 assert!(
                     result_rx
-                        .recv_timeout(Duration::from_millis(50))
+                        .recv_timeout(Duration::from_secs(2))
                         .unwrap()
                         .unwrap(),
                     "unrelated hook writer did not commit while publication was held"
@@ -410,45 +402,31 @@ fn mutation_admits_hook(mutation: Mutation) {
     let target = mutation.set_up(&mut storage, &mut endpoint);
     endpoint = thread::scope(|scope| {
         let (start_tx, start_rx) = mpsc::sync_channel(1);
-        let (busy_tx, busy_rx) = mpsc::sync_channel(1);
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let (result_tx, result_rx) = mpsc::sync_channel(1);
         let database = &fixture.database;
         let hook_binding = &hook_binding;
         let worker = scope.spawn(move || {
-            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             let mut hook =
-                Storage::open_hook(database, Instant::now() + Duration::from_secs(2)).unwrap();
-            let connection = hook.connection().unwrap();
-            let wait_ms = connection
-                .query_row("PRAGMA busy_timeout", [], |r| r.get::<_, i64>(0))
-                .unwrap();
-            // Prove this actual hook connection encountered the held writer.
-            connection.busy_timeout(Duration::ZERO).unwrap();
-            let error = connection.execute_batch("BEGIN IMMEDIATE").unwrap_err();
-            assert_eq!(
-                error.sqlite_error_code(),
-                Some(rusqlite::ErrorCode::DatabaseBusy)
-            );
-            wait_for_commit(connection, wait_ms);
-            busy_tx.send(()).unwrap();
+                Storage::open_hook(database, Instant::now() + Duration::from_secs(10)).unwrap();
+            ready_tx.send(()).unwrap();
+            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             let result = resumed_hook(&mut hook, hook_binding);
             hook.close().unwrap();
             result_tx.send(result).unwrap();
         });
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let mut held = HeldHost {
             inner: endpoint,
             mutation,
             gate: Some(|| {
                 start_tx.send(()).unwrap();
-                busy_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-                // Wait for a bounded result event, not a sleep: the hook must
-                // remain pending until this host call returns and SQL commits.
                 assert!(
-                    matches!(
-                        result_rx.recv_timeout(Duration::from_millis(100)),
-                        Err(mpsc::RecvTimeoutError::Timeout)
-                    ),
-                    "{mutation:?}: hook did not wait for host effect"
+                    result_rx
+                        .recv_timeout(Duration::from_millis(500))
+                        .unwrap()
+                        .unwrap(),
+                    "{mutation:?}: unrelated hook could not commit during host I/O"
                 );
             }),
         };
@@ -456,12 +434,6 @@ fn mutation_admits_hook(mutation: Mutation) {
         assert!(
             held.gate.is_none(),
             "mutation did not reach its gated host effect"
-        );
-        assert!(
-            result_rx
-                .recv_timeout(Duration::from_secs(10))
-                .unwrap()
-                .unwrap()
         );
         worker.join().unwrap();
         held.inner
@@ -511,36 +483,32 @@ fn a_hook_waiting_for_unbind_cannot_restore_the_detached_binding() {
     let old = launched_hook(&mut storage, &mut endpoint, "%9");
     endpoint = thread::scope(|scope| {
         let (start_tx, start_rx) = mpsc::sync_channel(1);
-        let (busy_tx, busy_rx) = mpsc::sync_channel(1);
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
         let database = &fixture.database;
         let old = &old;
         let worker = scope.spawn(move || {
-            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             let mut hook =
-                Storage::open_hook(database, Instant::now() + Duration::from_secs(2)).unwrap();
-            let c = hook.connection().unwrap();
-            let wait_ms = c
-                .query_row("PRAGMA busy_timeout", [], |r| r.get::<_, i64>(0))
-                .unwrap();
-            c.busy_timeout(Duration::ZERO).unwrap();
-            assert_eq!(
-                c.execute_batch("BEGIN IMMEDIATE")
-                    .unwrap_err()
-                    .sqlite_error_code(),
-                Some(rusqlite::ErrorCode::DatabaseBusy)
-            );
-            wait_for_commit(c, wait_ms);
-            busy_tx.send(()).unwrap();
+                Storage::open_hook(database, Instant::now() + Duration::from_secs(10)).unwrap();
+            ready_tx.send(()).unwrap();
+            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             let result = resumed_hook(&mut hook, old);
             hook.close().unwrap();
-            result
+            result_tx.send(result).unwrap();
         });
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let mut held = HeldHost {
             inner: endpoint,
             mutation: Mutation::Unbind,
             gate: Some(|| {
                 start_tx.send(()).unwrap();
-                busy_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+                assert!(
+                    !result_rx
+                        .recv_timeout(Duration::from_millis(500))
+                        .unwrap()
+                        .unwrap(),
+                    "detached binding must not be restored by the hook"
+                );
             }),
         };
         assert!(
@@ -549,7 +517,7 @@ fn a_hook_waiting_for_unbind_cannot_restore_the_detached_binding() {
                 .unwrap()
                 .retired
         );
-        assert!(!worker.join().unwrap().unwrap());
+        worker.join().unwrap();
         held.inner
     });
     let replacement =

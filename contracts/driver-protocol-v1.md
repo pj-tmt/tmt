@@ -275,7 +275,13 @@ unchanged in `snapshot` and `probe`. It never interprets the marker.
   - request: `{"socket", "paneId", "bindingId"}`;
   - answer: `{"cleared": bool}`;
   - the driver removes a marker only when it carries that `bindingId`; a missing
-    pane is `{"cleared": false}`.
+    pane is `{"cleared": false}`. On hosts without atomic conditional clear, Core
+    holds a pane reservation through the clear and does not start it without the
+    command budget and lease margin. A process paused past its lease can still
+    erase a successor marker: the successor observes a mismatch, detaches and can
+    rebind. A concurrent save or rename during failed-auto cleanup may also
+    leave a saved binding without its marker. This weaker guarantee also applies
+    to older built-in supervisors.
 
 ### Built-in local host
 
@@ -458,11 +464,14 @@ A host without agent names does not list it.
   and with the identity's name after `tmt run` or `tmt resume` started an
   agent (automatic naming, below). Read commands and provider hooks never
   set a name. A binding cleanup (unbind, `tmt rm`, or a failed `tmt run` launch)
-  may take away an agent name equal to the identity's name. Every answer
-  leaves the binding as it is. Before `clear` the call gets at most half of
-  the time left in the command's budget, and core goes on with the clear
-  whatever the answer, except when the driver process could not be cleaned
-  up.
+  may take away an agent name equal to the identity's name. Cleanup uses an
+  atomic conditional clear after detach or retirement when supported; otherwise
+  it reserves the pane, clears, then commits the change and releases the reservation.
+  Neither clear holds the SQLite writer. A failed clear leaves a stale marker
+  that a later bind may reclaim. Before `clear` the
+  call gets at most half of the time left in the command's budget, and core
+  goes on with the clear whatever the answer, except when the driver process
+  could not be cleaned up.
 - **Limits (best effort):** the guards use what the driver observes. Equality
   is not provenance: a clear also takes away an equal name that someone else
   gave. After a `tmt mv` the host refused, the agent keeps the earlier name,
