@@ -50,7 +50,7 @@ describe('release-index v1', () => {
       sourceSha: 'a'.repeat(40),
       manifest: {
         name: 'dist-manifest.json',
-        url: `https://github.com/pj-tmt/tmt/releases/download/${tag}/dist-manifest.json`,
+        url: `https://github.com/tmt-ninja/tmt/releases/download/${tag}/dist-manifest.json`,
         size: manifest.length,
         sha256: sha256(manifest),
       },
@@ -62,7 +62,7 @@ describe('release-index v1', () => {
             target,
             {
               name,
-              url: `https://github.com/pj-tmt/tmt/releases/download/${tag}/${name}`,
+              url: `https://github.com/tmt-ninja/tmt/releases/download/${tag}/${name}`,
               size: bytes.length,
               sha256: sha256(bytes),
             },
@@ -162,7 +162,7 @@ describe('release-index v1', () => {
       version: record.version,
       tag: record.tag,
       record: {
-        url: `https://github.com/pj-tmt/tmt/releases/download/${record.tag}/tmt-release-record.json`,
+        url: `https://github.com/tmt-ninja/tmt/releases/download/${record.tag}/tmt-release-record.json`,
         size: 100,
         sha256: 'a'.repeat(64),
       },
@@ -172,7 +172,7 @@ describe('release-index v1', () => {
       ...pointer,
       record: {
         ...pointer.record,
-        url: `https://raw.githubusercontent.com/pj-tmt/tmt/release-index/records/${record.tag}.json`,
+        url: `https://raw.githubusercontent.com/tmt-ninja/tmt/release-index/records/${record.tag}.json`,
       },
     };
     expect(parseChannelPointer(JSON.stringify(backfill))).toEqual(backfill);
@@ -195,6 +195,42 @@ describe('release-index v1', () => {
     expect(() => parseChannelPointer(' '.repeat(POINTER_LIMIT + 1))).toThrow('byte cap');
     expect(() => parseReleaseRecord(' '.repeat(RECORD_LIMIT + 1))).toThrow('byte cap');
     expect(() => parseReleaseRecord('{')).toThrow();
+  });
+
+  it('still reads what was published under the previous repository name, and nothing else', () => {
+    const { record } = fixture();
+    const earlier = (text: string) => text.replaceAll('tmt-ninja/tmt', 'pj-tmt/tmt');
+    // A record published before the rename keeps validating, byte for byte.
+    const published = Buffer.from(earlier(releaseRecordBytes(record).toString()));
+    expect(published.toString()).toContain('github.com/pj-tmt/tmt/releases/download/');
+    expect(parseReleaseRecord(published)).toEqual(JSON.parse(published.toString()));
+    // So do its pointers, in both the release-asset and the backfill form.
+    for (const bootstrap of [false, true]) {
+      const pointer = earlier(
+        JSON.stringify(channelPointer(releaseRecordBytes(record), { bootstrap }))
+      );
+      expect(parseChannelPointer(pointer)).toEqual(JSON.parse(pointer));
+    }
+    // A foreign owner, another path, or another tag is still refused.
+    const asset = releaseRecordBytes(record).toString();
+    for (const url of [
+      'https://github.com/other-org/tmt/releases/download/',
+      'https://github.com/pj-tmt/other/releases/download/',
+      'https://github.com/pj-tmt/tmt/archive/',
+    ]) {
+      const changed = asset.replaceAll('https://github.com/tmt-ninja/tmt/releases/download/', url);
+      expect(() => parseReleaseRecord(Buffer.from(changed))).toThrow('asset URL mismatch');
+    }
+    const otherTag = earlier(asset).replaceAll(`/${record.tag}/`, '/v5.0.0-alpha.10/');
+    expect(() => parseReleaseRecord(Buffer.from(otherTag))).toThrow('asset URL mismatch');
+  });
+
+  it('verifies a record published under the previous name against fresh bytes', () => {
+    const { record, input } = fixture();
+    const published = Buffer.from(
+      releaseRecordBytes(record).toString().replaceAll('tmt-ninja/tmt', 'pj-tmt/tmt')
+    );
+    expect(verifyReleaseRecord({ ...input, recordBytes: published }).tag).toBe(record.tag);
   });
 });
 
@@ -237,7 +273,7 @@ describe('protected release-index updates', () => {
       version: '5.0.0-alpha.9',
       tag: 'v5.0.0-alpha.9',
       record: {
-        url: 'https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.9/tmt-release-record.json',
+        url: 'https://github.com/tmt-ninja/tmt/releases/download/v5.0.0-alpha.9/tmt-release-record.json',
         size: recordBytes.length,
         sha256: sha256(recordBytes),
       },
@@ -451,6 +487,30 @@ describe('protected release-index updates', () => {
     }
   });
 
+  it('treats an index entry written under the previous name as the same identity, and advances past it', () => {
+    const { record } = fixture();
+    const recordBytes = releaseRecordBytes(record);
+    const { api, documents } = indexFixture();
+    const pointer = channelPointer(recordBytes);
+    const earlier = Buffer.from(
+      `${JSON.stringify(pointer, null, 2).replaceAll('tmt-ninja/tmt', 'pj-tmt/tmt')}\n`
+    );
+    documents.set('channels/cli/alpha.json', earlier);
+    // Re-indexing the same tag after the rename is a no-op, not an identity conflict.
+    expect(updateReleaseIndex({ api, recordBytes }).changed).toBe(false);
+    expect(documents.get('channels/cli/alpha.json')).toEqual(earlier);
+    // A newer release advances over it and is written under the new name.
+    const newer = { ...record, version: '5.0.0-alpha.10', tag: 'v5.0.0-alpha.10' };
+    const newerBytes = Buffer.from(
+      releaseRecordBytes(record).toString().replaceAll('alpha.9', 'alpha.10')
+    );
+    expect(updateReleaseIndex({ api, recordBytes: newerBytes }).changed).toBe(true);
+    const written = documents.get('channels/cli/alpha.json')!.toString();
+    expect(JSON.parse(written).tag).toBe(newer.tag);
+    expect(written).toContain('github.com/tmt-ninja/tmt/releases/download/');
+    expect(written).not.toContain('pj-tmt');
+  });
+
   it('writes the historical record and pointer atomically, retaining immutable record bytes', () => {
     const recordBytes = releaseRecordBytes(fixture().record);
     const { api, documents, calls } = indexFixture();
@@ -458,7 +518,7 @@ describe('protected release-index updates', () => {
     expect(calls[0].paths).toEqual(['channels/cli/alpha.json', 'records/v5.0.0-alpha.9.json']);
     expect(documents.get('records/v5.0.0-alpha.9.json')).toEqual(recordBytes);
     expect(channelPointer(recordBytes, { bootstrap: true }).record.url).toBe(
-      'https://raw.githubusercontent.com/pj-tmt/tmt/release-index/records/v5.0.0-alpha.9.json'
+      'https://raw.githubusercontent.com/tmt-ninja/tmt/release-index/records/v5.0.0-alpha.9.json'
     );
     expect(updateReleaseIndex({ api, recordBytes, bootstrap: true }).changed).toBe(false);
     documents.delete('records/v5.0.0-alpha.9.json');

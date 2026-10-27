@@ -15,8 +15,9 @@ record is its `tmt-release-record.json` asset at
 The client reads every pointer, record and asset from `tmt-ninja/tmt`. Pointers and
 records published before the organization rename name the same files under `pj-tmt/tmt`;
 the client accepts either prefix in a record URL and still fetches from `tmt-ninja/tmt`,
-checking the bytes against the record's size and SHA-256. The `pj-tmt` acceptance is
-dropped after a stable release that postdates the rename.
+checking the bytes against the record's size and SHA-256. The index writer likewise
+validates either prefix in what it reads and writes only `tmt-ninja/tmt`. The `pj-tmt`
+acceptance is dropped after a stable release that postdates the rename.
 An explicitly reviewed bootstrap may instead place a record at the index base's
 `records/<tag>.json`; it never adds assets to immutable historical releases.
 Only the newest published release per product/channel is backfilled. An older

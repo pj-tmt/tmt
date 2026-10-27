@@ -13,8 +13,17 @@ import { versionOfTag } from './release-versions.mjs';
 export const RELEASE_RECORD = 'tmt-release-record.json';
 export const RECORD_LIMIT = 256 * 1024;
 export const POINTER_LIMIT = 16 * 1024;
-const RELEASE_BASE = 'https://github.com/pj-tmt/tmt/releases/download/';
-const INDEX_BASE = 'https://raw.githubusercontent.com/pj-tmt/tmt/release-index/';
+const RELEASE_REPOSITORY = 'tmt-ninja/tmt';
+/** Records and pointers published before the org rename (#5137) name this repository; they stay valid. */
+const PREVIOUS_REPOSITORY = 'pj-tmt/tmt';
+const releaseBase = (repository) => `https://github.com/${repository}/releases/download/`;
+const indexBase = (repository) => `https://raw.githubusercontent.com/${repository}/release-index/`;
+const RELEASE_BASE = releaseBase(RELEASE_REPOSITORY);
+const INDEX_BASE = indexBase(RELEASE_REPOSITORY);
+const PREVIOUS_BASES = [
+  [releaseBase(PREVIOUS_REPOSITORY), RELEASE_BASE],
+  [indexBase(PREVIOUS_REPOSITORY), INDEX_BASE],
+];
 const TARGETS = [
   'aarch64-apple-darwin',
   'aarch64-unknown-linux-musl',
@@ -23,6 +32,14 @@ const TARGETS = [
 ];
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** The URL as the current repository names it: one written before the rename maps onto it, nothing else changes. */
+function currentUrl(url) {
+  if (typeof url !== 'string') return url;
+  for (const [previous, current] of PREVIOUS_BASES)
+    if (url.startsWith(previous)) return `${current}${url.slice(previous.length)}`;
+  return url;
+}
 
 function identity(value) {
   assert(object(value), 'Release index requires an object');
@@ -50,7 +67,11 @@ function identity(value) {
 function asset(value, name, tag, limit) {
   assert(object(value), 'Release index requires an asset');
   assert.equal(value.name, name, 'Release index asset name mismatch');
-  assert.equal(value.url, `${RELEASE_BASE}${tag}/${name}`, 'Release index asset URL mismatch');
+  assert.equal(
+    currentUrl(value.url),
+    `${RELEASE_BASE}${tag}/${name}`,
+    'Release index asset URL mismatch'
+  );
   assert(
     Number.isSafeInteger(value.size) && value.size > 0 && value.size <= limit,
     'Release index asset size outside bounds'
@@ -112,7 +133,7 @@ export function parseChannelPointer(bytes) {
     [
       `${RELEASE_BASE}${pointer.tag}/${RELEASE_RECORD}`,
       `${INDEX_BASE}records/${pointer.tag}.json`,
-    ].includes(pointer.record.url),
+    ].includes(currentUrl(pointer.record.url)),
     'Release index record URL mismatch'
   );
   assert(
@@ -195,7 +216,7 @@ export function verifyReleaseRecord({ recordBytes, ...input }) {
   const compare = (actualAsset, expectedAsset) => {
     for (const key of ['name', 'url', 'size', 'sha256'])
       assert.deepEqual(
-        actualAsset[key],
+        key === 'url' ? currentUrl(actualAsset[key]) : actualAsset[key],
         expectedAsset[key],
         `Release record asset ${key} mismatch`
       );
@@ -243,7 +264,7 @@ function pointerOrder(currentBytes, wanted) {
       {
         tag: current.tag,
         record: {
-          url: current.record.url,
+          url: currentUrl(current.record.url),
           size: current.record.size,
           sha256: current.record.sha256,
         },
