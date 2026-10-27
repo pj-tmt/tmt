@@ -231,3 +231,19 @@ fn help_explains_the_row_only_where_it_can_show() {
     hidden.set_limits(Vec::new());
     assert!(section(&hidden).is_none());
 }
+
+/// The quota Details modal in the local zone: a reset two days out and one five days out.
+pub(in crate::board) const QUOTA_SCENES: &[&str] = &["quota-details", "quota-details-week"];
+
+pub(in crate::board) fn quota_case(scene: &str, look: crate::look::Look) -> App {
+    let mut app = app(true);
+    app.view.as_mut().unwrap().look = look;
+    app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
+    let mut held = standings();
+    if scene == "quota-details-week" {
+        held[0].latest.as_mut().unwrap().weekly.resets_at_ms = NOW + 5 * 24 * HOUR + 3 * HOUR;
+    }
+    app.set_limits(held);
+    crate::status::with_now_ms(NOW, || app.open_quota_details());
+    app
+}

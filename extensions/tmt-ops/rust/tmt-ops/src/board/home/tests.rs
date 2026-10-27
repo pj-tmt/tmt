@@ -587,7 +587,7 @@ mod cron;
 pub(in crate::board) mod dialog_dismiss;
 mod interaction;
 mod light_dismiss;
-mod limits;
+pub(in crate::board) mod limits;
 pub(in crate::board) mod oracle;
 
 #[test]

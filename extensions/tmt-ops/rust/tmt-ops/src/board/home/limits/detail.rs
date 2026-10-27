@@ -44,7 +44,21 @@ fn template() -> &'static surface::Template<()> {
         surface::compile(FILE, &parsed, &schema, &Data).expect("embedded quota details schema")
     })
 }
-fn held_lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) -> Vec<String> {
+/// A source timestamp as a time in the board's local zone. Its parts are joined with no-break
+/// spaces, so a narrow Details wraps before a time and never inside it.
+fn stamp(zone: &jiff::tz::TimeZone, at_ms: u64, now_ms: u64) -> String {
+    i64::try_from(at_ms)
+        .ok()
+        .zip(i64::try_from(now_ms).ok())
+        .and_then(|(at, now)| crate::board::local_time::time_in(at, now, zone))
+        .map_or_else(|| "—".into(), |time| time.replace(' ', "\u{a0}"))
+}
+fn held_lines(
+    standings: Option<&[Standing]>,
+    now: u64,
+    sampling_enabled: bool,
+    zone: &jiff::tz::TimeZone,
+) -> Vec<String> {
     let Some(standings) = standings else {
         return vec![if sampling_enabled {
             super::PENDING.into()
@@ -60,8 +74,8 @@ fn held_lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) 
         lines.push(standing.provider.label());
         if let Some(latest) = standing.latest {
             lines.push(format!(
-                "Observed: {} ms · {} ago",
-                latest.observed_at_ms,
+                "Observed: {} · {} ago",
+                stamp(zone, latest.observed_at_ms, now),
                 super::age(now.saturating_sub(latest.observed_at_ms))
             ));
         }
@@ -93,12 +107,14 @@ fn held_lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) 
     }
     lines
 }
-fn lines(app: &App, now: u64) -> Vec<String> {
+pub(in crate::board) fn lines(app: &App, now: u64) -> Vec<String> {
+    let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
     if app.shell.tab != crate::board::shell::OpsTab::Agents {
         return held_lines(
             app.limits.as_deref(),
             now,
             crate::board::home::limits_enabled(app),
+            &zone,
         );
     }
     let Some(standings) = app.limits.as_deref().filter(|rows| !rows.is_empty()) else {
@@ -106,6 +122,7 @@ fn lines(app: &App, now: u64) -> Vec<String> {
             app.limits.as_deref(),
             now,
             crate::board::home::limits_enabled(app),
+            &zone,
         );
     };
     let mut lines = vec!["Quota pace: last 2h; trend compared with the preceding 2h. Source timestamps determine elapsed time.".into()];
@@ -113,8 +130,8 @@ fn lines(app: &App, now: u64) -> Vec<String> {
         lines.push(standing.provider.label());
         if let Some(latest) = standing.latest {
             lines.push(format!(
-                "Held source observed: {} ms · {} ago",
-                latest.observed_at_ms,
+                "Held source observed: {} · {} ago",
+                stamp(&zone, latest.observed_at_ms, now),
                 super::age(now.saturating_sub(latest.observed_at_ms))
             ));
         }
@@ -133,16 +150,16 @@ fn lines(app: &App, now: u64) -> Vec<String> {
                 continue;
             };
             lines.push(format!(
-                "{}: {} remaining · reset {} ({} ms)",
+                "{}: {} remaining · reset {} ({})",
                 kind.key(),
                 super::percent(balance.left),
                 super::reset(balance.resets_at_ms.saturating_sub(now)),
-                balance.resets_at_ms
+                stamp(&zone, balance.resets_at_ms, now)
             ));
             if let Some(point) = value.pace.latest {
                 lines.push(format!(
-                    "Observed: {} ms · {} ago",
-                    point.observed_at_ms,
+                    "Observed: {} · {} ago",
+                    stamp(&zone, point.observed_at_ms, now),
                     super::age(now.saturating_sub(point.observed_at_ms))
                 ));
             }
@@ -156,12 +173,13 @@ fn lines(app: &App, now: u64) -> Vec<String> {
             );
             if let Some(exhausted) = value.pace.exhausts_at_ms {
                 lines.push(format!(
-                    "Projected depletion: {exhausted} ms · {}",
+                    "Projected depletion: {} · {}",
+                    stamp(&zone, exhausted, now),
                     value
                         .pace
                         .early_ms()
                         .map_or("on pace through reset".into(), |ms| format!(
-                            "{} before reset ({ms} ms)",
+                            "{} before reset",
                             super::reset(ms)
                         ))
                 ));
@@ -250,3 +268,6 @@ impl App {
         Effect::None
     }
 }
+
+#[cfg(test)]
+mod tests;
