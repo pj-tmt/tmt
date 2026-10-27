@@ -724,29 +724,62 @@ impl Server<crate::registration::OwnerAdmission> {
             .lock()
             .map_err(|_| Fault::Unavailable)?
             .compact(page, received + limits::COMPACT_COMBINE)?;
-        if report.compacted {
-            // A new cut changes what the active page has to publish.
+        state.announce_page_compaction(page, &report);
+        Ok(report)
+    }
+
+    /// Check owner admission and read the page under the sync lock.
+    pub(crate) fn read_storage(
+        &self,
+        page: &str,
+        context: Option<&str>,
+        browser: bool,
+    ) -> crate::Result<crate::storage::PageStorage> {
+        use crate::page::Fault;
+        values::generated_id(page).map_err(|_| Fault::Invalid)?;
+        let state = self.0.lock().map_err(|_| Fault::Unavailable)?;
+        state
+            .admission
+            .0
+            .lock()
+            .map_err(|_| Fault::Unavailable)?
+            .read_storage(page, context, browser)
+    }
+
+    /// Check the browser device and page retention policy under the same lock as reclaim.
+    pub(crate) fn reclaim_storage(
+        &self,
+        page: &str,
+        context: Option<&str>,
+        browser: bool,
+        dry_run: bool,
+        received: std::time::Instant,
+    ) -> crate::Result<crate::storage::Reclaim> {
+        use crate::page::Fault;
+        values::generated_id(page).map_err(|_| Fault::Invalid)?;
+        let mut state = self.0.lock().map_err(|_| Fault::Unavailable)?;
+        let (report, combined) = state
+            .admission
+            .0
+            .lock()
+            .map_err(|_| Fault::Unavailable)?
+            .reclaim_storage(
+                page,
+                context,
+                browser,
+                dry_run,
+                received + limits::COMPACT_COMBINE,
+            )?;
+        if report.error.is_some() && !dry_run {
+            // A stream may have committed before failure; reconnect readers to its new cut.
             state.activity.nudge();
-            // Whoever is subscribed to this page learns of the checkpoints, in whichever scope.
-            let mut scopes: Vec<SyncScope> = Vec::new();
-            for scope in state
-                .peers
-                .values()
-                .filter(|peer| peer.subscribed)
-                .filter_map(|peer| peer.scope.as_ref())
-                .filter(|scope| scope.page == page)
-            {
-                if !scopes.contains(scope) {
-                    scopes.push(scope.clone());
+            for peer in state.peers.values_mut() {
+                if peer.scope.as_ref().is_some_and(|scope| scope.page == page) {
+                    peer.end(Code::ResyncRequired);
                 }
             }
-            let combined = Combined {
-                stream: report.by.clone(),
-                through: report.through,
-            };
-            for scope in scopes {
-                state.announce_combined(&scope, &combined);
-            }
+        } else if let Some(combined) = combined.as_ref() {
+            state.announce_page_compaction(page, combined);
         }
         Ok(report)
     }
@@ -1116,6 +1149,32 @@ impl<A: Admission> DetachedCatchup<A> {
     }
 }
 impl<A: Admission> State<A> {
+    /// Notify every subscribed scope after an existing compact path wrote a new cut.
+    fn announce_page_compaction(&mut self, page: &str, report: &crate::page::compact::Report) {
+        if !report.compacted {
+            return;
+        }
+        self.activity.nudge();
+        let mut scopes: Vec<SyncScope> = Vec::new();
+        for scope in self
+            .peers
+            .values()
+            .filter(|peer| peer.subscribed)
+            .filter_map(|peer| peer.scope.as_ref())
+            .filter(|scope| scope.page == page)
+        {
+            if !scopes.contains(scope) {
+                scopes.push(scope.clone());
+            }
+        }
+        let combined = Combined {
+            stream: report.by.clone(),
+            through: report.through,
+        };
+        for scope in scopes {
+            self.announce_combined(&scope, &combined);
+        }
+    }
     fn admission_changed(&mut self) {
         self.admission_generation = self.admission_generation.wrapping_add(1);
         self.recheck();

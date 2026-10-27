@@ -2038,8 +2038,118 @@ sys.stdout.write(json.dumps(reply))
         [(1, true), (2, true)]
     );
     assert_eq!(f.read().source, before);
+    // The storage entry point reuses that same refusal and must not publish the bad fold.
+    let retained_before = retained(&f, "30000000-0000-4000-8000-000000000091");
+    let refused =
+        tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, false).unwrap();
+    assert_eq!(refused.skipped.as_deref(), Some("not-combined"));
+    assert_eq!(refused.freed.history, Some(0));
+    assert_eq!(
+        retained(&f, "30000000-0000-4000-8000-000000000091"),
+        retained_before
+    );
+    assert!(fold_rows(&f, "30000000-0000-4000-8000-000000000091").is_empty());
+    assert_eq!(f.read().source, before);
     // Positive control: the real child rebuilds the same stream and can publish its fold.
     assert_eq!(request_compaction(&mut f).folded.len(), 1);
+}
+
+#[test]
+fn reclaim_no_tail_reports_no_freeable_bytes_and_keeps_history() {
+    let (mut f, _) = deleted_owner_history("current", false);
+    let stream = "30000000-0000-4000-8000-000000000091";
+    let payload: Vec<u8> = f
+        .sql()
+        .query_row(
+            "SELECT payload FROM receipts WHERE stream=?1 AND seq=?2",
+            rusqlite::params![stream, format!("{:020}", 1)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(request_compaction(&mut f).compacted);
+    // Model an older store retaining a superseded payload under a complete paired cut.
+    f.sql()
+        .execute(
+            "UPDATE receipts SET payload=?1 WHERE stream=?2 AND seq=?3",
+            rusqlite::params![payload, stream, format!("{:020}", 1)],
+        )
+        .unwrap();
+    let before = f.store.page_storage_bytes(PAGE).unwrap();
+    assert!(before.history > 0);
+    let source = f.read().source;
+    let mut decoder = f.decoder();
+    let preview =
+        tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, true).unwrap();
+    assert_eq!(preview.freeable.history, 0);
+    let actual =
+        tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, false).unwrap();
+    assert_eq!(actual.skipped.as_deref(), Some("no-tail"));
+    assert_eq!(actual.freed.history, Some(0));
+    assert_eq!(
+        f.store.page_storage_bytes(PAGE).unwrap().history,
+        before.history
+    );
+    assert_eq!(f.read().source, source);
+}
+
+#[test]
+fn reclaim_reports_bytes_freed_before_a_later_stream_failure() {
+    let (mut f, _) = deleted_owner_history("current", false);
+    let mut second = f.owner_device("30000000-0000-4000-8000-000000000093", 93);
+    let (seq, previous) = second.type_text(&mut f, &"Another discarded draft ".repeat(2_000));
+    let text = second.doc.get_or_insert_text("html");
+    let deletion = {
+        let mut tx = second.doc.transact_mut();
+        let len = text.len(&tx);
+        text.remove_range(&mut tx, 0, len);
+        tx.encode_update_v1()
+    };
+    let envelope = object::seal(
+        &object::Context {
+            space: f.key.space_id.clone(),
+            page: PAGE.into(),
+            epoch: "1".into(),
+            kind: "update".into(),
+            namespace: "content".into(),
+            author_device: second.id.into(),
+            membership_revision: "2".into(),
+            stream_seq: (seq + 1).to_string(),
+            prev_hash: previous,
+        },
+        &[11; 32],
+        &second.signing,
+        &deletion,
+    )
+    .unwrap();
+    f.store
+        .append(&Envelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream: second.id,
+            },
+            namespace: Namespace::Content,
+            seq: seq + 1,
+            hash: envelope.hash().unwrap(),
+            previous,
+            bytes: &envelope.to_json().unwrap(),
+        })
+        .unwrap();
+    let before = f.read().source;
+    let bytes = f.store.page_storage_bytes(PAGE).unwrap();
+    let second_before = retained(&f, second.id);
+    f.sql().execute_batch("CREATE TRIGGER fail_later_fold BEFORE INSERT ON checkpoints WHEN NEW.stream = '30000000-0000-4000-8000-000000000093' BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+    let mut decoder = f.decoder();
+    let result =
+        tmt_colab::storage::reclaim(&mut f.store, &f.key, PAGE, &mut decoder, false).unwrap();
+    let after = f.store.page_storage_bytes(PAGE).unwrap();
+    let freed = (bytes.content + bytes.history).saturating_sub(after.content + after.history);
+    assert!(freed > 0, "first stream must actually free bytes");
+    assert_eq!(result.freed.history, Some(freed));
+    assert!(result.error.is_some());
+    assert_eq!(retained(&f, second.id), second_before);
+    assert!(fold_rows(&f, second.id).is_empty());
+    assert_eq!(f.read().source, before);
 }
 
 #[test]

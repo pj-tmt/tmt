@@ -722,6 +722,11 @@ is added.
   latest paired checkpoints and ordinary own history. The Store's existing paired-prefix and
   confirmed-publication pruning stays the only payload-pruning owner; no broad old-epoch delete
   or epoch reset is added.
+- `storage.rs` reports additive retained payload bytes separately from SQLite file/free-page bytes;
+  `store/publication.rs` shares the exact prune predicates with its conservative read-only estimate.
+  The owner-only storage routes use current device admission and the existing sync compaction path;
+  the local automatic-clean timestamp is written best-effort only after a successful real pass.
+  Unknown attachment inventory remains null, not a fabricated zero; object removal stays in #5284.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:

@@ -6875,3 +6875,105 @@ fn describe_keeps_navigation_without_unknown_counts_and_during_busy_catalog() {
 
 #[path = "socket/metadata.rs"]
 mod metadata;
+
+#[test]
+fn storage_routes_refuse_forwarded_local_and_unpaired_browser_requests() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let body = format!(r#"{{"version":1,"page":"{PAGE}","dryRun":true}}"#);
+    for path in ["/.tmt/colab/local/storage", "/.tmt/colab/local/reclaim"] {
+        let response = server.event(path, &format!("{}\r\n", owner(DEVICE)), &body);
+        assert!(response.contains("403"), "{path}: {response}");
+    }
+    for path in ["/api/storage", "/api/storage/reclaim"] {
+        let response = server.event(path, "tmt-device-context: malformed\r\n", &body);
+        assert!(
+            response.contains("403") || response.contains("400"),
+            "{path}: {response}"
+        );
+    }
+}
+
+#[test]
+fn storage_routes_allow_local_and_registered_owner_reads_and_safe_preview() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let frozen = prepare_write(&layout, &key, "<p>storage route source</p>");
+    tmt_colab::page::ipc::publish(&layout, &key, &frozen)
+        .unwrap()
+        .unwrap();
+    let mut cursor = None;
+    receive_batch(&server, &mut peer, 1, &mut cursor);
+    let body = format!(r#"{{"version":1,"page":"{PAGE}","dryRun":true}}"#);
+    for (path, header) in [
+        ("/.tmt/colab/local/storage", String::new()),
+        ("/api/storage", format!("{}\r\n", owner(DEVICE))),
+    ] {
+        let response = server.event(path, &header, &body);
+        assert!(response.starts_with("HTTP/1.1 200"), "{path}: {response}");
+        let json: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(json["pageId"], PAGE);
+        assert!(json["contentBytes"].as_u64().unwrap() > 0, "{json}");
+    }
+    let preview = tmt_colab::storage_ipc::reclaim(&layout, PAGE, true).unwrap();
+    assert!(preview.dry_run);
+    assert_eq!(preview.page, PAGE);
+    assert_eq!(preview.freed.history, Some(0));
+    let response = server.event(
+        "/api/storage/reclaim",
+        &format!("{}\r\n", owner(DEVICE)),
+        &body,
+    );
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    let json: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(json["dryRun"], true);
+    assert_eq!(json["page"], PAGE);
+    // A previously valid owner loses both read and reclaim access on revocation.
+    server
+        .oracle()
+        .execute(
+            "UPDATE device_registrations SET revoked=1 WHERE device_id=?1",
+            [DEVICE],
+        )
+        .unwrap();
+    for path in ["/api/storage", "/api/storage/reclaim"] {
+        let refused = server.event(path, &format!("{}\r\n", owner(DEVICE)), &body);
+        assert!(
+            refused.starts_with("HTTP/1.1 403"),
+            "revoked {path}: {refused}"
+        );
+    }
+}
+
+#[test]
+fn storage_reclaim_failure_returns_a_measured_error_to_owner_and_local_client() {
+    let (server, layout, key, _peer) = publish_fixture();
+    let body = local_management(
+        &server,
+        "40000000-0000-4000-8000-000000000098",
+        1,
+        "page.history",
+        json!({"pageId": PAGE, "mode": "current"}),
+    );
+    management_response(
+        &server,
+        &server.event(tmt_colab::management::LOCAL_PATH, "", &body),
+        "2",
+    );
+    let frozen = prepare_write(&layout, &key, "<p>preserve this source</p>");
+    tmt_colab::page::ipc::publish(&layout, &key, &frozen)
+        .unwrap()
+        .unwrap();
+    server.oracle().execute_batch("CREATE TRIGGER fail_storage_checkpoint BEFORE INSERT ON checkpoints BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+    let request = format!(r#"{{"version":1,"page":"{PAGE}","dryRun":false}}"#);
+    let response = server.event(
+        "/api/storage/reclaim",
+        &format!("{}\r\n", owner(DEVICE)),
+        &request,
+    );
+    assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+    let value: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(value["error"]["code"], "COLAB_UNAVAILABLE");
+    assert_eq!(value["freed"]["history"], 0);
+    let report = tmt_colab::storage_ipc::reclaim(&layout, PAGE, false).unwrap();
+    assert!(report.error.is_some());
+    assert_eq!(report.freed.history, Some(0));
+}

@@ -1832,6 +1832,9 @@ Snapshots are history, not a page-version switch.
 
 ## Decoder isolation, compaction and limits
 
+The separate local-byte accounting and conservative cleanup estimate do not replace write admission
+limits; see [Local storage and reclaim](#local-storage-and-reclaim-5283).
+
 No process holding authority (local server, bridge or CLI parent) may decode or
 merge foreign-writer Yjs updates in-process. Servers never decode Yjs at all:
 they store opaque ciphertext. The #830 hostile-update smoke with yrs 0.28 on
@@ -5235,6 +5238,9 @@ only, no cloud accounts, billing or deployments.
 
 ## Retention and management
 
+Local reclaim preserves the retained objects described below; its storage accounting and explicit
+owner-only cleanup are specified in [Local storage and reclaim](#local-storage-and-reclaim-5283).
+
 **Channel boundary: split.** Page expiry policy and warnings stay; backend enforcement uses remote-provisioned resources that colab declares.
 
 Cloud lifetime defaults to 30 days from the last activity refresh. Owner overrides
@@ -6489,9 +6495,62 @@ about 42% of that:
 | 300      | 6.16 MB    | 2.60 MB       | 51        |
 | 400      | 8.21 MB    | 3.46 MB       | 69        |
 
-Only a rebuild into a new epoch drops deleted text; compaction does not, so a page rewritten
-whole a few hundred times reaches its gzipped budget however often it is combined. That is why
-`percent` includes the gzipped state.
+These measurements describe the merge-only path. Eligible current-history content can now
+GC-encode a self-contained original writer at a new checkpoint; public, shared-history and
+incomplete-dependency cases retain merge-only bytes. `percent` still includes the gzipped state.
+
+### Local storage and reclaim (#5283)
+
+`tmt colab storage [--json]` reads the owner's local page catalog and reports retained payload bytes.
+`page reclaim PAGE [--dry-run] [--json]` handles one page; `storage reclaim [--dry-run] [--json]`
+visits the non-deleted pages of the space. An active serve owns writes; stopped commands hold its
+lifecycle lock. The serve exposes strict version-1 page requests on `POST /.tmt/colab/local/storage`
+and `POST /.tmt/colab/local/reclaim`, denying forwarded device context and device events. Mounted
+owner devices use `POST /api/storage` and `POST /api/storage/reclaim`; the active owner device and
+page policy are rechecked under the sync lock before an effect. Link, public, unpaired and revoked
+contexts cannot request either route. Bodies are `{version:1,page,dryRun?}`; unknown fields and
+malformed page IDs refuse. No route starts another service or changes sharing.
+
+Known JSON byte quantities are integers; an unavailable measurement is null. A page row has `pageId`, `title`, `contentBytes`, `historyBytes`,
+`commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `totalBytes`, `freeable`,
+`lastCleanedAutomaticallyAtMs` and `skipped`. Page content is the current baseline plus each
+stream's latest paired content checkpoint, any required fold anchor, and active tail after that cut;
+other retained content payloads and earlier baselines are history. Every counted payload appears
+in exactly one row. Own-namespace payloads are comments, including status and proposal records.
+SQLite receipt/hash ledgers, indexes, and physical overhead are outside these row counts; `dbBytes`
+and `dbFreeBytes` separately report physical DB size and SQLite free pages. The `space` response
+includes `version`, `space`, those DB values and `pages`. The object wire does not expose a complete
+per-object local inventory, so attachment totals and unused bytes are null when not established,
+and the additive total is null when any part is unknown. No attachments are removed here (#5284).
+
+`freeable:{history,files}` is a conservative lower bound on payload bytes selected by the same
+paired, confirmed and unpinned predicates used by Store pruning, limited to streams with an active
+tail that compaction can process; history never exceeds
+`historyBytes`, speculative GC savings are zero, and `files` is zero. It is neither a guarantee
+of physical file shrink nor an estimate of signed-cut/pinned/shared payloads. A preview does not
+create the serve lock, write checkpoints, metadata, timestamps, attachments or run vacuum. An actual reclaim reuses the
+existing isolated rebuild and source/metadata/own equality fence, then runs incremental vacuum
+best effort; vacuum failure does not roll back a committed prune. Current-history/public-policy
+and archive decisions are checked at effect time; shared-history, public and archived pages are
+skipped. A paired page with no active tail returns the `no-tail` skip reason and zero freeable
+history; retained bytes remain until a new edit and checkpoint; signed old-epoch
+cuts and committed tails, latest pairs, receipt ledger, comments and revisions remain retained.
+
+The page reclaim result is `{version,page,dryRun,freeable,freed,kept,skipped,error?}` with integer
+byte objects for `freeable` and `freed`; `kept` names comments, threads and archive. Space reclaim
+returns `{version,dryRun,pages,freeable,freed}`. `freed.history` measures the reduction in retained
+content payload bytes rather than filesystem shrink; `freed.files` is zero. Reclaim commits verified
+streams separately. If a later stream fails, the result includes an error and the measured bytes
+freed by earlier commits; the page projection remains unchanged. If the subsequent accounting read
+fails, `freed.history` is null and the original error is retained. The owner socket returns that
+result with HTTP 503, and the CLI exits unsuccessfully with the result and error. Space reclaim stops
+at the first error and includes the committed pages and measured total in its error result; the
+total is null if any included measurement is unknown. An interrupted socket exchange has an
+uncertain outcome and is not retried: the batch total is null and `freedBeforeUnknown` records
+the measured subtotal from completed pages.
+`lastCleanedAutomaticallyAtMs` is a local Unix-millisecond timestamp recorded best-effort only
+after an automatic pass actually compacts the page; scans, no-ops, dry-runs and manual requests do
+not update it. Legacy and unrecorded results are null.
 
 ### Content publication (#1908, #1928, #1934)
 

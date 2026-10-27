@@ -609,6 +609,57 @@ impl Registration {
         let decoder = self.engine.decoder(page)?;
         crate::page::compact::request(&mut self.store, &self.keyring, page, decoder, Some(until))
     }
+    /// Read one owner's storage report under the sync and registration locks.
+    pub(crate) fn read_storage(
+        &mut self,
+        page: &str,
+        context: Option<&str>,
+        browser: bool,
+    ) -> crate::Result<crate::storage::PageStorage> {
+        if browser {
+            let now = now_ms().map_err(|_| crate::page::Fault::Unavailable)?;
+            self.management_device(context, now)
+                .map_err(|_| crate::page::Fault::Denied)?;
+        }
+        let catalog = crate::inspection::catalog(&self.store, &self.keyring)?;
+        let item = catalog["pages"]
+            .as_array()
+            .ok_or(crate::page::Fault::Invalid)?
+            .iter()
+            .find(|item| item["pageId"] == page)
+            .ok_or(crate::page::Fault::Missing)?;
+        let decoder = self.engine.decoder(page)?;
+        crate::storage::read_page(&self.store, &self.keyring, item, decoder)
+    }
+
+    /// Reclaim under the sync mutex; owner admission and policy are checked before the effect.
+    pub(crate) fn reclaim_storage(
+        &mut self,
+        page: &str,
+        context: Option<&str>,
+        browser: bool,
+        dry_run: bool,
+        until: std::time::Instant,
+    ) -> crate::Result<(
+        crate::storage::Reclaim,
+        Option<crate::page::compact::Report>,
+    )> {
+        if browser {
+            let now = now_ms().map_err(|_| crate::page::Fault::Unavailable)?;
+            self.management_device(context, now)
+                .map_err(|_| crate::page::Fault::Denied)?;
+        }
+        let decoder = self.engine.decoder(page)?;
+        crate::storage::reclaim_with_report(
+            &mut self.store,
+            &self.keyring,
+            page,
+            decoder,
+            dry_run,
+            Some(until),
+        )
+    }
+
     /// How full the page is. The caller holds the sync mutex first.
     pub(crate) fn usage(&mut self, page: &str) -> crate::Result<crate::page::PageUsage> {
         let decoder = self.engine.decoder(page)?;

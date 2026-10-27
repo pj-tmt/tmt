@@ -574,3 +574,123 @@ fn a_snapshot_is_given_the_anchor_of_each_retained_fold_and_of_nothing_else() {
     assert_eq!(anchors.len(), 1);
     assert_eq!(anchors[&(STREAM.to_owned(), 4)], b"update-4");
 }
+
+#[test]
+fn local_storage_counts_retained_payloads_by_epoch_and_keeps_comments() {
+    let mut f = Fixture::new();
+    f.append(1);
+    f.append(2);
+    let current = f.store.page_storage_bytes(PAGE).unwrap();
+    assert_eq!(
+        (current.content, current.history, current.comments),
+        (8, 0, 8)
+    );
+    assert_eq!(current.last_auto_cleaned_at_ms, None);
+    f.store
+        .connection
+        .execute("UPDATE pages SET epoch='2' WHERE page=?1", [PAGE])
+        .unwrap();
+    let older = f.store.page_storage_bytes(PAGE).unwrap();
+    assert_eq!((older.content, older.history, older.comments), (0, 8, 8));
+    f.store.record_auto_cleaned(PAGE, 1234).unwrap();
+    assert_eq!(
+        f.store
+            .page_storage_bytes(PAGE)
+            .unwrap()
+            .last_auto_cleaned_at_ms,
+        Some(1234)
+    );
+    f.store
+        .connection
+        .execute(
+            "UPDATE receipts SET payload=NULL WHERE page=?1 AND namespace='content'",
+            [PAGE],
+        )
+        .unwrap();
+    let pruned = f.store.page_storage_bytes(PAGE).unwrap();
+    assert_eq!((pruned.content, pruned.history, pruned.comments), (0, 0, 8));
+}
+
+#[test]
+fn preview_counts_exactly_the_content_candidates_prune_then_removes() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    f.pair(3);
+    // Recreate a retained payload below an existing pair, as an interrupted/prior store can have.
+    f.store
+        .connection
+        .execute(
+            "UPDATE receipts SET payload=?1 WHERE page=?2 AND seq=?3",
+            params![b"update-1".as_slice(), PAGE, sequence(1)],
+        )
+        .unwrap();
+    assert_eq!(
+        f.store.eligible_history_bytes(PAGE).unwrap(),
+        0,
+        "a paired stream without an active tail is not reclaimable"
+    );
+    f.append(4);
+    assert_eq!(f.store.eligible_history_bytes(PAGE).unwrap(), 8);
+    assert_eq!(f.payload(1).as_deref(), Some(b"update-1".as_slice()));
+    prune(&f.store.connection, scope(), &sequence(3)).unwrap();
+    assert_eq!(f.payload(1), None);
+    assert_eq!(f.store.eligible_history_bytes(PAGE).unwrap(), 0);
+    assert!(f.payload(3).is_none());
+}
+
+#[test]
+fn current_page_and_superseded_history_are_counted_once_and_preview_fits_history() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    let before = f.store.page_storage_bytes(PAGE).unwrap();
+    assert_eq!((before.content, before.history), (16, 0));
+    f.pair(3);
+    f.store
+        .connection
+        .execute(
+            "UPDATE receipts SET payload=?1 WHERE page=?2 AND seq=?3",
+            params![b"update-1".as_slice(), PAGE, sequence(1)],
+        )
+        .unwrap();
+    let after = f.store.page_storage_bytes(PAGE).unwrap();
+    assert_eq!(after.content, b"checkpoint-3-content".len() as u64);
+    assert_eq!(after.history, 8);
+    assert!(f.store.eligible_history_bytes(PAGE).unwrap() <= after.history);
+}
+
+#[test]
+fn storage_attributes_padded_baseline_epoch_to_the_current_page() {
+    let f = Fixture::new();
+    let epoch = sequence(1);
+    f.store
+        .connection
+        .execute(
+            "INSERT INTO epoch_secrets(page,epoch,secret) VALUES(?1,?2,?3)",
+            params![PAGE, epoch, [7u8; 32].as_slice()],
+        )
+        .unwrap();
+    f.store
+        .connection
+        .execute(
+            "INSERT INTO baselines(page,epoch,descriptor,envelope) VALUES(?1,?2,?3,?4)",
+            params![
+                PAGE,
+                epoch,
+                b"descriptor".as_slice(),
+                b"baseline".as_slice()
+            ],
+        )
+        .unwrap();
+    let bytes = f.store.page_storage_bytes(PAGE).unwrap();
+    assert_eq!((bytes.content, bytes.history), (8, 0));
+    f.store
+        .connection
+        .execute("UPDATE pages SET epoch='2' WHERE page=?1", [PAGE])
+        .unwrap();
+    let older = f.store.page_storage_bytes(PAGE).unwrap();
+    assert_eq!((older.content, older.history), (0, 8));
+}

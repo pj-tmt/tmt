@@ -112,6 +112,17 @@ Use the export directory the first command returns, not its parent. Exports are 
 include discussions; keep them private. The new page has a new identity and inherits no
 discussions or sharing, and needs its own `--layout` (the export does not carry one). Do not delete the original to clear a limit.
 
+## Local storage and cleanup
+
+`tmt colab storage [--json]` lists this machine's retained page payloads. Preview one page with
+`tmt colab page reclaim PAGE --dry-run --json` or the space with
+`tmt colab storage reclaim --dry-run --json`; remove eligible history with the same command without
+`--dry-run`. A preview is conservative: it excludes unproven rebuild savings. Actual results
+measure retained payload reduction, not guaranteed physical file shrink. Comments, resolved
+threads, archive state and signed-cut history stay protected. Shared-history, public and archived
+pages are skipped; existing paired heads with no new tail remain. Attachment removal is not yet
+implemented; unknown attachment bytes are null in JSON.
+
 ## Design a page for agents
 
 - Put generated data on its own marked lines, for example a line pair
