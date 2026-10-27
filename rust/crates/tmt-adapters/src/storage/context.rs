@@ -189,25 +189,60 @@ impl Storage {
         now_ms: u64,
     ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
         read_context(path, now_ms, |connection| {
-            let mut statement = connection
-                .prepare(
-                    "SELECT b.identity_id FROM bindings b JOIN identities i ON i.id = b.identity_id
+            sole_entry(
+                connection,
+                "SELECT b.identity_id FROM bindings b JOIN identities i ON i.id = b.identity_id
                  JOIN identity_session_preferences p ON p.identity_id = b.identity_id
                  WHERE i.retired_at_ms IS NULL
                    AND b.observed_provider_session_id = ?1
                    AND p.provider_session_id = ?1 AND p.remembered_harness = ?2 LIMIT 2",
-                )
-                .map_err(|error| classify(error, "Find exact runtime mapping"))?;
-            let ids = statement
-                .query_map(params![session, harness], |row| row.get::<_, String>(0))
-                .map_err(|error| classify(error, "Read exact runtime mappings"))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| classify(error, "Decode exact runtime mapping"))?;
-            match ids.as_slice() {
-                [id] => BindingRows(connection).entry_by_id(id),
-                _ => Ok(None),
-            }
+                (session, harness),
+            )
         })
+    }
+
+    /// The one saved, unretired identity whose remembered session for `harness` is `session`,
+    /// bound or not: a restart leaves an identity unbound while it still remembers its session.
+    /// A temporary or retired identity, another harness, or more than one match returns no
+    /// context. The remembered session only selects a candidate; binding it stays the
+    /// caller's verified decision.
+    pub fn context_by_remembered_session(
+        path: &Path,
+        harness: &str,
+        session: &str,
+        now_ms: u64,
+    ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+        read_context(path, now_ms, |connection| {
+            sole_entry(
+                connection,
+                "SELECT p.identity_id FROM identity_session_preferences p
+                 JOIN identities i ON i.id = p.identity_id
+                 WHERE i.retired_at_ms IS NULL AND i.lifetime = 'saved'
+                   AND p.provider_session_id = ?1 AND p.remembered_harness = ?2 LIMIT 2",
+                (session, harness),
+            )
+        })
+    }
+}
+
+/// The entry of the single identity `select` (`?1` session, `?2` harness) names; none or
+/// several return no entry.
+fn sole_entry(
+    connection: &Connection,
+    select: &str,
+    (session, harness): (&str, &str),
+) -> Result<Option<BindingEntry>, StorageError> {
+    let mut statement = connection
+        .prepare(select)
+        .map_err(|error| classify(error, "Find exact runtime mapping"))?;
+    let ids = statement
+        .query_map(params![session, harness], |row| row.get::<_, String>(0))
+        .map_err(|error| classify(error, "Read exact runtime mappings"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| classify(error, "Decode exact runtime mapping"))?;
+    match ids.as_slice() {
+        [id] => BindingRows(connection).entry_by_id(id),
+        _ => Ok(None),
     }
 }
 

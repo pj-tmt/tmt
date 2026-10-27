@@ -31,6 +31,8 @@ mod resume_new;
 mod run_exit;
 #[path = "external_host/sampling.rs"]
 mod sampling;
+#[path = "external_host/self_bind.rs"]
+mod self_bind;
 #[path = "external_host/send_now.rs"]
 mod send_now;
 #[path = "external_host/stop.rs"]
