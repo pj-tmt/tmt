@@ -42,6 +42,8 @@ pub fn assert_commands_allowed(what: &str) {
 #[derive(Debug)]
 pub struct Finished {
     pub success: bool,
+    /// The exit code, if the process exited normally.
+    pub code: Option<u32>,
     /// Core results/errors use stdout. Invoke also drains bounded stderr.
     pub stdout: Vec<u8>,
 }
@@ -126,6 +128,7 @@ pub(crate) fn run_cancellable_with_environment(
     check_cancelled(cancellation)?;
     Ok(Finished {
         success: output.status.success(),
+        code: output.status.code,
         stdout: output.stdout,
     })
 }
@@ -172,6 +175,7 @@ pub fn run_inherited(
     })?;
     Ok(Finished {
         success: output.status.success(),
+        code: output.status.code,
         stdout: output.stdout,
     })
 }

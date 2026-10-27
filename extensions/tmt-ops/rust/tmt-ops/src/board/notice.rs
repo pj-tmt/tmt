@@ -184,6 +184,31 @@ mod tests {
         );
     }
     #[test]
+    fn clipboard_start_failure_shows_its_cause_at_narrow_and_wide_widths() {
+        let missing = "/a/very/long/configured/clipboard/program/path/missing-copy";
+        let error = crate::effects::copy("x", Some(&[missing.to_owned()]), None).unwrap_err();
+        for (message, cause) in [
+            (error, "won't start"),
+            ("Copy failed: timed out (clipboard)".into(), "timed out"),
+            ("Copy failed: too long (clipboard)".into(), "too long"),
+            ("Copy failed: I/O failed (clipboard)".into(), "I/O failed"),
+            ("Copy failed: cancelled (clipboard)".into(), "cancelled"),
+            ("Copy failed: exit 7 (clipboard)".into(), "exit 7"),
+        ] {
+            for width in [60, 160] {
+                let area = Rect::new(0, 0, width, 1);
+                let mut buffer = Buffer::empty(area);
+                paint(&mut buffer, area, &message, true, Look::default());
+                let text = (0..width)
+                    .map(|x| buffer[(x, 0)].symbol())
+                    .collect::<String>();
+                assert!(text.contains(cause), "width {width}: {text}");
+                assert!(!text.contains("/a/very/long"), "width {width}: {text}");
+            }
+        }
+    }
+
+    #[test]
     fn chip_reserves_right_edge_and_only_the_failure_glyph_uses_blocked_color() {
         let look = Look {
             theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
