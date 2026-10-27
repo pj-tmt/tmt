@@ -106,16 +106,7 @@ impl CoreClient {
         argv.extend(["--", id]);
         let answer = self
             .call_until(&argv, &[], stop, deadline, OUTPUT_LIMIT)
-            .map_err(|error| match error.code.as_str() {
-                "IDENTITY_CHANGED" => {
-                    RemoteError::new("REMOTE_AGENT_STALE", "The recipient identity changed.")
-                }
-                "NAME_NOT_FOUND" => RemoteError::new(
-                    "REMOTE_AGENT_NOT_FOUND",
-                    "The recipient identity was not found.",
-                ),
-                _ => error,
-            })?;
+            .map_err(agent_identity_error)?;
         let identity = &answer["identity"];
         let name = identity["name"].as_str().filter(|name| {
             !name.is_empty() && name.len() <= 128 && !name.chars().any(char::is_control)
@@ -280,18 +271,18 @@ impl CoreClient {
         stop: &AtomicBool,
         deadline: Instant,
     ) -> Result<Value, RemoteError> {
-        // One budget covers UUID resolution, the pinned query and capture. Until Core
-        // #5154 supplies atomic capture, a later name change can still race the last call.
-        let target = self.identity_by_id_until(agent, None, stop, deadline)?;
-        self.identity_by_id_until(agent, Some(&target.name), stop, deadline)?;
-        let name = target.name.as_str();
+        // Core selects this admitted UUID's binding directly; names grant no authority.
+        if !crate::canonical::is_core_id(agent) {
+            return Err(failure("Agent capture requires a canonical identity UUID."));
+        }
         let count = lines.map(|value| value.to_string());
         let mut argv = vec!["check", "--capture-only", "--json"];
         if let Some(count) = count.as_deref() {
             argv.extend(["--lines", count]);
         }
-        argv.extend(["--", name]);
+        argv.extend(["--", agent]);
         self.call_until(&argv, &[], stop, deadline, OUTPUT_LIMIT)
+            .map_err(agent_identity_error)
     }
     pub(crate) fn api(&self, input: &[u8], stop: &AtomicBool) -> Result<Value, RemoteError> {
         self.call(
@@ -347,6 +338,18 @@ impl CoreClient {
             (Some(code), Some(message)) => Err(RemoteError::new(code, message)),
             _ => Err(failure("Core failed without a structured error.")),
         }
+    }
+}
+fn agent_identity_error(error: RemoteError) -> RemoteError {
+    match error.code.as_str() {
+        "IDENTITY_CHANGED" => {
+            RemoteError::new("REMOTE_AGENT_STALE", "The recipient identity changed.")
+        }
+        "NAME_NOT_FOUND" => RemoteError::new(
+            "REMOTE_AGENT_NOT_FOUND",
+            "The recipient identity was not found.",
+        ),
+        _ => error,
     }
 }
 fn failure(message: &str) -> RemoteError {

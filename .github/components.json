@@ -190,7 +190,7 @@
       "initialVersion": "0.1.0-alpha.1",
       "uses": [],
       "messageProtocols": [1],
-      "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
+      "requiresCliSha": "10352d1a24ffa8744826ee8d49b70b152177543b"
     },
     "driver-herdr": {
       "package": "tmt-driver-herdr",

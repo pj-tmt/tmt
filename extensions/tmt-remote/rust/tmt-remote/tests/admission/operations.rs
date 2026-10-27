@@ -1277,26 +1277,13 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
         )["identities"][0]["id"],
         permitted
     );
+    let before_capture = core.calls().len();
     assert_eq!(
         read("check", json!({"agentId":permitted,"lines":5}))["output"],
         "bounded capture"
     );
     let observations = core.calls();
-    assert_eq!(
-        observations[observations.len() - 3]["argv"],
-        json!(["identity", "show", "--json", "--", permitted])
-    );
-    assert_eq!(
-        observations[observations.len() - 2]["argv"],
-        json!([
-            "identity",
-            "show",
-            "--json",
-            "--expect-name=Allowed",
-            "--",
-            permitted
-        ])
-    );
+    assert_eq!(observations.len(), before_capture + 1);
     assert_eq!(
         observations.last().unwrap()["argv"],
         json!([
@@ -1306,7 +1293,7 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
             "--lines",
             "5",
             "--",
-            "Allowed"
+            permitted
         ])
     );
     let calls = observations.len();
