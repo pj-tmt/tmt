@@ -162,7 +162,8 @@ pub(in crate::board) struct Painted {
 /// Paints the caption and attention strip. A control of `control_width` columns takes the right
 /// end of the caption side when the stage keeps the whole caption beside it; its rectangle is
 /// returned for the caller to paint.
-pub(in crate::board) fn paint_with_control(
+#[cfg(test)]
+fn paint_with_control(
     buffer: &mut Buffer,
     area: Rect,
     caption: Caption<'_>,

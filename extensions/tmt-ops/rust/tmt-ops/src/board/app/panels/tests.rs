@@ -206,6 +206,7 @@ fn mouse_toggle_uses_fresh_painted_rows_and_matches_plain_key() {
 fn hidden_chart_refusal_is_shared_by_shortcut_and_action_menu() {
     for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = board();
+        crate::board::app::workspace::tests::bind_usage_controls(&mut app);
         app.shell.tab = tab;
         let prefs = &mut app
             .view

@@ -145,7 +145,7 @@ fn the_overlay_lists_unread_answers_by_agent_oldest_first_with_a_count_per_group
             at("Older worker answer") < at("Newer worker answer"),
             "{screen}"
         );
-        assert!(at("── worker · 2") < at("── core-ops · 1"), "{screen}");
+        assert!(at("── core-ops · 1") < at("── worker · 2"), "{screen}");
         assert!(screen.contains("shown answers are marked read"), "{screen}");
     });
 }
@@ -181,7 +181,7 @@ fn only_answers_painted_in_the_viewport_are_handed_to_the_writer() {
                 .collect::<Vec<_>>()
         };
         assert_eq!(seen(&app), ["first"], "the second answer is below the fold");
-        for _ in 0..12 {
+        for _ in 0..40 {
             press(&mut app, KeyCode::PageDown);
         }
         let screen = draw(&app, 30);
@@ -203,12 +203,12 @@ fn a_failed_read_says_so_and_is_asked_again_only_after_scrolling_away_and_back()
         install(
             &mut app,
             &[
-                (MEMBER, "w", 8_000_000, "final"),
-                (OTHER, "c", 9_000_000, "final"),
+                (OTHER, "w", 8_000_000, "final"),
+                (MEMBER, "c", 9_000_000, "final"),
             ],
         );
         app.open_unread(&Scope::All);
-        arrive(&mut app, MEMBER, Observation::Unavailable);
+        arrive(&mut app, OTHER, Observation::Unavailable);
         let screen = draw(&app, 40);
         assert!(screen.contains("Answers unavailable"), "{screen}");
         // Not asked again while it stays in view, however often the board draws.
@@ -218,15 +218,17 @@ fn a_failed_read_says_so_and_is_asked_again_only_after_scrolling_away_and_back()
         }
         assert_ne!(
             app.unread_overlay_read().map(|(_, read)| read.key.1),
-            Some(MEMBER.to_owned()),
+            Some(OTHER.to_owned()),
             "a failure is not retried in a loop"
         );
         // Away: the viewport shows only the other group; back: asked once more.
         arrive(
             &mut app,
-            OTHER,
-            replies(OTHER, &[("c", &"x\n\n".repeat(80))]),
+            MEMBER,
+            replies(MEMBER, &[("c", &"x\n\n".repeat(80))]),
         );
+        // Scrolling is clamped to the last drawn content, so draw the new answer first.
+        draw(&app, 14);
         for _ in 0..12 {
             press(&mut app, KeyCode::PageDown);
         }
@@ -239,7 +241,7 @@ fn a_failed_read_says_so_and_is_asked_again_only_after_scrolling_away_and_back()
         app.unread_drawn();
         assert_eq!(
             app.unread_overlay_read().map(|(_, read)| read.key.1),
-            Some(MEMBER.to_owned()),
+            Some(OTHER.to_owned()),
             "scrolling back asks once more"
         );
     });
@@ -296,7 +298,7 @@ fn u_opens_the_selection_s_unread_and_enter_opens_the_answer_in_chat() {
         app.workspace_unread();
         assert_eq!(
             app.unread_overlay.as_ref().unwrap().members,
-            [MEMBER, OTHER]
+            [OTHER, MEMBER]
         );
         app.unread_overlay = None;
         app.workspace.selected = Some(OpsTarget::Member {
@@ -371,7 +373,7 @@ fn every_painted_unread_count_opens_the_overlay_for_what_it_counts() {
         );
         for (area, target) in &hits {
             let expected: Vec<String> = match target {
-                None | Some(OpsTarget::Squad(_)) => vec![MEMBER.into(), OTHER.into()],
+                None | Some(OpsTarget::Squad(_)) => vec![OTHER.into(), MEMBER.into()],
                 Some(OpsTarget::Member { identity_id, .. }) => vec![identity_id.clone()],
                 other => panic!("unexpected target {other:?}"),
             };

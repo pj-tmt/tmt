@@ -1347,7 +1347,7 @@ impl App {
                 return self.workspace_management(action);
             }
             ResizePane | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
-            | CycleTokRange | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
+            | CycleTokRange | Unread | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
             | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }

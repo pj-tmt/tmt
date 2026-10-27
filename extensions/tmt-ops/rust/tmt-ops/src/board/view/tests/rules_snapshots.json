@@ -28,7 +28,7 @@
       "                                                                           │── Conversation ────────────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -60,7 +60,7 @@
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -92,7 +92,7 @@
       "── Conversation ────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
   },
   {
@@ -124,7 +124,7 @@
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist  x leave squad  j host  p pin",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -156,7 +156,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -188,7 +188,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
   },
   {
@@ -220,7 +220,7 @@
       "                                                                           │── Conversation ────────────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -252,7 +252,7 @@
       "                                               │── Conversation ────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                     │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -284,7 +284,7 @@
       "── Conversation ────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
   },
   {
@@ -316,7 +316,7 @@
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist  x leave squad  j host  p pin",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -348,7 +348,7 @@
       "                                               │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                     ⏎  Alt+⏎  @",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -380,7 +380,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
   },
   {
@@ -412,7 +412,7 @@
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -444,7 +444,7 @@
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -476,7 +476,7 @@
       "── Conversation ────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
   },
   {
@@ -508,7 +508,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist  x leave squad  j host  p pin",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -540,7 +540,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
   },
   {
@@ -572,7 +572,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume",
-      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
   }
 ]

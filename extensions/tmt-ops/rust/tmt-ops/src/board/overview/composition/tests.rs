@@ -171,6 +171,7 @@ fn hiding_the_primary_container_clears_its_previous_hit_owner() {
 fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
     for width in [60, 100, 160] {
         let mut app = board();
+        crate::board::app::workspace::tests::bind_usage_controls(&mut app);
         waiting(&mut app);
         let selected = app.workspace.selected.clone();
         key(&mut app, KeyCode::Char('u'));

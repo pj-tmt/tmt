@@ -28,6 +28,26 @@ pub(in crate::board) fn observe_waiting_member(app: &mut App) {
     app.overview_rows.borrow_mut().clear();
 }
 
+/// Binds `u` to `usage-controls` in every scope, as a user binding would: the default `u`
+/// opens the Unread overlay.
+pub(in crate::board) fn bind_usage_controls(app: &mut App) {
+    let keys = &mut app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys;
+    for scope in keys.values_mut() {
+        scope.insert(
+            "u".into(),
+            crate::action::Action::parse("usage-controls").unwrap(),
+        );
+    }
+}
+
 pub(in crate::board) fn board() -> App {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut loaded = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
