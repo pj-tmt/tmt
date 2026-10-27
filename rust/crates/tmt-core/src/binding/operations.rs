@@ -614,7 +614,7 @@ pub(super) fn publication_can_start(
 }
 
 enum BindingActivation {
-    Activated(Binding, crate::identity::Identity),
+    Activated(Box<(Binding, crate::identity::Identity)>),
     Detached,
     Changed,
 }
@@ -689,19 +689,23 @@ fn publish_reserved<R: BindingRepository, O: BindingEndpoint>(
                 if !records.finish_binding_reservation(reservation)? {
                     return Err(BindingError::Unverified);
                 }
-                Ok(BindingActivation::Activated(binding, current.identity))
+                Ok(BindingActivation::Activated(Box::new((
+                    binding,
+                    current.identity,
+                ))))
             } else if current.binding.as_ref() == Some(&reserved.binding) {
                 records.touch_binding(&reserved.binding.id)?;
-                Ok(BindingActivation::Activated(
+                Ok(BindingActivation::Activated(Box::new((
                     reserved.binding.clone(),
                     current.identity,
-                ))
+                ))))
             } else {
                 Ok(BindingActivation::Detached)
             }
         })?;
         match activation {
-            BindingActivation::Activated(binding, identity) => {
+            BindingActivation::Activated(activated) => {
+                let (binding, identity) = *activated;
                 if let Some(old) = &reserved.old
                     && let Some(old_binding) = &old.binding
                 {
