@@ -120,9 +120,9 @@ settings or provider data, and takes its tokens from `tmt-cli-style` roles. The
 core, adapters, CLI and extension behavior are excluded. Ops is its sole reviewed consumer;
 new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
 
-`rust/crates/tmt-invoke` owns executable discovery, bounded byte capture, child-only
-environment overlays and browser launch. It has no TMT dependencies; callers own
-command selection, interaction and presentation.
+`rust/crates/tmt-invoke` owns executable discovery, bounded capture and ordered
+newline exchanges over one owned child, child-only environment overlays and browser
+launch. Callers own protocols, admission and presentation; the leaf has no TMT dependencies.
 
 `rust/crates/tmt-cli/tests/architecture.rs` owns the syntactic module/dependency guard;
 [Development](DEVELOPMENT.md#architecture-guard) owns its checks. It supplements behavior review.
@@ -409,6 +409,10 @@ own module/drawing boundaries and verification.
   locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs.
   Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`,
   `tmt-pty-protocol` (a built-in host's terminal-stream frames); dev-only `tmt-test-support`.
+  Each UI shares separate lazy API sessions for background and interaction workers,
+  with worker-only I/O and no uncertain-request replay.
+  The refresh owner admits bounded retained projections through successful cursors
+  and local stamps; independent clocks and action admission stay fresh.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. Retired

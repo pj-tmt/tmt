@@ -184,7 +184,7 @@ fn check_cancelled(cancellation: Option<&Cancellation>) -> Result<(), RunError> 
     }
 }
 
-fn run_error(kind: FailureKind) -> RunError {
+pub(crate) fn run_error(kind: FailureKind) -> RunError {
     match kind {
         FailureKind::Spawn => RunError::Spawn,
         FailureKind::Deadline => RunError::Timeout,

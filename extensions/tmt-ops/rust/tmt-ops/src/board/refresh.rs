@@ -119,7 +119,7 @@ impl Worker {
         let checklist_reader = core.cancellable(checklist_stop.clone());
         let (selected, selected_pending) = mpsc::channel();
         let selected_thread = {
-            let core = core.clone();
+            let core = core.interactive();
             let events = events.clone();
             let read_generation = Arc::clone(&selected_generation);
             std::thread::spawn(move || {
@@ -210,6 +210,10 @@ impl Worker {
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             let mut limits = super::limits::Sampler::new(crate::cache::directory("limits"));
+            let retained = Arc::new(crate::core::RetainedReads::default());
+            let background = core.with_retained_reads(Arc::clone(&retained));
+            let previous_stamp = std::cell::RefCell::new(None::<Stamp>);
+            let stamped_generation = std::cell::Cell::new(None);
             serve(
                 &pending,
                 |snapshot, generation| {
@@ -238,8 +242,25 @@ impl Worker {
                     }
                     changes.retarget(Config::locate(&core).ok());
                     if automatic {
-                        changes.stamp(&core.cancellable(read_generation.cancellation(generation)))
+                        let reader = core.cancellable(read_generation.cancellation(generation));
+                        let seen =
+                            if stamped_generation.replace(Some(generation)) == Some(generation) {
+                                changes.stamp_cached(&reader)
+                            } else {
+                                changes.stamp(&reader)
+                            };
+                        if previous_stamp
+                            .borrow()
+                            .as_ref()
+                            .is_none_or(|previous| !previous.reusable(&seen))
+                        {
+                            retained.reset(seen.has_cursor());
+                        }
+                        *previous_stamp.borrow_mut() = Some(seen.clone());
+                        seen
                     } else {
+                        retained.reset(false);
+                        previous_stamp.borrow_mut().take();
                         changes.layout_stamp()
                     }
                 },
@@ -248,7 +269,10 @@ impl Worker {
                         .as_ref()
                         .map(|trace| trace.load(wanted.as_deref(), generation));
                     let started = trace.as_ref().map(|_| Instant::now());
-                    let reader = core.cancellable(read_generation.cancellation(generation));
+                    if opening {
+                        retained.clear();
+                    }
+                    let reader = background.cancellable(read_generation.cancellation(generation));
                     let mut loaded = load(
                         &reader,
                         tmux,
@@ -271,6 +295,9 @@ impl Worker {
                         trace.finish(started, loaded.snapshot.view.is_ok());
                     }
                     loaded.snapshot.timing = trace;
+                    if loaded.snapshot.view.is_err() {
+                        retained.clear();
+                    }
                     loaded
                 },
                 |job, generation| {
@@ -282,7 +309,7 @@ impl Worker {
                             .is_ok();
                     }
                     let cancellation = read_generation.cancellation(generation);
-                    let reader = core.cancellable(cancellation.clone());
+                    let reader = background.cancellable(cancellation.clone());
                     let event = match job {
                         Deferred::Checklist(_) => unreachable!("handled above"),
                         Deferred::Enrich(job) => {

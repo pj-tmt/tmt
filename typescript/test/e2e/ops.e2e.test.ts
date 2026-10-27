@@ -2166,15 +2166,55 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         fs
           .readdirSync(calls)
           .filter((name) => name.endsWith(suffix))
+          .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
           .map((name) => JSON.parse(fs.readFileSync(path.join(calls, name), 'utf8')) as T);
       const observer = path.join(fixture.root, 'observe-core');
       const core = [fixture.executables.cli.executable, ...fixture.executables.cli.args]
         .map(quote)
         .join(' ');
-      // Observe real public reads; forward every byte to the selected native Core.
+      // Observe real public reads and forward every byte, including a session
+      // whose stdin stays open across requests. Publish only complete frames.
+      const observerScript = path.join(fixture.root, 'observe-core.cjs');
+      fs.writeFileSync(
+        observerScript,
+        `const { spawn } = require('node:child_process');
+const { writeFileSync, renameSync } = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const session = args[1] === '--session';
+const child = spawn(${JSON.stringify(fixture.executables.cli.executable)}, ${JSON.stringify(fixture.executables.cli.args)}.concat(args), { stdio: ['pipe', 'pipe', 'inherit'] });
+let request = Buffer.alloc(0), response = Buffer.alloc(0), requests = 0, responses = 0;
+function save(kind, number, bytes) {
+  const base = path.join(${JSON.stringify(calls)}, 'call.' + process.pid + '.' + number + '.' + kind);
+  writeFileSync(base + '.stage', bytes);
+  renameSync(base + '.stage', base + '.json');
+}
+function frames(bytes, kind) {
+  let pending = kind === 'request' ? request : response;
+  pending = Buffer.concat([pending, bytes]);
+  if (session) {
+    let end;
+    while ((end = pending.indexOf(10)) !== -1) {
+      save(kind, kind === 'request' ? requests++ : responses++, pending.subarray(0, end));
+      pending = pending.subarray(end + 1);
+    }
+  }
+  if (kind === 'request') request = pending; else response = pending;
+}
+process.stdin.on('data', bytes => frames(bytes, 'request'));
+process.stdin.on('end', () => { if (request.length) save('request', requests++, request); });
+child.stdout.on('data', bytes => frames(bytes, 'response'));
+child.stdout.on('end', () => { if (response.length) save('response', responses++, response); });
+child.stdin.on('error', () => process.stdin.destroy());
+child.on('error', error => { console.error(error); process.exitCode = 1; });
+child.on('close', code => { process.stdin.destroy(); process.exitCode = code ?? 1; });
+process.stdin.pipe(child.stdin);
+child.stdout.pipe(process.stdout);
+`
+      );
       writeExecutable(
         observer,
-        `#!/bin/sh\nif [ "$1" = api ]; then\ncall=$(mktemp ${quote(path.join(calls, 'call.XXXXXX'))}) || exit 1\ncat > "$call"\n${core} "$@" < "$call" > "$call.response.stage"\nstatus=$?\nmv "$call.response.stage" "$call.response.json"\nmv "$call" "$call.request.json"\ncat "$call.response.json"\nexit "$status"\nfi\nexec ${core} "$@"\n`
+        `#!/bin/sh\nif [ "$1" = api ]; then exec ${quote(process.execPath)} ${quote(observerScript)} "$@"; fi\nexec ${core} "$@"\n`
       );
       const pageInputs = () =>
         recorded<{ operation: string; input: { before?: string } }>('.request.json').filter(
@@ -2216,6 +2256,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         (screen) => screen.includes("answer truncated · full text in the agent's pane"),
         shell.pane
       );
+      expect(pageInputs().length).toBeGreaterThan(0);
       expect(pageInputs().every((value) => value.input.before === undefined)).toBe(true);
       const first = pages()[0]!;
       expect(first.entries).toHaveLength(50);

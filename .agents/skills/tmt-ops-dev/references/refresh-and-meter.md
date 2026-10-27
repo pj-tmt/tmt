@@ -6,9 +6,17 @@
   on painted data. Results carry their generation and cannot replace a newer view. The worker
   owns one never-reset stop flag per generation; preemption and shutdown set it while the
   generation counter still fences events.
-- Cancellation kills and reaps the child process group in the shared `tmt-invoke` bounded process
-  owner, without changing ordinary command deadlines or output bounds. Shutdown cancels the
-  in-flight core read, disconnects requests and joins after terminal restoration.
+- One UI shares two lazy `tmt api --session` children through `core::api_session`: one
+  serializes background reads and the other interactions, so an interaction never waits on
+  a background exchange. No transport I/O or waiting occurs on paint/input. Each lane
+  negotiates capabilities once; older Core keeps one-shot API calls. Ordinary API errors retain the channel. Cancelled queued
+  calls are discarded; an admitted exchange drains until its response or deadline, even if its
+  caller stops waiting. Stale schema, malformed responses, deadlines, shutdown and transport
+  failures close it; only later work reopens, never the submitted request. `tmt-invoke::LineChannel` owns bounded byte frames, stderr,
+  deadlines and child-group cleanup. Other public commands retain their existing runner.
+  Shutdown restores the terminal, drains admitted actions, cancels and joins readers, then
+  the last Core handle closes stdin and reaps both session children. Foreground and
+  reload handoffs release that handle before exec; a new board opens lazily.
 - Timer: the input loop requests a reload at the shown squad's `refresh` interval, which each
   snapshot carries, so a squad that failed to load retries at the default. The timer always runs.
 - Change detection: between requests the worker checks `board::changes` every `CHECK_EVERY` (1 s)
@@ -19,7 +27,14 @@
   `cursor + usage` so new usage rows still invalidate it. A failed read is never a change, and
   `API_INPUT_INVALID` (a core without the method) stops cursor reads for the session, leaving the
   file check and the interval. A field-provider save moves the cache directory's stamp, which
-  `board::changes` also watches.
+  `board::changes` also watches. Poll and pre-load checks share one cursor observation per
+  second; explicit generation changes force a fresh observation. Successful unchanged
+  cursors and config/provider stamps admit bounded `core::retained_reads` projections:
+  reference lookups, rosters without time-derived status, and empty request pages.
+  Selection and explicit refresh bypass reuse; failed reads and moved/unsupported cursors invalidate it.
+  Nonempty history, status expiry, digest countdowns, configuration, notebooks, Ops stores,
+  live presence and usage keep their independent reads. The action lane, selected reads
+  and cron clock have no retained-read handle; effect admission always runs fresh.
 - Providers: the board hands each load's members to one fetcher thread that runs due provider
   work off the paint path and again at the shortest `every`.
 - Startup: `board::run` consumes an ephemeral reload handoff and resolves cold launch
@@ -138,8 +153,8 @@
   generation's cancellation. Preview text is sanitized separately from retained bodies.
   The same results page supplies workspace member reply metadata. Conversations
   and the full-reply reader schedule `requests.show` on the selected-read lane, a second
-  worker thread with its own queue and cancellation generation, so a refresh's HOME
-  exchanges, cron or history work never queues in front of the selected member's reads.
+  worker thread with its own queue and cancellation generation. The shared API worker
+  serves them after the current exchange, ahead of a refresh's queued background reads.
   Selection replacement cancels that lane between reads without cancelling or restarting
   base acquisition; explicit base preemption and shutdown cancel both lanes. `board::selected_conversation` gathers the selected
   conversation on this lane and publishes one projection. It acquires the public

@@ -24,6 +24,7 @@ original = termios.tcgetattr(slave)
 expected_modes = original[:-1] + [[v.hex() if isinstance(v, bytes) else v for v in original[-1]]]
 (root / "wire.json").write_text(json.dumps(spec))
 (root / "active").mkdir()
+(root / "sessions").mkdir()
 status_read, status_write = os.pipe()
 release_read, release_write = os.pipe()
 screen = Screen()
@@ -116,7 +117,39 @@ def wait_copied(expected, label):
 
 try:
     assert not os.environ.get("TMUX") and not os.environ.get("TMUX_PANE")
-    command = [spec["ops"], "ui", "--squad", "product", "--view", "member-session-pty", "--reset-view"]
+    launcher = spec["ops"]
+    if spec.get("reload"):
+        launcher = str(root / "reload-launcher")
+        pathlib.Path(launcher).write_text("""#!/usr/bin/env python3
+import json, os, pathlib, sys
+root = pathlib.Path(os.environ['TMT_TEST_RELOAD_ROOT'])
+spec = json.loads((root / 'wire.json').read_text())
+markers = list((root / 'sessions').glob('*.json'))
+if markers:
+    sessions = [json.loads(marker.read_text()) for marker in markers]
+    alive = []
+    for session in sessions:
+        try:
+            os.kill(session['pid'], 0)
+            alive.append(session['pid'])
+        except ProcessLookupError:
+            pass
+    pipes = {tuple(item) for session in sessions for item in session['pipes']}
+    leaked = []
+    for name in os.listdir('/dev/fd'):
+        try:
+            fd = int(name)
+            if fd >= 3:
+                stat = os.fstat(fd)
+                if (stat.st_dev, stat.st_ino) in pipes:
+                    leaked.append(fd)
+        except OSError:
+            pass
+    (root / 'reload-exec.json').write_text(json.dumps({'priorPids':[item['pid'] for item in sessions], 'priorAlive': alive, 'priorLeakedFds': leaked}))
+os.execv(spec['ops'], [sys.argv[0]] + sys.argv[1:])
+""")
+        os.chmod(launcher, 0o755)
+    command = [launcher, "ui", "--squad", "product", "--view", "member-session-pty", "--reset-view"]
     owner = """
 import json, os, subprocess, sys
 status, release = int(sys.argv[1]), int(sys.argv[2])
@@ -128,8 +161,41 @@ os.read(release,1)
     child = subprocess.Popen([sys.executable, "-c", owner, str(status_write), str(release_read), json.dumps(command)],
         stdin=slave, stdout=slave, stderr=slave, pass_fds=(status_write, release_read),
         preexec_fn=controlling_terminal,
-        env={**os.environ, "TMT_EXECUTABLE": spec["proxy"], "TERM": "xterm-256color", "COLORTERM": "truecolor"})
+        env={**os.environ, "TMT_EXECUTABLE": spec["proxy"], "TMT_TEST_RELOAD_ROOT": str(root), "TERM": "xterm-256color", "COLORTERM": "truecolor"})
     wait_for(lambda: screen.contains("room product") and screen.contains("No current recipient observed."), "initial squad")
+    if spec.get("reload"):
+        wait_for(lambda: list((root / "sessions").glob("*.json")), "first session")
+        initial_pid = board_pid
+        subprocess.run(spec["cli"] + ["ops", "ui", "--reload-all"], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=True)
+        def reopened():
+            proof = root / "reload-exec.json"
+            if not proof.exists():
+                return False
+            prior = set(json.loads(proof.read_text())["priorPids"])
+            return any(int(path.stem) not in prior for path in (root / "sessions").glob("*.json"))
+        wait_for(lambda: screen.contains("Board reloaded") and reopened(), "reload and fresh API session")
+        at_exec = json.loads((root / "reload-exec.json").read_text())
+        assert at_exec["priorPids"], "reload must observe an opened session"
+        assert at_exec["priorAlive"] == [], "an API session survived reload exec"
+        assert at_exec["priorLeakedFds"] == [], "old session pipes leaked into reload exec"
+        assert board_pid == initial_pid, "reload must replace the board in the same process"
+        os.write(master, b"q")
+        deadline = time.monotonic() + 25
+        while board_status is None and time.monotonic() < deadline:
+            read_output(0.1)
+        assert board_status == 0 and termios.tcgetattr(slave) == original
+        for entry in (root / "active").iterdir():
+            try:
+                os.kill(int(entry.name), 0)
+            except ProcessLookupError:
+                continue
+            raise AssertionError("a public read remained active after reload and quit")
+        os.write(release_write, b"x")
+        child.wait(timeout=5)
+        print(json.dumps({"mode":"reload", "samePid":True, "freshSession":True,
+                          "oldSessionGone":True, "oldPipesGone":True, "boardExit":board_status}))
+        sys.exit(0)
     os.write(master, b"\x1b[C")
     wait_for(lambda: screen.contains("▾"), "expanded squad")
     os.write(master, b"\x1b[F")
@@ -196,6 +262,13 @@ os.read(release,1)
     assert proof["tty"] == [True, True, True] and proof["foreground"]
     assert proof["modes"] == expected_modes and termios.tcgetattr(slave) == original
     assert proof["activeReads"] == [], "a public read remained active at exec"
+    for pid in proof["sessionPids"]:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        raise AssertionError("an API session proxy survived the handoff")
+    assert proof["leakedSessionFds"] == [], "an API session pipe survived exec"
     calls = [json.loads(line) for line in (root / "resume-calls.jsonl").read_text().splitlines()]
     assert calls == [["resume", "--show", "--", spec["recipient"]]] * 2 + [expected_argv]
     handoff_at = bytes(output).index(b"FOREGROUND_SESSION_REFUSAL")

@@ -2,10 +2,12 @@
 //! Callers own command selection and response interpretation.
 
 mod discovery;
+mod line_channel;
 pub mod open;
 mod process;
 
 pub use discovery::{DiscoveryError, find_executable, invoking_tmt, is_executable};
+pub use line_channel::{LineChannel, LineChannelOptions};
 use std::{
     ffi::OsString,
     fmt, io,

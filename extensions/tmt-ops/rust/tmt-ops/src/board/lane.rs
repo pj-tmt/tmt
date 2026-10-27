@@ -176,6 +176,7 @@ pub(super) struct Lane {
 
 impl Lane {
     pub fn spawn(core: Core, labels: Option<Refresh>, events: Sender<BoardEvent>) -> Self {
+        let core = core.interactive();
         let (jobs, queue) = channel();
         let thread = std::thread::spawn(move || {
             for job in queue {

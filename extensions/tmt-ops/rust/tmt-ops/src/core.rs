@@ -1,6 +1,10 @@
 //! The only door to TMT: public JSON output and `tmt api`, run through the
 //! invoking executable. Squad never opens TMT storage or configuration itself.
 
+mod api_session;
+mod retained_reads;
+pub(crate) use retained_reads::RetainedReads;
+
 use crate::runner::{self, RunError};
 use serde_json::{Value, json};
 use std::{
@@ -90,7 +94,15 @@ pub struct Core {
     executable: PathBuf,
     cancellation: Option<runner::Cancellation>,
     deadline: Option<Instant>,
+    session: Option<Arc<ApiSessions>>,
+    interactive: bool,
+    retained: Option<Arc<RetainedReads>>,
     pub(crate) paths: Arc<crate::migration::Decision>,
+}
+
+struct ApiSessions {
+    background: api_session::Session,
+    interaction: api_session::Session,
 }
 
 impl Core {
@@ -124,6 +136,9 @@ impl Core {
             executable,
             cancellation: None,
             deadline: None,
+            session: None,
+            interactive: false,
+            retained: None,
             paths: Arc::new(crate::migration::Decision::default()),
         })
     }
@@ -135,6 +150,9 @@ impl Core {
             executable,
             cancellation: None,
             deadline: None,
+            session: None,
+            interactive: false,
+            retained: None,
             paths: Arc::new(crate::migration::Decision::default()),
         }
     }
@@ -142,6 +160,32 @@ impl Core {
     pub fn cancellable(&self, cancellation: runner::Cancellation) -> Self {
         Self {
             cancellation: Some(cancellation),
+            ..self.clone()
+        }
+    }
+
+    /// The board shares distinct background and interaction channels across clones.
+    pub(crate) fn with_api_session(mut self) -> Result<Self, SquadError> {
+        self.session = Some(Arc::new(ApiSessions {
+            background: api_session::Session::new(self.executable.clone())
+                .map_err(invocation_error)?,
+            interaction: api_session::Session::new(self.executable.clone())
+                .map_err(invocation_error)?,
+        }));
+        Ok(self)
+    }
+
+    pub(crate) fn interactive(&self) -> Self {
+        Self {
+            interactive: true,
+            retained: None,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn with_retained_reads(&self, retained: Arc<RetainedReads>) -> Self {
+        Self {
+            retained: Some(retained),
             ..self.clone()
         }
     }
@@ -231,7 +275,7 @@ impl Core {
     /// One versioned `tmt api` request.
     pub fn api(&self, operation: &str, input: Value) -> Result<Value, SquadError> {
         let request = json!({"version": 1, "operation": operation, "input": input});
-        self.call(&["api".into()], request.to_string().as_bytes())
+        self.api_request(request, TIMEOUT)
     }
 
     /// One public API read within a caller-owned remaining budget. Cancellation
@@ -243,7 +287,76 @@ impl Core {
         timeout: Duration,
     ) -> Result<Value, SquadError> {
         let request = json!({"version": 1, "operation": operation, "input": input});
-        self.call_within(&["api".into()], request.to_string().as_bytes(), timeout)
+        self.api_request(request, timeout)
+    }
+
+    fn api_request(&self, request: Value, timeout: Duration) -> Result<Value, SquadError> {
+        runner::assert_commands_allowed("API request");
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(runner::Cancellation::cancelled)
+        {
+            return Err(invocation_error(RunError::Cancelled));
+        }
+        if self
+            .deadline
+            .is_some_and(|deadline| deadline <= Instant::now())
+            || (self.deadline.is_none() && timeout.is_zero())
+        {
+            return Err(invocation_error(RunError::Timeout));
+        }
+        let result = self.api_resource(&request, timeout);
+        if result.is_err()
+            && let Some(retained) = &self.retained
+        {
+            retained.clear();
+        }
+        result
+    }
+
+    fn api_resource(&self, request: &Value, timeout: Duration) -> Result<Value, SquadError> {
+        let payload = request.to_string();
+        if let Some(document) = self
+            .retained
+            .as_ref()
+            .and_then(|retained| retained.get(&payload))
+        {
+            return Ok(document);
+        }
+        let result = self.api_resource_fresh(&payload, timeout)?;
+        if let Some(retained) = &self.retained {
+            retained.keep(request, &result);
+        }
+        Ok(result)
+    }
+
+    fn api_resource_fresh(&self, payload: &str, timeout: Duration) -> Result<Value, SquadError> {
+        let Some(session) = &self.session else {
+            return self.call_within(&["api".into()], payload.as_bytes(), timeout);
+        };
+        let deadline = self.deadline.unwrap_or_else(|| Instant::now() + timeout);
+        let lane = if self.interactive {
+            &session.interaction
+        } else {
+            &session.background
+        };
+        if let Some(document) = lane
+            .call(payload.as_bytes(), deadline, self.cancellation.as_ref())
+            .map_err(invocation_error)?
+        {
+            return if document.get("error").is_some() {
+                resource_error(&document)
+            } else {
+                Ok(document)
+            };
+        }
+        // Capability negotiation consumed part of this same request's budget.
+        self.call_within(
+            &["api".into()],
+            payload.as_bytes(),
+            deadline.saturating_duration_since(Instant::now()),
+        )
     }
 
     /// Like [`Core::json`], bounded by `timeout` instead of the usual limit.
@@ -324,18 +437,7 @@ impl Core {
                 environment,
             ),
         };
-        result.map_err(|error| {
-            let cancelled = error == RunError::Cancelled;
-            let mut failure = unavailable(match error {
-                RunError::Spawn => "Could not start tmt.",
-                RunError::Timeout => "tmt did not finish in time; the outcome is unknown.",
-                RunError::OutputLimit => "tmt output exceeded squad's bound.",
-                RunError::Io => "Could not read tmt output; the outcome is unknown.",
-                RunError::Cancelled => "The board load was superseded.",
-            });
-            failure.cancelled = cancelled;
-            failure
-        })
+        result.map_err(invocation_error)
     }
 
     /// A write explicitly attributes its originator, including anonymous clocks.
@@ -351,7 +453,7 @@ impl Core {
         } else {
             request["originator"] = json!("anonymous");
         }
-        self.call(&["api".into()], request.to_string().as_bytes())
+        self.api_request(request, TIMEOUT)
     }
 
     /// `dispatch.create` for traffic no person typed (scheduled sends and their change
@@ -445,6 +547,23 @@ fn document(finished: runner::Finished) -> Result<Value, SquadError> {
     if finished.success {
         return Ok(document);
     }
+    resource_error(&document)
+}
+
+fn invocation_error(error: RunError) -> SquadError {
+    let cancelled = error == RunError::Cancelled;
+    let mut failure = unavailable(match error {
+        RunError::Spawn => "Could not start tmt.",
+        RunError::Timeout => "tmt did not finish in time; the outcome is unknown.",
+        RunError::OutputLimit => "tmt output exceeded squad's bound.",
+        RunError::Io => "Could not read tmt output; the outcome is unknown.",
+        RunError::Cancelled => "The board load was superseded.",
+    });
+    failure.cancelled = cancelled;
+    failure
+}
+
+fn resource_error(document: &Value) -> Result<Value, SquadError> {
     let error = &document["error"];
     match (error["code"].as_str(), error["message"].as_str()) {
         (Some(code), Some(message)) => {

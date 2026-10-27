@@ -68,6 +68,10 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   and ends the session so consumers reopen the current executable. Capabilities and
   unsupported-version discovery never open storage; after a connection opens, discovery
   also passes that schema fence. Explicit identity selects write attribution, not privilege.
+- Client byte framing and child cleanup belong to neutral `tmt-invoke::LineChannel`;
+  it adds no idle timer, protocol envelope or replay. Ops owns its per-UI queue,
+  capability negotiation, interaction priority and later-request reopen policy in
+  `core::api_session`. Other extensions can reuse the neutral leaf without depending on Ops.
 - `framed_stdio` owns invocation-descriptor newline acquisition/publication for API and MCP:
   bounded frames, idle blocking, partial-frame/write deadlines, no worker or fd-flag mutation.
   The ports own their envelopes, error recovery and clean EOF. API closes its connection on

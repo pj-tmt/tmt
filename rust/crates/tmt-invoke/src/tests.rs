@@ -37,7 +37,7 @@ impl Fixture {
         fs::set_permissions(fixture.program(), fs::Permissions::from_mode(0o700)).unwrap();
         fixture
     }
-    fn program(&self) -> PathBuf {
+    pub(crate) fn program(&self) -> PathBuf {
         self.0.join("child program")
     }
     fn call(
@@ -82,7 +82,7 @@ pub(crate) fn ready(path: &Path) {
     }
 }
 
-fn gone(path: &Path) {
+pub(crate) fn gone(path: &Path) {
     let pid = fs::read_to_string(path)
         .unwrap()
         .trim()
