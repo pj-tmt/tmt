@@ -163,24 +163,29 @@ channels and the driver protocol. The owner map is in
   process, a changed entry, or the shared 1 s budget running out keep tmux, and tmux doubt
   (a stale or partial tmux environment) counts as no tmux pane. The one exception is a
   selection read that fails to clean up: a process it started may still be running, so tmux
-  would be a guess. `Host::for_caller*` return that error, every command that selects the
-  caller's host reports it through `caller_context::host` as `CLEANUP_ERROR` (nothing ran;
-  running again is safe), and only the best-effort workspace refresh and `context`
-  observation ignore it.
-  Only a caller-scoped operation selects the caller's host; a global `ls` selects it only
-  to list the caller's server first, and a failed selection lists without that order.
-  These storage and explicit-target operations never select it: a sender given by
-  `--identity` to a local or Remote `talk` or a room dispatch (`identity_context::sender`),
-  named `rm`, `rename`, `ls <name>` and `identity show <id> --expect-name`
-  (`Host::for_stored_bindings`), an explicit pane target of `add` or `ls`
-  (`Host::for_target`), and `resume --show` or `--forget-launch <name>`. A launch that needs
-  its invoking destination, such as `run <name>` (which also decides between the caller's
-  pane and a new built-in PTY) or a named resume launch, still selects it. `focus --client`
-  selects through `Host::for_caller_with`, which approves no driver, so it reads only the
-  invoker's tmux server or the built-in pty pane that names the caller. Binding, identity
-  and resume inspection use `caller_context::Composition` to inject caller selection and
-  configuration paths in tests. Talk injects its selector alongside its resolved paths;
-  room dispatch takes its paths and selector as arguments (`dispatch::dispatched`).
+  would be a guess. `Host::for_caller*` return that error, and every command that selects
+  the caller's host maps it with `caller_context::selection_failed` to `CLEANUP_ERROR`
+  (nothing ran; running again is safe): `caller_context::host` and `workspace_host` wrap
+  it, and `Composition::caller`, `identity_context::sender`, a guarded `add` and
+  `focus --client` call it directly. Three best-effort observers ignore it:
+  the workspace refresh, the `context` observation, and a global `ls`, which selects the
+  caller's host only to list the caller's server first and lists without that order when
+  the selection fails.
+  Only a caller-scoped operation selects the caller's host. These storage and
+  explicit-target operations never select it: a sender given by `--identity` to a local or
+  Remote `talk` or a room dispatch (`identity_context::sender`), named `rm`, `rename`,
+  `ls <name>` and `identity show <id> --expect-name` (`Host::for_stored_bindings`), an
+  explicit pane target of `add` or `ls` (`Host::for_target`), and a named
+  `resume --show <name>` or `resume --forget-launch <name>` (storage only; without a name
+  they select). A launch that needs its invoking destination, such as `run <name>` (which
+  also decides between the caller's pane and a new built-in PTY) or a named resume launch,
+  still selects it. `focus --client` captures its environment without approvals
+  (`CallerEnvironment::approved(&[])`) and selects through `Host::for_caller_with`, which
+  approves no driver, so no driver runs: it reads only the invoker's tmux server or the
+  built-in pty pane that names the caller. Binding, identity and resume inspection use
+  `caller_context::Composition` to inject caller selection and configuration paths in
+  tests. Talk injects its selector alongside its resolved paths; room dispatch takes its
+  paths and selector as arguments (`dispatch::dispatched`).
   The tmux pane check waits 1 s (`OPERATION_TIMEOUT`); `name`, `whoami`, `unbind` and
   `ls --here` (`binding_command::labeled_caller_pane` through `Host::caller_pane_required`)
   wait 5 s once, no retry, when `TMUX` and `TMUX_PANE` both name a pane. A late tmux there

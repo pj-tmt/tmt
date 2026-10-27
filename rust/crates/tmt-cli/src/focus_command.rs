@@ -36,8 +36,9 @@ fn pane_missing(pane: &str) -> Failure {
 }
 
 /// The invoker is only what its own environment reports; no client is guessed.
+/// It is read from tmux variables alone, so no driver approval is acquired.
 fn invoker() -> Result<Invoker, Failure> {
-    Invoker::from_environment(&CallerEnvironment::current()).ok_or_else(host_unsupported)
+    Invoker::from_environment(&CallerEnvironment::approved(&[])).ok_or_else(host_unsupported)
 }
 
 fn pane_failure(error: FocusError, pane: &str) -> Failure {
@@ -218,15 +219,16 @@ pub fn client(mode: OutputMode) -> io::Result<u8> {
     Ok(0)
 }
 
-/// The invoker's own client. The selection approves no driver, so it reads
-/// only the invoker's tmux server, or the built-in pty pane that names the
-/// caller. A selection read that fails to clean up is `CLEANUP_ERROR`, as in
-/// every caller-scoped operation; a failed tmux read is the command's error.
+/// The invoker's own client. The environment is captured without approvals
+/// and the selection approves no driver, so no driver runs: it reads only the
+/// invoker's tmux server, or the built-in pty pane that names the caller. A
+/// selection read that fails to clean up is `CLEANUP_ERROR`, as in every
+/// caller-scoped operation; a failed tmux read is the command's error.
 fn client_view<R: CommandRunner + Clone>(
     invoker: &Invoker,
     runner: R,
 ) -> Result<ClientView, Failure> {
-    Host::for_caller_with(&CallerEnvironment::current(), runner)
+    Host::for_caller_with(&CallerEnvironment::approved(&[]), runner)
         .map_err(crate::caller_context::selection_failed)?
         .invoker_client(invoker, OperationOptions::default())
         .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
@@ -294,7 +296,7 @@ mod tests {
     use super::client_view;
     use std::{cell::RefCell, ffi::OsStr, rc::Rc};
     use tmt_adapters::{
-        host::Invoker,
+        host::{Invoker, external::approval_reads},
         process::{CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner},
     };
 
@@ -324,8 +326,9 @@ mod tests {
         }
     }
 
-    /// `focus --client` reads only the invoker's tmux server: no caller host
-    /// is selected, and a failed tmux read is the command's error (#4449).
+    /// `focus --client` selects with no driver approved, so it acquires no
+    /// approval and, outside a built-in pty pane, reads only the invoker's
+    /// tmux server; a failed tmux read is the command's error (#5458).
     #[test]
     fn the_client_lookup_reads_only_the_invokers_tmux_server() {
         let socket = std::env::temp_dir()
@@ -338,7 +341,15 @@ mod tests {
             session: None,
         };
         let runner = Recorded::default();
+        let approvals = approval_reads();
+        // The invoker capture reads no approval either; here it finds no tmux.
+        let _ = super::invoker();
         let failure = client_view(&invoker, runner.clone()).expect_err("the tmux read fails");
+        assert_eq!(
+            approval_reads(),
+            approvals,
+            "the client lookup acquires no approval"
+        );
         assert_eq!(failure.status, 1);
         assert_eq!(failure.document()["error"]["code"], "RECONCILIATION_FAILED");
         let calls = runner.0.borrow();
