@@ -4,6 +4,7 @@ import { BearerArtifact } from './bearer-artifact.js';
 import { localTime } from './expiry.js';
 import { text } from './strings.js';
 import { RetentionHint } from './retention-hint.js';
+import { StorageSection } from './storage-section.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNotificationModalPresence } from './reply-notification-context.js';
 import type { payload } from '@tmt/colab-client';
@@ -316,6 +317,7 @@ export function ShareDialog({
                 <p>Later joins receive the current key and up to 63 earlier keys.</p>
               )}
             </details>
+            {port.storage && <StorageSection port={port.storage} pageId={pageId} title={title} />}
             <section aria-label="Page lifecycle">
               <h3>Retention and lifecycle</h3>
               <RetentionHint page={view.page} />

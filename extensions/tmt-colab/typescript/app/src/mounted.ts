@@ -193,6 +193,16 @@ export async function mountedTransport(
     }
   }
   const management: ManagementPort = {
+    storage: {
+      read(id, signal) {
+        const client = managementClient;
+        return managed(client, () => client.storage.read(id, scopedSignal(signal)));
+      },
+      reclaim(id, signal) {
+        const client = managementClient;
+        return managed(client, () => client.storage.reclaim(id, scopedSignal(signal)));
+      },
+    },
     read(id, signal) {
       const client = managementClient;
       return managed(client, async () => {

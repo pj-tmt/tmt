@@ -2397,3 +2397,55 @@ button.discussion-quote:focus-visible {
 .comment-echo-failure {
   margin: 0;
 }
+
+.storage-usage {
+  margin: 0 0 16px;
+  font: 12px/1.7 var(--tmt-ui-font-body);
+}
+.storage-usage > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.storage-usage dt {
+  color: var(--c-muted);
+}
+.storage-usage dd {
+  margin: 0;
+  text-align: right;
+}
+
+.storage-confirm {
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: 12px;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--c-text);
+}
+.storage-confirm::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+.storage-confirm h3 {
+  margin: 0 0 12px;
+  font: 600 16px/1.4 var(--tmt-ui-font-body);
+}
+.storage-confirm p {
+  margin: 0 0 20px;
+  font: 12px/1.7 var(--tmt-ui-font-body);
+}
+.storage-confirm > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.storage-confirm button {
+  padding: 7px 12px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: 8px;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--c-text);
+  font: inherit;
+  cursor: pointer;
+}

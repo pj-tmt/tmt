@@ -36,7 +36,52 @@ const view: ManagementView = {
     ? [{ id: '22222222-2222-4222-8222-222222222222', role: 'viewer', pages: [pageId] }]
     : [],
 };
+let cleaned = false;
+const storage = params.has('storage')
+  ? {
+      read: async () => {
+        if (cleaned && params.has('storage-refresh-fail')) throw new Error('fixture read failed');
+        return {
+          pageId,
+          title: 'Review notes',
+          contentBytes: 118000,
+          historyBytes: cleaned ? 300000 : 4200000,
+          commentsBytes: 84000,
+          attachmentsBytes: null,
+          unusedAttachmentBytes: null,
+          totalBytes: null,
+          freeable: { history: cleaned || params.has('storage-skipped') ? 0 : 3900000, files: 0 },
+          lastCleanedAutomaticallyAtMs: null,
+          skipped: params.has('storage-skipped') ? 'no-tail' : null,
+        };
+      },
+      reclaim: async () => {
+        if (params.has('storage-error'))
+          return {
+            version: 1 as const,
+            page: pageId,
+            dryRun: false,
+            freeable: { history: 3900000, files: 0 },
+            freed: { history: params.has('storage-unknown') ? null : 250000, files: 0 },
+            kept: ['comments', 'threads', 'archive'],
+            skipped: null,
+            error: { code: 'COLAB_UNAVAILABLE', message: 'Cleanup failed' },
+          };
+        cleaned = true;
+        return {
+          version: 1 as const,
+          page: pageId,
+          dryRun: false,
+          freeable: { history: 3900000, files: 0 },
+          freed: { history: 3900000, files: 0 },
+          kept: ['comments', 'threads', 'archive'],
+          skipped: null,
+        };
+      },
+    }
+  : undefined;
 const port: ManagementPort = {
+  storage,
   read: async () => view,
   prepare: async (_, selection) => {
     const link =

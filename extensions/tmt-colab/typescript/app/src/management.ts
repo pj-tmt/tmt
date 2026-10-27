@@ -26,6 +26,7 @@ import {
   type ProjectManage,
 } from './projects.js';
 import { jsonResponse, verifyRegistration, type Registration } from './registration.js';
+import { storagePort, type StoragePort } from './storage-usage.js';
 
 export interface Recipient {
   id: string;
@@ -89,6 +90,7 @@ export interface Acknowledgment {
   storageHint?: string;
 }
 export interface ManagementPort {
+  readonly storage?: StoragePort;
   read(page: string, signal?: AbortSignal): Promise<ManagementView>;
   prepare(view: ManagementView, selection: Selection): Promise<Pending>;
   send(pending: Pending): Promise<Acknowledgment>;
@@ -473,12 +475,15 @@ function projectPages(changes: readonly ProjectChange[]) {
   return pages;
 }
 export class ManagementClient implements ManagementPort {
+  readonly storage: StoragePort;
   constructor(
     readonly mount: URL,
     readonly registration: Registration,
     /** False when the document's location is another module's: discovery then leaves it alone. */
     readonly locate = true,
-  ) {}
+  ) {
+    this.storage = storagePort(mount);
+  }
   async snapshot(signal?: AbortSignal, context?: { page: string; exclude?: boolean }) {
     const boot = await discover(
       this.mount,

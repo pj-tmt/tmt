@@ -6564,6 +6564,12 @@ at the first error and includes the committed pages and measured total in its er
 total is null if any included measurement is unknown. An interrupted socket exchange has an
 uncertain outcome and is not retried: the batch total is null and `freedBeforeUnknown` records
 the measured subtotal from completed pages.
+The owner Manage page displays Page content, Edit history, Attachments and Comments for this
+machine. Cleanup is the only storage action and requires confirmation; its completion reports
+measured freed bytes and that the page is unchanged. On partial failure the error reports any
+known positive savings; unknown savings are not presented as zero. Unavailable attachment
+inventory is shown as unknown and no attachment expiry claim is made before #5284.
+
 `lastCleanedAutomaticallyAtMs` is a local Unix-millisecond timestamp recorded best-effort only
 after an automatic pass actually compacts the page; scans, no-ops, dry-runs and manual requests do
 not update it. Legacy and unrecorded results are null.
