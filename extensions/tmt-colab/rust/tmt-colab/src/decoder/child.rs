@@ -738,6 +738,8 @@ mod comparison {
             comparison_any(&mut self.0, any);
         }
         fn write_json(&mut self, any: &Any) {
+            // Preserve EncoderV1's JSON encoding. Its map order can still differ, causing a
+            // conservative false rejection; a rejected rebuild publishes nothing.
             self.0.write_json(any);
         }
         fn write_key(&mut self, key: &str) {
