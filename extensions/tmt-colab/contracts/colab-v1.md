@@ -6385,8 +6385,9 @@ the receipt revision includes that follow-up publication.
 
 An agent patch with no unreleased lock for its caller identity on the page first
 publishes a signed acquisition through the existing own-publication path, before
-evaluating the patch or checking its resulting markup. A single `--find` or
-`--find-file` uses that exact text as a quote with empty context; text over the
+evaluating the patch or checking its resulting markup.
+Without a resolvable agent identity, a patch takes no automatic lock.
+A single `--find` or `--find-file` uses that exact text as a quote with empty context; text over the
 existing quote byte limit uses `{whole:true}`. Multiple find/replace pairs,
 `--lines` and `--diff` also use `{whole:true}`.
 The acquisition is independently observable before content commits. Failure or

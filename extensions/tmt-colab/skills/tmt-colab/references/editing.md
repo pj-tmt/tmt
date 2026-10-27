@@ -40,8 +40,9 @@ never repeat the patch. A failed patch keeps an explicit lock announced before
 the command; correct the edit and retry, or use `page unlock` to abandon it.
 
 An agent patch without a held page lock automatically publishes a lock before
-evaluating the patch, then releases it after success or failure. One bounded
-`--find` or `--find-file` locks that exact quote. Multiple find/replace pairs,
+evaluating the patch, then releases it after success or failure.
+Without a resolvable agent identity, a patch takes no automatic lock.
+One bounded `--find` or `--find-file` locks that exact quote. Multiple find/replace pairs,
 quotes over the quote byte limit, `--lines` and `--diff` lock the whole page.
 Use explicit `page lock` to announce an edit earlier, before composing it. A failed
 automatic acquisition stops the patch; an uncertain outcome never replays it.
