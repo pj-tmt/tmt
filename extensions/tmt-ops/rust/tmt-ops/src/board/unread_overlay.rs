@@ -33,6 +33,7 @@ pub(super) enum Scope {
 
 /// A painted unread count that opens the overlay when pressed: the target it belongs to, or
 /// everyone for the header strip's count.
+#[derive(Debug)]
 pub(in crate::board) struct Hit {
     pub area: Rect,
     pub target: Option<OpsTarget>,

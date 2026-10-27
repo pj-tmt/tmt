@@ -203,10 +203,9 @@ fn mouse_toggle_uses_fresh_painted_rows_and_matches_plain_key() {
     }
 }
 #[test]
-fn hidden_chart_refusal_is_shared_by_shortcut_and_action_menu() {
+fn hidden_chart_refusal_is_the_usage_controls_actions() {
     for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = board();
-        crate::board::app::workspace::tests::bind_usage_controls(&mut app);
         app.shell.tab = tab;
         let prefs = &mut app
             .view
@@ -232,12 +231,6 @@ fn hidden_chart_refusal_is_shared_by_shortcut_and_action_menu() {
         }
         let action = crate::action::Action::parse("usage-controls").unwrap();
         assert_eq!(app.perform(&action), Effect::None);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("Usage chart is hidden by the panel policy.")
-        );
-        app.notice = None;
-        app.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE));
         assert_eq!(
             app.notice.as_deref(),
             Some("Usage chart is hidden by the panel policy.")

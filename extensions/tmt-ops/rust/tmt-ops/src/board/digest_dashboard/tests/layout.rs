@@ -407,7 +407,6 @@ fn digest_details_toggle_uses_config_cas_and_usage_controls_have_the_existing_ow
     use crate::board::app::Request;
     let _no_commands = crate::runner::forbid_commands();
     let mut app = fixture();
-    crate::board::app::workspace::tests::bind_usage_controls(&mut app);
     app.workspace.selected = Some(OpsTarget::DigestAll);
     app.workspace_reconcile();
     paint(&mut app, 160, 40);
@@ -419,9 +418,8 @@ fn digest_details_toggle_uses_config_cas_and_usage_controls_have_the_existing_ow
     assert!(expected.digest_panels.is_none());
     assert!(!next.digest_panels.unwrap().effective().side_shown());
     let mut app = fixture();
-    crate::board::app::workspace::tests::bind_usage_controls(&mut app);
     paint(&mut app, 160, 40);
-    key(&mut app, KeyCode::Char('u'));
+    crate::board::app::workspace::tests::open_usage_controls(&mut app);
     paint(&mut app, 160, 40);
     assert!(app.usage_chart.borrow().focused());
     key(&mut app, KeyCode::Enter);

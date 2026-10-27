@@ -304,12 +304,11 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
     crate::status::with_now_ms(fixtures::NOW, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut app = board();
-        crate::board::app::workspace::tests::bind_usage_controls(&mut app);
         fixtures::populate(&mut app);
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 103, 51);
         let target = app.workspace.selected.clone();
-        press(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Range));
         press(&mut app, KeyCode::Enter);
         assert!(app.usage_controls);
@@ -522,7 +521,6 @@ fn populated_chart_cache_reuses_exact_semantics_and_same_slot_updates_revoke_it(
 fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let mut app = board();
-        crate::board::app::workspace::tests::bind_usage_controls(&mut app);
         fixtures::populate(&mut app);
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
@@ -557,7 +555,7 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         press(&mut app, KeyCode::Esc); // Return retained Reader focus to the list.
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
-        press(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Enter); // Range dropdown owns input.
         press(&mut app, KeyCode::Char('u'));
@@ -594,7 +592,6 @@ fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_
     crate::status::with_now_ms(fixtures::NOW, || {
         let tab = OpsTab::Agents;
         let mut app = board();
-        crate::board::app::workspace::tests::bind_usage_controls(&mut app);
         fixtures::populate(&mut app);
         app.shell.tab = tab;
         app.usage_chart
@@ -614,7 +611,7 @@ fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_
             )),
             "summary has only complete control triggers, no bar hits"
         );
-        press(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         assert!(!app.usage_controls);
         press(&mut app, KeyCode::Enter);
         assert!(app.usage_controls);
@@ -683,7 +680,6 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
         let _no_commands = crate::runner::forbid_commands();
         for known_zero in [false, true] {
             let mut app = board();
-            crate::board::app::workspace::tests::bind_usage_controls(&mut app);
             app.shell.tab = OpsTab::Agents;
             app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             if known_zero {
@@ -726,7 +722,7 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
             };
             assert!(shown.contains(&expected), "{shown}");
             drop(state);
-            press(&mut app, KeyCode::Char('u'));
+            crate::board::app::workspace::tests::open_usage_controls(&mut app);
             paint(&mut app, 100, 36);
             press(&mut app, KeyCode::Enter);
             assert!(
@@ -768,7 +764,7 @@ fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
                     .values()
                     .any(|action| action.verb == Verb::Ui(OpsUiAction::UsageControls))
             );
-            press(&mut app, KeyCode::Char('u'));
+            crate::board::app::workspace::tests::open_usage_controls(&mut app);
             paint(&mut app, 100, 36);
             assert!(!app.usage_controls);
             super::focus(&mut app);
@@ -979,7 +975,6 @@ fn quota_chips_are_shared_keyboard_reachable_and_preserve_token_demand_and_pane_
         let _no_commands = crate::runner::forbid_commands();
         for width in [103, 148] {
             let mut app = board();
-            crate::board::app::workspace::tests::bind_usage_controls(&mut app);
             crate::board::app::workspace::tests::observe_waiting_member(&mut app);
             fixtures::populate(&mut app);
             let before = app.history_demand();
@@ -1002,7 +997,7 @@ fn quota_chips_are_shared_keyboard_reachable_and_preserve_token_demand_and_pane_
             ));
             assert!(app.usage_chart.borrow().hits.is_empty());
             paint(&mut app, width, 51);
-            press(&mut app, KeyCode::Char('u'));
+            crate::board::app::workspace::tests::open_usage_controls(&mut app);
             paint(&mut app, width, 51);
             press(&mut app, KeyCode::Tab);
             press(&mut app, KeyCode::Tab);
@@ -1039,7 +1034,6 @@ fn capture_quota_packet(path: &str) {
                 ] {
                     for kind in QuotaWindow::ALL {
                         let mut app = board();
-                        crate::board::app::workspace::tests::bind_usage_controls(&mut app);
                         fixtures::quota(&mut app, scenario);
                         app.usage_chart.borrow_mut().restore_quota_window(kind);
                         app.view.as_mut().unwrap().look = crate::look::Look {

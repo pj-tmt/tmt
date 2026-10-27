@@ -336,6 +336,10 @@ fn capture_frame(
     captured["selectionState"] = json!(format!("{:?}", app.workspace_selection_state()));
     captured["focus"] = json!(format!("{:?}", app.focused_pane()));
     captured["input"] = json!(format!("{:?}", app.input_band.get()));
+    // Only frames that paint an unread count carry the regions that open the Unread overlay.
+    if !app.unread_hits.borrow().is_empty() {
+        captured["unreadHits"] = json!(format!("{:?}", app.unread_hits.borrow()));
+    }
     if state.starts_with("bindings-") {
         captured["bindingGeometry"] = app.settings.as_ref().unwrap().captured_binding_geometry();
     }

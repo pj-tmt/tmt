@@ -372,6 +372,86 @@ fn u_opens_the_selection_s_unread_and_enter_opens_the_answer_in_chat() {
 }
 
 #[test]
+fn a_press_inside_the_overlay_never_reaches_the_board_under_it_and_outside_closes_it() {
+    crate::status::with_now_ms(10_000_000, || {
+        let mut app = app_with_two_members();
+        install(
+            &mut app,
+            &[
+                (MEMBER, "w", 8_000_000, "final"),
+                (OTHER, "c", 9_000_000, "final"),
+            ],
+        );
+        app.workspace.selected = Some(OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        });
+        app.open_unread(&Scope::All);
+        draw(&app, 36);
+        // Every hit the board painted under the modal, clicked where the modal covers it.
+        let outer = app
+            .peek_areas
+            .dialog(crate::board::app::Overlay::Unread)
+            .expect("registered");
+        let covered: Vec<_> = app
+            .hits
+            .borrow()
+            .iter()
+            .map(|hit| (Rect::new(hit.x, hit.y, hit.width, 1), hit.row()))
+            .chain(
+                app.workspace_action_hits
+                    .borrow()
+                    .iter()
+                    .map(|(area, _, _)| (*area, None)),
+            )
+            .filter_map(|(area, row)| {
+                let inside = area.intersection(outer);
+                (inside.width > 0 && inside.height > 0).then_some((inside, row))
+            })
+            .collect();
+        assert!(!covered.is_empty(), "the board paints hits under the modal");
+        let before = (
+            app.workspace.selected.clone(),
+            app.focus,
+            app.menu.is_some(),
+        );
+        for (area, _) in covered {
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: area.x,
+                    row: area.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            );
+            assert!(app.unread_overlay.is_some(), "{area:?}: still open");
+            assert_eq!(
+                (
+                    app.workspace.selected.clone(),
+                    app.focus,
+                    app.menu.is_some()
+                ),
+                before,
+                "{area:?}: the press did not act on the board"
+            );
+        }
+        // A press outside closes it and is taken: the board under the pointer does not act.
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 159,
+                row: 35,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert!(app.unread_overlay.is_none());
+        assert_eq!(app.workspace.selected, before.0);
+    });
+}
+
+#[test]
 fn nothing_unread_opens_nothing_and_says_so() {
     let mut app = board();
     install(&mut app, &[]);
@@ -468,9 +548,15 @@ fn unread_overlay_frame_timing() {
     }
     crate::status::with_now_ms(1_791_600_000_000, || {
         let mut app = crate::board::app::workspace::tests::populated_board(1, 10);
-        let members: Vec<String> = app.workspace_snapshot().unwrap().roster.squads[0]
+        let members: Vec<String> = app
+            .workspace_snapshot()
+            .unwrap()
+            .roster
             .members
-            .clone();
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(members.len(), 10);
         let per_member = 20;
         let mut items = Vec::new();
         for (index, member) in members.iter().enumerate() {

@@ -28,24 +28,10 @@ pub(in crate::board) fn observe_waiting_member(app: &mut App) {
     app.overview_rows.borrow_mut().clear();
 }
 
-/// Binds `u` to `usage-controls` in every scope, as a user binding would: the default `u`
-/// opens the Unread overlay.
-pub(in crate::board) fn bind_usage_controls(app: &mut App) {
-    let keys = &mut app
-        .view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .keys;
-    for scope in keys.values_mut() {
-        scope.insert(
-            "u".into(),
-            crate::action::Action::parse("usage-controls").unwrap(),
-        );
-    }
+/// Reaches the usage controls the way a user does without a key bound to them: the
+/// `usage-controls` action (the actions menu entry runs the same one).
+pub(in crate::board) fn open_usage_controls(app: &mut App) -> Effect {
+    app.perform(&crate::action::Action::parse("usage-controls").unwrap())
 }
 
 pub(in crate::board) fn board() -> App {

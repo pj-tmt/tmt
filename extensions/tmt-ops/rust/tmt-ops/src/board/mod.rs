@@ -2908,7 +2908,6 @@ print(json.dumps(out))
     fn long_chart_demand_uses_history_work_and_does_not_reacquire_a_closed_range() {
         crate::status::with_now_ms(1_791_600_000_000, || {
             let mut app = theme_board();
-            crate::board::app::workspace::tests::bind_usage_controls(&mut app);
             add_history_source(&mut app);
             app.limits = Some(Vec::new());
             let mut terminal =
@@ -2923,8 +2922,9 @@ print(json.dumps(out))
                         .unwrap();
                 };
             paint(&mut app, &mut terminal);
+            crate::board::app::workspace::tests::open_usage_controls(&mut app);
+            paint(&mut app, &mut terminal);
             for code in [
-                KeyCode::Char('u'),
                 KeyCode::Enter,
                 KeyCode::Down,
                 KeyCode::Enter,
