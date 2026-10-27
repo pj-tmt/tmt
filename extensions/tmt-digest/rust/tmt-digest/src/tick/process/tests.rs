@@ -40,6 +40,9 @@ reply() { input=$1; printf '%s\n' "$input" >> calls
     *'"operation":"digest.wake.step"'*)
       if test -f wake-fails; then printf '%s\n' '{"error":{"code":"WAKE_FAILED","message":"inspect claim"}}'; return 1; fi
       cat wake.json ;;
+    *'"operation":"changes.cursor"'*)
+      if test -f cursor-unsupported; then printf '%s\n' '{"error":{"code":"API_INPUT_INVALID","message":"older core"}}'; return 1; fi
+      cat cursor.json ;;
     *'"operation":"digest.checklist.history"'*) cat history.json ;;
     *'"operation":"digest.policy.show"'*) cat policies.json ;;
     *'"operation":"digest.stats.show"'*) cat stats.json ;;
@@ -67,6 +70,7 @@ esac
             "capabilities.json",
             json!({"operations":["digest.receiving.sync"]}),
         );
+        fixture.write("cursor.json", json!({"cursor":1,"usage":0}));
         fixture.write("wake.json", json!({"schemaVersion":1,"state":"nothing_due","identityId":null,"projection":"incoming_summary","nextAtMs":null}));
         fixture.policy(0, false);
         fixture.stats(10, 0);
@@ -1174,8 +1178,8 @@ fn a_persistent_tick_reads_through_one_session_process_and_leaves_no_child() {
     assert_eq!(launched(" api --session"), 1, "{launches}");
     assert_eq!(
         launched("identity ls --json"),
-        3,
-        "the roster is not an API operation"
+        1,
+        "the roster is listed once while the cursor is unchanged"
     );
     let operations = fixture
         .calls()
@@ -1207,4 +1211,127 @@ fn a_persistent_tick_reads_through_one_session_process_and_leaves_no_child() {
             .success(),
         "the session child {pid} must not outlive the tick"
     );
+}
+
+const OTHER: &str = "10000000-0000-4000-8000-000000000002";
+
+fn session_capabilities(fixture: &Fixture) {
+    fixture.write(
+        "capabilities.json",
+        json!({"operations":["digest.receiving.sync"],"session":{"framing":"ndjson"}}),
+    );
+}
+fn launches(fixture: &Fixture, suffix: &str) -> usize {
+    fs::read_to_string(fixture.0.join("launches"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.ends_with(suffix))
+        .count()
+}
+fn operations(fixture: &Fixture, name: &str) -> Vec<Value> {
+    fixture
+        .calls()
+        .iter()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|row| row["operation"] == name)
+        .collect()
+}
+fn persistent_port(fixture: &Fixture) -> TickProcess {
+    TickProcess::new(
+        Core::fixture(fixture.0.join("core")).persistent(),
+        fixture.0.join("digest.toml"),
+        super::super::now_ms().unwrap() + 60_000,
+        Instant::now() + Duration::from_secs(60),
+    )
+}
+
+#[test]
+fn an_unchanged_cursor_lists_the_roster_once_per_tick() {
+    let fixture = Fixture::new();
+    session_capabilities(&fixture);
+    let mut port = persistent_port(&fixture);
+    for _ in 0..3 {
+        assert_eq!(port.observe().unwrap()[0].identity_id, MEMBER);
+    }
+    assert_eq!(launches(&fixture, "identity ls --json"), 1);
+    assert_eq!(operations(&fixture, "changes.cursor").len(), 3);
+}
+
+#[test]
+fn a_moved_cursor_lists_again_and_a_retired_member_leaves_the_requests() {
+    let fixture = Fixture::new();
+    session_capabilities(&fixture);
+    fixture.write(
+        "inventory.json",
+        json!({"identities":[{"id":MEMBER,"name":"worker"},{"id":OTHER,"name":"other"}]}),
+    );
+    let both = |revision: u64| {
+        json!({"policies":[
+            {"identityId":MEMBER,"revision":revision,"active":false,"ownerIdentityId":OWNER,"setterIdentityId":SETTER,"maxHoldMs":null},
+            {"identityId":OTHER,"revision":revision,"active":false,"ownerIdentityId":OWNER,"setterIdentityId":SETTER,"maxHoldMs":null}]})
+    };
+    fixture.write("policies.json", both(0));
+    let now = super::super::now_ms().unwrap();
+    fixture.write(
+        "stats.json",
+        json!({"stats":[
+            {"identityId":MEMBER,"heldCount":0,"oldestHeldAgeMs":null,"observedAtMs":now},
+            {"identityId":OTHER,"heldCount":0,"oldestHeldAgeMs":null,"observedAtMs":now}]}),
+    );
+    let mode = json!({"available":true,"value":{"mode":"batch","intervalMs":20000}});
+    fixture.write(
+        "receiving.json",
+        json!({"revision":1,"projection":{"receivingRevision":1,"members":[
+            {"identityId":MEMBER,"effective":{"receiving":mode}},
+            {"identityId":OTHER,"effective":{"receiving":mode}}]}}),
+    );
+    let mut port = persistent_port(&fixture);
+    assert_eq!(port.observe().unwrap().len(), 2);
+    assert_eq!(port.observe().unwrap().len(), 2);
+    assert_eq!(launches(&fixture, "identity ls --json"), 1);
+    // OTHER is retired: the roster and Core's rows change, and the cursor moves.
+    fixture.write(
+        "inventory.json",
+        json!({"identities":[{"id":MEMBER,"name":"worker"}]}),
+    );
+    fixture.policy(0, false);
+    fixture.stats(0, 0);
+    fixture.receiving(Receiving::Batch {
+        milliseconds: 20_000,
+    });
+    fixture.write("cursor.json", json!({"cursor":2,"usage":0}));
+    let rows = port.observe().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].identity_id, MEMBER);
+    assert_eq!(launches(&fixture, "identity ls --json"), 2);
+    let shown = operations(&fixture, "digest.policy.show");
+    assert_eq!(
+        shown.last().unwrap()["input"]["identities"],
+        json!([MEMBER])
+    );
+    assert_eq!(shown[0]["input"]["identities"], json!([MEMBER, OTHER]));
+}
+
+#[test]
+fn without_a_session_every_observation_lists_and_reads_no_cursor() {
+    let fixture = Fixture::new();
+    let mut port = fixture.port();
+    for _ in 0..3 {
+        port.observe().unwrap();
+    }
+    assert_eq!(launches(&fixture, "identity ls --json"), 3);
+    assert!(operations(&fixture, "changes.cursor").is_empty());
+}
+
+#[test]
+fn an_older_core_without_the_cursor_lists_every_observation_and_asks_once() {
+    let fixture = Fixture::new();
+    session_capabilities(&fixture);
+    fs::write(fixture.0.join("cursor-unsupported"), b"").unwrap();
+    let mut port = persistent_port(&fixture);
+    for _ in 0..3 {
+        port.observe().unwrap();
+    }
+    assert_eq!(launches(&fixture, "identity ls --json"), 3);
+    assert_eq!(operations(&fixture, "changes.cursor").len(), 1);
 }

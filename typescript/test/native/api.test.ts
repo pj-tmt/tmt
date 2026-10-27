@@ -670,6 +670,34 @@ describe('public local extension API', () => {
     });
   });
 
+  it('advances the change cursor for every change to the identity roster and never for listing it', async () => {
+    await withSandbox(async (sandbox) => {
+      const cursor = async () => (await api(sandbox, 'changes.cursor', {})).body.cursor as number;
+      const roster = async () => {
+        const listed = await runCli(sandbox, ['identity', 'ls', '--json']);
+        expect(listed.status).toBe(0);
+        return (JSON.parse(listed.stdout).identities as { name: string }[]).map((row) => row.name);
+      };
+      const start = await cursor();
+      const ada = await identity(sandbox, 'Ada');
+      const created = await cursor();
+      expect(created).not.toBe(start);
+      expect(await roster()).toEqual(['Ada']);
+      expect((await runCli(sandbox, ['identity', 'show', 'Ada', '--json'])).status).toBe(0);
+      expect(await cursor()).toBe(created);
+      expect((await runCli(sandbox, ['identity', 'mv', 'Ada', 'Grace', '--json'])).status).toBe(0);
+      const renamed = await cursor();
+      expect(renamed).not.toBe(created);
+      expect(await roster()).toEqual(['Grace']);
+      expect((await runCli(sandbox, ['rm', 'Grace', '--force', '--json'])).status).toBe(0);
+      const retired = await cursor();
+      expect(retired).not.toBe(renamed);
+      expect(await roster()).toEqual([]);
+      expect(await cursor()).toBe(retired);
+      expect(ada).toMatch(/^[0-9a-f-]{36}$/);
+    });
+  });
+
   it('records who made a request: a person by default, automation only when an extension declares it', async () => {
     await withSandbox(async (sandbox) => {
       const sender = await identity(sandbox, 'Sender');

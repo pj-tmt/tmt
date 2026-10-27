@@ -27,6 +27,9 @@ pub struct TickProcess {
     receiving_revision: Option<u64>,
     receiving_supported: Option<bool>,
     wake_supported: bool,
+    /// The member UUIDs with the `changes.cursor` they were listed at; see [`TickProcess::roster`].
+    roster: Option<(u64, Vec<String>)>,
+    cursor_supported: Option<bool>,
     failed: BTreeSet<String>,
     /// The newest recorded `(rule, outcome, oldest held arrival)` per member, so
     /// the once-a-second loop records a change of decision and not each repeat.
@@ -48,6 +51,8 @@ impl TickProcess {
             receiving_revision: None,
             receiving_supported: None,
             wake_supported: false,
+            roster: None,
+            cursor_supported: None,
             failed: BTreeSet::new(),
             decided: BTreeMap::new(),
             offered: BTreeMap::new(),
@@ -55,6 +60,51 @@ impl TickProcess {
             boundary_ms,
             boundary,
         }
+    }
+    /// The sorted member UUIDs. In a session the roster is listed again only when the durable
+    /// `changes.cursor` has moved: identity create, rename and retire advance it, and the listing
+    /// reads nothing else. The cursor is read first, so a write between the two reads costs one
+    /// extra listing and never serves a stale roster. Nothing outlives this tick, and without a
+    /// session (a read would cost the launch the listing does) or without the operation (an older
+    /// Core) every observation lists, as before.
+    fn roster(&mut self) -> Result<Vec<String>, Error> {
+        let mut cursor = None;
+        if self.cursor_supported != Some(false) && self.core.in_session() {
+            match self.core.api("changes.cursor", json!({})) {
+                Ok(document) => {
+                    cursor = document["cursor"].as_u64();
+                    self.cursor_supported = Some(cursor.is_some());
+                }
+                Err(error) if error.code == "API_INPUT_INVALID" => {
+                    self.cursor_supported = Some(false)
+                }
+                Err(_) => {}
+            }
+        }
+        if let (Some(cursor), Some((listed, ids))) = (cursor, &self.roster)
+            && cursor == *listed
+        {
+            return Ok(ids.clone());
+        }
+        let inventory = self.core.json(&["identity", "ls"])?;
+        let mut ids = inventory["identities"]
+            .as_array()
+            .ok_or_else(invalid)?
+            .iter()
+            .map(|row| {
+                row["id"]
+                    .as_str()
+                    .filter(|id| canonical_uuid(id))
+                    .map(str::to_owned)
+                    .ok_or_else(invalid)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        ids.sort();
+        if ids.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(invalid());
+        }
+        self.roster = cursor.map(|cursor| (cursor, ids.clone()));
+        Ok(ids)
     }
     fn within_minute(&self) -> Result<bool, Error> {
         Ok(Instant::now() < self.boundary && super::now_ms()? < self.boundary_ms)
@@ -421,23 +471,7 @@ impl TickPort for TickProcess {
         if !self.within_minute()? {
             return Ok(vec![]);
         }
-        let inventory = self.core.json(&["identity", "ls"])?;
-        let mut ids = inventory["identities"]
-            .as_array()
-            .ok_or_else(invalid)?
-            .iter()
-            .map(|row| {
-                row["id"]
-                    .as_str()
-                    .filter(|id| canonical_uuid(id))
-                    .map(str::to_owned)
-                    .ok_or_else(invalid)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        ids.sort();
-        if ids.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(invalid());
-        }
+        let ids = self.roster()?;
         for id in &ids {
             if !self.within_minute()? {
                 break;
