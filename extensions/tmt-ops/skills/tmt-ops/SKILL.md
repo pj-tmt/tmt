@@ -558,16 +558,18 @@ recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
 
-A squad member's header shows its Checklist chip, `Checklist · 3 links · 2 todo · 1 done`
+A squad member's header shows its Checklist chip, `Checklist · 2 todo`
 (`Checklist · empty` for an empty list), led by its key as a keycap like the tab labels
-(` C  Checklist · …`; no keycap when the key is unbound). `C` or a click on the chip opens the list: links
-first, then items without links, each row with who added it and how long ago (`you`, the member's
-name, or nothing for an item stored before the board recorded it). `↑↓`/`jk` choose,
+(` C  Checklist · …`; no keycap when the key is unbound). `C` or a click on the chip opens the list: one list in stored order under a
+`STATUS LINK TITLE` header, links and todos mixed (`↗ link` blue, `○ todo` amber; a GitHub issue or pull
+reads `owner/repo#N`, any other address `host/…/last-segment`, a todo `—`). Only the cursor row shows who
+added the item and how long ago (`you`, the member's name, or nothing for an item stored before the
+board recorded it). `↑↓`/`jk` choose,
 Enter opens a link or ticks a todo (global `board.checklist_enter`, `open` by default: `tick` makes
 Enter tick a link row too; edit **checklist enter** in Ops Config or run
 `tmt ops sq config set board.checklist_enter tick`), Space always ticks and `o` always opens the link, `a` adds (a web address becomes a link; `Tab` moves
 between Title and Link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
-moves an item among its group and Esc closes the list, keeping a form you have not sent.
+moves an item one place in the list and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
 A retired member's list reads but takes no writes.
 Changes by someone other than the Core user appear in the conversation as muted Checklist

@@ -165,7 +165,8 @@ fn a_refused_completion_keeps_the_open_row_and_does_not_claim_completed() {
         },
     );
     let screen = paint(&app);
-    assert!(screen.contains("○ item 1"), "{screen}");
+    assert!(screen.contains("○ todo"), "{screen}");
+    assert!(screen.contains("item 1"), "{screen}");
     assert!(screen.contains("The member is unavailable."), "{screen}");
     assert!(!screen.contains("✓ Completed"), "{screen}");
 }
@@ -181,6 +182,42 @@ fn moving_open_rows_keeps_completed_and_archived_ids_in_the_full_order() {
         panic!("reorder")
     };
     assert_eq!(order, [id(4), id(2), id(3), id(1)]);
+}
+
+#[test]
+fn shift_down_swaps_a_link_with_the_todo_below_it_in_the_one_list() {
+    let (mut app, _) = opened(vec![link(1), todo(2)]);
+    paint(&app);
+    let (_, write) = write_of(press_with(&mut app, KeyCode::Down, KeyModifiers::SHIFT));
+    let Write::Reorder { order, .. } = write else {
+        panic!("reorder")
+    };
+    assert_eq!(order, [id(2), id(1)]);
+}
+
+#[test]
+fn the_byline_is_on_the_cursor_row_only_and_follows_the_cursor() {
+    let stamped = |mut item: ItemView| {
+        item.item.added = Some(Stamp {
+            by: Id::parse(super::ACTOR).unwrap(),
+            at_ms: crate::status::now_ms(),
+        });
+        item
+    };
+    let (mut app, _) = opened(vec![stamped(todo(1)), stamped(todo(2))]);
+    let count = |screen: &str| screen.matches("you · ").count();
+    let first = paint(&app);
+    assert_eq!(count(&first), 1, "{first}");
+    press(&mut app, KeyCode::Down);
+    assert_eq!(count(&paint(&app)), 1);
+}
+
+#[test]
+fn an_empty_list_has_no_header_row() {
+    let (app, _) = opened(vec![]);
+    let screen = paint(&app);
+    assert!(!screen.contains("STATUS"), "{screen}");
+    assert!(screen.contains("No items yet"), "{screen}");
 }
 
 #[test]
@@ -318,14 +355,26 @@ fn clicking_the_chip_opens_the_list_for_the_selected_member() {
 }
 
 #[test]
-fn the_list_shows_links_then_todos_with_who_and_when_and_esc_closes_it() {
+fn the_list_is_one_mixed_list_under_a_status_link_title_header_and_esc_closes_it() {
     let (mut app, _) = opened(vec![todo(1), link(2), done(3)]);
     let screen = paint(&app);
     assert!(screen.contains("Checklist · worker · 2 items"), "{screen}");
-    let (links, todos) = (screen.find("Links · 1"), screen.find("Todo · 1"));
-    assert!(links.is_some() && todos > links, "{screen}");
-    assert!(screen.contains("↗ item 2"), "{screen}");
-    assert!(screen.contains("○ item 1"), "{screen}");
+    assert!(screen.contains("STATUS LINK"), "{screen}");
+    assert!(screen.contains("TITLE"), "{screen}");
+    assert!(
+        !screen.contains("Links ·") && !screen.contains("Todo ·"),
+        "{screen}"
+    );
+    let (todo_at, link_at) = (screen.find("○ todo"), screen.find("↗ link"));
+    assert!(
+        todo_at.is_some() && link_at > todo_at,
+        "stored order, not links first: {screen}"
+    );
+    assert!(screen.contains("example.com/a"), "{screen}");
+    assert!(
+        screen.contains("—"),
+        "a todo has a dash for its link: {screen}"
+    );
     assert!(!screen.contains("item 3"), "{screen}");
     press(&mut app, KeyCode::Esc);
     assert!(app.notes_overlay.is_none());
@@ -333,7 +382,7 @@ fn the_list_shows_links_then_todos_with_who_and_when_and_esc_closes_it() {
 
 #[test]
 fn enter_opens_a_link_and_ticks_a_todo_at_the_revision_it_was_read_at() {
-    let (mut app, key) = opened(vec![todo(1), link(2)]);
+    let (mut app, key) = opened(vec![link(2), todo(1)]);
     // The cursor starts on the first item, a link.
     let effect = press(&mut app, KeyCode::Enter);
     assert!(
@@ -534,21 +583,21 @@ fn d_asks_before_deleting_and_esc_keeps_the_item() {
 }
 
 #[test]
-fn shift_arrows_move_an_item_among_its_own_group_in_the_full_order() {
+fn shift_arrows_swap_an_item_with_its_neighbour_in_the_one_list() {
     let (mut app, _) = opened(vec![todo(1), link(2), todo(3), link(4)]);
-    // The cursor is on the first link (item 2); moving it down passes the other link only.
+    // The cursor is on the first row (item 1); moving it down passes the link below it.
     let (_, write) = write_of(press_with(&mut app, KeyCode::Down, KeyModifiers::SHIFT));
     assert_eq!(
         write,
         Write::Reorder {
             inventory: 1,
-            order: vec![id(1), id(4), id(3), id(2)]
+            order: vec![id(2), id(1), id(3), id(4)]
         }
     );
 }
 
 #[test]
-fn the_first_of_a_group_does_not_move_up_and_a_second_write_waits_for_the_first() {
+fn the_first_row_does_not_move_up_and_a_second_write_waits_for_the_first() {
     let (mut app, key) = opened(vec![todo(1), todo(2)]);
     assert_eq!(
         press_with(&mut app, KeyCode::Up, KeyModifiers::SHIFT),

@@ -141,12 +141,12 @@ fn who_added_an_item_is_you_a_roster_name_a_short_id_or_nobody() {
         ]),
         NOW,
     );
-    let metas: Vec<_> = rows.iter().map(|row| row.meta(usize::MAX)).collect();
-    assert_eq!(metas, ["you · 3m", "alice · 2h", "77777777 · 1d", ""]);
+    let bylines: Vec<_> = rows.iter().map(|row| row.byline.as_str()).collect();
+    assert_eq!(bylines, ["you · 3m", "alice · 2h", "77777777 · 1d", ""]);
 }
 
 #[test]
-fn a_link_shows_its_host_and_completed_items_have_no_display_rows() {
+fn a_link_row_shows_its_short_form_and_completed_items_have_no_display_rows() {
     let rows = rows(
         &preview(vec![
             item(
@@ -171,7 +171,8 @@ fn a_link_shows_its_host_and_completed_items_have_no_display_rows() {
         rows.iter().map(|row| row.kind).collect::<Vec<_>>(),
         [Kind::Link]
     );
-    assert_eq!(rows[0].meta(usize::MAX), "example.org  alice · 1h");
+    assert_eq!(rows[0].link, "example.org/…/4554");
+    assert_eq!(rows[0].byline, "alice · 1h");
 }
 
 #[test]
@@ -182,17 +183,75 @@ fn archived_items_are_not_listed() {
 }
 
 #[test]
-fn a_host_stops_at_the_path_and_a_bare_reference_is_its_own_host() {
-    assert_eq!(host("https://example.com/a/b"), "example.com");
-    assert_eq!(host("http://example.com?q=1"), "example.com");
-    assert_eq!(host("example.com/x"), "example.com");
-    assert_eq!(host("mailto:a@b.c"), "mailto:a@b.c");
+fn a_github_issue_or_pull_reads_owner_repo_number() {
+    for (reference, shown) in [
+        (
+            "https://github.com/tmt-ninja/tmt/issues/4520",
+            "tmt-ninja/tmt#4520",
+        ),
+        (
+            "https://github.com/tmt-ninja/tmt/pull/4520/files?diff=split",
+            "tmt-ninja/tmt#4520",
+        ),
+        ("http://GitHub.com/a/b/pull/7#issuecomment-1", "a/b#7"),
+    ] {
+        assert_eq!(link(reference), shown, "{reference}");
+    }
 }
 
 #[test]
-fn every_row_mark_is_a_registered_board_mark() {
+fn any_other_address_reads_host_then_its_last_segment() {
+    for (reference, shown) in [
+        (
+            "https://github.com/tmt-ninja/tmt/actions/runs/39890481652",
+            "github.com/…/39890481652",
+        ),
+        (
+            "https://colab.tmt.ninja/p/abc/checklist",
+            "colab.tmt.ninja/…/checklist",
+        ),
+        ("https://example.com/a/b/", "example.com/…/b"),
+        ("https://example.com/only", "example.com/only"),
+        ("http://example.com?q=1", "example.com"),
+        ("example.com/x", "example.com/x"),
+        ("mailto:a@b.c", "mailto:a@b.c"),
+        (
+            "https://github.com/tmt-ninja/tmt/issues/new",
+            "github.com/…/new",
+        ),
+        (
+            "https://github.com/tmt-ninja/tmt/pull/",
+            "github.com/…/pull",
+        ),
+    ] {
+        assert_eq!(link(reference), shown, "{reference}");
+    }
+}
+
+#[test]
+fn a_todo_has_a_dash_for_its_link_and_every_status_names_its_state() {
+    let rows = rows(
+        &preview(vec![
+            item(1, None, Completion::Open, None, None),
+            item(
+                2,
+                Some("https://example.org/x"),
+                Completion::Open,
+                None,
+                None,
+            ),
+        ]),
+        NOW,
+    );
+    assert_eq!(rows[0].link, "—");
+    assert_eq!(rows[0].kind.status(), "○ todo");
+    assert_eq!(rows[1].kind.status(), "↗ link");
+}
+
+#[test]
+fn every_status_mark_is_a_registered_board_mark() {
     for kind in [Kind::Link, Kind::Todo] {
-        let row = format!("{} title", kind.mark());
+        let row = format!("{} title", kind.status());
         assert_eq!(
             crate::board::glyph_guard::glyph_error(&row),
             None,

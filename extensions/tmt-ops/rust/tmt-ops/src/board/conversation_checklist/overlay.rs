@@ -3,7 +3,7 @@
 use super::{
     Draft, Key, State, Write, Written,
     draft::{Aim, MAX_BYTES, NoteKind, Seed},
-    rows::{Kind, Row, rows},
+    rows::{Row, rows},
 };
 use crate::{
     board::{
@@ -89,37 +89,23 @@ impl Controller {
         self.ui.borrow_mut().invalidate();
     }
 
-    /// The items as the overlay lists them: open links first, then other open todos.
+    /// The open items as the overlay lists them: one list, in the order they are stored.
     pub(super) fn items(&self, notes: &State) -> Vec<Row> {
-        let mut items = notes
+        notes
             .preview(&self.key)
             .map(|preview| rows(preview, crate::status::now_ms()))
-            .unwrap_or_default();
-        items.sort_by_key(|row| row.kind != Kind::Link);
-        items
+            .unwrap_or_default()
     }
 
-    /// Headings are rows the cursor skips; an item's row is its own UUID.
+    /// An item's row is its own UUID.
     pub(super) fn list_rows(items: &[Row]) -> Vec<ListRow> {
-        let mut list = Vec::new();
-        for (heading, links) in [("group:links", true), ("group:todo", false)] {
-            let members: Vec<_> = items
-                .iter()
-                .filter(|row| (row.kind == Kind::Link) == links)
-                .collect();
-            if members.is_empty() {
-                continue;
-            }
-            list.push(ListRow {
-                id: heading.into(),
-                disabled: true,
-            });
-            list.extend(members.into_iter().map(|row| ListRow {
+        items
+            .iter()
+            .map(|row| ListRow {
                 id: row.id.as_str().into(),
                 disabled: false,
-            }));
-        }
-        list
+            })
+            .collect()
     }
 
     fn selected(&self, items: &[Row]) -> Option<Row> {
@@ -284,8 +270,8 @@ impl Controller {
         self.write(&mut app.notes, write)
     }
 
-    /// Moves the item one place among the items of its own group, which swaps it with that
-    /// neighbour in the list's full order.
+    /// Moves the item one place in the list, which swaps it with that neighbour in the stored
+    /// order.
     fn reorder(&mut self, app: &mut App, items: &[Row], down: bool) -> Effect {
         let (Some(row), Some(inventory), Some(preview)) = (
             self.selected(items),
@@ -294,16 +280,12 @@ impl Controller {
         ) else {
             return Effect::None;
         };
-        let group: Vec<_> = items
-            .iter()
-            .filter(|other| (other.kind == Kind::Link) == (row.kind == Kind::Link))
-            .collect();
-        let at = group.iter().position(|other| other.id == row.id);
+        let at = items.iter().position(|other| other.id == row.id);
         let neighbour = at.and_then(|at| {
             if down {
-                group.get(at + 1)
+                items.get(at + 1)
             } else {
-                at.checked_sub(1).and_then(|before| group.get(before))
+                at.checked_sub(1).and_then(|before| items.get(before))
             }
         });
         let Some(neighbour) = neighbour else {

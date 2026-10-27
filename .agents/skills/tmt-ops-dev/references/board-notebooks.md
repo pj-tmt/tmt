@@ -362,7 +362,13 @@ collapse or viewport. Unknown and partial totals retain their existing presentat
 [Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
 
 The conversation entry is `C  Checklist · …` (the key as a keycap, none when unbound); its modal is `Checklist · <member>`
-(with the item count), and a source form is `Add to checklist · <member>`. Captions
+(with the item count), and a source form is `Add to checklist · <member>`.
+The list is one list in stored order (`rows.rs`, no kind grouping) under a muted
+`STATUS LINK TITLE` header: STATUS is the mark and its word (`↗ link` in the `link` role, `○ todo` in
+`waiting`), LINK is `link()` (GitHub issue/PR `owner/repo#N`, else `host/…/last-segment`, `—` for a
+todo) and TITLE takes the rest. Only the cursor row paints its byline, in a column sized to the widest
+byline; the title keeps 24 cells and the link gives way first. Shift+↑↓ swaps with the neighbouring
+row of the same list. Captions
 resolve held preview/roster data by the frozen room/member UUID, falling back to
 `member <short UUID>` when no name is held. Rendering never reads Core or borrows
 another selected member's name. Both form variants label the first field Title.

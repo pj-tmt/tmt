@@ -17,22 +17,40 @@ use serde_json::json;
 use unicode_width::UnicodeWidthStr;
 
 const FILE: &str = "ops.conversation-checklist.xml";
-/// The widest the right-hand `host  who · age` column grows before the title gives way.
-const META_MAX: usize = 36;
-/// A host is cut to this many cells so that it never crowds the title.
-const HOST_CELLS: usize = 16;
-/// The title keeps at least this many cells; below it the host is dropped, the byline stays.
+/// The widest the LINK column grows before the title gives way.
+const LINK_MAX: usize = 28;
+/// The widest the right-hand `who · age` column grows; it is painted on the cursor row only.
+const META_MAX: usize = 24;
+/// The title keeps at least this many cells; the link gives way first, then the byline.
 const TITLE_MIN: usize = 24;
-/// The modal's width (`w-100`) and what its border, padding, cursor, mark and gaps take.
+/// The STATUS column: a mark, a space and the word (`↗ link`, `○ todo`).
+const STATUS_CELLS: usize = 6;
+/// The modal's width (`w-100`) and what its border, padding, cursor, status and gaps take.
 const MODAL_CELLS: u16 = 100;
-const CHROME_CELLS: usize = 4 + 1 + 1 + 3;
+const CHROME_CELLS: usize = 4 + 1 + STATUS_CELLS + 4;
 
-fn markup(title: &str, meta: usize, form_only: bool) -> String {
+/// The column widths of the list: the link and the byline, as admitted by the room left.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Columns {
+    link: usize,
+    meta: usize,
+}
+
+fn markup(title: &str, columns: Columns, header: bool, form_only: bool) -> String {
+    let Columns { link, meta } = columns;
+    let grid = format!("grid grid-cols-[1_{STATUS_CELLS}_{link}_1fr_{meta}] gap-x-1 shrink-0");
     let choices = if form_only {
         String::new()
     } else {
+        let header = if header {
+            format!(
+                r#"<tmt-row class="{grid}"><tmt-text/><tmt-text token="muted">STATUS</tmt-text><tmt-text token="muted">LINK</tmt-text><tmt-text token="muted">TITLE</tmt-text><tmt-text/></tmt-row>"#
+            )
+        } else {
+            String::new()
+        };
         format!(
-            r#"<tmt-list id="choices" bind="$.rows" empty="No items yet · a adds one"><tmt-row class="grid grid-cols-[1_1_1fr_{meta}] gap-x-1 shrink-0"><tmt-text bind="row.cursor"/><tmt-text bind="row.mark" token-bind="row.role"/><tmt-text bind="row.title" token-bind="row.role" class="truncate"/><tmt-text bind="row.meta" token="dim" class="truncate"/></tmt-row></tmt-list>"#
+            r#"{header}<tmt-list id="choices" bind="$.rows" empty="No items yet · a adds one"><tmt-row class="{grid}"><tmt-text bind="row.cursor"/><tmt-text bind="row.status" token-bind="row.role"/><tmt-text bind="row.link" token-bind="row.link_role" class="truncate"/><tmt-text bind="row.title" token="text" class="truncate"/><tmt-text bind="row.meta" token="dim" class="truncate"/></tmt-row></tmt-list>"#
         )
     };
     format!(
@@ -42,7 +60,15 @@ fn markup(title: &str, meta: usize, form_only: bool) -> String {
 
 fn schema() -> tmt_tui::binding::Schema {
     use tmt_tui::binding::Schema;
-    let mut schema = picker_surface::schema(&["cursor", "mark", "title", "meta", "role"]);
+    let mut schema = picker_surface::schema(&[
+        "cursor",
+        "status",
+        "link",
+        "link_role",
+        "title",
+        "meta",
+        "role",
+    ]);
     if let Schema::Object(fields) = &mut schema
         && let Some(Schema::Collection(notes)) = fields.get_mut("notes")
         && let Schema::Object(fields) = notes.as_mut()
@@ -110,22 +136,21 @@ impl Controller {
             format!("Checklist · {}", safe(&member))
         };
         let room = usize::from(body.width.min(MODAL_CELLS)).saturating_sub(CHROME_CELLS);
-        let widest = |host_cells| {
-            items
-                .iter()
-                .map(|row| row.meta(host_cells).width())
-                .max()
-                .unwrap_or(0)
-                .min(META_MAX)
+        let widest = |cell: fn(&Row) -> usize, most: usize| {
+            items.iter().map(cell).max().unwrap_or(0).min(most)
         };
-        // The title has priority: a host that would leave it too little gives way entirely.
-        let host_cells = if room.saturating_sub(widest(HOST_CELLS)) < TITLE_MIN {
-            0
-        } else {
-            HOST_CELLS
+        // The title has priority: the link gives way first, then the byline.
+        let spare = room.saturating_sub(TITLE_MIN);
+        let link = widest(|row| row.link.width(), LINK_MAX)
+            .max("LINK".len())
+            .min(spare.max(1));
+        let meta = widest(|row| row.byline.width(), META_MAX).min(spare.saturating_sub(link));
+        let columns = Columns {
+            link,
+            meta: meta.max(1),
         };
-        let meta = widest(host_cells).min(room.saturating_sub(TITLE_MIN).max(1));
-        let key = format!("{title}/{meta}/{form_only}");
+        let header = !items.is_empty();
+        let key = format!("{title}/{link}/{meta}/{header}/{form_only}");
         let mut cached = self.template.borrow_mut();
         if cached.as_ref().is_none_or(|(old, _)| old != &key) {
             let escaped = tmt_cli_style::table::escape(&title)
@@ -134,7 +159,11 @@ impl Controller {
                 .replace('"', "&quot;");
             *cached = Some((
                 key,
-                picker_surface::compile(FILE, &markup(&escaped, meta.max(1), form_only), schema()),
+                picker_surface::compile(
+                    FILE,
+                    &markup(&escaped, columns, header, form_only),
+                    schema(),
+                ),
             ));
             self.ui.borrow_mut().template_changed();
         }
@@ -154,31 +183,22 @@ impl Controller {
         }
         let selected = ui.picker.list.selected().map(str::to_owned);
         let deleting = self.deleting();
-        let mut rows = Vec::new();
-        for (heading, label, links) in [
-            ("group:links", "Links", true),
-            ("group:todo", "Todo", false),
-        ] {
-            let members: Vec<&Row> = items
-                .iter()
-                .filter(|row| (row.kind == Kind::Link) == links)
-                .collect();
-            if members.is_empty() {
-                continue;
-            }
-            rows.push(json!({
-                "id": heading, "disabled": true, "cursor": "", "mark": "",
-                "title": format!("{label} · {}", members.len()), "meta": "", "role": "dim",
-            }));
-            rows.extend(members.into_iter().map(|row| {
+        let rows: Vec<_> = items
+            .iter()
+            .map(|row| {
+                let cursor = selected.as_deref() == Some(row.id.as_str());
                 json!({
                     "id": row.id.as_str(), "disabled": false,
-                    "cursor": if selected.as_deref() == Some(row.id.as_str()) { "›" } else { "" },
-                    "mark": row.kind.mark(), "title": safe(&row.title),
-                    "meta": safe(&row.meta(host_cells)), "role": "text",
+                    "cursor": if cursor { "›" } else { "" },
+                    "status": row.kind.status(),
+                    "role": if row.kind == Kind::Link { "link" } else { "waiting" },
+                    "link": safe(&row.link),
+                    "link_role": if row.kind == Kind::Link { "link" } else { "dim" },
+                    "title": safe(&row.title),
+                    "meta": if cursor { safe(&row.byline) } else { String::new() },
                 })
-            }));
-        }
+            })
+            .collect();
         let mut form: Vec<_> = draft
             .map(|draft| {
                 [("Title", 0), ("Link", 1)]
