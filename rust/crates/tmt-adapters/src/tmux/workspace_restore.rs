@@ -51,6 +51,18 @@ struct Fence {
     native_start: u64,
 }
 
+enum Guarded {
+    Ran(String),
+    Refused,
+}
+
+/// What became of a session's placeholder shell once every window was in place.
+enum Removal {
+    Removed,
+    /// Left in place, with what no longer held. The session is complete without it.
+    Kept(String),
+}
+
 struct Created {
     session: String,
     window: String,
@@ -246,6 +258,7 @@ impl<R: CommandRunner> Tmux<R> {
                 native: None,
                 restored_as: None,
                 retained_bootstrap: None,
+                retained_reason: None,
             };
             let marker = restored_marker(snapshot, planned.session);
             let merged = matches!(planned.action, WorkspaceLayoutSessionAction::Merge { .. });
@@ -305,6 +318,7 @@ impl<R: CommandRunner> Tmux<R> {
                         native: None,
                         restored_as: None,
                         retained_bootstrap: None,
+                        retained_reason: None,
                     });
                 }
                 break;
@@ -380,6 +394,20 @@ impl<R: CommandRunner> Restore<'_, R> {
         extra: &[String],
         args: Vec<String>,
     ) -> Result<String, TmuxError> {
+        match self.guarded(target, extra, args)? {
+            Guarded::Ran(output) => Ok(output),
+            Guarded::Refused => Err(state_changed(target)),
+        }
+    }
+
+    /// [`Restore::guard`] that tells a refusal (the server is the one this restore fenced,
+    /// but a condition on the target no longer holds) from a failure to ask at all.
+    fn guarded(
+        &self,
+        target: Option<&str>,
+        extra: &[String],
+        args: Vec<String>,
+    ) -> Result<Guarded, TmuxError> {
         let fence = self.fence.as_ref().ok_or_else(server_changed)?;
         if self.live(fence.server.pid())? != fence.server {
             return Err(server_changed());
@@ -404,9 +432,9 @@ impl<R: CommandRunner> Restore<'_, R> {
         ]);
         let output = self.run(guarded)?;
         if output.lines().any(|line| line == REFUSED) {
-            return Err(state_changed(target));
+            return Ok(Guarded::Refused);
         }
-        Ok(output)
+        Ok(Guarded::Ran(output))
     }
 
     fn created(&mut self, output: &str) -> Result<Created, TmuxError> {
@@ -589,8 +617,12 @@ impl<R: CommandRunner> Restore<'_, R> {
         }
         if seed.is_none() {
             // Every required link succeeded before this exceptional removal is considered.
-            self.remove_bootstrap(&created)?;
-            record.retained_bootstrap = None;
+            // A placeholder tmt cannot prove its own is never killed, and it does not make
+            // the session part restored: every saved window is in it.
+            match self.remove_bootstrap(&created)? {
+                Removal::Removed => record.retained_bootstrap = None,
+                Removal::Kept(why) => record.retained_reason = Some(why),
+            }
         }
         let active = links
             .iter()
@@ -960,11 +992,15 @@ impl<R: CommandRunner> Restore<'_, R> {
         });
     }
 
-    fn remove_bootstrap(&self, created: &Created) -> Result<(), TmuxError> {
+    /// Kills the placeholder shell only when every proof of it still holds. Anything else
+    /// leaves it in place and says what changed; only a lost server or a failure to ask is
+    /// an error.
+    fn remove_bootstrap(&self, created: &Created) -> Result<Removal, TmuxError> {
+        let kept = |why: &str| Ok(Removal::Kept(why.to_owned()));
         if self.live(created.process.pid())? != created.process {
-            return Err(bootstrap_changed());
+            return kept("its shell is no longer the one tmt started");
         }
-        let output = self.guard(
+        let output = match self.guarded(
             Some(&created.pane),
             &[],
             vec![
@@ -980,7 +1016,10 @@ impl<R: CommandRunner> Restore<'_, R> {
                 ]
                 .join(SEP),
             ],
-        )?;
+        )? {
+            Guarded::Ran(output) => output,
+            Guarded::Refused => return kept("tmux no longer matches the placeholder"),
+        };
         let fields: Vec<_> = output.trim_end_matches('\n').split(SEP).collect();
         // The shell's own name is no evidence: /bin/sh is dash on one system and bash on
         // another. Its pid and start, the start command, the terminal and the ids are.
@@ -991,35 +1030,99 @@ impl<R: CommandRunner> Restore<'_, R> {
             || !crate::process::terminal::foreground(fields[2], created.process.pid())
             || self.live(created.process.pid())? != created.process
         {
-            return Err(bootstrap_changed());
+            return kept("its shell, command or terminal changed");
         }
+        self.kill_bootstrap(created)
+    }
+
+    /// The last step: kills the placeholder pane under every condition that proves it, or
+    /// names the ones that no longer hold.
+    fn kill_bootstrap(&self, created: &Created) -> Result<Removal, TmuxError> {
+        let kept = |why: &str| Ok(Removal::Kept(why.to_owned()));
         let checks = bootstrap_checks(created);
-        self.guard(
+        let conditions: Vec<String> = checks.iter().map(|(_, test)| test.clone()).collect();
+        match self.guarded(
             Some(&created.pane),
-            &checks,
+            &conditions,
             vec!["kill-pane".into(), "-t".into(), created.pane.clone()],
-        )?;
-        Ok(())
+        )? {
+            Guarded::Ran(_) => Ok(Removal::Removed),
+            Guarded::Refused => {
+                // Name what no longer holds, with read-only questions. A pane that is gone
+                // by now needs no removal.
+                let mut failed = Vec::new();
+                for (label, test) in &checks {
+                    let answer = match self.run(vec![
+                        "display-message".into(),
+                        "-p".into(),
+                        "-t".into(),
+                        created.pane.clone(),
+                        test.clone(),
+                    ]) {
+                        Ok(answer) => answer,
+                        Err(_) => return Ok(Removal::Removed),
+                    };
+                    if answer.trim() != "1" {
+                        failed.push(*label);
+                    }
+                }
+                if failed.is_empty() {
+                    kept("tmux changed it while it was checked")
+                } else {
+                    kept(&failed.join(", "))
+                }
+            }
+        }
     }
 }
 
 /// What must still hold of the placeholder shell before its pane is killed.
-fn bootstrap_checks(created: &Created) -> Vec<String> {
+fn bootstrap_checks(created: &Created) -> Vec<(&'static str, String)> {
     vec![
-        format!("#{{==:#{{pane_id}},{}}}", created.pane),
-        format!("#{{==:#{{pane_pid}},{}}}", created.process.pid()),
-        format!("#{{==:#{{session_id}},{}}}", created.session),
-        format!("#{{==:#{{window_id}},{}}}", created.window),
-        format!(
-            "#{{==:#{{pane_start_command}},{}}}",
-            BOOTSTRAP_COMMAND.join(" ")
+        (
+            "its pane id changed",
+            format!("#{{==:#{{pane_id}},{}}}", created.pane),
         ),
-        "#{==:#{window_panes},1}".into(),
-        "#{==:#{window_linked_sessions},1}".into(),
-        "#{>=:#{session_windows},2}".into(),
-        "#{==:#{session_attached},0}".into(),
-        "#{==:#{@tmt.agent},}".into(),
-        "#{==:#{@tmt.workspace-command},}".into(),
+        (
+            "its shell changed",
+            format!("#{{==:#{{pane_pid}},{}}}", created.process.pid()),
+        ),
+        (
+            "its session changed",
+            format!("#{{==:#{{session_id}},{}}}", created.session),
+        ),
+        (
+            "its window changed",
+            format!("#{{==:#{{window_id}},{}}}", created.window),
+        ),
+        (
+            "its command changed",
+            format!(
+                "#{{==:#{{pane_start_command}},{}}}",
+                BOOTSTRAP_COMMAND.join(" ")
+            ),
+        ),
+        (
+            "its window has more than one pane",
+            "#{==:#{window_panes},1}".into(),
+        ),
+        (
+            "its window is linked into another session",
+            "#{==:#{window_linked_sessions},1}".into(),
+        ),
+        (
+            "its session has no other window",
+            "#{>=:#{session_windows},2}".into(),
+        ),
+        (
+            "a client is attached to its session",
+            "#{==:#{session_attached},0}".into(),
+        ),
+        ("it was given an agent", "#{==:#{@tmt.agent},}".into()),
+        (
+            "it was given a workspace command",
+            "#{==:#{@tmt.workspace-command},}".into(),
+        ),
     ]
 }
 
@@ -1066,11 +1169,6 @@ fn unexpected(what: &str) -> TmuxError {
 fn pane_changed() -> TmuxError {
     TmuxError::evidence(
         "The restored pane changed or its shell is no longer idle, so no agent was started in it. Start the agent there yourself, or restore again",
-    )
-}
-fn bootstrap_changed() -> TmuxError {
-    TmuxError::evidence(
-        "The placeholder shell tmt opened to hold a restored session changed before it was removed, so it was left in place. Close that pane yourself",
     )
 }
 /// What a failed session leaves behind, and how to clear it before restoring again.

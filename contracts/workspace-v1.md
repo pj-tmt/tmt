@@ -218,7 +218,11 @@ panes preserve the user's shell; full restore uses ordinary resume or generic
 external dispatch only in invocation-created panes. Missing, renamed, stale or
 sessionless identities need the user. Snapshot names never resurrect another
 UUID or complete an exchange. Partial effects are retained and reported; a
-partial restore cannot accept a smaller protected baseline.
+partial restore cannot accept a smaller protected baseline. A pane is revived when its
+window is in a session restored whole, even if another session failed; a pane whose
+sessions all failed or were not attempted is skipped naming the session. A placeholder
+shell tmt cannot prove its own is kept with `retainedBootstrap` and `retainedReason` in
+a session that is otherwise whole, which is not a partial restore.
 
 The implementation and verification owners are described in the
 [workspace runtime reference](../.agents/skills/tmt-core-runtime/references/workspace.md).

@@ -192,7 +192,12 @@ be removed only after all required links succeed and fresh native PID/start, pan
 ordinary-shell and foreground evidence agree.
 A server-side guard also requires the same server/pane/PID, an unattached session,
 one unshared bootstrap pane, another linked window and no TMT runtime markers.
-Failed linking or uncertain verification retains and reports the bootstrap.
+Failed linking retains and reports the bootstrap and leaves the session part restored.
+A refused or unprovable removal after every link succeeded (a client attached to the
+session, a user hook that split its window, a changed shell) keeps the bootstrap, leaves
+the session `created` and whole, sets `retainedBootstrap` and `retainedReason` (the
+failed conditions are asked one by one, read-only, and named) and does not make the
+restore partial. Only a lost server or a failure to ask is an error.
 No pre-existing pane, window or session is removed or overwritten.
 
 ## Full restore
@@ -200,8 +205,11 @@ No pre-existing pane, window or session is removed or overwritten.
 `tmt workspace restore [<name>] [--socket PATH] [--json]` runs the same layout phase,
 then starts eligible panes through this executable's ordinary `tmt resume -- <name>`
 or generic external dispatch with the recorded literal TMT argv. Core adds no
-provider launch path or board grammar. A partial layout starts nothing; a session this
-snapshot already restored is skipped whole. Shared panes and repeated identities start at most once.
+provider launch path or board grammar. A pane is revived when its window belongs to at
+least one session restored whole (`created` or `merged`); a pane whose sessions are all
+`partial` or `not_attempted` waits as `skipped (session "<name>" incomplete)`, so one
+refused session never holds back the others. A session this snapshot already restored is
+skipped whole. Shared panes and repeated identities start at most once.
 
 Restore checks the snapshot name still names its original unretired UUID before
 starting resume. Renamed, replaced, missing, stale and sessionless identities need
