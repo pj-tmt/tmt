@@ -35,6 +35,15 @@ impl Fixture {
             )
             .unwrap()
     }
+    fn seed_legacy_document(&self, bytes: &[u8]) {
+        drop(Database::open(&self.0.join("ops")).unwrap());
+        self.database()
+            .execute(
+                "INSERT INTO documents(kind, key, body) VALUES('cron', '', ?1)",
+                [bytes],
+            )
+            .unwrap();
+    }
     fn overwrite(&self, bytes: &[u8]) {
         let changed = self
             .database()
@@ -164,6 +173,26 @@ fn room_uuid_store_allows_the_same_id_in_different_rooms() {
 }
 
 #[test]
+fn migration_preserves_jobs_for_a_room_absent_from_the_inventory() {
+    let room = "44444444-4444-4444-8444-444444444444";
+    let legacy = json!({
+        "version": 1, "counters": {"retired": 7},
+        "jobs": [{"id":"c3", "squad":"retired", "roomId":room,
+            "ownerId":"owner-uuid", "message":"keep", "revision":1,
+            "state":"on", "pause":null,
+            "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}}]
+    });
+    let result = Jobs::migrate_v1(&legacy, &[]);
+    assert!(
+        result.is_ok(),
+        "the stored room UUID is sufficient for jobs"
+    );
+    let document = result.unwrap();
+    assert_eq!(document["counters"][room], 7);
+    assert_eq!(document["jobs"][0]["message"], "keep");
+}
+
+#[test]
 fn migration_rechecks_the_current_document_before_publishing() {
     let f = Fixture::new();
     let store = f.store();
@@ -183,11 +212,11 @@ fn migration_rechecks_the_current_document_before_publishing() {
         "product".into(),
         "44444444-4444-4444-8444-444444444444".into(),
     )];
-    assert!(store.migrate_v1(&rooms).is_err());
+    store.migrate_v1(&rooms).unwrap();
+    let migrated: Value = serde_json::from_slice(&f.stored()).unwrap();
     assert_eq!(
-        f.stored(),
-        current,
-        "the newer snapshot must not be replaced"
+        migrated["jobs"][0]["message"], "concurrent",
+        "migration reads the current document under lock"
     );
 }
 
@@ -927,4 +956,159 @@ fn a_commit_that_timed_out_is_reported_as_uncertain_not_as_a_plain_busy() {
         may_not_be_saved: false,
     });
     assert_eq!(busy.code, STORE_BUSY);
+}
+
+#[test]
+fn migration_merges_distinct_jobs_for_one_room_and_keeps_the_highest_counter() {
+    let room = "44444444-4444-4444-8444-444444444444";
+    let make = |id: &str, squad: &str| {
+        json!({
+            "id": id, "squad": squad, "roomId": room, "ownerId": "owner",
+            "message": squad, "revision": 1, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        })
+    };
+    let legacy = json!({"version": 1, "counters": {"first": 7, "second": 12},
+        "jobs": [make("c3", "first"), make("c4", "second")]});
+    let migrated = Jobs::migrate_v1(&legacy, &[]).expect("stored room IDs determine ownership");
+    assert_eq!(migrated["counters"][room], 12);
+    assert_eq!(migrated["jobs"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn migration_drops_an_ambiguous_counter_only_name() {
+    let legacy = json!({"version": 1, "counters": {"ambiguous": 7}, "jobs": []});
+    let rooms = [
+        (
+            "ambiguous".into(),
+            "44444444-4444-4444-8444-444444444444".into(),
+        ),
+        (
+            "ambiguous".into(),
+            "55555555-5555-4555-8555-555555555555".into(),
+        ),
+    ];
+    let migrated =
+        Jobs::migrate_v1(&legacy, &rooms).expect("unresolved counter-only names are dropped");
+    assert!(migrated["counters"].as_object().unwrap().is_empty());
+}
+
+#[test]
+fn migration_exports_conflicts_and_preserves_the_highest_counter() {
+    let f = Fixture::new();
+    let store = f.store();
+    let room = "44444444-4444-4444-8444-444444444444";
+    let make = |id: &str, squad: &str| {
+        json!({
+            "id": id, "squad": squad, "roomId": room, "ownerId": "owner",
+            "message": squad, "revision": 1, "state": "on", "pause": null,
+            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
+        })
+    };
+    let legacy = json!({"version": 1, "counters": {"first": 7, "second": 12},
+        "jobs": [make("c3", "first"), make("c3", "second"), make("c4", "first")]});
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    f.seed_legacy_document(&bytes);
+    store
+        .migrate_v1(&[])
+        .expect("conflicting jobs are exported, not an operation-wide lock");
+    let migrated: Value = serde_json::from_slice(&f.stored()).unwrap();
+    assert_eq!(migrated["counters"][room], 12);
+    assert_eq!(migrated["jobs"].as_array().unwrap().len(), 1);
+    assert_eq!(migrated["jobs"][0]["id"], "c4");
+    let exports: Vec<_> = fs::read_dir(f.0.join("ops/cron"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("jobs-conflict-")
+        })
+        .collect();
+    assert_eq!(exports.len(), 1);
+    assert_eq!(fs::read(&exports[0]).unwrap(), bytes);
+    assert_eq!(
+        fs::metadata(&exports[0]).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn conflict_export_refusal_leaves_the_legacy_document_unchanged() {
+    let f = Fixture::new();
+    let store = f.store();
+    let room = "44444444-4444-4444-8444-444444444444";
+    let make = |squad: &str| {
+        json!({"id":"c1", "squad":squad, "roomId":room,
+        "ownerId":"owner", "message":squad, "revision":1, "state":"on", "pause":null,
+        "schedule":{"kind":"every", "seconds":1800, "anchorMs":0, "from":null, "zone":"UTC"}})
+    };
+    let legacy = json!({"version":1,"counters":{"first":1,"second":1},
+        "jobs":[make("first"),make("second")]});
+    let before = serde_json::to_vec(&legacy).unwrap();
+    f.seed_legacy_document(&before);
+    symlink(std::env::temp_dir(), f.0.join("ops/cron")).unwrap();
+    assert!(
+        store.migrate_v1(&[]).is_err(),
+        "an unsafe export directory must refuse"
+    );
+    assert_eq!(f.stored(), before, "failed export must not publish v2");
+}
+
+#[test]
+fn mixed_room_legacy_name_reserves_its_counter_in_every_room() {
+    let a = "44444444-4444-4444-8444-444444444444";
+    let b = "55555555-5555-4555-8555-555555555555";
+    let make = |id: &str, room: &str| {
+        json!({"id":id,"squad":"old","roomId":room,
+        "ownerId":"owner","message":id,"revision":1,"state":"on","pause":null,
+        "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}})
+    };
+    let legacy = json!({"version":1,"counters":{"old":12},"jobs":[make("c1",a),make("c2",b)]});
+    let (converted, conflicts) = Jobs::convert_v1(&legacy, &[]).unwrap();
+    assert!(conflicts);
+    assert_eq!(converted["counters"][a], 12);
+    assert_eq!(converted["counters"][b], 12);
+    assert!(converted["jobs"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn migration_commit_failure_retains_original_and_does_not_publish_notice() {
+    let f = Fixture::new();
+    let store = f.store();
+    let room = "44444444-4444-4444-8444-444444444444";
+    let make = |squad: &str| {
+        json!({"id":"c1","squad":squad,"roomId":room,
+        "ownerId":"owner","message":squad,"revision":1,"state":"on","pause":null,
+        "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}})
+    };
+    let before = serde_json::to_vec(&json!({"version":1,"counters":{"first":1,"second":1},
+        "jobs":[make("first"),make("second")]}))
+    .unwrap();
+    f.seed_legacy_document(&before);
+    f.database().execute_batch("CREATE TRIGGER refuse_cron BEFORE UPDATE ON documents WHEN NEW.kind = 'cron' BEGIN SELECT RAISE(FAIL, 'injected failure'); END;").unwrap();
+    assert!(store.migrate_v1(&[]).is_err());
+    assert_eq!(f.stored(), before);
+    let notices: i64 = f
+        .database()
+        .query_row(
+            "SELECT COUNT(*) FROM documents WHERE kind = 'cron-migration-notice'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(notices, 0, "the notice and conversion must commit together");
+    let exports: Vec<_> = fs::read_dir(f.0.join("ops/cron"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("jobs-conflict-")
+        })
+        .collect();
+    assert_eq!(exports.len(), 1);
+    assert_eq!(fs::read(&exports[0]).unwrap(), before);
 }

@@ -416,6 +416,8 @@ own module/drawing boundaries and verification.
   Ops uses CAS; cron/checklists live in
   [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
   `migration` owns locked byte-preserving cutover; CLI warns once, UI paints notices through App.
+  Cron's v1 conversion keeps conflicting source bytes in a private export before commit;
+  its store tracks one CLI and one board warning, and the board worker forwards the latter.
   No Ops data enters `config.json` or Core's database.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.

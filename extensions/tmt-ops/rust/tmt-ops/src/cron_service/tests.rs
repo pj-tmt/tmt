@@ -28,143 +28,89 @@ fn legacy_cron_migration_drops_only_a_missing_counter_and_retains_live_jobs() {
 }
 
 #[test]
-fn legacy_cron_migration_refuses_missing_room_with_jobs_without_changing_bytes() {
+fn legacy_jobs_keep_their_room_after_a_name_is_reused() {
     let f = Fixture::new();
     f.add(&f.actor(USER), WORKER).unwrap();
-    let legacy = json!({
-        "version": 1,
-        "counters": {"missing": 1},
-        "jobs": [{
-            "id": "c1", "squad": "missing", "roomId": ROOM, "ownerId": WORKER,
-            "message": "do not lose me", "revision": 1, "state": "on", "pause": null,
-            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
-        }]
-    });
-    let before = legacy.to_string().into_bytes();
-    replace_stored_jobs(&f.directory, &before);
-    let result = list_jobs(&f.core, &f.config, None, 100);
+    let retired = "55555555-5555-4555-8555-555555555555";
+    let legacy = json!({"version": 1, "counters": {"product": 7}, "jobs": [{
+        "id":"c1", "squad":"product", "roomId":retired, "ownerId":WORKER,
+        "message":"original room", "revision":1, "state":"on", "pause":null,
+        "schedule":{"kind":"every", "seconds":1800, "anchorMs":0, "from":null, "zone":"UTC"}
+    }]});
+    replace_stored_jobs(&f.directory, legacy.to_string().as_bytes());
+    let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
     assert!(
-        result.is_err(),
-        "a missing room with jobs must refuse migration"
+        listed.jobs.is_empty(),
+        "replacement room must not inherit the old job"
     );
-    let error = result.err().unwrap();
-    assert!(
-        error.to_string().contains("missing"),
-        "name the affected squad"
-    );
-    assert!(error.message.contains("retry"), "offer a next step");
-    assert_eq!(stored_jobs(&f.directory), before);
+    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
+    assert_eq!(migrated["jobs"][0]["roomId"], retired);
+    assert_eq!(migrated["counters"][retired], 7);
 }
 
-fn refuses_legacy_room_mapping(rooms: Value, counters: Value, affected: &[&str]) {
+#[test]
+fn conflict_export_warns_once_per_cli_and_board_channel() {
     let f = Fixture::new();
     f.add(&f.actor(USER), WORKER).unwrap();
-    let legacy = json!({"version": 1, "counters": counters, "jobs": []});
-    let before = legacy.to_string().into_bytes();
-    replace_stored_jobs(&f.directory, &before);
-    f.change_model(|model| model["roomList"] = rooms);
-    let result = list_jobs(&f.core, &f.config, None, 100);
+    let make = |id: &str, squad: &str| {
+        json!({
+            "id":id,"squad":squad,"roomId":ROOM,"ownerId":WORKER,
+            "message":squad,"revision":1,"state":"on","pause":null,
+            "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}
+        })
+    };
+    let legacy = json!({"version":1,"counters":{"product":7,"old-name":12},
+        "jobs":[make("c1","product"),make("c1","old-name"),make("c2","product")]});
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    replace_stored_jobs(&f.directory, &bytes);
+    let _ = read_jobs(&f.core).unwrap();
+    let _ = read_jobs(&f.core).unwrap();
+    let first = list_jobs(&f.core, &f.config, None, 100).unwrap();
+    assert_eq!(first.jobs.len(), 1);
+    assert_eq!(first.jobs[0].job.id(), "c2");
+    assert_eq!(first.warnings.len(), 1);
+    let message = &first.warnings[0].message;
+    let exports: Vec<_> = fs::read_dir(f.directory.join("ops/cron"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("jobs-conflict-")
+        })
+        .collect();
+    assert_eq!(exports.len(), 1);
+    assert!(message.contains(exports[0].to_str().unwrap()));
+    assert_eq!(fs::read(&exports[0]).unwrap(), bytes);
+    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
+    assert_eq!(migrated["counters"][ROOM], 12);
     assert!(
-        result.is_err(),
-        "ambiguous or colliding rooms must refuse migration"
+        list_jobs(&f.core, &f.config, None, 100)
+            .unwrap()
+            .warnings
+            .is_empty()
     );
-    let error = result.err().unwrap();
+    f.core.paths.use_board_notices();
     assert!(
-        affected.iter().any(|name| error.message.contains(name)),
-        "name an affected squad"
+        list_jobs(&f.core, &f.config, None, 100)
+            .unwrap()
+            .warnings
+            .is_empty()
     );
-    assert!(error.message.contains("retry"), "offer a next step");
-    assert_eq!(stored_jobs(&f.directory), before);
-}
-
-#[test]
-fn legacy_cron_migration_refuses_ambiguous_room_names_without_writes() {
-    refuses_legacy_room_mapping(
-        json!([
-            {"id": ROOM, "name": "squad-product"},
-            {"id": "55555555-5555-4555-8555-555555555555", "name": "squad-product"}
-        ]),
-        json!({"product": 2}),
-        &["product"],
-    );
-}
-
-#[test]
-fn legacy_cron_migration_refuses_two_names_for_one_room_without_writes() {
-    refuses_legacy_room_mapping(
-        json!([
-            {"id": ROOM, "name": "squad-product"},
-            {"id": ROOM, "name": "squad-platform"}
-        ]),
-        json!({"product": 2, "platform": 3}),
-        &["product", "platform"],
-    );
-}
-
-#[test]
-fn refused_legacy_file_migration_does_not_import_or_archive_the_file() {
-    use std::os::unix::fs::DirBuilderExt;
-    let f = Fixture::new();
-    let directory = f.directory.join("ops/cron");
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&directory)
-        .unwrap();
-    let path = directory.join("jobs.json");
-    let legacy = json!({
-        "version": 1, "counters": {"missing": 1},
-        "jobs": [{
-            "id": "c1", "squad": "missing", "roomId": ROOM, "ownerId": WORKER,
-            "message": "retained", "revision": 1, "state": "on", "pause": null,
-            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
-        }]
-    });
-    let before = legacy.to_string().into_bytes();
-    fs::write(&path, &before).unwrap();
-    let result = list_jobs(&f.core, &f.config, None, 100);
-    assert!(result.is_err(), "missing room must refuse migration");
-    assert_eq!(
-        fs::read(&path).unwrap(),
-        before,
-        "legacy bytes remain in place"
-    );
-    let database = rusqlite::Connection::open(f.directory.join("ops/ops.db")).unwrap();
-    let rows: i64 = database
-        .query_row(
-            "SELECT COUNT(*) FROM documents WHERE kind = 'cron' AND key = ''",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(rows, 0, "refusal must not import the legacy file");
-}
-
-#[test]
-fn legacy_cron_migration_refuses_a_reused_squad_name_without_writes() {
-    let f = Fixture::new();
-    f.add(&f.actor(USER), WORKER).unwrap();
-    let legacy = json!({
-        "version": 1,
-        "counters": {"product": 1},
-        "jobs": [{
-            "id": "c1", "squad": "product",
-            "roomId": "55555555-5555-4555-8555-555555555555", "ownerId": WORKER,
-            "message": "original room", "revision": 1, "state": "on", "pause": null,
-            "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
-        }]
-    });
-    let before = legacy.to_string().into_bytes();
-    replace_stored_jobs(&f.directory, &before);
-    let result = list_jobs(&f.core, &f.config, None, 100);
     assert!(
-        result.is_err(),
-        "a reused squad name must not retarget a job"
+        f.core
+            .paths
+            .take_cron_notice()
+            .unwrap()
+            .contains(exports[0].to_str().unwrap())
     );
-    let error = result.err().unwrap();
-    assert!(error.message.contains("product"), "name the affected squad");
-    assert!(error.message.contains("retry"), "offer a next step");
-    assert_eq!(stored_jobs(&f.directory), before);
+    assert!(
+        list_jobs(&f.core, &f.config, None, 100)
+            .unwrap()
+            .warnings
+            .is_empty()
+    );
 }
 
 #[test]

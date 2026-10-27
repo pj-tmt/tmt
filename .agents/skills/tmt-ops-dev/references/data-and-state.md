@@ -373,9 +373,10 @@ own these layers:
 - `cron::store` keeps the versioned jobs document as the `cron` document of the
   [Ops state database](#ops-state-database): per-room UUID counters that survive removal, exact
   message bytes, owner references, schedules, revisions and pause attribution. The service
-  supplies public room observations for the one-time v1 conversion; the store validates and
-  publishes the conversion under the document lock. A missing counter-only room is dropped;
-  missing rooms with jobs, ambiguous names, and collisions refuse without changing bytes. The
+  uses each v1 job's stored room UUID and public room observations for counter-only names.
+  Unresolved counter-only names are dropped. Conflicting jobs are retained in a private
+  full-document export before the conversion commits; affected room counters keep the highest
+  legacy counter. A one-time CLI warning and board notice identify the export. The
   caller supplies the absolute Ops root under `storage.root` and admits core UUID references;
   the store resolves no identities, decides no permissions, dispatches nothing and tracks no
   runs. Reads of an absent store create nothing. A mutation queues for the database's write

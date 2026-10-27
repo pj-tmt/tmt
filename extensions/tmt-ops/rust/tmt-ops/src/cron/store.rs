@@ -3,6 +3,8 @@ use crate::state::{BUSY_RETRY as STATE_RETRY, Cause, Database, Refusal, Slot, St
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
 };
 
@@ -139,50 +141,67 @@ struct LegacyJobs {
 }
 
 impl Jobs {
-    /// Convert a fully validated v1 snapshot using the caller's public room inventory.
-    /// The caller must apply the returned document to the same snapshot under the
-    /// document lock; room observations are acquired before entering that lock.
+    /// Convert jobs using their frozen room IDs. Counter-only names use the
+    /// public room inventory; unresolved names without jobs are discarded.
     pub fn migrate_v1(value: &Value, rooms: &[(String, String)]) -> Result<Value, Error> {
+        let (document, conflicts) = Self::convert_v1(value, rooms)?;
+        if conflicts {
+            return Err(corrupt(
+                "Conflicting legacy timers require a retained export.",
+            ));
+        }
+        Ok(document)
+    }
+
+    fn convert_v1(value: &Value, rooms: &[(String, String)]) -> Result<(Value, bool), Error> {
         let legacy = Self::from_v1_document(value)?;
-        let mut counters = serde_json::Map::new();
-        let mut used_rooms = BTreeMap::<String, String>::new();
+        let mut counters = BTreeMap::<String, u64>::new();
+        let mut name_rooms = BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+        for (name, job) in &legacy.jobs {
+            name_rooms
+                .entry(name.clone())
+                .or_default()
+                .insert(job.room_id.clone());
+        }
         for (name, counter) in &legacy.counters {
-            let matches: Vec<_> = rooms
-                .iter()
-                .filter(|(room_name, _)| room_name == name)
-                .collect();
-            let has_jobs = legacy.jobs.iter().any(|(squad, _)| squad == name);
-            let room = match matches.as_slice() {
-                [] if !has_jobs => continue,
-                [(_, room)] => room,
-                _ => {
-                    return Err(corrupt(format!(
-                        "Cannot migrate timers for squad '{name}': its room is missing or ambiguous. Resolve the squad room and retry."
-                    )));
+            let mapped = if let Some(owned) = name_rooms.get(name) {
+                owned.clone()
+            } else {
+                let found = rooms
+                    .iter()
+                    .filter(|(n, _)| n == name)
+                    .map(|(_, id)| id.clone())
+                    .collect::<std::collections::BTreeSet<_>>();
+                if found.len() == 1 {
+                    found
+                } else {
+                    Default::default()
                 }
             };
-            if let Some(previous) = used_rooms.insert(room.clone(), name.clone()) {
-                return Err(corrupt(format!(
-                    "Cannot migrate timers for squads '{previous}' and '{name}': both resolve to one room. Resolve the squad rooms and retry."
-                )));
+            for room in mapped {
+                let entry = counters.entry(room).or_default();
+                *entry = (*entry).max(*counter);
             }
-            if legacy
-                .jobs
-                .iter()
-                .any(|(squad, job)| squad == name && job.room_id != *room)
-            {
-                return Err(corrupt(format!(
-                    "Cannot migrate timers for squad '{name}': a job belongs to a different room. Resolve the squad room and retry."
-                )));
-            }
-            counters.insert(room.clone(), json!(counter));
         }
-        let jobs = legacy
-            .jobs
-            .iter()
-            .map(|(_, job)| job.document())
-            .collect::<Vec<_>>();
-        Ok(json!({"version": 2, "counters": counters, "jobs": jobs}))
+        let mut occurrences = BTreeMap::<(String, u64), usize>::new();
+        for (_, job) in &legacy.jobs {
+            *occurrences
+                .entry((job.room_id.clone(), job.id))
+                .or_default() += 1;
+        }
+        let mut conflicts = false;
+        let mut jobs = Vec::new();
+        for (name, job) in &legacy.jobs {
+            if name_rooms[name].len() != 1 || occurrences[&(job.room_id.clone(), job.id)] != 1 {
+                conflicts = true;
+            } else {
+                jobs.push(job.document());
+            }
+        }
+        Ok((
+            json!({"version": 2, "counters": counters, "jobs": jobs}),
+            conflicts,
+        ))
     }
 
     pub fn jobs(&self) -> &[Job] {
@@ -397,26 +416,129 @@ impl Store {
                 &slot,
                 |bytes| {
                     let Some(bytes) = bytes else {
-                        return Ok((None, ()));
+                        return Ok((None, None));
                     };
                     let value: Value = serde_json::from_slice(bytes)
                         .map_err(|error| corrupt(error.to_string()))?;
                     if value["version"] == 2 {
                         Jobs::from_document(&value)?;
-                        return Ok((None, ()));
+                        return Ok((None, None));
                     }
-                    let converted = Jobs::migrate_v1(&value, rooms)?;
+                    let (converted, conflicts) = Jobs::convert_v1(&value, rooms)?;
                     Jobs::from_document(&converted)?;
+                    let export = if conflicts { Some(self.export_conflicts(bytes)?) } else { None };
                     let bytes = serde_json::to_vec(&converted).map_err(io)?;
                     if bytes.len() as u64 > LIMIT {
                         return Err(corrupt("Cron store exceeds 16 MiB."));
                     }
-                    Ok((Some(bytes), ()))
+                    Ok((Some(bytes), export))
+                },
+                |export, transaction| {
+                    if let Some(path) = export {
+                        let notice = json!({"path":path, "cli":true, "board":true});
+                        let body = serde_json::to_vec(&notice).map_err(io)?;
+                        transaction.execute(
+                            "INSERT INTO documents(kind, key, body) VALUES('cron-migration-notice', '', ?1) ON CONFLICT(kind, key) DO UPDATE SET body = excluded.body",
+                            [&body],
+                        ).map_err(io)?;
+                    }
+                    Ok(())
+                },
+            )
+            .map(|_| ())
+            .map_err(failed)
+    }
+
+    /// Retain the entire original document before the database transaction publishes v2.
+    fn export_conflicts(&self, bytes: &[u8]) -> Result<String, Error> {
+        let layout =
+            tmt_extension_state::Layout::open(&self.root, "cron", &[]).map_err(|error| {
+                io(format!(
+                    "Cannot create private cron export directory: {error:?}"
+                ))
+            })?;
+        let stamp = jiff::Timestamp::now()
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .strftime("%Y%m%dT%H%M%SZ")
+            .to_string();
+        for attempt in 0u32.. {
+            let path = layout
+                .directory
+                .join(format!("jobs-conflict-{stamp}-{attempt}.json"));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits())
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    let result = file.write_all(bytes).and_then(|_| file.sync_all());
+                    if let Err(error) = result {
+                        drop(file);
+                        let _ = std::fs::remove_file(&path);
+                        let _ = layout.sync();
+                        return Err(io(error));
+                    }
+                    layout.sync().map_err(io)?;
+                    return Ok(path.to_string_lossy().into_owned());
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(io(error)),
+            }
+        }
+        unreachable!()
+    }
+    /// Claim one delivery channel independently; the clock never claims notices.
+    pub fn take_migration_notice(&self, board: bool) -> Result<Option<String>, Error> {
+        let slot = Slot {
+            kind: "cron-migration-notice",
+            key: String::new(),
+            legacy: self.root.join("cron").join("no-legacy-notice"),
+            limit: 4096,
+        };
+        let Some(mut database) =
+            Database::open_existing(&self.root, &slot.legacy).map_err(refused)?
+        else {
+            return Ok(None);
+        };
+        let channel = if board { "board" } else { "cli" };
+        let pending = database
+            .inspect(&slot, |bytes| -> Result<bool, Error> {
+                let Some(bytes) = bytes else {
+                    return Ok(false);
+                };
+                let value: Value = serde_json::from_slice(bytes).map_err(io)?;
+                Ok(value[channel] == true)
+            })
+            .map_err(failed)?;
+        if !pending {
+            return Ok(None);
+        }
+        database
+            .update(
+                &slot,
+                |bytes| {
+                    let Some(bytes) = bytes else {
+                        return Ok((None, None));
+                    };
+                    let mut value: Value = serde_json::from_slice(bytes).map_err(io)?;
+                    let channel = if board { "board" } else { "cli" };
+                    if value[channel] != true {
+                        return Ok((None, None));
+                    }
+                    let path = value["path"]
+                        .as_str()
+                        .ok_or_else(|| corrupt("Invalid migration notice."))?
+                        .to_owned();
+                    value[channel] = json!(false);
+                    Ok((Some(serde_json::to_vec(&value).map_err(io)?), Some(path)))
                 },
                 |_, _| Ok(()),
             )
             .map_err(failed)
     }
+
     pub fn read(&self) -> Result<Jobs, Error> {
         let slot = self.slot();
         let Some(mut database) =

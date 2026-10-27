@@ -383,13 +383,29 @@ pub(crate) fn with_departure_pause<T>(
         .map_err(Into::into)
 }
 
+fn migration_warning(core: &Core, store: &Store) -> Result<Option<SquadError>, SquadError> {
+    let board = core.paths.is_board();
+    let Some(path) = store.take_migration_notice(board)? else {
+        return Ok(None);
+    };
+    let message = format!(
+        "Conflicting timers were retained in {path}; review the export before recreating them."
+    );
+    if board {
+        core.paths.cron_notice(message);
+        Ok(None)
+    } else {
+        Ok(Some(failure("SQUAD_CRON_MIGRATION_CONFLICT", &message)))
+    }
+}
+
 pub fn list_jobs(
     core: &Core,
     config: &Config,
     scope: Option<&str>,
     now_ms: i64,
 ) -> Result<List, SquadError> {
-    let warnings = drain_retired(core, config, now_ms)?;
+    let mut warnings = drain_retired(core, config, now_ms)?;
     let squads = if let Some(name) = scope {
         vec![Squad::resolve(core, Some(name))?]
     } else {
@@ -397,6 +413,7 @@ pub fn list_jobs(
     };
     let (store, _migration) = store(core)?;
     let jobs = owners::project_jobs(core, &store, &squads, 1, now_ms)?;
+    warnings.extend(migration_warning(core, &store)?);
     Ok(List { jobs, warnings })
 }
 pub fn show_job(
@@ -418,6 +435,7 @@ pub fn show_job(
             )
         })?;
     view.warnings.extend(warnings);
+    view.warnings.extend(migration_warning(core, &store)?);
     Ok(view)
 }
 
@@ -577,6 +595,11 @@ pub fn apply(
             }
         }
     };
+    // A committed edit must remain a success even if the follow-up notice fails.
+    match migration_warning(core, &store) {
+        Ok(notice) => warnings.extend(notice),
+        Err(error) => warnings.push(error),
+    }
     Ok(Applied {
         job,
         changed,

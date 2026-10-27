@@ -62,6 +62,7 @@ fn notice(text: &str) {
 pub(crate) struct Decision {
     selected: Mutex<Option<Result<Paths, SquadError>>>,
     board_notices: AtomicBool,
+    cron_notice: Mutex<Option<String>>,
 }
 
 impl Decision {
@@ -69,6 +70,18 @@ impl Decision {
     /// stderr writes would leave cells outside the renderer's ownership.
     pub fn use_board_notices(&self) {
         self.board_notices.store(true, Ordering::Release);
+    }
+
+    pub fn cron_notice(&self, text: String) {
+        *self.cron_notice.lock().unwrap() = Some(text);
+    }
+
+    pub fn take_cron_notice(&self) -> Option<String> {
+        self.cron_notice.lock().unwrap().take()
+    }
+
+    pub fn is_board(&self) -> bool {
+        self.board_notices.load(Ordering::Acquire)
     }
 
     pub fn board_notice(&self) -> Option<String> {
