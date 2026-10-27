@@ -1,10 +1,13 @@
 //! Application-port composition over the existing tmux runner and wire parser.
 
-use super::{CommandRunner, OperationOptions, Tmux, TmuxError, TmuxFailure, socket_args};
+use super::{CommandRunner, OperationOptions, Tmux, TmuxError, TmuxFailure, metadata, socket_args};
 use std::time::{Duration, Instant};
 use tmt_core::{
-    binding::{Binding, BindingEndpoint, session::RuntimeState},
-    endpoint::{EndpointProbe, EndpointSnapshot, ServerEvidence},
+    binding::{
+        Binding, BindingEndpoint,
+        session::{RuntimeLiveness, RuntimeState},
+    },
+    endpoint::{EndpointProbe, EndpointSnapshot, ProcessIncarnation, ServerEvidence},
     identity::Identity,
 };
 
@@ -52,6 +55,155 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
             .and_then(|c| c.fence))
     }
 
+    /// Compare the exact observed option under the tmux server's command queue.
+    /// A different binding or a changed option never grants publication.
+    fn publish_marker(
+        &self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+        expected_legacy: Option<&str>,
+    ) -> Result<bool, TmuxError> {
+        let pane = &binding.pane_id;
+        let mut args = socket_args(Some(&binding.server.socket_path));
+        args.extend([
+            "show-options".into(),
+            "-q".into(),
+            "-p".into(),
+            "-t".into(),
+            pane.clone(),
+            "-v".into(),
+            "@tmt.agent".into(),
+        ]);
+        let output = self
+            .tmux
+            .execute(args, self.options(None), TmuxFailure::MetadataRead)?;
+        let raw = output.strip_suffix('\n').unwrap_or(&output);
+        let mut document = if raw.is_empty() {
+            metadata::decode(raw)
+        } else {
+            let value = crate::json_document::parse(raw)
+                .map_err(|_| TmuxError::evidence("Invalid existing pane metadata"))?;
+            if !value.is_object() || value.get("version").and_then(|v| v.as_u64()) != Some(1) {
+                return Err(TmuxError::evidence("Invalid existing pane metadata"));
+            }
+            value
+        };
+        let present = document
+            .get("globalIdentity")
+            .is_some_and(|value| !value.is_null());
+        let current = metadata::marker(&document);
+        let matches = if let Some(legacy) = expected_legacy {
+            expected.is_none() && raw == legacy && metadata::is_legacy_marker(&document)
+        } else {
+            match current.as_ref() {
+                Some(marker) => {
+                    marker.binding_id == binding.id || expected == Some(marker.binding_id.as_str())
+                }
+                None => !present && expected.is_none(),
+            }
+        };
+        if !matches {
+            return Ok(false);
+        }
+        metadata::replace(&mut document, &binding.marker(identity));
+        let condition = [
+            super::rename::equal("pane_id", pane),
+            super::rename::equal("pane_pid", &binding.pane_pid.to_string()),
+            super::rename::equal("pid", &binding.server.server_pid.to_string()),
+            super::rename::equal("start_time", &binding.server.server_start_time),
+            super::rename::equal("@tmt.server-id", &binding.server.server_id),
+            super::rename::equal("@tmt.agent", raw),
+        ]
+        .into_iter()
+        .reduce(|a, b| format!("#{{&&:{a},{b}}}"))
+        .expect("nonempty fence");
+        let command = format!(
+            "set-option -p -t {} @tmt.agent {}",
+            super::rename::word(pane),
+            super::rename::word(&document.to_string())
+        );
+        let mut args = socket_args(Some(&binding.server.socket_path));
+        args.extend([
+            "if-shell".into(),
+            "-F".into(),
+            "-t".into(),
+            pane.clone(),
+            condition,
+            command,
+            "display-message -p TMT_BIND_REFUSED".into(),
+        ]);
+        let result = self
+            .tmux
+            .execute(args, self.options(None), TmuxFailure::MetadataWrite)?;
+        Ok(!result.lines().any(|line| line == "TMT_BIND_REFUSED"))
+    }
+
+    /// Clear only the exact observed metadata while its pane and server remain
+    /// the same; a replacement marker wins over this delayed cleanup.
+    fn clear_owned_marker(&self, binding: &Binding) -> Result<bool, TmuxError> {
+        let pane = &binding.pane_id;
+        let mut args = socket_args(Some(&binding.server.socket_path));
+        args.extend([
+            "show-options".into(),
+            "-q".into(),
+            "-p".into(),
+            "-t".into(),
+            pane.clone(),
+            "-v".into(),
+            "@tmt.agent".into(),
+        ]);
+        let output = self
+            .tmux
+            .execute(args, self.options(None), TmuxFailure::MetadataRead)?;
+        let raw = output.strip_suffix('\n').unwrap_or(&output);
+        if raw.is_empty() {
+            return Ok(false);
+        }
+        let mut document = crate::json_document::parse(raw)
+            .map_err(|_| TmuxError::evidence("Invalid existing pane metadata"))?;
+        if !document.is_object() || document.get("version").and_then(|v| v.as_u64()) != Some(1) {
+            return Err(TmuxError::evidence("Invalid existing pane metadata"));
+        }
+        if !metadata::clear(&mut document, Some(&binding.id)) {
+            return Ok(false);
+        }
+        let condition = [
+            super::rename::equal("pane_id", pane),
+            super::rename::equal("pane_pid", &binding.pane_pid.to_string()),
+            super::rename::equal("pid", &binding.server.server_pid.to_string()),
+            super::rename::equal("start_time", &binding.server.server_start_time),
+            super::rename::equal("@tmt.server-id", &binding.server.server_id),
+            super::rename::equal("@tmt.agent", raw),
+        ]
+        .into_iter()
+        .reduce(|a, b| format!("#{{&&:{a},{b}}}"))
+        .expect("nonempty fence");
+        let command = if metadata::has_fields(&document) {
+            format!(
+                "set-option -p -t {} @tmt.agent {}",
+                super::rename::word(pane),
+                super::rename::word(&document.to_string())
+            )
+        } else {
+            format!("set-option -pu -t {} @tmt.agent", super::rename::word(pane))
+        };
+        let mut args = socket_args(Some(&binding.server.socket_path));
+        args.extend([
+            "if-shell".into(),
+            "-F".into(),
+            "-t".into(),
+            pane.clone(),
+            condition,
+            command,
+            "display-message -p TMT_BIND_REFUSED".into(),
+        ]);
+        let result = self
+            .tmux
+            .execute(args, self.options(None), TmuxFailure::MetadataWrite)?;
+        Ok(!result.lines().any(|line| line == "TMT_BIND_REFUSED"))
+    }
+
     /// The user's own tmux client location, required only by `focus`.
     pub fn with_invoker(mut self, invoker: super::Invoker) -> Self {
         self.invoker = Some(invoker);
@@ -78,6 +230,10 @@ mod border;
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = TmuxError;
 
+    fn cleanup_failed(&self, error: &Self::Error) -> bool {
+        error.cleanup_failed()
+    }
+
     fn current_host(&self) -> tmt_core::host::HostKind {
         tmt_core::host::HostKind::Tmux
     }
@@ -87,6 +243,37 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     }
     fn budget_available(&self) -> bool {
         Instant::now() < self.deadline
+    }
+
+    fn publication_owner(&mut self) -> Result<Option<ProcessIncarnation>, Self::Error> {
+        let pid = u64::from(std::process::id());
+        let observation =
+            crate::process::runtime::observe_runtime_process(&self.tmux.runner, pid, self.deadline)
+                .map_err(|error| TmuxError::command(TmuxFailure::Evidence, error))?;
+        Ok(match observation {
+            crate::process::runtime::ProcessObservation::Live(process) => Some(process),
+            _ => None,
+        })
+    }
+
+    fn publication_liveness(
+        &mut self,
+        publisher: &ProcessIncarnation,
+    ) -> Result<RuntimeLiveness, Self::Error> {
+        crate::process::runtime::observe_runtime_process(
+            &self.tmux.runner,
+            publisher.pid(),
+            self.deadline,
+        )
+        .map(|observation| observation.matches(publisher))
+        .map_err(|error| TmuxError::command(TmuxFailure::Evidence, error))
+    }
+
+    fn publication_time_ms(&self) -> Option<u64> {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| u64::try_from(duration.as_millis()).ok())
     }
 
     fn current_snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, Self::Error> {
@@ -137,12 +324,67 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     }
 
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), Self::Error> {
-        self.tmux.set_marker_on(
-            Some(&binding.server.socket_path),
-            &binding.pane_id,
-            &binding.marker(identity),
-            self.options(None),
-        )
+        if self.publish_marker(binding, identity, None, None)? {
+            Ok(())
+        } else {
+            Err(TmuxError::evidence(
+                "Pane changed before marker publication",
+            ))
+        }
+    }
+
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+    ) -> Result<bool, Self::Error> {
+        self.publish_marker(binding, identity, expected, None)
+    }
+
+    fn legacy_marker(
+        &mut self,
+        server: &ServerEvidence,
+        pane: &str,
+    ) -> Result<Option<String>, Self::Error> {
+        if server.host != tmt_core::host::HostKind::Tmux {
+            return Ok(None);
+        }
+        let mut args = socket_args(Some(&server.socket_path));
+        args.extend([
+            "show-options".into(),
+            "-q".into(),
+            "-p".into(),
+            "-t".into(),
+            pane.into(),
+            "-v".into(),
+            "@tmt.agent".into(),
+        ]);
+        let output = self
+            .tmux
+            .execute(args, self.options(None), TmuxFailure::MetadataRead)?;
+        let raw = output.strip_suffix('\n').unwrap_or(&output);
+        if raw.len() > 8192 {
+            return Ok(None);
+        }
+        let document = match crate::json_document::parse(raw) {
+            Ok(value) => value,
+            Err(_) => return Ok(None),
+        };
+        Ok(metadata::is_legacy_marker(&document).then(|| raw.to_owned()))
+    }
+
+    fn publish_if_legacy(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected_raw: &str,
+    ) -> Result<bool, Self::Error> {
+        self.publish_marker(binding, identity, None, Some(expected_raw))
+    }
+
+    fn clear_if_owned(&mut self, binding: &Binding, _: &Identity) -> Result<bool, Self::Error> {
+        self.clear_owned_marker(binding)
     }
 
     fn pane_incarnation(

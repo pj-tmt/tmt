@@ -36,6 +36,13 @@ pub(super) struct FakeEndpoint {
     pub(super) hide_panes_after_current: Option<usize>,
     pub(super) replace_pane_after_current: Option<usize>,
     pub(super) publish_failure: bool,
+    pub(super) publisher_liveness: tmt_core::binding::session::RuntimeLiveness,
+    pub(super) publication_time_ms: u64,
+    pub(super) after_publish: Option<Box<dyn FnOnce() + Send>>,
+    pub(super) after_owner: Option<Box<dyn FnOnce() + Send>>,
+    pub(super) late_marker_before_publish: Option<tmt_core::endpoint::BindingMarker>,
+    pub(super) legacy_markers: std::collections::HashMap<String, String>,
+    pub(super) replace_legacy_before_publish: Option<String>,
     pub(super) verification_failure: bool,
     pub(super) clear_result: bool,
     pub(super) clear_failure: bool,
@@ -62,6 +69,13 @@ impl FakeEndpoint {
             hide_panes_after_current: None,
             replace_pane_after_current: None,
             publish_failure: false,
+            publisher_liveness: tmt_core::binding::session::RuntimeLiveness::Alive,
+            publication_time_ms: 1_000,
+            after_publish: None,
+            after_owner: None,
+            late_marker_before_publish: None,
+            legacy_markers: Default::default(),
+            replace_legacy_before_publish: None,
             verification_failure: false,
             clear_result: true,
             clear_failure: false,
@@ -104,6 +118,26 @@ impl FakeEndpoint {
 
 impl BindingEndpoint for FakeEndpoint {
     type Error = EndpointFailure;
+
+    fn publication_owner(
+        &mut self,
+    ) -> Result<Option<tmt_core::endpoint::ProcessIncarnation>, Self::Error> {
+        if let Some(callback) = self.after_owner.take() {
+            callback();
+        }
+        Ok(Some(
+            tmt_core::endpoint::ProcessIncarnation::new(42, "test-publisher").unwrap(),
+        ))
+    }
+    fn publication_liveness(
+        &mut self,
+        _: &tmt_core::endpoint::ProcessIncarnation,
+    ) -> Result<tmt_core::binding::session::RuntimeLiveness, Self::Error> {
+        Ok(self.publisher_liveness)
+    }
+    fn publication_time_ms(&self) -> Option<u64> {
+        Some(self.publication_time_ms)
+    }
 
     fn current_host(&self) -> tmt_core::host::HostKind {
         self.server.host
@@ -173,7 +207,63 @@ impl BindingEndpoint for FakeEndpoint {
         }
         self.publish_calls += 1;
         self.pane_mut(&binding.pane_id).marker = Some(binding.marker(identity));
+        if let Some(after_publish) = self.after_publish.take() {
+            after_publish();
+        }
         Ok(())
+    }
+
+    fn legacy_marker(
+        &mut self,
+        _: &ServerEvidence,
+        pane_id: &str,
+    ) -> Result<Option<String>, Self::Error> {
+        Ok(self.legacy_markers.get(pane_id).cloned())
+    }
+
+    fn publish_if_legacy(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected_raw: &str,
+    ) -> Result<bool, Self::Error> {
+        if let Some(replacement) = self.replace_legacy_before_publish.take() {
+            self.legacy_markers
+                .insert(binding.pane_id.clone(), replacement);
+        }
+        if self
+            .legacy_markers
+            .get(&binding.pane_id)
+            .map(String::as_str)
+            != Some(expected_raw)
+        {
+            return Ok(false);
+        }
+        self.legacy_markers.remove(&binding.pane_id);
+        self.publish(binding, identity).map(|()| true)
+    }
+
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+    ) -> Result<bool, Self::Error> {
+        if self.legacy_markers.contains_key(&binding.pane_id) {
+            return Ok(false);
+        }
+        if let Some(late) = self.late_marker_before_publish.take() {
+            self.pane_mut(&binding.pane_id).marker = Some(late);
+        }
+        let current = self
+            .pane_mut(&binding.pane_id)
+            .marker
+            .as_ref()
+            .map(|marker| marker.binding_id.clone());
+        if current.as_deref() != expected && current.as_deref() != Some(binding.id.as_str()) {
+            return Ok(false);
+        }
+        self.publish(binding, identity).map(|()| true)
     }
 
     fn clear(&mut self, binding: &Binding, _: &Identity) -> Result<bool, Self::Error> {

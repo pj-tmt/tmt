@@ -1382,6 +1382,10 @@ impl<R: CommandRunner> BindingSession<'_, R> {
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = HostError;
 
+    fn cleanup_failed(&self, error: &Self::Error) -> bool {
+        error.cleanup_failed()
+    }
+
     fn current_host(&self) -> HostKind {
         self.primary
     }
@@ -1396,6 +1400,23 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
             HostKind::Tmux => driver::HostDriver::budget_available(&self.tmux),
             HostKind::External(_) => self.external.budget_available(),
         }
+    }
+
+    fn publication_owner(
+        &mut self,
+    ) -> Result<Option<tmt_core::endpoint::ProcessIncarnation>, Self::Error> {
+        BindingEndpoint::publication_owner(&mut self.tmux).map_err(HostError::from)
+    }
+
+    fn publication_liveness(
+        &mut self,
+        publisher: &tmt_core::endpoint::ProcessIncarnation,
+    ) -> Result<tmt_core::binding::session::RuntimeLiveness, Self::Error> {
+        BindingEndpoint::publication_liveness(&mut self.tmux, publisher).map_err(HostError::from)
+    }
+
+    fn publication_time_ms(&self) -> Option<u64> {
+        BindingEndpoint::publication_time_ms(&self.tmux)
     }
 
     fn current_snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, Self::Error> {
@@ -1414,8 +1435,53 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         self.driver(binding.server.host).publish(binding, identity)
     }
 
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+    ) -> Result<bool, Self::Error> {
+        self.driver(binding.server.host)
+            .publish_if(binding, identity, expected)
+    }
+
+    fn legacy_marker(
+        &mut self,
+        server: &ServerEvidence,
+        pane_id: &str,
+    ) -> Result<Option<String>, Self::Error> {
+        if server.host == HostKind::Tmux {
+            BindingEndpoint::legacy_marker(&mut self.tmux, server, pane_id).map_err(HostError::from)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn publish_if_legacy(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected_raw: &str,
+    ) -> Result<bool, Self::Error> {
+        if binding.server.host == HostKind::Tmux {
+            BindingEndpoint::publish_if_legacy(&mut self.tmux, binding, identity, expected_raw)
+                .map_err(HostError::from)
+        } else {
+            Ok(false)
+        }
+    }
+
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error> {
         self.driver(binding.server.host).clear(binding, identity)
+    }
+
+    fn clear_if_owned(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+    ) -> Result<bool, Self::Error> {
+        self.driver(binding.server.host)
+            .clear_if_owned(binding, identity)
     }
 
     fn pane_incarnation(

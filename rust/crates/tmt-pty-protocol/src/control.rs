@@ -12,6 +12,8 @@ const ENTER: u8 = 0x25;
 const AWAIT_LAUNCH: u8 = 0x26;
 const LAUNCH_READY: u8 = 0x27;
 const WAIT_LAUNCHER: u8 = 0x28;
+const PUBLISH_IF: u8 = 0x29;
+const CAPABILITIES: u8 = 0x2a;
 const STATE: u8 = 0xa0;
 const APPLIED: u8 = 0xa1;
 const SCREEN: u8 = 0xa2;
@@ -24,9 +26,19 @@ const MARKER_LIMIT: usize = 2048;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Control {
     Inspect,
+    /// Ask whether conditional publication is supported.
+    Capabilities,
+    /// Legacy v1 publication frame, retained for existing clients.
     Publish {
         pane_pid: u32,
         key: String,
+        marker: String,
+    },
+    /// Conditional publication; None expects an empty marker.
+    PublishIf {
+        pane_pid: u32,
+        key: String,
+        expected_key: Option<String>,
         marker: String,
     },
     Clear {
@@ -105,7 +117,9 @@ impl Frame for Control {
     fn kind(&self) -> u8 {
         match self {
             Self::Inspect => INSPECT,
+            Self::Capabilities => CAPABILITIES,
             Self::Publish { .. } => PUBLISH,
+            Self::PublishIf { .. } => PUBLISH_IF,
             Self::Clear { .. } => CLEAR,
             Self::Capture => CAPTURE,
             Self::Paste(_) => PASTE,
@@ -126,10 +140,22 @@ impl Frame for Control {
                 put(out, key);
                 put(out, marker);
             }
+            Self::PublishIf {
+                pane_pid,
+                key,
+                expected_key,
+                marker,
+            } => {
+                out.extend_from_slice(&pane_pid.to_be_bytes());
+                put(out, key);
+                put(out, marker);
+                put(out, expected_key.as_deref().unwrap_or(""));
+            }
             Self::Clear { key } => put(out, key),
             Self::Paste(bytes) => out.extend_from_slice(bytes),
             Self::LaunchReady { pane_pid } => out.extend_from_slice(&pane_pid.to_be_bytes()),
             Self::Inspect
+            | Self::Capabilities
             | Self::Capture
             | Self::Enter
             | Self::AwaitLaunch
@@ -139,6 +165,7 @@ impl Frame for Control {
     fn read(kind: u8, mut bytes: &[u8]) -> Result<Self, ProtocolError> {
         let value = match kind {
             INSPECT => Self::Inspect,
+            CAPABILITIES => Self::Capabilities,
             CAPTURE => Self::Capture,
             ENTER => Self::Enter,
             AWAIT_LAUNCH => Self::AwaitLaunch,
@@ -150,17 +177,27 @@ impl Frame for Control {
                 }
                 Self::LaunchReady { pane_pid }
             }
-            PUBLISH => {
+            PUBLISH | PUBLISH_IF => {
                 let pane_pid = u32::from_be_bytes(take(&mut bytes, 4)?.try_into().unwrap());
                 if pane_pid == 0 {
                     return Err(malformed());
                 }
                 let key = nonempty(string(&mut bytes, KEY_LIMIT)?)?;
                 let marker = nonempty(string(&mut bytes, MARKER_LIMIT)?)?;
-                Self::Publish {
-                    pane_pid,
-                    key,
-                    marker,
+                if kind == PUBLISH {
+                    Self::Publish {
+                        pane_pid,
+                        key,
+                        marker,
+                    }
+                } else {
+                    let expected = string(&mut bytes, KEY_LIMIT)?;
+                    Self::PublishIf {
+                        pane_pid,
+                        key,
+                        expected_key: (!expected.is_empty()).then_some(expected),
+                        marker,
+                    }
                 }
             }
             CLEAR => Self::Clear {

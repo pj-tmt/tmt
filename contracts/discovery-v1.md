@@ -124,11 +124,13 @@ scan; native server replacement still requires rescan. A changed process,
 marker or admission input requires rescan. Missing/unknown native or ownership
 evidence cannot authorize adoption.
 
-Guarded add reobserves before storage initialization and twice inside the
-binding transaction before identity creation/promotion, server-marker
-initialization or publication. Native target and ownership checks remain in the
-shared binding/publication path. It refuses live ownership elsewhere and never
-steals a pane. With a fresh matching expectation, the same UUID/target returns
+Guarded add reobserves before storage initialization and twice before the
+short binding reservation transaction. The transaction compares the captured
+identity, binding, publication and pane ownership records; host snapshots and
+process observations do not run while it holds the writer. Native target and
+ownership checks remain in the shared binding/publication path. Publication
+and verification run after the reservation commits. It refuses live ownership
+elsewhere and never steals a pane. With a fresh matching expectation, the same UUID/target returns
 `already_bound` without a second binding or publication; an older pre-adoption
 expectation refuses. No name lookup is used for UUID authority.
 
@@ -148,10 +150,12 @@ keeps the binding; a naming child that cannot be cleaned up is `CLEANUP_ERROR`
 with status `partial`. Failed JSON adds `status:refused|partial` and `pane` to the
 existing error document. Refusal before admitted host effects leaves identities,
 bindings and markers unchanged. Failure after admission may leave host effects;
-refusals returned inside the SQL transaction roll back its identity/binding
-mutations, and commit/close uncertainty is reported as `partial`. The result never
-claims rollback of host publication or a confirmed SQL commit after an error. The command never replays a
-partial attempt. Each invocation owns one item's result; a consumer issuing
+refusals returned inside the reservation transaction roll back its identity/binding
+mutations. Publication or verification failures after commit remove only the
+exact still-owned reservation in another short transaction; a committed identity
+is retained. Commit, close or host-effect uncertainty is reported as
+`partial`. The result never claims rollback of host publication or a confirmed SQL
+commit after an error. The command never replays a partial attempt. Each invocation owns one item's result; a consumer issuing
 several requests retains their individual results.
 
 Invalid selectors/digest syntax are `USAGE_ERROR`. Drift uses `PANE_CHANGED`

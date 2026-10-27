@@ -6,6 +6,10 @@ use crate::Op;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 /// What a driver answers to `capabilities`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +32,9 @@ pub struct Capabilities {
     /// The environment variables `caller` reads; core passes only these.
     #[serde(default)]
     pub caller_env: Vec<String>,
+    /// The driver atomically enforces `expectedBindingId` on publication.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub conditional_publish: bool,
     /// The argv that opens a new pane in a session and runs a command there, with the whole
     /// words `{session}` and `{command}`; `None`, left out of the JSON, when the host
     /// publishes none.
@@ -140,7 +147,7 @@ pub struct Pane {
     pub agent_name: Option<String>,
     /// True when the pane carries the mark a launch template leaves on a pane it opened.
     /// Left out of the JSON when false. It is evidence of intent, never authority.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub opened_by_tmt: bool,
     /// The marker `publish` stored, returned as stored.
     pub marker: Option<Marker>,
@@ -184,6 +191,10 @@ pub struct PublishRequest {
     pub pane_id: String,
     /// Refuse with `not_found` unless the pane still runs this shell.
     pub pane_pid: u64,
+    /// When present, compare the marker with this ID; empty means no marker.
+    /// The new binding's own ID also permits an idempotent retry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_binding_id: Option<String>,
     pub marker: Marker,
 }
 
@@ -462,20 +473,19 @@ pub enum ErrorCode {
     /// `prompt` and `name-agent` only: the agent can't take a prompt or a
     /// name now.
     NotReady,
-    /// `name-agent` only: the host refused the agent name, for example by
-    /// its rule for names or because another agent has it. Nothing changed.
+    /// A name-agent refusal, or a conditional publication whose marker
+    /// precondition did not match. Nothing changed.
     Refused,
 }
 
 impl ErrorCode {
-    /// Whether this code may answer `op`. The agent and name codes answer
-    /// only the operations that address an agent; every other code answers
-    /// any operation.
+    /// Whether this code may answer `op`. Agent-state codes are limited to
+    /// agent operations; refusal also covers conditional publication.
     pub const fn answers(self, op: Op) -> bool {
         match self {
             Self::NoAgent | Self::NotReady => matches!(op, Op::Prompt | Op::NameAgent),
             Self::Blocked => matches!(op, Op::Prompt),
-            Self::Refused => matches!(op, Op::NameAgent),
+            Self::Refused => matches!(op, Op::NameAgent | Op::Publish),
             Self::Unsupported
             | Self::BadRequest
             | Self::Unavailable
@@ -538,6 +548,60 @@ mod tests {
         let response: Response<ClearResponse> =
             serde_json::from_value(json!({"ok": {"cleared": false, "later": true}})).unwrap();
         assert_eq!(response, Response::Ok(ClearResponse { cleared: false }));
+    }
+
+    #[test]
+    fn conditional_publication_is_opt_in_and_old_requests_stay_unchanged() {
+        let legacy = json!({
+            "protocols": [1], "kind": "host", "name": "test", "version": "1",
+            "ops": ["publish"], "paneId": {"prefix": "term_"},
+        });
+        let capabilities: Capabilities = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(!capabilities.conditional_publish);
+        assert!(
+            serde_json::to_value(&capabilities)
+                .unwrap()
+                .get("conditionalPublish")
+                .is_none()
+        );
+        let mut modern = legacy;
+        modern["conditionalPublish"] = json!(true);
+        assert!(
+            serde_json::from_value::<Capabilities>(modern)
+                .unwrap()
+                .conditional_publish
+        );
+        let marker = Marker {
+            name: "A".into(),
+            canonical_name: "a".into(),
+            identity_id: "i".into(),
+            binding_id: "b".into(),
+            server_id: "s".into(),
+            pane_pid: 1,
+        };
+        let mut request = PublishRequest {
+            socket: "/s".into(),
+            pane_id: "term_1".into(),
+            pane_pid: 1,
+            expected_binding_id: None,
+            marker,
+        };
+        assert!(
+            serde_json::to_value(&request)
+                .unwrap()
+                .get("expectedBindingId")
+                .is_none()
+        );
+        request.expected_binding_id = Some(String::new());
+        assert_eq!(
+            serde_json::to_value(&request).unwrap()["expectedBindingId"],
+            ""
+        );
+        request.expected_binding_id = Some("stale".into());
+        assert_eq!(
+            serde_json::to_value(&request).unwrap()["expectedBindingId"],
+            "stale"
+        );
     }
 
     /// A driver built before `agentName` leaves it out; a core built before

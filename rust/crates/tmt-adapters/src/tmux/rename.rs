@@ -237,7 +237,7 @@ fn literal(value: &str) -> String {
         .replace(',', "#,")
         .replace('}', "#}")
 }
-fn equal(key: &str, value: &str) -> String {
+pub(super) fn equal(key: &str, value: &str) -> String {
     format!("#{{==:#{{{key}}},{}}}", literal(value))
 }
 fn empty_or_equal(key: &str, value: &str) -> String {
@@ -245,7 +245,7 @@ fn empty_or_equal(key: &str, value: &str) -> String {
 }
 // tmux's command parser accepts octal bytes in double quotes. Encoding every
 // byte prevents expansion, statement separators and syntax from stored text.
-fn word(value: &str) -> String {
+pub(super) fn word(value: &str) -> String {
     use std::fmt::Write;
     let mut result = String::from("\"");
     for byte in value.bytes() {

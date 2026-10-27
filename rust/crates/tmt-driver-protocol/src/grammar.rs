@@ -142,6 +142,7 @@ pub(crate) mod tests {
             },
             target: Some("w{n}:p{n}".into()),
             caller_env: vec!["HERDR_PANE_ID".into(), "HERDR_SOCKET_PATH".into()],
+            conditional_publish: false,
             launch: None,
         }
     }

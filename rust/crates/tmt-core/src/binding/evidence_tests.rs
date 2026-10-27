@@ -373,3 +373,54 @@ fn a_marker_still_carrying_the_name_before_a_rename_stays_active() {
         BindingEvidence::Active(Box::new(expected))
     );
 }
+
+#[test]
+fn publication_is_recoverable_only_after_expiry_or_proven_death() {
+    use super::{BindingReservation, session::RuntimeLiveness};
+    let (_, binding, _) = fixture("Alice");
+    let publication = BindingReservation {
+        target: binding,
+        old_binding_id: None,
+        expected_binding_id: None,
+        publisher: crate::endpoint::ProcessIncarnation::new(42, "start").unwrap(),
+        created_at_ms: 100,
+        expires_at_ms: 10_100,
+    };
+    assert!(!publication.is_stale(10_099, RuntimeLiveness::Alive));
+    assert!(!publication.is_stale(10_099, RuntimeLiveness::Unknown));
+    assert!(publication.is_stale(10_099, RuntimeLiveness::Gone));
+    assert!(publication.is_stale(10_100, RuntimeLiveness::Unknown));
+}
+
+#[test]
+fn publication_never_starts_without_a_full_budget_and_lease_margin() {
+    let (_, binding, _) = fixture("Alice");
+    let publication = super::BindingReservation {
+        target: binding,
+        old_binding_id: None,
+        expected_binding_id: None,
+        publisher: crate::endpoint::ProcessIncarnation::new(42, "start").unwrap(),
+        created_at_ms: 100,
+        expires_at_ms: 10_100,
+    };
+    assert!(super::operations::publication_can_start(
+        &publication,
+        6_100,
+        true
+    ));
+    assert!(!super::operations::publication_can_start(
+        &publication,
+        6_101,
+        true
+    ));
+    assert!(!super::operations::publication_can_start(
+        &publication,
+        100,
+        false
+    ));
+    assert!(!super::operations::publication_can_start(
+        &publication,
+        u64::MAX,
+        true
+    ));
+}

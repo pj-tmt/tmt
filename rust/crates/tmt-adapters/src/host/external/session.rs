@@ -559,6 +559,21 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
     }
 
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), HostError> {
+        if self.publish_if(binding, identity, None)? {
+            Ok(())
+        } else {
+            Err(HostError::Evidence {
+                driver: self.process.name().into(),
+                reason: "marker changed before publication",
+            })
+        }
+    }
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+    ) -> Result<bool, HostError> {
         let marker = binding.marker(identity);
         let answer = self
             .process
@@ -568,6 +583,10 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
                     socket: binding.server.socket_path.clone(),
                     pane_id: binding.pane_id.clone(),
                     pane_pid: binding.pane_pid,
+                    expected_binding_id: self
+                        .process
+                        .conditional_publish()
+                        .then(|| expected.unwrap_or("").to_owned()),
                     marker: Marker {
                         name: marker.name,
                         canonical_name: marker.canonical_name,
@@ -580,7 +599,16 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
                 self.deadline,
             )
             .map_err(HostError::Driver)?;
-        answer.map_err(|error| refused(&self.process, error))
+        match answer {
+            Ok(()) => Ok(true),
+            Err(error)
+                if self.process.conditional_publish()
+                    && error.code == tmt_driver_protocol::ErrorCode::Refused =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(refused(&self.process, error)),
+        }
     }
 
     /// The agent name goes before the marker, since the driver acts only on a

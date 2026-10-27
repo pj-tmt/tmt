@@ -237,6 +237,15 @@ if [ "${'$'}tmux_command" = "set-option" ]; then
   if [ "${'$'}unset_metadata" = "1" ] || [ "${'$'}pane_metadata" = "0" ]; then
     metadata_write=0
   fi
+elif [ "${'$'}tmux_command" = "if-shell" ]; then
+  # Binding publication uses a conditional tmux command. Match only its
+  # concrete set-option branch, not the comparison or unrelated if-shells.
+  for arg in "${'$'}@"; do
+    case "${'$'}arg" in
+      "set-option -p -t "*" @tmt.agent "*) metadata_write=1 ;;
+      "set-option -pu -t "*" @tmt.agent") metadata_clear=1 ;;
+    esac
+  done
 fi
 if [ -z "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ] && [ -z "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ] && [ -z "${'$'}{TMT_E2E_TRANSPORT_TRACE_FILE:-}" ]; then
   exec ${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"

@@ -803,6 +803,10 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
         r"printf '\033[2J\033[Hscreen-ready'; read line; printf '\033[2J\033[Hfresh-screen'; read line",
     ]);
     let mut client = member.connect();
+    assert_eq!(
+        client.control(Control::Capabilities, WAIT).unwrap(),
+        ControlReply::Applied(true)
+    );
     let deadline = Instant::now() + WAIT;
     loop {
         if let ControlReply::Screen(screen) = client.control(Control::Capture, WAIT).unwrap()
@@ -819,9 +823,10 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
     assert_eq!(
         client
             .control(
-                Control::Publish {
+                Control::PublishIf {
                     pane_pid: member.pid + 1,
                     key: "first".into(),
+                    expected_key: None,
                     marker: "bad".into()
                 },
                 WAIT
@@ -832,15 +837,31 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
     assert_eq!(
         client
             .control(
-                Control::Publish {
+                Control::PublishIf {
                     pane_pid: member.pid,
                     key: "first".into(),
+                    expected_key: None,
                     marker: "correct".into()
                 },
                 WAIT
             )
             .unwrap(),
         ControlReply::Applied(true)
+    );
+    // A delayed publisher must not replace a different live binding.
+    assert_eq!(
+        client
+            .control(
+                Control::PublishIf {
+                    pane_pid: member.pid,
+                    key: "stale".into(),
+                    expected_key: None,
+                    marker: "stale marker".into(),
+                },
+                WAIT,
+            )
+            .unwrap(),
+        ControlReply::Applied(false)
     );
     assert_eq!(
         client
@@ -865,6 +886,38 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
     assert_eq!(pane_pid, member.pid);
     assert_eq!(marker.as_deref(), Some("correct"));
     assert_eq!(key_idle_ms, None);
+    assert_eq!(
+        client
+            .control(
+                Control::PublishIf {
+                    pane_pid: member.pid,
+                    key: "successor".into(),
+                    expected_key: Some("first".into()),
+                    marker: "successor marker".into(),
+                },
+                WAIT
+            )
+            .unwrap(),
+        ControlReply::Applied(true)
+    );
+    assert_eq!(
+        client
+            .control(
+                Control::PublishIf {
+                    pane_pid: member.pid,
+                    key: "stale".into(),
+                    expected_key: Some("first".into()),
+                    marker: "stale marker".into(),
+                },
+                WAIT
+            )
+            .unwrap(),
+        ControlReply::Applied(false)
+    );
+    let ControlReply::State { marker, .. } = client.control(Control::Inspect, WAIT).unwrap() else {
+        panic!("missing state")
+    };
+    assert_eq!(marker.as_deref(), Some("successor marker"));
     client.control(Control::Enter, WAIT).unwrap();
     loop {
         if let ControlReply::Screen(screen) = client.control(Control::Capture, WAIT).unwrap()
@@ -880,7 +933,7 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
     client
         .control(
             Control::Clear {
-                key: "first".into(),
+                key: "successor".into(),
             },
             WAIT,
         )
@@ -1038,9 +1091,10 @@ fn launch_preparation_waits_for_a_listener_and_readiness_carries_the_committed_m
     assert_eq!(launcher.receive(Duration::from_millis(10)).unwrap(), None);
     wrapper
         .control(
-            Control::Publish {
+            Control::PublishIf {
                 pane_pid: member.pid,
                 key: "binding".into(),
+                expected_key: None,
                 marker: "committed-marker".into(),
             },
             WAIT,

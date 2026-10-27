@@ -6,7 +6,6 @@ import { withE2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';
 import { installTmuxTrace } from './tmux-trace.js';
-import { processTreeHasOpenFile } from './process-file-oracle.js';
 
 const inputLog = { mode: 'input-log' } as const;
 
@@ -93,7 +92,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
     }, inputLog);
   });
 
-  it('coordinates a concurrent global observer with uncommitted publication and rechecks after lock acquisition', async () => {
+  it('shows a reserved identity offline during publication and active after activation', async () => {
     await withE2EFixture(async (fixture) => {
       fixture.enableMetadataBarrier({ phase: 'after' });
       const binder = fixture.runCliProcess<Bound>(['--json', 'name', 'Concurrent']);
@@ -104,22 +103,15 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
       // Outside context avoids the harness's own pane-session lookup entering
       // this CLI-only trace; global observation itself needs no caller pane.
       const observer = fixture.runCliProcess<Listing>(['--json', 'ls'], { outsideTmux: true });
-      let settled = false;
-      void observer.result.then(() => {
-        settled = true;
-      });
-      await fixture.waitFor(
-        () =>
-          !settled && processTreeHasOpenFile(observer.pid, path.join(fixture.globalDir, 'tmt.db')),
-        900,
-        'native observer to open the locked database'
-      );
-      expect(settled).toBe(false);
+      const pending = expectJsonResult(await observer.result);
+      expect(pending.identities).toEqual([
+        expect.objectContaining({ name: 'Concurrent', presence: 'offline', pane: null }),
+      ]);
       expect(trace.invocations()).toEqual([]);
       expect(durableState(fixture).bindings).toEqual([]);
       fixture.releaseMetadataBarrier();
       const bound = expectJsonResult(await binder.result);
-      expect(expectJsonResult(await observer.result).identities).toEqual([
+      expect(expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities).toEqual([
         expect.objectContaining({ id: bound.id, presence: 'active', pane: fixture.pane }),
       ]);
       expect(durableState(fixture).bindings).toEqual([

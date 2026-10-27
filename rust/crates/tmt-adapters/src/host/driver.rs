@@ -47,8 +47,27 @@ pub trait HostDriver {
 
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), HostError>;
 
+    /// Conditional publish; legacy external drivers may only verify afterwards.
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        _expected: Option<&str>,
+    ) -> Result<bool, HostError> {
+        self.publish(binding, identity).map(|()| true)
+    }
+
     /// Removes the binding's marker if the pane still carries it.
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, HostError>;
+
+    /// Clear only this binding, atomically on hosts that support it.
+    fn clear_if_owned(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+    ) -> Result<bool, HostError> {
+        self.clear(binding, identity)
+    }
 
     /// Runtime liveness in a verified binding's pane.
     fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, CommandError>;

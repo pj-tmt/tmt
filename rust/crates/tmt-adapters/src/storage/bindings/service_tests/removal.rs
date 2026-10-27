@@ -269,6 +269,8 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
             "binding",
             "occupied",
             "partial",
+            "concurrent-preferences",
+            "concurrent-binding-change",
         ] {
             let fixture = Fixture::new();
             let mut storage = fixture.open();
@@ -382,6 +384,53 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
                 "partial" => {
                     endpoint.publish_failure = true;
                 }
+                "concurrent-binding-change" => {
+                    let database = fixture.database.clone();
+                    let binding = captured.clone();
+                    endpoint.after_publish = Some(Box::new(move || {
+                        let mut other = crate::storage::Storage::open(&database).unwrap();
+                        other
+                            .with_binding_transaction::<_, crate::storage::StorageError>(
+                                |records| {
+                                    let mut changed = binding.session.clone();
+                                    changed.state =
+                                        tmt_core::binding::session::RuntimeState::Unknown;
+                                    assert!(records.set_session_state(
+                                        &binding.id,
+                                        &binding.session,
+                                        &changed
+                                    )?);
+                                    Ok(())
+                                },
+                            )
+                            .unwrap();
+                        other.close().unwrap();
+                    }));
+                }
+                "concurrent-preferences" => {
+                    let database = fixture.database.clone();
+                    let identity_id = identity.id.clone();
+                    endpoint.after_publish = Some(Box::new(move || {
+                        let mut other = crate::storage::Storage::open(&database).unwrap();
+                        other
+                            .with_binding_transaction::<_, crate::storage::StorageError>(
+                                |records| {
+                                    let entry = records.entry_by_id(&identity_id)?.unwrap();
+                                    assert_eq!(
+                                        entry.binding.unwrap().pane_id,
+                                        "%1",
+                                        "old binding remains owned until target activation"
+                                    );
+                                    let mut preferences =
+                                        records.session_preferences(&identity_id)?;
+                                    preferences.channel = Some(true);
+                                    records.set_session_preferences(&identity_id, &preferences)
+                                },
+                            )
+                            .unwrap();
+                        other.close().unwrap();
+                    }));
+                }
                 _ => (),
             }
             let before =
@@ -397,14 +446,18 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
                 &process,
                 &target,
             );
-            let succeeds = matches!(case, "move" | "settled");
+            let succeeds = matches!(case, "move" | "settled" | "concurrent-preferences");
             assert_eq!(result.is_ok(), succeeds, "{saved}/{case}: {result:?}");
             let after =
                 crate::storage::Storage::context_by_identity(&fixture.database, &identity.id, 0)
                     .unwrap()
                     .unwrap();
             assert_eq!(after.entry.identity, identity);
-            assert_eq!(after.preferences, before.preferences, "{case}");
+            let mut expected_preferences = before.preferences.clone();
+            if case == "concurrent-preferences" {
+                expected_preferences.channel = Some(true);
+            }
+            assert_eq!(after.preferences, expected_preferences, "{case}");
             assert_eq!(
                 state_counts(storage.connection().unwrap(), &identity.id),
                 counts,
@@ -440,10 +493,28 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
                     identity.id
                 );
             } else {
-                assert_eq!(after.entry, before.entry, "{case}");
+                if case == "concurrent-binding-change" {
+                    assert_eq!(after.entry.binding.as_ref().unwrap().id, captured.id);
+                    assert_eq!(endpoint.clear_calls, clears + 1);
+                    assert!(endpoint.pane_mut("%2").marker.is_none());
+                    assert_eq!(
+                        endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+                        captured.id
+                    );
+                } else {
+                    assert_eq!(after.entry, before.entry, "{case}");
+                }
                 if case == "partial" {
                     assert!(matches!(result, Err(BindingError::Partial(_))));
-                } else {
+                    assert_eq!(
+                        endpoint.clear_calls, clears,
+                        "failed target publication must not clear the old pane"
+                    );
+                    assert_eq!(
+                        endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+                        captured.id
+                    );
+                } else if case != "concurrent-binding-change" {
                     assert_eq!(endpoint.clear_calls, clears, "{case}");
                 }
             }

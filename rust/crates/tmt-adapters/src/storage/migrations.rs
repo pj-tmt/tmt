@@ -402,6 +402,10 @@ const MIGRATIONS: &[Migration] = &[
         "name a Stop rejected without an admitted start",
         "schema/082.sql"
     ),
+    migration!(
+        "reserve binding publication outside the writer",
+        "schema/083.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
@@ -908,6 +912,57 @@ fn backfill_retention(connection: &Connection) -> Result<(), StorageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn binding_reservation_migration_preserves_active_binding_and_enforces_fences() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .unwrap();
+        apply_through(&mut connection, MIGRATIONS.len() - 1).unwrap();
+        connection.execute_batch(
+            "INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES
+                ('one', 'One', 'one', 'now', 'now'), ('two', 'Two', 'two', 'now', 'now');
+             INSERT INTO bindings (id, identity_id, transport, pane_id, server_id, socket_path,
+                server_pid, server_start_time, pane_pid, bound_at, last_verified_at)
+             VALUES ('active', 'one', 'tmux', '%1', 'server', '/private/socket', 1, 'start', 2, 'now', 'now');"
+        ).unwrap();
+        apply(&mut connection).unwrap();
+        assert_eq!(validate_history(&connection).unwrap(), MIGRATIONS.len());
+        let active: String = connection
+            .query_row(
+                "SELECT id FROM bindings WHERE identity_id = 'one'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, "active");
+        let insert = "INSERT INTO binding_reservations (target_binding_id, identity_id, transport, server_id,
+            socket_path, server_pid, server_start_time, pane_id, pane_pid, publisher_pid,
+            publisher_start, created_at_ms, expires_at_ms)
+            VALUES (?1, ?2, 'tmux', 'server', '/private/socket', 1, 'start', ?3, 2, 3, 'publisher', 100, 10000)";
+        connection
+            .execute(insert, params!["reserved", "one", "%2"])
+            .unwrap();
+        assert!(
+            connection
+                .execute(insert, params!["same-identity", "one", "%3"])
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(insert, params!["same-pane", "two", "%2"])
+                .is_err()
+        );
+        let active: String = connection
+            .query_row(
+                "SELECT id FROM bindings WHERE identity_id = 'one'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, "active");
+    }
 
     #[test]
     fn historical_deadlines_saturate_but_do_not_accept_invalid_anchors() {

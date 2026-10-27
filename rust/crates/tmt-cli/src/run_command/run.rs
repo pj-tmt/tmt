@@ -425,7 +425,7 @@ pub(super) fn run_bound(
     } else if auto_named {
         binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)
     } else {
-        binding::bind_identity_with_creation(storage, &mut host.session(), pane, name, save)
+        binding::bind_runtime_identity_with_creation(storage, &mut host.session(), pane, name, save)
     }
     .map_err(binding_failure)?;
     if moving {

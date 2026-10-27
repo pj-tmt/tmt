@@ -159,6 +159,14 @@ impl<R: CommandRunner, D> DriverProcess<R, D> {
         &self.grammar
     }
 
+    /// Only an explicitly approved host declaration enables conditional publish.
+    pub fn conditional_publish(&self) -> bool {
+        self.record
+            .capabilities
+            .host()
+            .is_some_and(|host| host.conditional_publish)
+    }
+
     /// Whether the driver declared `op`; any other op answers `unsupported`.
     pub fn supports(&self, op: Op) -> bool {
         self.record

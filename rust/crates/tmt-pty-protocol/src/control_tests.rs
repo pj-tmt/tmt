@@ -11,6 +11,7 @@ fn round_trip<F: Frame + PartialEq + std::fmt::Debug>(value: F) {
 fn core_controls_round_trip_separately_from_attach_frames() {
     for request in [
         Control::Inspect,
+        Control::Capabilities,
         Control::AwaitLaunch,
         Control::WaitLauncher,
         Control::LaunchReady { pane_pid: 123 },
@@ -18,6 +19,12 @@ fn core_controls_round_trip_separately_from_attach_frames() {
         Control::Publish {
             pane_pid: 123,
             key: "binding".into(),
+            marker: "marker".into(),
+        },
+        Control::PublishIf {
+            pane_pid: 123,
+            key: "binding".into(),
+            expected_key: None,
             marker: "marker".into(),
         },
         Control::Clear {
@@ -86,4 +93,17 @@ fn a_core_paste_is_one_bounded_frame_even_above_the_keystroke_chunk_size() {
         MAX_PAYLOAD
     ])));
     assert!(Control::read(0x24, &vec![b'x'; MAX_PAYLOAD + 1]).is_err());
+}
+
+#[test]
+fn legacy_publish_keeps_its_original_frame_bytes() {
+    let frame = ClientMessage::Control(Control::Publish {
+        pane_pid: 123,
+        key: "b".into(),
+        marker: "m".into(),
+    });
+    assert_eq!(
+        frame.encode(),
+        vec![0x21, 0, 0, 0, 10, 0, 0, 0, 123, 0, 1, b'b', 0, 1, b'm']
+    );
 }

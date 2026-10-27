@@ -120,6 +120,18 @@ impl<F: FnOnce()> BindingEndpoint for HeldHost<F> {
     fn budget_available(&self) -> bool {
         self.inner.budget_available()
     }
+    fn publication_owner(&mut self) -> Result<Option<ProcessIncarnation>, Self::Error> {
+        self.inner.publication_owner()
+    }
+    fn publication_liveness(
+        &mut self,
+        publisher: &ProcessIncarnation,
+    ) -> Result<tmt_core::binding::session::RuntimeLiveness, Self::Error> {
+        self.inner.publication_liveness(publisher)
+    }
+    fn publication_time_ms(&self) -> Option<u64> {
+        self.inner.publication_time_ms()
+    }
     fn current_host(&self) -> tmt_core::host::HostKind {
         self.inner.current_host()
     }
@@ -141,6 +153,17 @@ impl<F: FnOnce()> BindingEndpoint for HeldHost<F> {
             self.hold();
         }
         self.inner.publish(binding, identity)
+    }
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+    ) -> Result<bool, Self::Error> {
+        if matches!(self.mutation, Mutation::Bind) {
+            self.hold();
+        }
+        self.inner.publish_if(binding, identity, expected)
     }
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error> {
         self.hold();
@@ -229,9 +252,137 @@ fn resumed_hook(storage: &mut Storage, bound: &Binding) -> Result<bool, StorageE
 }
 
 #[test]
-fn binding_publication_allows_a_waiting_hook() {
-    mutation_admits_hook(Mutation::Bind);
+fn a_held_binding_publication_does_not_hold_the_sqlite_writer() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%9"]);
+    let hook_binding = launched_hook(&mut storage, &mut endpoint, "%9");
+    thread::scope(|scope| {
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let (start_tx, start_rx) = mpsc::sync_channel(1);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        let database = &fixture.database;
+        let worker = scope.spawn(move || {
+            let mut hook =
+                Storage::open_hook(database, Instant::now() + Duration::from_secs(10)).unwrap();
+            ready_tx.send(()).unwrap();
+            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            result_tx
+                .send(resumed_hook(&mut hook, &hook_binding))
+                .unwrap();
+            hook.close().unwrap();
+        });
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let mut held = HeldHost {
+            inner: endpoint,
+            mutation: Mutation::Bind,
+            gate: Some(|| {
+                start_tx.send(()).unwrap();
+                assert!(
+                    result_rx
+                        .recv_timeout(Duration::from_millis(50))
+                        .unwrap()
+                        .unwrap(),
+                    "unrelated hook writer did not commit while publication was held"
+                );
+            }),
+        };
+        mutation_bind(&mut storage, &mut held);
+        worker.join().unwrap();
+    });
 }
+
+fn mutation_bind(
+    storage: &mut Storage,
+    endpoint: &mut impl BindingEndpoint<Error = EndpointFailure>,
+) {
+    binding::bind_identity(storage, endpoint, "%1", "Target", false).unwrap();
+}
+#[test]
+fn presence_keeps_the_identity_and_reservation_while_publication_is_held() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let (start_tx, start_rx) = mpsc::sync_channel(1);
+    let (result_tx, result_rx) = mpsc::sync_channel(1);
+    thread::scope(|scope| {
+        let database = &fixture.database;
+        let worker = scope.spawn(move || {
+            let mut other = Storage::open(database).unwrap();
+            let mut endpoint = FakeEndpoint::new(&["%1"]);
+            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            let presence = binding::name_presence(&mut other, &mut endpoint, "First").unwrap();
+            let (entry, reservation) = other
+                .with_binding_transaction::<_, StorageError>(|records| {
+                    Ok((
+                        records.entry_by_id(&presence.identity.id)?,
+                        records.reservation_by_identity(&presence.identity.id)?,
+                    ))
+                })
+                .unwrap();
+            result_tx
+                .send((
+                    presence.presence,
+                    entry.unwrap().binding.is_none(),
+                    reservation.is_some(),
+                ))
+                .unwrap();
+            other.close().unwrap();
+        });
+        let mut first = HeldHost {
+            inner: FakeEndpoint::new(&["%1"]),
+            mutation: Mutation::Bind,
+            gate: Some(|| {
+                start_tx.send(()).unwrap();
+                let (presence, no_active_binding, still_reserved) =
+                    result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                assert_eq!(presence, binding::Presence::Offline);
+                assert!(
+                    no_active_binding && still_reserved,
+                    "presence must leave the in-flight reservation intact"
+                );
+            }),
+        };
+        binding::bind_identity(&mut storage, &mut first, "%1", "First", false).unwrap();
+        worker.join().unwrap();
+    });
+}
+
+#[test]
+fn competing_bind_that_observed_an_empty_pane_refuses_without_publishing() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let (start_tx, start_rx) = mpsc::sync_channel(1);
+    let (result_tx, result_rx) = mpsc::sync_channel(1);
+    thread::scope(|scope| {
+        let database = &fixture.database;
+        let worker = scope.spawn(move || {
+            let mut other = Storage::open(database).unwrap();
+            let mut endpoint = FakeEndpoint::new(&["%1"]);
+            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            let result = binding::bind_identity(&mut other, &mut endpoint, "%1", "Other", false);
+            result_tx
+                .send((
+                    matches!(result, Err(binding::BindingError::PaneAlreadyBound)),
+                    endpoint.publish_calls,
+                ))
+                .unwrap();
+            other.close().unwrap();
+        });
+        let mut first = HeldHost {
+            inner: FakeEndpoint::new(&["%1"]),
+            mutation: Mutation::Bind,
+            gate: Some(|| {
+                start_tx.send(()).unwrap();
+                let (refused, published) = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                assert!(refused, "the occupied row must refuse the competing bind");
+                assert_eq!(published, 0, "a refused bind must not publish");
+            }),
+        };
+        binding::bind_identity(&mut storage, &mut first, "%1", "First", false).unwrap();
+        worker.join().unwrap();
+    });
+}
+
 #[test]
 fn unbind_allows_a_waiting_hook() {
     mutation_admits_hook(Mutation::Unbind);

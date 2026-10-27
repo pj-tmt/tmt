@@ -2,7 +2,7 @@
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::{
-    binding::{Binding, BindingEntry, BindingRecords, BindingRepository},
+    binding::{Binding, BindingEntry, BindingRecords, BindingRepository, BindingReservation},
     endpoint::{PaneObservation, ProcessIncarnation, ServerEvidence, valid_process_id},
     host::HostKind,
     identity::{Identity, IdentityReader},
@@ -84,6 +84,67 @@ fn entry_row(row: &Row<'_>) -> rusqlite::Result<BindingEntry> {
         Some(binding_row(row, 6)?)
     };
     Ok(BindingEntry { identity, binding })
+}
+
+const RESERVATION_COLUMNS: &str = "target_binding_id, identity_id, old_binding_id, transport, server_id, socket_path, server_pid, server_start_time, pane_id, pane_pid, pane_incarnation, expected_binding_id, publisher_pid, publisher_start, created_at_ms, expires_at_ms";
+
+fn reservation_row(row: &Row<'_>) -> rusqlite::Result<BindingReservation> {
+    let publisher_pid = process_id_at(row, 12)?;
+    let publisher_start: String = row.get(13)?;
+    let publisher = ProcessIncarnation::new(publisher_pid, &publisher_start)
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let created_at_ms =
+        u64::try_from(row.get::<_, i64>(14)?).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let expires_at_ms =
+        u64::try_from(row.get::<_, i64>(15)?).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let reservation = BindingReservation {
+        target: Binding {
+            id: row.get(0)?,
+            identity_id: row.get(1)?,
+            server: ServerEvidence {
+                host: HostKind::parse(&row.get::<_, String>(3)?)
+                    .ok_or(rusqlite::Error::InvalidQuery)?,
+                server_id: row.get(4)?,
+                socket_path: row.get(5)?,
+                server_pid: process_id_at(row, 6)?,
+                server_start_time: row.get(7)?,
+            },
+            pane_id: row.get(8)?,
+            pane_pid: process_id_at(row, 9)?,
+            pane_incarnation: pane_incarnation_at(row, 10, 9)?,
+            session: Default::default(),
+        },
+        old_binding_id: row.get(2)?,
+        expected_binding_id: row.get(11)?,
+        publisher,
+        created_at_ms,
+        expires_at_ms,
+    };
+    if !valid_reservation(&reservation) {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(reservation)
+}
+
+fn valid_reservation(reservation: &BindingReservation) -> bool {
+    let target = &reservation.target;
+    tmt_core::dispatch::canonical_id(&target.id)
+        && tmt_core::dispatch::canonical_id(&target.identity_id)
+        && target.session == Default::default()
+        && target
+            .pane_incarnation
+            .as_ref()
+            .is_none_or(|start| ProcessIncarnation::new(target.pane_pid, start).is_ok())
+        && reservation
+            .old_binding_id
+            .as_ref()
+            .is_none_or(|id| tmt_core::dispatch::canonical_id(id))
+        && reservation
+            .expected_binding_id
+            .as_ref()
+            .is_none_or(|id| tmt_core::dispatch::canonical_id(id))
+        && reservation.created_at_ms <= reservation.expires_at_ms
+        && reservation.expires_at_ms <= tmt_core::limits::MAX_JS_SAFE_INTEGER
 }
 
 impl IdentityReader for BindingRows<'_> {
@@ -309,6 +370,117 @@ impl BindingRecords for BindingRows<'_> {
                 |row| binding_row(row, 0),
             )
             .map_err(|error| classify(error, "Create binding"))
+    }
+
+    fn binding_exists(&self, binding_id: &str) -> Result<bool, Self::Error> {
+        self.0.query_row(
+            "SELECT EXISTS(SELECT 1 FROM bindings WHERE id = ?) OR EXISTS(SELECT 1 FROM binding_reservations WHERE target_binding_id = ?)",
+            [binding_id, binding_id], |row| row.get(0),
+        ).map_err(|error| classify(error, "Check marker binding"))
+    }
+
+    fn reservation_by_target(
+        &self,
+        target_id: &str,
+    ) -> Result<Option<BindingReservation>, Self::Error> {
+        self.0.query_row(&format!("SELECT {RESERVATION_COLUMNS} FROM binding_reservations WHERE target_binding_id = ?"), [target_id], reservation_row)
+            .optional().map_err(|error| classify(error, "Read target reservation"))
+    }
+
+    fn reservation_by_identity(
+        &self,
+        identity_id: &str,
+    ) -> Result<Option<BindingReservation>, Self::Error> {
+        self.0
+            .query_row(
+                &format!(
+                    "SELECT {RESERVATION_COLUMNS} FROM binding_reservations WHERE identity_id = ?"
+                ),
+                [identity_id],
+                reservation_row,
+            )
+            .optional()
+            .map_err(|error| classify(error, "Read identity reservation"))
+    }
+
+    fn reservation_by_pane(
+        &self,
+        host: HostKind,
+        server_id: &str,
+        pane_id: &str,
+    ) -> Result<Option<BindingReservation>, Self::Error> {
+        self.0.query_row(&format!("SELECT {RESERVATION_COLUMNS} FROM binding_reservations WHERE transport = ? AND server_id = ? AND pane_id = ?"),
+            [host.as_str(), server_id, pane_id], reservation_row)
+            .optional().map_err(|error| classify(error, "Read pane reservation"))
+    }
+
+    fn begin_binding_reservation(
+        &mut self,
+        reservation: &BindingReservation,
+    ) -> Result<(), Self::Error> {
+        let target = &reservation.target;
+        if !valid_reservation(reservation) {
+            return Err(classify(
+                rusqlite::Error::InvalidQuery,
+                "Validate binding reservation",
+            ));
+        }
+        let server_pid = stored_process_id(target.server.server_pid)
+            .map_err(|e| classify(e, "Validate server PID"))?;
+        let pane_pid =
+            stored_process_id(target.pane_pid).map_err(|e| classify(e, "Validate pane PID"))?;
+        let publisher_pid = stored_process_id(reservation.publisher.pid())
+            .map_err(|e| classify(e, "Validate publisher PID"))?;
+        let created = i64::try_from(reservation.created_at_ms)
+            .map_err(|_| classify(rusqlite::Error::InvalidQuery, "Validate reservation time"))?;
+        let expires = i64::try_from(reservation.expires_at_ms)
+            .map_err(|_| classify(rusqlite::Error::InvalidQuery, "Validate reservation lease"))?;
+        self.0.execute(
+            "INSERT INTO binding_reservations (target_binding_id, identity_id, old_binding_id, transport, server_id, socket_path, server_pid, server_start_time, pane_id, pane_pid, pane_incarnation, expected_binding_id, publisher_pid, publisher_start, created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![target.id, target.identity_id, reservation.old_binding_id, target.server.host.as_str(), target.server.server_id,
+                target.server.socket_path, server_pid, target.server.server_start_time, target.pane_id, pane_pid,
+                target.pane_incarnation, reservation.expected_binding_id, publisher_pid, reservation.publisher.start_identity(), created, expires],
+        ).map_err(|error| classify(error, "Reserve binding"))?;
+        Ok(())
+    }
+
+    fn finish_binding_reservation(
+        &mut self,
+        reservation: &BindingReservation,
+    ) -> Result<bool, Self::Error> {
+        if self.reservation_by_target(&reservation.target.id)?.as_ref() != Some(reservation) {
+            return Ok(false);
+        }
+        self.0
+            .execute(
+                "DELETE FROM binding_reservations WHERE target_binding_id = ?",
+                [&reservation.target.id],
+            )
+            .map(|count| count == 1)
+            .map_err(|error| classify(error, "Finish binding reservation"))
+    }
+
+    fn insert_reserved_binding(
+        &mut self,
+        identity: &Identity,
+        reservation: &BindingReservation,
+    ) -> Result<Binding, Self::Error> {
+        let target = &reservation.target;
+        if target.identity_id != identity.id {
+            return Err(classify(
+                rusqlite::Error::InvalidQuery,
+                "Validate reserved identity",
+            ));
+        }
+        let server_pid = stored_process_id(target.server.server_pid)
+            .map_err(|e| classify(e, "Validate server PID"))?;
+        let pane_pid =
+            stored_process_id(target.pane_pid).map_err(|e| classify(e, "Validate pane PID"))?;
+        self.0.query_row(
+            "INSERT INTO bindings (id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, pane_incarnation, bound_at, last_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING id, identity_id, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, runtime_state, last_transition, runtime_pid, runtime_start_identity, observed_provider_session_id, launch_owner_pid, launch_owner_start_identity, transport, pane_incarnation, runtime_start_refusal",
+            params![target.id, identity.id, target.server.host.as_str(), target.pane_id, target.server.server_id, target.server.socket_path,
+                server_pid, target.server.server_start_time, pane_pid, target.pane_incarnation], |row| binding_row(row, 0),
+        ).map_err(|error| classify(error, "Activate reserved binding"))
     }
 
     fn touch_binding(&mut self, id: &str) -> Result<(), Self::Error> {

@@ -5,12 +5,15 @@ use super::{
 };
 use tmt_core::{
     binding::{
-        self, Binding, BindingEndpoint, BindingError, GuardedBindingEndpoint, GuardedIdentity,
+        self, Binding, BindingEndpoint, BindingError, BindingRepository, GuardedBindingEndpoint,
+        GuardedIdentity,
     },
     discovery::DiscoveryTarget,
     endpoint::{EndpointProbe, EndpointSnapshot, ProcessIncarnation, ServerEvidence},
     identity::{Identity, IdentityReader, Lifetime, create_or_resolve},
 };
+
+use crate::storage::StorageError;
 
 struct GuardedEndpoint {
     inner: FakeEndpoint,
@@ -53,6 +56,20 @@ impl BindingEndpoint for GuardedEndpoint {
     fn budget_available(&self) -> bool {
         self.inner.budget_available()
     }
+    fn publication_owner(
+        &mut self,
+    ) -> Result<Option<tmt_core::endpoint::ProcessIncarnation>, Self::Error> {
+        self.inner.publication_owner()
+    }
+    fn publication_liveness(
+        &mut self,
+        publisher: &tmt_core::endpoint::ProcessIncarnation,
+    ) -> Result<tmt_core::binding::session::RuntimeLiveness, Self::Error> {
+        self.inner.publication_liveness(publisher)
+    }
+    fn publication_time_ms(&self) -> Option<u64> {
+        self.inner.publication_time_ms()
+    }
     fn current_host(&self) -> tmt_core::host::HostKind {
         self.inner.current_host()
     }
@@ -68,6 +85,14 @@ impl BindingEndpoint for GuardedEndpoint {
     }
     fn publish(&mut self, b: &Binding, i: &Identity) -> Result<(), Self::Error> {
         self.inner.publish(b, i)
+    }
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+    ) -> Result<bool, Self::Error> {
+        self.inner.publish_if(binding, identity, expected)
     }
     fn clear(&mut self, b: &Binding, i: &Identity) -> Result<bool, Self::Error> {
         self.inner.clear(b, i)
@@ -289,7 +314,7 @@ fn existing_canonical_name_and_absent_uuid_refuse_before_effects() {
 }
 
 #[test]
-fn publication_failure_reports_partial_and_rolls_back_new_saved_identity() {
+fn publication_failure_reports_partial_and_keeps_committed_saved_identity() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
     let mut endpoint = GuardedEndpoint::new();
@@ -304,7 +329,15 @@ fn publication_failure_reports_partial_and_rolls_back_new_saved_identity() {
     )
     .unwrap_err();
     assert!(matches!(error, BindingError::Partial(_)));
-    assert!(storage.list_identities().unwrap().is_empty());
+    let identity = storage.find_identity("new saved").unwrap().unwrap();
+    let entry = storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            assert!(records.reservation_by_identity(&identity.id)?.is_none());
+            records.entry_by_id(&identity.id)
+        })
+        .unwrap()
+        .unwrap();
+    assert!(entry.binding.is_none());
     let marker = endpoint.inner.pane_mut("%1").marker.clone();
     assert_eq!(marker, None);
     storage.close().unwrap();

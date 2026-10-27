@@ -41,8 +41,27 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
         Ok(BindingEndpoint::publish(self, binding, identity)?)
     }
 
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+    ) -> Result<bool, HostError> {
+        Ok(BindingEndpoint::publish_if(
+            self, binding, identity, expected,
+        )?)
+    }
+
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, HostError> {
         Ok(BindingEndpoint::clear(self, binding, identity)?)
+    }
+
+    fn clear_if_owned(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+    ) -> Result<bool, HostError> {
+        Ok(BindingEndpoint::clear_if_owned(self, binding, identity)?)
     }
 
     /// Uses the current coordination deadline, without another pane query.
