@@ -4096,7 +4096,12 @@ status observation; origin-local browser references use the separate
 `{removed:true,cloudResourcesChanged:false,deployHistoryChanged:false}`.
 `settings --json` retains its existing members and adds the reference string `defaultRemote`
 (`local` when unset) and `defaultRemoteSource: "default"|"settings.json"`; these CLI members do not
-change the signed settings shape.
+change the signed settings shape. Local `settings remote-name <name>` changes the same
+Remote-wide presentation name as signed `remote.name.set`, using its name validation and the
+existing settings writer. CLI settings JSON adds `remoteName` (string or null); human output
+shows the name or `not set`. Setting the same name does not write. A proven pre-touch failure
+is refused; after creation or truncation may have begun, an error is `REMOTE_SETTINGS_UNCONFIRMED`,
+without automatic retry or a local operation receipt.
 
 The single `--remote <ref>` selector accepts `local`, a catalog name or an owned project id.
 Targeting surfaces resolve explicit selection, then `settings.json`'s optional `defaultRemote`,

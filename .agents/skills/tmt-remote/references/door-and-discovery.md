@@ -126,6 +126,9 @@ the platform opener shared with Colab; Remote retains its own presentation. The
 an open. `settings` owns the private `settings.json` / `settings.lock` under Remote's
 existing layout, independent of the database/serve lease. Missing settings use the default;
 malformed settings use it with a human warning. Setters serialize through the bounded lock.
+`settings remote-name <name>` sets the local Remote presentation name; settings JSON reports
+`remoteName` or null. An unchanged name does not write. After an unconfirmed write, read
+settings before deciding what to do next.
 
 The [settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
 is separate from paired channel trust. Its native/SDK implementation reuses this settings owner and existing

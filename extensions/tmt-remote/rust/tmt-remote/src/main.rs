@@ -104,13 +104,19 @@ const PAIR: CommandSpec = CommandSpec {
 };
 const SETTINGS: CommandSpec = CommandSpec {
     name: "settings",
-    summary: "Show or change Remote browser settings",
-    examples: &[Example {
-        command: "tmt remote settings open off",
-        note: "Print pairing links without opening the browser",
-    }],
+    summary: "Show or change local Remote settings",
+    examples: &[
+        Example {
+            command: "tmt remote settings open off",
+            note: "Print pairing links without opening the browser",
+        },
+        Example {
+            command: "tmt remote settings remote-name 'Studio Remote'",
+            note: "Name this local Remote",
+        },
+    ],
     outputs: OutputModes::HumanAndJson,
-    details: "Browser opening defaults to on. sessions-per-device accepts a positive integer or off (default: off); changes apply at the next session open. Settings are stored only in Remote's data directory.",
+    details: "Browser opening defaults to on. sessions-per-device accepts a positive integer or off (default: off); changes apply at the next session open. remote-name sets the local Remote presentation name. Settings are stored only in Remote's data directory.",
 };
 const TALK: CommandSpec = CommandSpec {
     name: "talk",
@@ -356,7 +362,7 @@ fn grammar() -> Command {
             tmt_cli_style::command(&SETTINGS)
                 .arg(
                     Arg::new("key")
-                        .value_parser(["open", "sessions-per-device", "default-remote"])
+                        .value_parser(["open", "sessions-per-device", "default-remote", "remote-name"])
                         .requires("value"),
                 )
                 .arg(Arg::new("value").requires("key")),
@@ -1312,6 +1318,7 @@ fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             Some("open") if matches!(value.as_str(), "on" | "off") => {
                 settings::set_open(&root, value == "on")?
             }
+            Some("remote-name") => settings::set_remote_name(&root, value)?,
             Some("default-remote") => {
                 let layout = Layout::open(&root)?;
                 if value != "local" {
@@ -1351,6 +1358,7 @@ fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
         let mut value = loaded.json();
+        value["remoteName"] = json!(loaded.remote_name());
         value["defaultRemote"] = json!(loaded.default_remote().unwrap_or("local"));
         value["defaultRemoteSource"] = json!(loaded.default_source());
         writeln!(output, "{}", value)?;
@@ -1361,6 +1369,10 @@ fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             terminal,
             "REMOTE SETTINGS",
             &[
+                (
+                    "remote-name",
+                    loaded.remote_name().unwrap_or("not set").to_owned(),
+                ),
                 (
                     "default-remote",
                     format!(
