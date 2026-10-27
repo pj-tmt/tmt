@@ -430,7 +430,7 @@ fit, fewer on narrow or short frames; a selected agent takes the last slot if ne
 Self is blank, `·` observed none and `—` unavailable. An observed empty flow says
 `No exchanges in this range`; an empty roster says `No agents observed`.
 Enter opens the selected member's Agents conversation. D uses the existing
-Digest chooser; e toggles details, u opens usage controls and w stays Snapshots.
+Digest chooser; e toggles details, u opens the Unread overlay and w stays Snapshots.
 Hints follow configured bindings. The `≈ $ in` column requires full input-model
 attribution and held quotes: input tokens at list price; not a bill. A table narrower
 than 94 columns drops SHARE, `≈ $ in` and TALKS TO whole and says so on its last line. Avoided
@@ -470,10 +470,16 @@ keeps the mark and words. The top bar shows your global unread count beside
 waiting. `N+` is a lower bound from the 50-answer page, not an all-history
 count; zero observed unread never invents an unread state. Only answer body rows
 actually visible in the focused conversation are acknowledged in Core. Opening a
-conversation or jumping with `j` does not mark offscreen answers read. Clicking
-`● N unread`, the member menu's "Mark read" or the `mark-read` action (no default
-key; bind it in Help or Settings) explicitly acknowledges the conversation's unread
-answers. Core keeps this state across restart, named views and reset-view. A failure
+conversation or jumping with `j` does not mark offscreen answers read. Clicking any
+`● N unread` (the top bar's, an Agents row's STATE, the conversation header's or the
+composer's) or pressing `u` opens the Unread overlay: the unread answers of that
+agent, squad or pool (everyone for the top bar, or for `u` with nothing selected),
+grouped by agent with a count, oldest first, in full with scrolling. An answer turns
+read when its text is painted inside the overlay; answers not scrolled into view stay
+unread, and Enter opens the top answer's agent in its conversation. The member menu's
+"Mark read" or the `mark-read` action (no default key; bind it in Help or Settings)
+still explicitly acknowledges the conversation's unread answers without showing them.
+Core keeps this state across restart, named views and reset-view. A failure
 keeps unread evidence and names the cause; reopen the conversation or use Mark read
 to retry. A newer answer revision stays unread until that answer is seen. Existing
 local read cutoffs migrate once; the cutoff compares answeredAtMs, conservatively
@@ -1704,7 +1710,7 @@ Changing the observation policy starts fresh observations; core history seeds ag
 on the next admitted source entry.
 
 While the usage meter is on, Agents shows the selected provider quota on each
-Usage row. Click 7d/5h in its heading, or use the existing `u` controls (arrows,
+Usage row. Click 7d/5h in its heading, or use the usage controls (the Usage chart entry of the actions menu, a click on the usage strip, or a key you bind to `usage-controls`; arrows,
 Enter and Tab fields); changing quota never changes the token chart or rereads
 Core. Bars and percentages are neutral. The rate uses the last 2h of observed
 quota changes, divided by actual source elapsed time; its arrow compares with
