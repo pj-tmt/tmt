@@ -1883,7 +1883,8 @@ document that also holds another writer's. For a writable, non-public page using
 `current` history, native content checkpoints and owner folds GC-encode only the
 original writer's self-contained content document in the isolated child. The child
 requires no pending structs or delete sets and verifies identical projection, client
-clocks and re-encoding after replay. A writer depending on missing foreign structs
+clocks and updates equal under a canonical re-encoding (nested map keys sorted) that includes item
+content and delete sets; raw byte order can differ. A writer depending on missing foreign structs
 keeps its ordinary `merge_updates_v1` representation. Public and shared-history
 pages, and the own namespace, retain ordinary native merge semantics.
 A browser device encodes the state of the document that holds

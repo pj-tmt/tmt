@@ -12193,3 +12193,43 @@ exec {core} "$@"
     assert_eq!(read["revision"], locked["revision"]);
     assert_eq!(read["editLocks"][0]["lockId"], locked["locks"][0]["lockId"]);
 }
+
+#[test]
+fn page_compact_history_current_preserves_native_edits() {
+    let pilot = Pilot::new(None);
+    let source = pilot.root.join("compact-control.html");
+    fs::write(&source, "<p>First source</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Control",
+        "--layout",
+        "column",
+        "--file",
+        source.to_str().unwrap(),
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    pilot.call(&["share", "history", page, "current", "--json"]);
+    for value in ["Second source", "Final source"] {
+        fs::write(&source, format!("<p>{value}</p>")).unwrap();
+        pilot.patch_call(page, &["--file", source.to_str().unwrap(), "--json"]);
+    }
+    let before = pilot.call(&["page", "read", page, "--json"]);
+    let output = pilot
+        .command()
+        .args(["page", "compact", page, "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "existing compact control: {output:?}"
+    );
+    let after = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(before["source"], after["source"]);
+    assert_eq!(before["title"], after["title"]);
+    assert!(
+        after["usage"]["updates"].as_u64().unwrap() < before["usage"]["updates"].as_u64().unwrap()
+    );
+}
