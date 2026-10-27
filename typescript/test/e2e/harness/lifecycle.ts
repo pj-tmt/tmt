@@ -183,29 +183,36 @@ function groupExists(pid: number): boolean {
 /** Signal only a group whose leader still has the recorded start time. */
 export function stopOwnedGroups(groups: readonly OwnedGroup[]): void {
   const failures: Error[] = [];
+  const matched: OwnedGroup[] = [];
   for (const group of groups) {
+    let verified = false;
     try {
-      if (!groupExists(group.pid)) continue;
       const leader = groupLeader(group.pid);
-      if (!leader || leader.started !== group.started) continue;
+      if (leader && leader.started !== group.started) continue;
+      if (!leader) {
+        if (groupExists(group.pid))
+          failures.push(new Error(`Cannot identify E2E group ${group.pid}.`));
+        continue;
+      }
+      verified = true;
+      if (!groupExists(group.pid)) continue;
+      matched.push(group);
       process.kill(-group.pid, 'SIGTERM');
     } catch (error) {
-      if (
-        !(
-          error instanceof Error &&
-          'code' in error &&
-          (error.code === 'ESRCH' || error.code === 'EPERM')
-        )
-      ) {
+      if (error instanceof Error && 'code' in error && error.code === 'EPERM' && verified) {
+        if (!matched.includes(group)) matched.push(group);
+      } else if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
         failures.push(new Error(`Could not stop E2E group ${group.pid}: ${String(error)}`));
       }
-      // A raced exit or permission denial is acceptable only if the group disappears.
+      // A raced exit or permission denial is acceptable only if the matched group disappears.
     }
   }
   const deadline = Date.now() + 2_000;
   for (;;) {
-    const pending = groups.filter((group) => {
+    const pending = matched.filter((group) => {
       try {
+        const leader = groupLeader(group.pid);
+        if (leader && leader.started !== group.started) return false;
         return groupExists(group.pid);
       } catch (error) {
         if (error instanceof Error && 'code' in error && error.code === 'EPERM') return true;

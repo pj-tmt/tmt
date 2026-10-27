@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { FixtureRegistration, registerFixture, setup } from '../e2e/harness/lifecycle.js';
+import {
+  FixtureRegistration,
+  groupLeader,
+  registerFixture,
+  setup,
+  stopOwnedGroups,
+} from '../e2e/harness/lifecycle.js';
 import { killAndWait } from '../e2e/harness/cleanup.js';
 
 const gone = Object.assign(new Error('group gone'), { code: 'ESRCH' });
@@ -119,6 +126,34 @@ describe('E2E suite survivor check', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
       fs.rmSync(socketRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('E2E group identity', () => {
+  it('does not wait for or signal a reused process-group ID', async () => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+      const pid = child.pid!;
+      const leader = groupLeader(pid);
+      expect(leader).toBeDefined();
+      const before = performance.now();
+      stopOwnedGroups([{ pid, started: 'not the original start time' }]);
+      expect(performance.now() - before).toBeLessThan(1_000);
+      expect(groupLeader(pid)).toEqual(leader);
+    } finally {
+      if (child.pid && child.exitCode === null && child.signalCode === null) {
+        process.kill(-child.pid, 'SIGKILL');
+      }
+      await closed;
     }
   });
 });
