@@ -67,6 +67,8 @@ struct Built {
     width: usize,
     look: crate::look::Look,
     version: u64,
+    /// The minute the ages in the headers were computed for.
+    minute: u64,
     lines: Vec<Line<'static>>,
     blocks: Vec<Block>,
 }
@@ -79,6 +81,9 @@ pub(in crate::board) struct Overlay {
     /// Every answer shown since the overlay opened, kept after it is acknowledged so a read
     /// block does not vanish under the reader; later answers are added, never reordered.
     items: BTreeMap<(String, String), Answer>,
+    /// The keys of `items` in the order they are shown: sorted when the overlay opens, later
+    /// arrivals appended, so what is on screen never moves.
+    order: Vec<(String, String)>,
     pages: BTreeMap<String, Observation>,
     /// Members whose body read was demanded; one read is in flight at a time.
     asked: BTreeSet<String>,
@@ -104,6 +109,7 @@ impl Overlay {
             session,
             members,
             items: BTreeMap::new(),
+            order: Vec::new(),
             pages: BTreeMap::new(),
             asked: BTreeSet::new(),
             failed: BTreeMap::new(),
@@ -123,16 +129,41 @@ impl Overlay {
 
     /// Adds the scope's unread answers that the overlay has not shown yet.
     pub fn sync(&mut self, page: &Page) {
-        let before = self.items.len();
+        let opening = self.order.is_empty();
+        let mut arrived = Vec::new();
         for member in &self.members {
             for answer in page.answers(member).filter(|answer| !answer.acknowledged) {
-                self.items
-                    .entry((member.clone(), answer.request.clone()))
-                    .or_insert_with(|| answer.clone());
+                let key = (member.clone(), answer.request.clone());
+                if !self.items.contains_key(&key) {
+                    self.items.insert(key.clone(), answer.clone());
+                    arrived.push(key);
+                }
             }
         }
+        // `members` is in list order, so the opening keeps the list's grouping.
+        arrived.sort_by_key(|key| {
+            let answer = &self.items[key];
+            (
+                if opening {
+                    self.members.iter().position(|member| *member == key.0)
+                } else {
+                    None
+                },
+                answer.answered_at_ms,
+                key.1.clone(),
+            )
+        });
+        let changed = !arrived.is_empty();
+        // A member whose text was read is read again for its late answer; what it showed
+        // stays until the new read lands, so nothing on screen moves.
+        for (member, _) in &arrived {
+            if !self.failed.contains_key(member) {
+                self.asked.remove(member);
+            }
+        }
+        self.order.extend(arrived);
         let more = page.next_before.is_some();
-        if self.items.len() != before || self.more != more {
+        if changed || self.more != more {
             self.more = more;
             self.bump();
         }
@@ -150,20 +181,10 @@ impl Overlay {
     }
 
     fn ordered(&self) -> Vec<&Answer> {
-        let mut answers = Vec::with_capacity(self.items.len());
-        for member in &self.members {
-            let mut group: Vec<_> = self
-                .items
-                .iter()
-                .filter(|((owner, _), _)| owner == member)
-                .map(|(_, answer)| answer)
-                .collect();
-            group.sort_by(|a, b| {
-                (a.answered_at_ms, &a.request).cmp(&(b.answered_at_ms, &b.request))
-            });
-            answers.extend(group);
-        }
-        answers
+        self.order
+            .iter()
+            .filter_map(|key| self.items.get(key))
+            .collect()
     }
 
     /// The next member whose answers must be read: the first group at or below the
@@ -333,6 +354,7 @@ impl Overlay {
             width,
             look,
             version: self.version.get(),
+            minute: now / 60_000,
             lines,
             blocks,
         }
@@ -361,7 +383,10 @@ impl Overlay {
             .set_dialog(OverlayId::Unread, Some(areas.outer));
         let width = usize::from(areas.content.width);
         let stale = self.built.borrow().as_ref().is_none_or(|built| {
-            built.width != width || built.look != look || built.version != self.version.get()
+            built.width != width
+                || built.look != look
+                || built.version != self.version.get()
+                || built.minute != crate::status::now_ms() / 60_000
         });
         if stale {
             *self.built.borrow_mut() = Some(self.build(app, &actor, width, look));

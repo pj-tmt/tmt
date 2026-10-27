@@ -204,6 +204,83 @@ fn the_overlay_lists_unread_answers_by_agent_oldest_first_with_a_count_per_group
 }
 
 #[test]
+fn a_late_answer_is_appended_below_and_never_moves_what_is_shown() {
+    crate::status::with_now_ms(10_000_000, || {
+        let mut app = app_with_two_members();
+        install(
+            &mut app,
+            &[
+                (MEMBER, "w", 8_000_000, "final"),
+                (OTHER, "c", 9_000_000, "final"),
+            ],
+        );
+        app.open_unread(&UnreadScope::All);
+        arrive(&mut app, MEMBER, replies(MEMBER, &[("w", "Worker answer")]));
+        arrive(&mut app, OTHER, replies(OTHER, &[("c", "Core answer")]));
+        let before = draw(&app, 40);
+        let row = |screen: &str, text: &str| {
+            screen
+                .lines()
+                .position(|line| line.contains(text))
+                .unwrap_or_else(|| panic!("{text}\n{screen}"))
+        };
+        let (core, worker) = (row(&before, "Core answer"), row(&before, "Worker answer"));
+        assert!(core < worker, "the list's order at open: {before}");
+        // A newer answer of the first group arrives while the overlay is open.
+        install(
+            &mut app,
+            &[
+                (MEMBER, "w", 8_000_000, "final"),
+                (OTHER, "c", 9_000_000, "final"),
+                (OTHER, "c2", 9_500_000, "final"),
+            ],
+        );
+        app.unread_drawn();
+        let during = draw(&app, 40);
+        assert_eq!(row(&during, "Core answer"), core, "{during}");
+        assert_eq!(
+            app.unread_overlay_read().map(|(_, read)| read.key.1),
+            Some(OTHER.to_owned()),
+            "the member with a late answer is read again"
+        );
+        arrive(
+            &mut app,
+            OTHER,
+            replies(OTHER, &[("c", "Core answer"), ("c2", "Late core answer")]),
+        );
+        let after = draw(&app, 40);
+        assert!(
+            after.contains("Unread · 3 answers from 2 agents"),
+            "{after}"
+        );
+        assert_eq!(row(&after, "Core answer"), core, "{after}");
+        assert_eq!(row(&after, "Worker answer"), worker, "{after}");
+        let late = row(&after, "Late core answer");
+        assert!(late > worker, "appended below the shown blocks: {after}");
+        let rules: Vec<_> = after
+            .lines()
+            .filter(|l| l.contains("── core-ops"))
+            .collect();
+        assert_eq!(rules.len(), 2, "the group rule repeats: {after}");
+    });
+}
+
+#[test]
+fn ages_in_the_headers_follow_the_clock_while_the_overlay_stays_open() {
+    let mut app = app_with_two_members();
+    let drawn = |app: &App, now: u64| crate::status::with_now_ms(now, || draw(app, 40));
+    crate::status::with_now_ms(10_000_000, || {
+        install(&mut app, &[(MEMBER, "w", 8_000_000, "final")]);
+        app.open_unread(&UnreadScope::Member(MEMBER.into()));
+        arrive(&mut app, MEMBER, replies(MEMBER, &[("w", "An answer")]));
+    });
+    let first = drawn(&app, 10_000_000);
+    assert!(first.contains("in turn · 33m ago"), "{first}");
+    let later = drawn(&app, 10_000_000 + 20 * 60_000);
+    assert!(later.contains("in turn · 53m ago"), "{later}");
+}
+
+#[test]
 fn only_answers_painted_in_the_viewport_are_handed_to_the_writer() {
     crate::status::with_now_ms(10_000_000, || {
         let mut app = app_with_two_members();

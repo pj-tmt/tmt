@@ -32,10 +32,15 @@ impl Attention {
     }
     /// Where the unread count sits in the line painted with or without words: its offset from
     /// the line's start and its width.
+    ///
+    /// The count follows the online, todo-marker and todo spans (`UNREAD_AFTER_SPANS`).
     fn unread_extent(&self, look: Look, words: bool) -> Option<(u16, u16)> {
         let unread = super::state_cell::unread(self.unread, look)?;
         let line = self.with_words(look, words);
-        let before: usize = line.spans[..3].iter().map(Span::width).sum();
+        let before: usize = line.spans[..UNREAD_AFTER_SPANS]
+            .iter()
+            .map(Span::width)
+            .sum();
         Some((before as u16, unread.width() as u16))
     }
     fn with_words(&self, look: Look, words: bool) -> Line<'static> {
@@ -95,7 +100,7 @@ impl Attention {
             unread
                 .spans
                 .push(Span::styled("  ", look.role(Role::Muted)));
-            spans.splice(3..3, unread.spans);
+            spans.splice(UNREAD_AFTER_SPANS..UNREAD_AFTER_SPANS, unread.spans);
         }
         Line::from(spans)
     }
@@ -123,6 +128,9 @@ enum Named {
     Compact,
     None,
 }
+
+/// How many spans of the attention line precede the unread count: online, todo marker, todo.
+const UNREAD_AFTER_SPANS: usize = 3;
 
 #[cfg(test)]
 fn paint(
