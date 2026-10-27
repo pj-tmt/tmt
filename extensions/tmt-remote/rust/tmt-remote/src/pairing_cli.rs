@@ -167,7 +167,7 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
                 }
                 writeln!(
                     output,
-                    "Share this code privately: {}\nIt expires in 10 minutes and can be used once.\nWaiting for them to join… (Ctrl+C cancels this invite)",
+                    "Share this code privately: {}\nIt expires in 10 minutes and can be used once.\nWaiting for them to join… (Ctrl+C stops waiting; the code keeps its original expiry)",
                     event["code"].as_str().unwrap_or("")
                 )?;
             }
