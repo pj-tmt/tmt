@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
-import { assertPrivateSocket } from '../../support/private-tmux.js';
+import { assertPrivateSocket, stopPrivateTmuxSocket } from '../../support/private-tmux.js';
 import { processState } from './cleanup.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -316,11 +316,12 @@ function cleanupFixture(fixture: OwnedFixture): void {
         }
       }
     }
-    const stopped = spawnSync(fixture.tmuxPath, ['-S', fixture.socketPath, 'kill-server'], {
-      env,
-      encoding: 'utf8',
-      timeout: 2_000,
-    });
+    const stopped = stopPrivateTmuxSocket(
+      fixture.socketPath,
+      fixture.socketRoot,
+      fixture.tmuxPath,
+      env
+    );
     if (stopped.error || stopped.status !== 0) {
       failures.push(
         new Error(

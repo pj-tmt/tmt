@@ -1,11 +1,11 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
-import { assertPrivateSocket } from '../support/private-tmux.js';
+import { assertPrivateSocket, stopPrivateTmuxSocket } from '../support/private-tmux.js';
 import { groupLeader, stopOwnedGroups, type OwnedGroup } from '../e2e/harness/lifecycle.js';
 import { waitFor } from '../e2e/harness/readiness.js';
 
@@ -209,7 +209,7 @@ it.each([
       if (proof && fs.existsSync(proof.socketRoot)) {
         assertPrivateSocket(proof.socket, proof.socketRoot, env);
         if (fs.existsSync(proof.socket)) {
-          spawnSync(proof.tmux, ['-S', proof.socket, 'kill-server'], { env, timeout: 2_000 });
+          stopPrivateTmuxSocket(proof.socket, proof.socketRoot, proof.tmux, env);
         }
         if (ownedGroup) stopOwnedGroups([ownedGroup]);
         fs.rmSync(proof.socketRoot, { recursive: true, force: true });

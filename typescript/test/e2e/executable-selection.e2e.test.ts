@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
+import * as privateTmux from '../support/private-tmux.js';
 import { createCliProbe } from '../support/cli-probe.js';
 import { E2EFixture, withE2EFixture } from './harness.js';
 import { spawnRealTmuxCli, releaseRealTmuxCli, readRealTmuxCli } from './real-tmux-caller.js';
@@ -130,16 +131,13 @@ describe('CLI executable selection', () => {
 
   it('reports a private server shutdown failure instead of silently discarding it', async () => {
     const fixture = new E2EFixture();
-    const originalTmux = fixture.tmux.bind(fixture);
+    const originalStop = privateTmux.stopPrivateTmuxSocket;
     try {
       await fixture.start();
       // Stop the real private server first so the negative control cannot leak it.
-      const tmux = vi.spyOn(fixture, 'tmux').mockImplementation((args) => {
-        if (args[0] === 'kill-server') {
-          originalTmux(args);
-          throw new Error('injected owned-server shutdown failure');
-        }
-        return originalTmux(args);
+      const tmux = vi.spyOn(privateTmux, 'stopPrivateTmuxSocket').mockImplementation((...args) => {
+        originalStop(...args);
+        throw new Error('injected owned-server shutdown failure');
       });
       await expect(fixture.stop()).rejects.toThrow('injected owned-server shutdown failure');
       expect(fixture.serverIsRunning()).toBe(false);

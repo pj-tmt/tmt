@@ -88,6 +88,25 @@ export function locateTmux(): string {
   return found.stdout.trim();
 }
 
+/** Stop an already-created server only after revalidating its exact private socket. */
+export function stopPrivateTmuxSocket(
+  socket: string,
+  root: string,
+  executable: string,
+  env: NodeJS.ProcessEnv,
+  ambient: NodeJS.ProcessEnv = process.env
+): SpawnSyncReturns<string> {
+  assertPrivateSocket(socket, root, ambient);
+  const safeEnv = { ...env };
+  delete safeEnv.TMUX;
+  delete safeEnv.TMUX_PANE;
+  return spawnSync(executable, ['-f', '/dev/null', '-S', socket, 'kill-server'], {
+    env: safeEnv,
+    encoding: 'utf8',
+    timeout: 2_000,
+  });
+}
+
 export interface PrivateTmux {
   readonly executable: string;
   readonly socket: string;

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TMUX_COMMAND_INSPECTION } from '../tmux-command-inspection.js';
 import { resolveCliExecutables, type CliExecutables } from '../../support/cli-executable.mjs';
-import { assertPrivateSocket } from '../../support/private-tmux.js';
+import { assertPrivateSocket, stopPrivateTmuxSocket } from '../../support/private-tmux.js';
 import {
   groupLeader,
   paneOwnedGroups,
@@ -868,7 +868,15 @@ exit ${'$'}status
       (this.serverPid === 0 || processState(this.serverPid) !== 'absent')
     ) {
       try {
-        this.tmux(['kill-server']);
+        const stopped = stopPrivateTmuxSocket(
+          this.expectedSocketPath,
+          this.socketRoot,
+          this.tmuxPath,
+          this.env
+        );
+        if (stopped.error || stopped.status !== 0) {
+          throw new Error(String(stopped.error ?? stopped.stderr));
+        }
       } catch (error) {
         recordCleanupError(
           new Error(`Could not stop E2E server at ${this.expectedSocketPath}: ${String(error)}`, {
