@@ -111,6 +111,7 @@ pub(in crate::board) fn render_frame(
     app.workspace_strip_hits.borrow_mut().clear();
     app.workspace_state_cells.borrow_mut().clear();
     app.unread_hits.borrow_mut().clear();
+    app.unread_counted.set(app.unread_pending());
     app.member_links.borrow_mut().begin_frame(frame.area());
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();

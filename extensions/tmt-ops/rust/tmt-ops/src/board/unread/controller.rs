@@ -23,6 +23,16 @@ impl App {
             .collect()
     }
 
+    /// Whether the held page has an unacknowledged answer: a bound by the page, not the roster.
+    pub(in crate::board) fn unread_pending(&self) -> bool {
+        self.unread_page().is_some_and(|page| {
+            page.replies
+                .values()
+                .flatten()
+                .any(|answer| !answer.acknowledged)
+        })
+    }
+
     pub(in crate::board) fn unread_count(&self, member: &str) -> Count {
         self.unread_page()
             .map_or_else(Count::default, |page| page.count(member))

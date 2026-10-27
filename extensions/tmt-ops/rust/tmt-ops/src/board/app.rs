@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{
 };
 use serde_json::{Value, json};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
@@ -821,6 +821,8 @@ pub struct App {
     pub(super) unread_overlay: Option<super::unread_overlay::Overlay>,
     /// The painted unread counts a press opens the overlay from, rebuilt every frame.
     pub(in crate::board) unread_hits: RefCell<Vec<super::unread_overlay::Hit>>,
+    /// Whether this frame has any unread answer to count, so a row paints no target for nothing.
+    pub(in crate::board) unread_counted: Cell<bool>,
     /// How many Unread overlays were opened; a read belongs to one opening.
     pub(super) unread_session: u64,
     pub help: bool,

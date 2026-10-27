@@ -542,7 +542,7 @@ impl App {
 
     /// A row's STATE count, when it has one.
     pub(in crate::board) fn push_unread_row_hit(&self, area: Rect, target: &OpsTarget) {
-        if self.unread_target(target).total > 0 {
+        if self.unread_counted.get() && self.unread_target(target).total > 0 {
             self.push_unread_hit(area, Some(target));
         }
     }
