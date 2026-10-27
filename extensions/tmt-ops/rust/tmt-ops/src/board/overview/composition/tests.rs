@@ -173,7 +173,7 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         let mut app = board();
         waiting(&mut app);
         let selected = app.workspace.selected.clone();
-        key(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         assert!(!app.usage_controls);
         app.notice = None;
         let text = paint(&mut app, width, 8);
@@ -191,13 +191,13 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         key(&mut app, KeyCode::Esc);
         assert!(app.monitor_details.is_none());
         app.invalidate_frame_geometry();
-        key(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         assert!(
             !app.usage_controls,
             "invalidated geometry admits no controls"
         );
         paint(&mut app, width, 8);
-        key(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         assert!(app.usage_controls);
         let modal = paint(&mut app, width, 8);
         assert!(

@@ -205,7 +205,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ),
                 (
                     "unread",
-                    "moving the selection onto an agent never marks its replies read; they turn read when the reader holds focus on the shown reply or after a successful jump",
+                    "moving the selection onto an agent never marks its replies read; they turn read when the reader holds focus on the shown reply or after a successful jump; u or a click on any unread count opens the Unread overlay, whose shown answers turn read",
                 ),
             ],
         ),

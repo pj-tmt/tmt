@@ -28,6 +28,12 @@ pub(in crate::board) fn observe_waiting_member(app: &mut App) {
     app.overview_rows.borrow_mut().clear();
 }
 
+/// Reaches the usage controls the way a user does without a key bound to them: the
+/// `usage-controls` action (the actions menu entry runs the same one).
+pub(in crate::board) fn open_usage_controls(app: &mut App) -> Effect {
+    app.perform(&crate::action::Action::parse("usage-controls").unwrap())
+}
+
 pub(in crate::board) fn board() -> App {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut loaded = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));

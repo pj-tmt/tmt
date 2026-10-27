@@ -308,7 +308,7 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 103, 51);
         let target = app.workspace.selected.clone();
-        press(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Range));
         press(&mut app, KeyCode::Enter);
         assert!(app.usage_controls);
@@ -555,7 +555,7 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         press(&mut app, KeyCode::Esc); // Return retained Reader focus to the list.
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
-        press(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Enter); // Range dropdown owns input.
         press(&mut app, KeyCode::Char('u'));
@@ -611,7 +611,7 @@ fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_
             )),
             "summary has only complete control triggers, no bar hits"
         );
-        press(&mut app, KeyCode::Char('u'));
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
         assert!(!app.usage_controls);
         press(&mut app, KeyCode::Enter);
         assert!(app.usage_controls);
@@ -722,7 +722,7 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
             };
             assert!(shown.contains(&expected), "{shown}");
             drop(state);
-            press(&mut app, KeyCode::Char('u'));
+            crate::board::app::workspace::tests::open_usage_controls(&mut app);
             paint(&mut app, 100, 36);
             press(&mut app, KeyCode::Enter);
             assert!(
@@ -764,7 +764,7 @@ fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
                     .values()
                     .any(|action| action.verb == Verb::Ui(OpsUiAction::UsageControls))
             );
-            press(&mut app, KeyCode::Char('u'));
+            crate::board::app::workspace::tests::open_usage_controls(&mut app);
             paint(&mut app, 100, 36);
             assert!(!app.usage_controls);
             super::focus(&mut app);
@@ -997,7 +997,7 @@ fn quota_chips_are_shared_keyboard_reachable_and_preserve_token_demand_and_pane_
             ));
             assert!(app.usage_chart.borrow().hits.is_empty());
             paint(&mut app, width, 51);
-            press(&mut app, KeyCode::Char('u'));
+            crate::board::app::workspace::tests::open_usage_controls(&mut app);
             paint(&mut app, width, 51);
             press(&mut app, KeyCode::Tab);
             press(&mut app, KeyCode::Tab);

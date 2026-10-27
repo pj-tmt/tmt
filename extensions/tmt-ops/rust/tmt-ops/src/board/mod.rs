@@ -87,6 +87,7 @@ mod timer_rows;
 mod top_bar;
 mod tree_row;
 mod unread;
+mod unread_overlay;
 mod versions;
 pub(crate) use crate::tabs;
 mod shell;
@@ -209,6 +210,13 @@ pub(in crate::board) enum BoardEvent {
         revision: u64,
         observation: recent_responses::Observation,
     },
+    UnreadBodies {
+        cancellation: crate::runner::Cancellation,
+        session: u64,
+        read: recent_responses::AnswerRead,
+        revision: u64,
+        observation: recent_responses::Observation,
+    },
     PaneScreen {
         cancellation: crate::runner::Cancellation,
         key: conversation::ConversationKey,
@@ -289,6 +297,7 @@ impl BoardEvent {
             Self::Conversation { .. } => "Conversation",
             Self::Message { .. } => "Message",
             Self::PaneOutput { .. } => "PaneOutput",
+            Self::UnreadBodies { .. } => "UnreadBodies",
             Self::PaneScreen { .. } => "PaneScreen",
             Self::TerminalLocated { .. } => "TerminalLocated",
             Self::Terminal { .. } => "Terminal",
@@ -994,6 +1003,23 @@ fn session(
                                 == Some(refresh::SelectedRead::PaneOutput(read.clone()))
                         {
                             app.apply_answer_read(&read, observation);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::UnreadBodies {
+                        cancellation,
+                        session,
+                        read,
+                        revision: read_revision,
+                        observation,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::UnreadBodies(session, read.clone()))
+                        {
+                            app.unread_overlay_arrived(session, &read, observation);
                             dirty = true;
                         }
                         Effect::None
@@ -2896,8 +2922,9 @@ print(json.dumps(out))
                         .unwrap();
                 };
             paint(&mut app, &mut terminal);
+            crate::board::app::workspace::tests::open_usage_controls(&mut app);
+            paint(&mut app, &mut terminal);
             for code in [
-                KeyCode::Char('u'),
                 KeyCode::Enter,
                 KeyCode::Down,
                 KeyCode::Enter,

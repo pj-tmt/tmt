@@ -15,6 +15,7 @@ pub enum OpsUiAction {
     SwitchTool,
     MemberNotes,
     MarkRead,
+    Unread,
     Terminal,
     TerminalZoom,
     Previous,
@@ -124,6 +125,13 @@ const SPECS: &[OpsUiSpec] = &[
         "zoom",
         "make the live terminal fill the board, and back; bound to a key it also works while typing into the terminal",
         6
+    ),
+    spec!(
+        Unread,
+        "unread",
+        "unread",
+        "show the unread answers of the selected agent or squad, or of everyone",
+        12
     ),
     spec!(
         MarkRead,

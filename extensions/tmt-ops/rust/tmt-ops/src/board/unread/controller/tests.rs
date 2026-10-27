@@ -585,8 +585,7 @@ mod mark_read {
     }
 
     #[test]
-    fn clicking_the_unread_count_marks_the_conversation_read_after_the_durable_save() {
-        let fixture = Fixture::new();
+    fn clicking_the_unread_count_opens_the_overlay_and_marks_nothing_read() {
         let mut app = unread_app();
         let buffer = paint(&app);
         let area = chip(&app).expect("the unread count is a target");
@@ -597,27 +596,17 @@ mod mark_read {
             std::time::Instant::now(),
         );
         assert!(
-            app.input.is_none(),
-            "marking read does not focus the composer"
+            app.unread_overlay.is_some(),
+            "the count opens what is unread"
         );
-        assert_eq!(app.unread_count(MEMBER).total, 1, "queued is not saved");
-        let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
-        assert!(result.is_ok());
-        app.finished_unread(result);
-        assert_eq!(app.unread_count(MEMBER).total, 0);
-        assert_eq!(
-            fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
-            0
-        );
-        let buffer = paint(&app);
-        assert!(chip(&app).is_none(), "● 0 unread is not a target");
         assert!(
-            buffer
-                .content
-                .iter()
-                .map(|c| c.symbol())
-                .collect::<String>()
-                .contains("0 unread")
+            app.input.is_none(),
+            "opening the overlay does not focus the composer"
+        );
+        assert_eq!(app.unread_count(MEMBER).total, 1);
+        assert!(
+            app.unread.writer.offer().is_none(),
+            "nothing is queued until an answer is painted"
         );
     }
 
@@ -625,12 +614,7 @@ mod mark_read {
     fn a_failed_save_keeps_the_count_and_says_so() {
         let fixture = Fixture::new();
         let mut app = unread_app();
-        paint(&app);
-        let area = chip(&app).unwrap();
-        app.mouse(
-            mouse(MouseEventKind::Down(MouseButton::Left), area),
-            std::time::Instant::now(),
-        );
+        assert!(app.mark_read(MEMBER));
         fs::write(fixture.0.join("fail"), "").unwrap();
         let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
         assert!(result.is_err());

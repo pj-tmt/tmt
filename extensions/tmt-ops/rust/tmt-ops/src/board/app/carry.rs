@@ -66,6 +66,7 @@ impl App {
             || self.searching
             || self.settings.is_some()
             || self.quota_details.is_some()
+            || self.unread_overlay.is_some()
             || self.monitor_details.is_some()
             || self.cron_review.is_some()
             || self.usage_controls

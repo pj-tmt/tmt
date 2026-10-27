@@ -271,9 +271,15 @@ page cannot regress a held revision or its successful acknowledgment. Failures n
 claim read and do not cause an automatic retry. Reopening the reader or explicit
 Mark read supplies a new admission. Failed work does not block other conversations.
 
-The composer info line's `● N unread`, catalog action `mark-read` and member menu
-explicitly acknowledge the selected conversation's unread answers without focusing
-the composer. `● 0 unread` is not a target. Counts use one bounded summary page;
+Every painted `● N unread` (top bar, an Agents row's STATE, the conversation header,
+the composer info line) and the `unread` action (`u`) open the Unread overlay
+(`board/unread_overlay`): the scope's unread answers, grouped by agent, oldest first,
+read per agent on the selected lane while it is open (`SelectedRead::UnreadBodies`,
+keyed by overlay session; a failed read is asked again only after scrolling away and
+back). It feeds the answers painted in its viewport to the same writer; nothing else
+acknowledges. Catalog action `mark-read` and the member menu still explicitly
+acknowledge the selected conversation's unread answers without showing them or
+focusing the composer. `● 0 unread` is not a target. Counts use one bounded summary page;
 explicit Mark read and a visible older body resolve further metadata in bounded public
 pages, yielding between lane steps, without a history cache or per-item show calls.
 Paint and hover do no I/O. Shutdown joins the lane before draining admitted writes and

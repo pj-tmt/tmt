@@ -956,6 +956,25 @@ impl App {
         // only an edited query above chooses its first matching target.
         self.last_click = None;
     }
+    /// Shows the conversation of the selected member `target` in the Agents tab, with the
+    /// reader focused: what Enter on a member row does.
+    pub(in crate::board) fn show_conversation_of(&mut self, target: &OpsTarget) {
+        self.conversation_return.get_or_insert(self.shell.tab);
+        self.shell.tab = OpsTab::Agents;
+        self.right_tab = super::super::shell::RightTab::Talk;
+        if let OpsTarget::Member {
+            room_id: Some(room),
+            ..
+        } = target
+        {
+            self.workspace.expanded.insert(room.clone());
+        } else {
+            self.workspace.pool_expanded = true;
+        }
+        self.workspace_reconcile();
+        self.focus = 1;
+        self.unread.displayed.clear();
+    }
     pub(super) fn workspace_select(&mut self, index: usize) {
         let rows = self.workspace_rows();
         let index = index.min(rows.len().saturating_sub(1));
@@ -1059,6 +1078,7 @@ impl App {
             SavingsUnit => return self.cycle_savings_unit(),
             CycleTokRange => return self.cycle_tok_range(),
             UsageControls => return super::super::overview::chart::host::focus(self),
+            Unread => return self.workspace_unread(),
             Help => {
                 self.help_state.borrow_mut().open();
                 self.help = true;
@@ -1193,21 +1213,7 @@ impl App {
                 }
                 if matches!(target, OpsTarget::Member { .. }) {
                     if action == Inspect {
-                        self.conversation_return.get_or_insert(self.shell.tab);
-                        self.shell.tab = OpsTab::Agents;
-                        self.right_tab = super::super::shell::RightTab::Talk;
-                        if let OpsTarget::Member {
-                            room_id: Some(room),
-                            ..
-                        } = &target
-                        {
-                            self.workspace.expanded.insert(room.clone());
-                        } else {
-                            self.workspace.pool_expanded = true;
-                        }
-                        self.workspace_reconcile();
-                        self.focus = 1;
-                        self.unread.displayed.clear();
+                        self.show_conversation_of(&target);
                     }
                 } else {
                     let expanded = match &target {
@@ -1341,7 +1347,7 @@ impl App {
                 return self.workspace_management(action);
             }
             ResizePane | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
-            | CycleTokRange | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
+            | CycleTokRange | Unread | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
             | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }

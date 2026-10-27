@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{
 };
 use serde_json::{Value, json};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
@@ -610,6 +610,7 @@ pub(super) enum Overlay {
     ReplyReader,
     Checklist,
     QuotaDetails,
+    Unread,
     Discovery,
     MemberSession,
     Notes,
@@ -635,6 +636,7 @@ impl Overlay {
                 Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
+                Self::Unread => "unread",
                 Self::Discovery => "discovery",
                 Self::MemberSession => "member-session",
                 Self::Notes => "notes",
@@ -816,6 +818,13 @@ pub struct App {
     pub(in crate::board) usage_chart: RefCell<super::overview::chart::host::State>,
     pub(in crate::board) usage_controls: bool,
     pub(super) quota_details: Option<RefCell<super::home::quota_detail::Details>>,
+    pub(super) unread_overlay: Option<super::unread_overlay::Overlay>,
+    /// The painted unread counts a press opens the overlay from, rebuilt every frame.
+    pub(in crate::board) unread_hits: RefCell<Vec<super::unread_overlay::Hit>>,
+    /// Whether this frame has any unread answer to count, so a row paints no target for nothing.
+    pub(in crate::board) unread_counted: Cell<bool>,
+    /// How many Unread overlays were opened; a read belongs to one opening.
+    pub(super) unread_session: u64,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
     pub(in crate::board) overlay_focus: tmt_tui::app::FocusStack,
@@ -3833,6 +3842,8 @@ impl App {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
+        } else if self.unread_overlay.is_some() {
+            Some(Overlay::Unread)
         } else if self.switch_tool_shown() {
             Some(Overlay::SwitchTool)
         } else if self.idle_alert_editor.is_some() {
@@ -3900,6 +3911,7 @@ impl App {
                 }
                 Some(Effect::None)
             }
+            Overlay::Unread => self.unread_overlay_event(event),
             Overlay::MemberSession => self.member_session_event(event),
             Overlay::Notes => self.notes_event(event),
             Overlay::IdleAlert => self.idle_alert_event(event),
@@ -4238,6 +4250,7 @@ impl App {
         self.cron_scope_hits.borrow_mut().clear();
         self.workspace_strip_hits.borrow_mut().clear();
         self.workspace_state_cells.borrow_mut().clear();
+        self.unread_hits.borrow_mut().clear();
         if let Some(details) = &self.monitor_details {
             details.invalidate();
         }
@@ -4247,6 +4260,9 @@ impl App {
         self.chip_hits.borrow_mut().clear();
         if let Some(details) = &self.quota_details {
             details.borrow_mut().invalidate();
+        }
+        if let Some(unread) = &self.unread_overlay {
+            unread.invalidate();
         }
         if let Some(draft) = &self.workspace_form {
             draft.invalidate();
@@ -4522,6 +4538,9 @@ impl App {
         if self.mention_mouse(event) {
             return Effect::None;
         }
+        if let Some(effect) = self.unread_count_mouse(event) {
+            return effect;
+        }
         let unread = self
             .composer
             .unread_hit
@@ -4539,11 +4558,9 @@ impl App {
             {
                 return self.say("The painted unread count changed; repaint before marking read.");
             }
-            return if self.mark_read(&hit.key.1) {
-                Effect::None
-            } else {
-                self.say("Nothing unread here.")
-            };
+            return self.open_unread(&crate::board::unread_overlay::UnreadScope::Member(
+                hit.key.1.clone(),
+            ));
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
             let send = self
@@ -4873,6 +4890,10 @@ impl App {
     pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
         if self.loading() {
             return None;
+        }
+        // An open Unread overlay covers the conversation: its answers are what is read.
+        if let Some((session, read)) = self.unread_overlay_read() {
+            return Some(super::refresh::SelectedRead::UnreadBodies(session, read));
         }
         if self
             .input

@@ -23,6 +23,16 @@ impl App {
             .collect()
     }
 
+    /// Whether the held page has an unacknowledged answer: a bound by the page, not the roster.
+    pub(in crate::board) fn unread_pending(&self) -> bool {
+        self.unread_page().is_some_and(|page| {
+            page.replies
+                .values()
+                .flatten()
+                .any(|answer| !answer.acknowledged)
+        })
+    }
+
     pub(in crate::board) fn unread_count(&self, member: &str) -> Count {
         self.unread_page()
             .map_or_else(Count::default, |page| page.count(member))
@@ -114,10 +124,15 @@ impl App {
     /// and neither can a selection that only moved onto the row: the reader
     /// must hold focus, which is the explicit act of opening the conversation.
     pub(in crate::board) fn unread_drawn(&mut self) {
-        if self.loading()
-            || self.modal_open()
-            || self.shell.tab != crate::board::shell::OpsTab::Agents
-        {
+        if self.loading() {
+            return;
+        }
+        // The Unread overlay is a modal that paints answers itself: it feeds the writer.
+        if self.unread_overlay.is_some() {
+            self.unread_overlay_drawn();
+            return;
+        }
+        if self.modal_open() || self.shell.tab != crate::board::shell::OpsTab::Agents {
             return;
         }
         if self.focused_pane() != Some(crate::config::Pane::Replies) {

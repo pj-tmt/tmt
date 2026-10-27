@@ -301,7 +301,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("c", "timers"),
             ("R", "member-session"),
             ("M", "talk-measure"),
-            ("u", "usage-controls"),
+            ("u", "unread"),
             ("esc", "clear-scope"),
             ("h", "reveal-hidden"),
         ]
