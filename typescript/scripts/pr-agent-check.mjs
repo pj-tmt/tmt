@@ -8,6 +8,9 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 export const AGENT_PRESETS = Object.freeze([
   'codex-sol-high',
   'codex-sol-med',
+  'codex-terra-xhigh',
+  'codex-terra-high',
+  'codex-terra-med',
   'codex-luna-med',
   'codex-luna-low',
   'claude-opus-med',

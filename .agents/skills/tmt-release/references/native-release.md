@@ -566,15 +566,18 @@ Every PR body needs visible `Agent: <seat> <preset>` lines for its contributors,
 or `Agent: ben` for human-only work. Seat is `[a-z0-9][a-z0-9-]*`; the parser and
 approved presets are owned by `typescript/scripts/pr-agent-check.mjs`.
 
-| Preset              | Model and effort   |
-| ------------------- | ------------------ |
-| codex-sol-high      | GPT-6.1-Sol high   |
-| codex-sol-med       | GPT-6.1-Sol medium |
-| codex-luna-med      | GPT-6-Luna medium  |
-| codex-luna-low      | GPT-6-Luna low     |
-| claude-opus-med     | Opus 5.5 medium    |
-| claude-sonnet-high  | Sonnet 5.5 high    |
-| claude-sonnet-xhigh | Sonnet 5.5 xhigh   |
+| Preset              | Model and effort     |
+| ------------------- | -------------------- |
+| codex-sol-high      | GPT-6.1-Sol high     |
+| codex-sol-med       | GPT-6.1-Sol medium   |
+| codex-terra-xhigh   | GPT-6.1-Terra xhigh  |
+| codex-terra-high    | GPT-6.1-Terra high   |
+| codex-terra-med     | GPT-6.1-Terra medium |
+| codex-luna-med      | GPT-6-Luna medium    |
+| codex-luna-low      | GPT-6-Luna low       |
+| claude-opus-med     | Opus 5.5 medium      |
+| claude-sonnet-high  | Sonnet 5.5 high      |
+| claude-sonnet-xhigh | Sonnet 5.5 xhigh     |
 
 New models may use `Agent: <seat> <provider> <model> <effort>` with three
 `[A-Za-z0-9._-]+` value tokens. An unknown single preset or malformed claimed line
