@@ -128,11 +128,14 @@ pub(super) fn recipient<'a>(report: &'a Report, id: &str) -> Option<(Option<&'a 
     report
         .exchange
         .as_ref()?
-        .messages
-        .get(&Some(id.into()))?
+        .recipients_of(Some(id))
         .iter()
-        .max_by(|(a, ca), (b, cb)| ca.cmp(cb).then_with(|| b.cmp(a)))
-        .map(|(id, count)| (id.as_deref(), *count))
+        .max_by(|a, b| {
+            a.count
+                .cmp(&b.count)
+                .then_with(|| b.recipient.cmp(&a.recipient))
+        })
+        .map(|flow| (flow.recipient.as_deref(), flow.count))
 }
 pub(super) fn name(app: &App, id: Option<&str>) -> String {
     id.map_or("unknown".into(), |id| {
