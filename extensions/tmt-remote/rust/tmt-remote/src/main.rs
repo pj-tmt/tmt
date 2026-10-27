@@ -1105,6 +1105,7 @@ fn pair(
     let mut paired = Err(RemoteError::new("REMOTE_PAIRING_ENDED", "Pairing ended."));
     let (selected, choice) = std::sync::mpsc::channel();
     let mut paired_name = String::new();
+    let mut paired_member = None;
     loop {
         let mut line = String::new();
         if events.read_line(&mut line)? == 0 {
@@ -1206,6 +1207,7 @@ fn pair(
             Some("ended") => {
                 let reason = event["reason"].as_str().unwrap_or("ended");
                 paired = if reason == "paired" {
+                    paired_member = event["memberId"].as_str().map(str::to_owned);
                     Ok(())
                 } else {
                     Err(RemoteError::new(
@@ -1222,6 +1224,7 @@ fn pair(
         let terminal = output.terminal();
         let message = pairing_result(
             &paired_name,
+            paired_member.as_deref(),
             choice.try_recv().unwrap_or(policy.talk),
             policy.hold,
         );
@@ -1231,11 +1234,16 @@ fn pair(
 }
 const PAIR_TRUST_PROMPT: &str = "Trust this device if the words match? [y/N] ";
 const PAIR_TALK_PROMPT: &str = "Also allow this device to send to agents? [y/N] ";
-fn pairing_result(name: &str, talk: bool, hold: bool) -> String {
+fn pairing_result(name: &str, member: Option<&str>, talk: bool, hold: bool) -> String {
     if talk {
         format!(
             "Paired {name}. It can send to agents{}.",
             if hold { " · held" } else { "" }
+        )
+    } else if let Some(member) = member {
+        format!(
+            "Paired {name} as read only. To allow sending: tmt remote members sending {} on",
+            tmt_remote::state::shell_quote(member)
         )
     } else {
         format!(
@@ -1969,6 +1977,10 @@ mod tests {
             }),
             "Read and send · 1 agent · held · no expiry"
         );
+        assert_eq!(
+            super::pairing_result("Fixture device", Some("member's id"), false, false),
+            "Paired Fixture device as read only. To allow sending: tmt remote members sending 'member'\\''s id' on"
+        );
         for (talk, hold, expected) in [
             (
                 false,
@@ -1983,7 +1995,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                super::pairing_result("Fixture device", talk, hold),
+                super::pairing_result("Fixture device", None, talk, hold),
                 expected
             );
         }

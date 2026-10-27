@@ -77,6 +77,13 @@ const FIELDS: [&str; 12] = [
     "signature",
 ];
 
+struct IssuedPair {
+    grant: Grant,
+    receipt: Vec<u8>,
+    proof: [u8; 32],
+    member_id: Option<String>,
+}
+
 /// What the control client shows for a new offer.
 pub struct Offered {
     pub offer_id: String,
@@ -97,7 +104,10 @@ pub enum PairingEvent {
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum End {
-    Paired { client_id: String },
+    Paired {
+        client_id: String,
+        member_id: Option<String>,
+    },
     Refused,
     Expired,
     TooManyFailures,
@@ -327,7 +337,12 @@ impl Pairing {
             .validate()
             .and_then(|()| self.issue(offer, &candidate, &policy))
         {
-            Ok((grant, receipt, proof)) => {
+            Ok(IssuedPair {
+                grant,
+                receipt,
+                proof,
+                member_id,
+            }) => {
                 // Only the bounded recovery data stays; the code is erased.
                 offer.code.fill(0);
                 offer.phase = Phase::Confirmed {
@@ -337,6 +352,7 @@ impl Pairing {
                 };
                 let _ = offer.events.send(PairingEvent::Ended(End::Paired {
                     client_id: grant.client_id,
+                    member_id,
                 }));
                 self.changed.notify_all();
             }
@@ -463,7 +479,12 @@ impl Pairing {
             end(&mut slot, End::Cancelled);
             self.changed.notify_all();
             return match result {
-                Ok((grant, receipt, proof)) => {
+                Ok(IssuedPair {
+                    grant,
+                    receipt,
+                    proof,
+                    ..
+                }) => {
                     // Identifiers/origin are public; never format the offer or launch URL.
                     let _ = writeln!(
                         tmt_cli_style::stream::stderr(),
@@ -609,7 +630,7 @@ impl Pairing {
         offer: &Offer,
         candidate: &Candidate,
         policy: &PairingPolicy,
-    ) -> Result<(Grant, Vec<u8>, [u8; 32]), RemoteError> {
+    ) -> Result<IssuedPair, RemoteError> {
         let grant = Grant {
             client_id: uuid_v4()?,
             public_key: candidate.public_key,
@@ -639,13 +660,19 @@ impl Pairing {
             .map_err(|_| RemoteError::new("REMOTE_INPUT_INVALID", "Invalid enrollment."))?;
         let proof = crypto::server_proof(&key, &receipt)
             .map_err(|_| RemoteError::new("REMOTE_INPUT_INVALID", "Invalid receipt."))?;
-        self.store
+        let member_id = self
+            .store
             .lock()
             .map_err(|_| {
                 RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
             })?
             .insert_paired_grant(&grant, &offer.id, &Sha256::digest(&receipt))?;
-        Ok((grant, receipt, proof))
+        Ok(IssuedPair {
+            grant,
+            receipt,
+            proof,
+            member_id,
+        })
     }
 }
 /// Exact receipt JSON bytes `{grant, machinePublicKey}`; the proof covers these bytes.

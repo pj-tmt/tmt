@@ -707,9 +707,10 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     let (listed, running) = devices(&pilot, &["--json"]);
     assert!(listed);
     let client_id = ended["clientId"].as_str().unwrap();
+    let member_id = ended["memberId"].as_str().unwrap();
     assert_eq!(running["devices"][0]["clientId"], client_id);
     assert_eq!(running["devices"][0]["kind"], "cli");
-    member_reads::assert_shared_member_reads(&pilot, client_id);
+    member_reads::assert_shared_member_reads(&pilot, client_id, member_id);
     member_reads::assert_public_member_reads(&pilot, client_id, true);
     assert_eq!(
         running["devices"][0]["scopes"]

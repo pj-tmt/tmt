@@ -11,7 +11,7 @@ fn request(pilot: &Pilot, value: Value) -> Value {
     BufReader::new(stream).read_line(&mut line).unwrap();
     serde_json::from_str(&line).unwrap()
 }
-pub(super) fn assert_shared_member_reads(pilot: &Pilot, client: &str) {
+pub(super) fn assert_shared_member_reads(pilot: &Pilot, client: &str, expected_member: &str) {
     let calls = fs::read(pilot.root.join("calls")).ok();
     let roster = request(
         pilot,
@@ -20,6 +20,7 @@ pub(super) fn assert_shared_member_reads(pilot: &Pilot, client: &str) {
     assert_eq!(roster["administrator"], true);
     assert_eq!(roster["members"].as_array().unwrap().len(), 1);
     let member = roster["members"][0]["memberId"].clone();
+    assert_eq!(member, expected_member);
     let machines = request(
         pilot,
         serde_json::json!({"op":"members.machines","memberId":member,"cursor":null,"limit":50}),

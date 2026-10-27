@@ -767,8 +767,15 @@ fn session(
             }
             Ok(PairingEvent::Ended(end)) => {
                 let mut line = json!({"event":"ended","reason":end.reason()});
-                if let End::Paired { client_id } = &end {
+                if let End::Paired {
+                    client_id,
+                    member_id,
+                } = &end
+                {
                     line["clientId"] = json!(client_id);
+                    if let Some(member_id) = member_id {
+                        line["memberId"] = json!(member_id);
+                    }
                 }
                 if let End::Failed(message) = &end {
                     line["message"] = json!(message);
