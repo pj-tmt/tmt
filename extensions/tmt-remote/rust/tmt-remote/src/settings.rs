@@ -188,6 +188,37 @@ pub fn set_default_remote(root: &Path, reference: &str) -> Result<RemoteSettings
     }
     set(root, "defaultRemote", json!(reference))
 }
+/// Set the local Remote name without rewriting an unchanged value.
+pub fn set_remote_name(root: &Path, name: &str) -> Result<RemoteSettings> {
+    set_remote_name_observed(root, name, |_| Ok(()))
+}
+
+fn set_remote_name_observed(
+    root: &Path,
+    name: &str,
+    mut observe: impl FnMut(WriteStage) -> Result<()>,
+) -> Result<RemoteSettings> {
+    if !crate::canonical::device_name(name) {
+        return Err(RemoteError::new(
+            "REMOTE_INPUT_INVALID",
+            "Remote name must be 1–64 bytes, nonblank, and contain no control characters.",
+        ));
+    }
+    let mut touched = false;
+    write_setting(root, "remoteName", json!(name), true, |stage| {
+        if stage == WriteStage::BeforeTouch {
+            touched = true;
+        }
+        observe(stage)
+    }).map_err(|_| {
+        if touched {
+            RemoteError::new("REMOTE_SETTINGS_UNCONFIRMED", "The Remote name change may have started; read settings before deciding what to do next.")
+        } else {
+            RemoteError::new("REMOTE_SETTINGS_UNAVAILABLE", "The Remote name was not changed because settings could not be opened.")
+        }
+    })
+}
+
 /// Preserve other settings under the same read/write lock.
 fn set(root: &Path, key: &str, value: Value) -> Result<RemoteSettings> {
     set_observed(root, key, value, |_| Ok(()))
@@ -208,6 +239,16 @@ pub(crate) fn set_observed(
     root: &Path,
     key: &str,
     value: Value,
+    observe: impl FnMut(WriteStage) -> Result<()>,
+) -> Result<RemoteSettings> {
+    write_setting(root, key, value, false, observe)
+}
+
+fn write_setting(
+    root: &Path,
+    key: &str,
+    value: Value,
+    skip_same: bool,
     mut observe: impl FnMut(WriteStage) -> Result<()>,
 ) -> Result<RemoteSettings> {
     let layout = Layout::open(root)?;
@@ -224,6 +265,9 @@ pub(crate) fn set_observed(
         }
         Err(error) => return Err(crate::state::state_error(error)),
     };
+    if skip_same && document.get(key) == Some(&value) {
+        return Ok(RemoteSettings::parse(document.to_string().as_bytes()));
+    }
     document[key] = value;
     let bytes = document.to_string();
     if bytes.len() as u64 > LIMIT {
@@ -306,5 +350,143 @@ mod write_tests {
         assert!(loaded.open());
         assert_eq!(loaded.source(), "default");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn remote_name_same_value_does_not_touch_and_preserves_other_settings() {
+        let root =
+            std::env::temp_dir().join(format!("t5280-name-{}", crate::store::uuid_v4().unwrap()));
+        set_open(&root, false).unwrap();
+        set_remote_name(&root, "Studio Remote").unwrap();
+        let file = root.join("remote/settings.json");
+        let before = std::fs::read(&file).unwrap();
+        let mut stages = Vec::new();
+        let loaded = set_remote_name_observed(&root, "Studio Remote", |stage| {
+            stages.push(stage);
+            Ok(())
+        })
+        .unwrap();
+        assert!(stages.is_empty(), "same value must never enter the writer");
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        assert_eq!(loaded.remote_name(), Some("Studio Remote"));
+        assert!(!loaded.open());
+        let invalid = set_remote_name(&root, "   ").unwrap_err();
+        assert_eq!(invalid.code, "REMOTE_INPUT_INVALID");
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn remote_name_refusal_and_uncertainty_follow_first_touch() {
+        let root =
+            std::env::temp_dir().join(format!("t5280-fault-{}", crate::store::uuid_v4().unwrap()));
+        std::fs::write(&root, b"not a directory").unwrap();
+        let before_touch = set_remote_name(&root, "Studio").unwrap_err();
+        assert_eq!(before_touch.code, "REMOTE_SETTINGS_UNAVAILABLE");
+        assert_eq!(std::fs::read(&root).unwrap(), b"not a directory");
+        std::fs::remove_file(&root).unwrap();
+        set_remote_name(&root, "Old").unwrap();
+        let after_touch = set_remote_name_observed(&root, "New", |stage| {
+            if stage == WriteStage::Truncated {
+                return Err(RemoteError::new("REMOTE_IO", "Injected after truncation."));
+            }
+            Ok(())
+        })
+        .unwrap_err();
+        assert_eq!(after_touch.code, "REMOTE_SETTINGS_UNCONFIRMED");
+        assert!(
+            std::fs::read(root.join("remote/settings.json"))
+                .unwrap()
+                .is_empty()
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn remote_name_interrupted_writer_is_not_retried_or_journaled() {
+        use std::io::{BufRead, Read, Write};
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::{Child, Command, Stdio};
+        use std::sync::mpsc;
+        use std::time::Duration;
+        const TEST: &str =
+            "settings::write_tests::remote_name_interrupted_writer_is_not_retried_or_journaled";
+        const PREFIX: &str = "TMT_5280_STAGE ";
+        if let Ok(root) = std::env::var("TMT_5280_ROOT") {
+            let phase = std::env::var("TMT_5280_PHASE").unwrap();
+            let result = set_remote_name_observed(Path::new(&root), "New Remote", |stage| {
+                if (phase == "truncated" && stage == WriteStage::Truncated)
+                    || (phase == "synced" && stage == WriteStage::Synced)
+                {
+                    println!("{PREFIX}{phase}");
+                    std::io::stdout().flush().unwrap();
+                    let mut release = [0];
+                    std::io::stdin().read_exact(&mut release).unwrap();
+                    panic!("parent must kill the paused writer");
+                }
+                Ok(())
+            });
+            panic!("writer returned without parent interruption: {result:?}");
+        }
+        struct OwnedChild(Child);
+        impl Drop for OwnedChild {
+            fn drop(&mut self) {
+                if self.0.try_wait().ok().flatten().is_none() {
+                    let _ = self.0.kill();
+                    let _ = self.0.wait();
+                }
+            }
+        }
+        for phase in ["truncated", "synced"] {
+            let root = std::env::temp_dir()
+                .join(format!("t5280-crash-{}", crate::store::uuid_v4().unwrap()));
+            set_remote_name(&root, "Old Remote").unwrap();
+            let child = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST, "--nocapture"])
+                .env("TMT_5280_ROOT", &root)
+                .env("TMT_5280_PHASE", phase)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut child = OwnedChild(child);
+            let held_input = child.0.stdin.take().unwrap();
+            let stdout = child.0.stdout.take().unwrap();
+            let (send, receive) = mpsc::channel();
+            let reader = std::thread::spawn(move || {
+                for line in std::io::BufReader::new(stdout).lines() {
+                    let line = line.unwrap();
+                    if let Some(found) = line.strip_prefix(PREFIX) {
+                        let _ = send.send(found.to_owned());
+                        break;
+                    }
+                }
+            });
+            assert_eq!(
+                receive.recv_timeout(Duration::from_secs(30)).unwrap(),
+                phase
+            );
+            child.0.kill().unwrap();
+            assert_eq!(child.0.wait().unwrap().signal(), Some(9));
+            drop(held_input);
+            reader.join().unwrap();
+            let bytes = std::fs::read(root.join("remote/settings.json")).unwrap();
+            if phase == "truncated" {
+                assert!(bytes.is_empty());
+                assert!(read_or_default(&root).malformed);
+            } else {
+                assert_eq!(read(&root).unwrap().remote_name(), Some("New Remote"));
+            }
+            assert!(
+                !root.join("remote/remote.db").exists(),
+                "local settings creates no receipt or journal"
+            );
+            assert_eq!(
+                std::fs::read(root.join("remote/settings.json")).unwrap(),
+                bytes,
+                "recovery read must not resend"
+            );
+            std::fs::remove_dir_all(&root).unwrap();
+        }
     }
 }

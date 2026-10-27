@@ -1517,19 +1517,19 @@ fn remote_settings_are_private_persistent_and_do_not_open_remote_storage() {
     for (args, expected) in [
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
+            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default","remoteName":null}),
         ),
         (
             vec!["settings", "open", "off", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default","remoteName":null}),
         ),
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default","remoteName":null}),
         ),
         (
             vec!["settings", "open", "on", "--json"],
-            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
+            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default","remoteName":null}),
         ),
     ] {
         let answer = pilot.command().args(args).output().unwrap();
@@ -1571,6 +1571,79 @@ fn remote_settings_are_private_persistent_and_do_not_open_remote_storage() {
         );
     }
 }
+#[test]
+fn remote_name_settings_show_local_value_and_reject_invalid_names() {
+    let pilot = Pilot::new();
+    let run = |args: &[&str]| pilot.command().args(args).output().unwrap();
+    let unset = run(&["settings", "--json"]);
+    assert!(unset.status.success());
+    let value: Value = serde_json::from_slice(&unset.stdout).unwrap();
+    assert!(value["remoteName"].is_null());
+    let human = run(&["settings"]);
+    assert!(String::from_utf8(human.stdout).unwrap().contains("not set"));
+    let set = run(&["settings", "remote-name", "Studio's Remote", "--json"]);
+    assert!(
+        set.status.success(),
+        "{}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+    let value: Value = serde_json::from_slice(&set.stdout).unwrap();
+    assert_eq!(value["remoteName"], "Studio's Remote");
+    assert_eq!(value["defaultRemote"], "local");
+    assert_eq!(value["open"], true);
+    let path = pilot.root.join("state/remote/settings.json");
+    let before = fs::read(&path).unwrap();
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    let same = run(&["settings", "remote-name", "Studio's Remote", "--json"]);
+    assert!(same.status.success());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+    let shown = run(&["settings"]);
+    assert!(
+        String::from_utf8(shown.stdout)
+            .unwrap()
+            .contains("Studio's Remote")
+    );
+    let help = run(&["settings", "--help"]);
+    let help = String::from_utf8(help.stdout).unwrap();
+    let example = "tmt remote settings remote-name 'Studio Remote'";
+    assert!(help.contains(example));
+    let args = example.strip_prefix("tmt remote ").unwrap();
+    let mut shell = Command::new("/bin/sh");
+    shell
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("TMPDIR", &pilot.root)
+        .env("XDG_STATE_HOME", pilot.root.join("xdg-state"))
+        .env("XDG_CACHE_HOME", pilot.root.join("cache"))
+        .env("HOME", &pilot.root)
+        .env("TMT_AGENT", "1")
+        .env("BROWSER", "/usr/bin/true")
+        .env("XDG_CONFIG_HOME", pilot.root.join("config"))
+        .env("XDG_DATA_HOME", pilot.root.join("data"))
+        .env("TMT_EXECUTABLE", pilot.root.join("core"))
+        .arg("-c")
+        .arg(format!("exec \"$0\" {args} --json"))
+        .arg(BINARY);
+    let printed = shell.output().unwrap();
+    assert!(
+        printed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&printed.stderr)
+    );
+    let value: Value = serde_json::from_slice(&printed.stdout).unwrap();
+    assert_eq!(value["remoteName"], "Studio Remote");
+    for invalid in ["", "   ", "a\nb"] {
+        let result = run(&["settings", "remote-name", invalid, "--json"]);
+        assert!(!result.status.success());
+        let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(value["error"]["code"], "REMOTE_INPUT_INVALID");
+    }
+    let shown = run(&["settings", "--json"]);
+    let value: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(value["remoteName"], "Studio Remote");
+}
+
 #[test]
 fn explicit_zero_ignores_the_remembered_port_and_explicit_busy_does_not_fallback() {
     let mut pilot = Pilot::new();
@@ -1768,7 +1841,7 @@ fn session_limit_settings_show_source_and_preserve_open() {
     let value: Value = serde_json::from_slice(&shown.stdout).unwrap();
     assert_eq!(
         value,
-        serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":2,"sessionsPerDeviceSource":"settings.json","defaultRemote":"local","defaultRemoteSource":"default"})
+        serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":2,"sessionsPerDeviceSource":"settings.json","defaultRemote":"local","defaultRemoteSource":"default","remoteName":null})
     );
     let plain = pilot.command().arg("settings").output().unwrap();
     let text = String::from_utf8(plain.stdout).unwrap();
