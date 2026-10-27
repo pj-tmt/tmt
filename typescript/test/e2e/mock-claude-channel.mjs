@@ -89,7 +89,8 @@ function emitHook(payload, event) {
 // Linux-only negative handoff fixture. An empty pipe with exactly 4096 bytes
 // capacity is left unread until the real generated hook exits. A larger JSON
 // response therefore publishes a prefix, exhausts its own deadline, and leaves
-// the sealed attempt uncertain/claimed. The fixture owns and reaps its child;
+// the sealed attempt uncertain/claimed. It reports the published byte count and
+// whether it parsed as JSON; the test asserts both. The fixture owns and reaps its child;
 // it never substitutes a settlement or changes the product work budget.
 const partialDigestHandoff = `
 import fcntl, json, os, signal, subprocess, sys
@@ -112,14 +113,13 @@ try:
             break
         chunks.append(chunk)
     published = b''.join(chunks)
-    assert len(published) == 4096, 'fixture requires a real partial publication'
     try:
         json.loads(published)
+        complete = True
     except (ValueError, UnicodeDecodeError):
-        pass
-    else:
-        raise AssertionError('fixture received complete JSON, not a partial handoff')
-    print(json.dumps({'partialBytes':len(published), 'code':child.returncode}))
+        complete = False
+    # Report, do not assert: the test names a short or complete publication.
+    print(json.dumps({'partialBytes':len(published), 'complete':complete, 'code':child.returncode}))
 finally:
     if child is not None and child.poll() is None:
         os.killpg(child.pid, signal.SIGKILL)
