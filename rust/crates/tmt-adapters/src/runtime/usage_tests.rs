@@ -501,6 +501,84 @@ fn claude_cache_windows_follow_each_seats_root_and_refresh_without_counting_toke
 }
 
 #[test]
+fn a_skipped_or_failed_allowance_read_keeps_the_stored_limits_and_a_later_read_replaces_them() {
+    use std::time::Duration;
+    let home = TestDirectory::new();
+    let config = home.path.join(".claude.json");
+    let cache = |used: u64, fetched: u64| {
+        json!({
+            "oauthAccount": {"accountUuid":"account-a"},
+            "cachedUsageUtilization": {
+                "accountUuid":"account-a", "fetchedAtMs": fetched,
+                "utilization": {"seven_day": {"utilization": used, "resets_at":"2026-05-31T20:26:40+00:00"}}
+            }
+        })
+    };
+    fs::write(&config, cache(25, NOW - 1_000).to_string()).unwrap();
+    let transcript = home.path.join(".claude/projects/workspace/session.jsonl");
+    fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    fs::write(
+        &transcript,
+        include_str!("fixtures/claude-usage-sequence.jsonl"),
+    )
+    .unwrap();
+    let environment = ProviderEnvironment::from_parts(
+        &home.path,
+        &home.path,
+        Vec::new(),
+        Vec::<(&str, _)>::new(),
+    );
+    let turn = claude::ClaudeLifecycle
+        .decode_turn(&stop(Some(&transcript)))
+        .unwrap();
+    let observe = |previous: Option<&DriverState>, now: u64, left: Duration| {
+        let state = claude::ClaudeLifecycle
+            .turn_state(
+                &turn,
+                &environment,
+                previous,
+                now,
+                std::time::Instant::now() + left,
+            )
+            .unwrap();
+        let used = driver_state::state_consumption(&state)
+            .unwrap()
+            .value
+            .rate_limits
+            .map(|limits| limits.windows[0].used_percent);
+        (state, used)
+    };
+    let two_seconds = Duration::from_secs(2);
+    let (stored, used) = observe(None, NOW, two_seconds);
+    assert_eq!(used, Some(25.0));
+
+    // A turn with no time left skips the read; that is not an observation of no limits.
+    let (skipped, used) = observe(Some(&stored), NOW + 1, Duration::ZERO);
+    assert_eq!(used, Some(25.0));
+
+    // A rotated transcript starts the counter anew and cannot carry the limits; they stay.
+    fs::write(&transcript, "").unwrap();
+    let (rotated, used) = observe(Some(&skipped), NOW + 2, Duration::ZERO);
+    assert_eq!(used, Some(25.0));
+    assert!(driver_state::state_consumption(&rotated).unwrap().value.gap);
+
+    // A config that cannot be read observed nothing either.
+    fs::remove_file(&config).unwrap();
+    fs::create_dir(&config).unwrap();
+    let (_, used) = observe(Some(&rotated), NOW + 3, two_seconds);
+    assert_eq!(used, Some(25.0));
+
+    // A read that looked replaces them, and a root with no config at all really has none.
+    fs::remove_dir(&config).unwrap();
+    fs::write(&config, cache(31, NOW - 500).to_string()).unwrap();
+    let (replaced, used) = observe(Some(&rotated), NOW + 4, two_seconds);
+    assert_eq!(used, Some(31.0));
+    fs::remove_file(&config).unwrap();
+    let (_, used) = observe(Some(&replaced), NOW + 5, two_seconds);
+    assert_eq!(used, None);
+}
+
+#[test]
 fn empty_claude_source_baselines_without_inventing_context_usage() {
     let driver = drivers().into_iter().next().unwrap();
     let home = TestDirectory::new();

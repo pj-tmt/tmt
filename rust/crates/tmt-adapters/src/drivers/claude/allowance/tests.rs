@@ -186,12 +186,12 @@ fn a_seats_selected_root_never_falls_back_to_another_roots_cache() {
         "CLAUDE_CONFIG_DIR",
         std::path::PathBuf::from("custom"),
     )]);
-    assert!(read(&plain, NOW).is_some());
-    assert_eq!(read(&selected, NOW), None);
+    assert!(read(&plain, NOW).flatten().is_some());
+    assert_eq!(read(&selected, NOW).flatten(), None);
     fs::write(custom.join(".claude.json"), &bytes).unwrap();
     fs::remove_file(&default).unwrap();
-    assert!(read(&selected, NOW).is_some());
-    assert_eq!(read(&plain, NOW), None);
+    assert!(read(&selected, NOW).flatten().is_some());
+    assert_eq!(read(&plain, NOW).flatten(), None);
     assert_eq!(fs::read(custom.join(".claude.json")).unwrap(), bytes);
 }
 
@@ -200,20 +200,20 @@ fn unreadable_malformed_oversized_or_linked_cache_is_unavailable_without_writes(
     let home = TestDirectory::new();
     let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
     let path = home.path.join(".claude.json");
-    assert_eq!(read(&environment, NOW), None);
+    assert_eq!(read(&environment, NOW).flatten(), None);
     for bytes in [b"{broken".to_vec(), vec![b' '; MAX_CONFIG_BYTES + 1]] {
         fs::write(&path, &bytes).unwrap();
-        assert_eq!(read(&environment, NOW), None);
+        assert_eq!(read(&environment, NOW).flatten(), None);
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
     fs::remove_file(&path).unwrap();
     fs::create_dir(&path).unwrap();
-    assert_eq!(read(&environment, NOW), None);
+    assert_eq!(read(&environment, NOW).flatten(), None);
     fs::remove_dir(&path).unwrap();
     let target = home.path.join("target.json");
     fs::write(&target, serde_json::to_vec(&config()).unwrap()).unwrap();
     std::os::unix::fs::symlink(&target, &path).unwrap();
-    assert_eq!(read(&environment, NOW), None);
+    assert_eq!(read(&environment, NOW).flatten(), None);
     assert!(path.is_symlink());
 }
 
@@ -259,7 +259,7 @@ impl PushedFixture {
         push(&self.environment(), &self.data.path, body, now)
     }
     fn read(&self, now: u64) -> Option<RateLimits> {
-        read(&self.environment(), now)
+        read(&self.environment(), now).flatten()
     }
     fn store(&self) -> Option<PushedWindowStore> {
         load(&self.data.path.join(STORE))
@@ -429,7 +429,10 @@ fn without_a_data_root_the_cache_alone_answers() {
     assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
     let rootless =
         ProviderEnvironment::from_parts(&pushed.home.path, &pushed.home.path, Vec::new(), []);
-    assert_eq!(read(&rootless, NOW).unwrap().observed_at_ms, FETCHED);
+    assert_eq!(
+        read(&rootless, NOW).flatten().unwrap().observed_at_ms,
+        FETCHED
+    );
 }
 
 #[test]
