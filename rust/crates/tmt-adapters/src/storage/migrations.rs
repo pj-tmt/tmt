@@ -87,6 +87,13 @@ pub(super) fn seed_hook_predecessor(connection: &mut Connection) {
     apply_identity_lifetime(connection, &MIGRATIONS[8]).unwrap();
 }
 
+/// Actual predecessor of the hook-queue receipt/bootstrap migration. Tests must
+/// build this history, never subtract fields from today's schema.
+#[cfg(test)]
+pub(super) fn seed_capture_queue_predecessor(connection: &mut Connection) {
+    apply_through(connection, 83).unwrap();
+}
+
 struct Migration {
     path: &'static str,
     name: &'static str,
@@ -406,6 +413,7 @@ const MIGRATIONS: &[Migration] = &[
         "reserve binding publication outside the writer",
         "schema/083.sql"
     ),
+    migration!("receipt durable hook capture ingestion", "schema/084.sql"),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
@@ -429,6 +437,10 @@ pub(super) fn compiled_schema() -> super::CompiledSchema {
         (
             "rust/crates/tmt-adapters/src/storage/migrations.rs",
             include_bytes!("migrations.rs").as_slice(),
+        ),
+        (
+            "rust/crates/tmt-adapters/src/storage/hook_queue.rs",
+            include_bytes!("hook_queue.rs").as_slice(),
         ),
         (
             "rust/crates/tmt-adapters/src/storage/migrations/host_names.rs",
@@ -565,6 +577,9 @@ fn apply_version(
         transaction
             .execute_batch(migration.sql)
             .map_err(|error| classify(error, "Apply migration SQL"))?;
+        if version == 84 {
+            super::hook_queue::HookQueue::initialize(&transaction)?;
+        }
         if version == 6 {
             backfill_retention(&transaction)?;
         }

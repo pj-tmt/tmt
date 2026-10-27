@@ -281,7 +281,7 @@ housekeeping. [Delivery/history](contracts/extension-api.md#digest-policy-and-ch
 [message state](contracts/request-response-v1.md#message-state) and
 [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow)
 have one Core owner each; the [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md)
-maps their modules. A [passthrough](contracts/request-response-v1.md#passthrough) is
+maps their modules and Stop queue. A [passthrough](contracts/request-response-v1.md#passthrough) is
 a person's typed text, not a request; it settles that agent's oldest open request
 and earns its turn's final. CLI and API share admission. Capture admits the full runtime registry before Digest;
 [batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals, granting no runtime authority.

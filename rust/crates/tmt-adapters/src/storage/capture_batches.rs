@@ -171,13 +171,13 @@ pub(super) fn delivered(
     Ok(())
 }
 
-pub(super) fn final_entry(
+pub(super) fn final_entry_in_batch(
     db: &Connection,
     identity: &str,
+    batch: Option<&str>,
     response: u64,
     now: u64,
 ) -> Result<(), StorageError> {
-    let batch = current(db, identity)?;
     db.execute("INSERT INTO capture_entries(identity_id,batch_id,kind,response_sequence,created_ms) VALUES(?1,?2,'final',?3,?4)",params![identity,batch,response as i64,now as i64])
         .map_err(|e|classify(e,"Record captured final order"))?;
     prune(db, identity, now)

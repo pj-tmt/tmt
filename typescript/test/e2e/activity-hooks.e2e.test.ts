@@ -2,16 +2,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vite-plus/test';
-import { withE2EFixture } from './harness.js';
+import { processState, withE2EFixture } from './harness.js';
 
 it.each(['claude', 'codex'] as const)(
-  '%s commits authoritative activity before the synchronous hook returns',
+  '%s projects prompt activity and queued Stop transitions',
   async (provider) => {
     await withE2EFixture(
       async (fixture) => {
         const session = '11111111-1111-4111-8111-111111111111';
         const hook = (event: string, turn = 'a', id = session) => ({
           args: ['__hook', provider],
+          waitForFlush:
+            event === 'Stop'
+              ? {
+                  node: process.execPath,
+                  script: path.resolve('test/support/wait-hook-flush.mjs'),
+                  directory: fixture.globalDir,
+                }
+              : undefined,
           input: {
             hook_event_name: event,
             session_id: id,
@@ -103,6 +111,7 @@ it.each(['claude', 'codex'] as const)(
           .map(quote)
           .join(' ');
         const pane = fixture.createShellPane('activity').pane;
+        fixture.watchHookFailures(pane);
         fixture.tmux(['send-keys', '-t', pane, '-l', command]);
         fixture.tmux(['send-keys', '-t', pane, 'Enter']);
         await fixture.waitFor(() => fs.existsSync(report), 15000, 'activity report');
@@ -201,7 +210,7 @@ it.each(['claude', 'codex'] as const)(
   }
 );
 
-it('a failed synchronous activity write is never deferred past hook return', async () => {
+it('a Stop returns while Core is locked and its queued activity commits after release', async () => {
   await withE2EFixture(
     async (fixture) => {
       const checkpoint = path.join(fixture.root, 'before-stop');
@@ -240,24 +249,55 @@ it('a failed synchronous activity write is never deferred past hook return', asy
       fixture.tmux(['send-keys', '-t', pane, 'Enter']);
       await fixture.waitFor(() => fs.existsSync(checkpoint), 15000, 'before stop checkpoint');
       const db = new Database(path.join(fixture.globalDir, 'tmt.db'));
+      const queue = new Database(path.join(fixture.globalDir, 'hook-writes.db'), {
+        readonly: true,
+      });
+      let workerPid: number | undefined;
       try {
         const read = () =>
           db.prepare('SELECT driver_state FROM identity_session_preferences').all();
+        const pending = () =>
+          (queue.prepare('SELECT count(*) AS count FROM hook_writes').get() as { count: number })
+            .count;
         const before = read();
         expect(JSON.stringify(before)).toContain('working');
         db.exec('BEGIN IMMEDIATE');
         fs.writeFileSync(checkpoint, 'continue');
-        await fixture.waitFor(() => fs.existsSync(report), 5000, 'failed hook returned');
+        await fixture.waitFor(() => fs.existsSync(report), 5000, 'Stop returned under writer lock');
         const results = JSON.parse(fs.readFileSync(report, 'utf8'));
         expect(results[3].code).toBe(0);
         expect(results[3].stdout).toBe('');
         expect(results[3].stderr).toBe('');
-        db.exec('ROLLBACK');
-        // No detached writer remains to use the now-available database.
         expect(read()).toEqual(before);
+        expect(pending()).toBe(1);
+        const logs = fs
+          .readdirSync(fixture.globalDir)
+          .filter((name) => /^hook-flush-[0-9a-f-]+\.log$/.test(name));
+        expect(logs).toHaveLength(1);
+        const match = fs
+          .readFileSync(path.join(fixture.globalDir, logs[0]), 'utf8')
+          .match(/^flusher_pid=(\d+)$/m);
+        expect(match).not.toBeNull();
+        workerPid = Number(match![1]);
+        expect(processState(workerPid, { group: true })).toBe('running');
+        db.exec('ROLLBACK');
+        await fixture.waitFor(
+          () => pending() === 0 && processState(workerPid!, { group: true }) === 'absent',
+          5000,
+          'queued Stop committed and its owned worker exited'
+        );
+        expect(JSON.stringify(read())).toContain('idle');
       } finally {
         if (db.inTransaction) db.exec('ROLLBACK');
         db.close();
+        queue.close();
+        if (workerPid !== undefined) {
+          await fixture.waitFor(
+            () => processState(workerPid!, { group: true }) === 'absent',
+            5000,
+            'owned Stop worker exited before fixture cleanup'
+          );
+        }
       }
     },
     { mode: 'input-log' }

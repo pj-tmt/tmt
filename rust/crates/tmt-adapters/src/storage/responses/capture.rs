@@ -1,8 +1,9 @@
 //! Final capture owns its activity transition. Optional usage writers cannot
 //! invalidate it or have their newer observations overwritten by an old snapshot.
 use super::super::{
-    IdentityContextSnapshot, Storage, StorageError, bindings::BindingRows,
-    identities::with_immediate_transaction,
+    IdentityContextSnapshot, Storage, StorageError,
+    bindings::BindingRows,
+    identities::{commit_immediate_transaction, with_immediate_transaction},
 };
 use crate::runtime::{driver_state, hook_protocol::ActivityObservation};
 use std::time::Instant;
@@ -226,7 +227,7 @@ impl Storage {
         let Some(binding) = expected.entry.binding.as_ref() else {
             return Ok(());
         };
-        with_immediate_transaction(self, "capture failure", |db| {
+        commit_immediate_transaction(self, "capture failure", |db| {
             if Instant::now() >= deadline {
                 return Ok(());
             }

@@ -21,6 +21,27 @@ pub(super) fn append(
     now: u64,
     capture: &ResponseCapture,
 ) -> Result<u64, StorageError> {
+    let batch = super::capture_batches::current(connection, id)?;
+    append_to_batch(
+        connection,
+        id,
+        provider,
+        session,
+        now,
+        capture,
+        batch.as_deref(),
+    )
+}
+
+pub(super) fn append_to_batch(
+    connection: &Connection,
+    id: &str,
+    provider: &str,
+    session: &str,
+    now: u64,
+    capture: &ResponseCapture,
+    batch: Option<&str>,
+) -> Result<u64, StorageError> {
     let expires = now
         .checked_add(RETENTION_MS)
         .filter(|expires| *expires <= tmt_core::limits::MAX_JS_SAFE_INTEGER)
@@ -34,7 +55,7 @@ pub(super) fn append(
     // The row's key is the final's identity (#4993). Read before the floor insert below moves it.
     let sequence = u64::try_from(connection.last_insert_rowid())
         .map_err(|_| StorageError::new(StorageErrorCode::Corrupt, "Invalid response key"))?;
-    super::capture_batches::final_entry(connection, id, sequence, now)?;
+    super::capture_batches::final_entry_in_batch(connection, id, batch, sequence, now)?;
     // What goes is whatever expired and everything past the newest `MAX_KEPT`; the newest of it
     // becomes the floor, in the same transaction, before it is deleted.
     let doomed = "identity_id=?1 AND (expires_ms<=?2 OR sequence<=COALESCE((SELECT sequence FROM recent_responses WHERE identity_id=?1 ORDER BY sequence DESC LIMIT 1 OFFSET ?3),0))";

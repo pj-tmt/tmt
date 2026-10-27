@@ -2,9 +2,24 @@
 use super::*;
 use tmt_core::binding::BindingRepository;
 
-fn ok(output: (i32, String, String)) -> String {
+pub(super) fn ok(output: (i32, String, String)) -> String {
     assert_eq!((output.0, output.2.as_str()), (0, ""), "hook: {output:?}");
     output.1
+}
+
+pub(super) fn install_capture_hook(fixture: &Fixture, driver: &str) {
+    let settings = fixture.root.join(if driver == "claude" {
+        "home/.claude/settings.json"
+    } else {
+        "home/.codex/hooks.json"
+    });
+    fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    let entry = tmt_adapters::runtime::hook_protocol::command_entry(driver, "/stable/tmt");
+    fs::write(
+        settings,
+        serde_json::json!({"hooks":{"Stop":[entry]}}).to_string(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -116,14 +131,24 @@ fn a_duplicate_stop_captured_by_the_observer_still_hands_off_digest() {
 }
 
 #[test]
-fn a_current_capture_failure_holds_digest_before_publishing_its_input() {
+fn a_queue_append_failure_holds_digest_before_publishing_its_input() {
     for driver in ["agy", "claude", "codex"] {
         blocking_digest(
             driver,
             true,
             &[(false, false)],
-            CaptureScenario::StorageFailure,
+            CaptureScenario::QueueFailure,
         );
+    }
+}
+
+#[test]
+fn a_current_main_with_a_missing_or_incompatible_queue_keeps_the_direct_capture_path() {
+    for scenario in [
+        CaptureScenario::MissingQueue,
+        CaptureScenario::IncompatibleQueue,
+    ] {
+        blocking_digest("claude", true, &[(false, false), (true, false)], scenario);
     }
 }
 
@@ -212,18 +237,7 @@ fn a_stop_without_an_admitted_start_leaves_one_bounded_diagnostic() {
             .as_str()
             .unwrap()
             .to_owned();
-        let settings = fixture.root.join(if driver == "claude" {
-            "home/.claude/settings.json"
-        } else {
-            "home/.codex/hooks.json"
-        });
-        fs::create_dir_all(settings.parent().unwrap()).unwrap();
-        let entry = tmt_adapters::runtime::hook_protocol::command_entry(driver, "/stable/tmt");
-        fs::write(
-            settings,
-            serde_json::json!({"hooks":{"Stop":[entry]}}).to_string(),
-        )
-        .unwrap();
+        install_capture_hook(&fixture, driver);
         let mut provider = SteppedProvider::start(&fixture, driver, "missing-start-steps");
         let event = |name, turn| {
             if driver == "claude" {
@@ -348,7 +362,9 @@ enum CaptureScenario {
     Canceled,
     Subagent,
     UnboundOnce,
-    StorageFailure,
+    QueueFailure,
+    MissingQueue,
+    IncompatibleQueue,
     /// Ben's text is typed into a turn another prompt started and a tool finishes
     /// before the Stop (#5268); no prompt ever announces it.
     FoldedInput,
@@ -537,6 +553,23 @@ fn blocking_digest(
             "responses.timeline",
             serde_json::json!({"identityId":agent}),
         );
+        match scenario {
+            CaptureScenario::MissingQueue => {
+                fs::remove_file(fixture.state().join("hook-writes.db")).unwrap()
+            }
+            CaptureScenario::IncompatibleQueue => {
+                let queue =
+                    rusqlite::Connection::open(fixture.state().join("hook-writes.db")).unwrap();
+                queue
+                    .pragma_update(
+                        None,
+                        "user_version",
+                        tmt_adapters::storage::hook_queue::QUEUE_SCHEMA_VERSION + 1,
+                    )
+                    .unwrap();
+            }
+            _ => {}
+        }
         if observer_first {
             if activity_only {
                 fs::write(
@@ -553,9 +586,11 @@ fn blocking_digest(
         if unbound_once {
             fs::write(fixture.root.join("driver/capture-unbound-once"), "").unwrap();
         }
-        if scenario == CaptureScenario::StorageFailure {
-            let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
-            db.execute_batch("CREATE TRIGGER refuse_final BEFORE INSERT ON recent_responses BEGIN SELECT RAISE(ABORT, 'capture fixture failure'); END;").unwrap();
+        if scenario == CaptureScenario::QueueFailure {
+            // Queue admission fails before any durable handoff. A main-writer
+            // failure after enqueue is pending work, never a failed capture.
+            let queue = rusqlite::Connection::open(fixture.state().join("hook-writes.db")).unwrap();
+            queue.execute_batch("CREATE TRIGGER refuse_capture BEFORE INSERT ON hook_writes BEGIN SELECT RAISE(ABORT, 'queue append fixture failure'); END;").unwrap();
         }
         let feedback = ok(provider.digest_hook(first.clone()));
         if matches!(
@@ -618,7 +653,7 @@ fn blocking_digest(
             );
             continue;
         }
-        if scenario == CaptureScenario::StorageFailure {
+        if scenario == CaptureScenario::QueueFailure {
             assert!(
                 (feedback.is_empty() || (driver == "agy" && feedback.trim() == "{}")),
                 "failed capture must precede Digest publication"

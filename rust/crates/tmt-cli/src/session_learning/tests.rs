@@ -154,6 +154,9 @@ pub(crate) fn launch(host: HostKind, provider: &str) -> Launch {
         driver: driver.clone(),
         paths: paths.clone(),
         role: Cell::new(Role::Binding),
+        deferred: Cell::new(false),
+        queued_capture: Cell::new(false),
+        terminal: RefCell::new(TerminalDiagnostic::default()),
     };
     Launch {
         directory,

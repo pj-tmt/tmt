@@ -10,6 +10,7 @@ mod discovery;
 mod dispatch;
 mod errors;
 mod footprint;
+pub mod hook_queue;
 mod host_servers;
 mod identities;
 mod identity_hooks;
@@ -228,6 +229,7 @@ impl Storage {
             connection.execute_batch("CREATE VIRTUAL TABLE temp._tmt_fts5_check USING fts5(content); DROP TABLE temp._tmt_fts5_check;")
                 .map_err(|error| incompatible("The SQLite runtime does not provide FTS5").caused_by(error))?;
             migrations::apply(&mut connection)?;
+            hook_queue::HookQueue::initialize_missing(&mut connection)?;
             secure_files(&path)
         })();
         if let Err(primary) = prepare {

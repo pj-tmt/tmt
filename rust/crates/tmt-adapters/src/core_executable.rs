@@ -21,6 +21,12 @@ pub fn declare_core() {
     }
 }
 
+/// A process explicitly admitted as Core may start its own internal workers.
+/// Embedded libraries and test binaries do not acquire that role by inheritance.
+pub fn declared() -> Option<&'static Path> {
+    DECLARED.get().map(PathBuf::as_path)
+}
+
 /// Managed callbacks follow activation; uncertain or unmanaged callers keep their path.
 /// Only inspection of the active managed CLI authorizes choosing its launcher.
 /// The returned launcher is intentionally not canonicalized into a release path.

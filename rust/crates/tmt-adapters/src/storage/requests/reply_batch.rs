@@ -342,7 +342,7 @@ fn digest_hold(
     request_id: &str,
     calendar: &super::super::orchestration::ReceivingCalendar,
 ) -> Result<bool, StorageError> {
-    let mut records = super::RequestRows(db, Some(calendar));
+    let mut records = super::RequestRows(db, Some(calendar), None);
     let Some(attempt) = records.find_request(request_id)? else {
         return Ok(false);
     };

@@ -162,6 +162,7 @@ function expectNativeSchema(
     { version: 81, name: 'record pending orchestration wakes and summary projection' },
     { version: 82, name: 'name a Stop rejected without an admitted start' },
     { version: 83, name: 'reserve binding publication outside the writer' },
+    { version: 84, name: 'receipt durable hook capture ingestion' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -172,6 +173,7 @@ function expectNativeSchema(
       'capture_batches',
       'capture_entries',
       'capture_acknowledgements',
+      'hook_capture_receipts',
       'capture_floor',
       'usage_cursor',
       'consumption_sources',
@@ -512,6 +514,20 @@ function expectNativeSchema(
   expect(
     metadataSearch?.columns.filter((column) => column.key === 1).map((column) => column.name)
   ).toEqual(['key', 'value', 'identity_id']);
+
+  const captureReceipts = table(migrated, 'hook_capture_receipts');
+  expect(captureReceipts.rows).toEqual([]);
+  expect(
+    captureReceipts.columns.map(({ name, type, notnull, pk }) => ({ name, type, notnull, pk }))
+  ).toEqual([
+    { name: 'event_id', type: 'TEXT', notnull: 1, pk: 1 },
+    { name: 'identity_id', type: 'TEXT', notnull: 0, pk: 0 },
+    { name: 'batch_id', type: 'TEXT', notnull: 0, pk: 0 },
+    { name: 'outcome', type: 'TEXT', notnull: 1, pk: 0 },
+    { name: 'committed_ms', type: 'INTEGER', notnull: 1, pk: 0 },
+  ]);
+  // Receipts survive batch pruning so an old queue replay cannot duplicate a final.
+  expect(captureReceipts.foreignKeys).toEqual([]);
 
   const unchangedTables = reference.tables
     .filter(

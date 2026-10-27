@@ -1,5 +1,8 @@
 //! Invocation-local coordination of stored startup evidence; no delivery authority.
-use std::{cell::Cell, time::Instant};
+use std::{
+    cell::{Cell, RefCell},
+    time::Instant,
+};
 use tmt_adapters::{
     config::ConfigPaths,
     process::{
@@ -50,11 +53,20 @@ pub enum Role {
     /// what an earlier run stored for a launch that is not admitted yet.
     Observer,
 }
+#[derive(Default, Clone)]
+struct TerminalDiagnostic {
+    step: Option<String>,
+    detail: Option<String>,
+    failure: Option<String>,
+}
 pub struct Learning {
     pub launch: HookLaunch,
     pub driver: HarnessId,
     paths: ConfigPaths,
     role: Cell<Role>,
+    deferred: Cell<bool>,
+    queued_capture: Cell<bool>,
+    terminal: RefCell<TerminalDiagnostic>,
 }
 impl Learning {
     pub fn capture(provider: &str) -> Option<Self> {
@@ -69,8 +81,108 @@ impl Learning {
             driver: HarnessId::new(provider).ok()?,
             paths: ConfigPaths::discover().ok()?,
             role: Cell::new(Role::Unknown),
+            deferred: Cell::new(false),
+            queued_capture: Cell::new(false),
+            terminal: RefCell::new(TerminalDiagnostic::default()),
         })
     }
+    /// Stop progress stages are transient and must never take the main writer.
+    pub fn defer_stop(&self) {
+        self.deferred.set(true);
+    }
+    pub fn capture_queued(&self) {
+        self.queued_capture.set(true);
+    }
+    pub fn queued(&self) -> tmt_adapters::storage::hook_queue::CaptureLearning {
+        let TerminalDiagnostic {
+            step,
+            detail,
+            failure,
+        } = self.terminal.borrow().clone();
+        tmt_adapters::storage::hook_queue::CaptureLearning {
+            launch: self.launch.clone(),
+            provider: self.driver.as_str().into(),
+            step,
+            detail,
+            failure,
+        }
+    }
+    pub fn enqueue_terminal(&self, deadline: Instant) {
+        if !self.deferred.get() || self.queued_capture.get() {
+            return;
+        }
+        let follow_up = tmt_adapters::storage::hook_queue::CaptureFollowUp {
+            learning: Some(self.queued()),
+            ..Default::default()
+        };
+        let Ok(event) = tmt_adapters::storage::hook_queue::CaptureEvent::diagnostic(
+            &self.paths.database,
+            follow_up,
+        ) else {
+            return;
+        };
+        if let Err(error) =
+            crate::hook_flush_command::enqueue(&self.paths.database, &event, deadline)
+            && error.code == tmt_adapters::storage::StorageErrorCode::IncompatibleSchema
+        {
+            Self::apply_queued(
+                &self.queued(),
+                &event,
+                tmt_adapters::storage::hook_queue::CaptureResult::NotApplicable,
+                deadline,
+            );
+        }
+    }
+    pub fn apply_queued(
+        value: &tmt_adapters::storage::hook_queue::CaptureLearning,
+        event: &tmt_adapters::storage::hook_queue::CaptureEvent,
+        result: tmt_adapters::storage::hook_queue::CaptureResult,
+        deadline: Instant,
+    ) {
+        let Ok(paths) = ConfigPaths::discover() else {
+            return;
+        };
+        let Ok(driver) = HarnessId::new(&value.provider) else {
+            return;
+        };
+        let learning = Self {
+            launch: value.launch.clone(),
+            driver,
+            paths,
+            role: Cell::new(Role::Observer),
+            deferred: Cell::new(false),
+            queued_capture: Cell::new(false),
+            terminal: RefCell::new(TerminalDiagnostic::default()),
+        };
+        let update = if result == tmt_adapters::storage::hook_queue::CaptureResult::NoAdmittedStart
+        {
+            Some(Update::Note(NO_ADMITTED_START))
+        } else if let Some(detail) = value
+            .detail
+            .as_deref()
+            .and_then(SessionLearningDetail::parse)
+        {
+            Some(
+                if let Some(step) = value.step.as_deref().and_then(SessionLearningStep::parse) {
+                    Update::Stage(step, Some(detail))
+                } else {
+                    Update::Note(detail)
+                },
+            )
+        } else {
+            value
+                .failure
+                .as_deref()
+                .and_then(SessionLearningReason::parse)
+                .map(Update::Fail)
+        };
+        if let Some(update) = update {
+            let _ = learning.diagnostic_fenced(update, deadline, Some(event));
+        } else {
+            let _ = learning.succeeded_fenced(deadline, Some(event));
+        }
+    }
+
     /// Says what this run can do, once its payload is known.
     pub fn set_role(&self, role: Role) {
         self.role.set(role);
@@ -106,83 +218,106 @@ impl Learning {
         self.diagnostic(Update::Fail(reason), deadline)
     }
     fn diagnostic(&self, update: Update, deadline: Instant) -> Result<(), ()> {
+        self.diagnostic_fenced(update, deadline, None)
+    }
+    fn diagnostic_fenced(
+        &self,
+        update: Update,
+        deadline: Instant,
+        event: Option<&tmt_adapters::storage::hook_queue::CaptureEvent>,
+    ) -> Result<(), ()> {
+        if self.deferred.get() {
+            let mut terminal = self.terminal.borrow_mut();
+            match update {
+                Update::Stage(_, None) => {}
+                Update::Stage(step, Some(detail)) => {
+                    terminal.step = Some(step.as_str().into());
+                    terminal.detail = Some(detail.as_str().into());
+                }
+                Update::Note(detail) => terminal.detail = Some(detail.as_str().into()),
+                Update::Fail(reason) => terminal.failure = Some(reason.as_str().into()),
+            }
+            return Ok(());
+        }
         let owner = self.owner(deadline)?;
         let mut storage = Storage::open_hook(&self.paths.database, deadline).map_err(|_| ())?;
-        let result = storage
-            .with_binding_transaction::<_, StorageError>(|records| {
-                let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
-                else {
-                    return Ok(false);
-                };
-                if observed.driver != self.driver {
-                    return Ok(false);
-                }
-                if observed.status == LaunchStatus::Settled {
-                    return Ok(observed.diagnostic.is_some());
-                }
-                // Only a Digest Stop sets or clears its own reason on an admitted launch.
-                if observed.status == LaunchStatus::Admitted && digest_stopped(&observed) {
+        let operation = |records: &mut dyn BindingRecords<Error = StorageError>| {
+            let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
+            else {
+                return Ok(false);
+            };
+            if observed.driver != self.driver {
+                return Ok(false);
+            }
+            if observed.status == LaunchStatus::Settled {
+                return Ok(observed.diagnostic.is_some());
+            }
+            // Only a Digest Stop sets or clears its own reason on an admitted launch.
+            if observed.status == LaunchStatus::Admitted && digest_stopped(&observed) {
+                return Ok(true);
+            }
+
+            // A run that cannot bind never overwrites what an earlier run stored for a launch
+            // that is not admitted yet: the SessionStart refusal is the one worth reading.
+            // Such a run names its own reason only when nothing more specific is stored.
+            let keeps = self.role.get() != Role::Binding
+                && observed.status != LaunchStatus::Admitted
+                && observed.diagnostic.is_some();
+            if keeps {
+                let named = observed.diagnostic.is_some_and(|d| d.detail.is_some());
+                if !matches!(update, Update::Note(_)) || named {
                     return Ok(true);
                 }
-
-                // A run that cannot bind never overwrites what an earlier run stored for a launch
-                // that is not admitted yet: the SessionStart refusal is the one worth reading.
-                // Such a run names its own reason only when nothing more specific is stored.
-                let keeps = self.role.get() != Role::Binding
-                    && observed.status != LaunchStatus::Admitted
-                    && observed.diagnostic.is_some();
-                if keeps {
-                    let named = observed.diagnostic.is_some_and(|d| d.detail.is_some());
-                    if !matches!(update, Update::Note(_)) || named {
-                        return Ok(true);
+            }
+            let mut next = observed.clone();
+            let previous = observed
+                .diagnostic
+                .unwrap_or(SessionLearningDiagnostic::new(
+                    SessionLearningStep::Input,
+                    SessionLearningReason::NotAdmitted,
+                ));
+            next.diagnostic = Some(match update {
+                Update::Stage(step, detail) => SessionLearningDiagnostic {
+                    step,
+                    reason: if observed.status == LaunchStatus::Admitted {
+                        SessionLearningReason::InProgress
+                    } else {
+                        SessionLearningReason::NotAdmitted
+                    },
+                    detail,
+                },
+                Update::Note(detail)
+                    if detail == NO_ADMITTED_START && observed.status == LaunchStatus::Admitted =>
+                {
+                    SessionLearningDiagnostic {
+                        step: SessionLearningStep::Storage,
+                        reason: SessionLearningReason::NotAdmitted,
+                        detail: Some(detail),
                     }
                 }
-                let mut next = observed.clone();
-                let previous = observed
-                    .diagnostic
-                    .unwrap_or(SessionLearningDiagnostic::new(
-                        SessionLearningStep::Input,
-                        SessionLearningReason::NotAdmitted,
-                    ));
-                next.diagnostic = Some(match update {
-                    Update::Stage(step, detail) => SessionLearningDiagnostic {
-                        step,
-                        reason: if observed.status == LaunchStatus::Admitted {
-                            SessionLearningReason::InProgress
-                        } else {
-                            SessionLearningReason::NotAdmitted
-                        },
-                        detail,
+                Update::Note(detail) => SessionLearningDiagnostic {
+                    detail: Some(detail),
+                    ..previous
+                },
+                Update::Fail(reason) => SessionLearningDiagnostic {
+                    reason: if matches!(
+                        previous.reason,
+                        SessionLearningReason::NotAdmitted | SessionLearningReason::InProgress
+                    ) {
+                        reason
+                    } else {
+                        previous.reason
                     },
-                    Update::Note(detail)
-                        if detail == NO_ADMITTED_START
-                            && observed.status == LaunchStatus::Admitted =>
-                    {
-                        SessionLearningDiagnostic {
-                            step: SessionLearningStep::Storage,
-                            reason: SessionLearningReason::NotAdmitted,
-                            detail: Some(detail),
-                        }
-                    }
-                    Update::Note(detail) => SessionLearningDiagnostic {
-                        detail: Some(detail),
-                        ..previous
-                    },
-                    Update::Fail(reason) => SessionLearningDiagnostic {
-                        reason: if matches!(
-                            previous.reason,
-                            SessionLearningReason::NotAdmitted | SessionLearningReason::InProgress
-                        ) {
-                            reason
-                        } else {
-                            previous.reason
-                        },
-                        ..previous
-                    },
-                });
-                records.set_launch_observation(&observed, &next)
-            })
-            .map_err(|_| ());
+                    ..previous
+                },
+            });
+            records.set_launch_observation(&observed, &next)
+        };
+        let result = match event {
+            Some(event) => storage.update_hook_capture_learning(event, operation),
+            None => storage.with_binding_transaction::<_, StorageError>(operation),
+        }
+        .map_err(|_| ());
         let closed = storage.close().map_err(|_| ());
         match result {
             Ok(true) => closed,
@@ -191,29 +326,42 @@ impl Learning {
     }
 
     pub fn succeeded(&self, deadline: Instant) -> Result<(), ()> {
+        self.succeeded_fenced(deadline, None)
+    }
+    fn succeeded_fenced(
+        &self,
+        deadline: Instant,
+        event: Option<&tmt_adapters::storage::hook_queue::CaptureEvent>,
+    ) -> Result<(), ()> {
+        if self.deferred.get() {
+            return Ok(());
+        }
         let owner = self.owner(deadline)?;
         let mut storage = Storage::open_hook(&self.paths.database, deadline).map_err(|_| ())?;
-        let result = storage
-            .with_binding_transaction::<_, StorageError>(|records| {
-                let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
-                else {
-                    return Ok(false);
-                };
-                if observed.driver != self.driver {
-                    return Ok(false);
-                }
-                if observed.status != LaunchStatus::Admitted
-                    || observed.diagnostic.is_none()
-                    || digest_stopped(&observed)
-                    || no_admitted_start(&observed)
-                {
-                    return Ok(true);
-                }
-                let mut next = observed.clone();
-                next.diagnostic = None;
-                records.set_launch_observation(&observed, &next)
-            })
-            .map_err(|_| ());
+        let operation = |records: &mut dyn BindingRecords<Error = StorageError>| {
+            let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
+            else {
+                return Ok(false);
+            };
+            if observed.driver != self.driver {
+                return Ok(false);
+            }
+            if observed.status != LaunchStatus::Admitted
+                || observed.diagnostic.is_none()
+                || digest_stopped(&observed)
+                || no_admitted_start(&observed)
+            {
+                return Ok(true);
+            }
+            let mut next = observed.clone();
+            next.diagnostic = None;
+            records.set_launch_observation(&observed, &next)
+        };
+        let result = match event {
+            Some(event) => storage.update_hook_capture_learning(event, operation),
+            None => storage.with_binding_transaction::<_, StorageError>(operation),
+        }
+        .map_err(|_| ());
         let closed = storage.close().map_err(|_| ());
         match result {
             Ok(true) => closed,

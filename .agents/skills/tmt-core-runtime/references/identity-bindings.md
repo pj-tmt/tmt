@@ -495,7 +495,7 @@ delivery. They install and launch nothing.
   worker under the two-second budget (provider settings allow three; Codex channel hooks use
   `RuntimeLifecycle::hook_work_duration`). The remaining budget reaches the worker as a typed
   hidden argument and reaches `turn_state`. A failed worker kills its own group; the supervisor
-  owns deadline termination. Hooks open only existing compatible storage with a short lock wait,
+  owns deadline termination. Hooks open only existing compatible Core storage with a short lock wait,
   never migrate, and on failure emit no context and a fixed stderr notice (plus a
   fixed diagnostic-save failure notice if applicable). Managed-launch diagnostics
   reserve 200 ms within that same budget, never beyond it. A hook
@@ -506,9 +506,14 @@ delivery. They install and launch nothing.
   server IDs; two external hosts refuse; [rule](hosts-drivers.md)), so an external
   caller it cannot verify is that failure line, not a silent success; a turn end stays
   silent. Hook
-  storage writer admission waits at most 500 ms within the supplied remaining worker deadline,
+  storage writer admission outside Stop waits at most 500 ms within the supplied remaining worker deadline,
   reserving 100 ms for commit and context completion; budget exhaustion keeps the
   unavailable-context behavior.
+- With its provisioned queue, Stop durably enqueues capture without taking the Core writer;
+  an otherwise current main store with an unavailable queue keeps bounded direct capture. Its finite flusher owns
+  capture ingestion, the existing consented Stop usage follow-up and terminal launch diagnostic;
+  Stop progress stages are skipped. Queue, replay and delayed-final rules live in the
+  [storage reference](requests-storage.md#digest-checklist-delivery).
 - Compaction reminders use the admitted callback's normalized `LifecycleObservation::transition`,
   never a retained `last_transition` (a Codex channel startup can preserve it). Saved identities
   only receive the default-on global boolean `notes.compactionReminder` context line; invalid

@@ -286,7 +286,7 @@ fn raise_originator_attention(
     db: &Connection,
     answered: &[(String, Option<String>)],
 ) -> Result<(), StorageError> {
-    let mut records = super::RequestRows(db, None);
+    let mut records = super::RequestRows(db, None, None);
     for (request, originator) in answered {
         let Some(originator) = originator else {
             continue;

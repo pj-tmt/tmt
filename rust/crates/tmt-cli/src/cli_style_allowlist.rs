@@ -11,6 +11,10 @@ pub const MIGRATING: &[(&str, &[Rule])] = &[];
 /// with a reason; a listed one that stops being hidden or is removed fails too.
 pub const HIDDEN: &[(&str, &str)] = &[
     (
+        "tmt __flush",
+        "Finite detached worker started by Core to drain durable hook captures.",
+    ),
+    (
         "tmt __digest-hook",
         "Session-only provider callback admits and settles a launch-scoped Digest checklist.",
     ),
