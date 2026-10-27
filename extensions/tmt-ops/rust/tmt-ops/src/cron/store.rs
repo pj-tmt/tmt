@@ -144,6 +144,59 @@ pub struct Jobs {
 }
 
 impl Jobs {
+    /// Convert a fully validated v1 snapshot using the caller's public room inventory.
+    /// The caller must apply the returned document to the same snapshot under the
+    /// document lock; room observations are acquired before entering that lock.
+    pub fn migrate_v1(value: &Value, rooms: &[(String, String)]) -> Result<Value, Error> {
+        let legacy = Self::from_v1_document(value)?;
+        let mut counters = serde_json::Map::new();
+        let mut used_rooms = BTreeMap::<String, String>::new();
+        for (name, counter) in &legacy.counters {
+            let matches: Vec<_> = rooms
+                .iter()
+                .filter(|(room_name, _)| room_name == name)
+                .collect();
+            let has_jobs = legacy.jobs.iter().any(|job| job.squad == *name);
+            let room = match matches.as_slice() {
+                [] if !has_jobs => continue,
+                [(_, room)] => room,
+                _ => {
+                    return Err(corrupt(format!(
+                        "Cannot migrate timers for squad '{name}': its room is missing or ambiguous. Resolve the squad room and retry."
+                    )));
+                }
+            };
+            if let Some(previous) = used_rooms.insert(room.clone(), name.clone()) {
+                return Err(corrupt(format!(
+                    "Cannot migrate timers for squads '{previous}' and '{name}': both resolve to one room. Resolve the squad rooms and retry."
+                )));
+            }
+            if legacy
+                .jobs
+                .iter()
+                .any(|job| job.squad == *name && job.room_id != *room)
+            {
+                return Err(corrupt(format!(
+                    "Cannot migrate timers for squad '{name}': a job belongs to a different room. Resolve the squad room and retry."
+                )));
+            }
+            counters.insert(room.clone(), json!(counter));
+        }
+        let jobs = legacy
+            .jobs
+            .iter()
+            .map(|job| {
+                let mut document = job.document();
+                document
+                    .as_object_mut()
+                    .expect("job document is an object")
+                    .remove("squad");
+                document
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"version": 2, "counters": counters, "jobs": jobs}))
+    }
+
     pub fn jobs(&self) -> &[Job] {
         &self.jobs
     }
@@ -239,6 +292,10 @@ impl Jobs {
         json!({"version":1,"counters":self.counters,"jobs":self.jobs.iter().map(Job::document).collect::<Vec<_>>()})
     }
     fn from_document(value: &Value) -> Result<Self, Error> {
+        Self::from_v1_document(value)
+    }
+
+    fn from_v1_document(value: &Value) -> Result<Self, Error> {
         if value["version"] != 1 {
             return Err(corrupt("Unsupported cron store version."));
         }
@@ -301,6 +358,40 @@ impl Store {
             legacy: self.root.join("cron").join("jobs.json"),
             limit: LIMIT,
         }
+    }
+
+    /// Convert the currently stored legacy snapshot, if any. The room inventory
+    /// is a public observation acquired by the caller before the transaction;
+    /// the document itself is read again inside the write transaction.
+    pub fn migrate_v1(&self, rooms: &[(String, String)]) -> Result<(), Error> {
+        let slot = self.slot();
+        let Some(mut database) =
+            Database::open_existing(&self.root, &slot.legacy).map_err(refused)?
+        else {
+            return Ok(());
+        };
+        database
+            .update(
+                &slot,
+                |bytes| {
+                    let Some(bytes) = bytes else {
+                        return Ok((None, ()));
+                    };
+                    let value: Value = serde_json::from_slice(bytes)
+                        .map_err(|error| corrupt(error.to_string()))?;
+                    if value["version"] == 2 {
+                        return Ok((None, ()));
+                    }
+                    let converted = Jobs::migrate_v1(&value, rooms)?;
+                    let bytes = serde_json::to_vec(&converted).map_err(io)?;
+                    if bytes.len() as u64 > LIMIT {
+                        return Err(corrupt("Cron store exceeds 16 MiB."));
+                    }
+                    Ok((Some(bytes), ()))
+                },
+                |_, _| Ok(()),
+            )
+            .map_err(failed)
     }
     pub fn read(&self) -> Result<Jobs, Error> {
         let slot = self.slot();

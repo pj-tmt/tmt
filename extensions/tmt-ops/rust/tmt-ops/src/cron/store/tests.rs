@@ -100,6 +100,57 @@ fn job(squad: &str) -> Job {
 }
 
 #[test]
+fn room_identity_scopes_counters_even_when_a_squad_name_is_reused() {
+    let mut jobs = Jobs::default();
+    let mut first = job("product");
+    first.room_id = "11111111-1111-4111-8111-111111111111".into();
+    let mut replacement = job("product");
+    replacement.room_id = "22222222-2222-4222-8222-222222222222".into();
+    assert_eq!(jobs.insert(first).unwrap(), "c1");
+    assert_eq!(jobs.insert(replacement).unwrap(), "c1");
+}
+
+#[test]
+fn room_counter_survives_rename_and_removing_the_last_job() {
+    let mut jobs = Jobs::default();
+    let room = "11111111-1111-4111-8111-111111111111";
+    let mut first = job("product");
+    first.room_id = room.into();
+    assert_eq!(jobs.insert(first).unwrap(), "c1");
+    assert!(jobs.remove(room, "c1").is_some(), "remove by room UUID");
+    let mut renamed = job("platform");
+    renamed.room_id = room.into();
+    assert_eq!(jobs.insert(renamed).unwrap(), "c2");
+}
+
+#[test]
+fn room_uuid_store_accepts_an_empty_v2_document() {
+    let decoded = Jobs::from_document(&json!({"version":2,"counters":{},"jobs":[]}));
+    assert!(decoded.is_ok(), "a valid v2 document must be readable");
+}
+
+#[test]
+fn room_uuid_store_allows_the_same_id_in_different_rooms() {
+    let room_a = "11111111-1111-4111-8111-111111111111";
+    let room_b = "22222222-2222-4222-8222-222222222222";
+    let document = json!({
+        "version": 2,
+        "counters": {(room_a): 1, (room_b): 1},
+        "jobs": [
+            {"id":"c1", "roomId":room_a, "ownerId":"owner-uuid", "message":"a",
+             "revision":1, "state":"on", "pause":null,
+             "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}},
+            {"id":"c1", "roomId":room_b, "ownerId":"owner-uuid", "message":"b",
+             "revision":1, "state":"on", "pause":null,
+             "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}}
+        ]
+    });
+    let decoded = Jobs::from_document(&document);
+    assert!(decoded.is_ok(), "distinct rooms may each have a c1");
+    assert_eq!(decoded.unwrap().jobs().len(), 2);
+}
+
+#[test]
 fn reads_create_nothing_and_commits_preserve_exact_content_and_non_reused_ids() {
     let f = Fixture::new();
     let store = f.store();

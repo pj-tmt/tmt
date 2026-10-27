@@ -177,7 +177,7 @@ elif a[0]=='room' and a[1]=='show':
  print(json.dumps({'room':room}))
 elif a[0]=='ls':
  m['calls'].append({'command':a}); save(m); print(json.dumps({'identities':m.get('ls',[])}))
-elif a[0]=='room': print(json.dumps({'rooms':[{'id':m['room'],'name':m.get('roomName','squad-product')}]}))
+elif a[0]=='room': print(json.dumps({'rooms':m.get('roomList',[{'id':m['room'],'name':m.get('roomName','squad-product')}])}))
 elif a[0]=='identity' and a[1]=='meta':
  id=a[a.index('--identity')+1]
  x=next((x for x in m['members'] if x['id']==id and id not in m['retired']),None)
