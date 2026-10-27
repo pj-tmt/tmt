@@ -345,9 +345,12 @@ fn a_late_final_of_an_older_batch_keeps_its_place_and_borrows_no_newer_sender() 
     crate::status::with_now_ms(NOW, || {
         for width in [160, 80] {
             let entries = vec![
-                input("person", VIEWER, "Ben", QUESTION),
-                in_batch(input("digest", OTHER, "core-1", DIGEST), "batch-h"),
-                final_entry("late", "rsp_A", VIEWER, "person", 7),
+                in_batch(input("person", VIEWER, "Ben", QUESTION), "batch-old"),
+                in_batch(input("digest", OTHER, "core-1", DIGEST), "batch-new"),
+                in_batch(
+                    final_entry("late", "rsp_A", VIEWER, "person", 7),
+                    "batch-old",
+                ),
             ];
             let app = setup(document(entries), false);
             let screen = draw(&app, width);
