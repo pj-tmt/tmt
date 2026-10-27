@@ -24,7 +24,7 @@ use tmt_tui::components::{Modal, Placement, ScrollState, strip};
 
 /// Which members' unread an open overlay lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Scope {
+pub(super) enum UnreadScope {
     All,
     Member(String),
     /// A squad or the Common pool: the members of the group.
@@ -502,7 +502,7 @@ impl App {
     }
 
     /// The members of `scope` in the order the Agents list shows them.
-    pub(in crate::board) fn unread_scope_members(&self, scope: &Scope) -> Vec<String> {
+    pub(in crate::board) fn unread_scope_members(&self, scope: &UnreadScope) -> Vec<String> {
         let listed: Vec<String> = self
             .workspace_rows()
             .iter()
@@ -512,12 +512,12 @@ impl App {
             })
             .collect();
         let mut members: Vec<String> = match scope {
-            Scope::All => self
+            UnreadScope::All => self
                 .workspace_snapshot()
                 .map(|snapshot| snapshot.roster.members.keys().cloned().collect())
                 .unwrap_or_default(),
-            Scope::Member(member) => vec![member.clone()],
-            Scope::Group(group) => group.clone(),
+            UnreadScope::Member(member) => vec![member.clone()],
+            UnreadScope::Group(group) => group.clone(),
         };
         members.sort_by_key(|member| {
             listed
@@ -568,23 +568,27 @@ impl App {
     }
 
     /// What a count belongs to: an agent, a squad or the Common pool, or everyone.
-    fn unread_scope_of(&self, target: Option<&OpsTarget>) -> Scope {
+    fn unread_scope_of(&self, target: Option<&OpsTarget>) -> UnreadScope {
         match (target, self.workspace_snapshot()) {
-            (Some(OpsTarget::Member { identity_id, .. }), _) => Scope::Member(identity_id.clone()),
+            (Some(OpsTarget::Member { identity_id, .. }), _) => {
+                UnreadScope::Member(identity_id.clone())
+            }
             (Some(OpsTarget::Squad(room)), Some(snapshot)) => snapshot
                 .roster
                 .squads
                 .iter()
                 .find(|squad| &squad.room_id == room)
-                .map_or(Scope::All, |squad| Scope::Group(squad.members.to_vec())),
-            (Some(OpsTarget::Pool), Some(snapshot)) => Scope::Group(
+                .map_or(UnreadScope::All, |squad| {
+                    UnreadScope::Group(squad.members.to_vec())
+                }),
+            (Some(OpsTarget::Pool), Some(snapshot)) => UnreadScope::Group(
                 snapshot
                     .roster
                     .pool()
                     .map(|member| member.id.clone())
                     .collect(),
             ),
-            _ => Scope::All,
+            _ => UnreadScope::All,
         }
     }
 
@@ -600,7 +604,7 @@ impl App {
     }
 
     /// Opens the overlay for `scope`; "Nothing unread here." when there is nothing to show.
-    pub(in crate::board) fn open_unread(&mut self, scope: &Scope) -> Effect {
+    pub(in crate::board) fn open_unread(&mut self, scope: &UnreadScope) -> Effect {
         let members = self.unread_scope_members(scope);
         self.unread_session += 1;
         let mut overlay = Overlay::new(self.unread_session, members);

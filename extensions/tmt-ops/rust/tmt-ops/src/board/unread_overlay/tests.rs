@@ -126,9 +126,9 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         ],
     );
     let scope = if scene == "unread-overlay-agent" {
-        Scope::Member(MEMBER.into())
+        UnreadScope::Member(MEMBER.into())
     } else {
-        Scope::All
+        UnreadScope::All
     };
     app.open_unread(&scope);
     let worker = replies(
@@ -166,7 +166,7 @@ fn the_overlay_lists_unread_answers_by_agent_oldest_first_with_a_count_per_group
                 (OTHER, "c-one", 9_500_000, "final"),
             ],
         );
-        assert_eq!(app.open_unread(&Scope::All), Effect::None);
+        assert_eq!(app.open_unread(&UnreadScope::All), Effect::None);
         arrive(
             &mut app,
             MEMBER,
@@ -211,7 +211,7 @@ fn only_answers_painted_in_the_viewport_are_handed_to_the_writer() {
                 (MEMBER, "second", 9_000_000, "final"),
             ],
         );
-        app.open_unread(&Scope::Member(MEMBER.into()));
+        app.open_unread(&UnreadScope::Member(MEMBER.into()));
         let long = (0..120)
             .map(|n| format!("paragraph {n}"))
             .collect::<Vec<_>>()
@@ -257,7 +257,7 @@ fn a_failed_read_says_so_and_is_asked_again_only_after_scrolling_away_and_back()
                 (MEMBER, "c", 9_000_000, "final"),
             ],
         );
-        app.open_unread(&Scope::All);
+        app.open_unread(&UnreadScope::All);
         arrive(&mut app, OTHER, Observation::Unavailable);
         let screen = draw(&app, 40);
         assert!(screen.contains("Answers unavailable"), "{screen}");
@@ -302,7 +302,7 @@ fn closing_drops_a_late_read_and_the_conversation_read_resumes() {
     crate::status::with_now_ms(10_000_000, || {
         let mut app = board();
         install(&mut app, &[(MEMBER, "w", 8_000_000, "final")]);
-        app.open_unread(&Scope::Member(MEMBER.into()));
+        app.open_unread(&UnreadScope::Member(MEMBER.into()));
         let (first, read) = app
             .unread_overlay_read()
             .expect("the overlay demands its read");
@@ -323,7 +323,7 @@ fn closing_drops_a_late_read_and_the_conversation_read_resumes() {
         app.unread_overlay_arrived(first, &read, replies(MEMBER, &[("w", "Late")]));
         assert!(app.unread_overlay.is_none());
         // A reopened overlay is a new opening: the old one's result is dropped.
-        app.open_unread(&Scope::Member(MEMBER.into()));
+        app.open_unread(&UnreadScope::Member(MEMBER.into()));
         let second = app.unread_overlay.as_ref().unwrap().session;
         assert_ne!(first, second);
         app.unread_overlay_arrived(first, &read, replies(MEMBER, &[("w", "Late")]));
@@ -386,7 +386,7 @@ fn a_press_inside_the_overlay_never_reaches_the_board_under_it_and_outside_close
             room_id: Some(ROOM.into()),
             identity_id: MEMBER.into(),
         });
-        app.open_unread(&Scope::All);
+        app.open_unread(&UnreadScope::All);
         draw(&app, 36);
         // Every hit the board painted under the modal, clicked where the modal covers it.
         let outer = app
@@ -460,7 +460,7 @@ fn older_answers_held_back_by_core_are_said_so() {
         app.home_leads
             .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page);
         app.overview_rows.borrow_mut().clear();
-        app.open_unread(&Scope::Member(MEMBER.into()));
+        app.open_unread(&UnreadScope::Member(MEMBER.into()));
         arrive(&mut app, MEMBER, replies(MEMBER, &[("w", "The answer")]));
         let screen = draw(&app, 40);
         assert!(screen.contains("The answer"), "{screen}");
@@ -594,7 +594,7 @@ fn unread_overlay_frame_timing() {
             .map(|(member, request, at)| (member.as_str(), request.as_str(), *at, "final"))
             .collect();
         install(&mut app, &borrowed);
-        app.open_unread(&Scope::All);
+        app.open_unread(&UnreadScope::All);
         for (index, member) in members.iter().enumerate() {
             let texts: Vec<_> = (0..per_member)
                 .map(|n| {

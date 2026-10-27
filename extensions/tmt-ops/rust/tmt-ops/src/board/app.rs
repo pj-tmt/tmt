@@ -4556,7 +4556,7 @@ impl App {
             {
                 return self.say("The painted unread count changed; repaint before marking read.");
             }
-            return self.open_unread(&crate::board::unread_overlay::Scope::Member(
+            return self.open_unread(&crate::board::unread_overlay::UnreadScope::Member(
                 hit.key.1.clone(),
             ));
         }
