@@ -27,7 +27,7 @@ const LOCK: CommandSpec = CommandSpec {
         note: "Lock the exact passage before a multi-step edit",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Publishes a signed identity-bound advisory edit lock. Give --find TEXT (one exact source passage) or --whole. One identity has one effective lock per page; a new lock replaces its previous target. The holder's overlapping patch releases it after the content commits. Offline or ended holder presence hides a lock, unknown presence keeps it. A missing local-writer holder is retired; an absent foreign holder stays unknown. People are never blocked. Locks do not expire, open a browser or dispatch requests.",
+    details: "Publishes a signed identity-bound advisory edit lock. Give --find TEXT (one exact source passage) or --whole. One identity has one effective lock per page; a new lock replaces its previous target. The holder's successful patch on this page releases it after the content commits. Offline or ended holder presence hides a lock, unknown presence keeps it. A missing local-writer holder is retired; an absent foreign holder stays unknown. People are never blocked. Locks do not expire, open a browser or dispatch requests.",
 };
 const UNLOCK: CommandSpec = CommandSpec {
     name: "unlock",
@@ -296,6 +296,66 @@ pub fn run(root: &Path, mode: &str, args: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
+/// Announce an agent's edit before evaluating it. A caller-supplied revision is checked
+/// before this own publication; the returned revision fences its confirmed acquisition.
+pub fn acquire_patch(
+    layout: &Layout,
+    key: &Keyring,
+    page: &str,
+    patch: &page::patch::Patch,
+    expected: Option<&str>,
+    decoder: &mut Decoder,
+) -> Result<Option<String>> {
+    if !is_agent() {
+        return Ok(None);
+    }
+    let store = Store::read(layout)?;
+    let view = edit_locks::read(&store, key, page, decoder);
+    let closed = store.close();
+    let view = view?;
+    closed?;
+    if expected.is_some_and(|expected| expected != view.revision) {
+        return Err(Fault::StaleBase.into());
+    }
+    let holder = caller()?;
+    if view
+        .locks
+        .iter()
+        .any(|lock| !lock.released && lock.holder.id == holder.id)
+    {
+        return Ok(None);
+    }
+    // A single named find is already the quote. Several pairs, line ranges, diffs,
+    // and quotes over the existing byte bound use the conservative whole-page target.
+    let target = match patch {
+        page::patch::Patch::Replace(pairs)
+            if pairs.len() == 1
+                && !pairs[0].0.is_empty()
+                && pairs[0].0.len() <= tmt_colab::limits::COMMENT_BODY_BYTES =>
+        {
+            Target::Quote(QuoteSelector {
+                exact: pairs[0].0.clone(),
+                prefix: String::new(),
+                suffix: String::new(),
+            })
+        }
+        _ => Target::Whole(Whole { whole: true }),
+    };
+    let (_, receipt) = publish(
+        layout,
+        key,
+        page,
+        &view.revision,
+        &[Change::Acquire { holder, target }],
+        decoder,
+    )?;
+    Ok(receipt.map(|receipt| receipt.revision))
+}
+
+fn is_agent() -> bool {
+    std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty())
+}
+
 /// Capture before committing the source, so a later lock never becomes this patch's cleanup.
 /// Agent patches fence the checked own state as well as source; retries recheck both.
 pub struct PatchLocks {
@@ -311,7 +371,7 @@ pub fn patch_locks(
     decoder: &mut Decoder,
 ) -> Result<PatchLocks> {
     let view = edit_locks::read(store, key, page, decoder)?;
-    let agent = std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty());
+    let agent = is_agent();
     let mut captured = PatchLocks {
         revision: agent.then_some(view.revision),
         release: vec![],
@@ -319,7 +379,11 @@ pub fn patch_locks(
     if !view.locks.iter().any(|lock| !lock.released) {
         return Ok(captured);
     }
-    let holder = core::caller_snapshot().and_then(|caller| caller.agent_id);
+    let holder = if agent {
+        Some(caller()?.id)
+    } else {
+        core::caller_snapshot().and_then(|caller| caller.agent_id)
+    };
     let overlaps = view
         .locks
         .iter()
@@ -355,9 +419,11 @@ pub fn patch_locks(
             }
         }
     }
-    captured.release = overlaps
-        .into_iter()
-        .filter(|lock| holder.as_deref() == Some(lock.holder.id.as_str()))
+    captured.release = view
+        .locks
+        .iter()
+        .filter(|lock| !lock.released && holder.as_deref() == Some(lock.holder.id.as_str()))
+        .filter(|lock| agent || tmt_colab::edit_lock::overlaps(&lock.target, old, new))
         .map(|lock| lock.lock_id.clone())
         .collect();
     Ok(captured)
