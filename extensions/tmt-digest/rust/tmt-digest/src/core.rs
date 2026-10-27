@@ -2,10 +2,14 @@
 
 use serde_json::Value;
 use std::{
+    cell::RefCell,
     ffi::OsString,
     path::PathBuf,
     time::{Duration, Instant},
 };
+use tmt_invoke::{LineChannel, LineChannelOptions};
+
+const FRAME_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub struct Error {
@@ -29,6 +33,18 @@ impl From<std::io::Error> for Error {
 pub struct Core {
     program: PathBuf,
     deadline: Option<Instant>,
+    /// Set by [`Core::persistent`]; every other caller keeps one process per request.
+    persistent: Option<RefCell<Persistent>>,
+}
+
+/// One invocation's API transport, negotiated at its first request.
+#[derive(Default)]
+struct Persistent {
+    /// The invoking CLI's `capabilities` document; absent until the first request.
+    capabilities: Option<Value>,
+    /// The one `tmt api --session` child, started by the first request that needs it. A failed
+    /// exchange drops it and the next request starts a fresh one; no request is ever replayed.
+    channel: Option<LineChannel>,
 }
 impl Core {
     #[cfg(test)]
@@ -36,6 +52,7 @@ impl Core {
         Self {
             program,
             deadline: None,
+            persistent: None,
         }
     }
     pub fn discover() -> Result<Self, Error> {
@@ -61,7 +78,14 @@ impl Core {
         Ok(Self {
             program: path,
             deadline: None,
+            persistent: None,
         })
+    }
+    /// Send this handle's API requests through one `tmt api --session` child, when the invoking
+    /// CLI advertises it, instead of one process per request. The child ends with the handle.
+    pub fn persistent(mut self) -> Self {
+        self.persistent = Some(RefCell::default());
+        self
     }
     /// The `tmt` Digest was started by; ticks and reads go through it.
     pub fn program(&self) -> &std::path::Path {
@@ -85,16 +109,88 @@ impl Core {
             "version": 1, "operation": operation, "input": input,
         }))
         .map_err(|error| Error::new("DIGEST_INPUT_INVALID", error.to_string()))?;
-        self.capture(&[OsString::from("api")], &bytes)
+        let Some(persistent) = &self.persistent else {
+            return self.capture(&[OsString::from("api")], &bytes);
+        };
+        let mut state = persistent.borrow_mut();
+        if state.capabilities.is_none() {
+            // Admission is one ordinary request; an older CLI answers without `session`.
+            let request = br#"{"version":1,"operation":"capabilities","input":{}}"#;
+            state.capabilities = Some(self.capture(&[OsString::from("api")], request)?);
+        }
+        let capabilities = state.capabilities.as_ref().expect("negotiated");
+        if operation == "capabilities" {
+            return Ok(capabilities.clone());
+        }
+        if capabilities["session"]["framing"] != "ndjson" {
+            drop(state);
+            return self.capture(&[OsString::from("api")], &bytes);
+        }
+        self.exchange(&mut state, &bytes)
+    }
+    /// The channel's answer is read like a one-shot process's: an error resource is a failure of
+    /// this request only, except `API_SESSION_STALE`, after which Core has closed the session.
+    fn exchange(&self, state: &mut Persistent, request: &[u8]) -> Result<Value, Error> {
+        let deadline = self.call_deadline();
+        let unavailable =
+            |error: tmt_invoke::InvokeError| Error::new("CORE_UNAVAILABLE", error.to_string());
+        if state.channel.is_none() {
+            state.channel = Some(
+                LineChannel::start(
+                    LineChannelOptions {
+                        program: &self.program,
+                        args: &[OsString::from("api"), OsString::from("--session")],
+                        deadline,
+                        max_frame_bytes: FRAME_BYTES,
+                        launch: Default::default(),
+                    },
+                    || false,
+                )
+                .map_err(unavailable)?,
+            );
+        }
+        let reply = state
+            .channel
+            .as_mut()
+            .expect("started")
+            .exchange(request, deadline, || false);
+        let reply = reply.map_err(|error| {
+            // A failed exchange has already ended the child; whether Core acted is unknown.
+            state.channel = None;
+            unavailable(error)
+        })?;
+        let Ok(document) = serde_json::from_slice::<Value>(&reply) else {
+            state.channel = None;
+            return Err(Error::new(
+                "CORE_RESPONSE_INVALID",
+                "Core did not return a JSON document",
+            ));
+        };
+        if document["error"].is_object() {
+            let code = document["error"]["code"].as_str().unwrap_or("CORE_FAILED");
+            if code == "API_SESSION_STALE" {
+                state.channel = None;
+            }
+            return Err(Error::new(
+                code,
+                document["error"]["message"]
+                    .as_str()
+                    .unwrap_or("Core command failed"),
+            ));
+        }
+        Ok(document)
+    }
+    fn call_deadline(&self) -> Instant {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        self.deadline.map_or(deadline, |end| end.min(deadline))
     }
     fn capture(&self, args: &[OsString], input: &[u8]) -> Result<Value, Error> {
-        let deadline = Instant::now() + Duration::from_secs(15);
         let output = tmt_invoke::invoke(
             tmt_invoke::Request {
                 program: &self.program,
                 args,
                 input,
-                deadline: self.deadline.map_or(deadline, |end| end.min(deadline)),
+                deadline: self.call_deadline(),
                 max_stream_bytes: 1024 * 1024,
                 launch: Default::default(),
             },
@@ -195,3 +291,7 @@ impl Core {
             })
     }
 }
+
+#[cfg(test)]
+#[path = "core/tests.rs"]
+mod tests;

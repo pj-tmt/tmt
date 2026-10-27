@@ -412,7 +412,7 @@ own module/drawing boundaries and verification.
   Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`,
   `tmt-pty-protocol` (a built-in host's terminal-stream frames); dev-only `tmt-test-support`.
   Each UI shares separate lazy API sessions for background and interaction workers,
-  with worker-only I/O and no uncertain-request replay.
+  with worker-only I/O and no uncertain-request replay; the Digest tick opens one per minute.
   The refresh owner admits bounded retained projections through successful cursors
   and local stamps; independent clocks and action admission stay fresh.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata

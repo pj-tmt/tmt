@@ -89,9 +89,11 @@ fn concurrent_tick_exits_without_reading_settings_and_failure_releases_lock_for_
     assert!(result.status.success(), "{:?}", result.stderr);
     assert!(result.stdout.is_empty());
     assert!(result.stderr.is_empty());
+    // The persistent transport's capabilities admission, then `storage.root`; this fixture's
+    // Core advertises no session, so both are ordinary one-shot requests.
     assert_eq!(
         fs::read_to_string(fixture.0.join("calls")).unwrap(),
-        "api\n"
+        "api\napi\n"
     );
     let envelope: serde_json::Value =
         serde_json::from_slice(&fs::read(fixture.0.join("input")).unwrap()).unwrap();

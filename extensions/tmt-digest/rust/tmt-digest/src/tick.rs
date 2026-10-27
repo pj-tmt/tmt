@@ -85,7 +85,8 @@ impl TickClock for MinuteClock {
 }
 
 pub fn execute() -> Result<(), Error> {
-    let core = crate::core::Core::discover()?;
+    // One `tmt api --session` serves every request of this minute; it ends with the tick.
+    let core = crate::core::Core::discover()?.persistent();
     let root = core.data_root()?;
     let directory = root.join("digest");
     fs::DirBuilder::new()

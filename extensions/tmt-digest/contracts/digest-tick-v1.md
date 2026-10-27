@@ -27,6 +27,8 @@ call, and an advertised error ends the observation without legacy fallback.
 
 Each tick reads Core capabilities once: only explicit absence of `digest.receiving.sync` retains the existing legacy settings-to-lease behavior with one stderr upgrade diagnostic, while advertised operations always use Core `effective()` without error fallback; [remove the legacy branch at the stable cut](https://github.com/pj-tmt/tmt/issues/5124).
 
+The tick sends its API requests through one lazy `tmt api --session` child it owns, instead of one `tmt api` process per request, when that capabilities document advertises `session.framing` `ndjson`; an older Core keeps one process per request. The child serves the whole minute and ends with the tick. A request keeps the tick's existing deadline. An error resource fails only its own request, except `API_SESSION_STALE`, which closes the session. A framing, I/O or deadline failure also closes it, is reported for that request and is never replayed; the next request starts a fresh session. The tick adds no thread, timer or poll. `identity ls --json` and `config show --json` are ordinary commands, not API requests, and stay one process each.
+
 The [settings contract](digest-v1.md#settings) owns configured Base input and attribution.
 The tick publishes the enabled switch, default and at most 256 explicit receiving
 overrides through Core's CAS `digest.receiving.sync`, then consumes its current
