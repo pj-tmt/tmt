@@ -35,6 +35,23 @@ pub(super) fn marker(document: &Value) -> Option<BindingMarker> {
     })
 }
 
+/// A pre-UUID identity marker has names but no binding ID. It is not routing authority.
+pub(super) fn is_legacy_marker(document: &Value) -> bool {
+    document.get("version").and_then(Value::as_u64) == Some(1)
+        && document
+            .get("globalIdentity")
+            .and_then(Value::as_object)
+            .is_some_and(|marker| {
+                !marker.contains_key("bindingId")
+                    && ["name", "canonicalName"].iter().all(|key| {
+                        marker
+                            .get(*key)
+                            .and_then(Value::as_str)
+                            .is_some_and(|value| !value.is_empty())
+                    })
+            })
+}
+
 pub(super) fn replace(document: &mut Value, marker: &BindingMarker) {
     document["globalIdentity"] = json!({
         "name": marker.name,

@@ -14,6 +14,82 @@ use super::endpoint::{EndpointFailure, FakeEndpoint};
 use crate::storage::{Storage, StorageError};
 
 #[test]
+fn only_explicit_user_bind_can_replace_an_unchanged_legacy_marker() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2", "%3", "%4"]);
+    let legacy = r#"{"version":1,"globalIdentity":{"name":"Old","canonicalName":"old"}}"#;
+    for pane in ["%1", "%2", "%3", "%4"] {
+        endpoint.legacy_markers.insert(pane.into(), legacy.into());
+    }
+    let bound = bind_identity(&mut storage, &mut endpoint, "%1", "Explicit", false).unwrap();
+    assert_eq!(
+        endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+        bound.binding.unwrap().id
+    );
+    assert!(!endpoint.legacy_markers.contains_key("%1"));
+    let automatic =
+        tmt_core::binding::bind_auto_identity(&mut storage, &mut endpoint, "%2", "auto", false);
+    assert!(matches!(automatic, Err(BindingError::Unverified)));
+    let runtime = tmt_core::binding::bind_runtime_identity_with_creation(
+        &mut storage,
+        &mut endpoint,
+        "%3",
+        "runtime",
+        false,
+    );
+    assert!(matches!(runtime, Err(BindingError::Unverified)));
+    let hook_identity = create_or_resolve(&mut storage, "Hook", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let hook = tmt_core::binding::bind_existing_identity(
+        &mut storage,
+        &mut endpoint,
+        "%4",
+        &hook_identity.id,
+        false,
+    );
+    assert!(matches!(hook, Err(BindingError::Unverified)));
+    assert_eq!(
+        endpoint.legacy_markers.get("%4").map(String::as_str),
+        Some(legacy)
+    );
+    assert_eq!(
+        endpoint.legacy_markers.get("%2").map(String::as_str),
+        Some(legacy)
+    );
+    assert_eq!(
+        endpoint.legacy_markers.get("%3").map(String::as_str),
+        Some(legacy)
+    );
+    assert!(endpoint.pane_mut("%2").marker.is_none());
+    assert!(endpoint.pane_mut("%3").marker.is_none());
+    assert!(storage.find_identity("auto").unwrap().is_none());
+    assert!(storage.find_identity("runtime").unwrap().is_none());
+    storage.close().unwrap();
+}
+
+#[test]
+fn changed_legacy_marker_refuses_explicit_bind_without_overwriting_it() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    endpoint
+        .legacy_markers
+        .insert("%1".into(), "old bytes".into());
+    endpoint.replace_legacy_before_publish = Some("changed bytes".into());
+    let result = bind_identity(&mut storage, &mut endpoint, "%1", "Explicit", false);
+    assert!(matches!(result, Err(BindingError::Unverified)));
+    assert_eq!(
+        endpoint.legacy_markers.get("%1").map(String::as_str),
+        Some("changed bytes")
+    );
+    assert!(endpoint.pane_mut("%1").marker.is_none());
+    assert_eq!(endpoint.publish_calls, 0);
+    storage.close().unwrap();
+}
+
+#[test]
 fn competing_binds_recheck_free_observation_before_reserving() {
     use std::sync::{
         Arc,

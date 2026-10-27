@@ -268,6 +268,9 @@ unchanged in `snapshot` and `probe`. It never interprets the marker.
     Older drivers retain unconditional publication: Core verifies afterwards
     and compensates on mismatch, but this cannot prevent a stale publisher
     from temporarily overwriting another marker.
+    On tmux only, an explicit `add` or `this` may also replace a pre-UUID
+    identity marker by comparing its exact observed bytes. Automatic binding
+    and revival refuse that marker as unverified.
 - **`clear`:**
   - request: `{"socket", "paneId", "bindingId"}`;
   - answer: `{"cleared": bool}`;

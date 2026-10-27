@@ -67,6 +67,7 @@ pub fn capabilities() -> Capabilities {
         },
         target: Some("w{n}:p{n}".into()),
         caller_env: vec!["HERDR_PANE_ID".into(), "HERDR_SOCKET_PATH".into()],
+        conditional_publish: false,
         // Herdr publishes no launch template yet: its tab/pane commands take no program to run,
         // so the template waits for a verified Herdr command rather than a guessed one.
         launch: None,
@@ -285,6 +286,7 @@ impl<R: Runner> Handler for HerdrDriver<R> {
             pane_id,
             pane_pid,
             marker: expected,
+            ..
         } = &request.body;
         let socket = self.socket(socket)?;
         let pane_id = self.pane_id(pane_id)?;

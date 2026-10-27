@@ -4,11 +4,11 @@ import { describe, expect, it } from 'vite-plus/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { E2EFixture, withE2EFixture, type CliProcess, type CliResult } from './harness.js';
-import { processTreeHasOpenFile } from './process-file-oracle.js';
 
 interface IdentityListItem {
   name: string;
-  pane: string;
+  pane: string | null;
+  presence?: string;
 }
 
 interface IdentityList {
@@ -50,6 +50,20 @@ function durableCounts(fixture: E2EFixture): DurableCounts {
         database.prepare('SELECT COUNT(*) AS count FROM role_profiles').get() as { count: number }
       ).count,
     };
+  } finally {
+    database.close();
+  }
+}
+
+function pendingReservationCount(fixture: E2EFixture, canonicalName: string): number {
+  const database = new Database(databaseFile(fixture), { readonly: true, timeout: 0 });
+  try {
+    return (
+      database
+        .prepare(`SELECT COUNT(*) AS count FROM binding_reservations r
+      JOIN identities i ON i.id = r.identity_id WHERE i.canonical_name = ?`)
+        .get(canonicalName) as { count: number }
+    ).count;
   } finally {
     database.close();
   }
@@ -148,43 +162,28 @@ async function assertPublished(fixture: E2EFixture, name: string): Promise<void>
 }
 
 describe('crash-safe identity publication', { concurrent: false }, () => {
-  it('keeps an unpublished binding out of committed discovery while an observer starts', async () => {
+  it('keeps an unpublished binding offline while an observer and writer proceed', async () => {
     await withE2EFixture(
       async (fixture) => {
         const binder = fixture.runCliProcess(['--json', 'name', 'Published']);
-        await fixture.waitForMetadataBarrier('entered');
+        await fixture.waitForMetadataBarrier('entered', { child: binder });
+        expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 0 });
+        expect(pendingReservationCount(fixture, 'published')).toBe(1);
+        expect(writerIsLocked(fixture)).toBe(false);
 
-        expect(durableCounts(fixture)).toMatchObject({ bindings: 0, profiles: 0 });
-        expect(writerIsLocked(fixture)).toBe(true);
-
-        let observerSettled = false;
-        const observer = fixture.runCliProcess<IdentityList>(['--json', 'list']);
-        void observer.result.then(
-          () => {
-            observerSettled = true;
-          },
-          () => {
-            observerSettled = true;
-          }
+        const listed = await waitForSuccess<IdentityList>(
+          fixture.runCliProcess(['--json', 'list'])
         );
-        await fixture.waitFor(
-          () => !observerSettled && processTreeHasOpenFile(observer.pid, databaseFile(fixture)),
-          900,
-          'observer to open SQLite while publication is locked'
-        );
-        expect(observerSettled).toBe(false);
-        expect(writerIsLocked(fixture)).toBe(true);
-        expect(durableCounts(fixture)).toMatchObject({ bindings: 0 });
-
-        fixture.releaseMetadataBarrier();
-        await waitForSuccess(binder);
-        const listed = await waitForSuccess<IdentityList>(observer);
         expect(listed.identities).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({ name: 'Published', pane: fixture.pane }),
+            expect.objectContaining({ name: 'Published', presence: 'offline', pane: null }),
           ])
         );
-
+        expect(writerIsLocked(fixture)).toBe(false);
+        expect(durableCounts(fixture)).toMatchObject({ bindings: 0 });
+        fixture.releaseMetadataBarrier();
+        await waitForSuccess(binder);
+        expect(pendingReservationCount(fixture, 'published')).toBe(0);
         expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 1 });
         await assertPublished(fixture, 'Published');
       },
@@ -196,7 +195,9 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
     {
       label: 'same name on another pane',
       contender: (fixture: E2EFixture, pane: string) => ['--json', 'add', pane, 'Anchor'],
-      expectedCode: 'NAME_ALREADY_ACTIVE',
+      expectedCode: 'RECONCILIATION_FAILED',
+      expectedExit: 1,
+      retiredChallenger: false,
       expectedBindings: 1,
       expectedIdentities: 1,
     },
@@ -204,13 +205,17 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
       label: 'different name on the same pane',
       contender: (_fixture: E2EFixture, _pane: string) => ['--json', 'name', 'Challenger'],
       expectedCode: 'PANE_ALREADY_BOUND',
+      expectedExit: 5,
+      retiredChallenger: true,
       expectedBindings: 1,
       expectedIdentities: 2,
     },
     {
       label: 'same canonical name on the same pane',
       contender: (_fixture: E2EFixture, _pane: string) => ['--json', 'name', 'ａｎｃｈｏｒ'],
-      expectedCode: undefined,
+      expectedCode: 'PANE_ALREADY_BOUND',
+      expectedExit: 5,
+      retiredChallenger: false,
       expectedBindings: 1,
       expectedIdentities: 1,
     },
@@ -218,38 +223,48 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
       label: 'different name on another pane',
       contender: (fixture: E2EFixture, pane: string) => ['--json', 'add', pane, 'Challenger'],
       expectedCode: undefined,
+      expectedExit: undefined,
+      retiredChallenger: false,
       expectedBindings: 2,
       expectedIdentities: 2,
     },
   ])(
     'serializes $label without deleting the winner',
-    async ({ contender, expectedCode, expectedBindings, expectedIdentities }) => {
+    async ({
+      contender,
+      expectedCode,
+      expectedExit,
+      retiredChallenger,
+      expectedBindings,
+      expectedIdentities,
+    }) => {
       await withE2EFixture(
         async (fixture) => {
           const peer = await fixture.createMockPane('peer');
           const binder = fixture.runCliProcess<{ id: string }>(['--json', 'name', 'Anchor']);
-          await fixture.waitForMetadataBarrier('entered');
-          expect(writerIsLocked(fixture)).toBe(true);
+          await fixture.waitForMetadataBarrier('entered', { child: binder });
+          expect(writerIsLocked(fixture)).toBe(false);
 
           const contenderProcess = fixture.runCliProcess(contender(fixture, peer.pane));
-          await fixture.waitFor(
-            () => processTreeHasOpenFile(contenderProcess.pid, databaseFile(fixture)),
-            900,
-            'independent contender to open SQLite before publication commit'
-          );
-          expect(writerIsLocked(fixture)).toBe(true);
-
+          let earlyResult: CliResult | undefined;
+          if (expectedCode) {
+            earlyResult = await contenderProcess.result;
+            expect(earlyResult.code).toBe(expectedExit);
+            expect(json(earlyResult)).toMatchObject({ error: { code: expectedCode } });
+          } else {
+            await fixture.waitFor(
+              () => pendingReservationCount(fixture, 'challenger') === 1,
+              900,
+              'independent contender to reserve the other pane'
+            );
+          }
+          expect(writerIsLocked(fixture)).toBe(false);
+          expect(pendingReservationCount(fixture, 'anchor')).toBe(1);
           fixture.releaseMetadataBarrier();
           const winner = await waitForSuccess<{ id: string }>(binder);
-          const contenderResult = await contenderProcess.result;
-          if (expectedCode) {
-            expect(contenderResult.code).toBe(5);
-            expect(json(contenderResult)).toMatchObject({ error: { code: expectedCode } });
-          } else {
+          const contenderResult = earlyResult ?? (await contenderProcess.result);
+          if (!expectedCode) {
             expect(contenderResult.code, contenderResult.stderr || contenderResult.stdout).toBe(0);
-            if (expectedIdentities === 1) {
-              expect(json(contenderResult)).toMatchObject({ id: winner.id });
-            }
           }
 
           expect(durableCounts(fixture)).toMatchObject({
@@ -257,7 +272,7 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
             bindings: expectedBindings,
           });
           expect(durableIdentity(fixture, 'anchor').id).toBe(winner.id);
-          if (expectedCode === 'PANE_ALREADY_BOUND') {
+          if (retiredChallenger) {
             // The refused contender's separately committed creation is retired.
             expect(identityIsRetired(fixture, 'challenger')).toBe(true);
           }
@@ -282,7 +297,7 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
 
       fixture.enableMetadataBarrier({ phase: 'after' });
       const killed = fixture.runCliProcess(['--json', 'name', 'Preserved']);
-      await fixture.waitForMetadataBarrier('applied');
+      await fixture.waitForMetadataBarrier('applied', { child: killed });
       expect(fixture.paneMetadata()).toContain('Preserved');
       expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 1 });
 

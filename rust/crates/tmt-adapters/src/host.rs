@@ -1445,6 +1445,32 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
             .publish_if(binding, identity, expected)
     }
 
+    fn legacy_marker(
+        &mut self,
+        server: &ServerEvidence,
+        pane_id: &str,
+    ) -> Result<Option<String>, Self::Error> {
+        if server.host == HostKind::Tmux {
+            BindingEndpoint::legacy_marker(&mut self.tmux, server, pane_id).map_err(HostError::from)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn publish_if_legacy(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected_raw: &str,
+    ) -> Result<bool, Self::Error> {
+        if binding.server.host == HostKind::Tmux {
+            BindingEndpoint::publish_if_legacy(&mut self.tmux, binding, identity, expected_raw)
+                .map_err(HostError::from)
+        } else {
+            Ok(false)
+        }
+    }
+
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error> {
         self.driver(binding.server.host).clear(binding, identity)
     }

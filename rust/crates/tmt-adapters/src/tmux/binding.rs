@@ -62,6 +62,7 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
         binding: &Binding,
         identity: &Identity,
         expected: Option<&str>,
+        expected_legacy: Option<&str>,
     ) -> Result<bool, TmuxError> {
         let pane = &binding.pane_id;
         let mut args = socket_args(Some(&binding.server.socket_path));
@@ -92,11 +93,15 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
             .get("globalIdentity")
             .is_some_and(|value| !value.is_null());
         let current = metadata::marker(&document);
-        let matches = match current.as_ref() {
-            Some(marker) => {
-                marker.binding_id == binding.id || expected == Some(marker.binding_id.as_str())
+        let matches = if let Some(legacy) = expected_legacy {
+            expected.is_none() && raw == legacy && metadata::is_legacy_marker(&document)
+        } else {
+            match current.as_ref() {
+                Some(marker) => {
+                    marker.binding_id == binding.id || expected == Some(marker.binding_id.as_str())
+                }
+                None => !present && expected.is_none(),
             }
-            None => !present && expected.is_none(),
         };
         if !matches {
             return Ok(false);
@@ -319,7 +324,7 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     }
 
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), Self::Error> {
-        if self.publish_marker(binding, identity, None)? {
+        if self.publish_marker(binding, identity, None, None)? {
             Ok(())
         } else {
             Err(TmuxError::evidence(
@@ -334,7 +339,48 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         identity: &Identity,
         expected: Option<&str>,
     ) -> Result<bool, Self::Error> {
-        self.publish_marker(binding, identity, expected)
+        self.publish_marker(binding, identity, expected, None)
+    }
+
+    fn legacy_marker(
+        &mut self,
+        server: &ServerEvidence,
+        pane: &str,
+    ) -> Result<Option<String>, Self::Error> {
+        if server.host != tmt_core::host::HostKind::Tmux {
+            return Ok(None);
+        }
+        let mut args = socket_args(Some(&server.socket_path));
+        args.extend([
+            "show-options".into(),
+            "-q".into(),
+            "-p".into(),
+            "-t".into(),
+            pane.into(),
+            "-v".into(),
+            "@tmt.agent".into(),
+        ]);
+        let output = self
+            .tmux
+            .execute(args, self.options(None), TmuxFailure::MetadataRead)?;
+        let raw = output.strip_suffix('\n').unwrap_or(&output);
+        if raw.len() > 8192 {
+            return Ok(None);
+        }
+        let document = match crate::json_document::parse(raw) {
+            Ok(value) => value,
+            Err(_) => return Ok(None),
+        };
+        Ok(metadata::is_legacy_marker(&document).then(|| raw.to_owned()))
+    }
+
+    fn publish_if_legacy(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected_raw: &str,
+    ) -> Result<bool, Self::Error> {
+        self.publish_marker(binding, identity, None, Some(expected_raw))
     }
 
     fn clear_if_owned(&mut self, binding: &Binding, _: &Identity) -> Result<bool, Self::Error> {

@@ -705,6 +705,45 @@ fn binding_publication_uses_an_exact_marker_and_pane_fence() {
     );
     assert_eq!(tmux.runner.calls.borrow().len(), 1);
 
+    let legacy =
+        r#"{"version":1,"globalIdentity":{"name":"Old","canonicalName":"old"},"opaque":true}"#;
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(legacy), Ok(legacy), Ok("")]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    let captured = session
+        .legacy_marker(&binding.server, &binding.pane_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(captured, legacy);
+    assert!(
+        session
+            .publish_if_legacy(&binding, &identity, &captured)
+            .unwrap()
+    );
+    let calls = tmux.runner.calls.borrow();
+    let condition = calls[2]
+        .args
+        .iter()
+        .find(|arg| arg.contains("#{@tmt.agent}"))
+        .unwrap();
+    assert!(condition.contains(&super::rename::equal("@tmt.agent", legacy)));
+    drop(calls);
+    let changed = r#"{"version":1,"globalIdentity":{"name":"Changed","canonicalName":"changed"}}"#;
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(changed)]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    assert!(
+        !session
+            .publish_if_legacy(&binding, &identity, legacy)
+            .unwrap()
+    );
+    assert_eq!(tmux.runner.calls.borrow().len(), 1);
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(legacy)]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    assert!(!session.publish_if(&binding, &identity, None).unwrap());
+    assert_eq!(tmux.runner.calls.borrow().len(), 1);
+
     let ours = r#"{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice","identityId":"identity","bindingId":"binding","serverId":"server","panePid":654},"opaque":true}"#;
     let tmux = Tmux::new(ScriptedRunner::new([Ok(ours), Ok("TMT_BIND_REFUSED\n")]));
     let mut session = BindingSession::new(&tmux);

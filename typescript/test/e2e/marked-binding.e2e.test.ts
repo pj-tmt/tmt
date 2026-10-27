@@ -149,7 +149,7 @@ describe('explicit marked-pane binding', { concurrent: false }, () => {
       mark(fixture, first.pane);
       fixture.enableMetadataBarrier({ phase: 'before' });
       const binding = fixture.runCliProcess<Bound>(['--json', 'marked', 'Frozen']);
-      await fixture.waitForMetadataBarrier();
+      await fixture.waitForMetadataBarrier('entered', { child: binding });
       mark(fixture, second.pane);
       fixture.releaseMetadataBarrier();
       const result = expectJsonResult(await binding.result);
@@ -164,7 +164,7 @@ describe('explicit marked-pane binding', { concurrent: false }, () => {
         'marked',
         'Vanished',
       ]);
-      await fixture.waitForMetadataBarrier();
+      await fixture.waitForMetadataBarrier('entered', { child: vanishing });
       fixture.tmux(['kill-pane', '-t', second.pane]);
       fixture.releaseMetadataBarrier();
       const failed = await vanishing.result;

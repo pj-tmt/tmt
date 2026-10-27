@@ -13,9 +13,9 @@ pub use observation::{
 };
 pub use operations::{
     bind_auto_identity, bind_existing_identity, bind_guarded, bind_identity, bind_identity_at,
-    bind_identity_with_creation, bind_identity_with_creation_at, move_identity, name_auto_identity,
-    remove_identity, rename_identity, rename_identity_by_id, retire_failed_auto_launch,
-    unbind_identity,
+    bind_identity_with_creation, bind_identity_with_creation_at,
+    bind_runtime_identity_with_creation, move_identity, name_auto_identity, remove_identity,
+    rename_identity, rename_identity_by_id, retire_failed_auto_launch, unbind_identity,
 };
 
 use crate::{
@@ -337,6 +337,23 @@ pub trait BindingEndpoint {
         identity: &Identity,
         expected_binding_id: Option<&str>,
     ) -> Result<bool, Self::Error>;
+    /// Capture an explicitly replaceable legacy marker outside the writer.
+    fn legacy_marker(
+        &mut self,
+        _server: &ServerEvidence,
+        _pane_id: &str,
+    ) -> Result<Option<String>, Self::Error> {
+        Ok(None)
+    }
+    /// Atomically publish only over the exact captured legacy marker bytes.
+    fn publish_if_legacy(
+        &mut self,
+        _binding: &Binding,
+        _identity: &Identity,
+        _expected_raw: &str,
+    ) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
     /// Clears this binding's marker. `identity` is the binding's identity, so
     /// a host with agent names takes away only the name that equals its name.
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error>;

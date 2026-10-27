@@ -13,6 +13,22 @@ fn deadline<R, O: BindingEndpoint>(endpoint: &O) -> Result<(), BindingError<R, O
     }
 }
 
+fn refuse_automatic_legacy<R, O: BindingEndpoint>(
+    endpoint: &mut O,
+    snapshot: &EndpointSnapshot,
+    pane: &PaneObservation,
+) -> Result<(), BindingError<R, O::Error>> {
+    if pane.marker.is_none()
+        && endpoint
+            .legacy_marker(&snapshot.server, &pane.id)
+            .map_err(BindingError::Endpoint)?
+            .is_some()
+    {
+        return Err(BindingError::Unverified);
+    }
+    Ok(())
+}
+
 /// Reconcile only the exact row observed before host I/O; a concurrent change
 /// cannot be detached or retired using a stale host observation.
 fn reconcile_before_bind<R: BindingRepository, O: BindingEndpoint>(
@@ -68,7 +84,34 @@ pub fn bind_identity_with_creation<R: BindingRepository, O: BindingEndpoint>(
     name: &str,
     save: bool,
 ) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
-    bind_identity_with_creation_at(repository, endpoint, pane_id, None, name, save)
+    bind_with_origin(
+        repository,
+        endpoint,
+        pane_id,
+        None,
+        name,
+        save,
+        BindingOrigin::Explicit,
+    )
+}
+
+/// A launch or restoration is not an explicit user claim of a legacy marker.
+pub fn bind_runtime_identity_with_creation<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    pane_id: &str,
+    name: &str,
+    save: bool,
+) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
+    bind_with_origin(
+        repository,
+        endpoint,
+        pane_id,
+        None,
+        name,
+        save,
+        BindingOrigin::Runtime,
+    )
 }
 
 pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
@@ -79,7 +122,15 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
     name: &str,
     save: bool,
 ) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
-    bind_with_origin(repository, endpoint, pane_id, target, name, save, false)
+    bind_with_origin(
+        repository,
+        endpoint,
+        pane_id,
+        target,
+        name,
+        save,
+        BindingOrigin::Runtime,
+    )
 }
 
 /// Bind an identity chosen earlier by its UUID. The name is never looked up again, so a rename
@@ -96,7 +147,8 @@ pub fn bind_existing_identity<R: BindingRepository, O: BindingEndpoint>(
     let preflight = endpoint
         .current_snapshot(&[pane_id.into()])
         .map_err(BindingError::Endpoint)?;
-    target_pane(&preflight, pane_id, None)?;
+    let pane = target_pane(&preflight, pane_id, None)?;
+    refuse_automatic_legacy(endpoint, &preflight, pane)?;
     let entry = repository.with_binding_transaction(|records| {
         records
             .entry_by_id(identity_id)?
@@ -108,7 +160,7 @@ pub fn bind_existing_identity<R: BindingRepository, O: BindingEndpoint>(
             .entry_by_id(identity_id)?
             .ok_or_else(|| BindingError::NameNotFound(identity_id.into()))
     })?;
-    let observed = observe_for_binding(repository, endpoint, pane_id, None, &selected)?;
+    let observed = observe_for_binding(repository, endpoint, pane_id, None, &selected, false)?;
     let reserved = repository.with_binding_transaction(|records| {
         reserve_binding(records, selected, &observed, false, save, false)
     })?;
@@ -123,7 +175,22 @@ pub fn bind_auto_identity<R: BindingRepository, O: BindingEndpoint>(
     name: &str,
     save: bool,
 ) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
-    bind_with_origin(repository, endpoint, pane_id, None, name, save, true)
+    bind_with_origin(
+        repository,
+        endpoint,
+        pane_id,
+        None,
+        name,
+        save,
+        BindingOrigin::Automatic,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum BindingOrigin {
+    Explicit,
+    Runtime,
+    Automatic,
 }
 
 fn bind_with_origin<R: BindingRepository, O: BindingEndpoint>(
@@ -133,13 +200,18 @@ fn bind_with_origin<R: BindingRepository, O: BindingEndpoint>(
     target: Option<&BindingTargetEvidence>,
     name: &str,
     save: bool,
-    auto_named: bool,
+    origin: BindingOrigin,
 ) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
+    let auto_named = matches!(origin, BindingOrigin::Automatic);
+    let allow_legacy = matches!(origin, BindingOrigin::Explicit);
     endpoint.begin_coordination();
     let preflight = endpoint
         .current_snapshot(&[pane_id.into()])
         .map_err(BindingError::Endpoint)?;
-    target_pane(&preflight, pane_id, target)?;
+    let pane = target_pane(&preflight, pane_id, target)?;
+    if !allow_legacy {
+        refuse_automatic_legacy(endpoint, &preflight, pane)?;
+    }
     // A generated-name collision must not reconcile somebody else's identity.
     // Explicit names retain their normal stale-binding reconciliation.
     if !auto_named {
@@ -168,7 +240,14 @@ fn bind_with_origin<R: BindingRepository, O: BindingEndpoint>(
                 .entry_by_id(&created.identity.id)?
                 .ok_or(BindingError::Unverified)
         })?;
-        let observed = observe_for_binding(repository, endpoint, pane_id, target, &selected)?;
+        let observed = observe_for_binding(
+            repository,
+            endpoint,
+            pane_id,
+            target,
+            &selected,
+            allow_legacy,
+        )?;
         let reserved = repository.with_binding_transaction(|records| {
             reserve_binding(records, selected, &observed, created.created, false, false)
         })?;
@@ -202,6 +281,7 @@ pub fn move_identity<R: BindingRepository, O: BindingEndpoint>(
         &target.pane_id,
         Some(target),
         expected,
+        false,
     )?;
     if evaluate_binding(
         expected,
@@ -265,6 +345,7 @@ struct BindingObservation {
     identity_reservation: Option<BindingReservation>,
     identity_stale: bool,
     orphan_marker: Option<String>,
+    legacy_raw: Option<String>,
     old_probe: Option<EndpointProbe>,
     publisher: ProcessIncarnation,
     target_id: String,
@@ -294,6 +375,7 @@ fn observe_for_binding<R: BindingRepository, O: BindingEndpoint>(
     pane_id: &str,
     target: Option<&BindingTargetEvidence>,
     selected: &BindingEntry,
+    allow_legacy: bool,
 ) -> Result<BindingObservation, BindingError<R::Error, O::Error>> {
     endpoint.begin_coordination();
     let mut scope = vec![pane_id.into()];
@@ -338,6 +420,13 @@ fn observe_for_binding<R: BindingRepository, O: BindingEndpoint>(
                 orphan_marker,
             ))
         })?;
+    let legacy_raw = if allow_legacy && pane.marker.is_none() {
+        endpoint
+            .legacy_marker(&snapshot.server, pane_id)
+            .map_err(BindingError::Endpoint)?
+    } else {
+        None
+    };
     let now_ms = endpoint
         .publication_time_ms()
         .ok_or(BindingError::Unverified)?;
@@ -388,6 +477,7 @@ fn observe_for_binding<R: BindingRepository, O: BindingEndpoint>(
         identity_reservation,
         identity_stale,
         orphan_marker,
+        legacy_raw,
         old_probe,
         publisher,
         target_id: crate::operation::new_operation_id(),
@@ -399,6 +489,7 @@ struct ReservedBinding {
     binding: Binding,
     identity: crate::identity::Identity,
     reservation: Option<BindingReservation>,
+    legacy_raw: Option<String>,
     old: Option<BindingEntry>,
     created: bool,
 }
@@ -543,6 +634,7 @@ fn reserve_binding<R, O>(
             binding,
             identity,
             reservation: None,
+            legacy_raw: None,
             old: None,
             created,
         });
@@ -580,6 +672,7 @@ fn reserve_binding<R, O>(
         binding,
         identity,
         reservation: Some(reservation),
+        legacy_raw: observation.legacy_raw.clone(),
         old,
         created,
     })
@@ -633,14 +726,17 @@ fn publish_reserved<R: BindingRepository, O: BindingEndpoint>(
             if !publication_can_start(reservation, now, endpoint.budget_available()) {
                 return Err(BindingError::Deadline);
             }
-            if !endpoint
-                .publish_if(
+            let published = if let Some(raw) = reserved.legacy_raw.as_deref() {
+                endpoint.publish_if_legacy(&reserved.binding, &reserved.identity, raw)
+            } else {
+                endpoint.publish_if(
                     &reserved.binding,
                     &reserved.identity,
                     reservation.expected_binding_id.as_deref(),
                 )
-                .map_err(BindingError::Endpoint)?
-            {
+            }
+            .map_err(BindingError::Endpoint)?;
+            if !published {
                 return Err(BindingError::Unverified);
             }
         }
@@ -869,8 +965,14 @@ pub fn bind_guarded<R: BindingRepository, O: GuardedBindingEndpoint>(
             },
             binding: None,
         });
-        let observed =
-            observe_for_binding(repository, endpoint, &fence.pane, Some(&target), &captured)?;
+        let observed = observe_for_binding(
+            repository,
+            endpoint,
+            &fence.pane,
+            Some(&target),
+            &captured,
+            false,
+        )?;
         if let Some(occupied) = &observed.occupant
             && selected
                 .as_ref()

@@ -86,6 +86,9 @@ delivery. They install and launch nothing.
   A detached publisher conditionally clears only its own marker. External drivers
   and older built-in supervisors without compare-and-swap capability have the
   weaker verification guarantee described in the [driver contract](../../../../contracts/driver-protocol-v1.md#publish-and-clear).
+  An explicit `add` or `this` may replace a pre-UUID tmux identity marker only
+  by comparing its exact observed bytes; launch, hook and other automatic paths
+  refuse it as unverified.
 
 - Presence reads (`whoami`, named/current-name presence and ordinary listing) capture
   identity/binding records, perform host observations outside SQLite's immediate

@@ -41,6 +41,8 @@ pub(super) struct FakeEndpoint {
     pub(super) after_publish: Option<Box<dyn FnOnce() + Send>>,
     pub(super) after_owner: Option<Box<dyn FnOnce() + Send>>,
     pub(super) late_marker_before_publish: Option<tmt_core::endpoint::BindingMarker>,
+    pub(super) legacy_markers: std::collections::HashMap<String, String>,
+    pub(super) replace_legacy_before_publish: Option<String>,
     pub(super) verification_failure: bool,
     pub(super) clear_result: bool,
     pub(super) clear_failure: bool,
@@ -72,6 +74,8 @@ impl FakeEndpoint {
             after_publish: None,
             after_owner: None,
             late_marker_before_publish: None,
+            legacy_markers: Default::default(),
+            replace_legacy_before_publish: None,
             verification_failure: false,
             clear_result: true,
             clear_failure: false,
@@ -209,12 +213,45 @@ impl BindingEndpoint for FakeEndpoint {
         Ok(())
     }
 
+    fn legacy_marker(
+        &mut self,
+        _: &ServerEvidence,
+        pane_id: &str,
+    ) -> Result<Option<String>, Self::Error> {
+        Ok(self.legacy_markers.get(pane_id).cloned())
+    }
+
+    fn publish_if_legacy(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected_raw: &str,
+    ) -> Result<bool, Self::Error> {
+        if let Some(replacement) = self.replace_legacy_before_publish.take() {
+            self.legacy_markers
+                .insert(binding.pane_id.clone(), replacement);
+        }
+        if self
+            .legacy_markers
+            .get(&binding.pane_id)
+            .map(String::as_str)
+            != Some(expected_raw)
+        {
+            return Ok(false);
+        }
+        self.legacy_markers.remove(&binding.pane_id);
+        self.publish(binding, identity).map(|()| true)
+    }
+
     fn publish_if(
         &mut self,
         binding: &Binding,
         identity: &Identity,
         expected: Option<&str>,
     ) -> Result<bool, Self::Error> {
+        if self.legacy_markers.contains_key(&binding.pane_id) {
+            return Ok(false);
+        }
         if let Some(late) = self.late_marker_before_publish.take() {
             self.pane_mut(&binding.pane_id).marker = Some(late);
         }
