@@ -844,6 +844,8 @@ Explicit `--remote local` selects this host; a configured targeting default gran
 Person actions are `members rename <member-id|unique-name> <name>`,
 `members sending <member-id|unique-name> on|off`, and
 `members revoke <member-id|unique-name>`. Each accepts `--member-revision <revision>`.
+Without it, a rerun resolves the current revision, which is still fenced at the effect; an
+explicit stale revision refuses.
 Exact-machine actions are `members rename-machine <client-id> <name>`,
 `members remove-machine <client-id>`, `members designate <client-id>` and
 `members undesignate`; these additionally accept `--grant-revision <revision>`.

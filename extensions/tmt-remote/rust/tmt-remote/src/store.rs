@@ -379,26 +379,33 @@ impl Store {
     /// Insert one grant in its own transaction. A live grant for the same
     /// device key refuses, and a failure leaves no partial grant.
     pub fn insert_grant(&mut self, grant: &Grant) -> Result<(), RemoteError> {
-        self.insert_grant_audited(grant, None)
+        self.insert_grant_audited(grant, None).map(|_| ())
     }
     pub(crate) fn insert_paired_grant(
         &mut self,
         grant: &Grant,
         offer: &str,
         digest: &[u8],
-    ) -> Result<(), RemoteError> {
+    ) -> Result<Option<String>, RemoteError> {
         self.insert_grant_audited(grant, Some((offer, digest)))
     }
     fn insert_grant_audited(
         &mut self,
         grant: &Grant,
         audit: Option<(&str, &[u8])>,
-    ) -> Result<(), RemoteError> {
+    ) -> Result<Option<String>, RemoteError> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
         insert_grant_in(&transaction, grant)?;
+        // Presentation metadata is optional and must not turn a committed pairing into a failure.
+        let member_id = audit.and_then(|_| {
+            crate::members::member_for_client_in(&transaction, &grant.client_id)
+                .ok()
+                .flatten()
+                .map(|member| member.member_id)
+        });
         if let Some((offer, digest)) = audit {
             crate::audit::append(
                 &transaction,
@@ -416,7 +423,8 @@ impl Store {
                 },
             )?;
         }
-        transaction.commit().map_err(database)
+        transaction.commit().map_err(database)?;
+        Ok(member_id)
     }
     pub fn grant(&self, client_id: &str) -> Result<Option<Grant>, RemoteError> {
         match self.connection.query_row(
