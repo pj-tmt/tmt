@@ -558,7 +558,7 @@ recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
 
-A squad member's header shows its Checklist chip, `Checklist · 3 links · 2 todo · 1 done`
+A squad member's header shows its Checklist chip, `Checklist · 2 todo`
 (`Checklist · empty` for an empty list), led by its key as a keycap like the tab labels
 (` C  Checklist · …`; no keycap when the key is unbound). `C` or a click on the chip opens the list: one list in stored order under a
 `STATUS LINK TITLE` header, links and todos mixed (`↗ link` blue, `○ todo` amber; a GitHub issue or pull
