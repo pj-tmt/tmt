@@ -95,6 +95,93 @@ fn populated_conversation(rows: usize) -> (App, String, OpsTarget) {
     (app, member, target)
 }
 
+/// Every visible agent row carries one unread answer (the board holds at most 50 per page):
+/// the cost of painting and recording the counts, against the same board with none.
+#[test]
+#[ignore = "local release-mode timing evidence; no CI threshold"]
+fn unread_rows_frame_timing() {
+    if cfg!(debug_assertions) {
+        panic!("run this probe with --release");
+    }
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for rows in [150, 1_000, 10_000] {
+            let (mut app, member, target) = populated_conversation(rows);
+            let actor = app.view.as_ref().unwrap().me_id.clone().unwrap();
+            let visible: Vec<String> = app
+                .workspace_rows()
+                .iter()
+                .filter_map(|row| match &row.target {
+                    OpsTarget::Member { identity_id, .. } => Some(identity_id.clone()),
+                    _ => None,
+                })
+                .take(40)
+                .collect();
+            let items: Vec<_> = visible
+                .iter()
+                .enumerate()
+                .map(|(index, recipient)| {
+                    json!({"requestId":format!("req-{index}"),"recipientId":recipient,
+                        "sender":{"identityId":actor},"kind":"request",
+                        "answeredAtMs":1_791_000_000_000u64 + index as u64,
+                        "answer":"final","revision":1,"acknowledged":false})
+                })
+                .collect();
+            app.home_leads.test_pages(
+                &actor,
+                json!({"items":[],"nextBefore":null}),
+                json!({"items":items,"nextBefore":null}),
+            );
+            app.overview_rows.borrow_mut().clear();
+            let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+            for _ in 0..10 {
+                measure(&mut app, &mut terminal, |_, _| {});
+            }
+            report(
+                rows,
+                "unread-rows-steady",
+                (0..100)
+                    .map(|_| measure(&mut app, &mut terminal, |_, _| {}))
+                    .collect(),
+            );
+            report(
+                rows,
+                "unread-rows-scoped-state-projection",
+                (0..100)
+                    .map(|index| {
+                        measure(&mut app, &mut terminal, |app, _| {
+                            let state = if index % 2 == 0 { "working" } else { "blocked" };
+                            let workspace =
+                                &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                            workspace.roster.members.get_mut(&member).unwrap().state =
+                                Some(state.into());
+                            workspace.roster.squads[0]
+                                .member_states
+                                .get_mut(&member)
+                                .unwrap()
+                                .state = Some(state.into());
+                            workspace.rows.get_mut(&target).unwrap()["state"] = json!(state);
+                        })
+                    })
+                    .collect(),
+            );
+            report(
+                rows,
+                "unread-rows-resize",
+                (0..100)
+                    .map(|index| {
+                        measure(&mut app, &mut terminal, |app, terminal| {
+                            app.invalidate_frame_geometry();
+                            let width = if index % 2 == 0 { 100 } else { 160 };
+                            terminal.backend_mut().resize(width, 36);
+                            terminal.resize(Rect::new(0, 0, width, 36)).unwrap();
+                        })
+                    })
+                    .collect(),
+            );
+        }
+    });
+}
+
 #[test]
 #[ignore = "local release-mode timing evidence; no CI threshold"]
 fn conversation_frame_timing() {
