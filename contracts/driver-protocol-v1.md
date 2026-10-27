@@ -71,11 +71,11 @@ Error codes:
 | `no_agent` | `prompt` and `name-agent` only: the host recognizes no agent in the pane. No text was written and no agent name was set. |
 | `blocked` | `prompt` only: the agent waits on its user, for an approval or an answer. Nothing was written. |
 | `not_ready` | `prompt` and `name-agent` only: the agent can't take a prompt or a name now, for example because it isn't in the foreground or is still starting. No text was written and no agent name was set. |
-| `refused` | `name-agent` only: the host refused the agent name, for example by its rule for names or because another agent has it. Nothing was changed. |
+| `refused` | `name-agent` refused the name, or conditional `publish` found a different marker. Nothing was changed. |
 
 `no_agent` and `not_ready` are answers of `prompt` and `name-agent` alone,
-`blocked` of `prompt` alone, and `refused` of `name-agent` alone. From any
-other operation they are a failure.
+`blocked` of `prompt` alone, and `refused` of `name-agent` or conditional
+`publish` alone. From any other operation they are a failure.
 
 - `message` is at most 512 bytes and contains no control characters. Core shows
   it as untrusted text.
@@ -256,10 +256,18 @@ The IDs are UUIDs. The driver stores the marker on the pane and returns it
 unchanged in `snapshot` and `probe`. It never interprets the marker.
 
 - **`publish`:**
-  - request: `{"socket", "paneId", "panePid", "marker"}`;
+  - request: `{"socket", "paneId", "panePid", "marker", "expectedBindingId"?}`;
   - answer: `{}`;
   - the driver refuses with `not_found` unless the pane still exists and runs
-    `panePid`.
+    `panePid`. A driver that advertises `conditionalPublish: true` in
+    `capabilities` atomically compares the marker with `expectedBindingId`:
+    the empty string means absent; a nonempty string names the exact stale
+    binding. The new binding's own marker also permits an idempotent retry.
+    Any other marker returns `refused` without change. Core supplies the field
+    only to such drivers.
+    Older drivers retain unconditional publication: Core verifies afterwards
+    and compensates on mismatch, but this cannot prevent a stale publisher
+    from temporarily overwriting another marker.
 - **`clear`:**
   - request: `{"socket", "paneId", "bindingId"}`;
   - answer: `{"cleared": bool}`;
@@ -272,7 +280,9 @@ Core implements the reserved `pty` host in process behind the same binding-polic
 seam, with pane IDs `pty_<lowercase letters and digits>`. It requires no driver
 approval and is not an executable speaking this JSON protocol. Server evidence is
 one member supervisor's native PID/start, with its pane process verified as that
-supervisor's direct child. Unknown evidence never proves loss.
+supervisor's direct child. Unknown evidence never proves loss. Supervisors with
+conditional publication atomically compare the expected marker binding ID (or an
+empty marker) and pane PID; conditional clear removes only its own binding ID.
 
 `run` and `resume` accept `--host tmux|herdr|pty`. Without it they use the verified
 caller host, or create a built-in-host member outside tmux and Herdr. An explicit
@@ -286,8 +296,13 @@ The existing provider and exchange admission contracts apply unchanged.
 by the supervisor control-frame limit (64 KiB); a larger screen read fails whole.
 No redraw or historical output capture is implied. Focus remains unsupported.
 The Core-internal control frames share the member socket at protocol version 1;
-they are separate from the attach stream. Their implementation and resource rules
-belong to the [host reference](../.agents/skills/tmt-core-runtime/references/hosts-drivers.md#built-in-host).
+they are separate from the attach stream. Conditional publication uses a new
+control kind, preserving the original publish frame for older clients. A running
+older supervisor that does not advertise conditional publication uses legacy
+unconditional publication, protected by the reservation lease and verification
+with compensation. This has the same weaker guarantee as a legacy external driver;
+a restarted supervisor supports atomic comparison. Their implementation and resource
+rules belong to the [host reference](../.agents/skills/tmt-core-runtime/references/hosts-drivers.md#built-in-host).
 
 ### `capture`, `input` and `focus`
 

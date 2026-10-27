@@ -718,6 +718,7 @@ impl Supervisor {
                 }
                 ControlReply::Applied(matches)
             }
+            Control::Capabilities => ControlReply::Applied(true),
             Control::Inspect => ControlReply::State {
                 supervisor_pid: std::process::id(),
                 pane_pid: self.child.id(),
@@ -732,6 +733,22 @@ impl Supervisor {
                 marker,
             } => {
                 let matches = pane_pid == self.child.id();
+                if matches {
+                    self.marker = Some((key, marker));
+                }
+                ControlReply::Applied(matches)
+            }
+            Control::PublishIf {
+                pane_pid,
+                key,
+                expected_key,
+                marker,
+            } => {
+                let matches = pane_pid == self.child.id()
+                    && match self.marker.as_ref() {
+                        None => expected_key.is_none(),
+                        Some((old, _)) => old == &key || expected_key.as_ref() == Some(old),
+                    };
                 if matches {
                     self.marker = Some((key, marker));
                 }

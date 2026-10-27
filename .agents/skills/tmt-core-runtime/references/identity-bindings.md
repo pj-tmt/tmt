@@ -56,21 +56,36 @@ reconciliation, creation or migration, and an external host's server ID comes
 from the recorded `host_servers` row. Unknown markers and conflicting rows
 supply no adoption authority.
 
-`binding::bind_guarded` admits the frozen target inside the binding transaction
-before creation or promotion. It shares `bind_selected` with ordinary binding;
+`binding::bind_guarded` reobserves the frozen target outside the writer before
+creation or promotion; the short reservation transaction compares the captured
+records. It shares the reservation and publication path with ordinary binding;
 the guard adds native-start and ownership checks, not a second publication path.
 Name mode is insert-only; existing linking takes an exact UUID. Refused admissions
 have no identity or host effects. On an external host, `Host::resolve_fenced_server`
 records the server UUID between the first admission and the transaction, and only
-for the incarnation the fence names, re-verified first. Failures after admission are partial host attempts
-with rolled-back SQL on an in-transaction refusal or uncertain commit/close;
-they never claim host rollback or automatic replay. After the commit, guarded add
+for the incarnation the fence names, re-verified first. Failures after admission are partial host attempts;
+a reservation refusal rolls back its SQL, while a failure after commit compensates
+only the exact pending binding and retains the identity. They never claim host
+rollback or automatic replay. After the commit, guarded add
 names the host agent through the same `name_bound_agent` as ordinary add, with the
 host handle built from the drivers it read once. Guarded
 add and discovery bypass optional caller learning, workspace capture and hook
 delivery. They install and launch nothing.
 
 ## Binding evidence
+
+- Binding publication reserves one identity and target pane with a publisher
+  PID/start token and a 10-second lease. The future binding has no active row
+  until activation; a move keeps its old binding active until then. A live or
+  unverified reservation refuses a competing bind; dead or expired reservations
+  are reclaimable. Host compare-and-swap accepts only the captured empty marker,
+  exact stale binding ID, or this binding's own ID. An orphan marker is reclaimable
+  only when no active binding or live or unverified reservation owns its ID.
+  Publication and verification run without a SQLite writer; conditional activation or
+  compensation never retires a committed identity or replays an uncertain effect.
+  A detached publisher conditionally clears only its own marker. External drivers
+  and older built-in supervisors without compare-and-swap capability have the
+  weaker verification guarantee described in the [driver contract](../../../../contracts/driver-protocol-v1.md#publish-and-clear).
 
 - Presence reads (`whoami`, named/current-name presence and ordinary listing) capture
   identity/binding records, perform host observations outside SQLite's immediate

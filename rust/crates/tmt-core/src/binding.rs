@@ -70,6 +70,24 @@ impl Binding {
     }
 }
 
+/// A target reserved before its marker is published. Active bindings live
+/// separately; moves keep their old binding active until activation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindingReservation {
+    pub target: Binding,
+    pub old_binding_id: Option<String>,
+    pub expected_binding_id: Option<String>,
+    pub publisher: ProcessIncarnation,
+    pub created_at_ms: u64,
+    pub expires_at_ms: u64,
+}
+
+impl BindingReservation {
+    pub fn is_stale(&self, now_ms: u64, liveness: session::RuntimeLiveness) -> bool {
+        now_ms >= self.expires_at_ms || liveness == session::RuntimeLiveness::Gone
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingEntry {
     pub identity: Identity,
@@ -202,6 +220,8 @@ pub trait BindingRecords: IdentityReader {
         state: &session::BindingSessionState,
     ) -> Result<bool, Self::Error>;
     fn entry_by_id(&self, id: &str) -> Result<Option<BindingEntry>, Self::Error>;
+    /// Whether a marker's exact binding ID still has any durable row.
+    fn binding_exists(&self, binding_id: &str) -> Result<bool, Self::Error>;
     fn entry_by_pane(
         &self,
         host: crate::host::HostKind,
@@ -221,6 +241,34 @@ pub trait BindingRecords: IdentityReader {
         identity: &Identity,
         server: &ServerEvidence,
         pane: &PaneObservation,
+    ) -> Result<Binding, Self::Error>;
+    /// Reserve a future binding without creating an active binding row.
+    fn reservation_by_target(
+        &self,
+        target_id: &str,
+    ) -> Result<Option<BindingReservation>, Self::Error>;
+    fn reservation_by_identity(
+        &self,
+        identity_id: &str,
+    ) -> Result<Option<BindingReservation>, Self::Error>;
+    fn reservation_by_pane(
+        &self,
+        host: crate::host::HostKind,
+        server_id: &str,
+        pane_id: &str,
+    ) -> Result<Option<BindingReservation>, Self::Error>;
+    fn begin_binding_reservation(
+        &mut self,
+        reservation: &BindingReservation,
+    ) -> Result<(), Self::Error>;
+    fn finish_binding_reservation(
+        &mut self,
+        reservation: &BindingReservation,
+    ) -> Result<bool, Self::Error>;
+    fn insert_reserved_binding(
+        &mut self,
+        identity: &Identity,
+        reservation: &BindingReservation,
     ) -> Result<Binding, Self::Error>;
     fn touch_binding(&mut self, id: &str) -> Result<(), Self::Error>;
     fn detach_binding(&mut self, id: &str) -> Result<(), Self::Error>;
@@ -253,6 +301,25 @@ pub trait BindingEndpoint {
     type Error;
     fn begin_coordination(&mut self);
     fn budget_available(&self) -> bool;
+    /// A child that could not be reaped is never a best-effort failure.
+    fn cleanup_failed(&self, _: &Self::Error) -> bool {
+        false
+    }
+    /// Observe this publisher before acquiring the SQLite writer.
+    fn publication_owner(&mut self) -> Result<Option<ProcessIncarnation>, Self::Error> {
+        Ok(None)
+    }
+    /// Inspect an existing publisher outside the SQLite writer; unknown never proves death.
+    fn publication_liveness(
+        &mut self,
+        _: &ProcessIncarnation,
+    ) -> Result<session::RuntimeLiveness, Self::Error> {
+        Ok(session::RuntimeLiveness::Unknown)
+    }
+    /// Wall-clock milliseconds for the durable publication lease.
+    fn publication_time_ms(&self) -> Option<u64> {
+        None
+    }
     /// The host `current_snapshot` observes: the caller's own.
     fn current_host(&self) -> crate::host::HostKind;
     fn current_snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, Self::Error>;
@@ -262,9 +329,25 @@ pub trait BindingEndpoint {
         panes: &[String],
     ) -> Result<EndpointProbe, Self::Error>;
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), Self::Error>;
+    /// Publish only over the observed empty marker or exact stale binding ID;
+    /// the new binding's own marker also permits idempotent retry.
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected_binding_id: Option<&str>,
+    ) -> Result<bool, Self::Error>;
     /// Clears this binding's marker. `identity` is the binding's identity, so
     /// a host with agent names takes away only the name that equals its name.
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error>;
+    /// Conditionally clear this binding's marker after a failed activation.
+    fn clear_if_owned(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+    ) -> Result<bool, Self::Error> {
+        self.clear(binding, identity)
+    }
     /// The start token of a pane shell's [`ProcessIncarnation`], observed by
     /// core when a binding is made; `None` when it can't be observed. Read
     /// paths don't ask: on macOS one `ps` costs about 110 ms.

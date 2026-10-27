@@ -13,6 +13,31 @@ fn deadline<R, O: BindingEndpoint>(endpoint: &O) -> Result<(), BindingError<R, O
     }
 }
 
+/// Reconcile only the exact row observed before host I/O; a concurrent change
+/// cannot be detached or retired using a stale host observation.
+fn reconcile_before_bind<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    entry: Option<BindingEntry>,
+) -> Result<(), BindingError<R::Error, O::Error>> {
+    let Some(entry) = entry else {
+        return Ok(());
+    };
+    endpoint.begin_coordination();
+    let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
+    deadline(endpoint)?;
+    repository.with_binding_transaction(|records| {
+        if records.entry_by_id(&entry.identity.id)?.as_ref() != Some(&entry) {
+            return Err(BindingError::Unverified);
+        }
+        if entry.binding.is_some() && evaluate_binding(&entry, &probe) == BindingEvidence::Unknown {
+            return Err(BindingError::Unverified);
+        }
+        reconcile(records, entry, &probe)?;
+        Ok(())
+    })
+}
+
 pub fn bind_identity<R: BindingRepository, O: BindingEndpoint>(
     repository: &mut R,
     endpoint: &mut O,
@@ -72,28 +97,22 @@ pub fn bind_existing_identity<R: BindingRepository, O: BindingEndpoint>(
         .current_snapshot(&[pane_id.into()])
         .map_err(BindingError::Endpoint)?;
     target_pane(&preflight, pane_id, None)?;
-    repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
-        let entry = records
+    let entry = repository.with_binding_transaction(|records| {
+        records
             .entry_by_id(identity_id)?
-            .ok_or_else(|| BindingError::NameNotFound(identity_id.into()))?;
-        let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
-        if entry.binding.is_some() && evaluate_binding(&entry, &probe) == BindingEvidence::Unknown {
-            return Err(BindingError::Unverified);
-        }
-        reconcile(records, entry, &probe)?;
-        deadline(endpoint)
+            .ok_or_else(|| BindingError::NameNotFound(identity_id.into()))
     })?;
-    repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
-        let mut selected = records
+    reconcile_before_bind(repository, endpoint, Some(entry))?;
+    let selected = repository.with_binding_transaction(|records| {
+        records
             .entry_by_id(identity_id)?
-            .ok_or_else(|| BindingError::NameNotFound(identity_id.into()))?;
-        if save && selected.identity.lifetime == Lifetime::Temporary {
-            selected.identity = records.save_identity(&selected.identity)?;
-        }
-        bind_selected(records, endpoint, pane_id, None, selected, false)
-    })
+            .ok_or_else(|| BindingError::NameNotFound(identity_id.into()))
+    })?;
+    let observed = observe_for_binding(repository, endpoint, pane_id, None, &selected)?;
+    let reserved = repository.with_binding_transaction(|records| {
+        reserve_binding(records, selected, &observed, false, save, false)
+    })?;
+    publish_reserved(repository, endpoint, reserved, None)
 }
 
 /// Only the launcher may create an identity with automatic-name provenance.
@@ -124,19 +143,8 @@ fn bind_with_origin<R: BindingRepository, O: BindingEndpoint>(
     // A generated-name collision must not reconcile somebody else's identity.
     // Explicit names retain their normal stale-binding reconciliation.
     if !auto_named {
-        repository.with_binding_transaction(|records| {
-            endpoint.begin_coordination();
-            if let Some(entry) = named_entry(records, name)? {
-                let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
-                if entry.binding.is_some()
-                    && evaluate_binding(&entry, &probe) == BindingEvidence::Unknown
-                {
-                    return Err(BindingError::Unverified);
-                }
-                reconcile(records, entry, &probe)?;
-            }
-            deadline(endpoint)
-        })?;
+        let entry = repository.with_binding_transaction(|records| named_entry(records, name))?;
+        reconcile_before_bind(repository, endpoint, entry)?;
     }
     let lifetime = if save {
         Lifetime::Saved
@@ -154,20 +162,18 @@ fn bind_with_origin<R: BindingRepository, O: BindingEndpoint>(
     })?;
     // Everything below may fail without undoing the separately committed
     // creation/promotion. Re-read ownership after acquiring this second lock.
-    let bound = repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
-        let selected = records
-            .entry_by_id(&created.identity.id)?
-            .ok_or(BindingError::Unverified)?;
-        bind_selected(
-            records,
-            endpoint,
-            pane_id,
-            target,
-            selected,
-            created.created,
-        )
-    });
+    let bound = (|| {
+        let selected = repository.with_binding_transaction(|records| {
+            records
+                .entry_by_id(&created.identity.id)?
+                .ok_or(BindingError::Unverified)
+        })?;
+        let observed = observe_for_binding(repository, endpoint, pane_id, target, &selected)?;
+        let reserved = repository.with_binding_transaction(|records| {
+            reserve_binding(records, selected, &observed, created.created, false, false)
+        })?;
+        publish_reserved(repository, endpoint, reserved, target)
+    })();
     bound.map_err(|error| abandon_creation(repository, &created, error))
 }
 
@@ -182,117 +188,306 @@ pub fn move_identity<R: BindingRepository, O: BindingEndpoint>(
     ended: &ProcessIncarnation,
     target: &BindingTargetEvidence,
 ) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
-    repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
+    let old = expected.binding.as_ref().ok_or(BindingError::Unverified)?;
+    if old.session.key.as_ref().map(|key| &key.incarnation) != Some(ended)
+        || (old.server.host == target.server.host
+            && old.server.socket_path == target.server.socket_path
+            && old.pane_id == target.pane_id)
+    {
+        return Err(BindingError::Unverified);
+    }
+    let observed = observe_for_binding(
+        repository,
+        endpoint,
+        &target.pane_id,
+        Some(target),
+        expected,
+    )?;
+    if evaluate_binding(
+        expected,
+        observed
+            .old_probe
+            .as_ref()
+            .unwrap_or(&EndpointProbe::Unknown),
+    ) == BindingEvidence::Unknown
+    {
+        return Err(BindingError::Unverified);
+    }
+    if observed.occupant.is_some() {
+        return Err(BindingError::PaneAlreadyBound);
+    }
+    let reserved = repository.with_binding_transaction(|records| {
         let current = records
             .entry_by_id(&expected.identity.id)?
-            .filter(|current| {
-                if current == expected {
-                    return true;
-                }
-                // The stopped launch's wrapper may settle after the caller's
-                // post-stop snapshot. Admit only its exact Ended observation;
-                // every identity, attachment, key and owner field stays fenced.
-                let mut settled = expected.clone();
-                let Some(binding) = settled.binding.as_mut() else {
-                    return false;
-                };
-                let Some(key) = binding
-                    .session
-                    .key
-                    .as_ref()
-                    .filter(|key| &key.incarnation == ended)
-                else {
-                    return false;
-                };
-                let Some(owner) = binding.session.launch_owner.clone() else {
-                    return false;
-                };
-                let Some(next) = binding.session.record_launched_exit(key.clone(), owner) else {
-                    return false;
-                };
-                binding.session = next;
-                current == &settled
-            })
+            .filter(|current| move_entry_matches(current, expected))
             .ok_or(BindingError::Unverified)?;
         if records.session_preferences(&expected.identity.id)? != *preferences {
             return Err(BindingError::Unverified);
         }
-        let old = current.binding.as_ref().ok_or(BindingError::Unverified)?;
-        if old.session.key.as_ref().map(|key| &key.incarnation) != Some(ended)
-            || (old.server.host == target.server.host
-                && old.server.socket_path == target.server.socket_path
-                && old.pane_id == target.pane_id)
-        {
+        let current_old = current.binding.as_ref().ok_or(BindingError::Unverified)?;
+        if current_old.session.key.as_ref().map(|key| &key.incarnation) != Some(ended) {
             return Err(BindingError::Unverified);
         }
-        // Refuse an occupied or changed destination before clearing anything.
-        let snapshot = endpoint
-            .current_snapshot(std::slice::from_ref(&target.pane_id))
-            .map_err(BindingError::Endpoint)?;
-        target_pane(&snapshot, &target.pane_id, Some(target))?;
-        if records
-            .entry_by_pane(
-                snapshot.server.host,
-                &target.pane_id,
-                &snapshot.server.server_id,
-            )?
-            .is_some()
-        {
-            return Err(BindingError::PaneAlreadyBound);
-        }
-        let probe = observe(endpoint, &current).map_err(BindingError::Endpoint)?;
-        let evidence = evaluate_binding(&current, &probe);
-        deadline(endpoint)?;
-        // Host publication cannot be rolled back with SQL. Any error after
-        // this boundary is partial and never grants automatic replay.
-        (|| {
-            clear_observed(endpoint, &current, &evidence)?;
-            records.detach_binding(&old.id)?;
-            bind_selected(
-                records,
-                endpoint,
-                &target.pane_id,
-                Some(target),
-                BindingEntry {
-                    identity: current.identity.clone(),
-                    binding: None,
-                },
-                false,
-            )
-        })()
+        reserve_binding(records, current, &observed, false, false, true)
+    })?;
+    publish_reserved(repository, endpoint, reserved, Some(target))
         .map_err(|error| BindingError::Partial(Box::new(error)))
-    })
 }
 
-// Ordinary, guarded and moved bindings use this binding/publication owner.
-fn bind_selected<R, O: BindingEndpoint>(
-    records: &mut dyn BindingRecords<Error = R>,
+fn move_entry_matches(current: &BindingEntry, expected: &BindingEntry) -> bool {
+    if current == expected {
+        return true;
+    }
+    let mut settled = expected.clone();
+    let Some(binding) = settled.binding.as_mut() else {
+        return false;
+    };
+    let Some(key) = binding.session.key.clone() else {
+        return false;
+    };
+    let Some(owner) = binding.session.launch_owner.clone() else {
+        return false;
+    };
+    let Some(next) = binding.session.record_launched_exit(key, owner) else {
+        return false;
+    };
+    binding.session = next;
+    current == &settled
+}
+
+/// Host and reservation evidence frozen before a short writer transaction.
+struct BindingObservation {
+    snapshot: EndpointSnapshot,
+    pane: PaneObservation,
+    occupant: Option<BindingEntry>,
+    target_reservation: Option<BindingReservation>,
+    target_stale: bool,
+    identity_reservation: Option<BindingReservation>,
+    identity_stale: bool,
+    orphan_marker: Option<String>,
+    old_probe: Option<EndpointProbe>,
+    publisher: ProcessIncarnation,
+    target_id: String,
+    now_ms: u64,
+}
+
+fn stale_reservation<R, O: BindingEndpoint>(
+    endpoint: &mut O,
+    reservation: Option<&BindingReservation>,
+    now: u64,
+) -> Result<bool, BindingError<R, O::Error>> {
+    let Some(reservation) = reservation else {
+        return Ok(false);
+    };
+    if reservation.is_stale(now, session::RuntimeLiveness::Unknown) {
+        return Ok(true);
+    }
+    Ok(endpoint
+        .publication_liveness(&reservation.publisher)
+        .map_err(BindingError::Endpoint)?
+        == session::RuntimeLiveness::Gone)
+}
+
+fn observe_for_binding<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
     endpoint: &mut O,
     pane_id: &str,
     target: Option<&BindingTargetEvidence>,
-    selected: BindingEntry,
-    created: bool,
-) -> Result<BoundIdentity, BindingError<R, O::Error>> {
+    selected: &BindingEntry,
+) -> Result<BindingObservation, BindingError<R::Error, O::Error>> {
+    endpoint.begin_coordination();
     let mut scope = vec![pane_id.into()];
-    if let Some(binding) = &selected.binding
-        && binding.pane_id != pane_id
+    if let Some(old) = &selected.binding
+        && old.pane_id != pane_id
     {
-        scope.push(binding.pane_id.clone());
+        scope.push(old.pane_id.clone());
     }
     let snapshot = endpoint
         .current_snapshot(&scope)
         .map_err(BindingError::Endpoint)?;
-    let pane = target_pane(&snapshot, pane_id, target)?;
+    let mut pane = target_pane(&snapshot, pane_id, target)?.clone();
     if let Some(fence) = target.and_then(|target| target.discovery.as_ref()) {
-        guard_ownership(pane, fence)?;
+        guard_ownership(&pane, fence)?;
+    }
+    let (occupant, target_reservation, identity_reservation, orphan_marker) = repository
+        .with_binding_transaction(|records| {
+            let occupant =
+                records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?;
+            let target_reservation = records.reservation_by_pane(
+                snapshot.server.host,
+                &snapshot.server.server_id,
+                pane_id,
+            )?;
+            let identity_reservation = records.reservation_by_identity(&selected.identity.id)?;
+            let orphan_marker = match &pane.marker {
+                Some(marker)
+                    if marker.server_id == snapshot.server.server_id
+                        && marker.pane_pid == pane.pane_pid
+                        && crate::dispatch::canonical_id(&marker.binding_id)
+                        && crate::dispatch::canonical_id(&marker.identity_id)
+                        && !records.binding_exists(&marker.binding_id)? =>
+                {
+                    Some(marker.binding_id.clone())
+                }
+                _ => None,
+            };
+            Ok::<_, BindingError<R::Error, O::Error>>((
+                occupant,
+                target_reservation,
+                identity_reservation,
+                orphan_marker,
+            ))
+        })?;
+    let now_ms = endpoint
+        .publication_time_ms()
+        .ok_or(BindingError::Unverified)?;
+    let publisher = endpoint
+        .publication_owner()
+        .map_err(BindingError::Endpoint)?
+        .ok_or(BindingError::Unverified)?;
+    let target_stale =
+        stale_reservation::<R::Error, O>(endpoint, target_reservation.as_ref(), now_ms)?;
+    let identity_stale = if identity_reservation == target_reservation {
+        target_stale
+    } else {
+        stale_reservation::<R::Error, O>(endpoint, identity_reservation.as_ref(), now_ms)?
+    };
+    let old_probe = if let Some(old) = &selected.binding {
+        if old.server.host == snapshot.server.host
+            && old.server.socket_path == snapshot.server.socket_path
+        {
+            Some(EndpointProbe::Live(snapshot.clone()))
+        } else {
+            Some(observe(endpoint, selected).map_err(BindingError::Endpoint)?)
+        }
+    } else {
+        None
+    };
+    let already_active = occupant.as_ref().is_some_and(|entry| {
+        entry.identity.id == selected.identity.id
+            && matches!(
+                evaluate_binding(entry, &EndpointProbe::Live(snapshot.clone())),
+                BindingEvidence::Active(_)
+            )
+    });
+    if !already_active {
+        pane.pane_incarnation = match target.and_then(|target| target.pane_incarnation.clone()) {
+            Some(start) => Some(start),
+            None => endpoint
+                .pane_incarnation(&snapshot.server, pane.pane_pid)
+                .unwrap_or(None),
+        };
+    }
+    deadline(endpoint)?;
+    Ok(BindingObservation {
+        snapshot,
+        pane,
+        occupant,
+        target_reservation,
+        target_stale,
+        identity_reservation,
+        identity_stale,
+        orphan_marker,
+        old_probe,
+        publisher,
+        target_id: crate::operation::new_operation_id(),
+        now_ms,
+    })
+}
+
+struct ReservedBinding {
+    binding: Binding,
+    identity: crate::identity::Identity,
+    reservation: Option<BindingReservation>,
+    old: Option<BindingEntry>,
+    created: bool,
+}
+
+fn reserve_binding<R, O>(
+    records: &mut dyn BindingRecords<Error = R>,
+    selected: BindingEntry,
+    observation: &BindingObservation,
+    created: bool,
+    save: bool,
+    moving: bool,
+) -> Result<ReservedBinding, BindingError<R, O>> {
+    if records.entry_by_id(&selected.identity.id)?.as_ref() != Some(&selected) {
+        return Err(BindingError::Unverified);
+    }
+    let actual = records.entry_by_pane(
+        observation.snapshot.server.host,
+        &observation.pane.id,
+        &observation.snapshot.server.server_id,
+    )?;
+    if actual != observation.occupant {
+        return Err(if actual.is_some() {
+            BindingError::PaneAlreadyBound
+        } else {
+            BindingError::Unverified
+        });
+    }
+    let target_reservation = records.reservation_by_pane(
+        observation.snapshot.server.host,
+        &observation.snapshot.server.server_id,
+        &observation.pane.id,
+    )?;
+    if target_reservation != observation.target_reservation {
+        return Err(if target_reservation.is_some() {
+            BindingError::PaneAlreadyBound
+        } else {
+            BindingError::Unverified
+        });
+    }
+    let identity_reservation = records.reservation_by_identity(&selected.identity.id)?;
+    if identity_reservation != observation.identity_reservation {
+        return Err(BindingError::Unverified);
+    }
+    let mut expected_marker = match &observation.orphan_marker {
+        Some(id) if !records.binding_exists(id)? => Some(id.clone()),
+        Some(_) => return Err(BindingError::Unverified),
+        None => None,
+    };
+    if let Some(reservation) = &target_reservation {
+        if !observation.target_stale {
+            return Err(BindingError::PaneAlreadyBound);
+        }
+        match &observation.pane.marker {
+            Some(marker)
+                if marker.binding_id == reservation.target.id
+                    && marker.identity_id == reservation.target.identity_id
+                    && marker.server_id == reservation.target.server.server_id
+                    && marker.pane_pid == reservation.target.pane_pid =>
+            {
+                expected_marker = Some(marker.binding_id.clone())
+            }
+            None => (),
+            _ => return Err(BindingError::Unverified),
+        }
+        if !records.finish_binding_reservation(reservation)? {
+            return Err(BindingError::Unverified);
+        }
+    }
+    if let Some(reservation) = &identity_reservation
+        && target_reservation
+            .as_ref()
+            .is_none_or(|target| target.target.id != reservation.target.id)
+    {
+        if !observation.identity_stale {
+            return Err(BindingError::Unverified);
+        }
+        if !records.finish_binding_reservation(reservation)? {
+            return Err(BindingError::Unverified);
+        }
     }
     let mut current = None;
-    if let Some(occupied) =
-        records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?
-    {
-        match evaluate_binding(&occupied, &EndpointProbe::Live(snapshot.clone())) {
-            BindingEvidence::Active(_) if occupied.identity.id != selected.identity.id => {
+    if let Some(occupied) = actual {
+        match evaluate_binding(
+            &occupied,
+            &EndpointProbe::Live(observation.snapshot.clone()),
+        ) {
+            BindingEvidence::Active(_)
+                if occupied.identity.id != selected.identity.id || moving =>
+            {
                 return Err(BindingError::PaneAlreadyBound);
             }
             BindingEvidence::Active(_) => current = occupied.binding,
@@ -304,85 +499,247 @@ fn bind_selected<R, O: BindingEndpoint>(
                 return Err(BindingError::Unverified);
             }
             _ => {
-                reconcile(records, occupied, &EndpointProbe::Live(snapshot.clone()))?;
+                reconcile(
+                    records,
+                    occupied,
+                    &EndpointProbe::Live(observation.snapshot.clone()),
+                )?;
             }
         }
+    } else if observation.pane.marker.is_some() && expected_marker.is_none() {
+        return Err(BindingError::Unverified);
     }
-    if let Some(old) = &selected.binding
-        && current.as_ref().is_none_or(|current| current.id != old.id)
+    if !moving
+        && let Some(old) = &selected.binding
+        && current.as_ref().is_none_or(|item| item.id != old.id)
+        && observation
+            .occupant
+            .as_ref()
+            .and_then(|item| item.binding.as_ref())
+            .is_none_or(|item| item.id != old.id)
     {
-        let probe = if old.server.host == snapshot.server.host
-            && old.server.socket_path == snapshot.server.socket_path
-        {
-            EndpointProbe::Live(snapshot.clone())
-        } else {
-            observe(endpoint, &selected).map_err(BindingError::Endpoint)?
-        };
-        match evaluate_binding(&selected, &probe) {
+        match evaluate_binding(
+            &selected,
+            observation
+                .old_probe
+                .as_ref()
+                .unwrap_or(&EndpointProbe::Unknown),
+        ) {
             BindingEvidence::Active(_) => return Err(BindingError::NameAlreadyActive),
             BindingEvidence::Unknown => return Err(BindingError::Unverified),
             BindingEvidence::EndpointLost if selected.identity.lifetime == Lifetime::Temporary => {
                 return Err(BindingError::Unverified);
             }
-            _ => {
-                records.detach_binding(&old.id)?;
-            }
+            _ => records.detach_binding(&old.id)?,
         }
     }
-    let publish = current.is_none();
-    let binding = match current {
-        Some(binding) => binding,
-        None => {
-            // Recorded once, when the binding is made, so a reused pid
-            // can later be told from the same pane. A failed observation
-            // is unknown, never a failed bind.
-            let mut pane = pane.clone();
-            pane.pane_incarnation = match target.and_then(|target| target.pane_incarnation.clone())
-            {
-                Some(start) => Some(start),
-                None => endpoint
-                    .pane_incarnation(&snapshot.server, pane.pane_pid)
-                    .unwrap_or(None),
-            };
-            records.insert_binding(&selected.identity, &snapshot.server, &pane)?
-        }
+    let identity = if save && selected.identity.lifetime == Lifetime::Temporary {
+        records.save_identity(&selected.identity)?
+    } else {
+        selected.identity.clone()
     };
-    if publish {
-        endpoint
-            .publish(&binding, &selected.identity)
-            .map_err(BindingError::Endpoint)?;
+    if let Some(binding) = current {
+        return Ok(ReservedBinding {
+            binding,
+            identity,
+            reservation: None,
+            old: None,
+            created,
+        });
     }
-    let verified = endpoint
-        .current_snapshot(&[pane_id.into()])
-        .map_err(BindingError::Endpoint)?;
-    target_pane(&verified, pane_id, target)?;
-    let persisted = records
-        .entry_by_pane(binding.server.host, pane_id, &binding.server.server_id)?
+    let expires_at_ms = observation
+        .now_ms
+        .checked_add(10_000)
+        .filter(|value| *value <= crate::limits::MAX_JS_SAFE_INTEGER)
         .ok_or(BindingError::Unverified)?;
-    if persisted.identity.id != selected.identity.id || persisted.binding.as_ref() != Some(&binding)
-    {
+    let binding = Binding {
+        id: observation.target_id.clone(),
+        identity_id: identity.id.clone(),
+        server: observation.snapshot.server.clone(),
+        pane_id: observation.pane.id.clone(),
+        pane_pid: observation.pane.pane_pid,
+        pane_incarnation: observation.pane.pane_incarnation.clone(),
+        session: Default::default(),
+    };
+    if moving && selected.binding.is_none() {
         return Err(BindingError::Unverified);
     }
-    let BindingEvidence::Active(pane) =
-        evaluate_binding(&persisted, &EndpointProbe::Live(verified))
-    else {
-        return Err(BindingError::Unverified);
+    let old = moving.then_some(selected);
+    let reservation = BindingReservation {
+        target: binding.clone(),
+        old_binding_id: old
+            .as_ref()
+            .and_then(|entry| entry.binding.as_ref().map(|binding| binding.id.clone())),
+        expected_binding_id: expected_marker,
+        publisher: observation.publisher.clone(),
+        created_at_ms: observation.now_ms,
+        expires_at_ms,
     };
-    records.touch_binding(&binding.id)?;
-    deadline(endpoint)?;
-    Ok(BoundIdentity {
-        presence: IdentityPresence {
-            identity: selected.identity,
-            presence: Presence::Active,
-            pane: Some(*pane),
-            binding: Some(binding),
-        },
+    records.begin_binding_reservation(&reservation)?;
+    Ok(ReservedBinding {
+        binding,
+        identity,
+        reservation: Some(reservation),
+        old,
         created,
     })
 }
 
-/// Admission and creation share the binding transaction; refused guarded adds
-/// never leave a separately committed identity creation or promotion.
+fn compensate_reservation<R: BindingRepository, O>(
+    repository: &mut R,
+    reserved: &ReservedBinding,
+    error: BindingError<R::Error, O>,
+) -> BindingError<R::Error, O> {
+    let Some(reservation) = &reserved.reservation else {
+        return error;
+    };
+    match repository
+        .with_binding_transaction(|records| records.finish_binding_reservation(reservation))
+    {
+        Ok(_) => error,
+        Err(cleanup) => BindingError::CleanupFailed {
+            error: Box::new(error),
+            cleanup,
+        },
+    }
+}
+
+pub(super) fn publication_can_start(
+    reservation: &BindingReservation,
+    now: u64,
+    budget_available: bool,
+) -> bool {
+    let cutoff = reservation.expires_at_ms.saturating_sub(1_000);
+    budget_available && now.checked_add(3_000).is_some_and(|end| end <= cutoff)
+}
+
+enum BindingActivation {
+    Activated(Binding, crate::identity::Identity),
+    Detached,
+    Changed,
+}
+
+fn publish_reserved<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    reserved: ReservedBinding,
+    target: Option<&BindingTargetEvidence>,
+) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
+    let result = (|| {
+        if let Some(reservation) = &reserved.reservation {
+            let now = endpoint
+                .publication_time_ms()
+                .ok_or(BindingError::Unverified)?;
+            if !publication_can_start(reservation, now, endpoint.budget_available()) {
+                return Err(BindingError::Deadline);
+            }
+            if !endpoint
+                .publish_if(
+                    &reserved.binding,
+                    &reserved.identity,
+                    reservation.expected_binding_id.as_deref(),
+                )
+                .map_err(BindingError::Endpoint)?
+            {
+                return Err(BindingError::Unverified);
+            }
+        }
+        let verified = endpoint
+            .current_snapshot(std::slice::from_ref(&reserved.binding.pane_id))
+            .map_err(BindingError::Endpoint)?;
+        target_pane(&verified, &reserved.binding.pane_id, target)?;
+        let expected = BindingEntry {
+            identity: reserved.identity.clone(),
+            binding: Some(reserved.binding.clone()),
+        };
+        let BindingEvidence::Active(pane) =
+            evaluate_binding(&expected, &EndpointProbe::Live(verified))
+        else {
+            return Err(BindingError::Unverified);
+        };
+        deadline(endpoint)?;
+        let activation = repository.with_binding_transaction(|records| {
+            let current = records.entry_by_id(&reserved.identity.id)?;
+            let Some(current) = current else {
+                return Ok(BindingActivation::Detached);
+            };
+            if let Some(reservation) = &reserved.reservation {
+                if records
+                    .reservation_by_target(&reserved.binding.id)?
+                    .as_ref()
+                    != Some(reservation)
+                {
+                    return Ok(BindingActivation::Detached);
+                }
+                if let Some(old) = &reserved.old {
+                    if !move_entry_matches(&current, old) {
+                        return Ok(BindingActivation::Changed);
+                    }
+                    let old_id = old
+                        .binding
+                        .as_ref()
+                        .ok_or(BindingError::Unverified)?
+                        .id
+                        .clone();
+                    records.detach_binding(&old_id)?;
+                } else if current.binding.is_some() {
+                    return Ok(BindingActivation::Changed);
+                }
+                let binding = records.insert_reserved_binding(&current.identity, reservation)?;
+                if !records.finish_binding_reservation(reservation)? {
+                    return Err(BindingError::Unverified);
+                }
+                Ok(BindingActivation::Activated(binding, current.identity))
+            } else if current.binding.as_ref() == Some(&reserved.binding) {
+                records.touch_binding(&reserved.binding.id)?;
+                Ok(BindingActivation::Activated(
+                    reserved.binding.clone(),
+                    current.identity,
+                ))
+            } else {
+                Ok(BindingActivation::Detached)
+            }
+        })?;
+        match activation {
+            BindingActivation::Activated(binding, identity) => {
+                if let Some(old) = &reserved.old
+                    && let Some(old_binding) = &old.binding
+                {
+                    // After activation, an unchanged old marker is orphaned and
+                    // safe to reclaim. Clear is best-effort and never unbinds the target.
+                    if let Err(error) = endpoint.clear_if_owned(old_binding, &old.identity)
+                        && endpoint.cleanup_failed(&error)
+                    {
+                        return Err(BindingError::Endpoint(error));
+                    }
+                }
+                Ok(BoundIdentity {
+                    presence: IdentityPresence {
+                        identity,
+                        presence: Presence::Active,
+                        pane: Some(*pane),
+                        binding: Some(binding),
+                    },
+                    created: reserved.created,
+                })
+            }
+            BindingActivation::Detached | BindingActivation::Changed => {
+                if reserved.reservation.is_some()
+                    && let Err(error) =
+                        endpoint.clear_if_owned(&reserved.binding, &reserved.identity)
+                    && endpoint.cleanup_failed(&error)
+                {
+                    return Err(BindingError::Endpoint(error));
+                }
+                Err(BindingError::Unverified)
+            }
+        }
+    })();
+    result.map_err(|error| compensate_reservation(repository, &reserved, error))
+}
+
+/// Guarded selection and binding reservation share one short writer transaction;
+/// host reobservations and publication run outside that writer.
 pub fn bind_guarded<R: BindingRepository, O: GuardedBindingEndpoint>(
     repository: &mut R,
     endpoint: &mut O,
@@ -396,144 +753,162 @@ pub fn bind_guarded<R: BindingRepository, O: GuardedBindingEndpoint>(
         }
         GuardedIdentity::Uuid(_) => None,
     };
-    let mut effects = false;
-    let result = repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
-        let admit = |endpoint: &mut O| -> Result<(), BindingError<R::Error, O::Error>> {
-            let observed = endpoint
-                .discovery_target(&fence.pane)
-                .map_err(BindingError::Endpoint)?;
-            if observed
-                .as_ref()
-                .is_none_or(|actual| actual.digest() != fence.digest())
-            {
-                return Err(BindingError::TargetChanged(fence.pane.clone()));
+    endpoint.begin_coordination();
+    let admit = |endpoint: &mut O| -> Result<(), BindingError<R::Error, O::Error>> {
+        let observed = endpoint
+            .discovery_target(&fence.pane)
+            .map_err(BindingError::Endpoint)?;
+        if observed
+            .as_ref()
+            .is_none_or(|actual| actual.digest() != fence.digest())
+        {
+            return Err(BindingError::TargetChanged(fence.pane.clone()));
+        }
+        Ok(())
+    };
+    admit(endpoint)?;
+    let selected = repository.with_binding_transaction(|records| match selector {
+        GuardedIdentity::Uuid(id) => records
+            .entry_by_id(id)?
+            .map(Some)
+            .ok_or_else(|| BindingError::NameNotFound(id.into())),
+        GuardedIdentity::Name(_) => {
+            let name = name.as_ref().expect("validated name");
+            if records.find_identity(name.canonical_name())?.is_some() {
+                return Err(BindingError::NameTaken(name.display_name().into()));
             }
-            Ok(())
-        };
-        admit(endpoint)?;
-        let selected = match selector {
-            GuardedIdentity::Uuid(id) => Some(
-                records
-                    .entry_by_id(id)?
-                    .ok_or_else(|| BindingError::NameNotFound(id.into()))?,
-            ),
-            GuardedIdentity::Name(_) => {
-                let name = name.as_ref().expect("validated name");
-                if records.find_identity(name.canonical_name())?.is_some() {
-                    return Err(BindingError::NameTaken(name.display_name().into()));
-                }
-                None
-            }
-        };
-        let occupied = match fence.server_id.as_deref() {
-            Some(server) => records.entry_by_pane(fence.host, &fence.pane, server)?,
-            None => None,
-        };
-        if let Some(occupied) = &occupied {
-            if selected
-                .as_ref()
-                .is_none_or(|s| s.identity.id != occupied.identity.id)
-            {
-                return Err(BindingError::PaneAlreadyBound);
-            }
-            let snapshot = fence.endpoint_snapshot().ok_or(BindingError::Unverified)?;
-            if !matches!(
-                evaluate_binding(occupied, &EndpointProbe::Live(snapshot)),
-                BindingEvidence::Active(_)
-            ) {
-                return Err(BindingError::Unverified);
-            }
-        } else if fence.marker.is_some() {
+            Ok(None)
+        }
+    })?;
+    let occupied =
+        repository.with_binding_transaction(|records| match fence.server_id.as_deref() {
+            Some(server) => records.entry_by_pane(fence.host, &fence.pane, server),
+            None => Ok(None),
+        })?;
+    if let Some(occupied) = &occupied {
+        if selected
+            .as_ref()
+            .is_none_or(|entry| entry.identity.id != occupied.identity.id)
+        {
+            return Err(BindingError::PaneAlreadyBound);
+        }
+        let snapshot = fence.endpoint_snapshot().ok_or(BindingError::Unverified)?;
+        if !matches!(
+            evaluate_binding(occupied, &EndpointProbe::Live(snapshot)),
+            BindingEvidence::Active(_)
+        ) {
             return Err(BindingError::Unverified);
         }
-        if let Some(selected) = &selected
-            && let Some(old) = &selected.binding
-            && occupied.is_none()
+    } else if fence.marker.is_some() {
+        return Err(BindingError::Unverified);
+    }
+    if let Some(entry) = &selected
+        && let Some(old) = &entry.binding
+        && occupied.is_none()
+    {
+        let probe = observe(endpoint, entry).map_err(BindingError::Endpoint)?;
+        match evaluate_binding(entry, &probe) {
+            BindingEvidence::Active(_) => return Err(BindingError::NameAlreadyActive),
+            BindingEvidence::Unknown => return Err(BindingError::Unverified),
+            _ => (),
+        }
+        if old.pane_id == fence.pane && old.server.socket_path == fence.socket {
+            return Err(BindingError::TargetChanged(fence.pane.clone()));
+        }
+    }
+    admit(endpoint)?;
+    deadline(endpoint)?;
+    // Snapshot may initialize a host marker; errors after this point remain a
+    // partial attempt, never a claim that host effects were rolled back.
+    let result = (|| {
+        let snapshot = endpoint
+            .current_snapshot(std::slice::from_ref(&fence.pane))
+            .map_err(BindingError::Endpoint)?;
+        let pane = target_pane(&snapshot, &fence.pane, None)?;
+        if snapshot.server.socket_path != fence.socket
+            || snapshot.server.server_pid != fence.server.pid()
+            || snapshot.server.server_start_time != fence.server_start_time
+            || fence
+                .server_id
+                .as_ref()
+                .is_some_and(|id| id != &snapshot.server.server_id)
+            || pane.pane_pid != fence.process.pid()
+            || endpoint
+                .pane_incarnation(&snapshot.server, pane.pane_pid)
+                .map_err(BindingError::Endpoint)?
+                .as_deref()
+                != Some(fence.process.start_identity())
         {
-            let probe = observe(endpoint, selected).map_err(BindingError::Endpoint)?;
-            match evaluate_binding(selected, &probe) {
-                BindingEvidence::Active(_) => return Err(BindingError::NameAlreadyActive),
-                BindingEvidence::Unknown => return Err(BindingError::Unverified),
-                _ => {}
-            }
-            if old.pane_id == fence.pane && old.server.socket_path == fence.socket {
-                return Err(BindingError::TargetChanged(fence.pane.clone()));
-            }
+            return Err(BindingError::TargetChanged(fence.pane.clone()));
         }
-        admit(endpoint)?;
-        deadline(endpoint)?;
-        // Effects become possible only after both read-only admissions and all
-        // selector/ownership refusals. Later failure reports a partial attempt.
-        effects = true;
-        (|| {
-            let snapshot = endpoint
-                .current_snapshot(std::slice::from_ref(&fence.pane))
-                .map_err(BindingError::Endpoint)?;
-            let pane = target_pane(&snapshot, &fence.pane, None)?;
-            if snapshot.server.socket_path != fence.socket
-                || snapshot.server.server_pid != fence.server.pid()
-                || snapshot.server.server_start_time != fence.server_start_time
-                || fence
-                    .server_id
-                    .as_ref()
-                    .is_some_and(|id| id != &snapshot.server.server_id)
-                || pane.pane_pid != fence.process.pid()
-                || endpoint
-                    .pane_incarnation(&snapshot.server, pane.pane_pid)
-                    .map_err(BindingError::Endpoint)?
-                    .as_deref()
-                    != Some(fence.process.start_identity())
-            {
-                return Err(BindingError::TargetChanged(fence.pane.clone()));
-            }
-            guard_ownership(pane, fence)?;
-            let target = BindingTargetEvidence {
-                server: snapshot.server,
-                pane_id: fence.pane.clone(),
-                pane_pid: fence.process.pid(),
-                pane_incarnation: Some(fence.process.start_identity().into()),
-                discovery: Some(fence.clone()),
-            };
-            let created = selected.is_none();
-            let mut selected = match selected {
-                Some(selected) => selected,
-                None => BindingEntry {
-                    identity: records.insert_identity(
-                        name.as_ref().expect("name mode"),
-                        if save {
-                            Lifetime::Saved
-                        } else {
-                            Lifetime::Temporary
-                        },
-                    )?,
-                    binding: None,
+        guard_ownership(pane, fence)?;
+        let target = BindingTargetEvidence {
+            server: snapshot.server,
+            pane_id: fence.pane.clone(),
+            pane_pid: fence.process.pid(),
+            pane_incarnation: Some(fence.process.start_identity().into()),
+            discovery: Some(fence.clone()),
+        };
+        let created = selected.is_none();
+        let captured = selected.clone().unwrap_or_else(|| BindingEntry {
+            identity: crate::identity::Identity {
+                id: String::new(),
+                name: name.as_ref().expect("name mode").display_name().into(),
+                canonical_name: name.as_ref().expect("name mode").canonical_name().into(),
+                lifetime: if save {
+                    Lifetime::Saved
+                } else {
+                    Lifetime::Temporary
                 },
-            };
-            if save && selected.identity.lifetime == Lifetime::Temporary {
-                selected.identity = records.save_identity(&selected.identity)?;
-            }
-            bind_selected(
-                records,
-                endpoint,
-                &fence.pane,
-                Some(&target),
-                selected,
-                created,
-            )
-            .map(|bound| GuardedBoundIdentity {
-                bound,
-                already_bound: occupied.is_some(),
-            })
-        })()
-    });
-    result.map_err(|error| {
-        if effects {
-            BindingError::Partial(Box::new(error))
-        } else {
-            error
+                created_at: String::new(),
+                updated_at: String::new(),
+            },
+            binding: None,
+        });
+        let observed =
+            observe_for_binding(repository, endpoint, &fence.pane, Some(&target), &captured)?;
+        if let Some(occupied) = &observed.occupant
+            && selected
+                .as_ref()
+                .is_none_or(|entry| entry.identity.id != occupied.identity.id)
+        {
+            return Err(BindingError::PaneAlreadyBound);
         }
-    })
+        if observed.occupant.is_none() && fence.marker.is_some() {
+            return Err(BindingError::Unverified);
+        }
+        let already_bound = observed.occupant.is_some();
+        let reserved = repository.with_binding_transaction(|records| {
+            let selected = match selected {
+                Some(selected) => selected,
+                None => {
+                    let name = name.as_ref().expect("name mode");
+                    if records.find_identity(name.canonical_name())?.is_some() {
+                        return Err(BindingError::NameTaken(name.display_name().into()));
+                    }
+                    BindingEntry {
+                        identity: records.insert_identity(
+                            name,
+                            if save {
+                                Lifetime::Saved
+                            } else {
+                                Lifetime::Temporary
+                            },
+                        )?,
+                        binding: None,
+                    }
+                }
+            };
+            reserve_binding(records, selected, &observed, created, save, false)
+        })?;
+        publish_reserved(repository, endpoint, reserved, Some(&target)).map(|bound| {
+            GuardedBoundIdentity {
+                bound,
+                already_bound,
+            }
+        })
+    })();
+    result.map_err(|error| BindingError::Partial(Box::new(error)))
 }
 
 /// A deterministic refusal (the pane or name is taken, or the pane changed)
@@ -561,6 +936,9 @@ fn abandon_creation<R: BindingRepository, O>(
         if let Some(entry) = records.entry_by_id(&created.identity.id)?
             && entry.binding.is_none()
             && entry.identity.lifetime == Lifetime::Temporary
+            && records
+                .reservation_by_identity(&entry.identity.id)?
+                .is_none()
         {
             records.retire_identity(&entry.identity, true)?;
         }

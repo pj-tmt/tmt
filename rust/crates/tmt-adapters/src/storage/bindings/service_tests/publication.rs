@@ -14,6 +14,272 @@ use super::endpoint::{EndpointFailure, FakeEndpoint};
 use crate::storage::{Storage, StorageError};
 
 #[test]
+fn competing_binds_recheck_free_observation_before_reserving() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut losing = FakeEndpoint::new(&["%1"]);
+    let database = fixture.database.clone();
+    let winner_publications = Arc::new(AtomicUsize::new(0));
+    let recorded = Arc::clone(&winner_publications);
+    // Called after the loser observed both the free host pane and the empty
+    // reservation table, but before it takes the reservation transaction.
+    losing.after_owner = Some(Box::new(move || {
+        let mut other = Storage::open(&database).unwrap();
+        let mut winner = FakeEndpoint::new(&["%1"]);
+        bind_identity(&mut other, &mut winner, "%1", "Winner", false).unwrap();
+        recorded.store(winner.publish_calls, Ordering::SeqCst);
+        other.close().unwrap();
+    }));
+    let result = bind_identity(&mut storage, &mut losing, "%1", "Loser", false);
+    assert!(
+        matches!(result, Err(BindingError::PaneAlreadyBound)),
+        "{result:?}"
+    );
+    assert_eq!(winner_publications.load(Ordering::SeqCst), 1);
+    assert_eq!(losing.publish_calls, 0);
+    storage.close().unwrap();
+}
+
+#[test]
+fn refused_creation_keeps_an_identity_with_a_concurrent_reservation() {
+    use tmt_core::{binding::BindingReservation, endpoint::ProcessIncarnation};
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut losing = FakeEndpoint::new(&["%1", "%2"]);
+    let database = fixture.database.clone();
+    losing.after_owner = Some(Box::new(move || {
+        let mut other = Storage::open(&database).unwrap();
+        let mut winner = FakeEndpoint::new(&["%1", "%2"]);
+        let winner_binding = bind_identity(&mut other, &mut winner, "%1", "Winner", false)
+            .unwrap()
+            .binding
+            .unwrap();
+        let identity = other.find_identity("loser").unwrap().unwrap();
+        let mut target = winner_binding;
+        target.id = tmt_core::operation::new_operation_id();
+        target.identity_id = identity.id;
+        target.pane_id = "%2".into();
+        other
+            .with_binding_transaction::<_, StorageError>(|records| {
+                records.begin_binding_reservation(&BindingReservation {
+                    target,
+                    old_binding_id: None,
+                    expected_binding_id: None,
+                    publisher: ProcessIncarnation::new(42, "other-publisher").unwrap(),
+                    created_at_ms: 1_000,
+                    expires_at_ms: 11_000,
+                })
+            })
+            .unwrap();
+        other.close().unwrap();
+    }));
+    assert!(matches!(
+        bind_identity(&mut storage, &mut losing, "%1", "Loser", false),
+        Err(BindingError::PaneAlreadyBound)
+    ));
+    let loser = storage
+        .find_identity("loser")
+        .unwrap()
+        .expect("concurrent reservation keeps identity");
+    assert!(
+        storage
+            .with_binding_transaction::<_, StorageError>(
+                |records| records.reservation_by_identity(&loser.id)
+            )
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(losing.publish_calls, 0);
+    storage.close().unwrap();
+}
+
+#[test]
+fn late_expired_publisher_refuses_successor_then_third_bind_reclaims() {
+    use tmt_core::{binding::BindingReservation, endpoint::ProcessIncarnation};
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let old = bind_identity(&mut storage, &mut endpoint, "%1", "Old", true).unwrap();
+    let old_binding = old.binding.unwrap();
+    let old_marker = old_binding.marker(&old.identity);
+    let expired = BindingReservation {
+        target: old_binding.clone(),
+        old_binding_id: None,
+        expected_binding_id: None,
+        publisher: ProcessIncarnation::new(99, "expired-publisher").unwrap(),
+        created_at_ms: 100,
+        expires_at_ms: 900,
+    };
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            records.detach_binding(&old_binding.id)?;
+            records.begin_binding_reservation(&expired)
+        })
+        .unwrap();
+    endpoint.pane_mut("%1").marker = None;
+    // The old publisher wins the empty-marker CAS after its lease expired,
+    // just before the successor performs its own host CAS.
+    endpoint.late_marker_before_publish = Some(old_marker.clone());
+    let refused = bind_identity(&mut storage, &mut endpoint, "%1", "Successor", false);
+    assert!(matches!(refused, Err(BindingError::Unverified)));
+    assert_eq!(endpoint.pane_mut("%1").marker.as_ref(), Some(&old_marker));
+    assert!(
+        !storage
+            .with_binding_transaction::<_, StorageError>(
+                |records| records.binding_exists(&old_binding.id)
+            )
+            .unwrap()
+    );
+    let third = bind_identity(&mut storage, &mut endpoint, "%1", "Third", false).unwrap();
+    assert_eq!(
+        endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+        third.binding.unwrap().id
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn proven_dead_publisher_can_be_reclaimed_before_lease_expiry() {
+    use tmt_core::{
+        binding::{BindingReservation, session::RuntimeLiveness},
+        endpoint::ProcessIncarnation,
+    };
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let old = bind_identity(&mut storage, &mut endpoint, "%1", "Old", true).unwrap();
+    let old_binding = old.binding.unwrap();
+    let pending = BindingReservation {
+        target: old_binding.clone(),
+        old_binding_id: None,
+        expected_binding_id: None,
+        publisher: ProcessIncarnation::new(99, "dead").unwrap(),
+        created_at_ms: 100,
+        expires_at_ms: 11_000,
+    };
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            records.detach_binding(&old_binding.id)?;
+            records.begin_binding_reservation(&pending)
+        })
+        .unwrap();
+    endpoint.publisher_liveness = RuntimeLiveness::Gone;
+    let successor = bind_identity(&mut storage, &mut endpoint, "%1", "New", false).unwrap();
+    assert_ne!(successor.binding.as_ref().unwrap().id, old_binding.id);
+    assert_eq!(
+        endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+        successor.binding.unwrap().id
+    );
+    assert!(storage.find_identity("old").unwrap().is_some());
+    storage.close().unwrap();
+}
+
+#[test]
+fn unpublished_reservation_leaves_the_committed_identity_offline() {
+    use tmt_core::{
+        binding::{BindingReservation, Presence, session::RuntimeLiveness},
+        endpoint::ProcessIncarnation,
+    };
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let old = bind_identity(&mut storage, &mut endpoint, "%1", "Old", false).unwrap();
+    let binding = old.binding.unwrap();
+    let pending = BindingReservation {
+        target: binding.clone(),
+        old_binding_id: None,
+        expected_binding_id: None,
+        publisher: ProcessIncarnation::new(99, "dead").unwrap(),
+        created_at_ms: 100,
+        expires_at_ms: 11_000,
+    };
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            records.detach_binding(&binding.id)?;
+            records.begin_binding_reservation(&pending)
+        })
+        .unwrap();
+    endpoint.pane_mut("%1").marker = None;
+    endpoint.publisher_liveness = RuntimeLiveness::Gone;
+    let presence = tmt_core::binding::name_presence(&mut storage, &mut endpoint, "Old").unwrap();
+    assert_eq!(presence.presence, Presence::Offline);
+    assert!(presence.binding.is_none());
+    assert_eq!(
+        storage.find_identity("old").unwrap().unwrap().id,
+        old.identity.id
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn one_live_reservation_per_identity_blocks_a_second_target_without_publication() {
+    use tmt_core::{binding::BindingReservation, endpoint::ProcessIncarnation};
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2", "%3"]);
+    let old = bind_identity(&mut storage, &mut endpoint, "%1", "Old", true).unwrap();
+    let old_binding = old.binding.unwrap();
+    let mut target = old_binding.clone();
+    target.id = tmt_core::operation::new_operation_id();
+    target.pane_id = "%2".into();
+    target.session = Default::default();
+    let reservation = BindingReservation {
+        target,
+        old_binding_id: Some(old_binding.id.clone()),
+        expected_binding_id: None,
+        publisher: ProcessIncarnation::new(99, "live").unwrap(),
+        created_at_ms: 100,
+        expires_at_ms: 11_000,
+    };
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            records.begin_binding_reservation(&reservation)
+        })
+        .unwrap();
+    let calls = endpoint.publish_calls;
+    let result = bind_identity(&mut storage, &mut endpoint, "%3", "Old", true);
+    assert!(matches!(result, Err(BindingError::Unverified)));
+    assert_eq!(endpoint.publish_calls, calls);
+    assert_eq!(
+        endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+        old_binding.id
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn detached_publisher_clears_only_its_own_marker_and_reports_unverified() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let database = fixture.database.clone();
+    endpoint.after_publish = Some(Box::new(move || {
+        let mut other = Storage::open(&database).unwrap();
+        let identity = other.find_identity("late").unwrap().unwrap();
+        other
+            .with_binding_transaction::<_, StorageError>(|records| {
+                let entry = records.entry_by_id(&identity.id)?.unwrap();
+                assert!(entry.binding.is_none());
+                let reservation = records.reservation_by_identity(&identity.id)?.unwrap();
+                assert!(records.finish_binding_reservation(&reservation)?);
+                Ok(())
+            })
+            .unwrap();
+        other.close().unwrap();
+    }));
+    let result = bind_identity(&mut storage, &mut endpoint, "%1", "Late", false);
+    assert!(matches!(result, Err(BindingError::Unverified)));
+    assert!(endpoint.pane_mut("%1").marker.is_none());
+    assert_eq!(endpoint.clear_calls, 1);
+    assert!(storage.find_identity("late").unwrap().is_some());
+    storage.close().unwrap();
+}
+
+#[test]
 fn temporary_binding_save_reuses_uuid_and_never_downgrades() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
@@ -167,10 +433,10 @@ fn refusal_keeps_identities_it_did_not_create_or_that_are_saved() {
 type Race = Box<dyn FnOnce(&mut Storage)>;
 
 /// Runs `race` once in the window between a refused bind and its compensating
-/// retirement (the third binding transaction of a refused `bind_identity`).
+/// retirement, triggered by the refused transaction rather than a transaction count.
 struct RacingStorage {
     inner: Storage,
-    binding_transactions: usize,
+    refused: bool,
     race: Option<Race>,
 }
 
@@ -200,13 +466,14 @@ impl BindingRepository for RacingStorage {
         &mut self,
         operation: impl FnOnce(&mut dyn BindingRecords<Error = Self::Error>) -> Result<T, E>,
     ) -> Result<T, E> {
-        self.binding_transactions += 1;
-        if self.binding_transactions == 3
+        if self.refused
             && let Some(race) = self.race.take()
         {
             race(&mut self.inner);
         }
-        self.inner.with_binding_transaction(operation)
+        let result = self.inner.with_binding_transaction(operation);
+        self.refused |= result.is_err();
+        result
     }
 }
 
@@ -217,7 +484,7 @@ fn identity_bound_by_another_invocation_before_cleanup_is_not_retired() {
     let server = endpoint.server.clone();
     let mut storage = RacingStorage {
         inner: fixture.open(),
-        binding_transactions: 0,
+        refused: false,
         race: Some(Box::new(move |storage| {
             let bob = storage.find_identity("bob").unwrap().unwrap();
             storage
@@ -228,7 +495,7 @@ fn identity_bound_by_another_invocation_before_cleanup_is_not_retired() {
         })),
     };
     bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true).unwrap();
-    storage.binding_transactions = 0;
+    storage.refused = false;
 
     let error = bind_identity(&mut storage, &mut endpoint, "%1", "Bob", false).unwrap_err();
     assert!(matches!(error, BindingError::PaneAlreadyBound));

@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_and_name_answers_belong_to_the_operations_that_address_an_agent() {
+    fn agent_and_conditional_publish_answers_are_scoped_to_their_operations() {
         let accepted = |op: Op, code: &str| {
             let answer = bytes(json!({"error": {"code": code, "message": "agent"}}));
             decode_done(op, &answer).is_ok()
@@ -479,9 +479,14 @@ mod tests {
         ] {
             assert_eq!(accepted(Op::Prompt, code), prompt, "{code}");
             assert_eq!(accepted(Op::NameAgent, code), name_agent, "{code}");
-            for op in [Op::Input, Op::Publish, Op::Clear, Op::Snapshot] {
+            for op in [Op::Input, Op::Clear, Op::Snapshot] {
                 assert!(!accepted(op, code), "{code} on {op:?}");
             }
+            assert_eq!(
+                accepted(Op::Publish, code),
+                code == "refused",
+                "{code} on publish"
+            );
         }
         // The codes of the earlier agent name draft are no codes.
         for code in ["invalid_name", "name_taken", "foreign_name"] {

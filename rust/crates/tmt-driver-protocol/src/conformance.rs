@@ -395,6 +395,7 @@ impl Missing<'_, '_> {
                     socket,
                     pane_id: pane,
                     pane_pid: 1,
+                    expected_binding_id: None,
                     marker: Marker {
                         name: "Conformance".into(),
                         canonical_name: "conformance".into(),

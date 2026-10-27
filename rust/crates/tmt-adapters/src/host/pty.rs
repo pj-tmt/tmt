@@ -555,6 +555,18 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
         }
     }
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), HostError> {
+        if self.publish_if(binding, identity, None)? {
+            Ok(())
+        } else {
+            Err(error("the pane changed before marker publication"))
+        }
+    }
+    fn publish_if(
+        &mut self,
+        binding: &Binding,
+        identity: &Identity,
+        expected: Option<&str>,
+    ) -> Result<bool, HostError> {
         let marker = binding.marker(identity);
         let text = serde_json::to_string(&tmt_driver_protocol::Marker {
             name: marker.name,
@@ -566,18 +578,44 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
         })
         .map_err(|_| error("the marker could not be encoded"))?;
         let pane_pid = u32::try_from(binding.pane_pid).map_err(|_| error("invalid pane PID"))?;
-        match call(
-            &binding.server.socket_path,
-            &binding.pane_id,
+        let socket = &binding.server.socket_path;
+        let pane = &binding.pane_id;
+        let conditional = match call(socket, pane, Control::Capabilities, self.deadline) {
+            Ok(ControlReply::Applied(value)) => value,
+            // Version 1 supervisors close a connection on an unknown control.
+            Err(HostError::Pty(cause)) if cause.kind() == io::ErrorKind::UnexpectedEof => false,
+            Err(cause) => return Err(cause),
+            _ => return Err(error("the supervisor returned invalid capabilities")),
+        };
+        let request = if conditional {
+            Control::PublishIf {
+                pane_pid,
+                key: binding.id.clone(),
+                expected_key: expected.map(str::to_owned),
+                marker: text,
+            }
+        } else {
+            // Re-observe the same supervisor and pane after the capability connection
+            // closes. Core verifies the published marker and compensates on mismatch.
+            let observed = state(socket, pane, self.deadline)?;
+            verify_pair(self.runner, &observed, self.deadline)?;
+            let start = runtime::observe_start(self.runner, observed.server_pid, self.deadline)
+                .map_err(HostError::Process)?;
+            if observed.server_pid != binding.server.server_pid
+                || observed.pane_pid != binding.pane_pid
+                || start.as_deref() != Some(binding.server.server_start_time.as_str())
+            {
+                return Err(error("the supervisor changed during capability detection"));
+            }
             Control::Publish {
                 pane_pid,
                 key: binding.id.clone(),
                 marker: text,
-            },
-            self.deadline,
-        )? {
-            ControlReply::Applied(true) => Ok(()),
-            _ => Err(error("the pane changed before marker publication")),
+            }
+        };
+        match call(socket, pane, request, self.deadline)? {
+            ControlReply::Applied(applied) => Ok(applied),
+            _ => Err(error("the supervisor did not confirm marker publication")),
         }
     }
     fn clear(&mut self, binding: &Binding, _: &Identity) -> Result<bool, HostError> {
@@ -681,6 +719,155 @@ mod tests {
         .unwrap()
         .expect("a live child has a start identity");
         (child, pid, start)
+    }
+
+    #[test]
+    fn old_capability_supervisor_uses_legacy_publish_and_verifies_marker() {
+        use crate::test_support::{TestChild, TestDirectory};
+        use std::{
+            io::{Read, Write},
+            os::unix::net::UnixListener,
+        };
+        use tmt_core::identity::Lifetime;
+        use tmt_pty_protocol::{ClientMessage, Decoder, Frame, ServerMessage, Size, VERSION};
+
+        let root = TestDirectory::new();
+        let directory = root.path.join("pty");
+        crate::private_file::ensure_private_directory(&directory).unwrap();
+        let socket = directory.join("pty_test.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let child = Command::new("/bin/sh")
+            .args(["-c", "exec sleep 30"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let child = TestChild::new(child);
+        let pane_pid = child.child.id();
+        let supervisor_pid = std::process::id();
+        let server_start = runtime::observe_start(
+            &UnixCommandRunner,
+            u64::from(supervisor_pid),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap()
+        .unwrap();
+        let handle = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            let mut marker = None;
+            let mut seen_legacy = false;
+            for step in 0..4 {
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(value) => break value,
+                        Err(e)
+                            if e.kind() == io::ErrorKind::WouldBlock
+                                && Instant::now() < deadline =>
+                        {
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(e) => panic!("fake old supervisor accept: {e}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(10)))
+                    .unwrap();
+                let mut decoder = Decoder::new();
+                let hello = loop {
+                    if let Some(frame) = decoder.frame::<ClientMessage>().unwrap() {
+                        break frame;
+                    }
+                    let mut buf = [0; 4096];
+                    let n = stream.read(&mut buf).unwrap();
+                    assert!(n > 0);
+                    decoder.push(&buf[..n]).unwrap();
+                };
+                assert!(matches!(hello, ClientMessage::Hello { version: VERSION }));
+                stream
+                    .write_all(
+                        &ServerMessage::Welcome {
+                            version: VERSION,
+                            size: Size::new(80, 24).unwrap(),
+                        }
+                        .encode(),
+                    )
+                    .unwrap();
+                let request = loop {
+                    if let Some(frame) = decoder.frame::<ClientMessage>().unwrap() {
+                        break frame;
+                    }
+                    let mut buf = [0; 4096];
+                    let n = stream.read(&mut buf).unwrap();
+                    assert!(n > 0);
+                    decoder.push(&buf[..n]).unwrap();
+                };
+                let answer = match request {
+                    ClientMessage::Control(Control::Capabilities) if step == 0 => continue,
+                    ClientMessage::Control(Control::Inspect) if step == 1 || step == 3 => {
+                        ControlReply::State {
+                            supervisor_pid,
+                            pane_pid,
+                            key_idle_ms: None,
+                            marker: marker.clone(),
+                        }
+                    }
+                    ClientMessage::Control(Control::Publish {
+                        pane_pid: pid,
+                        key,
+                        marker: value,
+                    }) if step == 2 => {
+                        assert_eq!(pid, pane_pid);
+                        assert_eq!(key, "binding");
+                        marker = Some(value);
+                        seen_legacy = true;
+                        ControlReply::Applied(true)
+                    }
+                    other => panic!("unexpected old supervisor request: {other:?}"),
+                };
+                stream
+                    .write_all(&ServerMessage::Control(answer).encode())
+                    .unwrap();
+            }
+            assert!(seen_legacy);
+        });
+        let server = ServerEvidence {
+            host: HostKind::pty(),
+            server_id: "server".into(),
+            socket_path: socket.to_string_lossy().into_owned(),
+            server_pid: u64::from(supervisor_pid),
+            server_start_time: server_start,
+        };
+        let binding = Binding {
+            id: "binding".into(),
+            identity_id: "identity".into(),
+            server,
+            pane_id: "pty_test".into(),
+            pane_pid: u64::from(pane_pid),
+            pane_incarnation: None,
+            session: Default::default(),
+        };
+        let identity = Identity {
+            id: "identity".into(),
+            name: "Name".into(),
+            canonical_name: "name".into(),
+            lifetime: Lifetime::Saved,
+            created_at: "".into(),
+            updated_at: "".into(),
+        };
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut driver = PtyDriver {
+            runner: &UnixCommandRunner,
+            server: None,
+            deadline,
+            enter_delay: Duration::ZERO,
+        };
+        assert!(driver.publish_if(&binding, &identity, None).unwrap());
+        let observed = state(&binding.server.socket_path, &binding.pane_id, deadline).unwrap();
+        assert_eq!(observed.marker.unwrap().binding_id, "binding");
+        handle.join().unwrap();
     }
 
     #[test]

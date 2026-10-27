@@ -637,6 +637,90 @@ fn explicit_socket_metadata_updates_preserve_opaque_data_and_never_fall_back() {
 }
 
 #[test]
+fn binding_publication_uses_an_exact_marker_and_pane_fence() {
+    use tmt_core::{
+        binding::{Binding, BindingEndpoint},
+        identity::{Identity, Lifetime},
+    };
+    let identity = Identity {
+        id: "identity".into(),
+        name: "Alice".into(),
+        canonical_name: "alice".into(),
+        lifetime: Lifetime::Saved,
+        created_at: "now".into(),
+        updated_at: "now".into(),
+    };
+    let binding = Binding {
+        id: "binding".into(),
+        identity_id: identity.id.clone(),
+        pane_id: "%9".into(),
+        pane_pid: 654,
+        pane_incarnation: None,
+        session: Default::default(),
+        server: ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: SERVER_ID.into(),
+            socket_path: "/foreign/socket".into(),
+            server_pid: 321,
+            server_start_time: "start".into(),
+        },
+    };
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(""), Ok("")]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    session.publish(&binding, &identity).unwrap();
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 2);
+    assert!(calls[1].args.iter().any(|arg| arg == "if-shell"));
+    let condition = calls[1]
+        .args
+        .iter()
+        .find(|arg| arg.contains("#{pane_id}"))
+        .unwrap();
+    assert!(condition.contains("#{pane_pid}"));
+    assert!(condition.contains("#{@tmt.agent}"));
+    drop(calls);
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(""), Ok("TMT_BIND_REFUSED\n")]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    assert!(session.publish(&binding, &identity).is_err());
+
+    let stale = r#"{"version":1,"globalIdentity":{"name":"Old","canonicalName":"old","identityId":"old-identity","bindingId":"old-binding","serverId":"server","panePid":654},"opaque":true}"#;
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(stale), Ok("")]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    assert!(
+        session
+            .publish_if(&binding, &identity, Some("old-binding"))
+            .unwrap()
+    );
+    assert_eq!(tmux.runner.calls.borrow().len(), 2);
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(stale)]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    assert!(
+        !session
+            .publish_if(&binding, &identity, Some("different"))
+            .unwrap()
+    );
+    assert_eq!(tmux.runner.calls.borrow().len(), 1);
+
+    let ours = r#"{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice","identityId":"identity","bindingId":"binding","serverId":"server","panePid":654},"opaque":true}"#;
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(ours), Ok("TMT_BIND_REFUSED\n")]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    assert!(!session.clear_if_owned(&binding, &identity).unwrap());
+    let calls = tmux.runner.calls.borrow();
+    assert!(calls[1].args.iter().any(|arg| arg == "if-shell"));
+    let condition = calls[1]
+        .args
+        .iter()
+        .find(|arg| arg.contains("#{@tmt.agent}"))
+        .unwrap();
+    assert!(condition.contains("#{pane_pid}"));
+}
+
+#[test]
 fn binding_session_requires_a_budget_and_preserves_failed_probe_cleanup() {
     use tmt_core::binding::BindingEndpoint;
     let server = ServerEvidence {
