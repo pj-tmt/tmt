@@ -40,6 +40,7 @@ pub(super) static MOD: crate::setup::provider_mod::ProviderMod =
             ),
         ],
         purpose: "Claude Code mod that hands its rate-limit windows to tmt, so allowance figures stay fresh",
+        activation: "Usage appears once a Claude session starts with the mod: run /reload-plugins in any Claude session, or start a new one. One session per account is enough.",
     };
 
 const STORE: &str = "claude/allowance.json";
@@ -167,6 +168,17 @@ fn load(path: &Path) -> Option<PushedWindowStore> {
     let bytes = crate::bounded_file::read_no_follow(path, STORE_LIMIT).ok()?;
     let store: PushedWindowStore = serde_json::from_slice(&bytes).ok()?;
     (store.version == 1).then_some(store)
+}
+
+/// Whether the mod has pushed nothing yet for the environment's Claude account: the store has no
+/// entry for it, expired or not.
+pub(super) fn waiting(environment: &ProviderEnvironment, data_root: &Path) -> bool {
+    let account = crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES)
+        .ok()
+        .and_then(|bytes| account(&bytes).map(str::to_owned));
+    !account.is_some_and(|account| {
+        load(&data_root.join(STORE)).is_some_and(|store| store.accounts.contains_key(&account))
+    })
 }
 
 fn pushed(data_root: &Path, account: &str, now_ms: u64) -> Option<RateLimits> {

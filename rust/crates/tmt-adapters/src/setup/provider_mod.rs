@@ -24,6 +24,9 @@ pub struct ProviderMod {
     pub files: &'static [(&'static str, &'static [u8])],
     /// One line for setup's preview.
     pub purpose: &'static str,
+    /// One sentence on when an installed or refreshed copy starts to work, because a provider
+    /// loads its mods only when a session starts (#5394).
+    pub activation: &'static str,
 }
 
 const MARKER: &str = ".tmt-managed.json";
@@ -64,6 +67,23 @@ pub enum ModState {
     Stale,
     /// Not marked as TMT's: never touched.
     Foreign,
+}
+
+impl ModState {
+    /// The word JSON output uses.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Absent => "absent",
+            Self::Current => "current",
+            Self::Stale => "stale",
+            Self::Foreign => "foreign",
+        }
+    }
+
+    /// Whether TMT's copy is there, whatever build it is from.
+    pub fn installed(self) -> bool {
+        matches!(self, Self::Current | Self::Stale)
+    }
 }
 
 fn marked(directory: &Path) -> bool {
@@ -110,6 +130,31 @@ fn state_at(target: &Path, provider_mod: &ProviderMod) -> io::Result<ModState> {
 /// Where the mod goes for a provider whose settings file is `settings`.
 pub fn target(settings: &Path, provider_mod: &ProviderMod) -> Option<PathBuf> {
     Some(settings.parent()?.join(provider_mod.directory))
+}
+
+/// What is at `provider`'s mod path, or nothing when the provider keeps no mod. Read-only.
+pub fn state(provider: &str, settings: &Path) -> io::Result<Option<ModState>> {
+    let Some(provider_mod) = for_driver(provider) else {
+        return Ok(None);
+    };
+    let Some(target) = target(settings, provider_mod) else {
+        return Ok(None);
+    };
+    state_at(&target, provider_mod).map(Some)
+}
+
+/// Whether `provider`'s mod has pushed nothing yet for the environment's account (#5394). The
+/// caller has already found the mod installed and consented.
+pub fn waiting_for_first_session(
+    provider: &str,
+    environment: &crate::skill_installation::ProviderEnvironment,
+    data_root: &Path,
+) -> bool {
+    let registry = RuntimeRegistry::first_party();
+    HarnessId::new(provider)
+        .ok()
+        .and_then(|harness| registry.lifecycle(&harness))
+        .is_some_and(|lifecycle| lifecycle.allowance_waiting(environment, data_root))
 }
 
 /// What setup would do about a mod.
@@ -177,6 +222,12 @@ impl PendingMod {
 
     pub fn purpose(&self) -> &'static str {
         self.provider_mod.purpose
+    }
+
+    /// When the copy starts to work, said once an install or refresh has happened.
+    pub fn activation(&self) -> Option<&'static str> {
+        matches!(self.step, ModStep::Install | ModStep::Refresh)
+            .then_some(self.provider_mod.activation)
     }
 
     /// Whether applying changes anything.

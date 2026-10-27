@@ -624,6 +624,14 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         allowance::push(environment, data_root, input, now_ms)
     }
 
+    fn allowance_waiting(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        data_root: &std::path::Path,
+    ) -> bool {
+        allowance::waiting(environment, data_root)
+    }
+
     fn turn_observation(
         &self,
         turn: &crate::runtime::lifecycle::TurnEnd,

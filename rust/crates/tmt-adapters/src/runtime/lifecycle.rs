@@ -421,6 +421,17 @@ pub trait RuntimeLifecycle {
         Ok(false)
     }
 
+    /// Whether the provider's own mod has pushed nothing for the environment's account yet
+    /// (#5394), so that `setup --status` can say it waits for a first session. Drivers with no
+    /// such mod are never waiting.
+    fn allowance_waiting(
+        &self,
+        _environment: &ProviderEnvironment,
+        _data_root: &std::path::Path,
+    ) -> bool {
+        false
+    }
+
     /// Resolve an exact remembered source for foreground-owned collection.
     fn sampling_turn(
         &self,

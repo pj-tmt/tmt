@@ -532,7 +532,12 @@ delivery. They install and launch nothing.
   TMT. `--no-usage`, `--remove` and uninstall remove it. Upgrade refresh updates an installed
   copy or removes one left behind a recorded opt-out. Neither it nor upgrade's offer of new
   provider scopes creates one; only an explicit setup does. A directory without
-  TMT's marker, or behind a link, is left alone and reported.
+  TMT's marker, or behind a link, is left alone and reported. A provider loads its mods when a
+  session starts, so an install or refresh says in one line when the mod starts to work
+  (`ProviderMod::activation`; the JSON `mod.note` and guided `plan[].note` carry the same
+  sentence), and `setup [provider] --status` reports `mod.state` and, for an installed mod with
+  consented usage that has pushed nothing for the account yet, `mod.waitingForFirstSession`
+  (`RuntimeLifecycle::allowance_waiting`), read-only like the rest of `--status`.
 - Guided `tmt setup` plans agents from filesystem-only detection and offers ops, digest,
   remote and colab selected by default, with visible Colab→Remote dependency toggles.
   Selection is read-only; one approval covers the complete plan (`SETUP_CONSENT_REQUIRED`

@@ -15,6 +15,7 @@ use tmt_adapters::{
         provider_mod::{self, ModStep, PendingMod},
         record,
     },
+    skill_installation::ProviderEnvironment,
 };
 
 pub fn execute(
@@ -51,6 +52,19 @@ fn mod_note(pending: &PendingMod) -> String {
             "Leaves {target} as it is: it is not TMT's, so the {provider} mod is not installed."
         ),
     }
+}
+
+/// What setup adds once a mod was installed or refreshed (#5394): when it starts to work.
+fn activation_note(
+    pending: &PendingMod,
+    outcome: provider_mod::ModOutcome,
+) -> Option<&'static str> {
+    matches!(
+        outcome,
+        provider_mod::ModOutcome::Installed | provider_mod::ModOutcome::Refreshed
+    )
+    .then(|| pending.activation())
+    .flatten()
 }
 
 fn failure(error: impl std::error::Error + 'static) -> Failure {
@@ -211,6 +225,9 @@ fn run(
         });
         if let (Some(pending), Some(outcome)) = (&provider_mod, mod_outcome) {
             document["mod"] = json!({"path": pending.target(), "status": outcome.label()});
+            if let Some(note) = activation_note(pending, outcome) {
+                document["mod"]["note"] = json!(note);
+            }
         }
         if let Some(warning) = &warning {
             document["warnings"] = json!([warning]);
@@ -245,12 +262,17 @@ fn run(
                     None,
                 )
                 .map_err(failure)?,
-                done => tmt_cli_style::message::success(
-                    &mut output,
-                    terminal,
-                    &format!("{} the {provider} mod", capitalized(done.label())),
-                )
-                .map_err(failure)?,
+                done => {
+                    tmt_cli_style::message::success(
+                        &mut output,
+                        terminal,
+                        &format!("{} the {provider} mod", capitalized(done.label())),
+                    )
+                    .map_err(failure)?;
+                    if let Some(note) = activation_note(pending, done) {
+                        writeln!(output, "{note}").map_err(failure)?;
+                    }
+                }
             }
         }
         if let Some(warning) = &warning {
@@ -296,8 +318,8 @@ fn show_status(
         None => drivers.with_hooks().collect(),
     };
     let mut integrations = Vec::new();
-    let recorded = record::read(&ConfigPaths::discover().map_err(Failure::from)?.global_dir)
-        .map_err(failure)?;
+    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let recorded = record::read(&paths.global_dir).map_err(failure)?;
     for driver in selected {
         let path = setup::provider_settings(driver).map_err(failure)?;
         let before = setup::read_settings(&path).map_err(failure)?;
@@ -315,6 +337,23 @@ fn show_status(
         .map_err(failure)?;
         let mut row = json!({"provider": driver.name(), "settingsPath": path});
         collection_document(&mut row, driver.name(), plan.usage_before);
+        if let Some(state) = provider_mod::state(driver.name(), &path).map_err(failure)? {
+            row["mod"] = json!({"state": state.label()});
+            // Read-only: an installed mod that has pushed nothing yet is not broken, it is
+            // waiting for a provider session to start with it.
+            if plan.usage_before
+                && state.installed()
+                && ProviderEnvironment::capture().is_ok_and(|environment| {
+                    provider_mod::waiting_for_first_session(
+                        driver.name(),
+                        &environment,
+                        &paths.global_dir,
+                    )
+                })
+            {
+                row["mod"]["waitingForFirstSession"] = json!(true);
+            }
+        }
         integrations.push(row);
     }
     let mut output = tmt_cli_style::stream::stdout(mode.json);
@@ -327,6 +366,14 @@ fn show_status(
                 writeln!(output, "{provider}: consumption collection is on").map_err(failure)?;
             } else {
                 writeln!(output, "{}", collection_off(provider)).map_err(failure)?;
+            }
+            if row["mod"]["waitingForFirstSession"] == true {
+                writeln!(
+                    output,
+                    "{provider}: waiting for the first {} session since setup",
+                    capitalized(provider)
+                )
+                .map_err(failure)?;
             }
         }
     }

@@ -290,9 +290,14 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
     changes.extend(plan.hook_changes().map(
         |hooks| json!({"kind": "hooks", "driver": hooks.provider, "path": hooks.change.path}),
     ));
-    changes.extend(plan.mod_changes().map(
-        |pending| json!({"kind": "mod", "driver": pending.provider(), "path": pending.target()}),
-    ));
+    changes.extend(plan.mod_changes().map(|pending| {
+        let mut change =
+            json!({"kind": "mod", "driver": pending.provider(), "path": pending.target()});
+        if let Some(note) = pending.activation() {
+            change["note"] = json!(note);
+        }
+        change
+    }));
     let mut document = json!({
         "detectedProviders": plan.detections.iter().filter(|(_, detection)| gets_skills(detection)).map(|(driver, _)| driver.name()).collect::<Vec<_>>(),
         "integrations": plan.hooks.iter().map(|hooks| {
@@ -552,13 +557,17 @@ fn apply_with_policy(
             ),
         }
     }
+    let mut notes = Vec::new();
     for pending in plan.mod_changes() {
         match pending.apply() {
-            Ok(outcome) => done(format!(
-                "{} the {} mod",
-                super::capitalized(outcome.label()),
-                pending.provider()
-            ))?,
+            Ok(outcome) => {
+                done(format!(
+                    "{} the {} mod",
+                    super::capitalized(outcome.label()),
+                    pending.provider()
+                ))?;
+                notes.extend(super::activation_note(pending, outcome));
+            }
             Err(error) => failures.push(
                 Failure::new(
                     "SETUP_ERROR",
@@ -573,6 +582,9 @@ fn apply_with_policy(
         }
     }
     if !mode.json {
+        for note in notes {
+            writeln!(output, "{note}").map_err(failure)?;
+        }
         for path in &skipped {
             message::warning(
                 &mut *output,

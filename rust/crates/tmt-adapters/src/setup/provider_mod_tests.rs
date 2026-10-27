@@ -303,3 +303,31 @@ mod with_recorded_hooks {
         assert_eq!(fs::read(mod_dir(&root).join("mine")).unwrap(), b"mine");
     }
 }
+
+#[test]
+fn only_an_install_or_refresh_says_when_the_copy_starts_to_work() {
+    let root = TestDirectory::new();
+    let pending = provider_mod::pending("claude", &settings(&root), true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.step, ModStep::Install);
+    assert!(pending.activation().unwrap().contains("/reload-plugins"));
+    assert_eq!(
+        provider_mod::state("claude", &settings(&root)).unwrap(),
+        Some(provider_mod::ModState::Absent)
+    );
+    assert_eq!(pending.apply().unwrap(), ModOutcome::Installed);
+    assert_eq!(
+        provider_mod::state("claude", &settings(&root)).unwrap(),
+        Some(provider_mod::ModState::Current)
+    );
+    let removal = provider_mod::pending("claude", &settings(&root), false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(removal.step, ModStep::Remove);
+    assert_eq!(removal.activation(), None);
+    assert_eq!(
+        provider_mod::state("codex", &settings(&root)).unwrap(),
+        None
+    );
+}
