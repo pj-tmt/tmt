@@ -197,3 +197,10 @@
 @media (max-width: 650px) {
   .create-actions > button { flex: 1; justify-content: center; }
 }
+
+/* Join uses the shared card and command roles with compact empty-status spacing. */
+.join-guide .tmt-ui-card > p:empty { display: none; }
+.join-guide .tmt-ui-card > p { margin-block: var(--tmt-ui-space-s); }
+.join-guide .tmt-ui-card > p:last-child { margin-bottom: 0; }
+
+.join-guide .join-note { color: var(--tmt-ui-color-secondary); border-top: 1px solid var(--tmt-ui-surface-rule); padding-top: var(--tmt-ui-space-m); }

@@ -162,7 +162,7 @@ export async function settingsPage(
     for (const button of document.querySelectorAll<HTMLElement>('button.tmt-ui-action'))
       if (
         !button.closest(
-          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #remote-create',
+          '#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked, #remote-create, #remote-join-guide',
         )
       )
         markSlot(button);

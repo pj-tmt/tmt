@@ -35,7 +35,8 @@ The standalone `/join` entry uses `invitePage(code)` from `src/invite-page.ts`, 
 exported by the public SDK. Its Remote-owned bootstrap clears the URL fragment before
 loading resources; the renderer only presents native join instructions and an explicit
 copy action. It creates no Session, Auth request, enrollment or grant, stores no code,
-and returns a disposer for the current interaction. This private invitation carrier is
+and returns a disposer for the current interaction. The in-app `/remote/join` guide uses the
+same carrier, validation and copy-only native command, with route-scoped cleanup. This private invitation carrier is
 distinct from the local browser pairing flow below and the public-config `/pair` link.
 
 `parseLink(link, descriptor)` validates `http://127.0.0.1:PORT/remote/pair#CODE` with a

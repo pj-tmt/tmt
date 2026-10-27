@@ -94,7 +94,7 @@ export function remoteRegistryPage(
     ],
     onSelect: (key) => {
       if (key === 'address') openAdd();
-      else (shell ?? remoteShell())?.navigate(new URL(remotePath('overview'), location.href).href);
+      else (shell ?? remoteShell())?.navigate(new URL(remotePath('join'), location.href).href);
     },
   });
   const join = joinHost.querySelector<HTMLButtonElement>('button')!;
@@ -521,6 +521,7 @@ export function remoteRegistryPage(
     'hashchange',
     () => {
       const value = location.hash;
+      if (location.pathname === remotePath('join')) return;
       if (!value || ['#remotes', '#add-remote'].includes(value)) return;
       history.replaceState(null, '', location.pathname + location.search);
       receive(value);

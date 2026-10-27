@@ -17,6 +17,7 @@
     "vitest.config.ts",
     "vite.config.ts",
     "vite.page.config.ts",
+    "vite.invite.config.ts",
     "vite.firebase.config.ts",
     "playwright.config.ts"
   ]

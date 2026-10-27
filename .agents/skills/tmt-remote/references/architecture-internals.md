@@ -143,7 +143,10 @@ declaration, mirrored by explicit native admission. Old views have no aliases. `
 one set of form models and subscribes to the same registry projection for role/locked presentation;
 shared static tab semantics add no authority. Browser-local naming reuses registry CAS, device naming
 the existing signed owner. The document-level modal closes on route abort and fences late validation.
-The public contract owns exact paths and locked-tab behavior.
+The global Join guide reuses the standalone invitation carrier and catalog command; `remote-app`
+erases private fragments before registry handoff, and `join-page` owns interaction cleanup.
+Neither guide admission nor local expiry creates enrollment authority. The public contract owns
+exact paths and locked-tab behavior.
 
 `shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
 confined Colab import per entry and a disposable route/session registry; Navigation comes from

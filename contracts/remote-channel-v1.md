@@ -107,7 +107,7 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
-`/remote`, `/remote/`, `/remote/create`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
+`/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
 `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
 `/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
@@ -135,6 +135,11 @@ is My Remotes, the origin-local public registry. Its rows open the selected door
 the existing recorded layers/budget observation; prerequisites and deployment completion remain
 Not checked, with the work done by the person in the terminal or provider console. Its name is
 browser-local. It adds no native read, endpoint, provider call or automatic completion check.
+`/remote/join` is a global invitation guide. It validates the same native invitation carrier as
+`/join`, reports only local token validity and provides a copy-only native join command. The
+terminal owns comparison, confirmation and enrollment; the page does not check availability,
+reuse or completion. The current interaction clears its private code on expiry, departure or
+pagehide and never persists it or sends it to a provider.
 The current door's persistent tabs are `/remote/overview`, `/remote/members`, `/remote/invites`,
 `/remote/my-devices`, `/remote/settings` and `/remote/service`; no Remote ID appears in a path.
 `remote-routes.ts` owns their browser route/menu declaration; native page admission mirrors the explicit

@@ -86,6 +86,8 @@ const APP_ROUTES = [
   '/settings/',
   '/remote',
   '/remote/',
+  '/remote/create',
+  '/remote/join',
   '/remote/overview',
   '/remote/members',
   '/remote/invites',
