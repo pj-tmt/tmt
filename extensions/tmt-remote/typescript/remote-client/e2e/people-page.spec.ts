@@ -25,6 +25,8 @@ test.beforeAll(async () => {
       'utf8',
     )) +
     '\n' +
+    (await readFile(new URL('pages.css', assets), 'utf8')) +
+    '\n' +
     (await readFile(new URL('settings.css', assets), 'utf8'));
   const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><main class="tmt-page settings-page"><h1>People</h1><div id="people"></div><p id="observations" hidden></p></main><script type="module">
     import { MembersPage, mountMembersPage } from '/src/members-page.ts';
