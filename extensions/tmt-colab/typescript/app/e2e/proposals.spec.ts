@@ -302,9 +302,21 @@ for (const width of [1440, 390])
         rgb(tokens.browser.color.text[theme as 'light' | 'dark']),
       );
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
-      await expect(card.getByRole('combobox')).toHaveText('', { useInnerText: true });
-      await expect(card.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
-      await expect(card.locator('.creator-toggle')).toHaveCount(0);
+      await expect(card.getByRole('combobox').locator('.agent-chip-name')).toHaveText(
+        '@Deterministic agent',
+      );
+      await expect(card.locator('.agent-chip[data-variant="chip"]')).toHaveAttribute(
+        'data-state',
+        'unknown',
+      );
+      await card.getByRole('button', { name: /^Who is asked/ }).click();
+      await expect(
+        page.getByRole('option', {
+          name: 'Start new messages with @Deterministic agent',
+          exact: true,
+        }),
+      ).toBeVisible();
+      await page.keyboard.press('Escape');
       await expect(
         card.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
       ).toBeDisabled();

@@ -1,6 +1,8 @@
 import { BrowserField } from '@tmt/browser-ui/react';
 import {
   useEffect,
+  useLayoutEffect,
+  useReducer,
   useId,
   useRef,
   type ComponentProps,
@@ -105,7 +107,7 @@ function EditingLifetime<Edit extends RichInputEdit>(props: RichInputProps<Edit>
     )
       editor.focus();
   }, [editor, props.disabled, props.autoFocus]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const explicit = reset.current !== props.resetKey;
     reset.current = props.resetKey;
     const value = editor.getEditorState().read(() => props.document.read(props.edit));
@@ -120,6 +122,11 @@ function EditingLifetime<Edit extends RichInputEdit>(props: RichInputProps<Edit>
       editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
     }
   }, [editor, props.edit, props.document, props.resetKey]);
+  // Attaching ContentEditable creates Lexical's decorator hosts during commit.
+  // Read their external-store snapshot again before paint, rather than waiting
+  // for the passive subscription to notice those hosts after the first frame.
+  const [, refreshDecorators] = useReducer((revision: number) => revision + 1, 0);
+  useLayoutEffect(refreshDecorators, [refreshDecorators]);
   useEffect(
     () =>
       editor.registerUpdateListener(({ editorState, tags, dirtyElements, dirtyLeaves }) => {

@@ -94,6 +94,7 @@ export class MessageMentionNode extends DecoratorNode<ReactNode> {
       nodeKey: this.getKey(),
       token: this.__token,
       recipient: this.__recipient,
+      defaultCreator: this.__defaultCreator,
     });
   }
 }
@@ -130,8 +131,10 @@ export function $setDefaultCreator(key: RecipientKey, label: string, enabled: bo
   function visit(node: LexicalNode) {
     if (
       node instanceof MessageMentionNode &&
-      node.__recipient.machine === key.machine &&
-      node.__recipient.agent === key.agent
+      node.__recipient.agent === key.agent &&
+      (key.machine === undefined ||
+        node.__recipient.machine === undefined ||
+        node.__recipient.machine === key.machine)
     )
       nodes.push(node);
     else if ($isElementNode(node)) node.getChildren().forEach(visit);
@@ -218,8 +221,21 @@ export function $toggleMessageMention(key: RecipientKey, label: string) {
   if (!$removeMessageMentions(key)) $prependMessageMention(key, label);
 }
 
+/** Resolve identity-only references without changing text, node identity or selection. */
+export function $resolvePendingMessageMentions(agents: readonly AgentDestination[]) {
+  for (const { node } of $richInputTokens(
+    (node): node is MessageMentionNode => node instanceof MessageMentionNode,
+  )) {
+    if (node.__recipient.machine !== undefined) continue;
+    const matches = agents.filter((agent) => agent.agent === node.__recipient.agent);
+    if (matches.length === 1)
+      node.getWritable().__recipient = { machine: matches[0].machine, agent: matches[0].agent };
+  }
+}
+
 /** Replace only newly completed tokens, keeping the caret, surrounding nodes and history. */
 export function $bindMessageMentions(agents: readonly AgentDestination[], includeEnd = false) {
+  $resolvePendingMessageMentions(agents);
   const value = $messageText(),
     existing = $messageMentions(),
     caret = $messageCaret();

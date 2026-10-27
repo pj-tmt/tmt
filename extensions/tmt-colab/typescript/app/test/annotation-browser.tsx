@@ -7,7 +7,7 @@ import { MessageComposer } from '../src/components/message-composer.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { useEffect, useState } from 'react';
 import type { AgentDestination } from '../src/live-ask.js';
-import { CreatorDefaultProvider } from '../src/creator-default.js';
+import { CreatorDefaultProvider, type CreatorTarget } from '../src/creator-default.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import { AnnotationInput } from '../src/annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
@@ -41,7 +41,16 @@ export function setConnection(phase: 'connected' | 'reconnecting' | 'ended') {
   changeConnection?.(phase);
 }
 /** Which composer surface the next mount shows: a new annotation, a reply, or Chat. */
-let creator: { machineId: string; agentId: string } | undefined;
+let creator: CreatorTarget | undefined;
+let changeCreator: ((value: CreatorTarget | undefined) => void) | undefined;
+let firstFrame: { chips: number; value: string } | undefined;
+export function firstPaintProof() {
+  return firstFrame;
+}
+export function setCreatorMetadata(value: CreatorTarget | undefined) {
+  creator = value;
+  changeCreator?.(value);
+}
 let customAgents: AgentDestination[] | undefined;
 let allSends: RemoteDouble['sends'] = [];
 let preferenceScope: string | undefined;
@@ -65,7 +74,17 @@ export function setInitialEdit(edit: ComposerEdit | undefined) {
   initialEdit = edit;
 }
 export function setCreator(value: boolean) {
-  creator = value ? { machineId: destination().machine, agentId: destination().agent } : undefined;
+  setCreatorMetadata(
+    value
+      ? {
+          machineId: destination().machine,
+          agentId: destination().agent,
+          label:
+            customAgents?.find((agent) => agent.agent === destination().agent)?.agentName ??
+            destination().agentName,
+        }
+      : undefined,
+  );
 }
 export function setAgents(value: AgentDestination[]) {
   customAgents = value;
@@ -220,7 +239,32 @@ export function mount(
     resolved: false,
     comments: [],
   };
+  firstFrame = undefined;
+  const firstPaint = new MutationObserver(() => {
+    const field = host.querySelector<HTMLElement>('[role="combobox"]');
+    if (!field) return;
+    firstPaint.disconnect();
+    requestAnimationFrame(() => {
+      // Read token labels without the action's hidden tooltip text.
+      const content = field.cloneNode(true) as HTMLElement;
+      content.querySelectorAll('.message-mention-host').forEach((host) => {
+        host.textContent = host.querySelector('.agent-chip-name')?.textContent ?? '';
+      });
+      firstFrame = {
+        chips: field.querySelectorAll('.agent-chip[data-variant="chip"]').length,
+        value: content.textContent,
+      };
+    });
+  });
+  firstPaint.observe(host, { childList: true, subtree: true });
   function Fixture() {
+    const [currentCreator, setCurrentCreator] = useState(creator);
+    useEffect(() => {
+      changeCreator = setCurrentCreator;
+      return () => {
+        changeCreator = undefined;
+      };
+    }, []);
     const [records, setRecords] = useState<PageAsk[]>([]);
     const [cancelled, setCancelled] = useState(false);
     const [phase, setPhase] = useState<'connected' | 'reconnecting' | 'ended'>('connected');
@@ -397,7 +441,7 @@ export function mount(
     const composer = !cancelled && (
       <AnnotationInput
         {...connectionProps}
-        creationRecipient={creator}
+        creationRecipient={currentCreator}
         initialEdit={initialEdit}
         binding={talk ? binding : undefined}
         discussion={discussion}

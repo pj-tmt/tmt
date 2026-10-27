@@ -192,7 +192,7 @@ test('keyboard activation removes a chip without sending, and a missing director
   });
   await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveAttribute(
     'data-state',
-    'not-found',
+    'unknown',
   );
   await expect(
     page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
@@ -229,7 +229,7 @@ test('same-name choices keep the chosen machine UUID; chip controls do not enter
   });
 });
 
-test('a failed first directory read seeds nothing; retry admits the toggle without rewriting a typed draft', async ({
+test('a failed first directory read keeps the metadata seed; retry cannot rewrite an edited draft', async ({
   page,
 }) => {
   await page.goto(fixture);
@@ -237,20 +237,20 @@ test('a failed first directory read seeds nothing; retry admits the toggle witho
     const path = '/test/annotation-browser.tsx';
     const fixtures = '/test/ask-fixtures.ts';
     const module = await import(path);
-    module.setCreator(true);
     module.setAgents([
       { ...(await import(fixtures)).destination(), agentName: 'astra', presence: 'active' },
     ]);
+    module.setCreator(true);
     module.setDirectory('fail');
     module.mount();
   });
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
-  await expect(input.locator('.agent-chip')).toHaveCount(0);
-  await expect(pill(page)).toBeDisabled();
+  await expect(input.locator('.agent-chip')).toHaveCount(1);
+  await expect(pill(page)).toBeEnabled();
   await expect(
     page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
   ).toBeDisabled();
-  await input.pressSequentially('Kept draft');
+  await input.fill('Kept draft');
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await page.evaluate(async () => {
     const path = '/test/annotation-browser.tsx';

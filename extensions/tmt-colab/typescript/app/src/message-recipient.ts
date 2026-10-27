@@ -1,7 +1,15 @@
 import type { AgentDestination } from './live-ask.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 
-export type RecipientKey = Pick<AgentDestination, 'machine' | 'agent'>;
+/** A creator may be known by identity before its machine is discovered. This is an editing
+ * reference; every Send still requires one current admitted machine/agent destination. */
+export type RecipientKey = { agent: string; machine?: string };
+export function recipientMatches(reference: RecipientKey, candidate: RecipientKey): boolean {
+  return (
+    reference.agent === candidate.agent &&
+    (reference.machine === undefined || reference.machine === candidate.machine)
+  );
+}
 export const MESSAGE_RECIPIENT_LIMIT = 8;
 export function recipientId(key: RecipientKey) {
   return `${key.machine}:${key.agent}`;
@@ -22,7 +30,13 @@ export function resolveMessageMentions(
   agents: readonly AgentDestination[] | undefined,
   includeEnd = true,
 ): MentionResolution {
-  const mentions = [...(edit.mentions ?? [])];
+  const mentions = (edit.mentions ?? []).map((mention) => {
+    if (mention.key.machine !== undefined) return mention;
+    const matches = agents?.filter((agent) => recipientMatches(mention.key, agent));
+    return matches?.length === 1
+      ? { ...mention, key: { machine: matches[0].machine, agent: matches[0].agent } }
+      : mention;
+  });
   const unknown: string[] = [],
     ambiguous: string[] = [];
   let unresolved = false;

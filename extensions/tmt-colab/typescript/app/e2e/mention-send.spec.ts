@@ -396,15 +396,15 @@ test('a pre-adoption Send failure has a local Not delivered label and no invente
   });
 });
 
-test('creator lookup waits for the directory and never replaces text typed while it loads', async ({
+test('creator metadata seeds before the directory and never replaces an edited draft', async ({
   page,
 }) => {
   let input = await mount(page, { creator: true, directory: 'park' });
-  await expect(input).toHaveText('', { useInnerText: true });
+  await expect(input).toHaveText('@alpha ', { useInnerText: true });
   await run(page, 'releaseDirectory');
   await expect(input).toHaveText('@alpha ', { useInnerText: true });
   input = await mount(page, { creator: true, directory: 'park' });
-  await input.pressSequentially('My own draft.');
+  await input.fill('My own draft.');
   await run(page, 'releaseDirectory');
   await expect(input).toHaveText('My own draft.', { useInnerText: true });
   await expect(page.locator('.annotation-hint[role="status"]')).toContainText(

@@ -1,7 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { pageAction } from '../test/page-actions.js';
-import { annotationInput } from '../acceptance/harness/ask.js';
 import { destination, id } from '../test/ask-fixtures.js';
 import type { AgentDestination } from '../src/live-ask.js';
 const fixture = '/test/annotation-browser.tsx';
@@ -30,6 +29,12 @@ async function mount(
   await run(page, 'setTalk', options.talk ?? true);
   await run(page, 'setAgents', options.agents ?? [alpha]);
   await run(page, 'setCreator', options.creator ?? true);
+  if (options.creator !== false)
+    await run(page, 'setCreatorMetadata', {
+      agentId: alpha.agent,
+      machineId: alpha.machine,
+      label: 'alpha',
+    });
   await run(page, 'setPreferenceScope', options.scope ?? 'creator-default-proof');
   await run(page, 'setInitialEdit', options.initialEdit);
   await run(page, 'mount', 'accepted');
@@ -212,7 +217,7 @@ test('an offline saved creator stays seeded, and an offline agent on an online m
     .toMatchObject({ writes: 1, preparations: 1, commits: 1 });
   await expect(input).toHaveText('@alpha ', { useInnerText: true });
 });
-test('no creator admission hides the toggle and never invents a fallback recipient', async ({
+test('directory absence or ambiguity retains the metadata chip and cannot invent a send target', async ({
   page,
 }) => {
   for (const agents of [
@@ -222,9 +227,10 @@ test('no creator admission hides the toggle and never invents a fallback recipie
     [alpha, { ...alpha, online: 'offline' as typeof alpha.online }],
   ]) {
     const input = await mount(page, 'chat', { agents });
-    expect(await hasCreatorRow(page)).toBe(false);
-    await expect(input).toHaveText('', { useInnerText: true });
+    expect(await hasCreatorRow(page)).toBe(true);
+    await expect(input).toHaveText('@alpha ', { useInnerText: true });
     await input.pressSequentially('Comment');
+    await input.press('Enter');
     expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
   }
 });
@@ -375,17 +381,13 @@ test('one page preference changes both mounted composers without publishing', as
   await expect(chips).toHaveCount(2);
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
 });
-test('disabled talk or missing creation identity hides the control, with no hidden recipient', async ({
-  page,
-}) => {
-  for (const options of [{ talk: false }, { creator: false }]) {
-    const input = await mount(page, 'chat', options);
-    expect(await hasCreatorRow(page)).toBe(false);
-    await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
-    await input.fill('Plain comment');
-    await input.press('Enter');
-    await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0 });
-  }
+test('missing creation identity hides the control and leaves a plain comment', async ({ page }) => {
+  const input = await mount(page, 'chat', { creator: false });
+  expect(await hasCreatorRow(page)).toBe(false);
+  await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
+  await input.fill('Plain comment');
+  await input.press('Enter');
+  await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0 });
 });
 
 const commentOnly = 'Comment only, no agent is asked · Enter to send';
@@ -396,7 +398,7 @@ for (const surface of ['chat', 'annotation']) {
     }) => {
       const input = await mount(page, surface, { directory: 'park' });
       await input.fill('Typed before the directory');
-      await expect(pill(page)).toBeDisabled();
+      await expect(pill(page)).toBeEnabled();
       await expect(page.locator('.annotation-hint').first()).toHaveText('Checking for agents…');
       expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
       await run(page, 'releaseDirectory');
@@ -463,7 +465,7 @@ for (const surface of ['chat', 'annotation']) {
     });
   }
 }
-test('the creator row needs exactly one admitted creator and never replaces another mention state', async ({
+test('the metadata creator row remains available without replacing restored mention state', async ({
   page,
 }) => {
   for (const agents of [[], [alpha, alpha], [{ ...alpha, agent: id(9) }]]) {
@@ -471,7 +473,7 @@ test('the creator row needs exactly one admitted creator and never replaces anot
       agents,
       initialEdit: { value: 'Restored plain draft', edited: true },
     });
-    expect(await hasCreatorRow(page)).toBe(false);
+    expect(await hasCreatorRow(page)).toBe(true);
     await expect(input).toHaveText('Restored plain draft');
   }
   await mount(page, 'chat', { initialEdit: { value: '@missing draft', edited: true } });
@@ -507,34 +509,141 @@ test('creator preference off keeps the one-off manual choice without changing th
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
 });
 
-test('a fill taken before the seed lands ends up behind it; a fill after the directory settles is exact', async ({
+test('selecting the metadata seed before directory arrival keeps the selection and exact replacement', async ({
   page,
 }) => {
-  // Playwright's fill on a contenteditable selects everything, then inserts. The default mention
-  // seeds when the directory resolves, so a seed landing between the two steps is kept.
-  let input = await mount(page, 'chat', { directory: 'park' });
+  const input = await mount(page, 'chat', { directory: 'park' });
+  await expect(input).toHaveText('@alpha ', { useInnerText: true });
   await input.evaluate((node) => {
     node.focus();
     document.getSelection()!.selectAllChildren(node);
   });
   await run(page, 'releaseDirectory');
-  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
-  await page.keyboard.insertText('@alpha Hello');
-  await expect(input).toHaveText('@alpha @alpha Hello', { useInnerText: true });
+  await expect(pill(page)).toBeEnabled();
+  await page.keyboard.insertText('Replacement');
+  await expect(input).toHaveText('Replacement', { useInnerText: true });
+  await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
+});
 
-  // annotationInput returns only once the directory has settled and the seed is in, so its
-  // field takes a whole fill: the selection covers the seed and the draft replaces it.
-  input = await mount(page, 'chat', { directory: 'park' });
-  let returned = false;
-  const ready = annotationInput(page.locator('body')).then((field) => {
-    returned = true;
-    return field;
-  });
-  await expect(page.locator('.annotation-hint').first()).toHaveText('Checking for agents…');
-  expect(returned).toBe(false);
+test('metadata creator is a chip on the first visible frame while directory discovery is parked', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'setSurface', 'chat');
+  await run(page, 'setDirectory', 'park');
+  await run(page, 'setAgents', [alpha]);
+  await run(page, 'setCreatorMetadata', { agentId: alpha.agent, label: 'alpha' });
+  await run(page, 'mount', 'accepted');
+  await expect
+    .poll(() => run(page, 'firstPaintProof'))
+    .toMatchObject({ chips: 1, value: '@alpha ' });
+  await expect(page.getByRole('button', { name: /^Remove mention: @alpha/ })).toHaveCount(1);
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
+});
+
+test('creator metadata seeds without an Ask binding and directory recovery cannot reset an edited draft', async ({
+  page,
+}) => {
+  const input = await mount(page, 'chat', { talk: false, directory: 'park' });
+  await expect(input).toHaveText('@alpha ', { useInnerText: true });
+  await input.pressSequentially('Kept');
+  await run(page, 'setCreatorMetadata', { agentId: alpha.agent, label: 'renamed' });
+  await expect(input).toHaveText('@alpha Kept', { useInnerText: true });
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
+});
+
+test('late creator metadata fills only an untouched draft', async ({ page }) => {
+  for (const edited of [false, true]) {
+    const input = await mount(page, 'chat', { creator: false });
+    if (edited) await input.pressSequentially('Kept draft');
+    await run(page, 'setCreatorMetadata', { agentId: alpha.agent, label: 'alpha' });
+    await expect(input).toHaveText(edited ? 'Kept draft' : '@alpha ', { useInnerText: true });
+  }
+});
+
+test('parked metadata chip survives directory arrival without replacement or duplication', async ({
+  page,
+}) => {
+  const input = await mount(page, 'chat', { directory: 'park' });
+  await expect(input).toHaveText('@alpha ', { useInnerText: true });
+  await input.pressSequentially('Kept');
+  await input.evaluate((node) => Object.assign(window, { creatorComposerRoot: node }));
+  const caret = await input.evaluate(() => document.getSelection()?.anchorOffset);
   await run(page, 'releaseDirectory');
-  const field = await ready;
-  await expect(field).toHaveText('@alpha ', { useInnerText: true });
-  await field.fill('@alpha Hello');
-  await expect(input).toHaveText('@alpha Hello', { useInnerText: true });
+  await expect(page.locator('.annotation-hint[role="status"]').first()).not.toContainText(
+    'Checking',
+  );
+  await expect(input).toHaveText('@alpha Kept', { useInnerText: true });
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
+  expect(
+    await input.evaluate(
+      (node) =>
+        (window as unknown as { creatorComposerRoot: Element }).creatorComposerRoot === node,
+    ),
+  ).toBe(true);
+  expect(await input.evaluate(() => document.getSelection()?.anchorOffset)).toBe(caret);
+});
+
+test('creator absence is unknown, offline presence stays visible and uses the existing send path', async ({
+  page,
+}) => {
+  for (const available of [false, true]) {
+    const input = await mount(page, 'chat', {
+      agents: available ? [{ ...alpha, presence: 'offline' }] : [],
+    });
+    await expect(input).toHaveText('@alpha ', { useInnerText: true });
+    await expect(page.getByRole('button', { name: /^Remove mention: @alpha/ })).toHaveAttribute(
+      'aria-label',
+      available ? /Offline/ : /unknown/i,
+    );
+    await input.pressSequentially('Explain');
+    await input.press('Enter');
+    if (available)
+      await expect
+        .poll(() => run(page, 'proof'))
+        .toMatchObject({ writes: 1, preparations: 1, commits: 1 });
+    else expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
+  }
+});
+
+test('opt-out and deliberately empty drafts win before directory arrival', async ({ page }) => {
+  await mount(page);
+  await toggle(page);
+  let input = await mount(page, 'chat', { directory: 'park' });
+  await expect(input).toHaveText('');
+  await run(page, 'releaseDirectory');
+  await expect(pill(page)).toBeEnabled();
+  await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
+  input = await mount(page, 'chat', {
+    scope: 'edited-empty',
+    directory: 'park',
+    initialEdit: { value: '', edited: true },
+  });
+  await expect(input).toHaveText('');
+  await run(page, 'releaseDirectory');
+  await expect(pill(page)).toBeEnabled();
+  await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
+});
+
+test('an identity-only creator binds once and keeps its original token across directory rename', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'setSurface', 'chat');
+  await run(page, 'setDirectory', 'park');
+  await run(page, 'setAgents', [{ ...alpha, agentName: 'renamed' }]);
+  await run(page, 'setCreatorMetadata', { agentId: alpha.agent, label: 'alpha' });
+  await run(page, 'mount', 'accepted');
+  const input = page.getByRole('combobox', { name: 'Message', exact: true });
+  await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
+  await input.pressSequentially('Explain');
+  await run(page, 'releaseDirectory');
+  await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
+  await expect(input).toHaveText('@alpha Explain', { useInnerText: true });
+  await input.press('Enter');
+  await expect
+    .poll(() => run(page, 'proof'))
+    .toMatchObject({ writes: 1, preparations: 1, commits: 1 });
+  expect((await run(page, 'proof')).sends[0].agentId).toBe(alpha.agent);
 });

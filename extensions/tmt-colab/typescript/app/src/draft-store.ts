@@ -48,17 +48,27 @@ function validEdit(value: unknown): ComposerEdit {
     requireValue(Array.isArray(mentions) && mentions.length <= MESSAGE_RECIPIENT_LIMIT);
     edit.mentions = (mentions as unknown[]).map((mention) => {
       exactKeys(mention, ['key', 'range']);
-      exactKeys(mention.key, ['machine', 'agent']);
+      requireValue(
+        mention.key !== null && typeof mention.key === 'object' && !Array.isArray(mention.key),
+      );
+      exactKeys(
+        mention.key,
+        Object.hasOwn(mention.key, 'machine') ? ['machine', 'agent'] : ['agent'],
+      );
       exactKeys(mention.range, ['start', 'end']);
       const { machine, agent } = mention.key as Record<string, unknown>;
       const { start, end } = mention.range as Record<string, unknown>;
-      requireValue(typeof machine === 'string' && machine.length > 0 && machine.length <= 64);
+      if (Object.hasOwn(mention.key, 'machine'))
+        requireValue(typeof machine === 'string' && machine.length > 0 && machine.length <= 64);
       requireValue(typeof agent === 'string' && agent.length > 0 && agent.length <= 64);
       requireValue(Number.isSafeInteger(start) && Number.isSafeInteger(end));
       requireValue((start as number) >= 0 && (start as number) < (end as number));
       requireValue((end as number) <= (body as string).length);
       return {
-        key: { machine: machine as string, agent: agent as string },
+        key: {
+          ...(machine !== undefined ? { machine: machine as string } : {}),
+          agent: agent as string,
+        },
         range: { start: start as number, end: end as number },
       };
     });

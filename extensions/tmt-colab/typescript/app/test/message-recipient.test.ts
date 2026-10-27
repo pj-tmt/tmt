@@ -109,3 +109,28 @@ it('creator provenance grants no admission and every bound UUID is still revalid
   }
   expect(messageRecipient({ writable: false, edit, destinations: [a] }).allowed).toBe(false);
 });
+
+it('resolves a metadata-only creator reference by unique UUID and preserves existing delivery fences', () => {
+  const edit = {
+    value: '@creator Explain',
+    mentions: [{ key: { agent: a.agent }, range: { start: 0, end: 8 }, defaultCreator: true }],
+  } as ComposerEdit;
+  expect(decide(edit, [{ ...a, agentName: 'renamed', presence: 'offline' }])).toMatchObject({
+    allowed: true,
+    agents: [{ agent: a.agent, machine: a.machine }],
+  });
+  for (const destinations of [
+    undefined,
+    [],
+    [b],
+    [a, { ...a, machine: id(8) }],
+    [{ ...a, online: 'offline' as const }],
+  ]) {
+    expect(messageRecipient({ writable: true, edit, destinations })).toMatchObject({
+      allowed: false,
+      agents: [],
+      unavailable: ['creator'],
+    });
+  }
+  expect(decide(edit, [{ ...a, agent: id(8), agentName: 'creator' }]).allowed).toBe(false);
+});

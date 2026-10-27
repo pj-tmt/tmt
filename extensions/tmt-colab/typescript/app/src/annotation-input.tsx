@@ -43,7 +43,7 @@ import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
 export type { MessageSendFailure } from './comment-send.js';
 
-const sameKey = (a: { machine: string; agent: string }, b: { machine: string; agent: string }) =>
+const sameKey = (a: { machine?: string; agent: string }, b: { machine?: string; agent: string }) =>
   a.machine === b.machine && a.agent === b.agent;
 
 /** One trusted input. Enter is the explicit effect; disclosure never prepares or sends an intent. */
@@ -101,11 +101,51 @@ export function AnnotationInput({
   // With an echo host, the composer clears as the echo appears; a send that fails before it
   // is recorded leaves a failed row that holds the draft until Retry or Edit.
   const echoHost = useContext(MessageEchoContext);
-  const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
-  const value = edit.value;
   const creatorPreference = useCreatorDefault();
+  const { directory, retry } = useAgentDirectory(binding);
+  const agents = directory.state === 'ready' ? directory.agents : undefined;
+  // Legacy preferences contain no label. Keep their existing directory lookup;
+  // current creator metadata supplies both identity and presentation immediately.
+  const legacyMatches =
+    creationRecipient && creationRecipient.label === undefined
+      ? agents?.filter(
+          (agent) =>
+            agent.agent === creationRecipient.agentId &&
+            (creationRecipient.machineId === undefined ||
+              agent.machine === creationRecipient.machineId),
+        )
+      : undefined;
+  const legacyCreator = legacyMatches?.length === 1 ? legacyMatches[0] : undefined;
+  const creatorName = creationRecipient?.label ?? legacyCreator?.agentName;
+  const creator =
+    creationRecipient && creatorName !== undefined
+      ? {
+          agent: creationRecipient.agentId,
+          machine: creationRecipient.machineId ?? legacyCreator?.machine,
+          agentName: creatorName,
+        }
+      : undefined;
+  function freshEdit(): ComposerEdit {
+    if (!creator || !creatorPreference.enabled) return { value: '', edited: false };
+    const token = `@${creator.agentName}`;
+    return {
+      value: `${token} `,
+      edited: false,
+      mentions: [
+        {
+          key: { machine: creator.machine, agent: creator.agent },
+          range: { start: 0, end: token.length },
+          defaultCreator: true,
+        },
+      ],
+    };
+  }
+  const [edit, setEdit] = useState<ComposerEdit>(
+    () => initialEdit ?? (initialValue ? { value: initialValue } : freshEdit()),
+  );
+  const value = edit.value;
   const statusId = useId();
-  const initialized = useRef(initialEdit !== undefined || !!initialValue);
+  const initialized = useRef(initialEdit !== undefined || !!initialValue || !!creator);
   const [failures, setFailures] = useState<MessageSendFailure[]>([]);
   function recordFailure(failure: MessageSendFailure) {
     if (onFailure) onFailure(failure);
@@ -138,8 +178,6 @@ export function AnnotationInput({
       failureNotice.current.scrollIntoView({ block: 'nearest' });
   }, [error]);
   const [recorded, setRecorded] = useState<DiscussionRef>();
-  const { directory, retry } = useAgentDirectory(binding);
-  const agents = directory.state === 'ready' ? directory.agents : undefined;
   const section = useRef<HTMLElement>(null);
   const [retrying, setRetrying] = useState(false);
   const focusAfterRetry = useRef(false);
@@ -170,40 +208,11 @@ export function AnnotationInput({
     onDraft?.(kept.value, kept);
   }, [value, edit, unsent]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onBusy?.(busy), [busy]); // eslint-disable-line react-hooks/exhaustive-deps
-  const creatorMatches =
-    creationRecipient && agents
-      ? agents.filter(
-          (agent) =>
-            (creationRecipient.machineId === undefined ||
-              agent.machine === creationRecipient.machineId) &&
-            agent.agent === creationRecipient.agentId,
-        )
-      : [];
-  const creator = binding && creatorMatches.length === 1 ? creatorMatches[0] : undefined;
-  function freshEdit(): ComposerEdit {
-    if (!creator || !creatorPreference.enabled) return { value: '', edited: false };
-    const token = `@${creator.agentName}`;
-    return {
-      value: `${token} `,
-      edited: false,
-      mentions: [
-        {
-          key: { machine: creator.machine, agent: creator.agent },
-          range: { start: 0, end: token.length },
-          defaultCreator: true,
-        },
-      ],
-    };
-  }
   useEffect(() => {
-    if (initialized.current || directory.state === 'loading') return;
+    if (initialized.current || !creator) return;
     initialized.current = true;
-    setEdit((previous) =>
-      previous.value || previous.edited
-        ? { ...previous, edited: previous.edited ?? false }
-        : freshEdit(),
-    );
-  }, [directory, creationRecipient, creatorPreference.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+    setEdit((previous) => (previous.value || previous.edited ? previous : freshEdit()));
+  }, [creationRecipient, directory, creatorPreference.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   const decide = (current: ComposerEdit) =>
     messageRecipient({
       writable: !archived && !blocked && !!discussion,

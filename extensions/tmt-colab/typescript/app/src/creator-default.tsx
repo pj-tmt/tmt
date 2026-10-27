@@ -2,8 +2,8 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 
 import type { Projection } from './fold-protocol.js';
 
-/** A new draft resolves a stable creator ID in its current admitted directory. Legacy creation
- * preferences also pin a machine; display-only authors never become routing targets. */
+/** Metadata supplies a creator reference and display label before discovery. Only a current
+ * admitted directory destination can supply routing authority. Legacy preferences pin a machine. */
 export interface CreatorTarget {
   agentId: string;
   machineId?: string;
@@ -15,6 +15,7 @@ export function creatorTarget(
   return view.creator
     ? {
         agentId: view.creator.agent.id,
+        label: view.creator.agent.name,
         ...(view.creator.machineId ? { machineId: view.creator.machineId } : {}),
       }
     : view.creationRecipient;

@@ -3739,22 +3739,32 @@ pair. Unknown names remain plaintext with "No agent named @name. This posts as a
 comment." Ambiguous names open the list and block Send until explicitly chosen or
 removed. Fuzzy matches never select a destination. Removing/replacing a token removes
 its binding; repeated mentions of the same pair count once. Each fresh message in
-Chat, an annotation or a reply seeds the admitted
-`creationRecipient` when the page/viewer-device creator toggle is on (the default).
-Only one current admitted UUID match supplies a chip and name; missing/ambiguous
-admission or disabled talk hides the toggle and seeds nothing. Initialization waits
-for the first directory result; typing first suppresses the default. Removing a
-chip suppresses it for that message only, never reseeding during directory replacement.
-When that draft has no bound mention and one creator is resolved, the existing
+Chat, an annotation or a reply seeds the page creator from metadata on its first
+visible frame when the page/viewer-device creator toggle is on (the default).
+The chip's original label and agent UUID come from metadata; legacy
+`creationRecipient` preferences have no label and retain their directory-based
+name lookup. A missing machine UUID in creator metadata stays unresolved
+until exactly one current directory entry matches the agent UUID. Labels never
+select a destination. Loading, absent or offline directory entries do not remove
+the chip or hide the toggle; the existing checking, unknown and offline states
+describe availability. An existing or deliberately edited draft wins, including
+an edited empty draft; late metadata only fills an untouched draft. Directory
+arrival updates the chip in place without reseeding, duplicating it or replacing
+the text, focus or selection. Removing a chip suppresses it for that message only,
+never reseeding during directory replacement.
+When that draft has no mention and creator metadata is available, the existing
 hint makes the comment-only outcome explicit. Its `Ask @<creator>` action inserts
-a manual bound chip plus a space at the start, preserving text and shifting the
+a manual creator chip plus a space at the start, preserving text and shifting the
 selection; it changes no preference and sends nothing. Chat uses the chip as its
 recipient cue; annotation/reply hints derive their audience as before.
 An explicit on adds a missing creator chip to the open draft; off removes only a
 proven default-added chip, preserving manually typed/picked mentions and surrounding
 text. The preference is a storage-safe, device-local convenience, never authority.
-Provenance stays in editing/page memory and is stripped from the unchanged encrypted
-v1 draft format; restored unknown-provenance mentions count as manual.
+Provenance stays in editing/page memory and is stripped from the encrypted
+v1 draft format; restored unknown-provenance mentions count as manual. Pending
+creator references may omit the machine UUID; existing paired v1 records still load.
+Every mentioned Send still needs a unique current admitted machine/agent pair,
+and an unavailable machine or missing Ask binding retains the existing refusal.
 Bound mentions are atomic, flat chips with the small radius token: a solid online dot, muted offline
 state, or a dashed not-found border. Unknown/unavailable presence is labeled explicitly.
 Same-name agents include their machine name. Hover/focus exposes the full name,
@@ -3916,8 +3926,8 @@ An unsent, deliberately edited, nonblank message (annotation, thread reply or Ch
 also saved on the device so a reload or hot-module reload restores it. The saved form is
 one record per space, device and page, AES-GCM encrypted with a device-local key that is
 separate from the title-hint key and bound to that scope as authenticated data; it holds
-the exact plaintext, the intact mention bindings and the draft's target (a thread
-reference, the frozen quote selector, or Chat), at most 32 drafts per page with the oldest
+the exact plaintext, the intact mention references (agent UUID and, when known,
+machine UUID) and the draft's target (a thread reference, the frozen quote selector, or Chat), at most 32 drafts per page with the oldest
 dropped first and each message within the comment limit. Restoring only fills the
 composer. It never opens a window, prepares, sends, signs, revokes or reopens a
 Session, and nothing in it is authority: recipients are revalidated against the current

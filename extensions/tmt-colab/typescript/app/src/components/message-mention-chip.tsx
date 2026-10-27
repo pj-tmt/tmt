@@ -7,6 +7,7 @@ import { createContext, useContext } from 'react';
 import type { AgentDestination } from '../live-ask.js';
 import { text } from '../strings.js';
 import type { RecipientKey } from './message-composer-edit.js';
+import { recipientMatches } from '../message-recipient.js';
 
 /** Presentation follows this composer's current directory; node identity keeps routing UUIDs. */
 export const MessageMentionContext = createContext<{
@@ -18,21 +19,23 @@ export function MessageMentionChip({
   nodeKey,
   token,
   recipient,
+  defaultCreator = false,
 }: {
   nodeKey: NodeKey;
   token: string;
   recipient: RecipientKey;
+  defaultCreator?: boolean;
 }) {
   const [editor] = useLexicalComposerContext();
   const { candidates, disabled } = useContext(MessageMentionContext);
-  const matches = candidates?.filter(
-    (agent) => agent.machine === recipient.machine && agent.agent === recipient.agent,
-  );
+  const matches = candidates?.filter((agent) => recipientMatches(recipient, agent));
   const agent = matches?.length === 1 ? matches[0] : undefined;
   const state = !candidates
     ? 'checking'
     : !agent
-      ? 'not-found'
+      ? defaultCreator || recipient.machine === undefined
+        ? 'unknown'
+        : 'not-found'
       : agent.online !== 'online' || agent.presence === 'offline'
         ? 'offline'
         : agent.presence === 'active'
