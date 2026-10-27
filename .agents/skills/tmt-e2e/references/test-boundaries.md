@@ -161,12 +161,19 @@ guard; descendants that leave the sandbox cwd are outside its claim.
 
 `harness.ts` is the scenario facade. `harness/fixture.ts` owns resources and
 process registries; `readiness.ts` observes caller-supplied events/panes/processes;
-`cleanup.ts` stops/checks owned groups and clients; `types.ts` owns suite-local
-values. Helpers never create a second fixture lifetime. Synchronous tmux calls
+`cleanup.ts` stops/checks owned groups and clients; `lifecycle.ts` owns the
+run-local registry and main-process teardown; `types.ts` owns suite-local values. Helpers never create a second fixture lifetime. Synchronous tmux calls
 have a five-second SIGKILL bound. Install one trace per fixture, reuse `clear()`,
 and refuse a second installation before changing its delegate.
 
-Strip inherited `TMUX`/`TMUX_PANE` from child environments and verify the fixture's private socket before allowing binding writes; the tmux shim refuses unowned socket selectors. Explicit `-S` also admits exact peer sockets registered by live fixtures sharing the same canonical `globalDir`; fixture teardown revokes that peer entry. Default discovery and `-L` remain on the calling fixture's private namespace.
+Strip inherited `TMUX`/`TMUX_PANE` from child environments and verify the fixture's private socket before allowing binding writes; the tmux shim refuses unowned socket selectors. Explicit `-S` also admits exact peer sockets registered by live fixtures sharing the same canonical `globalDir`; fixture teardown revokes that peer entry. Every fixture invocation selects its
+asserted absolute socket with `-S`; the wrapper refuses `-L`. The run registry
+tracks only this run's fixtures and process groups; suite teardown and the
+main-process SIGINT/SIGTERM handlers clean them, report survivors and retain
+unconfirmed paths. Before stopping a private server, cleanup records each pane's
+group and terminal foreground group with their leader start times; it signals a
+group only if its leader still matches. SIGKILL supervision remains outside this
+boundary.
 
 Unknown group inspection stays pending inside the one-second cleanup bound;
 surviving or uninspectable groups fail cleanup. Preserve fixture cleanup order
