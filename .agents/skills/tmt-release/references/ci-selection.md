@@ -58,10 +58,12 @@ Full/Ops scopes require every selected worker; `none` skips the aggregate. Inval
 scope, missing/extra results, failure or unexpected skips fail closed; names stay stable.
 
 The [apt action](../../../../.github/actions/apt-install/action.yml) allows three
-attempts per phase (60 s update, 120 s install), 10 s termination grace and 5/10 s
-backoff for small packages. After the first install timeout, only Azure is removed
-from the verified runner-image mirror list for remaining attempts; unexpected
-layouts are logged and unchanged.
+attempts for each network phase (60 s update, 120 s `--download-only`) with 10 s
+termination grace and 5/10 s backoff. It then unpacks and configures from the
+downloaded files (`--no-download`) in two 240 s attempts; before the second, it runs
+`dpkg --configure -a`, so the retry starts from a repaired dpkg state. After the first
+download timeout, only Azure is removed from the verified runner-image mirror list
+for remaining attempts; unexpected layouts are logged and unchanged.
 Native-process contracts retain a 20-minute job limit and unchanged test deadlines.
 
 `Docker E2E` gates shards from `typescript/scripts/e2e-shards.mjs` and committed

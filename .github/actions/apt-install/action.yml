@@ -1,7 +1,9 @@
 name: Install apt packages
 description: >-
   Updates the package index and installs packages on a Linux runner, with the
-  network steps under a bounded retry and per-attempt timeout. It first drops
+  network steps under a bounded retry and per-attempt timeout. It downloads the
+  packages first and unpacks them in a separate, longer bound, so a network
+  timeout never interrupts dpkg. It first drops
   the runner image's Google Chrome apt source: no job here uses it, and its index has failed with a hash
   mismatch that failed the whole update. Does nothing on other operating systems.
 inputs:
@@ -23,12 +25,17 @@ runs:
           sudo rm -f "$source"
         done
         retry="$GITHUB_WORKSPACE/scripts/retry-command.sh"
-        # Current callers install small packages (zsh, binutils, musl-tools).
-        # Revisit this bound before adding large packages. Kill stuck children too.
+        # The network steps (update, download) have short bounds and retry; a kill
+        # there changes no dpkg state. The unpack step is local and has a longer
+        # bound: hosted whole-step samples reached 158 s for the Chromium list, and
+        # a kill there interrupts dpkg. Revisit these bounds before adding a much
+        # larger package list. Kill stuck children too.
         apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+        install_options=(install --no-install-recommends -y)
         "$retry" 3 5 sudo timeout --verbose --kill-after=10s 60s apt-get "${apt_options[@]}" update
-        install_state=$(mktemp)
-        trap '/bin/rm -f "$install_state"' EXIT
+        download_state=$(mktemp)
+        unpack_state=$(mktemp)
+        trap '/bin/rm -f "$download_state" "$unpack_state"' EXIT
         # The package list is intentionally split into separate arguments.
         # shellcheck disable=SC2086
         "$retry" 3 5 bash -eu -c '
@@ -55,12 +62,24 @@ runs:
           fi
           status=0
           "$@" || status=$?
-          # Only the first install timeout can arm fallback; later retries reuse it.
+          # Only the first download timeout can arm fallback; later retries reuse it.
           if [ -z "$previous" ] && [ "$status" = 124 ]; then
             printf 124 > "$state"
           else
             printf done > "$state"
           fi
           exit "$status"
-        ' apt-install "$install_state" "$APT_SOURCES" "$APT_MIRRORS" \
-          sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" install --no-install-recommends -y $PACKAGES
+        ' apt-install "$download_state" "$APT_SOURCES" "$APT_MIRRORS" \
+          sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" "${install_options[@]}" --download-only $PACKAGES
+        # A failed unpack attempt can leave dpkg interrupted; repair it before the retry.
+        # shellcheck disable=SC2086
+        "$retry" 2 5 bash -eu -c '
+          state=$1; shift
+          if [ -s "$state" ]; then
+            printf "apt-install: running dpkg --configure -a after a failed unpack attempt.\n"
+            sudo timeout --verbose --kill-after=10s 240s dpkg --configure -a
+          fi
+          printf failed > "$state"
+          "$@"
+        ' apt-install "$unpack_state" \
+          sudo timeout --verbose --kill-after=10s 240s apt-get "${apt_options[@]}" "${install_options[@]}" --no-download $PACKAGES
