@@ -52,6 +52,10 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
         )?)
     }
 
+    fn conditional_clear(&mut self, _: &Binding) -> Result<bool, HostError> {
+        Ok(true)
+    }
+
     fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, HostError> {
         Ok(BindingEndpoint::clear(self, binding, identity)?)
     }

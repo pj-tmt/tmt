@@ -5,7 +5,7 @@ use tmt_core::{
 };
 
 use super::super::test_support::Fixture;
-use super::endpoint::{EndpointFailure, FakeEndpoint, ProbeMode};
+use super::endpoint::{FakeEndpoint, ProbeMode};
 
 fn state_counts(connection: &Connection, identity_id: &str) -> (i64, i64, i64, i64, i64, i64) {
     connection
@@ -107,7 +107,7 @@ fn seed_state(connection: &Connection, identity_id: &str) {
 }
 
 #[test]
-fn remove_unknown_or_unclearable_binding_fails_closed_without_mutating_state() {
+fn remove_unknown_binding_fails_closed_without_mutating_state() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
     let mut endpoint = FakeEndpoint::new(&["%1"]);
@@ -118,10 +118,11 @@ fn remove_unknown_or_unclearable_binding_fails_closed_without_mutating_state() {
     seed_state(storage.connection().unwrap(), &identity.id);
     let rows = binding_rows(storage.connection().unwrap(), &identity.id);
     let counts = state_counts(storage.connection().unwrap(), &identity.id);
-
     endpoint.probe_mode = ProbeMode::Unknown;
-    let error = remove_identity(&mut storage, &mut endpoint, "Alice", true).unwrap_err();
-    assert!(matches!(error, BindingError::Unverified));
+    assert!(matches!(
+        remove_identity(&mut storage, &mut endpoint, "Alice", true),
+        Err(BindingError::Unverified)
+    ));
     assert_eq!(endpoint.clear_calls, 0);
     assert_eq!(
         binding_rows(storage.connection().unwrap(), &identity.id),
@@ -131,35 +132,205 @@ fn remove_unknown_or_unclearable_binding_fails_closed_without_mutating_state() {
         state_counts(storage.connection().unwrap(), &identity.id),
         counts
     );
+    storage.close().unwrap();
+}
 
-    endpoint.probe_mode = ProbeMode::Live;
-    endpoint.clear_result = false;
-    let error = remove_identity(&mut storage, &mut endpoint, "Alice", true).unwrap_err();
-    assert!(matches!(error, BindingError::Unverified));
-    assert_eq!(
-        binding_rows(storage.connection().unwrap(), &identity.id),
-        rows
-    );
-    assert_eq!(
-        state_counts(storage.connection().unwrap(), &identity.id),
-        counts
-    );
+#[test]
+fn failed_post_commit_clear_keeps_retirement_and_stale_marker_is_reclaimed() {
+    for (conditional, fail_with_error) in
+        [(true, false), (true, true), (false, false), (false, true)]
+    {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let mut endpoint = FakeEndpoint::new(&["%1"]);
+        let original =
+            tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true)
+                .unwrap();
+        let old_id = original.binding.unwrap().id;
+        endpoint.conditional_clear = conditional;
+        endpoint.clear_result = false;
+        endpoint.clear_failure = fail_with_error;
+        remove_identity(&mut storage, &mut endpoint, "Alice", true).unwrap();
+        assert!(storage.find_identity("alice").unwrap().is_none());
+        assert_eq!(
+            endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+            old_id
+        );
+        endpoint.clear_failure = false;
+        endpoint.clear_result = true;
+        let successor =
+            tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Successor", false)
+                .unwrap();
+        assert_eq!(
+            endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+            successor.binding.unwrap().id
+        );
+        storage.close().unwrap();
+    }
+}
 
-    endpoint.clear_result = true;
-    endpoint.clear_failure = true;
-    let error = remove_identity(&mut storage, &mut endpoint, "Alice", true).unwrap_err();
+#[test]
+fn clear_after_detach_never_erases_a_concurrent_successor() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true).unwrap();
+    let database = fixture.database.clone();
+    endpoint.before_clear = Some(Box::new(move |host| {
+        let mut other = crate::storage::Storage::open(&database).unwrap();
+        let successor =
+            tmt_core::binding::bind_identity(&mut other, host, "%1", "Successor", false).unwrap();
+        assert_eq!(
+            host.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+            successor.binding.unwrap().id
+        );
+        other.close().unwrap();
+    }));
+    unbind_identity(&mut storage, &mut endpoint, "%1")
+        .unwrap()
+        .unwrap();
+    let successor = storage.find_identity("successor").unwrap().unwrap();
+    assert_eq!(
+        endpoint.pane_mut("%1").marker.as_ref().unwrap().identity_id,
+        successor.id
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn unbind_refuses_a_replacement_created_after_its_snapshot() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true).unwrap();
+    let old_marker = endpoint.pane_mut("%1").marker.clone();
+    let database = fixture.database.clone();
+    endpoint.after_current = Some(Box::new(move || {
+        let mut other = crate::storage::Storage::open(&database).unwrap();
+        let mut host = FakeEndpoint::new(&["%1"]);
+        host.pane_mut("%1").marker = old_marker;
+        unbind_identity(&mut other, &mut host, "%1")
+            .unwrap()
+            .unwrap();
+        tmt_core::binding::bind_identity(&mut other, &mut host, "%1", "Successor", false).unwrap();
+        other.close().unwrap();
+    }));
     assert!(matches!(
-        error,
-        BindingError::Endpoint(EndpointFailure("clear failed"))
+        unbind_identity(&mut storage, &mut endpoint, "%1"),
+        Err(BindingError::Unverified)
+    ));
+    assert!(storage.find_identity("successor").unwrap().is_some());
+    assert_eq!(endpoint.clear_calls, 0);
+    storage.close().unwrap();
+}
+
+#[test]
+fn legacy_clear_reserves_the_pane_and_refuses_a_concurrent_successor() {
+    for action in ["unbind", "remove", "failed-auto"] {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let mut endpoint = FakeEndpoint::new(&["%1"]);
+        let original = if action == "failed-auto" {
+            tmt_core::binding::bind_auto_identity(&mut storage, &mut endpoint, "%1", "Alice", false)
+                .unwrap()
+                .presence
+        } else {
+            tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true)
+                .unwrap()
+        };
+        let binding = original.binding.unwrap();
+        endpoint.conditional_clear = false;
+        let database = fixture.database.clone();
+        let old_id = binding.id.clone();
+        endpoint.before_clear = Some(Box::new(move |host| {
+            let mut other = crate::storage::Storage::open(&database).unwrap();
+            let count: i64 = other
+                .connection()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM binding_reservations WHERE target_binding_id = ?",
+                    [&old_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "legacy clear must hold the pane reservation");
+            let result =
+                tmt_core::binding::bind_identity(&mut other, host, "%1", "Successor", false);
+            assert!(matches!(
+                result,
+                Err(BindingError::PaneAlreadyBound) | Err(BindingError::Unverified)
+            ));
+            assert_eq!(
+                host.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+                old_id
+            );
+            other.close().unwrap();
+        }));
+        match action {
+            "unbind" => {
+                unbind_identity(&mut storage, &mut endpoint, "%1")
+                    .unwrap()
+                    .unwrap();
+            }
+            "remove" => {
+                remove_identity(&mut storage, &mut endpoint, "Alice", true).unwrap();
+            }
+            "failed-auto" => {
+                tmt_core::binding::retire_failed_auto_launch(&mut storage, &mut endpoint, &binding)
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            endpoint.before_clear.is_none(),
+            "legacy clear was not reached"
+        );
+        let count: i64 = storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM binding_reservations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+        let successor =
+            tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Successor", false)
+                .unwrap();
+        assert_eq!(
+            endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+            successor.binding.unwrap().id
+        );
+        storage.close().unwrap();
+    }
+}
+
+#[test]
+fn changed_identity_after_host_observation_refuses_removal() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let original =
+        tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true)
+            .unwrap()
+            .identity;
+    let database = fixture.database.clone();
+    endpoint.after_probe = Some(Box::new(move || {
+        let mut other = crate::storage::Storage::open(&database).unwrap();
+        tmt_core::binding::rename_identity::<_, super::endpoint::EndpointFailure>(
+            &mut other, "Alice", "Renamed",
+        )
+        .unwrap();
+        other.close().unwrap();
+    }));
+    assert!(matches!(
+        remove_identity(&mut storage, &mut endpoint, "Alice", true),
+        Err(BindingError::Unverified)
     ));
     assert_eq!(
-        binding_rows(storage.connection().unwrap(), &identity.id),
-        rows
+        storage.find_identity("renamed").unwrap().unwrap().id,
+        original.id
     );
-    assert_eq!(
-        state_counts(storage.connection().unwrap(), &identity.id),
-        counts
-    );
+    assert_eq!(endpoint.clear_calls, 0);
     storage.close().unwrap();
 }
 

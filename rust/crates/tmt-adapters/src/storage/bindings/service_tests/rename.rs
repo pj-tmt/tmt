@@ -219,6 +219,35 @@ fn automatic_name_conflict_or_unverified_marker_preserves_provenance_and_lifetim
 }
 
 #[test]
+fn automatic_name_refuses_when_identity_changes_after_host_observation() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let initial = tmt_core::binding::bind_auto_identity(
+        &mut storage,
+        &mut endpoint,
+        "%1",
+        "auto-target",
+        false,
+    )
+    .unwrap();
+    let database = fixture.database.clone();
+    endpoint.after_current = Some(Box::new(move || {
+        let mut other = crate::storage::Storage::open(&database).unwrap();
+        rename_identity::<_, EndpointFailure>(&mut other, "auto-target", "Concurrent").unwrap();
+        other.close().unwrap();
+    }));
+    let result =
+        tmt_core::binding::name_auto_identity(&mut storage, &mut endpoint, "%1", "Requested", true);
+    assert!(matches!(result, Err(Error::Unverified)));
+    let current = storage.find_identity("concurrent").unwrap().unwrap();
+    assert_eq!(current.id, initial.presence.identity.id);
+    assert_eq!(current.lifetime, Lifetime::Temporary);
+    assert!(storage.find_identity("requested").unwrap().is_none());
+    storage.close().unwrap();
+}
+
+#[test]
 fn ordinary_names_that_look_generated_are_not_automatic() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
@@ -236,6 +265,38 @@ fn ordinary_names_that_look_generated_are_not_automatic() {
             .unwrap()
             .is_none()
     );
+    storage.close().unwrap();
+}
+
+#[test]
+fn failed_automatic_cleanup_keeps_a_binding_saved_after_observation() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let initial = tmt_core::binding::bind_auto_identity(
+        &mut storage,
+        &mut endpoint,
+        "%1",
+        "auto-target",
+        false,
+    )
+    .unwrap();
+    let binding = initial.presence.binding.unwrap();
+    let database = fixture.database.clone();
+    endpoint.after_probe = Some(Box::new(move || {
+        let mut other = crate::storage::Storage::open(&database).unwrap();
+        create_or_resolve(&mut other, "auto-target", Lifetime::Saved).unwrap();
+        other.close().unwrap();
+    }));
+    tmt_core::binding::retire_failed_auto_launch(&mut storage, &mut endpoint, &binding).unwrap();
+    let current = storage.find_identity("auto-target").unwrap().unwrap();
+    assert_eq!(current.id, binding.identity_id);
+    assert_eq!(current.lifetime, Lifetime::Saved);
+    assert_eq!(
+        endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+        binding.id
+    );
+    assert_eq!(endpoint.clear_calls, 0);
     storage.close().unwrap();
 }
 

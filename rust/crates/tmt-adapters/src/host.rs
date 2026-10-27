@@ -1475,6 +1475,10 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         self.driver(binding.server.host).clear(binding, identity)
     }
 
+    fn conditional_clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {
+        self.driver(binding.server.host).conditional_clear(binding)
+    }
+
     fn clear_if_owned(
         &mut self,
         binding: &Binding,

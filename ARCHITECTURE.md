@@ -211,10 +211,7 @@ check keeps name/pane routing and its existing Digest opportunity.
 - `tmt-core::names` owns canonical names; hosts own pane-target syntax.
   `identity` owns canonical UUID spelling and lifetime/create/promote; `identity_metadata`/`identity_status`
   own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
-  `binding` owns evidence, retirement, binds/moves and CAS rename. A short writer
-  reserves one identity and target pane with a leased publisher; host publication
-  and verification run outside it, followed by conditional activation or compensation.
-  Only activated bindings have binding rows; moves keep the old row until activation.
+  `binding` owns [identity and pane coordination](.agents/skills/tmt-core-runtime/references/identity-bindings.md).
   [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on

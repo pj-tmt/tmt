@@ -26,6 +26,8 @@ impl fmt::Display for EndpointFailure {
 
 impl std::error::Error for EndpointFailure {}
 
+type BeforeClear = Box<dyn FnOnce(&mut FakeEndpoint) + Send>;
+
 pub(super) struct FakeEndpoint {
     pub(super) server: ServerEvidence,
     panes: Vec<PaneObservation>,
@@ -40,10 +42,14 @@ pub(super) struct FakeEndpoint {
     pub(super) publication_time_ms: u64,
     pub(super) after_publish: Option<Box<dyn FnOnce() + Send>>,
     pub(super) after_owner: Option<Box<dyn FnOnce() + Send>>,
+    pub(super) after_probe: Option<Box<dyn FnOnce() + Send>>,
+    pub(super) after_current: Option<Box<dyn FnOnce() + Send>>,
+    pub(super) before_clear: Option<BeforeClear>,
     pub(super) late_marker_before_publish: Option<tmt_core::endpoint::BindingMarker>,
     pub(super) legacy_markers: std::collections::HashMap<String, String>,
     pub(super) replace_legacy_before_publish: Option<String>,
     pub(super) verification_failure: bool,
+    pub(super) conditional_clear: bool,
     pub(super) clear_result: bool,
     pub(super) clear_failure: bool,
     pub(super) begin_calls: usize,
@@ -73,10 +79,14 @@ impl FakeEndpoint {
             publication_time_ms: 1_000,
             after_publish: None,
             after_owner: None,
+            after_probe: None,
+            after_current: None,
+            before_clear: None,
             late_marker_before_publish: None,
             legacy_markers: Default::default(),
             replace_legacy_before_publish: None,
             verification_failure: false,
+            conditional_clear: true,
             clear_result: true,
             clear_failure: false,
             begin_calls: 0,
@@ -184,6 +194,9 @@ impl BindingEndpoint for FakeEndpoint {
                 pane.pane_pid += 1;
             }
         }
+        if let Some(callback) = self.after_current.take() {
+            callback();
+        }
         Ok(snapshot)
     }
 
@@ -194,11 +207,15 @@ impl BindingEndpoint for FakeEndpoint {
     ) -> Result<EndpointProbe, Self::Error> {
         self.probe_calls
             .push((server.server_id.clone(), panes.to_vec()));
-        Ok(match self.probe_mode {
+        let result = match self.probe_mode {
             ProbeMode::Live => EndpointProbe::Live(self.snapshot(server, panes)),
             ProbeMode::Dead => EndpointProbe::Dead,
             ProbeMode::Unknown => EndpointProbe::Unknown,
-        })
+        };
+        if let Some(callback) = self.after_probe.take() {
+            callback();
+        }
+        Ok(result)
     }
 
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), Self::Error> {
@@ -266,8 +283,15 @@ impl BindingEndpoint for FakeEndpoint {
         self.publish(binding, identity).map(|()| true)
     }
 
+    fn conditional_clear(&mut self, _: &Binding) -> Result<bool, Self::Error> {
+        Ok(self.conditional_clear)
+    }
+
     fn clear(&mut self, binding: &Binding, _: &Identity) -> Result<bool, Self::Error> {
         self.clear_calls += 1;
+        if let Some(callback) = self.before_clear.take() {
+            callback(self);
+        }
         if self.clear_failure {
             return Err(EndpointFailure("clear failed"));
         }

@@ -98,7 +98,13 @@ delivery. They install and launch nothing.
   Caller-pane reads capture candidates for the caller host and pane, then select
   the observed server before reconciliation; matching unchanged stale records
   still reconcile. Mutating marker operations retain their own coordination
-  transactions.
+  transactions. Unbind, removal and failed-auto cleanup recheck the captured
+  row and conflicting reservations. Atomic exact-ID clears follow detach or retirement;
+  hosts without conditional clear hold a pane reservation during their best-effort
+  clear, then detach or retire. Failed clears leave reclaimable markers; the driver
+  contract describes the weaker lease-expiry guarantee. Auto-name
+  observes its host outside the writer and rechecks the row and provenance before
+  rename or promotion.
 - The pane marker (`@tmt.agent`) proves ownership by identity, binding, server and
   pane-process IDs alone; its name may lag the stored name and readers resolve by ID.
   `binding` owns name-based rename and UUID/exact-name CAS in one immediate transaction; the post-commit
