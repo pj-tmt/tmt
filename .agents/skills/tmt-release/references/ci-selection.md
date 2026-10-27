@@ -501,3 +501,15 @@ and never reads/writes live state, creates issues, sends messages or starts a lo
 integration reads the same state setting. No deployment/window or cron/prompt
 change is performed by this script. Detection delay is measured from Actions `updated_at`
 to the recorded submission time after merge, not inferred from queue timestamps.
+
+## Old organization links
+
+After the rename to tmt-ninja (#5137), `typescript/test/tooling/previous-repository-links.test.ts`
+fails when a tracked file links to the old name `pj-tmt` (a github.com, raw.githubusercontent.com,
+ghcr.io or `repos/` URL, or the old GitHub Pages host) more often than
+[the ratchet](../../../../typescript/test/fixtures/previous-repository-links.json) allows for that
+file. Existing links are listed there and may only shrink: after replacing links with `tmt-ninja`,
+run `node scripts/previous-repository-links.mjs --write` from `typescript/` to lower the counts; it
+refuses to raise them. The bare `pj-tmt/tmt` constants that deliberately accept the old name (the Rust
+`PREVIOUS_REPOSITORY`, the release index writer) are not URL-shaped and need no entry. Redirects keep
+old github.com links working, but pages on the old GitHub Pages host do not redirect.
