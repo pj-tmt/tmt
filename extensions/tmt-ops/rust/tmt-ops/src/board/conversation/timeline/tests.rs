@@ -469,6 +469,84 @@ fn an_older_page_during_a_slow_send_keeps_its_own_inputs_painted_once() {
 }
 
 #[test]
+fn the_next_known_clock_is_the_first_known_one_at_or_after_each_position() {
+    let naive = |times: &[Option<u64>]| -> Vec<Option<u64>> {
+        (0..times.len())
+            .map(|index| times[index..].iter().find_map(|time| *time))
+            .collect()
+    };
+    assert_eq!(next_known(&[]), Vec::<Option<u64>>::new());
+    for length in 0..=10usize {
+        for pattern in 0..1u32 << length {
+            let times: Vec<_> = (0..length)
+                .map(|index| (pattern >> index & 1 == 1).then_some(100 + index as u64 * 7))
+                .collect();
+            assert_eq!(next_known(&times), naive(&times), "{times:?}");
+        }
+    }
+    let mut long = vec![None; 2000];
+    long[1500] = Some(9);
+    long[1999] = Some(11);
+    assert_eq!(next_known(&long), naive(&long));
+    assert_eq!(next_known(&long)[1501], Some(11));
+}
+
+#[test]
+#[ignore = "timing evidence for #5310: cargo test --locked -p tmt-ops -- --ignored --nocapture unknown_clocks"]
+fn a_long_run_of_unknown_clocks_builds_in_linear_time() {
+    crate::status::with_now_ms(NOW, || {
+        let app = setup(incident(), false);
+        draw(&app, 160);
+        let base = model::parse(MEMBER, &incident()).unwrap();
+        for blocks in [500usize, 1000, 2000] {
+            // Alternating inputs of another sender and finals whose response is absent:
+            // no block has a clock, the worst case for a scan to the next known one.
+            let mut timeline = model::Page::default();
+            for index in 0..blocks {
+                let mut entry = base.entries[if index % 2 == 0 { 2 } else { 3 }].clone();
+                entry.id = format!("{}-{index}", entry.id);
+                if let model::Kind::Input(input) = &mut entry.kind {
+                    input.request = format!("{}-{index}", input.request);
+                }
+                if let model::Kind::Final { response_id, .. } = &mut entry.kind
+                    && index % 97 != 1
+                {
+                    *response_id = format!("absent-{index}");
+                }
+                timeline.entries.push(entry);
+            }
+            timeline.responses = base.responses.clone();
+            app.conversation.borrow_mut().refresh_pane_output();
+            let read = app.pane_output_plan().unwrap();
+            app.apply_answer_read(
+                &read,
+                Observation::Observed(Arc::new(Page {
+                    timeline: Some(timeline),
+                    ..Default::default()
+                })),
+            );
+            let state = app.conversation.borrow();
+            let session = &state.sessions[state.active.as_ref().unwrap()];
+            let inventory = crate::board::inventory::Inventory::default();
+            let started = std::time::Instant::now();
+            let transcript = session.timeline_transcript(160, Look::default(), &inventory);
+            let elapsed = started.elapsed();
+            // The painted text, geometry and source map, as one number to compare across builds.
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            std::hash::Hash::hash(&format!("{:?}", transcript.mapped.lines), &mut hasher);
+            std::hash::Hash::hash(&transcript.mapped.sources, &mut hasher);
+            std::hash::Hash::hash(&transcript.anchor_text, &mut hasher);
+            std::hash::Hash::hash(&transcript.timeline_inputs, &mut hasher);
+            println!(
+                "unknown_clocks blocks={blocks} lines={} output={:016x} elapsed={elapsed:?}",
+                transcript.mapped.lines.len(),
+                std::hash::Hasher::finish(&hasher),
+            );
+        }
+    });
+}
+
+#[test]
 fn unlinked_retained_history_is_not_erased_when_the_timeline_is_admitted() {
     crate::status::with_now_ms(NOW, || {
         let mut app = setup(incident(), false);
