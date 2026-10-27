@@ -470,6 +470,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         (Verb::Ui(Ui::Search), "/", search_word),
         (Verb::Ui(Ui::Timers), "c", "timers"),
         (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
+        (Verb::Ui(Ui::Unread), "u", "unread"),
         (Verb::Ui(Ui::UsageControls), "u", "chart"),
         (Verb::Settings, ",", "settings"),
         (Verb::Ui(Ui::Help), "?", "help"),

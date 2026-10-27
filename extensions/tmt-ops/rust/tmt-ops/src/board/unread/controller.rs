@@ -114,10 +114,15 @@ impl App {
     /// and neither can a selection that only moved onto the row: the reader
     /// must hold focus, which is the explicit act of opening the conversation.
     pub(in crate::board) fn unread_drawn(&mut self) {
-        if self.loading()
-            || self.modal_open()
-            || self.shell.tab != crate::board::shell::OpsTab::Agents
-        {
+        if self.loading() {
+            return;
+        }
+        // The Unread overlay is a modal that paints answers itself: it feeds the writer.
+        if self.unread_overlay.is_some() {
+            self.unread_overlay_drawn();
+            return;
+        }
+        if self.modal_open() || self.shell.tab != crate::board::shell::OpsTab::Agents {
             return;
         }
         if self.focused_pane() != Some(crate::config::Pane::Replies) {

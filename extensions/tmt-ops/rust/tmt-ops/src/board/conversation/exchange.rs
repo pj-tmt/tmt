@@ -234,7 +234,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
 const SEND_NOW_KEY_HINT: &str = "Ctrl-S";
 
 /// Shared exchange/pane-output age wording; unknown and current stay unqualified.
-pub(super) fn age_stamp(age: &str) -> String {
+pub(in crate::board) fn age_stamp(age: &str) -> String {
     match age {
         "–" => "—".into(),
         "now" | "—" => age.into(),

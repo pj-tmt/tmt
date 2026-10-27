@@ -610,6 +610,7 @@ pub(super) enum Overlay {
     ReplyReader,
     Checklist,
     QuotaDetails,
+    Unread,
     Discovery,
     MemberSession,
     Notes,
@@ -635,6 +636,7 @@ impl Overlay {
                 Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
+                Self::Unread => "unread",
                 Self::Discovery => "discovery",
                 Self::MemberSession => "member-session",
                 Self::Notes => "notes",
@@ -816,6 +818,9 @@ pub struct App {
     pub(in crate::board) usage_chart: RefCell<super::overview::chart::host::State>,
     pub(in crate::board) usage_controls: bool,
     pub(super) quota_details: Option<RefCell<super::home::quota_detail::Details>>,
+    pub(super) unread_overlay: Option<super::unread_overlay::Overlay>,
+    /// How many Unread overlays were opened; a read belongs to one opening.
+    pub(super) unread_session: u64,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
     pub(in crate::board) overlay_focus: tmt_tui::app::FocusStack,
@@ -3833,6 +3838,8 @@ impl App {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
+        } else if self.unread_overlay.is_some() {
+            Some(Overlay::Unread)
         } else if self.switch_tool_shown() {
             Some(Overlay::SwitchTool)
         } else if self.idle_alert_editor.is_some() {
@@ -3900,6 +3907,7 @@ impl App {
                 }
                 Some(Effect::None)
             }
+            Overlay::Unread => self.unread_overlay_event(event),
             Overlay::MemberSession => self.member_session_event(event),
             Overlay::Notes => self.notes_event(event),
             Overlay::IdleAlert => self.idle_alert_event(event),
@@ -4247,6 +4255,9 @@ impl App {
         self.chip_hits.borrow_mut().clear();
         if let Some(details) = &self.quota_details {
             details.borrow_mut().invalidate();
+        }
+        if let Some(unread) = &self.unread_overlay {
+            unread.invalidate();
         }
         if let Some(draft) = &self.workspace_form {
             draft.invalidate();
@@ -4873,6 +4884,10 @@ impl App {
     pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
         if self.loading() {
             return None;
+        }
+        // An open Unread overlay covers the conversation: its answers are what is read.
+        if let Some((session, read)) = self.unread_overlay_read() {
+            return Some(super::refresh::SelectedRead::UnreadBodies(session, read));
         }
         if self
             .input

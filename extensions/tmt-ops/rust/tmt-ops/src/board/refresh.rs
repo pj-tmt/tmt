@@ -67,6 +67,8 @@ pub(super) enum SelectedRead {
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
     PaneOutput(super::recent_responses::AnswerRead),
+    /// One agent's answers for the open Unread overlay.
+    UnreadBodies(u64, super::recent_responses::AnswerRead),
     /// The shown live screen of one agent, and which read of it this is.
     PaneScreen(super::conversation::ConversationKey, u64),
     /// Where one member's terminal stream is, asked of core once.
@@ -151,6 +153,15 @@ impl Worker {
                                 revision,
                                 cancellation: cancellation.clone(),
                             },
+                            SelectedRead::UnreadBodies(session, read) => {
+                                super::BoardEvent::UnreadBodies {
+                                    observation: read.read(&reader, &cancellation),
+                                    session,
+                                    read,
+                                    revision,
+                                    cancellation: cancellation.clone(),
+                                }
+                            }
                             SelectedRead::PaneScreen(key, round) => super::BoardEvent::PaneScreen {
                                 observation: super::screen_view::read(&reader, &key.1),
                                 key,

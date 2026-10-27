@@ -49,6 +49,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(details) = &app.quota_details {
         details.borrow_mut().render(frame, app, body);
     }
+    if let Some(unread) = &app.unread_overlay {
+        unread.render(frame, app, body);
+    }
     if app.help {
         crate::board::help::render(frame, app, body);
     }
