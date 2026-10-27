@@ -95,6 +95,25 @@ def command_copied(expected):
         return False
 
 
+COPIED_TOAST = "Copied with the configured clipboard program"
+COPY_FAILED_TOASTS = ("did not finish in time", "nothing was copied", "Could not start", "Could not talk to", "printed more than expected")
+
+
+def wait_copied(expected, label):
+    """Wait for the board's own verdict on the copy, then read the file once.
+
+    The copy runs the clipboard program under a fixed limit, so a loaded host can
+    turn it into an error toast. Waiting for the file alone hid that cause behind
+    the generic wait limit; fail at once with the toast the board showed."""
+    def verdict():
+        return screen.contains(COPIED_TOAST) or any(screen.contains(text) for text in COPY_FAILED_TOASTS)
+    wait_for(verdict, label + ": the copy toast")
+    failed = [text for text in COPY_FAILED_TOASTS if screen.contains(text)]
+    if failed:
+        raise AssertionError(f"{label}: the board reported '{failed[0]}'\n" + bytes(output[-4000:]).decode("utf8", "replace"))
+    assert command_copied(expected), f"{label}: toast shown but the copied file differs"
+
+
 try:
     assert not os.environ.get("TMUX") and not os.environ.get("TMUX_PANE")
     command = [spec["ops"], "ui", "--squad", "product", "--view", "member-session-pty", "--reset-view"]
@@ -122,7 +141,7 @@ os.read(release,1)
         assert not screen.contains("Resume here") and not screen.contains("Move here")
         expected_argv = ["resume", "--", spec["recipient"]]
         os.write(master, b"\x1b[H\r")
-        wait_for(lambda: command_copied(expected_argv), "copy-only recovery command")
+        wait_copied(expected_argv, "copy-only recovery command")
         assert board_status is None and not (root / "handoff.json").exists()
         os.write(master, b"\x1b")
         wait_for(lambda: not screen.contains("Identity UUID:"), "close copy-only session")
@@ -154,7 +173,7 @@ os.read(release,1)
     os.write(master, b"c")
     copied = root / "copied"
     expected_argv = ["resume"] + (["--move"] if spec["move"] else []) + ["--", spec["recipient"]]
-    wait_for(lambda: command_copied(expected_argv), "complete exact command copied without leaving the board")
+    wait_copied(expected_argv, "complete exact command copied without leaving the board")
     assert shlex.split(copied.read_text()) == [spec["proxy"]] + expected_argv
     assert board_status is None and not (root / "handoff.json").exists()
     os.write(master, b"\x1b")

@@ -5058,13 +5058,13 @@ describe('member session foreground handoff', () => {
         const root = path.join(sandbox.root, 'session-proof');
         mkdirSync(root);
         const copied = path.join(root, 'copied');
-        const clipboard = path.join(bin, 'session-copy');
         const shellWord = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
-        writeExecutable(clipboard, `#!/bin/sh\ncat > ${shellWord(copied)}\n`, 0o755);
+        // A program, not a shell script: the board gives the clipboard program a
+        // fixed limit, and a shell start-up would spend part of it on a loaded host.
         const config = path.join(sandbox.globalDir, 'ops.toml');
         writeFileSync(
           config,
-          `${readOpsConfig(config)}\nclipboard = [${JSON.stringify(clipboard)}]\n`
+          `${readOpsConfig(config)}\nclipboard = ${JSON.stringify(['/usr/bin/tee', copied])}\n`
         );
         // A quote and a space prove the copied command preserves argv. The
         // fixture advertises public memory but never launches a provider.
