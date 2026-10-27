@@ -150,7 +150,16 @@ describe(
             },
             { name: 'main-claude', inner: undefined, provider: 'claude' },
           ];
-          const reports = cases.map(({ name, inner, provider }) => {
+          const read = (file: string) =>
+            JSON.parse(fs.readFileSync(file, 'utf8')) as Array<{
+              code: number;
+              stdout: string;
+              stderr: string;
+            }>;
+          const db = () => new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
+          // A bind holds the storage writer while publishing pane metadata.
+          // Settle each case before another bind can consume its hook's allowance.
+          for (const { name, inner, provider } of cases) {
             const file = (suffix: string) => path.join(fixture.root, `${name}-${suffix}`);
             fs.writeFileSync(
               file('scenario.json'),
@@ -176,16 +185,8 @@ describe(
               .map(quote)
               .join(' ');
             fixture.tmux(['new-window', '-d', '-t', 'e2e', '-n', name, `${command}; :`]);
-            return { name, inner, report: file('report.json'), outer: file('outer-report.json') };
-          });
-          const read = (file: string) =>
-            JSON.parse(fs.readFileSync(file, 'utf8')) as Array<{
-              code: number;
-              stdout: string;
-              stderr: string;
-            }>;
-          const db = () => new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
-          for (const { name, inner, report, outer } of reports) {
+            const report = file('report.json');
+            const outer = file('outer-report.json');
             await fixture.waitFor(
               () => fs.existsSync(inner === undefined ? report : outer),
               15000,
