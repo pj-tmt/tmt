@@ -40,7 +40,10 @@ The deployment owner runs:
 tmt remote invite --remote <owned-remote>
 ```
 
-Share the one-use code privately. On the collaborator's machine:
+Share the one-use code privately, or the private invitation link when shown. The link opens
+instructions for the same code and creates no connection. Existing sites show it only after
+the owner redeploys; invite never prompts or redeploys. The code remains the fallback. On the
+collaborator's machine:
 
 ```sh
 tmt remote join <code>

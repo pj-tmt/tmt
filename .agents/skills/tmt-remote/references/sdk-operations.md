@@ -65,6 +65,11 @@ owns bounded admission, key/origin fences and typed outcomes. Tests pin correlat
 cancellation/no-late-publication and terminal no-retry, then prove original-outcome observation
 causes one Core send total after a lost acknowledgment. Recovery must never resend.
 
+The same page build emits `assets/invite-v1.js` from `invite-page.ts`, independently of the
+settings entry and hosted Firebase adapter. Native/Hosting embed that exact standalone entry;
+the public SDK exports the same `invitePage` renderer. Rebuild and compare it with the other
+embedded assets; it loads no Auth, Session or Colab code.
+
 ## Hosted Firebase asset
 
 The hosted-only adapter is built from exact `firebase@13.0.0` in the workspace lockfile.

@@ -31,6 +31,13 @@ This private module implements the device side of
   exposes `pairingPage(link)` for the fragment-erasing bootstrap inlined from `assets/pair.js` and gives mounted extension pages `reopenSession`,
   `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`, and the `budget` namespace of `src/budget.ts`.
 
+The standalone `/join` entry uses `invitePage(code)` from `src/invite-page.ts`, also
+exported by the public SDK. Its Remote-owned bootstrap clears the URL fragment before
+loading resources; the renderer only presents native join instructions and an explicit
+copy action. It creates no Session, Auth request, enrollment or grant, stores no code,
+and returns a disposer for the current interaction. This private invitation carrier is
+distinct from the local browser pairing flow below and the public-config `/pair` link.
+
 `parseLink(link, descriptor)` validates `http://127.0.0.1:PORT/remote/pair#CODE` with a
 separately obtained public descriptor. `resolveLink(link, fetch?)` fetches the current
 same-origin `/sdk/pair-offer` descriptor and validates both. Neither sends the code;

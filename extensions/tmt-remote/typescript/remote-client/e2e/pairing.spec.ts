@@ -1041,6 +1041,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'budget',
     'certifyKey',
     'firebaseRemote',
+    'invitePage',
     'landingPage',
     'management',
     'members',

@@ -122,6 +122,137 @@ function pairingGuidance(state, authorityEnded, invite) {
 	};
 }
 //#endregion
+//#region src/invite-page.ts
+/** Instructions only. Parsing is not authentication; native join owns admission. */
+var MAX_BYTES = 12288;
+var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+function valid$7(condition) {
+	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+}
+function object$3(value, keys) {
+	valid$7(value !== null && typeof value === "object" && !Array.isArray(value));
+	const row = value;
+	valid$7(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
+	return row;
+}
+function bytes(value, length) {
+	valid$7(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
+	valid$7(length === void 0 || value.length === length);
+	valid$7(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
+	return new Uint8Array(value);
+}
+function hasControl(value) {
+	return Array.from(value).some((char) => {
+		const point = char.codePointAt(0);
+		return point < 32 || point >= 127 && point <= 159;
+	});
+}
+var utf8$2 = new TextDecoder("utf-8", { fatal: true });
+/** Reads the native v2 carrier unchanged, with no network or authority inference. */
+function decodeExpiry(token, now) {
+	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
+	valid$7(/^[A-Za-z0-9_-]+$/.test(token));
+	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
+	const raw = atob(encoded);
+	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
+	const text = utf8$2.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	const value = JSON.parse(text);
+	valid$7(JSON.stringify(value) === text);
+	const invite = object$3(value, [
+		"version",
+		"context",
+		"publicConfig",
+		"machineName",
+		"code"
+	]);
+	valid$7(invite.version === 2);
+	bytes(invite.code, 16);
+	valid$7(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
+	const context = object$3(invite.context, [
+		"binding",
+		"owner",
+		"owner_key",
+		"offer",
+		"nonce",
+		"issued_at_ms",
+		"expires_at_ms"
+	]);
+	valid$7(typeof context.owner === "string" && UUID$4.test(context.owner));
+	valid$7(typeof context.offer === "string" && UUID$4.test(context.offer));
+	bytes(context.owner_key, 32);
+	bytes(context.nonce, 16);
+	const issued = context.issued_at_ms;
+	const expiry = context.expires_at_ms;
+	valid$7(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
+	valid$7(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
+	valid$7(issued <= now + 6e4 && now < expiry);
+	const binding = object$3(context.binding, [
+		"backend",
+		"reference",
+		"owner_principal"
+	]);
+	valid$7(binding.backend === "firestore");
+	const project = utf8$2.decode(bytes(binding.reference));
+	const principal = utf8$2.decode(bytes(binding.owner_principal));
+	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
+	const config = invite.publicConfig;
+	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
+	valid$7(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
+	valid$7(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
+	valid$7(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
+	valid$7(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
+	return expiry;
+}
+function invitationExpiry(token, now = Date.now()) {
+	try {
+		return decodeExpiry(token, now);
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
+function invitePage(initialToken) {
+	const button = document.getElementById("invite-copy");
+	const status = document.getElementById("invite-status");
+	const feedback = document.getElementById("invite-feedback");
+	let token = initialToken;
+	initialToken = "";
+	let disposed = false;
+	let timer;
+	const clear = () => {
+		disposed = true;
+		token = "";
+		button.disabled = true;
+		feedback.textContent = "";
+		if (timer !== void 0) clearTimeout(timer);
+		button.removeEventListener("click", copy);
+	};
+	const copy = async () => {
+		if (disposed) return;
+		try {
+			invitationExpiry(token);
+			await navigator.clipboard.writeText(`tmt remote join ${token}`);
+			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
+		} catch {
+			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
+		}
+	};
+	try {
+		const expiry = invitationExpiry(token);
+		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
+		button.disabled = false;
+		button.addEventListener("click", copy);
+		timer = setTimeout(() => {
+			clear();
+			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
+		}, Math.max(0, expiry - Date.now()));
+	} catch {
+		clear();
+		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
+	}
+	return clear;
+}
+//#endregion
 //#region src/remote-routes.ts
 var REMOTE_ITEMS = [
 	{
@@ -11435,4 +11566,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

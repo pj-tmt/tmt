@@ -1,4 +1,5 @@
 import { pairingGuidance } from './remote-state.js';
+export { invitePage } from './invite-page.js';
 import { remoteItem } from './remote-routes.js';
 export {
   bindSyncContext,

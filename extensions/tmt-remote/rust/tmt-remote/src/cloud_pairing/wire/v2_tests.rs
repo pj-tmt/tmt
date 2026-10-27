@@ -2,6 +2,20 @@ use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
 
+#[test]
+fn private_instruction_carrier_preserves_the_exact_native_code_pin_and_deadline() {
+    let vector: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/invitations/invite-v2.json"
+    ))
+    .unwrap();
+    let token = vector["token"].as_str().unwrap();
+    let invite = Invite::read(token, vector["now"].as_u64().unwrap()).unwrap();
+    assert_eq!(invite.token().unwrap(), token);
+    assert_eq!(serde_json::to_value(&invite).unwrap(), vector["invite"]);
+    assert_eq!(invite.context.expires_at_ms, 1_700_000_600_000);
+    assert!(Invite::read(token, invite.context.expires_at_ms).is_err());
+}
+
 fn fixture() -> (Invite, port::Submission) {
     let key = SigningKey::from_bytes(&[7; 32]);
     let context = Context {

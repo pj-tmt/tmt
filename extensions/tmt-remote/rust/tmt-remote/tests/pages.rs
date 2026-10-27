@@ -36,6 +36,39 @@ const FAST: Timing = Timing {
     lifetime: Duration::from_secs(30),
     submit_wait: Duration::from_secs(10),
 };
+
+#[test]
+fn invitation_instructions_are_public_static_and_never_a_pairing_offer() {
+    let h = Harness::new(FAST);
+    for path in [
+        "/join",
+        "/join.html",
+        "/sdk/invite-v1.js",
+        "/sdk/invite.css",
+    ] {
+        let reply = get(&h, path, "");
+        assert_eq!(reply.status, 200, "{path}");
+        assert_eq!(reply.header("cache-control"), Some("no-store"));
+        assert_eq!(reply.header("referrer-policy"), Some("no-referrer"));
+        assert_eq!(reply.header("x-content-type-options"), Some("nosniff"));
+        if path == "/join" {
+            assert!(reply.body.contains("history.replaceState"));
+            assert!(
+                reply
+                    .header("content-security-policy")
+                    .unwrap()
+                    .contains("connect-src 'none'")
+            );
+            assert!(!reply.body.contains("/sdk/shell.js"));
+        }
+        assert_eq!(
+            get(&h, path, "Origin: https://foreign.example\r\n").status,
+            403
+        );
+    }
+    assert_eq!(h.grants(), 0);
+    assert!(h.pairing.descriptor(&h.origin).is_none());
+}
 struct Reply {
     status: u16,
     head: String,
@@ -846,6 +879,7 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
     let h = Harness::new(FAST);
     for (path, status) in [
         ("/", 200),
+        ("/join", 200),
         ("/remote/pair", 200),
         ("/remote/", 200),
         ("/remote/create", 200),
@@ -875,6 +909,13 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
         assert_eq!(links.len(), 1, "{path}");
         let policy = if path == "/remote/pair" {
             pairing_policy(&reply.body)
+        } else if path == "/join" {
+            pairing_policy(&reply.body)
+                .replace("connect-src 'self'", "connect-src 'none'")
+                .replace(
+                    "form-action 'none';",
+                    "form-action 'none'; object-src 'none';",
+                )
         } else if status == 200 {
             SHELL_CSP.to_owned()
         } else {

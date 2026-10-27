@@ -1,5 +1,16 @@
 # Browser pages
 
+The standalone `/join` instructions entry belongs to Remote, including its fixed Hosting
+resources; it never mounts Colab or a Session. `invite_page` shares the compiled document,
+stylesheet, renderer and CSP between the composer and native `Pages`. `join.js` erases the
+private fragment synchronously before creating the stylesheet link or importing `invite-v1.js`;
+failed erasure loads neither. `invite-page.ts` owns bounded v2 parsing and the current copy
+interaction, with no Auth/provider/storage access. Expiry, fragment replacement and page departure
+clear its retained token and fence late import/copy feedback. Only explicit Copy produces the
+native join command. The [invitation contract](../../../../contracts/remote-channel-v1.md#native-invite-and-join)
+owns authority, publication capability, privacy and uncertainty; browser tests cover the actual
+CSP, requests, clipboard action, history, disposal and responsive presentation.
+
 The Remote-owned pairing HTML inlines `assets/pair.js` as its first synchronous script under
 an exact CSP hash. It captures/erases the fragment before any script import or subresource;
 `no-referrer` and `no-store` remain. `Pages` exposes only the public current descriptor through

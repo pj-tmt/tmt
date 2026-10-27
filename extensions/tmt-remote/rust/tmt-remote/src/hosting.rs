@@ -81,7 +81,8 @@ impl HostingManifest {
             if !path_ok(&file.path) {
                 return Err(HostingRefusal::Path);
             }
-            if file.path == "/__"
+            if crate::invite_page::reserved(&file.path)
+                || file.path == "/__"
                 || file.path.starts_with("/__/")
                 || file
                     .path
@@ -159,7 +160,7 @@ fn content_type_ok(value: &str) -> bool {
     )
 }
 
-fn response_headers(file: &HostingFile) -> Value {
+pub(crate) fn response_headers(file: &HostingFile) -> Value {
     let content_type = if matches!(
         file.content_type.as_str(),
         "text/html"
@@ -177,6 +178,9 @@ fn response_headers(file: &HostingFile) -> Value {
         "Cache-Control":"no-cache","Referrer-Policy":"no-referrer"});
     if let Some(csp) = &file.csp {
         headers["Content-Security-Policy"] = json!(csp);
+    }
+    if crate::invite_page::reserved(&file.path) {
+        headers["Cache-Control"] = json!("no-store");
     }
     headers
 }
@@ -318,6 +322,18 @@ pub fn compose(inputs: &[HostingInput<'_>]) -> Result<Option<HostingComposition>
             }
         }
     }
+    let owned = crate::invite_page::assets();
+    for (file, raw) in &owned {
+        total = total
+            .checked_add(file.length)
+            .ok_or(HostingRefusal::Bounds)?;
+        if files
+            .insert(file.path.clone(), (file, raw.as_bytes()))
+            .is_some()
+        {
+            return Err(HostingRefusal::Collision);
+        }
+    }
     if files.len() > limits::HOSTING_FILES || total > limits::HOSTING_TOTAL_BYTES as u64 {
         return Err(HostingRefusal::Bounds);
     }
@@ -365,10 +381,13 @@ pub fn compose(inputs: &[HostingInput<'_>]) -> Result<Option<HostingComposition>
     for regex in std::iter::once("^/$").chain(SHORT_ROUTES) {
         headers.push(json!({"regex":regex,"headers":shell_headers}));
     }
-    let rewrites: Vec<_> = SHORT_ROUTES
+    let mut rewrites: Vec<_> = SHORT_ROUTES
         .iter()
         .map(|regex| json!({"regex":regex,"path":"/index.html"}))
         .collect();
+    headers
+        .push(json!({"regex":crate::invite_page::ROUTE,"headers":response_headers(&owned[0].0)}));
+    rewrites.push(json!({"regex":crate::invite_page::ROUTE,"path":"/join.html"}));
     // Only public shell routes; reserved Firebase configuration is never rewritten.
     let config = json!({"headers":headers,"rewrites":rewrites});
     if serde_json::to_vec(&config)

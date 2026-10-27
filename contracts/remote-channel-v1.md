@@ -2739,7 +2739,27 @@ selection is explicit; unknown versions/backends refuse rather than falling back
 ### Native invite and join
 
 `tmt remote invite [--remote <name>]` selects an owned deployment and prints a private one-use,
-ten-minute code. `tmt remote join <code>` validates its public project configuration and pinned native
+ten-minute code, always available as the fallback. When the selected owned deployment has a verified
+published instructions capability, the same event also prints `https://<verified-host>/join#<code>`.
+The fragment is the exact same private v2 carrier, including native pin and original expiry;
+it is not the public configuration `/pair#descriptor`. Dedicated sites use their verified origin.
+Existing deployments offer the link only after an owner redeploy publishes these assets and route;
+the CLI never prompts for, probes or performs that redeployment. Missing, incomplete, superseded or
+older publication evidence leaves the code usable without a link.
+
+Remote owns the standalone `/join` document and its static resources independently of Colab.
+Its first synchronous script erases the fragment from history before loading any resource; a failed
+erasure leaves copy disabled and loads no resources. No secret enters query/path, HTTP, logs,
+history state, cookies or persisted browser storage. The bounded private carrier remains in the
+current page interaction only, cleared on expiry, replacement or departure. Explicit Copy supplies
+`tmt remote join <code>`; opening, prefetching or initializing this instructions page performs no
+Auth, provider call, enrollment, confirmation or grant. It uses no third-party resources, a
+no-connect CSP, `no-store` and `no-referrer`. The page explains the ten-minute lifetime, four words
+and owner confirmation. Malformed, unsupported or locally expired carriers disable copy; local
+parsing cannot establish cloud availability, reuse or successful withdrawal. Only native join
+verifies that status, and uncertain cleanup is never described as cloud cancellation.
+
+`tmt remote join <code>` validates its public project configuration and pinned native
 owner UUID/key. Both terminals show the same four key-fingerprint words. The owner answers
 `Do the words match? [y/N]`, then `Let <person> send messages to your agents? [y/N]` in the same
 ceremony. Both default to no. No grant or route exists before explicit word confirmation. Sending
@@ -3218,12 +3238,17 @@ no parsing, normalization or second declaration form is introduced. This public 
 access or operations authority. Its standard headers have no inherited CSP, and its bytes count
 against the same composed file/byte bounds and composition/plan digests, upload and read-back.
 The `/tmt/declarations` prefix and descendants are Remote-reserved; manifests refuse them.
-Remote composes disjoint inventories, requires `/index.html` as the HTML shell, and freezes gzip
+Remote adds its fixed `/join.html`, `/sdk/invite-v1.js` and `/sdk/invite.css` instructions resources;
+these paths and `/join` are reserved against extension declarations. Their bytes consume the
+existing file/byte bounds and composition digest, upload and joint read-back. Remote composes
+disjoint inventories, requires `/index.html` as the HTML shell, and freezes gzip
 bytes (level 6, timestamp zero, OS 255) with separate raw and transport digests. Its ServingConfig
 pins content types, `nosniff`, `no-cache` and fixed `Referrer-Policy: no-referrer` on every file,
 and emits its declared CSP verbatim as `Content-Security-Policy`. Remote appends `; charset=utf-8`
 to HTML, CSS, JavaScript, JSON and plain-text headers (both JavaScript MIME types), not SVG/binary;
-declarations keep bare types and the config digest covers these headers. Only `/colab`, `/colab/`,
+declarations keep bare types and the config digest covers these headers. The instructions assets
+and exact `/join` route use `no-store`; `/join` rewrites to `/join.html` with that document's own
+CSP and headers, independently of the shell. Only `/colab`, `/colab/`,
 `/p/<id>`, `/read/<id>` and `/pair` rewrite to that shell; IDs use the public short-route grammar. Header
 rules for these routes and `/` (directory index, no rewrite) copy the shell's exact set because
 Firebase matches headers against the original

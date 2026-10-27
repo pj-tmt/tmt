@@ -109,6 +109,7 @@ body:not(:has(.tmt-ui-shell)) {
   margin-bottom: 12px;
 }
 [data-tmt-page='pair'] .tmt-ui-notice,
+[data-tmt-page='join'] .tmt-ui-notice,
 .settings-page .tmt-ui-notice {
   /* A band flush with the page column, not a card: no fill and no border, so its text has no
      inset to keep. Every other notice is the shared card, on the shared card padding. */

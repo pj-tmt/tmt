@@ -540,7 +540,7 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 Remote uses only public Core JSON via absolute `TMT_EXECUTABLE`/`tmt-invoke`; agent checks use capture-only and UUID-pinned name queries.
 Core never uses Remote trust. Other extensions use public CLI/SDK/`tmt-extension-objects`,
-never Remote state files. Remote owns member/channel authority, roster, revision-fenced local management and invitations; UI grants none;
+never Remote state files. Remote owns member/channel authority, roster, fenced local effects, invitations and `/join`; UI grants none;
 Firestore uses Auth/Rules only. Read-only auto-pair; no companions/skills.
 Emulation never ships.
 
