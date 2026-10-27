@@ -31,6 +31,7 @@ mod extension_install_command;
 mod grammar;
 mod guidance_command;
 mod help_output;
+mod hook_flush_command;
 mod host_command;
 mod identity_command;
 mod identity_context;
@@ -178,6 +179,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
             | Invocation::Version
             | Invocation::ProviderHook { .. }
             | Invocation::DigestHook { .. }
+            | Invocation::HookFlush { .. }
             | Invocation::ReplyNoticeWorker { .. }
             | Invocation::RequestObserver { .. }
             | Invocation::Mcp { .. }
@@ -419,6 +421,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 activity_only,
             );
         }
+        Invocation::HookFlush { log_id } => return hook_flush_command::execute(&log_id),
         Invocation::ReplyNoticeWorker { batch_id, log_id } => {
             return reply_notice_command::execute(&batch_id, &log_id);
         }

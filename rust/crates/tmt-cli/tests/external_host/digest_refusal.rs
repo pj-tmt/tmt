@@ -189,8 +189,8 @@ fn a_digest_stop_for_an_ended_binding_names_the_binding_check() {
 #[test]
 fn a_failed_capture_is_named_until_a_digest_stop_delivers() {
     let mut digest = DueDigest::start("digest-refusal-capture", live_owner(), true, true);
-    let db = rusqlite::Connection::open(digest.fixture.state().join("tmt.db")).unwrap();
-    db.execute_batch("CREATE TRIGGER refuse_final BEFORE INSERT ON recent_responses BEGIN SELECT RAISE(ABORT, 'capture fixture failure'); END;").unwrap();
+    let queue = rusqlite::Connection::open(digest.fixture.state().join("hook-writes.db")).unwrap();
+    queue.execute_batch("CREATE TRIGGER refuse_capture BEFORE INSERT ON hook_writes BEGIN SELECT RAISE(ABORT, 'queue append fixture failure'); END;").unwrap();
     ok(digest
         .codex
         .hook(codex_event("UserPromptSubmit", Some("a"))));
@@ -208,11 +208,45 @@ fn a_failed_capture_is_named_until_a_digest_stop_delivers() {
         digest.session()["learning"]["detail"],
         "digest_stop:capture_failed"
     );
-    db.execute_batch("DROP TRIGGER refuse_final;").unwrap();
+    queue.execute_batch("DROP TRIGGER refuse_capture;").unwrap();
     let delivered = digest.stop("b");
     assert!(delivered.contains("decision"), "{delivered}");
     let session = digest.session();
     assert_eq!(session["learning"], Value::Null, "{session:#}");
+}
+
+#[test]
+fn a_malformed_queued_capture_is_quarantined_and_does_not_block_digest() {
+    use tmt_adapters::storage::hook_queue::HookQueue;
+    let mut digest = DueDigest::start("digest-invalid-queue", live_owner(), true, false);
+    let queue = HookQueue::open(&digest.fixture.state().join("tmt.db"), Duration::ZERO).unwrap();
+    let _guard = queue.claim().unwrap();
+    let db = rusqlite::Connection::open(digest.fixture.state().join("hook-writes.db")).unwrap();
+    db.execute("INSERT INTO hook_writes(event_id,identity_id,kind,payload,enqueued_ms) VALUES('bad',?,'capture','{}',0)",[&digest.agent]).unwrap();
+    let delivered = digest.stop("a");
+    assert!(
+        delivered.contains("decision"),
+        "Digest should deliver after quarantine: {delivered}"
+    );
+    let receipt: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM invalid_hook_writes WHERE event_id='bad')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        receipt,
+        "the malformed row leaves a durable failure receipt"
+    );
+    assert!(
+        !db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM hook_writes WHERE event_id='bad')",
+            [],
+            |r| r.get::<_, bool>(0)
+        )
+        .unwrap()
+    );
 }
 
 #[test]

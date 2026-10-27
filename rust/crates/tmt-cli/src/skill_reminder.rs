@@ -63,6 +63,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::Learn { .. }
                 | Invocation::Install { .. }
                 | Invocation::Setup { .. }
+                | Invocation::HookFlush { .. }
                 | Invocation::ProviderHook { .. }
                 | Invocation::DigestHook { .. }
                 | Invocation::Upgrade { .. }
@@ -110,6 +111,7 @@ pub fn works_with_hosts(invocation: &Invocation) -> bool {
             | Invocation::CompletionScript(_)
             | Invocation::Complete(_)
             | Invocation::Driver(_)
+            | Invocation::HookFlush { .. }
             | Invocation::ProviderHook { .. }
             | Invocation::DigestHook { .. }
             | Invocation::ReplyNoticeWorker { .. }

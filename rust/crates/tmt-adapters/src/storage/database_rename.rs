@@ -273,7 +273,13 @@ mod tests {
         assert_eq!(version, Storage::compiled_schema().version);
         assert_eq!(
             names(&directory.path),
-            [DATABASE, "tmt.db-shm", "tmt.db-wal", FORMER_DATABASE],
+            [
+                "hook-writes.db",
+                DATABASE,
+                "tmt.db-shm",
+                "tmt.db-wal",
+                FORMER_DATABASE
+            ],
             "journals live under the new name; none is created beside the link"
         );
         drop(held);

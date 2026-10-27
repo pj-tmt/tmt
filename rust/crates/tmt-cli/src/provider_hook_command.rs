@@ -78,9 +78,6 @@ pub fn execute(
                 .unwrap_or(started)
         };
         work_deadline = deadline;
-        if let Some(learning) = &learning {
-            let _ = learning.stage(Step::Input, deadline);
-        }
         let input = read_stdin_bounded(
             deadline.saturating_duration_since(Instant::now()),
             tmt_adapters::runtime::hook_protocol::HOOK_INPUT_LIMIT,
@@ -88,6 +85,11 @@ pub fn execute(
         .map_err(|_| ())?;
         turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
         if let Some(learning) = &learning {
+            if turn_end || named_turn_end(input.as_bytes()) {
+                learning.defer_stop();
+            } else {
+                let _ = learning.stage(Step::Input, deadline);
+            }
             // Only a lifecycle event can bind the launch; every other run keeps what an earlier
             // run stored for it (see `Learning::set_role`).
             let role = hook_role(lifecycle, input.as_bytes());
@@ -147,6 +149,11 @@ pub fn execute(
             );
         }
     }
+    if (worker || failed)
+        && let Some(learning) = &learning
+    {
+        learning.enqueue_terminal(diagnostic_deadline);
+    }
     match result {
         Ok(mut observation) => {
             if worker {
@@ -183,6 +190,11 @@ pub fn execute(
 /// What a hook payload can do to its launch. Only a lifecycle event can bind it, by its name even
 /// when no decoder accepts the payload (that refusal is the launch's own, #5016); a turn, prompt
 /// or activity event cannot, and neither can a payload of no known event.
+fn named_turn_end(input: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(input)
+        .is_ok_and(|v| matches!(v["hook_event_name"].as_str(), Some("Stop" | "Interrupt")))
+}
+
 fn hook_role(lifecycle: &dyn RuntimeLifecycle, input: &[u8]) -> Role {
     let name = serde_json::from_slice::<serde_json::Value>(input)
         .ok()
@@ -314,135 +326,214 @@ fn observe_turn(
             .is_some_and(tmt_adapters::setup::usage_consented);
     // Only older payloads missing the final need the consented driver reader
     // before capture; optional usage never precedes capture of supplied text.
-    let mut failure = tmt_adapters::storage::CaptureFailure::Worker;
-    let pending = (|| -> Result<tmt_adapters::storage::TurnCaptureOutcome, ()> {
-        let Some(activity) = activity else {
-            return Ok(tmt_adapters::storage::TurnCaptureOutcome::NotApplicable);
+    let mut failure = tmt_adapters::storage::CaptureFailure::Storage;
+    let queued = (|| -> Result<bool, ()> {
+        // Some provider Stops have no activity event (for example Codex without
+        // a turn id), but their existing consented usage follow-up still runs.
+        let no_activity = tmt_adapters::runtime::hook_protocol::ActivityObservation {
+            event: tmt_core::binding::session::activity::Event {
+                kind: tmt_core::binding::session::activity::EventKind::TurnEnded,
+                turn: None,
+            },
+            model: None,
         };
         let fallback = if turn.final_text.is_none() && usage_on {
-            let environment = ProviderEnvironment::capture()
-                .map_err(|_| ())?
-                .with_data_root(&paths.global_dir);
-            lifecycle
-                .turn_observation(
-                    turn,
-                    &environment,
-                    remembered.state.as_ref(),
-                    tmt_adapters::request_runtime::wall_time_ms(),
-                    deadline,
-                )
-                .final_text
+            ProviderEnvironment::capture().ok().and_then(|environment| {
+                lifecycle
+                    .turn_observation(
+                        turn,
+                        &environment.with_data_root(&paths.global_dir),
+                        remembered.state.as_ref(),
+                        tmt_adapters::request_runtime::wall_time_ms(),
+                        deadline,
+                    )
+                    .final_text
+            })
         } else {
             None
         };
         let response = kept_answer(capture_on, Some(fallback), turn.final_text.as_ref())
             .map(|text| tmt_adapters::storage::ResponseCapture { text });
-        failure = tmt_adapters::storage::CaptureFailure::Storage;
-        let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
-        let committed = storage.capture_turn_end(tmt_adapters::storage::TurnCapture {
+        let follow_up = tmt_adapters::storage::hook_queue::CaptureFollowUp {
+            usage: usage_on && mode == TurnMode::Full,
+            transcript: turn.transcript.clone(),
+            learning: run.learning.map(Learning::queued),
+        };
+        let capture = tmt_adapters::storage::TurnCapture {
             expected: &stored,
             process: &process,
-            activity,
+            activity: activity.unwrap_or(&no_activity),
             response,
             interrupted: turn.interrupted,
             now_ms: tmt_adapters::request_runtime::wall_time_ms(),
             deadline,
-        });
-        let closed = storage.close();
-        committed
-            .and_then(|value| closed.map(|()| value))
-            .map_err(|_| ())
-    })();
-    let captured = match pending {
-        Ok(
-            tmt_adapters::storage::TurnCaptureOutcome::Committed
-            | tmt_adapters::storage::TurnCaptureOutcome::Duplicate,
-        ) => true,
-        Ok(tmt_adapters::storage::TurnCaptureOutcome::NoAdmittedStart) => {
-            run.stopped(Stop::NoAdmittedStart);
-            false
+        };
+        let prepared = tmt_adapters::storage::hook_queue::CaptureEvent::prepare(
+            &paths.database,
+            &capture,
+            follow_up,
+        );
+        let Ok(event) = prepared else {
+            return Ok(false);
+        };
+        let mut event = if activity.is_none() {
+            event.usage_only()
+        } else {
+            event
+        };
+        // A refused interrupt has no final, usage or terminal observation to
+        // retain. Keep its existing guarantee of leaving durable state unchanged.
+        if event.interrupted()
+            && event.admission() != tmt_adapters::storage::hook_queue::CaptureResult::Committed
+        {
+            return Ok(false);
         }
-        Ok(tmt_adapters::storage::TurnCaptureOutcome::NotApplicable) => false,
+        let wait = deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(500));
+        let captured =
+            match tmt_adapters::storage::hook_queue::HookQueue::open(&paths.database, wait) {
+                Ok(queue) => {
+                    queue.enqueue(&event).map_err(|_| ())?;
+                    let _ = queue.start_flusher(deadline);
+                    matches!(
+                        event.admission(),
+                        tmt_adapters::storage::hook_queue::CaptureResult::Committed
+                            | tmt_adapters::storage::hook_queue::CaptureResult::Duplicate
+                    )
+                }
+                Err(error) if error.code == StorageErrorCode::IncompatibleSchema => {
+                    // Approved compatibility boundary: main must still be current.
+                    // A missing/incompatible queue retains today's bounded direct
+                    // capture path; hooks never initialize either database.
+                    let mut storage =
+                        Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+                    let outcome = if activity.is_some() {
+                        storage.capture_turn_end(capture)
+                    } else {
+                        Ok(tmt_adapters::storage::TurnCaptureOutcome::NotApplicable)
+                    };
+                    let closed = storage.close();
+                    let outcome = outcome
+                        .and_then(|value| closed.map(|()| value))
+                        .map_err(|_| ())?;
+                    let result = tmt_adapters::storage::hook_queue::CaptureResult::from(outcome);
+                    if outcome == tmt_adapters::storage::TurnCaptureOutcome::Committed {
+                        let _ = event.adopt_direct_batch(&paths.database);
+                    }
+                    flush_capture_follow_up(&paths, &event, result, deadline);
+                    matches!(
+                        outcome,
+                        tmt_adapters::storage::TurnCaptureOutcome::Committed
+                            | tmt_adapters::storage::TurnCaptureOutcome::Duplicate
+                    )
+                }
+                Err(_) => return Err(()),
+            };
+        if let Some(learning) = run.learning {
+            learning.capture_queued();
+        }
+        Ok(captured)
+    })();
+    let captured = match queued {
+        Ok(queued) => queued,
         Err(()) => {
             if Instant::now() >= deadline {
                 failure = tmt_adapters::storage::CaptureFailure::Budget;
             }
-            if let Ok(mut storage) = Storage::open_hook(&paths.database, deadline) {
-                let _ = storage.record_capture_failure(
-                    &stored,
-                    failure,
-                    tmt_adapters::request_runtime::wall_time_ms(),
-                    deadline,
-                );
-                let _ = storage.close();
-            }
+            // Queue failure diagnostics are best effort and never wait on the
+            // main writer. A successful enqueue never enters this path.
+            let _ = Storage::try_capture_failure(&paths.database, &stored, failure, deadline);
             return Err(TurnFailure::CaptureFailed);
         }
     };
-    // A Stop without a new activity transition still refreshes consented usage.
-    // A fresh snapshot preserves any committed Idle state. Sampling is optional:
-    // no failure here can roll back or discard the final already retained.
-    if usage_on && mode == TurnMode::Full {
-        let _ = (|| -> Result<(), ()> {
-            let refreshed = Storage::context_by_identity(
-                &paths.database,
-                &binding.identity_id,
-                tmt_adapters::request_runtime::wall_time_ms(),
-            )
-            .map_err(|_| ())?
-            .ok_or(())?;
-            if refreshed.entry.binding.as_ref() != Some(binding) {
-                return Err(());
-            }
-            let previous = refreshed.preferences.remembered.as_ref().ok_or(())?;
-            if previous.harness != remembered.harness
-                || previous.provider_session != remembered.provider_session
-            {
-                return Err(());
-            }
-            let environment = ProviderEnvironment::capture()
-                .map_err(|_| ())?
-                .with_data_root(&paths.global_dir);
-            let now_ms = tmt_adapters::request_runtime::wall_time_ms();
-            let observation = lifecycle.turn_observation(
-                turn,
-                &environment,
-                previous.state.as_ref(),
-                now_ms,
-                deadline,
-            );
-            let consumption = observation
-                .state
-                .as_ref()
-                .and_then(|state| lifecycle.sampled_consumption(state, &environment));
-            let locator = turn.transcript.as_ref().and_then(|path| {
-                lifecycle.consumption_locator(
-                    serde_json::json!({"transcript_path":path})
-                        .to_string()
-                        .as_bytes(),
-                    &environment,
-                )
-            });
-            commit_observation(
-                &paths,
-                &refreshed,
-                observation.state,
-                Some(ConsumptionReading {
-                    locator,
-                    consumption,
-                    now_ms,
-                }),
-                None,
-                None,
-                deadline,
-            )?;
-            Ok(())
-        })();
-    }
     Ok(Observation {
         context: String::new(),
         workspace: captured.then(|| binding.server.clone()),
     })
+}
+
+/// Optional Stop follow-up runs only after the final and its receipt commit.
+pub(crate) fn flush_capture_follow_up(
+    paths: &ConfigPaths,
+    event: &tmt_adapters::storage::hook_queue::CaptureEvent,
+    result: tmt_adapters::storage::hook_queue::CaptureResult,
+    deadline: Instant,
+) {
+    if !event.is_current_batch(&paths.database).unwrap_or(false) {
+        return;
+    }
+    if let Some(learning) = &event.follow_up.learning {
+        Learning::apply_queued(learning, event, result, deadline);
+    }
+    if !event.follow_up.usage || event.interrupted() {
+        return;
+    }
+    let _ = (|| -> Result<(), ()> {
+        let provider = event.provider().ok_or(())?;
+        if !tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::usage_consented)
+        {
+            return Ok(());
+        }
+        let harness = HarnessId::new(provider).map_err(|_| ())?;
+        let registry = RuntimeRegistry::first_party();
+        let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+        let refreshed = event
+            .follow_up_context(&paths.database)
+            .map_err(|_| ())?
+            .ok_or(())?;
+        let previous = refreshed.preferences.remembered.as_ref().ok_or(())?;
+        if previous.harness != harness
+            || previous.provider_session.as_str() != event.session().ok_or(())?
+        {
+            return Ok(());
+        }
+        let turn = TurnEnd {
+            session: previous.provider_session.clone(),
+            transcript: event.follow_up.transcript.clone(),
+            final_text: None,
+            interrupted: false,
+        };
+        let environment = ProviderEnvironment::capture()
+            .map_err(|_| ())?
+            .with_data_root(&paths.global_dir);
+        let now_ms = tmt_adapters::request_runtime::wall_time_ms();
+        let observation = lifecycle.turn_observation(
+            &turn,
+            &environment,
+            previous.state.as_ref(),
+            now_ms,
+            deadline,
+        );
+        let consumption = observation
+            .state
+            .as_ref()
+            .and_then(|state| lifecycle.sampled_consumption(state, &environment));
+        let locator = turn.transcript.as_ref().and_then(|path| {
+            lifecycle.consumption_locator(
+                serde_json::json!({"transcript_path":path})
+                    .to_string()
+                    .as_bytes(),
+                &environment,
+            )
+        });
+        commit_observation(
+            paths,
+            &refreshed,
+            observation.state,
+            Some(ConsumptionReading {
+                locator,
+                consumption,
+                now_ms,
+            }),
+            None,
+            None,
+            deadline,
+        )?;
+        Ok(())
+    })();
 }
 
 /// Blocking feedback is downstream of the observer's single capture entry.
@@ -994,6 +1085,15 @@ fn observe(
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
     let activity = lifecycle.decode_activity(input.as_bytes());
+    if lifecycle.decode_turn(input.as_bytes()).is_none()
+        && !named_turn_end(input.as_bytes())
+        && let Ok(paths) = ConfigPaths::discover()
+        && tmt_adapters::storage::hook_queue::HookQueue::exists(&paths.database)
+        && let Ok(mut storage) = Storage::open_hook(&paths.database, deadline)
+    {
+        let _ = storage.ingest_pending_hook_captures();
+        let _ = storage.close();
+    }
     // Notification observers receive non-permission notifications too. Declared
     // activity-only events that carry no admitted main event are quiet no-ops.
     let event_name = serde_json::from_str::<serde_json::Value>(input)
@@ -1809,16 +1909,17 @@ fn observe_main_event(
         .as_ref()
         .and_then(|(state, _)| state.as_ref())
         .or(previous);
-    let next = activity
-        .and_then(|event| {
-            lifecycle.activity_state(
-                event,
-                session,
-                &process,
-                observed,
-                tmt_adapters::request_runtime::wall_time_ms(),
-            )
-        })
+    let activity_next = activity.and_then(|event| {
+        lifecycle.activity_state(
+            event,
+            session,
+            &process,
+            observed,
+            tmt_adapters::request_runtime::wall_time_ms(),
+        )
+    });
+    let next = activity_next
+        .clone()
         .or_else(|| reading.as_ref().and_then(|(state, _)| state.clone()));
     // An admitted turn start carries the prompt the provider is about to run; a passthrough
     // typed with that text is bound to this turn.
@@ -1828,13 +1929,17 @@ fn observe_main_event(
         })
         .and(payload)
         .and_then(|bytes| lifecycle.decode_prompt_text(bytes));
-    let boundary = prompt
-        .as_deref()
-        .map(|prompt| tmt_adapters::storage::TurnBoundary::Started {
-            turn: activity
-                .and_then(|activity| activity.event.turn.as_ref())
-                .map(ProviderSessionId::as_str),
-            prompt,
+    let boundary = activity
+        .filter(|event| {
+            event.event.kind == tmt_core::binding::session::activity::EventKind::TurnStarted
+        })
+        .filter(|_| activity_next.is_some())
+        .map(|event| {
+            let turn = event.event.turn.as_ref().map(ProviderSessionId::as_str);
+            match prompt.as_deref() {
+                Some(prompt) => tmt_adapters::storage::TurnBoundary::Started { turn, prompt },
+                None => tmt_adapters::storage::TurnBoundary::StartedWithoutPrompt { turn },
+            }
         });
     if (next.is_some() || reading.is_some())
         && !commit_observation(

@@ -19,7 +19,7 @@ mod session;
 
 const IDENTITY_COLUMNS: &str =
     "i.id, i.name, i.canonical_name, i.lifetime, i.created_at, i.updated_at";
-const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
+pub(super) const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
     b.server_pid, b.server_start_time, b.pane_pid, b.runtime_state, b.last_transition, \
     b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, \
     b.launch_owner_pid, b.launch_owner_start_identity, b.transport, b.pane_incarnation, b.runtime_start_refusal";

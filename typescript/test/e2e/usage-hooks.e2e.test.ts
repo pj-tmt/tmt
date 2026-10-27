@@ -100,8 +100,14 @@ async function runScenario(fixture: E2EFixture, provider: Provider, historyBasel
     args: ['__hook', provider.name],
     input: { session_id: session, ...input },
   });
-  const stop = (transcriptPath: string | null, id = session) =>
-    hook({ hook_event_name: 'Stop', session_id: id, transcript_path: transcriptPath });
+  const stop = (transcriptPath: string | null, id = session) => ({
+    ...hook({ hook_event_name: 'Stop', session_id: id, transcript_path: transcriptPath }),
+    waitForFlush: {
+      node: process.execPath,
+      script: path.resolve('test/support/wait-hook-flush.mjs'),
+      directory: fixture.globalDir,
+    },
+  });
   const list = { args: ['ls', '--json'] };
   const scenario = path.join(fixture.root, `${provider.name}-usage.json`);
   const report = path.join(fixture.root, `${provider.name}-usage-report.json`);
@@ -147,6 +153,7 @@ async function runScenario(fixture: E2EFixture, provider: Provider, historyBasel
     .map(quote)
     .join(' ');
   const pane = fixture.createShellPane(`${provider.name}-usage`).pane;
+  fixture.watchHookFailures(pane);
   fixture.tmux(['send-keys', '-t', pane, '-l', command]);
   fixture.tmux(['send-keys', '-t', pane, 'Enter']);
   const historySeed = () => {

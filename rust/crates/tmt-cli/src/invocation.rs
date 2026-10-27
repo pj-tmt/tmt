@@ -258,6 +258,9 @@ pub enum Invocation {
         worker: bool,
         work_budget_ms: Option<u64>,
     },
+    HookFlush {
+        log_id: String,
+    },
     ReplyNoticeWorker {
         batch_id: String,
         log_id: String,

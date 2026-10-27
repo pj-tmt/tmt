@@ -18,7 +18,16 @@ struct Step {
     input: Option<serde_json::Value>,
     #[serde(default)]
     measure: bool,
+    #[serde(default, rename = "waitForFlush")]
+    wait_for_flush: Option<FlushWait>,
     checkpoint: Option<std::path::PathBuf>,
+}
+
+#[derive(Deserialize)]
+struct FlushWait {
+    node: std::path::PathBuf,
+    script: std::path::PathBuf,
+    directory: std::path::PathBuf,
 }
 
 fn main() {
@@ -106,6 +115,82 @@ fn main() {
         drop(child.stdin.take());
         let output = child.wait_with_output().expect("reap fixture-owned CLI");
         let elapsed_ms = started.map(|start| start.elapsed().as_secs_f64() * 1000.0);
+        if let Some(wait) = step.wait_for_flush {
+            let result = Command::new(wait.node)
+                .arg(wait.script)
+                .arg(&wait.directory)
+                .arg(tmt_adapters::storage::hook_queue::QUEUE_SCHEMA_VERSION.to_string())
+                .output();
+            let (success, stderr) = match result {
+                Ok(output) => (
+                    output.status.success(),
+                    String::from_utf8_lossy(&output.stderr).into_owned(),
+                ),
+                Err(error) => (false, error.to_string()),
+            };
+            if !success {
+                let stderr = stderr
+                    .chars()
+                    .rev()
+                    .take(8192)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>();
+                let queue = rusqlite::Connection::open_with_flags(
+                    wait.directory.join("hook-writes.db"),
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )
+                .ok();
+                let pending = queue.as_ref().and_then(|db| {
+                    db.query_row("SELECT count(*) FROM hook_writes", [], |r| {
+                        r.get::<_, i64>(0)
+                    })
+                    .ok()
+                });
+                let directory_entries = fs::read_dir(&wait.directory);
+                let logs_readable = directory_entries.is_ok();
+                let mut logs = directory_entries
+                    .ok()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|path| {
+                        path.file_name().is_some_and(|name| {
+                            let name = name.to_string_lossy();
+                            name.starts_with("hook-flush-") && name.ends_with(".log")
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                logs.sort();
+                let tails = logs.iter().take(4).map(|path| {
+                    use std::io::{Read, Seek, SeekFrom};
+                    let tail = fs::File::open(path).and_then(|mut file| {
+                        let length = file.metadata()?.len();
+                        file.seek(SeekFrom::Start(length.saturating_sub(8192)))?;
+                        let mut bytes = Vec::new();
+                        file.take(8192).read_to_end(&mut bytes)?;
+                        Ok(String::from_utf8_lossy(&bytes).into_owned())
+                    }).unwrap_or_else(|error| format!("<unavailable: {error}>"));
+                    json!({"name":path.file_name().unwrap().to_string_lossy(),"stderrTail":tail})
+                }).collect::<Vec<_>>();
+                // The log is created before spawn; only the child's pid marker
+                // establishes that a flusher actually started.
+                let spawned = tails.iter().any(|entry| {
+                    entry["stderrTail"].as_str().is_some_and(|tail| {
+                        tail.lines().any(|line| line.starts_with("flusher_pid="))
+                    })
+                });
+                let evidence = json!({"error":stderr,"queueRows":pending,"flusherSpawned":if !logs_readable { "unknown" } else if spawned { "observed" } else { "not observed" },"flusherLogs":tails});
+                let target = wait.directory.join("hook-fixture-failure.json");
+                let temporary = wait.directory.join("hook-fixture-failure.pending");
+                fs::write(&temporary, serde_json::to_vec(&evidence).unwrap())
+                    .expect("write fixture failure evidence");
+                fs::rename(&temporary, &target).expect("publish fixture failure evidence");
+                panic!("queued Stop readiness failed: {evidence}");
+            }
+        }
         // External-host fixtures have no tmux caller variables or badge.
         let badge = std::env::var_os("TMUX_PANE").map_or_else(String::new, |pane| {
             let output = Command::new("tmux")

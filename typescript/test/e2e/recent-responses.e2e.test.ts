@@ -40,6 +40,14 @@ it.each(['claude', 'codex'] as const)(
         fs.symlinkSync(fixture.executables.cli.executable, path.join(bin, 'tmt'));
         const hook = (event: string, turn: string, text: string, id = session) => ({
           args: ['__hook', provider],
+          waitForFlush:
+            event === 'Stop'
+              ? {
+                  node: process.execPath,
+                  script: path.resolve('test/support/wait-hook-flush.mjs'),
+                  directory: fixture.globalDir,
+                }
+              : undefined,
           input: {
             hook_event_name: event,
             session_id: id,
@@ -61,7 +69,12 @@ it.each(['claude', 'codex'] as const)(
               : `final-${i}\r\nline\n`
         );
         const checkpoints = texts.map((_, i) => path.join(fixture.root, `before-stop-${i}`));
-        const steps: Array<{ args: string[]; input?: unknown; checkpoint?: string }> = [
+        const steps: Array<{
+          args: string[];
+          input?: unknown;
+          checkpoint?: string;
+          waitForFlush?: { node: string; script: string; directory: string };
+        }> = [
           { args: ['setup', provider, '--usage', '--yes', '--json'] },
           { args: ['name', 'Recent Reader', '-s', '--json'] },
           hook('SessionStart', 'start', ''),
@@ -102,6 +115,7 @@ it.each(['claude', 'codex'] as const)(
           .map(quote)
           .join(' ');
         const pane = fixture.createShellPane('recent-responses').pane;
+        fixture.watchHookFailures(pane);
         fixture.tmux(['send-keys', '-t', pane, '-l', command]);
         fixture.tmux(['send-keys', '-t', pane, 'Enter']);
         for (let i = 0; i < texts.length; i++) {

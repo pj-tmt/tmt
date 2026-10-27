@@ -13,6 +13,7 @@ const BOOKKEEPING: &[&str] = &[
     "change_cursor",
     "usage_cursor",
     "extension_storage_cutovers",
+    "hook_capture_receipts",
 ];
 
 /// The sampler's tables: their writes are telemetry, not a change the board reloads for.

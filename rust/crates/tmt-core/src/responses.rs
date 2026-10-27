@@ -55,6 +55,22 @@ impl FinalText {
             original_bytes: text.len(),
         })
     }
+    /// Admit already bounded durable text without losing its truncation provenance.
+    pub fn from_kept(text: &str, original_bytes: usize) -> Option<Self> {
+        if text.is_empty()
+            || original_bytes as u128 > crate::limits::MAX_JS_SAFE_INTEGER as u128
+            || text.len() > MAX_TEXT_BYTES
+            || original_bytes < text.len()
+            || (original_bytes > text.len() && text.len() < MAX_TEXT_BYTES - 3)
+        {
+            return None;
+        }
+        Some(Self {
+            text: text.into(),
+            truncated: original_bytes > text.len(),
+            original_bytes,
+        })
+    }
     pub fn text(&self) -> &str {
         &self.text
     }

@@ -12,6 +12,8 @@ fn historical_connection() -> Connection {
 #[test]
 fn blocked_commit_rolls_back_replacement_and_restores_enforcement() {
     let directory = crate::test_support::TestDirectory::new();
+    // This raw migration fixture bypasses Storage::open's private-root admission.
+    super::super::secure_directory(&directory.path).unwrap();
     let path = directory.path.join("migration.db");
     let mut connection = Connection::open(&path).unwrap();
     seed_history(&mut connection);

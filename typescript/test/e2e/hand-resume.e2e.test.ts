@@ -7,7 +7,11 @@ import { withE2EFixture, type E2EFixture } from './harness.js';
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const oldSession = '11111111-1111-4111-8111-111111111111';
 const newSession = '22222222-2222-4222-8222-222222222222';
-type Step = { args: string[]; input?: unknown };
+type Step = {
+  args: string[];
+  input?: unknown;
+  waitForFlush?: { node: string; script: string; directory: string };
+};
 type Result = { code: number; stdout: string; stderr: string };
 
 // Same private pane through the public driver protocol, with no tmux operation
@@ -72,6 +76,7 @@ for (const host of ['tmux', 'external'] as const) {
         expect(created.code, created.stderr).toBe(0);
         const identityId = created.json!.identity.id;
         const pane = fixture.createShellPane('hand-resume');
+        fixture.watchHookFailures(pane.pane);
         if (host === 'external') await externalHost(fixture, pane.pid);
         const home = fixture.createWorkspace('provider-home');
         const stableBin = fixture.createWorkspace('stable-bin');
@@ -91,6 +96,14 @@ for (const host of ['tmux', 'external'] as const) {
         fs.writeFileSync(transcript, `${JSON.stringify(final)}\n`);
         const hook = (event: string, session = oldSession, source = 'startup'): Step => ({
           args: ['__hook', provider],
+          waitForFlush:
+            event === 'Stop'
+              ? {
+                  node: process.execPath,
+                  script: path.resolve('test/support/wait-hook-flush.mjs'),
+                  directory: fixture.globalDir,
+                }
+              : undefined,
           input: {
             hook_event_name: event,
             session_id: session,

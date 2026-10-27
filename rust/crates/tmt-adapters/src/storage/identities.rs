@@ -201,6 +201,22 @@ pub(super) fn with_immediate_transaction<T, E>(
 where
     E: From<StorageError>,
 {
+    // Recovery is opportunistic: an independent queue failure cannot veto an
+    // explicit Core mutation. Digest uses its own strict pre-publication drain.
+    let _ = storage.ingest_pending_hook_captures();
+    commit_immediate_transaction(storage, operation_name, operation)
+}
+
+/// Queue ingestion, its fenced terminal diagnostic and its failure recorder
+/// must not recursively recover the queue they are committing or diagnosing.
+pub(super) fn commit_immediate_transaction<T, E>(
+    storage: &mut Storage,
+    operation_name: &str,
+    operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<StorageError>,
+{
     let connection = storage.connection.as_mut().ok_or_else(|| {
         E::from(StorageError::new(
             StorageErrorCode::Closed,

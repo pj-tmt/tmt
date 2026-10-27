@@ -39,6 +39,8 @@ mod send_now;
 mod stop;
 #[path = "external_host/stop_capture.rs"]
 mod stop_capture;
+#[path = "external_host/stop_queue.rs"]
+mod stop_queue;
 #[allow(dead_code)]
 mod support;
 #[path = "external_host/unrecoverable_session.rs"]
@@ -1008,6 +1010,47 @@ fn named(fixture: &Fixture) -> Vec<Value> {
 }
 
 /// Waits, with a bound, until `ready` holds.
+fn hook_ends_turn(payload: &Value) -> bool {
+    matches!(
+        payload["hook_event_name"].as_str(),
+        Some("Stop" | "Interrupt")
+    ) || payload.get("terminationReason").is_some()
+}
+
+fn wait_flushed(state: &std::path::Path) {
+    let path = state.join("hook-writes.db");
+    if !path.is_file() {
+        return;
+    }
+    let db =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let version: u32 = db
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    if version != tmt_adapters::storage::hook_queue::QUEUE_SCHEMA_VERSION {
+        return;
+    } // Compatible-main fallback leaves an incompatible queue untouched.
+    wait_until(
+        "the finite Stop flusher commits and acknowledges its queue",
+        || {
+            db.query_row("SELECT count(*) FROM hook_writes", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .is_ok_and(|n| n == 0)
+        },
+    );
+    wait_until("successful flushers remove their own logs", || {
+        fs::read_dir(state).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("hook-flush-")
+        })
+    });
+}
+
 fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while !ready() {
@@ -1857,6 +1900,9 @@ fn hook_with(
         release: hooked.with_extension("release"),
     };
     wait_until("the hook", || hooked.with_extension("done").exists());
+    if serde_json::from_str::<Value>(event).is_ok_and(|v| hook_ends_turn(&v)) {
+        wait_flushed(&fixture.state());
+    }
     running();
     fs::write(&provider.release, "").unwrap();
     let status = provider.child.wait().unwrap();
@@ -2258,6 +2304,16 @@ impl SteppedProvider {
 
     /// `hook` with these variables exported for that hook only.
     fn hook_with_env(&mut self, payload: Value, env: &[(&str, &[u8])]) -> (i32, String, String) {
+        let turn_end = hook_ends_turn(&payload);
+        let output = self.hook_command(payload, env);
+        if turn_end {
+            wait_flushed(&self.steps.parent().unwrap().join("state"));
+        }
+        output
+    }
+    /// Provider command completion only, for queue/barrier scenarios that
+    /// deliberately keep the detached flusher from finishing.
+    fn hook_command(&mut self, payload: Value, env: &[(&str, &[u8])]) -> (i32, String, String) {
         let step = self.steps.join(self.next.to_string());
         if !env.is_empty() {
             let mut lines = Vec::new();

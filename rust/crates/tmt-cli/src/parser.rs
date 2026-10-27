@@ -263,6 +263,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             },
             yes: flag(m, "yes"),
         },
+        ["__flush"] => Invocation::HookFlush { log_id:required(m,"log-id") },
         ["__consumption-sample"] => Invocation::ConsumptionSample,
         ["__allowance"] => Invocation::AllowancePush {
             provider: text(m, "provider").expect("required provider"),

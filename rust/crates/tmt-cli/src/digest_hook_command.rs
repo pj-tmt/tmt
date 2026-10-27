@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
+    config::ConfigPaths,
     digest,
     process::{
         CommandFailure, CommandRequest, CommandRunner, SupervisedProbeRunner, UnixCommandRunner,
@@ -68,11 +69,13 @@ pub fn execute(
                 deadline,
             )
             .map_err(&mut refuse)?;
+            let paths = ConfigPaths::discover().map_err(|_| ())?;
+            let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
             let supplied = scope
                 .map(serde_json::from_str::<HookLaunch>)
                 .transpose()
                 .map_err(|_| refuse(DigestStop::LaunchArgument))?;
-            let (launch, paths, stored) = crate::provider_hook_command::verified_digest_launch(
+            let (launch, _, stored) = crate::provider_hook_command::verified_digest_launch(
                 provider,
                 lifecycle,
                 supplied.as_ref(),
@@ -81,7 +84,9 @@ pub fn execute(
                 SupervisedProbeRunner,
             )
             .map_err(&mut refuse)?;
-            let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+            storage
+                .ingest_pending_hook_captures_for_identity(&launch.identity_id)
+                .map_err(|_| ())?;
             let Some(through) = digest::fitting_through(
                 &mut storage,
                 &launch.identity_id,

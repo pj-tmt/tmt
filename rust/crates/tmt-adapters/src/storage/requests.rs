@@ -61,6 +61,7 @@ impl Storage {
 struct RequestRows<'a>(
     &'a Connection,
     Option<&'a super::orchestration::ReceivingCalendar>,
+    Option<&'a std::cell::Cell<Option<(u64, u64)>>>,
 );
 
 /// A caller-owned SQLite transaction can compose canonical request operations
@@ -77,7 +78,7 @@ impl RequestRepository for TransactionRequests<'_, '_> {
         &mut self,
         operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
     ) -> Result<T, E> {
-        operation(&mut RequestRows(self.0, Some(self.1)))
+        operation(&mut RequestRows(self.0, Some(self.1), None))
     }
 }
 
@@ -1524,6 +1525,9 @@ impl RequestRecords for RequestRows<'_> {
             )
             .map_err(|error| classify(error, "Delete retained requests"))?;
         digest::prune_settled(self.0, settled_cutoff_ms, limit)?;
+        if let Some(retention) = self.2 {
+            retention.set(Some((now_ms, limit)));
+        }
         // Retention is the regular writer that frees pages; it also returns a
         // bounded number of them to the filesystem once the database uses
         // incremental auto-vacuum (#5036). Reclaiming is best effort: a failure
@@ -1542,9 +1546,22 @@ impl RequestRepository for Storage {
         operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
     ) -> Result<T, E> {
         let calendar = super::orchestration::ReceivingCalendar::load(self.connection()?)?;
-        with_immediate_transaction(self, "request", |transaction| {
-            operation(&mut RequestRows(transaction, Some(&calendar)))
-        })
+        let retention = std::cell::Cell::new(None);
+        let result = with_immediate_transaction(self, "request", |transaction| {
+            operation(&mut RequestRows(
+                transaction,
+                Some(&calendar),
+                Some(&retention),
+            ))
+        });
+        if result.is_ok()
+            && let Some((now, limit)) = retention.get()
+        {
+            // A short, independent zero-wait maintenance transaction follows
+            // the request commit. It never lengthens the request's queue lock.
+            let _ = self.prune_hook_receipts(now, limit);
+        }
+        result
     }
 
     fn with_request_observation<T, E: From<Self::Error>>(
@@ -1561,7 +1578,7 @@ impl RequestRepository for Storage {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Deferred)
             .map_err(|error| E::from(classify(error, "Begin request observation transaction")))?;
-        let result = operation(&mut RequestRows(&transaction, Some(&calendar)))?;
+        let result = operation(&mut RequestRows(&transaction, Some(&calendar), None))?;
         transaction
             .commit()
             .map_err(|error| E::from(classify(error, "Commit request observation transaction")))?;

@@ -99,7 +99,15 @@ fn remove_if_same_file(path: &Path, open: &File) -> io::Result<bool> {
 /// The child must call enter, initialize its bounded work, then ready. Until
 /// that acknowledgment the parent retains kill/reap responsibility.
 pub fn start(program: &OsStr, args: &[OsString], log: File) -> io::Result<()> {
-    start_acknowledged(program, args, log, b"R", false).map(|_| ())
+    start_acknowledged(
+        program,
+        args,
+        log,
+        b"R",
+        false,
+        Instant::now() + Duration::from_secs(3),
+    )
+    .map(|_| ())
 }
 
 /// A member supervisor acknowledges its bounded startup with one complete line.
@@ -111,7 +119,24 @@ pub(crate) fn start_line(
     log: File,
     prefix: &[u8],
 ) -> io::Result<Vec<u8>> {
-    start_acknowledged(program, args, log, prefix, true)
+    start_acknowledged(
+        program,
+        args,
+        log,
+        prefix,
+        true,
+        Instant::now() + Duration::from_secs(3),
+    )
+}
+
+/// Hook startup shares the original supervised deadline.
+pub fn start_until(
+    program: &OsStr,
+    args: &[OsString],
+    log: File,
+    deadline: Instant,
+) -> io::Result<()> {
+    start_acknowledged(program, args, log, b"R", false, deadline).map(|_| ())
 }
 
 fn start_acknowledged(
@@ -120,6 +145,7 @@ fn start_acknowledged(
     log: File,
     prefix: &[u8],
     line: bool,
+    deadline: Instant,
 ) -> io::Result<Vec<u8>> {
     let mut job = Exec::cmd(program)
         .args(args)
@@ -132,7 +158,6 @@ fn start_acknowledged(
             .stdout
             .as_mut()
             .ok_or_else(|| io::Error::other("Missing startup pipe"))?;
-        let deadline = Instant::now() + Duration::from_secs(3);
         let mut acknowledgment = Vec::new();
         loop {
             let remaining = deadline

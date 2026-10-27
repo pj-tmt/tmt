@@ -378,17 +378,58 @@ I/O occurs in the holding transaction. `api::digest` and the Digest adapter proj
 the trusted local consumer seam; the owning local API contract defines stats,
 legacy-counter provenance and the difference between idle and turn-boundary eligibility.
 
-`storage::responses::capture` owns the final's activity transition under the binding/session/process
-fence, recomputing from current activity so a usage-only writer cannot discard the final or be
-reverted. Antigravity, Claude and Codex payload finals commit before optional telemetry and before Digest can block. A missing
-payload final may use the existing consented driver reader; usage failure cannot roll back a kept
-answer. Both hooks use this capture entry point, so a normal Stop is retained once regardless of
-hook order. Inapplicable capture leaves Digest's independent launch verification unchanged;
-a capture failure for a verified current caller defers its publication. Interrupted and stale events retain nothing.
+`storage::hook_queue` owns the independently versioned, private WAL `hook-writes.db`.
+Core initialization provisions it under the existing main initialization writer,
+before publishing the receipt migration; ordinary opens repair a missing queue,
+leaving incompatible existing queues untouched. Hooks only open/check the queue;
+they never create it or run `PRAGMA journal_mode`. Main schema admission remains
+fail-closed. With an otherwise compatible main store, a missing/incompatible queue
+keeps the previous bounded direct capture path. With a compatible queue, Stop
+verifies caller/binding/session/process authority in a read-only snapshot and queues
+its final, captured input batch and minimal metadata without taking the main writer. The final remains bounded to 16 KiB; the encoded event is limited to
+128 KiB. Supplied text is queued before optional telemetry; missing text may use the
+existing consented reader.
+
+The CLI's finite `__flush` worker uses the detached process owner and a stable nonblocking
+flock. SQLite `busy_timeout` is its only writer wait: no polling, timer or resident daemon.
+It never holds the queue writer while waiting for Core. Its empty handoff releases the
+flock inside the queue writer transaction, before producers can append, preventing a
+lost wakeup. The common Core writer boundary opportunistically ingests a bounded capture prefix
+and notifies the same finite worker after a crash; recovery errors cannot veto an
+explicit mutation. Read-only observations and timeline calls do not ingest. Digest ingests the
+verified identity's pending captures before reading its claim snapshot; unrelated backlog cannot
+block its continuation. Invalid queue rows are atomically removed with a content-free durable
+queue failure receipt, so they cannot poison the flusher or another identity.
+
+A main transaction commits capture plus its UUID receipt; queue acknowledgment follows.
+Receipts are content-free bookkeeping excluded from board change-cursor triggers and
+retained for 30 days and while their event remains queued. Request housekeeping holds the
+queue writer without waiting while it commits the bounded receipt cleanup, and skips that
+cleanup when the queue is busy. Old invalid receipts and closed or expired, unqueued provisional
+reservations are pruned in the same bounded housekeeping. The recorded batch owns final placement:
+a newer prompt or rebind cannot lose the final or have its activity/turn state changed.
+Ordinary Stop duplicates dedupe in that batch; separate continuations retain separate
+ids. A pre-upgrade turn without a batch gets a provisional id; queue serialization
+shares it across Stops even after acknowledgment, and ingestion creates it without
+displacing a newer turn. Retirement or a missing previously recorded batch leaves a
+durable failure receipt. On the queued path, append failure alone projects a capture-failure caption;
+committed queue work remains pending after a flusher failure. `storage::responses::capture` retains the direct synchronous adapter for
+the bounded compatibility fallback. Interrupted events retain no final.
+
+After capture commits, the flusher owns only the existing Stop consented usage sampling
+and `commit_observation`, preserving consent and transcript-source fences. Failures remain
+silent optional telemetry. Stop skips transient launch-learning progress writes and carries
+its terminal diagnostic in the same capture event; the flusher retains the existing launch
+and owner checks. Its batch fence is checked inside the diagnostic transaction, so a
+new prompt cannot have an old warning restored. Optional usage reads the original
+binding fence and fresh preferences in one snapshot before its existing CAS; optional
+metadata cannot crowd the supplied final out of the bounded event. Other hooks,
+activity/usage and session-learning producers keep their existing policies.
 
 `storage::capture_batches` stores correlation and committed ordering over existing request and
-response bodies. An admitted prompt creates the input batch; verified folded deliveries and
-Digest continuation inputs join it. Shared checklist and transport claims reserve invisible
+response bodies. Each admitted turn start creates the input batch, even when the
+provider supplies no prompt text; verified folded deliveries and Digest continuation
+inputs join it. Shared checklist and transport claims reserve invisible
 input positions before publication; explicit prompt confirmation joins idle inputs to their new batch. Every final has its own response id; a passthrough keeps its
 first answer's id. Later finals share the batch without replacing that answer. Session/binding
 changes never transfer batch authority. `api::timeline` reads the ordered storage projection;

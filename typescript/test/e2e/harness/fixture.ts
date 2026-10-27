@@ -72,6 +72,7 @@ export class E2EFixture {
   private env: NodeJS.ProcessEnv = {};
   private panePids: number[] = [];
   private attachedClients: ReturnType<typeof spawn>[] = [];
+  private hookFailureWatches: Array<{ watcher: fs.FSWatcher; report: () => void }> = [];
   private cliProcessPids = new Set<number>();
   private cliProcessResults = new Map<number, Promise<CliResult<unknown>>>();
 
@@ -725,6 +726,28 @@ exit ${'$'}status
     this.env.TMT_E2E_METADATA_BARRIER_OPERATION = options.operation ?? 'publish';
   }
 
+  /** Print owned pane and waiter evidence as soon as a hook readiness failure is published. */
+  watchHookFailures(pane: string): void {
+    const evidence = path.join(this.globalDir, 'hook-fixture-failure.json');
+    let printed = false;
+    const report = () => {
+      if (printed || !fs.existsSync(evidence)) return;
+      printed = true;
+      try {
+        console.error(`Hook readiness evidence: ${fs.readFileSync(evidence, 'utf8')}`);
+        console.error(`Fixture pane:\n${this.capture(100, pane)}`);
+      } catch (error) {
+        console.error('Could not read hook readiness evidence or fixture pane:', error);
+      }
+    };
+    const watcher = fs.watch(this.globalDir, (_event, name) => {
+      if (!name || name.toString() === 'hook-fixture-failure.json') report();
+    });
+    watcher.on('error', (error) => console.error('Hook readiness evidence watcher failed:', error));
+    this.hookFailureWatches.push({ watcher, report });
+    report();
+  }
+
   /**
    * Remove everything this fixture owns, then throw one error that aggregates every
    * cleanup failure (a survivor, a timeout or an unknown process state). Files are
@@ -732,6 +755,11 @@ exit ${'$'}status
    * must not let this error replace it (see `withE2EFixture`).
    */
   async stop(): Promise<void> {
+    for (const { watcher, report } of this.hookFailureWatches) {
+      report();
+      watcher.close();
+    }
+    this.hookFailureWatches = [];
     const cliPids = [...this.cliProcessPids];
     const failures: Error[] = [];
     const recordCleanupError = (error: Error): void => {

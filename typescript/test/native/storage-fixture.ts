@@ -4,7 +4,7 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 // Independent process-test oracle; do not derive it from the runtime under test.
-export const EXPECTED_NATIVE_SCHEMA_VERSION = 83;
+export const EXPECTED_NATIVE_SCHEMA_VERSION = 84;
 
 export const FIXTURE_IDENTITY_ID = 'identity-known';
 export const FIXTURE_MISSING_IDENTITY_ID = 'identity-missing';
@@ -44,6 +44,7 @@ const PRIMARY_KEY_ORDER: Record<string, readonly string[]> = {
   _migrations: ['version'],
   bindings: ['id'],
   identities: ['id'],
+  hook_capture_receipts: ['event_id'],
   office_dispatch_operations: ['operation_id'],
   office_meeting_rooms: ['room_id'],
   office_meeting_members: ['room_id', 'identity_id'],

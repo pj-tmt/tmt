@@ -111,6 +111,8 @@ pub enum TurnBoundary<'a> {
         turn: Option<&'a str>,
         prompt: &'a str,
     },
+    /// An admitted turn start whose provider did not supply prompt text.
+    StartedWithoutPrompt { turn: Option<&'a str> },
     Ended {
         turn: Option<&'a str>,
         /// The end of a continuation after a Stop hook blocked the stop (#4858).
@@ -450,6 +452,13 @@ impl Storage {
                         super::requests::confirm_digest_by_prompt(connection, id, prompt, now)?;
                         // A new prompt means the continuation a Stop hook started is over.
                         super::requests::end_digest_continuation(connection, id, now)?;
+                    }
+                    TurnBoundary::StartedWithoutPrompt { turn } => {
+                        if binding.session.key.is_some() {
+                            super::capture_batches::begin(
+                                connection, binding, remembered, turn, now,
+                            )?;
+                        }
                     }
                     TurnBoundary::Ended { turn, continuation } => {
                         // Only the continuation's own Stop ends it; the Stop that was blocked
