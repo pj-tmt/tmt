@@ -178,6 +178,9 @@ struct Rendered {
     timeline_spans: Vec<timeline::BodySpan>,
     /// Requests whose input bodies were painted; retained provenance, not delivery evidence.
     timeline_inputs: Vec<String>,
+    /// Ids of the committed timeline entries painted, whatever their kind. Inputs keep both
+    /// lists: a legacy local send is an input body with a request but no entry.
+    timeline_entries: Vec<String>,
     feedback: Vec<(std::ops::Range<usize>, u64)>,
     /// What each displayed line was written as, for copying a selection as source.
     copy: copy::Map,
@@ -456,6 +459,7 @@ impl Session {
                 anchor_sources,
                 timeline_spans: transcript.timeline_spans,
                 timeline_inputs: transcript.timeline_inputs,
+                timeline_entries: transcript.timeline_entries,
                 feedback: transcript.feedback,
                 copy: transcript.copy,
                 note_sources: transcript.note_sources,
