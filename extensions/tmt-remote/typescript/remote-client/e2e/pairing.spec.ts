@@ -6167,7 +6167,9 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     await expect(tabs.getByRole('tab')).toHaveCount(5);
     await tabs.getByRole('tab', { name: 'People', exact: true }).click();
     await expect(page).toHaveURL(`${origin}/remote/members`);
-    await expect(page.locator('#invitation-status')).toContainText('Only a designated admin');
+    await expect(page.locator('#invitation-status')).toContainText(
+      'To confirm an invitation in a browser, use the owner browser',
+    );
     await expect(page.locator('#invitation-confirm')).toBeDisabled();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await tabs.getByRole('tab', { name: 'Locked · Service & upgrade', exact: true }).click();

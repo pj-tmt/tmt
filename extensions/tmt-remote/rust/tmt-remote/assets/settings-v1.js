@@ -3819,7 +3819,7 @@ async function settingsPage(shell, registry, initial) {
 		}
 		if (!mayInvite && invitationRoot && !ownerInvitations?.heldBy()) {
 			const status = invitationRoot.querySelector("#invitation-status");
-			if (status) status.textContent = page.access === "live" && people?.access === "live" && people.roster?.administrator === false ? "Only a designated admin can confirm an invitation. Use tmt remote members on this machine." : "Invitation access is unconfirmed. Use tmt remote members on this machine.";
+			if (status) status.textContent = page.access === "live" && people?.access === "live" && people.roster?.administrator === false ? "To confirm an invitation in a browser, use the owner browser set up on this machine. Use tmt remote members on this machine." : "Invitation access is unconfirmed. Use tmt remote members on this machine.";
 		}
 		ownerInvitations?.update();
 		peopleView?.render();
