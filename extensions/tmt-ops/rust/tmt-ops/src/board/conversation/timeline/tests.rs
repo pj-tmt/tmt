@@ -287,6 +287,90 @@ fn only_painted_reply_body_rows_expose_the_viewers_frozen_revision() {
     });
 }
 
+/// A document with the given entries and the answer `rsp_A`.
+fn document(entries: Vec<Value>) -> Value {
+    json!({"identityId":MEMBER,"entries":entries,
+        "responses":[response("rsp_A",A,NOW-1000)],
+        "coverage":{"olderDropped":false},"capture":{"enabled":true}})
+}
+fn in_batch(mut entry: Value, batch: &str) -> Value {
+    entry["inputBatchId"] = json!(batch);
+    entry
+}
+
+/// The header line above the answer reads `in turn` with its age and names no sender, and the answer's
+/// body row hands the writer exactly the viewer's frozen key.
+fn assert_unattributed_answer(app: &App, screen: &str) {
+    let headers: Vec<_> = screen.lines().filter(|l| l.contains("in turn")).collect();
+    assert_eq!(headers.len(), 1, "one block for the final: {screen}");
+    // An attributed final reads `in turn · <sender>`; this one goes straight to its age.
+    assert!(
+        headers[0].contains("in turn · 1s ago") && !screen.contains("in turn · core-1"),
+        "no sender attribution: {screen}"
+    );
+    let state = app.conversation.borrow();
+    let session = &state.sessions[state.active.as_ref().unwrap()];
+    let rendered = session.rendered.as_ref().unwrap();
+    let row = rendered
+        .mapped
+        .lines
+        .iter()
+        .position(|line| line.to_string().contains(A))
+        .unwrap();
+    let keys = session.painted_answers(app, MEMBER, row..row + 1);
+    assert_eq!(keys.len(), 1, "{screen}");
+    assert_eq!(keys[0].actor, VIEWER);
+    assert_eq!(keys[0].request, "person");
+    assert_eq!(keys[0].revision, Some(7));
+}
+
+#[test]
+fn a_final_in_a_batch_without_an_input_entry_renders_as_one_unattributed_block() {
+    crate::status::with_now_ms(NOW, || {
+        for width in [160, 80] {
+            let batch = in_batch(
+                final_entry("only", "rsp_A", VIEWER, "person", 7),
+                "batch-turn",
+            );
+            let app = setup(document(vec![batch]), false);
+            let screen = draw(&app, width);
+            assert_eq!(screen.matches(A).count(), 1, "width={width}: {screen}");
+            assert_unattributed_answer(&app, &screen);
+        }
+    });
+}
+
+#[test]
+fn a_late_final_of_an_older_batch_keeps_its_place_and_borrows_no_newer_sender() {
+    crate::status::with_now_ms(NOW, || {
+        for width in [160, 80] {
+            let entries = vec![
+                in_batch(input("person", VIEWER, "Ben", QUESTION), "batch-old"),
+                in_batch(input("digest", OTHER, "core-1", DIGEST), "batch-new"),
+                in_batch(
+                    final_entry("late", "rsp_A", VIEWER, "person", 7),
+                    "batch-old",
+                ),
+            ];
+            let app = setup(document(entries), false);
+            let screen = draw(&app, width);
+            let order = [QUESTION, DIGEST, A].map(|text| {
+                assert_eq!(
+                    screen.matches(text).count(),
+                    1,
+                    "width={width} {text}: {screen}"
+                );
+                screen.find(text).unwrap()
+            });
+            assert!(
+                order.windows(2).all(|pair| pair[0] < pair[1]),
+                "committed order: {screen}"
+            );
+            assert_unattributed_answer(&app, &screen);
+        }
+    });
+}
+
 #[test]
 fn a_pruned_final_uses_its_request_copy_by_response_identity() {
     crate::status::with_now_ms(NOW, || {
