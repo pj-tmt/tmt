@@ -95,22 +95,34 @@ fn config_path(environment: &ProviderEnvironment) -> PathBuf {
     )
 }
 
-pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<RateLimits> {
+/// The allowance as both sources show it now. `None` means the root's config could not be read,
+/// so nothing was observed and a caller keeps what it already holds (#5418); `Some(None)` means
+/// the sources were read and neither has a current window, which is an observation.
+pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<Option<RateLimits>> {
     let bytes =
-        crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES).ok()?;
+        match crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES) {
+            Ok(bytes) => bytes,
+            // No config file means no account, no cache and no push: there is nothing to read.
+            Err(crate::bounded_file::FileReadError::Io(error))
+                if error.kind() == io::ErrorKind::NotFound =>
+            {
+                return Some(None);
+            }
+            Err(_) => return None,
+        };
     let cached = parse(&bytes, now_ms);
     let pushed = environment
         .data_root()
         .zip(account(&bytes))
         .and_then(|(root, account)| pushed(root, account, now_ms));
     // The newest observation wins whole; a tie prefers the cache. Never merged per window.
-    match (cached, pushed) {
+    Some(match (cached, pushed) {
         (Some(cached), Some(pushed)) if pushed.observed_at_ms > cached.observed_at_ms => {
             Some(pushed)
         }
         (Some(cached), _) => Some(cached),
         (None, pushed) => pushed,
-    }
+    })
 }
 
 /// The account of `environment`'s Claude root as consumers group it (#5274): an opaque key over

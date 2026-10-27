@@ -657,11 +657,19 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             scan_deadline,
         )
         .and_then(|mut state| {
+            // A read that had no time left, or could not look, observed nothing: the limits
+            // already stored stay, also across a baseline that started the counter anew
+            // (#5418). Only a read that looked may change them, to none included.
             let limits = if std::time::Instant::now() < deadline {
                 allowance::read(environment, now_ms)
             } else {
                 None
-            };
+            }
+            .unwrap_or_else(|| {
+                previous_consumption
+                    .as_ref()
+                    .and_then(|previous| previous.value.rate_limits.clone())
+            });
             if state.value.rate_limits != limits {
                 state.value.rate_limits = limits;
                 // A cache update is new source evidence even without new token
