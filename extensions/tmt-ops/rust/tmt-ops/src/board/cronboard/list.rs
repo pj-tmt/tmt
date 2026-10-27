@@ -150,12 +150,7 @@ impl List {
             .min(usize::from(body.height))) as u16;
         let title = match self.scope.as_deref() {
             None => "cron · all squads".to_owned(),
-            Some(room) => format!(
-                "cron · {}",
-                scope_name
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| format!("room {room}"))
-            ),
+            Some(_) => format!("cron · {}", scope_name.unwrap_or("squad unavailable")),
         };
         let title = if let Some(owner) = &self.owner {
             let name = state

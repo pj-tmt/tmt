@@ -136,7 +136,8 @@ fn timer_title_uses_the_exact_room_even_for_empty_and_refreshed_scopes() {
         .squads
         .retain(|squad| squad.room_id != ROOM);
     let shown = draw(&app, 100, 24).join("\n");
-    assert!(shown.contains(&format!("cron · room {ROOM}")), "{shown}");
+    assert!(shown.contains("cron · squad unavailable"), "{shown}");
+    assert!(!shown.contains(ROOM), "{shown}");
     assert!(!shown.contains("cron · all squads"));
     assert_eq!(app.cron_list.as_ref().unwrap().scope.as_deref(), Some(ROOM));
 }

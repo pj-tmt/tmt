@@ -213,10 +213,12 @@ impl App {
                     .iter()
                     .find(|squad| &squad.room_id == room)
             {
-                lines.push(format!(
-                    "Link fields scope: squad {} · room {room} · member {identity_id}",
-                    squad.name
-                ));
+                let member = snapshot
+                    .roster
+                    .members
+                    .get(identity_id)
+                    .map_or(String::new(), |member| format!(" · member {}", member.name));
+                lines.push(format!("Link fields scope: squad {}{member}", squad.name));
                 lines.push(format!(
                     "Manage link (argv; replace field=value): {:?}",
                     [
@@ -426,6 +428,16 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("Manage link (argv; replace field=value)"))
         );
+        let scope = lines
+            .iter()
+            .find(|line| line.starts_with("Link fields scope: "))
+            .unwrap();
+        assert!(
+            scope.contains("squad ") && scope.contains(" · member "),
+            "{scope}"
+        );
+        assert!(!scope.contains(identity_id.as_str()), "{scope}");
+        assert!(!scope.contains("room"), "{scope}");
     }
 
     #[test]
