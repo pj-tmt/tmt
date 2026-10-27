@@ -21,6 +21,62 @@ const reads = (page: Page) =>
     return (await import(/* @vite-ignore */ fixture)).proof();
   });
 
+// Keep native events until after dispatch so defaultPrevented includes every app handler.
+async function observeActivation(page: Page) {
+  await page.evaluate(() => {
+    const seen = window as unknown as { clicks: MouseEvent[]; opened: unknown[][] };
+    seen.clicks = [];
+    seen.opened = [];
+    for (const type of ['click', 'auxclick'])
+      window.addEventListener(type, (event) => seen.clicks.push(event as MouseEvent), true);
+    window.open = (...args: unknown[]) => {
+      seen.opened.push(args);
+      return null;
+    };
+  });
+}
+
+async function observedClicks(page: Page) {
+  return page.evaluate(() =>
+    (window as unknown as { clicks: MouseEvent[] }).clicks.map((event) => ({
+      type: event.type,
+      trusted: event.isTrusted,
+      button: event.button,
+      ctrl: event.ctrlKey,
+      meta: event.metaKey,
+      shift: event.shiftKey,
+      href: (event.target as Element).closest('a')?.getAttribute('href'),
+      prevented: event.defaultPrevented,
+    })),
+  );
+}
+
+async function observedOpens(page: Page) {
+  return page.evaluate(() => (window as unknown as { opened: unknown[][] }).opened);
+}
+
+const pageHref = '/#/pages/c0000002-1111-4111-8111-000000000001';
+const modifiedClick = (shift: boolean) => ({
+  type: 'click',
+  trusted: true,
+  button: 0,
+  ctrl: !shift && process.platform !== 'darwin',
+  meta: !shift && process.platform === 'darwin',
+  shift,
+  href: pageHref,
+  prevented: false,
+});
+const middleClick = {
+  type: 'auxclick',
+  trusted: true,
+  button: 1,
+  ctrl: false,
+  meta: false,
+  shift: false,
+  href: pageHref,
+  prevented: false,
+};
+
 async function expectActive(page: Page, title: string) {
   const selected = list(page).getByRole('option', { selected: true });
   await expect(selected).toContainText(title);
@@ -151,73 +207,80 @@ test('search results are real page links and preserve modified clicks', async ({
 }) => {
   await mount(page);
   const result = list(page).getByRole('option', { name: /Beta review/ });
-  await expect(result).toHaveAttribute('href', /#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+  await expect(result).toHaveAttribute('href', pageHref);
   await result.evaluate((node) => (node as HTMLAnchorElement).click());
   await expect(dialog(page)).toBeVisible();
   expect((await reads(page)).pageReads).toEqual([]);
   expect(context.pages()).toHaveLength(1);
+  const source = page.url();
+  await observeActivation(page);
   for (const options of [
     { modifiers: ['ControlOrMeta'] },
     { modifiers: ['Shift'] },
     { button: 'middle' as const },
   ] satisfies NonNullable<Parameters<typeof result.click>[0]>[]) {
-    const opened = context.waitForEvent('page');
     await result.click(options);
-    const destination = await opened;
-    await expect(destination).toHaveURL(/#\/pages\/c0000002-1111-4111-8111-000000000001$/);
     await expect(dialog(page)).toBeVisible();
+    expect(page.url()).toBe(source);
     expect((await reads(page)).pageReads).toEqual([]);
-    await destination.close();
     await page.bringToFront();
   }
+  expect(await observedClicks(page)).toEqual([
+    modifiedClick(false),
+    modifiedClick(true),
+    middleClick,
+  ]);
 });
 
 for (const key of ['Control+Enter', 'Meta+Enter', 'Shift+Enter']) {
-  test(`search result ${key} opens another browser page and keeps the search`, async ({
+  test(`search result ${key} requests another browser page and keeps the search`, async ({
     page,
-    context,
   }) => {
     await mount(page);
     await expectActive(page, 'Beta review');
-    const opened = context.waitForEvent('page');
+    const source = page.url();
+    await observeActivation(page);
     await input(page).press(key);
-    const destination = await opened;
-    await expect(destination).toHaveURL(/#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+    expect(await observedOpens(page)).toEqual([
+      [pageHref, '_blank', key === 'Shift+Enter' ? 'noopener,popup' : 'noopener'],
+    ]);
     await expect(dialog(page)).toBeVisible();
+    expect(page.url()).toBe(source);
     expect((await reads(page)).pageReads).toEqual([]);
-    await destination.close();
   });
 }
 
 test('page-list links preserve native modified activation without changing this page', async ({
   page,
-  context,
 }) => {
   await mount(page);
   await input(page).press('Escape');
   const link = page.locator('.pages').getByRole('link', { name: 'Beta review', exact: true });
-  await expect(link).toHaveAttribute('href', /#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+  await expect(link).toHaveAttribute('href', pageHref);
+  const source = page.url();
+  await observeActivation(page);
   for (const key of ['Control+Enter', 'Meta+Enter', 'Shift+Enter']) {
-    const opened = context.waitForEvent('page');
     await link.press(key);
-    const destination = await opened;
-    await expect(destination).toHaveURL(/#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+    expect(page.url()).toBe(source);
     expect((await reads(page)).pageReads).toEqual([]);
-    await destination.close();
-    await page.bringToFront();
   }
+  expect(await observedOpens(page)).toEqual(
+    [0, 1, 2].map((index) => [
+      new URL(pageHref, page.url()).href,
+      '_blank',
+      index === 2 ? 'noopener,popup' : 'noopener',
+    ]),
+  );
   for (const options of [
     { modifiers: ['ControlOrMeta'] },
     { button: 'middle' as const },
   ] satisfies NonNullable<Parameters<typeof link.click>[0]>[]) {
-    const opened = context.waitForEvent('page');
     await link.click(options);
-    const destination = await opened;
-    await expect(destination).toHaveURL(/#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+    expect(page.url()).toBe(source);
     expect((await reads(page)).pageReads).toEqual([]);
-    await destination.close();
     await page.bringToFront();
   }
+  expect(await observedClicks(page)).toEqual([modifiedClick(false), middleClick]);
   await link.press('Enter');
   await expect(page.locator('.tmt-ui-header h1')).toHaveText('Beta review');
 });
