@@ -5372,13 +5372,21 @@ describe('large board responsiveness', () => {
           );
           capture('selected-in-place');
           pointer(0, location.x + 12, 'm');
+          let copyVerdict = '';
           await vi.waitFor(
             () => {
-              expect(readFileSync(copied, 'utf8')).toBe('first **styled**');
-              expect(screen()).toContain('Copied 16 characters');
+              const frame = screen();
+              expect(
+                frame.includes('Copied 16 characters') || frame.includes('Could not copy')
+              ).toBe(true);
+              copyVerdict = frame;
             },
             { timeout: 10_000, interval: 50 }
           );
+          if (copyVerdict.includes('Could not copy')) {
+            throw new Error(`The board reported a copy failure:\n${copyVerdict}`);
+          }
+          expect(readFileSync(copied, 'utf8')).toBe('first **styled**');
           capture('copied');
           writeFileSync(fail, 'fail');
           tmux(['send-keys', '-t', pane, 'y']);
