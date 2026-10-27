@@ -647,6 +647,8 @@ fn verified_caller<R: CommandRunner + Clone>(
             snapshot,
             pid,
             marked,
+            panes,
+            pane,
         } = observed;
         if let Some(learning) = learning {
             let _ = learning.stage(Step::ProviderVerification, deadline);
@@ -685,8 +687,16 @@ fn verified_caller<R: CommandRunner + Clone>(
             }
             return Err(());
         }
-        let Some(stored) = stored else {
-            return Ok(Caller::Unbound { marked });
+        let (stored, snapshot) = match stored {
+            Some(stored) => (stored, snapshot),
+            // A hand-started provider in a pane with no binding binds the saved identity that
+            // remembers this very session. Any refusal is the unbound hint.
+            None => match start.filter(|_| !marked).and_then(|event| {
+                bind_remembered(&paths, &panes, &pane, provider, event.session(), deadline)
+            }) {
+                Some(bound) => bound,
+                None => return Ok(Caller::Unbound { marked }),
+            },
         };
         (stored, snapshot, process)
     };
@@ -699,11 +709,59 @@ fn verified_caller<R: CommandRunner + Clone>(
     })))
 }
 
-struct HookPane {
+struct HookPane<R: CommandRunner + Clone> {
     stored: Option<IdentityContextSnapshot>,
     snapshot: EndpointSnapshot,
     pid: u64,
     marked: bool,
+    panes: Host<R>,
+    pane: String,
+}
+
+/// The one saved identity that remembers exactly this provider session binds to the hook's
+/// pane (#5401). The pane and the provider's place in it are verified before this runs, so it
+/// adds only the identity choice; `bind_existing_identity` refuses an identity that is active
+/// anywhere else and fences the pane again inside its own transaction. The binding carries no
+/// session key yet: the caller's ordinary start admission decides that, as it does after
+/// `tmt this`. Every refusal returns `None`.
+fn bind_remembered<R: CommandRunner + Clone>(
+    paths: &ConfigPaths,
+    panes: &Host<R>,
+    pane: &String,
+    harness: &str,
+    session: &ProviderSessionId,
+    deadline: Instant,
+) -> Option<(IdentityContextSnapshot, EndpointSnapshot)> {
+    let now = tmt_adapters::request_runtime::wall_time_ms();
+    let candidate =
+        Storage::context_by_remembered_session(&paths.database, harness, session.as_str(), now)
+            .ok()??;
+    let mut storage = Storage::open_hook(&paths.database, deadline).ok()?;
+    let bound = tmt_core::binding::bind_existing_identity(
+        &mut storage,
+        &mut panes.session(),
+        pane,
+        &candidate.entry.identity.id,
+        false,
+    );
+    let closed = storage.close();
+    bound.ok()?;
+    closed.ok()?;
+    let snapshot = panes
+        .observe_snapshot(OperationOptions {
+            deadline: Some(deadline),
+            pane_ids: Some(std::slice::from_ref(pane)),
+        })
+        .ok()?;
+    let stored = Storage::context_by_pane(
+        &paths.database,
+        snapshot.server.host,
+        pane,
+        &snapshot.server.server_id,
+        now,
+    )
+    .ok()??;
+    (stored.entry.identity.id == candidate.entry.identity.id).then_some((stored, snapshot))
 }
 
 /// Host-neutral caller ancestry and a fresh pane snapshot; neither is session authority.
@@ -712,7 +770,7 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
     deadline: Instant,
     runner: R,
     learning: Option<&Learning>,
-) -> Result<Option<HookPane>, ()> {
+) -> Result<Option<HookPane<R>>, ()> {
     if let Some(learning) = learning {
         let _ = learning.stage(Step::HostDiscovery, deadline);
     }
@@ -771,6 +829,8 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
         snapshot,
         pid,
         marked,
+        panes,
+        pane,
     }))
 }
 

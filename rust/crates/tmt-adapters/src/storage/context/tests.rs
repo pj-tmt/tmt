@@ -172,6 +172,57 @@ fn shared_mapping_requires_current_driver_session_and_refuses_ambiguity() {
     );
 }
 
+#[test]
+fn remembered_session_selects_only_one_saved_unretired_identity_of_that_harness() {
+    let (_directory, path, id) = fixture();
+    let connection = Connection::open(&path).unwrap();
+    let find = |harness: &str, session: &str| {
+        Storage::context_by_remembered_session(&path, harness, session, 10)
+            .unwrap()
+            .map(|context| context.entry.identity.id)
+    };
+    assert_eq!(find("codex", "thread-a"), None, "nothing remembered yet");
+    connection.execute("INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id) VALUES (?1, 'codex', 'codex', 'embedded', 'thread-a')", [&id]).unwrap();
+    let before = fs::read(&path).unwrap();
+    assert_eq!(find("codex", "thread-a"), Some(id.clone()));
+    assert_eq!(find("claude", "thread-a"), None, "another harness");
+    assert_eq!(find("codex", "foreign"), None, "another session");
+    assert_eq!(fs::read(&path).unwrap(), before, "a read-only lookup");
+
+    // A binding is not required, and a binding on another session does not disqualify.
+    connection
+        .execute(
+            "UPDATE bindings SET runtime_pid = 20, runtime_start_identity = 'start',
+             observed_provider_session_id = 'elsewhere'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(find("codex", "thread-a"), Some(id.clone()));
+
+    connection
+        .execute("UPDATE identities SET lifetime = 'temporary'", [])
+        .unwrap();
+    assert_eq!(find("codex", "thread-a"), None, "a temporary identity");
+    connection
+        .execute(
+            "UPDATE identities SET lifetime = 'saved', retired_at_ms = 1",
+            [],
+        )
+        .unwrap();
+    assert_eq!(find("codex", "thread-a"), None, "a retired identity");
+    connection
+        .execute("UPDATE identities SET retired_at_ms = NULL", [])
+        .unwrap();
+
+    connection.execute("INSERT INTO identities (id,name,canonical_name,lifetime,created_at,updated_at) SELECT 'other','Other','other',lifetime,created_at,updated_at FROM identities WHERE id = ?", [&id]).unwrap();
+    connection.execute("INSERT INTO identity_session_preferences (identity_id,preferred_harness,remembered_harness,runtime_mode,provider_session_id) SELECT 'other',preferred_harness,remembered_harness,runtime_mode,provider_session_id FROM identity_session_preferences WHERE identity_id = ?", [&id]).unwrap();
+    assert_eq!(
+        find("codex", "thread-a"),
+        None,
+        "two identities remember it"
+    );
+}
+
 fn insert_request(connection: &Connection, identity: &str, id: &str) {
     connection
         .execute(

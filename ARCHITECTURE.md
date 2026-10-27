@@ -230,7 +230,9 @@ check keeps name/pane routing and its existing Digest opportunity.
   recheck their captured records before reconciliation. Changed records never
   authorize retirement or detachment; unchanged records retain conclusive stale
   binding cleanup.
-- Lifecycle hooks complete existing bindings, never create or move identities.
+- Lifecycle hooks complete existing bindings, never create or move identities. The one binding a
+  hook makes is SessionStart in an unbound pane for the one saved identity that remembers that
+  exact session ([rule](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
   Binding-owned starts and launch learning are diagnostic; [projections](contracts/identity-status-v1.md#session-binding-observation) read stored facts.
   Bounded hooks exit zero; launch hooks keep externalized-name compatibility. Only consented
   setup publication (including interactively approved upgrade scopes) and recorded refresh change provider settings.

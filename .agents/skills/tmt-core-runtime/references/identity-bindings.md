@@ -316,6 +316,14 @@ delivery. They install and launch nothing.
   pane/process evidence, the recorded driver (or none), and a conclusively ended old
   session or process. Nested, shared, pane-process and unknown evidence refuse.
   Existing exact-session shared-host hooks keep their attribution rule above.
+- A SessionStart in a verified, unmarked pane with no binding first binds the one saved,
+  unretired identity whose remembered session for that harness is the hook's session
+  (`Storage::context_by_remembered_session`; none, several, a temporary or retired identity or
+  another harness select nobody). It binds through `bind_existing_identity`, so an identity
+  active anywhere else is never taken over, then continues as any bound start: the adoption
+  above decides the session key, and a refusal is the stored `start_refusal` on a pane that
+  stays bound with no key, as after `tmt this`. Nested and shared providers are refused before
+  the lookup. Every other outcome is the unbound hint.
   A bounded `BindingSessionState::start_refusal` records that refusal without changing
   admission or preferences; the binding/session/preferences CAS fences it. An admitted
   start clears it atomically; a replacement binding or retirement removes it. The
