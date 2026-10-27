@@ -46,6 +46,24 @@ function errorCode(result: { json?: unknown }): string | undefined {
   return (result.json as { error?: { code?: string } } | undefined)?.error?.code;
 }
 
+type StoredChecklist = {
+  inventoryRevision: number;
+  items: {
+    id: string;
+    title: string;
+    completion: string;
+    archived: boolean;
+    assignee: unknown;
+    revision: number;
+  }[];
+};
+
+/** Unavailable reads retry; malformed JSON and real SQL errors still fail. */
+function storedChecklist(database: string, key: string): StoredChecklist | undefined {
+  const bytes = storedDocument(database, 'checklist', key);
+  return bytes === undefined ? undefined : JSON.parse(bytes.toString('utf8'));
+}
+
 /** Noted prefix bindings as `key|note` (tmux 3.3 has no `list-keys -F`). */
 function notedKeys(fixture: E2EFixture): string[] {
   return fixture
@@ -1010,8 +1028,29 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         const ops = path.join(fixture.globalDir, 'ops');
         fs.appendFileSync(config, `\n[board]\nrefresh = "off"\n[board.theme]\nbase = "${theme}"\n`);
         const beforeConfig = fs.readFileSync(config);
-        const beforeJobs = storedDocument(path.join(ops, 'ops.db'), 'cron');
+        const readJobs = () => storedDocument(path.join(ops, 'ops.db'), 'cron');
+        let beforeJobs: Buffer | undefined;
+        await fixture.waitFor(
+          () => {
+            beforeJobs = readJobs();
+            return beforeJobs !== undefined;
+          },
+          5_000,
+          'cron document before migration'
+        );
         expect(beforeJobs).toBeDefined();
+        const assertJobsUnchanged = async () => {
+          let current: Buffer | undefined;
+          await fixture.waitFor(
+            () => {
+              current = readJobs();
+              return current !== undefined;
+            },
+            5_000,
+            'cron document available for preservation check'
+          );
+          expect(current).toEqual(beforeJobs);
+        };
         fs.renameSync(config, path.join(fixture.globalDir, 'squad.toml'));
         fs.renameSync(ops, path.join(fixture.globalDir, 'squad'));
         fs.unlinkSync(path.join(fixture.globalDir, '.ops-paths-v1'));
@@ -1120,7 +1159,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           shell.pane
         );
         expect(fs.readFileSync(config)).toEqual(beforeConfig);
-        expect(storedDocument(path.join(ops, 'ops.db'), 'cron')).toEqual(beforeJobs);
+        await assertJobsUnchanged();
         // A compatible authored key proves refresh reads the promoted file.
         // Retired factory views no longer change the workspace shell.
         const adoptedConfig = Buffer.concat([beforeConfig, Buffer.from('\n[bind]\n0 = "help"\n')]);
@@ -1157,7 +1196,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         expect(fs.existsSync(nextLease)).toBe(false);
         expect(fs.readFileSync(config)).toEqual(adoptedConfig);
-        expect(storedDocument(path.join(ops, 'ops.db'), 'cron')).toEqual(beforeJobs);
+        await assertJobsUnchanged();
         expect(fs.existsSync(path.join(fixture.globalDir, 'squad'))).toBe(false);
       });
     }
@@ -1508,13 +1547,20 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         const roomId = shown.room.id;
         const database = path.join(fixture.globalDir, 'ops', 'ops.db');
-        const read = () => storedDocument(database, 'checklist', roomId);
+        const read = () => storedChecklist(database, roomId);
         expect(read()).toBeUndefined();
         fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
-        await fixture.waitFor(() => read() !== undefined, 5_000, 'checklist publication');
-        let stored = JSON.parse(read()!.toString('utf8'));
-        expect(stored.items).toHaveLength(1);
-        expect(stored.items[0]).toMatchObject({
+        let stored: StoredChecklist | undefined;
+        await fixture.waitFor(
+          () => {
+            stored = read();
+            return stored !== undefined;
+          },
+          5_000,
+          'checklist publication'
+        );
+        expect(stored?.items).toHaveLength(1);
+        expect(stored?.items[0]).toMatchObject({
           title: 'Native board item',
           completion: 'open',
           archived: false,
@@ -1531,13 +1577,17 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
         await fixture.waitFor(
-          () => JSON.parse(read()!.toString('utf8')).items[0].completion === 'complete',
+          () => {
+            const current = read();
+            if (current?.items[0]?.completion !== 'complete') return false;
+            stored = current;
+            return true;
+          },
           5_000,
           'explicit completion'
         );
-        stored = JSON.parse(read()!.toString('utf8'));
-        expect(stored.items[0].revision).toBe(2);
-        expect(stored.inventoryRevision).toBe(1);
+        expect(stored?.items[0]?.revision).toBe(2);
+        expect(stored?.inventoryRevision).toBe(1);
         expect(durableState(fixture)).toEqual(state);
         expect(requestAttempts(fixture)).toEqual(beforeRequests);
         expect(readConfig()).toEqual(config);
@@ -1589,18 +1639,17 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         ])
       );
       const database = path.join(fixture.globalDir, 'ops', 'ops.db');
-      type StoredChecklist = {
-        items: { id: string; completion: string; revision: number }[];
-      };
-      const read = (): StoredChecklist | undefined => {
-        const bytes = storedDocument(
-          database,
-          'checklist',
-          `${shown.room.id}/${created.current.member.id}`
-        );
-        return bytes === undefined ? undefined : JSON.parse(bytes.toString('utf8'));
-      };
-      expect(read()?.items[0]).toMatchObject({ id: item, completion: 'open', revision: 1 });
+      const read = () => storedChecklist(database, `${shown.room.id}/${created.current.member.id}`);
+      let initial: StoredChecklist | undefined;
+      await fixture.waitFor(
+        () => {
+          initial = read();
+          return initial !== undefined;
+        },
+        5_000,
+        'created member Checklist available'
+      );
+      expect(initial?.items[0]).toMatchObject({ id: item, completion: 'open', revision: 1 });
       const beforeRequests = requestAttempts(fixture);
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('checklist-count-board');
