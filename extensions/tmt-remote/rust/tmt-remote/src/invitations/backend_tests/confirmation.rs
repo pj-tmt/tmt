@@ -24,7 +24,7 @@ pub(super) struct Sink {
 fn actor_allowed(context: &Context, actor: &OwnerActor, ledger: &Ledger) -> bool {
     context.owner == "11111111-1111-4111-8111-111111111111"
         && !ledger.revoked
-        && match &actor.0 {
+        && match &actor.authority {
             Actor::LocalInteractive => true,
             Actor::OwnerBrowser {
                 client,

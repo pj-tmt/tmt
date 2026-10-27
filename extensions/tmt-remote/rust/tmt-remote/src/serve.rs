@@ -598,6 +598,7 @@ fn foreground_with_native(
             Operations::new(core, Arc::clone(stop), input_limit)
                 .with_management(Arc::clone(&devices))
                 .with_member_observations(member_observations.clone())
+                .with_owner_invitations(member_observations.clone())
                 .with_firestore(Arc::clone(&firestore)),
         );
         let messages = Arc::new(

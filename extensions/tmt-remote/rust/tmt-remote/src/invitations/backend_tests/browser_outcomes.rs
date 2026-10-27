@@ -1,33 +1,8 @@
 //! Browser operation recovery must commit with the actual invitation grant.
 use super::durable_fixture::DurableFixture;
 use super::*;
-use crate::store::{DEFAULT_SCOPES, Grant};
+use crate::store::Grant;
 
-fn browser(f: &DurableFixture) -> Grant {
-    let now = crate::pairing::now_ms().unwrap();
-    let grant = Grant {
-        client_id: crate::store::uuid_v4().unwrap(),
-        public_key: ed25519_dalek::SigningKey::from_bytes(&[24; 32])
-            .verifying_key()
-            .to_bytes(),
-        kind: "browser".into(),
-        origin: "http://127.0.0.1:49152".into(),
-        name: "Owner".into(),
-        agents: "all".into(),
-        scopes: DEFAULT_SCOPES.map(str::to_owned).into(),
-        mode: "direct".into(),
-        issued_at_ms: now,
-        expires_at_ms: None,
-        revision: 1,
-        disabled: false,
-    };
-    let mut store = f.store.lock().unwrap();
-    store.insert_grant(&grant).unwrap();
-    store
-        .designate(&grant.client_id, &grant.origin, now)
-        .unwrap();
-    store.grant(&grant.client_id).unwrap().unwrap()
-}
 fn outcome(f: &DurableFixture, browser: &Grant, operation: &str) -> serde_json::Value {
     crate::management::receipt(
         &f.store.lock().unwrap().connection,
@@ -40,7 +15,7 @@ fn outcome(f: &DurableFixture, browser: &Grant, operation: &str) -> serde_json::
 fn browser_original<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
     for sending in [false, true] {
         let f = DurableFixture::new();
-        let browser = browser(&f);
+        let browser = f.browser();
         let stopped = AtomicBool::new(false);
         let io = IoBudget {
             deadline: Instant::now() + Duration::from_secs(30),
@@ -59,12 +34,15 @@ fn browser_original<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
                 .is_none()
         );
         assert_eq!(outcome(&f, &browser, &id)["state"], "unknown");
-        let actor = OwnerActor::owner_browser_confirmation(
+        let actor = OwnerActor::owner_browser_decision(
             &browser,
             id.clone(),
             intent,
             &snapshot,
-            sending,
+            OwnerDecision {
+                matched: true,
+                enable_sending: sending,
+            },
         )
         .unwrap();
         let status = coordinator
@@ -146,7 +124,7 @@ fn browser_original<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
 }
 fn browser_settlement_rollback<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
     let f = DurableFixture::new();
-    let browser = browser(&f);
+    let browser = f.browser();
     let stopped = AtomicBool::new(false);
     let io = IoBudget {
         deadline: Instant::now() + Duration::from_secs(30),
@@ -164,9 +142,17 @@ fn browser_settlement_rollback<B: ScenarioBackend>(make: impl Fn(BackendBinding)
     f.store.lock().unwrap().connection.execute_batch(&format!(
         "CREATE TRIGGER fail_browser_settlement BEFORE UPDATE OF outcome ON management_receipts WHEN OLD.id='{id}' BEGIN SELECT RAISE(ABORT,'settlement fault'); END;"
     )).unwrap();
-    let actor =
-        OwnerActor::owner_browser_confirmation(&browser, id.clone(), intent, &snapshot, false)
-            .unwrap();
+    let actor = OwnerActor::owner_browser_decision(
+        &browser,
+        id.clone(),
+        intent,
+        &snapshot,
+        OwnerDecision {
+            matched: true,
+            enable_sending: false,
+        },
+    )
+    .unwrap();
     assert!(
         coordinator
             .confirm(
@@ -210,7 +196,7 @@ fn append_log_browser_settlement_failure_rolls_back_invitation() {
 fn browser_intent_fence<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
     for changed in ["intent", "snapshot", "sending"] {
         let f = DurableFixture::new();
-        let browser = browser(&f);
+        let browser = f.browser();
         let stopped = AtomicBool::new(false);
         let io = IoBudget {
             deadline: Instant::now() + Duration::from_secs(30),
@@ -225,13 +211,21 @@ fn browser_intent_fence<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) 
             .unwrap()
             .adopt_invitation_confirmation(&browser, &id, &intent)
             .unwrap();
-        let mut actor =
-            OwnerActor::owner_browser_confirmation(&browser, id.clone(), intent, &snapshot, false)
-                .unwrap();
+        let mut actor = OwnerActor::owner_browser_decision(
+            &browser,
+            id.clone(),
+            intent,
+            &snapshot,
+            OwnerDecision {
+                matched: true,
+                enable_sending: false,
+            },
+        )
+        .unwrap();
         match changed {
-            "intent" => actor.1.as_mut().unwrap().intent[0] ^= 1,
-            "snapshot" => actor.1.as_mut().unwrap().snapshot[0] ^= 1,
-            "sending" => actor.1.as_mut().unwrap().sending = true,
+            "intent" => actor.operation.as_mut().unwrap().intent[0] ^= 1,
+            "snapshot" => actor.operation.as_mut().unwrap().snapshot[0] ^= 1,
+            "sending" => actor.operation.as_mut().unwrap().sending = true,
             _ => unreachable!(),
         }
         let error = match coordinator.confirm(
@@ -268,7 +262,7 @@ fn append_log_browser_original_fences_changed_intent_snapshot_and_sending() {
 
 fn browser_cannot_claim_terminal_original<B: ScenarioBackend>(make: impl Fn(BackendBinding) -> B) {
     let f = DurableFixture::new();
-    let browser = browser(&f);
+    let browser = f.browser();
     let stopped = AtomicBool::new(false);
     let io = IoBudget {
         deadline: Instant::now() + Duration::from_secs(30),
@@ -294,9 +288,17 @@ fn browser_cannot_claim_terminal_original<B: ScenarioBackend>(make: impl Fn(Back
         .unwrap()
         .adopt_invitation_confirmation(&browser, &id, &intent)
         .unwrap();
-    let actor =
-        OwnerActor::owner_browser_confirmation(&browser, id.clone(), intent, &snapshot, false)
-            .unwrap();
+    let actor = OwnerActor::owner_browser_decision(
+        &browser,
+        id.clone(),
+        intent,
+        &snapshot,
+        OwnerDecision {
+            matched: true,
+            enable_sending: false,
+        },
+    )
+    .unwrap();
     let (verified, snapshot, grant, receipt_key) =
         super::durable_fixture::admitted(&delivery, &snapshot.candidate);
     assert!(matches!(

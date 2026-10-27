@@ -10,348 +10,9 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 //#endregion
-//#region src/remote-state.ts
-/** A display observation only; pairing and sending permissions never imply a role. */
-function remoteRole(role) {
-	return role === "owner" ? "Admin" : role === "user" ? "Member" : "Role unknown";
-}
-/** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
-function remoteState(state, current = true) {
-	if (!current) return {
-		text: "Not checked",
-		word: "not checked",
-		mark: "◌",
-		tone: "muted",
-		action: ""
-	};
-	const known = {
-		Connected: [
-			"Connected",
-			"connected",
-			"●",
-			""
-		],
-		Checking: [
-			"Checking…",
-			"connecting",
-			"◌",
-			""
-		],
-		"Access ended": [
-			"Access ended",
-			"access ended",
-			"✗",
-			"Pair again"
-		],
-		"Different machine": [
-			"Different machine",
-			"different machine",
-			"?",
-			"Pair again"
-		],
-		"Not paired": [
-			"Not paired",
-			"not paired",
-			"?",
-			"Pair again"
-		],
-		"Pairing unreadable": [
-			"Pairing unreadable",
-			"pairing unreadable",
-			"?",
-			"Pair again"
-		],
-		Offline: [
-			"Offline",
-			"offline",
-			"✗",
-			"Retry"
-		],
-		Unconfirmed: [
-			"Connection unconfirmed",
-			"unconfirmed",
-			"?",
-			"Retry"
-		],
-		"Not accepted": [
-			"Not accepted",
-			"not accepted",
-			"?",
-			"Retry"
-		],
-		"Can't reach Remote": [
-			"Connection unconfirmed",
-			"unconfirmed",
-			"?",
-			"Retry"
-		]
-	};
-	const value = Object.hasOwn(known, state) ? known[state] : void 0;
-	if (!value) return {
-		text: "Status unknown",
-		word: "unknown",
-		mark: "?",
-		tone: "muted",
-		action: ""
-	};
-	const [text, word, mark, action] = value;
-	return {
-		text,
-		word,
-		mark,
-		action,
-		tone: "neutral"
-	};
-}
-/** The native page's door root, shared by the registry projection and current-row check. */
-function currentDoor(pageUrl) {
-	const root = new URL("./", pageUrl);
-	if (root.pathname === "/remote/") root.pathname = "/";
-	return root.href;
-}
-/** Both page owners and the menu identify the current Local row by the same door root. */
-function currentRemote(entry, address, pageUrl) {
-	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
-}
-/** Guidance never treats transport uncertainty or unreadable storage as permission to re-pair. */
-function pairingGuidance(state, authorityEnded, invite) {
-	return {
-		pair: invite || state === "missing" || state === "different" || state === "refused" && authorityEnded,
-		members: state === "refused" && authorityEnded && !invite,
-		status: state === "unconfirmed" && !invite
-	};
-}
-//#endregion
-//#region src/invite-page.ts
-/** Instructions only. Parsing is not authentication; native join owns admission. */
-var MAX_BYTES = 12288;
-var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-function valid$7(condition) {
-	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-}
-function object$3(value, keys) {
-	valid$7(value !== null && typeof value === "object" && !Array.isArray(value));
-	const row = value;
-	valid$7(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
-	return row;
-}
-function bytes(value, length) {
-	valid$7(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
-	valid$7(length === void 0 || value.length === length);
-	valid$7(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
-	return new Uint8Array(value);
-}
-function hasControl(value) {
-	return Array.from(value).some((char) => {
-		const point = char.codePointAt(0);
-		return point < 32 || point >= 127 && point <= 159;
-	});
-}
-var utf8$2 = new TextDecoder("utf-8", { fatal: true });
-/** Reads the native v2 carrier unchanged, with no network or authority inference. */
-function decodeExpiry(token, now) {
-	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
-	valid$7(/^[A-Za-z0-9_-]+$/.test(token));
-	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
-	const raw = atob(encoded);
-	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
-	const text = utf8$2.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
-	const value = JSON.parse(text);
-	valid$7(JSON.stringify(value) === text);
-	const invite = object$3(value, [
-		"version",
-		"context",
-		"publicConfig",
-		"machineName",
-		"code"
-	]);
-	valid$7(invite.version === 2);
-	bytes(invite.code, 16);
-	valid$7(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
-	const context = object$3(invite.context, [
-		"binding",
-		"owner",
-		"owner_key",
-		"offer",
-		"nonce",
-		"issued_at_ms",
-		"expires_at_ms"
-	]);
-	valid$7(typeof context.owner === "string" && UUID$4.test(context.owner));
-	valid$7(typeof context.offer === "string" && UUID$4.test(context.offer));
-	bytes(context.owner_key, 32);
-	bytes(context.nonce, 16);
-	const issued = context.issued_at_ms;
-	const expiry = context.expires_at_ms;
-	valid$7(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
-	valid$7(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
-	valid$7(issued <= now + 6e4 && now < expiry);
-	const binding = object$3(context.binding, [
-		"backend",
-		"reference",
-		"owner_principal"
-	]);
-	valid$7(binding.backend === "firestore");
-	const project = utf8$2.decode(bytes(binding.reference));
-	const principal = utf8$2.decode(bytes(binding.owner_principal));
-	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
-	const config = invite.publicConfig;
-	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
-	valid$7(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
-	valid$7(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
-	valid$7(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
-	valid$7(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
-	return expiry;
-}
-function invitationExpiry(token, now = Date.now()) {
-	try {
-		return decodeExpiry(token, now);
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
-function invitePage(initialToken) {
-	const button = document.getElementById("invite-copy");
-	const status = document.getElementById("invite-status");
-	const feedback = document.getElementById("invite-feedback");
-	let token = initialToken;
-	initialToken = "";
-	let disposed = false;
-	let timer;
-	const clear = () => {
-		disposed = true;
-		token = "";
-		button.disabled = true;
-		feedback.textContent = "";
-		if (timer !== void 0) clearTimeout(timer);
-		button.removeEventListener("click", copy);
-	};
-	const copy = async () => {
-		if (disposed) return;
-		try {
-			invitationExpiry(token);
-			await navigator.clipboard.writeText(`tmt remote join ${token}`);
-			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
-		} catch {
-			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
-		}
-	};
-	try {
-		const expiry = invitationExpiry(token);
-		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
-		button.disabled = false;
-		button.addEventListener("click", copy);
-		timer = setTimeout(() => {
-			clear();
-			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
-		}, Math.max(0, expiry - Date.now()));
-	} catch {
-		clear();
-		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
-	}
-	return clear;
-}
-//#endregion
-//#region src/remote-routes.ts
-var REMOTE_ITEMS = [
-	{
-		id: "remotes",
-		path: "/remote/",
-		label: "My Remotes",
-		title: "My Remotes",
-		page: "settings"
-	},
-	{
-		id: "create",
-		path: "/remote/create",
-		label: "Create a Remote",
-		title: "Create a Remote",
-		page: "settings"
-	},
-	{
-		id: "overview",
-		path: "/remote/overview",
-		label: "Overview",
-		title: "Overview",
-		page: "landing"
-	},
-	{
-		id: "members",
-		path: "/remote/members",
-		label: "Members",
-		title: "Members",
-		page: "settings"
-	},
-	{
-		id: "invites",
-		path: "/remote/invites",
-		label: "Invites",
-		title: "Invites",
-		page: "landing",
-		adminOnly: true
-	},
-	{
-		id: "my-devices",
-		path: "/remote/my-devices",
-		label: "My devices",
-		title: "My devices",
-		page: "settings"
-	},
-	{
-		id: "settings",
-		path: "/remote/settings",
-		label: "Settings",
-		title: "Settings",
-		page: "settings"
-	},
-	{
-		id: "service",
-		path: "/remote/service",
-		label: "Service & upgrade",
-		title: "Service & upgrade",
-		page: "settings",
-		adminOnly: true
-	}
-];
-var REMOTE_PATHS = [
-	"/remote",
-	...REMOTE_ITEMS.filter((item) => item.id !== "remotes").map((item) => item.path),
-	remotePath("remotes")
-];
-function remotePath(id) {
-	return REMOTE_ITEMS.find((item) => item.id === id).path;
-}
-/** Removed pre-launch paths have no alias or redirect. */
-function remoteItem(pathname) {
-	return REMOTE_ITEMS.find((item) => item.path === pathname || pathname === "/remote" && item.id === "remotes");
-}
-/** Display-only locking: signed management remains the authority for every effect. */
-function remoteTabAccess(item, role) {
-	if (!item.adminOnly || role === "owner") return {
-		locked: false,
-		reason: "",
-		request: ""
-	};
-	if (role !== "user") return {
-		locked: true,
-		reason: "Access is not confirmed. Check again before making changes.",
-		request: ""
-	};
-	return item.id === "invites" ? {
-		locked: true,
-		reason: "Only an admin can invite people to this Remote. Ask the person who manages this Remote.",
-		request: "Please invite me to this Remote."
-	} : {
-		locked: true,
-		reason: "Only an admin can manage this Remote's service and upgrade steps. Ask the person who manages this Remote.",
-		request: "Please review this Remote's service and upgrade options with me."
-	};
-}
-//#endregion
 //#region src/canonical-bytes.ts
 var encoder$2 = new TextEncoder();
-var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var ADDON_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 var DOOR_ORIGIN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/;
 var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -391,7 +52,7 @@ function lp(value) {
 }
 var lpText = (value) => lp(text$1(value));
 function uuid(value) {
-	requireValue$1(value.length === 36 && UUID$3.test(value), "UUIDv4");
+	requireValue$1(value.length === 36 && UUID$5.test(value), "UUIDv4");
 }
 function binary(value, length) {
 	requireValue$1(value instanceof Uint8Array && value.length === length, `binary length ${length}`);
@@ -731,33 +392,33 @@ var MANAGEMENT_PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_MEMBER_OWNER_REQUIRED",
 	"REMOTE_MEMBER_CONFLICT"
 ]);
-var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var coreId = (value) => typeof value === "string" && UUID$2.test(value) && value !== "00000000-0000-0000-0000-000000000000";
+var coreId = (value) => typeof value === "string" && UUID$4.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
-var utf8$1 = new TextEncoder();
+var utf8$2 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid$6(condition) {
+function valid$7(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
 function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record(value) {
-	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$7(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$6(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
+	valid$7(typeof value.reason === "string" && utf8$2.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 /** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
 function reasonText(value) {
 	if (value.reasonText === void 0) return {};
 	const text = value.reasonText;
-	valid$6(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$1.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	valid$7(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$2.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
 	return { reasonText: text };
 }
 var MESSAGE_STATES = [
@@ -777,9 +438,9 @@ function messageState(value) {
 	if (value.messageState === void 0) return {};
 	const state = record(value.messageState);
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
-	valid$6(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
+	valid$7(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record(state.reason);
-	valid$6(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$1.encode(why.text).length <= 256);
+	valid$7(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$2.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
 		reason: {
@@ -797,7 +458,7 @@ var USER_NAME_REASONS = [
 	"USER_NAME_TAKEN"
 ];
 function text(value) {
-	return typeof value === "string" && value.length > 0 && utf8$1.encode(value).length <= 512;
+	return typeof value === "string" && value.length > 0 && utf8$2.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
@@ -805,16 +466,16 @@ function identity$1(value) {
 	const notice = record(value.identity);
 	const keys = Object.keys(notice).sort().join();
 	if (notice.state === "anonymous") {
-		valid$6(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
-		valid$6(text(notice.message));
+		valid$7(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
+		valid$7(text(notice.message));
 		return { identity: {
 			state: "anonymous",
 			reason: notice.reason,
 			message: notice.message
 		} };
 	}
-	valid$6(notice.state === "person" && keys === "name,renamedFrom,state");
-	valid$6(text(notice.name) && text(notice.renamedFrom));
+	valid$7(notice.state === "person" && keys === "name,renamedFrom,state");
+	valid$7(text(notice.name) && text(notice.renamedFrom));
 	return { identity: {
 		state: "person",
 		name: notice.name,
@@ -829,21 +490,21 @@ function sendState(value, id) {
 }
 function sendStateBase(value, id) {
 	const state = record(value);
-	valid$6(state.operationId === id);
+	valid$7(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid$6(requestId(state.requestId));
+			valid$7(requestId(state.requestId));
 			return {
 				state: "accepted",
 				operationId: id,
 				requestId: state.requestId
 			};
 		case "uncertain":
-			valid$6(state.requestId === void 0 || requestId(state.requestId));
+			valid$7(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -860,7 +521,7 @@ function sendStateBase(value, id) {
 }
 function resultState(value, id) {
 	const state = record(value);
-	valid$6(state.requestId === id);
+	valid$7(state.requestId === id);
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
@@ -868,7 +529,7 @@ function resultState(value, id) {
 			...messageState(state)
 		};
 		case "replied":
-			valid$6(typeof state.message === "string");
+			valid$7(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -893,7 +554,7 @@ var SEND_NOW_STATES = [
 * `unconfirmed`, so a future state can never read as `sent`. */
 function sendNowState(value, id) {
 	const state = record(value);
-	valid$6(state.requestId === id);
+	valid$7(state.requestId === id);
 	return {
 		state: SEND_NOW_STATES.includes(state.state) ? state.state : "unconfirmed",
 		requestId: id,
@@ -904,10 +565,10 @@ function sendNowState(value, id) {
 }
 function agents(value) {
 	const rows = record(value).identities;
-	valid$6(Array.isArray(rows));
+	valid$7(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record(value);
-		valid$6(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$7(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		const activity = row.activity;
 		const observedAtMs = row.observedAtMs;
 		return {
@@ -927,24 +588,24 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
-	valid$6(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$7(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
-	valid$6(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
+	valid$7(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
 	const limit = error.limit;
-	valid$6(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid$6(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
+	valid$7(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$7(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid$6(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$7(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid$6(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$7(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid$6(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$7(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid$6(PRE_EFFECT.has(error.code) || [
+	valid$7(PRE_EFFECT.has(error.code) || [
 		"REMOTE_GRANT_CHANGED",
 		"REMOTE_SERVE_STOPPED",
 		"REMOTE_SESSION_LIMIT",
@@ -953,6 +614,7 @@ function remoteError(value, address) {
 		"REMOTE_CORE_UNAVAILABLE",
 		"REMOTE_MANAGEMENT_READ_ONLY",
 		"REMOTE_MANAGEMENT_UNAVAILABLE",
+		"REMOTE_INVITATION_UNAVAILABLE",
 		"REMOTE_GRANT_EXPIRED",
 		"REMOTE_DEVICE_REVOKED",
 		"REMOTE_DEVICE_NOT_FOUND",
@@ -1070,8 +732,8 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 }
 function parseCapabilities(value) {
 	const reply = record(value);
-	valid$6(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-	valid$6(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+	valid$7(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+	valid$7(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 	record(reply.limits);
 }
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
@@ -1081,7 +743,7 @@ async function synchronize(channel, timeoutMs) {
 	const unavailable = () => new ClientError("sequence_unavailable", "Remote sequence recovery failed; reopen before observing the original operation.");
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
-	const payload = utf8$1.encode("{}");
+	const payload = utf8$2.encode("{}");
 	try {
 		try {
 			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
@@ -1122,7 +784,7 @@ function verifiedSessionRequest(session, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 4e4;
 	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
 	return function call(operation, id, value, parse, mutationOutcome = false) {
-		const payload = utf8$1.encode(JSON.stringify(value));
+		const payload = utf8$2.encode(JSON.stringify(value));
 		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
 	};
 }
@@ -1136,7 +798,7 @@ function operations(session, options = {}) {
 	return {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$1.encode(value.message)) === value.message);
+			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$2.encode(value.message)) === value.message);
 			const { operationId, agentId, message } = value;
 			try {
 				return await call("dispatch.create", operationId, {
@@ -1195,6 +857,1286 @@ function operations(session, options = {}) {
 	};
 }
 //#endregion
+//#region src/management-mutation.ts
+/** Both management facades share the existing verified signing lane and never retry effects. */
+async function managementMutation(call, operation, value, decode) {
+	const { operationId } = value;
+	try {
+		return await call(operation, operationId, value, decode, true);
+	} catch (error) {
+		if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
+		if (error instanceof RefusalError) return {
+			state: "refused",
+			operationId,
+			reason: error.code
+		};
+		throw error;
+	}
+}
+//#endregion
+//#region src/management-codec.ts
+function valid$6(condition) {
+	if (!condition) throw new Error("Invalid management response.");
+}
+function input(condition) {
+	if (!condition) throw new TypeError("Invalid management input.");
+}
+function object$3(value) {
+	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
+	return value;
+}
+function exact(value, keys) {
+	valid$6(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+}
+var integer = (value) => Number.isSafeInteger(value) && value >= 0;
+Object.freeze({
+	status: "tmt remote status --layers",
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
+	nodeVersion: "node --version",
+	firebaseVersion: "firebase --version",
+	firebaseInstall: "npm install -g firebase-tools@15.29.0",
+	firebaseLogin: "firebase login"
+});
+//#endregion
+//#region src/firestore.ts
+var deploy = "tmt remote deploy firestore";
+var firestoreReasons = {
+	project: {
+		"not-configured": ["No Firebase project is set up.", true],
+		"access-lost": ["tmt can no longer reach the Firebase project.", true],
+		"not-checked": ["The Firebase project has not been checked.", false]
+	},
+	"sign-in": {
+		"provider-disabled": ["Sign-in is not enabled for the project.", true],
+		"permission-missing": ["This account isn't allowed to turn on sign-in for the project.", false],
+		"not-checked": ["Sign-in has not been checked.", false]
+	},
+	rules: {
+		"not-deployed": ["Firestore rules are not deployed.", true],
+		"out-of-date": ["Firestore rules are out of date.", true],
+		partial: ["Firestore rules are only partly deployed.", true],
+		"not-checked": ["Firestore rules have not been checked.", false]
+	},
+	indexes: {
+		building: [
+			"Firestore indexes are still building.",
+			true,
+			"Wait a few minutes, then run tmt remote deploy firestore."
+		],
+		"not-ready": [
+			"Firestore indexes have not been verified as ready.",
+			true,
+			"Run tmt remote deploy firestore."
+		],
+		"not-checked": [
+			"Firestore index readiness has not been checked.",
+			true,
+			"Run tmt remote deploy firestore."
+		]
+	},
+	"plan-tier": {
+		"paid-plan-required": ["This needs a paid Firebase plan.", false],
+		"not-checked": ["The Firebase plan has not been checked.", false]
+	},
+	quota: {
+		"headroom-low": ["Today's free Firebase quota is almost used up.", false],
+		exhausted: ["Today's free Firebase quota is used up.", false],
+		"not-checked": ["The free Firebase quota has not been checked.", false]
+	},
+	support: { "not-implemented": ["This isn't available in this release yet.", false] }
+};
+var firestoreSpecs = [
+	["sharing", [
+		"project",
+		"sign-in",
+		"rules",
+		"indexes",
+		"plan-tier",
+		"quota"
+	]],
+	["operations", ["plan-tier", "support"]],
+	["attachments", [
+		"support",
+		"project",
+		"rules",
+		"quota"
+	]]
+];
+function requireValid(condition) {
+	if (!condition) throw new Error("Invalid Firestore readiness response.");
+}
+function object$2(value) {
+	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
+	return value;
+}
+function keys(row, expected) {
+	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
+}
+function parseFirestoreLayers(value) {
+	requireValid(Array.isArray(value));
+	if (!value.length) return [];
+	requireValid(value.length === firestoreSpecs.length);
+	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
+		const row = object$2(value[index]);
+		keys(row, [
+			"layer",
+			"state",
+			"prerequisites"
+		]);
+		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
+		const states = [];
+		for (const [i, item] of items.entries()) {
+			const entry = object$2(row.prerequisites[i]);
+			requireValid(entry.item === item && [
+				"enabled",
+				"not-enabled",
+				"unknown"
+			].includes(entry.state));
+			states.push(entry.state);
+			if (entry.state === "enabled") {
+				keys(entry, ["item", "state"]);
+				continue;
+			}
+			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
+			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
+			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
+			keys(entry, reason[1] ? [
+				"item",
+				"state",
+				"reason",
+				"next"
+			] : [
+				"item",
+				"state",
+				"reason"
+			]);
+			requireValid(entry.next === (reason[1] ? deploy : void 0));
+		}
+		const aggregate = states.includes("not-enabled") ? "not-enabled" : states.includes("unknown") ? "unknown" : "enabled";
+		requireValid(row.state === aggregate);
+	}
+	return value;
+}
+//#endregion
+//#region src/budget.ts
+var budget_exports = /* @__PURE__ */ __exportAll({
+	ACTIVE_SECONDS_PER_DAY: () => ACTIVE_SECONDS_PER_DAY,
+	BUDGET_EXHAUSTED: () => BUDGET_EXHAUSTED,
+	BudgetModel: () => BudgetModel,
+	BudgetModelError: () => BudgetModelError,
+	MAX_MEMBERS: () => MAX_MEMBERS,
+	READS_PER_DAY: () => READS_PER_DAY,
+	READ_LOOKUPS: () => 2,
+	REFUSE_PERCENT: () => 90,
+	WARN_PERCENT: () => 70,
+	WRITES_PER_DAY: () => WRITES_PER_DAY,
+	WRITE_LOOKUPS: () => 4,
+	classifyProviderExhausted: () => classifyProviderExhausted,
+	decide: () => decide,
+	exhaustedIsCurrent: () => exhaustedIsCurrent,
+	newUsage: () => newUsage,
+	pacificDay: () => pacificDay,
+	parsePublishedLimits: () => parsePublishedLimits,
+	publishedLimitRows: () => publishedLimitRows,
+	recordedUsage: () => recordedUsage,
+	usageAt: () => usageAt
+});
+/**
+* Free-plan (Spark) Firestore budget guard, the browser twin of the Rust `firestore_budget`
+* module (#2180). Pure arithmetic: no I/O and no clock (callers pass `nowMs`). Quotas are
+* project-wide, every client sees only its own traffic and Rules cannot read quotas, so the
+* guard works from what a client really has: the member count from the signed membership, the
+* page's parameters, its own persisted counter for today and these constants. It does not read
+* Google's counter, and the counter a client keeps is per browser and device, so other
+* devices' appends are invisible to it: `decide` is a local estimate and the provider's own
+* `resource-exhausted` answer is the backstop. Both implementations are tested against the
+* same independent vectors, so a change to either one fails until both agree; the dated
+* numbers and the derivation are in the Remote reference guide's free-plan table.
+*/
+/** Spark (no-cost) Firestore document reads per day. */
+var READS_PER_DAY = 5e4;
+/** Spark (no-cost) Firestore document writes per day. */
+var WRITES_PER_DAY = 2e4;
+/** Planning assumption for the minimum flush interval: this many active seconds per day. */
+var ACTIVE_SECONDS_PER_DAY = 7200;
+/** Largest member count the model accepts. */
+var MAX_MEMBERS = 1e4;
+/** The error code of a refusal made before any effect. */
+var BUDGET_EXHAUSTED = "REMOTE_BUDGET_EXHAUSTED";
+/**
+* `out_of_range`: no members, no writers, more writers than members, or too many members.
+* `free_plan_cannot_host`: the modeled share is too small for the guard to allow even one
+* append. A page like that is refused when the model is built, never as a pause that would end
+* at the next reset and begin again.
+*/
+var BudgetModelError = class extends Error {
+	code;
+	constructor(code) {
+		super(code === "out_of_range" ? "The page size is out of range." : "The free plan cannot host a page this size.");
+		this.code = code;
+		this.name = "BudgetModelError";
+	}
+};
+/** One shared page: `members` have it open (every one a listener), `writers` of them append. */
+var BudgetModel = class BudgetModel {
+	members;
+	writers;
+	constructor(members, writers) {
+		this.members = members;
+		this.writers = writers;
+	}
+	static create(members, writers) {
+		const whole = (value) => Number.isSafeInteger(value);
+		if (!(whole(members) && whole(writers) && members >= 1 && members <= 1e4 && writers >= 1 && writers <= members)) throw new BudgetModelError("out_of_range");
+		const model = new BudgetModel(members, writers);
+		if (model.refuseAt() === 0) throw new BudgetModelError("free_plan_cannot_host");
+		return model;
+	}
+	/** Reads one append costs the project, pessimistically: the writer's lookups, then each other listener's. */
+	readsPerAppend() {
+		return 4 + (this.members - 1) * 3;
+	}
+	/** Appends per day the free plan allows this page if it were the project's only traffic. */
+	dailyAppendLimit() {
+		return Math.min(Math.floor(READS_PER_DAY / this.readsPerAppend()), WRITES_PER_DAY);
+	}
+	/** One client's modeled share of the page's daily allowance. */
+	share() {
+		return Math.floor(this.dailyAppendLimit() / this.writers);
+	}
+	/** Appends after which the guard warns, and the count at which it refuses. */
+	warnAt() {
+		return Math.floor(this.share() * 70 / 100);
+	}
+	refuseAt() {
+		return Math.floor(this.share() * 90 / 100);
+	}
+	/** Shortest average interval between flushed updates, in milliseconds, that keeps the planning assumption. */
+	minFlushIntervalMs() {
+		const appends = Math.max(Math.floor(this.dailyAppendLimit() * 70 / 100), 1);
+		return Math.ceil(ACTIVE_SECONDS_PER_DAY * 1e3 / appends);
+	}
+	/** What the guard says about the next append, given how many this client sent today. */
+	assess(appendsToday) {
+		if (appendsToday >= this.refuseAt()) return "refuse";
+		if (appendsToday >= this.warnAt()) return "warn";
+		return "ok";
+	}
+};
+var DAY_MS = 864e5;
+var HOUR_MS = 36e5;
+var floorDiv = (value, divisor) => Math.floor(value / divisor);
+/** Days since 1970-01-01 of a proleptic Gregorian date. */
+function daysFromCivil(year, month, day) {
+	const y = month <= 2 ? year - 1 : year;
+	const era = floorDiv(y, 400);
+	const yoe = y - era * 400;
+	const doy = floorDiv(153 * ((month + 9) % 12) + 2, 5) + day - 1;
+	const doe = yoe * 365 + floorDiv(yoe, 4) - floorDiv(yoe, 100) + doy;
+	return era * 146097 + doe - 719468;
+}
+function civilYear(days) {
+	const z = days + 719468;
+	const era = floorDiv(z, 146097);
+	const doe = z - era * 146097;
+	const yoe = floorDiv(doe - floorDiv(doe, 1460) + floorDiv(doe, 36524) - floorDiv(doe, 146096), 365);
+	const mp = floorDiv(5 * (doe - (365 * yoe + floorDiv(yoe, 4) - floorDiv(yoe, 100))) + 2, 153);
+	const month = mp < 10 ? mp + 3 : mp - 9;
+	return yoe + era * 400 + (month <= 2 ? 1 : 0);
+}
+/** The n-th Sunday (1-based) of `month` in `year`, as a day number. */
+function nthSunday(year, month, n) {
+	const first = daysFromCivil(year, month, 1);
+	return first + (7 - ((first + 4) % 7 + 7) % 7) % 7 + (n - 1) * 7;
+}
+/** United States rule since 2007: daylight time from 02:00 local on the second Sunday of March to 02:00 local on the first Sunday of November. */
+function isDstLocal(localMs) {
+	const year = civilYear(floorDiv(localMs, DAY_MS));
+	const start = nthSunday(year, 3, 2) * DAY_MS + 2 * HOUR_MS;
+	const end = nthSunday(year, 11, 1) * DAY_MS + 2 * HOUR_MS;
+	return localMs >= start && localMs < end;
+}
+/** The Pacific UTC offset at a UTC instant: -8 h, or -7 h in daylight time. */
+function offsetMs(utcMs) {
+	const year = civilYear(floorDiv(utcMs - 8 * HOUR_MS, DAY_MS));
+	const start = nthSunday(year, 3, 2) * DAY_MS + 10 * HOUR_MS;
+	const end = nthSunday(year, 11, 1) * DAY_MS + 9 * HOUR_MS;
+	return utcMs >= start && utcMs < end ? -7 * HOUR_MS : -8 * HOUR_MS;
+}
+function pacificDay(nowMs) {
+	const day = floorDiv(nowMs + offsetMs(nowMs), DAY_MS);
+	const nextMidnightLocal = (day + 1) * DAY_MS;
+	return {
+		day,
+		resetAtMs: nextMidnightLocal - (isDstLocal(nextMidnightLocal) ? -7 * HOUR_MS : -8 * HOUR_MS)
+	};
+}
+function newUsage(nowMs) {
+	return {
+		day: pacificDay(nowMs).day,
+		appends: 0
+	};
+}
+/** The same usage if still the same Pacific day, else a fresh day. */
+function usageAt(usage, nowMs) {
+	return pacificDay(nowMs).day === usage.day ? usage : newUsage(nowMs);
+}
+/** Count one append sent. */
+function recordedUsage(usage, nowMs) {
+	const today = usageAt(usage, nowMs);
+	return {
+		...today,
+		appends: Math.min(today.appends + 1, Number.MAX_SAFE_INTEGER)
+	};
+}
+/** Judge the next append. Rolls the usage over to today first. */
+function decide(model, usage, nowMs) {
+	const today = usageAt(usage, nowMs);
+	const verdict = model.assess(today.appends);
+	if (verdict === "ok") return { decision: "allow" };
+	if (verdict === "warn") return { decision: "warn" };
+	const { resetAtMs } = pacificDay(nowMs);
+	return {
+		decision: "refuse",
+		resetAtMs,
+		retryAfterMs: Math.max(resetAtMs - nowMs, 0)
+	};
+}
+function classifyProviderExhausted(attempt, nowMs) {
+	const { day, resetAtMs } = pacificDay(nowMs);
+	const evidence = {
+		day,
+		resetAtMs
+	};
+	if (attempt.mutation) return {
+		outcome: { outcome: "unknown" },
+		evidence
+	};
+	return {
+		outcome: {
+			outcome: "refused",
+			resetAtMs,
+			retryAfterMs: Math.max(resetAtMs - nowMs, 0)
+		},
+		evidence
+	};
+}
+/** Still a statement about today's quota. */
+function exhaustedIsCurrent(evidence, nowMs) {
+	return nowMs < evidence.resetAtMs;
+}
+var publishedLimitRows = [
+	[
+		"readsPerDay",
+		"Document reads",
+		"day",
+		false
+	],
+	[
+		"writesPerDay",
+		"Document writes",
+		"day",
+		false
+	],
+	[
+		"deletesPerDay",
+		"Document deletes",
+		"day",
+		false
+	],
+	[
+		"storedBytes",
+		"Stored data",
+		"",
+		true
+	],
+	[
+		"egressBytesPerMonth",
+		"Data sent out",
+		"month",
+		true
+	],
+	[
+		"databases",
+		"Free databases per project",
+		"",
+		false
+	],
+	[
+		"compositeIndexes",
+		"Composite indexes",
+		"",
+		false
+	],
+	[
+		"singleFieldIndexConfigs",
+		"Single-field index configs",
+		"",
+		false
+	],
+	[
+		"documentBytes",
+		"Document size",
+		"",
+		true
+	],
+	[
+		"rulesLookupsPerRequest",
+		"Rules document lookups per request",
+		"",
+		false
+	]
+];
+function parsePublishedLimits(value) {
+	const object = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+	const keys = (v, expected) => Object.keys(v).length === expected.length && expected.every((key) => Object.hasOwn(v, key));
+	if (!object(value) || !keys(value, [
+		"plan",
+		"readOn",
+		"resetsAt",
+		"limits",
+		"guard"
+	]) || value.plan !== "no-cost" || value.resetsAt !== "pacific-midnight" || typeof value.readOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.readOn) || !object(value.limits) || !keys(value.limits, publishedLimitRows.map((row) => row[0])) || !Object.values(value.limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0) || !object(value.guard) || !keys(value.guard, ["warnPercent", "refusePercent"]) || !Number.isSafeInteger(value.guard.warnPercent) || !Number.isSafeInteger(value.guard.refusePercent) || !(value.guard.warnPercent > 0 && value.guard.warnPercent < value.guard.refusePercent && value.guard.refusePercent <= 100)) throw new Error("Invalid Firestore budget response.");
+	return value;
+}
+//#endregion
+//#region src/management.ts
+var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
+function settings(value) {
+	const row = object$3(value);
+	exact(row, [
+		"open",
+		"source",
+		"sessionsPerDevice",
+		"sessionsPerDeviceSource",
+		"warning"
+	]);
+	valid$6(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
+	valid$6(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
+	valid$6(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
+	valid$6(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
+	return row;
+}
+function device(value, activity = false) {
+	const row = object$3(value);
+	exact(row, [
+		"clientId",
+		"name",
+		"kind",
+		"issuedAtMs",
+		"expiresAtMs",
+		"revision",
+		"revoked",
+		"talkEnabled",
+		...activity ? [
+			"thisBrowser",
+			"liveSessionCount",
+			"lastActivityAtMs",
+			"lastUsedAtMs"
+		] : []
+	]);
+	valid$6(typeof row.clientId === "string" && UUID$3.test(row.clientId));
+	valid$6(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+	valid$6([
+		"browser",
+		"addon",
+		"cli"
+	].includes(row.kind) && integer(row.issuedAtMs));
+	valid$6(row.expiresAtMs === null || integer(row.expiresAtMs));
+	valid$6(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
+	if (activity) valid$6(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
+	return row;
+}
+var refusalCodes = /* @__PURE__ */ new Set([
+	"REMOTE_SCOPE_DENIED",
+	"REMOTE_INPUT_INVALID",
+	"REMOTE_RATE_LIMITED",
+	"REMOTE_INTENT_CONFLICT",
+	"REMOTE_CLOSED",
+	"REMOTE_SESSION_ENDED",
+	"REMOTE_SESSION_EVICTED",
+	"REMOTE_INPUT_TOO_LARGE",
+	"REMOTE_STATE_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_READ_ONLY",
+	"REMOTE_MANAGEMENT_UNAVAILABLE",
+	"REMOTE_DEVICE_REVOKED",
+	"REMOTE_DEVICE_NOT_FOUND",
+	"REMOTE_SETTINGS_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_CAPACITY",
+	"REMOTE_DEVICE_LIST_CHANGED",
+	"REMOTE_DEVICE_REMOVAL_LIMIT",
+	"REMOTE_MEMBER_OWNER_REQUIRED",
+	"REMOTE_MEMBER_CONFLICT"
+]);
+function parseManagementOutcome(value, operationId) {
+	const row = object$3(value);
+	valid$6(row.operationId === operationId);
+	if (row.state === "committed") {
+		exact(row, [
+			"operationId",
+			"state",
+			"result",
+			"sessionEnded"
+		]);
+		valid$6(typeof row.sessionEnded === "boolean");
+		const result = object$3(row.result);
+		valid$6(Object.keys(result).length === 1);
+		if (Object.hasOwn(result, "settings")) settings(result.settings);
+		else if (Object.hasOwn(result, "removed")) valid$6(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
+		else device(result.device);
+	} else {
+		exact(row, [
+			"operationId",
+			"state",
+			"reason"
+		]);
+		if (row.state === "unknown") valid$6(row.reason === "effect_outcome_unconfirmed");
+		else valid$6(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
+	}
+	return row;
+}
+/** Constructing this helper opens nothing. Unknown mutations are never resent.
+* After Session loss, explicitly reopen once and read operation(originalId).
+* Failed fresh admission changes access status; it cannot establish mutation outcome.
+*/
+function management(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	const clientId = channelFor(session).paired.clientId;
+	async function mutate(operation, value) {
+		const { operationId } = value;
+		input(UUID$3.test(operationId));
+		return managementMutation(call, operation, value, (reply) => {
+			const parsed = parseManagementOutcome(reply, operationId);
+			if (parsed.state === "committed") {
+				if (operation === "remote.settings.set") valid$6("settings" in parsed.result);
+				else if (operation === "remote.devices.remove-others") valid$6("removed" in parsed.result && parsed.sessionEnded === false);
+				else {
+					valid$6("device" in parsed.result && parsed.result.device.clientId === value.clientId);
+					if (operation === "remote.devices.rename") valid$6(parsed.result.device.name === value.name);
+					if (operation === "remote.devices.revoke") valid$6(parsed.result.device.revoked);
+					if (operation === "remote.devices.talk") valid$6(parsed.result.device.talkEnabled === value.enabled);
+				}
+			}
+			return parsed;
+		});
+	}
+	return {
+		clientId,
+		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
+			const row = object$3(value);
+			exact(row, ["count", "fingerprint"]);
+			valid$6(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
+			return row;
+		}),
+		removeOthers: (change) => {
+			input(typeof change.fingerprint === "string" && /^[0-9a-f]{64}$/.test(change.fingerprint));
+			return mutate("remote.devices.remove-others", { ...change });
+		},
+		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
+			const row = object$3(value);
+			exact(row, [
+				"settings",
+				"capabilities",
+				"readOnlyReason",
+				...options ? ["firestoreLayers", "firestoreBudget"] : []
+			]);
+			if (options) {
+				parseFirestoreLayers(row.firestoreLayers);
+				parsePublishedLimits(row.firestoreBudget);
+			}
+			settings(row.settings);
+			const capabilities = object$3(row.capabilities);
+			exact(capabilities, ["settingsWrite", "devicesWrite"]);
+			valid$6(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
+			valid$6(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
+			valid$6(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
+			return row;
+		})),
+		devices: (page) => {
+			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
+			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
+				const row = object$3(value);
+				exact(row, ["devices", "nextCursor"]);
+				valid$6(Array.isArray(row.devices) && row.devices.length <= page.limit);
+				const ids = /* @__PURE__ */ new Set();
+				for (const entry of row.devices) {
+					const item = device(entry, true);
+					valid$6(!item.revoked && !ids.has(item.clientId));
+					ids.add(item.clientId);
+				}
+				valid$6(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
+				return row;
+			});
+		},
+		set: (change) => {
+			input(change.setting === "open" && typeof change.value === "boolean" || change.setting === "sessions-per-device" && (change.value === null || decimal(change.value)));
+			return mutate("remote.settings.set", { ...change });
+		},
+		rename: (change) => {
+			input(UUID$3.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+			return mutate("remote.devices.rename", { ...change });
+		},
+		talk: (change) => {
+			input(UUID$3.test(change.clientId) && typeof change.enabled === "boolean");
+			return mutate("remote.devices.talk", { ...change });
+		},
+		revoke: (change) => {
+			input(UUID$3.test(change.clientId));
+			return mutate("remote.devices.revoke", { ...change });
+		},
+		operation: (operationId) => {
+			input(UUID$3.test(operationId));
+			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseManagementOutcome(value, operationId));
+		}
+	};
+}
+//#endregion
+//#region src/invitations.ts
+var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var id$1 = (value) => typeof value === "string" && UUID$2.test(value);
+var snapshot$1 = (value) => {
+	if (typeof value !== "string") return false;
+	try {
+		base64urlBytes(value, 32);
+		return true;
+	} catch {
+		return false;
+	}
+};
+function parsePendingInvitation(value) {
+	const row = object$3(value);
+	if (row.state === "none") exact(row, ["state"]);
+	else {
+		exact(row, [
+			"state",
+			"offerId",
+			"expiresAtMs",
+			"phase",
+			"localConfirmationKnown",
+			"cleanup",
+			"candidate"
+		]);
+		valid$6(row.state === "current" && id$1(row.offerId) && integer(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
+		valid$6([
+			"open",
+			"awaiting-owner",
+			"confirmed",
+			"refused",
+			"cancelled",
+			"expired",
+			"unconfirmed"
+		].includes(row.phase));
+		valid$6([
+			"not-requested",
+			"acknowledged",
+			"unconfirmed"
+		].includes(row.cleanup));
+		if (row.candidate !== null) {
+			const candidate = object$3(row.candidate);
+			exact(candidate, [
+				"clientId",
+				"name",
+				"words",
+				"snapshot"
+			]);
+			valid$6(row.phase === "awaiting-owner" && id$1(candidate.clientId) && snapshot$1(candidate.snapshot));
+			valid$6(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
+			valid$6(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
+		}
+	}
+	return row;
+}
+function parseInvitationOutcome(value, operationId) {
+	const row = object$3(value);
+	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
+	exact(row, [
+		"operationId",
+		"state",
+		"sessionEnded",
+		"result"
+	]);
+	valid$6(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$3(row.result);
+	exact(result, ["invitation"]);
+	const invitation = object$3(result.invitation);
+	valid$6(id$1(invitation.offerId) && id$1(invitation.clientId));
+	if (invitation.state === "refused") exact(invitation, [
+		"offerId",
+		"clientId",
+		"state"
+	]);
+	else {
+		exact(invitation, [
+			"offerId",
+			"clientId",
+			"memberId",
+			"state",
+			"sendingEnabled"
+		]);
+		valid$6(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
+	}
+	return row;
+}
+/** A presenter over the current offer. No admission, provider call or retry is created here. */
+function invitations(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	return {
+		pending: () => call("remote.invites.pending", crypto.randomUUID(), {}, parsePendingInvitation),
+		decide: (value) => {
+			input(Object.keys(value).every((key) => [
+				"operationId",
+				"offerId",
+				"snapshot",
+				"matched",
+				"sending"
+			].includes(key)));
+			const frozen = {
+				...value,
+				sending: value.sending ?? false
+			};
+			input(id$1(frozen.operationId) && id$1(frozen.offerId) && frozen.operationId !== frozen.offerId && snapshot$1(frozen.snapshot));
+			input(typeof frozen.matched === "boolean" && typeof frozen.sending === "boolean" && (frozen.matched || !frozen.sending));
+			return managementMutation(call, "remote.invites.confirm", frozen, (value) => {
+				const outcome = parseInvitationOutcome(value, frozen.operationId);
+				if (outcome.state === "committed") {
+					const invitation = outcome.result.invitation;
+					valid$6(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
+					if (invitation.state === "confirmed") valid$6(invitation.sendingEnabled === frozen.sending);
+				}
+				return outcome;
+			});
+		},
+		operation: (operationId) => {
+			input(id$1(operationId));
+			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseInvitationOutcome(value, operationId));
+		}
+	};
+}
+//#endregion
+//#region src/invitation-page.ts
+/** One retained presenter. Only explicit decisions write; navigation never repeats one. */
+function invitationPage(root, lifetime, clientForSession = invitations) {
+	const get = (id) => root.querySelector(`#${id}`);
+	const status = get("invitation-status");
+	const refresh = get("invitation-refresh");
+	const form = get("invitation-candidate");
+	const compared = get("invitation-compared");
+	const sending = get("invitation-sending");
+	const confirm = get("invitation-confirm");
+	const decline = get("invitation-decline");
+	const original = get("invitation-original");
+	const originalId = get("invitation-original-id");
+	const recover = get("invitation-recover");
+	let client;
+	let generation = 0;
+	let busy = false;
+	let current;
+	let unresolved;
+	const here = () => !lifetime?.aborted && root.isConnected && location.pathname.replace(/\/$/, "") === "/remote/invites";
+	const controls = () => {
+		refresh.disabled = busy || !client;
+		confirm.disabled = busy || !current || !!unresolved || !compared.checked;
+		decline.disabled = busy || !current || !!unresolved;
+		compared.disabled = busy || !!unresolved;
+		sending.disabled = busy || !!unresolved;
+		recover.disabled = busy || !client;
+	};
+	const clear = () => {
+		current = void 0;
+		form.hidden = true;
+		for (const id of [
+			"invitation-name",
+			"invitation-words",
+			"invitation-expires"
+		]) get(id).textContent = "";
+		compared.checked = false;
+		sending.checked = false;
+		controls();
+	};
+	const uncertain = () => {
+		status.textContent = "The decision outcome is unconfirmed. Check the original outcome before making another decision. If access ended, check the connection on Overview first.";
+		original.hidden = false;
+		originalId.textContent = unresolved.operationId;
+		controls();
+	};
+	const showOutcome = (outcome) => {
+		if (outcome.state === "unknown") {
+			uncertain();
+			return;
+		}
+		if (outcome.state === "refused") status.textContent = `Decision refused (${outcome.reason}). Check the current invitation before deciding again.`;
+		else {
+			const result = outcome.result.invitation;
+			if (!unresolved || result.offerId !== unresolved.offerId || result.clientId !== unresolved.clientId || result.state !== (unresolved.matched ? "confirmed" : "refused") || result.state === "confirmed" && result.sendingEnabled !== unresolved.sending) throw new Error("Mismatched invitation outcome.");
+			status.textContent = result.state === "confirmed" ? `Confirmed; sending ${result.sendingEnabled ? "on" : "off"}. The terminal will show this decision. Delivery of the invitation receipt is observed separately.` : "Invitation declined. No member was created by this decision.";
+		}
+		unresolved = void 0;
+		original.hidden = true;
+		clear();
+	};
+	const check = async () => {
+		if (!here() || !client || busy) return;
+		if (unresolved) {
+			uncertain();
+			return;
+		}
+		const turn = ++generation;
+		busy = true;
+		clear();
+		status.textContent = "Checking the current invitation…";
+		controls();
+		try {
+			const value = await client.pending();
+			if (!here() || generation !== turn) return;
+			if (value.state === "none") status.textContent = "No current invitation. Start tmt remote invite on this machine to invite someone.";
+			else if (value.phase === "awaiting-owner" && value.candidate) {
+				current = {
+					offerId: value.offerId,
+					candidate: value.candidate
+				};
+				get("invitation-name").textContent = value.candidate.name;
+				get("invitation-words").textContent = value.candidate.words.join(" ");
+				get("invitation-expires").textContent = `Expires ${new Date(value.expiresAtMs).toLocaleTimeString()}.`;
+				status.textContent = "Compare these four words with the person joining. The terminal and this browser show the same candidate; the first decision wins.";
+				form.hidden = false;
+			} else if (value.localConfirmationKnown) status.textContent = value.phase === "confirmed" ? "This invitation is confirmed and its receipt was delivered." : "Confirmed locally; delivery of the original receipt is unconfirmed. Check members before sending another invite.";
+			else status.textContent = {
+				open: "Waiting for someone to join. Check again after they enter the code.",
+				refused: "This invitation was refused.",
+				cancelled: "This invitation was cancelled.",
+				expired: "This invitation expired.",
+				unconfirmed: "The invitation outcome is unconfirmed. Check member status before sending another invite."
+			}[value.phase] ?? "No candidate is available for confirmation.";
+		} catch (error) {
+			if (!here() || generation !== turn) return;
+			status.textContent = error instanceof RefusalError ? "This browser cannot read the invitation. Use the designated owner browser or confirm in the terminal." : "The current invitation could not be verified. Check access on Overview and try again.";
+		} finally {
+			busy = false;
+			if (here()) controls();
+		}
+	};
+	const decide = async (matched) => {
+		if (!here() || busy || !client || !current || unresolved || matched && !compared.checked) return;
+		const turn = ++generation;
+		unresolved = {
+			operationId: crypto.randomUUID(),
+			offerId: current.offerId,
+			snapshot: current.candidate.snapshot,
+			clientId: current.candidate.clientId,
+			matched,
+			sending: matched && sending.checked
+		};
+		originalId.textContent = unresolved.operationId;
+		const input = {
+			operationId: unresolved.operationId,
+			offerId: unresolved.offerId,
+			snapshot: unresolved.snapshot,
+			matched: unresolved.matched,
+			sending: unresolved.sending
+		};
+		busy = true;
+		controls();
+		status.textContent = "Submitting this decision once…";
+		try {
+			const outcome = await client.decide(input);
+			if (here() && generation === turn) showOutcome(outcome);
+		} catch {
+			if (here() && generation === turn) uncertain();
+		} finally {
+			busy = false;
+			if (here()) controls();
+		}
+	};
+	refresh.addEventListener("click", () => {
+		check();
+	}, { signal: lifetime });
+	compared.addEventListener("change", controls, { signal: lifetime });
+	confirm.addEventListener("click", () => {
+		decide(true);
+	}, { signal: lifetime });
+	decline.addEventListener("click", () => {
+		decide(false);
+	}, { signal: lifetime });
+	recover.addEventListener("click", () => {
+		if (!here() || busy || !client || !unresolved) return;
+		const turn = ++generation;
+		busy = true;
+		controls();
+		client.operation(unresolved.operationId).then((outcome) => {
+			if (here() && generation === turn) showOutcome(outcome);
+		}).catch(() => {
+			if (here() && generation === turn) uncertain();
+		}).finally(() => {
+			busy = false;
+			if (here()) controls();
+		});
+	}, { signal: lifetime });
+	window.addEventListener("popstate", () => {
+		generation++;
+		clear();
+		if (here()) {
+			if (unresolved) uncertain();
+			else check();
+		}
+	}, { signal: lifetime });
+	lifetime?.addEventListener("abort", () => {
+		generation++;
+		clear();
+		client = void 0;
+	}, { once: true });
+	controls();
+	return (session) => {
+		generation++;
+		client = session ? clientForSession(session) : void 0;
+		clear();
+		if (here()) {
+			if (unresolved) uncertain();
+			else check();
+		}
+	};
+}
+//#endregion
+//#region src/remote-state.ts
+/** A display observation only; pairing and sending permissions never imply a role. */
+function remoteRole(role) {
+	return role === "owner" ? "Admin" : role === "user" ? "Member" : "Role unknown";
+}
+/** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
+function remoteState(state, current = true) {
+	if (!current) return {
+		text: "Not checked",
+		word: "not checked",
+		mark: "◌",
+		tone: "muted",
+		action: ""
+	};
+	const known = {
+		Connected: [
+			"Connected",
+			"connected",
+			"●",
+			""
+		],
+		Checking: [
+			"Checking…",
+			"connecting",
+			"◌",
+			""
+		],
+		"Access ended": [
+			"Access ended",
+			"access ended",
+			"✗",
+			"Pair again"
+		],
+		"Different machine": [
+			"Different machine",
+			"different machine",
+			"?",
+			"Pair again"
+		],
+		"Not paired": [
+			"Not paired",
+			"not paired",
+			"?",
+			"Pair again"
+		],
+		"Pairing unreadable": [
+			"Pairing unreadable",
+			"pairing unreadable",
+			"?",
+			"Pair again"
+		],
+		Offline: [
+			"Offline",
+			"offline",
+			"✗",
+			"Retry"
+		],
+		Unconfirmed: [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		],
+		"Not accepted": [
+			"Not accepted",
+			"not accepted",
+			"?",
+			"Retry"
+		],
+		"Can't reach Remote": [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		]
+	};
+	const value = Object.hasOwn(known, state) ? known[state] : void 0;
+	if (!value) return {
+		text: "Status unknown",
+		word: "unknown",
+		mark: "?",
+		tone: "muted",
+		action: ""
+	};
+	const [text, word, mark, action] = value;
+	return {
+		text,
+		word,
+		mark,
+		action,
+		tone: "neutral"
+	};
+}
+/** The native page's door root, shared by the registry projection and current-row check. */
+function currentDoor(pageUrl) {
+	const root = new URL("./", pageUrl);
+	if (root.pathname === "/remote/") root.pathname = "/";
+	return root.href;
+}
+/** Both page owners and the menu identify the current Local row by the same door root. */
+function currentRemote(entry, address, pageUrl) {
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
+}
+/** Guidance never treats transport uncertainty or unreadable storage as permission to re-pair. */
+function pairingGuidance(state, authorityEnded, invite) {
+	return {
+		pair: invite || state === "missing" || state === "different" || state === "refused" && authorityEnded,
+		members: state === "refused" && authorityEnded && !invite,
+		status: state === "unconfirmed" && !invite
+	};
+}
+//#endregion
+//#region src/invite-page.ts
+/** Instructions only. Parsing is not authentication; native join owns admission. */
+var MAX_BYTES = 12288;
+var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+function valid$5(condition) {
+	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+}
+function object$1(value, keys) {
+	valid$5(value !== null && typeof value === "object" && !Array.isArray(value));
+	const row = value;
+	valid$5(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
+	return row;
+}
+function bytes(value, length) {
+	valid$5(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
+	valid$5(length === void 0 || value.length === length);
+	valid$5(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
+	return new Uint8Array(value);
+}
+function hasControl(value) {
+	return Array.from(value).some((char) => {
+		const point = char.codePointAt(0);
+		return point < 32 || point >= 127 && point <= 159;
+	});
+}
+var utf8$1 = new TextDecoder("utf-8", { fatal: true });
+/** Reads the native v2 carrier unchanged, with no network or authority inference. */
+function decodeExpiry(token, now) {
+	valid$5(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
+	valid$5(/^[A-Za-z0-9_-]+$/.test(token));
+	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
+	const raw = atob(encoded);
+	valid$5(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
+	const text = utf8$1.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	const value = JSON.parse(text);
+	valid$5(JSON.stringify(value) === text);
+	const invite = object$1(value, [
+		"version",
+		"context",
+		"publicConfig",
+		"machineName",
+		"code"
+	]);
+	valid$5(invite.version === 2);
+	bytes(invite.code, 16);
+	valid$5(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
+	const context = object$1(invite.context, [
+		"binding",
+		"owner",
+		"owner_key",
+		"offer",
+		"nonce",
+		"issued_at_ms",
+		"expires_at_ms"
+	]);
+	valid$5(typeof context.owner === "string" && UUID$1.test(context.owner));
+	valid$5(typeof context.offer === "string" && UUID$1.test(context.offer));
+	bytes(context.owner_key, 32);
+	bytes(context.nonce, 16);
+	const issued = context.issued_at_ms;
+	const expiry = context.expires_at_ms;
+	valid$5(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
+	valid$5(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
+	valid$5(issued <= now + 6e4 && now < expiry);
+	const binding = object$1(context.binding, [
+		"backend",
+		"reference",
+		"owner_principal"
+	]);
+	valid$5(binding.backend === "firestore");
+	const project = utf8$1.decode(bytes(binding.reference));
+	const principal = utf8$1.decode(bytes(binding.owner_principal));
+	valid$5(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
+	const config = invite.publicConfig;
+	valid$5(config !== null && typeof config === "object" && !Array.isArray(config));
+	valid$5(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
+	valid$5(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
+	valid$5(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
+	valid$5(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
+	return expiry;
+}
+function invitationExpiry(token, now = Date.now()) {
+	try {
+		return decodeExpiry(token, now);
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
+function invitePage(initialToken) {
+	const button = document.getElementById("invite-copy");
+	const status = document.getElementById("invite-status");
+	const feedback = document.getElementById("invite-feedback");
+	let token = initialToken;
+	initialToken = "";
+	let disposed = false;
+	let timer;
+	const clear = () => {
+		disposed = true;
+		token = "";
+		button.disabled = true;
+		feedback.textContent = "";
+		if (timer !== void 0) clearTimeout(timer);
+		button.removeEventListener("click", copy);
+	};
+	const copy = async () => {
+		if (disposed) return;
+		try {
+			invitationExpiry(token);
+			await navigator.clipboard.writeText(`tmt remote join ${token}`);
+			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
+		} catch {
+			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
+		}
+	};
+	try {
+		const expiry = invitationExpiry(token);
+		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
+		button.disabled = false;
+		button.addEventListener("click", copy);
+		timer = setTimeout(() => {
+			clear();
+			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
+		}, Math.max(0, expiry - Date.now()));
+	} catch {
+		clear();
+		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
+	}
+	return clear;
+}
+//#endregion
+//#region src/remote-routes.ts
+var REMOTE_ITEMS = [
+	{
+		id: "remotes",
+		path: "/remote/",
+		label: "My Remotes",
+		title: "My Remotes",
+		page: "settings"
+	},
+	{
+		id: "create",
+		path: "/remote/create",
+		label: "Create a Remote",
+		title: "Create a Remote",
+		page: "settings"
+	},
+	{
+		id: "overview",
+		path: "/remote/overview",
+		label: "Overview",
+		title: "Overview",
+		page: "landing"
+	},
+	{
+		id: "members",
+		path: "/remote/members",
+		label: "Members",
+		title: "Members",
+		page: "settings"
+	},
+	{
+		id: "invites",
+		path: "/remote/invites",
+		label: "Invites",
+		title: "Invites",
+		page: "landing",
+		adminOnly: true
+	},
+	{
+		id: "my-devices",
+		path: "/remote/my-devices",
+		label: "My devices",
+		title: "My devices",
+		page: "settings"
+	},
+	{
+		id: "settings",
+		path: "/remote/settings",
+		label: "Settings",
+		title: "Settings",
+		page: "settings"
+	},
+	{
+		id: "service",
+		path: "/remote/service",
+		label: "Service & upgrade",
+		title: "Service & upgrade",
+		page: "settings",
+		adminOnly: true
+	}
+];
+var REMOTE_PATHS = [
+	"/remote",
+	...REMOTE_ITEMS.filter((item) => item.id !== "remotes").map((item) => item.path),
+	remotePath("remotes")
+];
+function remotePath(id) {
+	return REMOTE_ITEMS.find((item) => item.id === id).path;
+}
+/** Removed pre-launch paths have no alias or redirect. */
+function remoteItem(pathname) {
+	return REMOTE_ITEMS.find((item) => item.path === pathname || pathname === "/remote" && item.id === "remotes");
+}
+/** Display-only locking: signed management remains the authority for every effect. */
+function remoteTabAccess(item, role) {
+	if (!item.adminOnly || role === "owner") return {
+		locked: false,
+		reason: "",
+		request: ""
+	};
+	if (role !== "user") return {
+		locked: true,
+		reason: "Access is not confirmed. Check again before making changes.",
+		request: ""
+	};
+	return item.id === "invites" ? {
+		locked: true,
+		reason: "Only an admin can invite people to this Remote. Ask the person who manages this Remote.",
+		request: "Please invite me to this Remote."
+	} : {
+		locked: true,
+		reason: "Only an admin can manage this Remote's service and upgrade steps. Ask the person who manages this Remote.",
+		request: "Please review this Remote's service and upgrade options with me."
+	};
+}
+//#endregion
 //#region src/firebase-bootstrap.ts
 /** Hosted public configuration is a corruption-checked carrier, never an access grant. */
 var encoder$1 = new TextEncoder();
@@ -1206,7 +2148,7 @@ async function originLink(origin, fetcher) {
 	const controller = new AbortController();
 	let timer;
 	try {
-		valid$5(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
+		valid$4(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
 		const deadline = new Promise((_, reject) => {
 			timer = setTimeout(() => {
 				controller.abort();
@@ -1232,7 +2174,7 @@ async function originLink(origin, fetcher) {
 				...body,
 				checksum: await checksum(body)
 			});
-			valid$5(!controller.signal.aborted);
+			valid$4(!controller.signal.aborted);
 			return `${origin}/pair#${base64url(encoder$1.encode(descriptor))}`;
 		})()]);
 	} catch {
@@ -1242,25 +2184,25 @@ async function originLink(origin, fetcher) {
 		controller.abort();
 	}
 }
-function valid$5(condition) {
+function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function object$2(value, keys) {
-	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
+function object(value, keys) {
+	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const record = value;
-	valid$5(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
+	valid$4(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
 	return record;
 }
 function parsePublicWebConfig(value) {
-	const r = object$2(value, [
+	const r = object(value, [
 		"apiKey",
 		"appId",
 		"authDomain",
 		"projectId"
 	]);
-	valid$5(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
-	valid$5(r.authDomain === `${r.projectId}.firebaseapp.com`);
-	for (const key of ["apiKey", "appId"]) valid$5(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
+	valid$4(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
+	valid$4(r.authDomain === `${r.projectId}.firebaseapp.com`);
+	for (const key of ["apiKey", "appId"]) valid$4(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
 	return Object.freeze(r);
 }
 function canonical$1(value) {
@@ -1273,38 +2215,38 @@ async function checksum(value) {
 }
 async function verifyHostedLink(link, origin) {
 	try {
-		valid$5(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
+		valid$4(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
 		const url = new URL(link);
-		valid$5(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
+		valid$4(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
 		const fragment = url.hash.slice(1);
-		valid$5(/^[A-Za-z0-9_-]+$/.test(fragment));
+		valid$4(/^[A-Za-z0-9_-]+$/.test(fragment));
 		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 		const text = decoder$1.decode(bytes);
 		const raw = JSON.parse(text);
 		const hasSite = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "hostingSite");
-		const r = object$2(raw, [
+		const r = object(raw, [
 			"version",
 			"kind",
 			"publicWebConfig",
 			"checksum",
 			...hasSite ? ["hostingSite"] : []
 		]);
-		valid$5(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
+		valid$4(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
 		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
 		let site = publicConfig.projectId;
 		if (hasSite) {
 			const selected = r.hostingSite;
-			valid$5(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
+			valid$4(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
 			site = selected;
 		}
-		valid$5(origin === `https://${site}.web.app`);
-		valid$5(await checksum({
+		valid$4(origin === `https://${site}.web.app`);
+		valid$4(await checksum({
 			kind: r.kind,
 			publicWebConfig: publicConfig,
 			version: r.version,
 			...hasSite ? { hostingSite: site } : {}
 		}) === r.checksum && text === canonical$1(r));
-		valid$5(link === `${origin}/pair#${base64url(bytes)}`);
+		valid$4(link === `${origin}/pair#${base64url(bytes)}`);
 		return Object.freeze({
 			origin,
 			publicWebConfig: publicConfig,
@@ -1359,17 +2301,17 @@ async function readHostedConfig(origin, fetcher, signal) {
 //#region src/sealed-sync-mapping.ts
 /** Frozen resource field/query mapping. Names are release data, never a Colab-specific list. */
 var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
-function valid$4(condition) {
+function valid$3(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function row$2(value, keys) {
-	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$3(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
-	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
+	valid$3(Object.keys(r).sort().join(",") === keys.sort().join(","));
 	return r;
 }
 function parseSyncMapping(value) {
-	valid$4(typeof value === "object" && value !== null);
+	valid$3(typeof value === "object" && value !== null);
 	const r = row$2(value, [
 		"fields",
 		"spaceField",
@@ -1377,19 +2319,19 @@ function parseSyncMapping(value) {
 		"query",
 		...Object.hasOwn(value, "writeModes") ? ["writeModes"] : []
 	]);
-	if (r.writeModes !== void 0) valid$4(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
+	if (r.writeModes !== void 0) valid$3(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
 		"create",
 		"put",
 		"delete"
 	].includes(m)));
-	valid$4(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
+	valid$3(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
 	const fields = new Set(r.fields);
-	valid$4(fields.size === r.fields.length);
+	valid$3(fields.size === r.fields.length);
 	const declared = (v) => typeof v === "string" && fields.has(v);
-	valid$4(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
+	valid$3(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
 	let query = null;
 	if (r.query !== null) {
-		valid$4(typeof r.query === "object" && r.query !== null);
+		valid$3(typeof r.query === "object" && r.query !== null);
 		const q = row$2(r.query, [
 			"scopeFields",
 			"streamField",
@@ -1397,10 +2339,10 @@ function parseSyncMapping(value) {
 			"order",
 			...Object.hasOwn(r.query, "discovery") ? ["discovery"] : []
 		]);
-		valid$4(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
+		valid$3(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
 		const scope = new Set(q.scopeFields);
-		valid$4(scope.size === q.scopeFields.length);
-		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
+		valid$3(scope.size === q.scopeFields.length);
+		valid$3(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
 			const d = row$2(q.discovery, [
@@ -1408,9 +2350,9 @@ function parseSyncMapping(value) {
 				"scopeFields",
 				"seqEquals"
 			]);
-			valid$4(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
-			valid$4([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
-			valid$4(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
+			valid$3(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
+			valid$3([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
+			valid$3(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
 			discovery = Object.freeze({
 				name: d.name,
 				scopeFields: Object.freeze([...d.scopeFields]),
@@ -1534,7 +2476,7 @@ async function verifyHostedDeclaration(input) {
 }
 //#endregion
 //#region src/sealed-sync-codec.ts
-function valid$3(condition) {
+function valid$2(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function timestamp(s) {
@@ -1571,9 +2513,9 @@ function validateSyncFields(bytes) {
 	try {
 		const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 		const row = JSON.parse(text);
-		valid$3(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
+		valid$2(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
 		const fields = row;
-		valid$3(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
+		valid$2(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
 		return fields;
 	} catch {
 		throw new RefusalError("REMOTE_INPUT_INVALID");
@@ -1584,46 +2526,46 @@ function textIs(value, expected) {
 }
 async function validateSyncDocument(context, document, access) {
 	const resource = context.resources.find((r) => r.name === document.target.resource);
-	valid$3(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
+	valid$2(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
 	const mapping = resource.sync;
 	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	const bytes = new Uint8Array(document.bytes);
 	const expectedDigest = document.digest;
 	const row = validateSyncFields(bytes);
-	valid$3(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
+	valid$2(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
 	if (mapping.query) {
 		const stream = row[mapping.query.streamField];
 		const sequence = row[mapping.query.seqField];
-		valid$3(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
+		valid$2(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
 	}
-	valid$3(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
+	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
 	if (!textIs(row[mapping.spaceField], context.space) || access === "publish" && mapping.uidField !== null && !textIs(row[mapping.uidField], context.uid)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 function validateSyncQuery(context, query) {
 	const resource = context.resources.find((r) => r.name === query.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const spec = mapping?.query;
 	if (!mapping || !spec) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
-	valid$3(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
+	valid$2(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
 	if (!textIs(query.scope[mapping.spaceField], context.space) || !textIs(query.scope[spec.streamField], query.stream)) throw new RefusalError("REMOTE_SCOPE_DENIED");
-	valid$3(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
+	valid$2(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
 }
 function validateSyncDiscovery(context, query) {
 	const resource = context.resources.find((r) => r.name === query.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const discovery = mapping?.query?.discovery;
 	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	if (!discovery) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
-	valid$3(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
+	valid$2(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
 	if (!textIs(query.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 async function validateSyncMutation(context, mutation) {
 	const target = mutation.mode === "delete" ? mutation.target : mutation.document.target;
-	valid$3(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
+	valid$2(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
 	const resource = context.resources.find((r) => r.name === target.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	if (!mapping || !(mapping.writeModes ?? ["create"]).includes(mutation.mode)) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
 	if (mutation.mode !== "delete") await validateSyncDocument(context, mutation.document, "publish");
@@ -1631,12 +2573,12 @@ async function validateSyncMutation(context, mutation) {
 /** Page-scope registration, not a stream query or mandatory discovery shape. */
 function validateSyncInterest(context, interest) {
 	const resource = context.resources.find((r) => r.name === interest.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const query = mapping?.query;
 	if (!mapping || !query) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	const fields = query.scopeFields.filter((key) => key !== query.streamField);
-	valid$3(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
+	valid$2(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
 	if (!textIs(interest.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 //#endregion
@@ -1644,20 +2586,20 @@ function validateSyncInterest(context, interest) {
 /** Extension-scoped sealed-document ports and pure binding. No credential storage. */
 var identity = /^[A-Za-z0-9_+-]{1,128}$/;
 var documentId = /^[A-Za-z0-9_+-]{1,256}$/;
-function valid$2(condition) {
+function valid$1(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 /** Caller supplies bootstrap-verified public config. This pure binding does not attest an origin. */
 async function bindSyncContext(config, declaration, space, auth) {
 	config = parsePublicWebConfig(config);
 	await verifyHostedDeclaration(declaration);
-	valid$2(identity.test(space) && identity.test(auth.identity.uid));
+	valid$1(identity.test(space) && identity.test(auth.identity.uid));
 	if (config.projectId !== auth.identity.projectId) throw new RefusalError("REMOTE_SCOPE_DENIED");
 	const row = JSON.parse(declaration.bytes);
 	for (const [i, resource] of row.resources.entries()) {
 		const segments = resource.path.split("/").length;
-		valid$2(segments <= 7 && segments % 2 === 1);
-		valid$2(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
+		valid$1(segments <= 7 && segments % 2 === 1);
+		valid$1(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
 	}
 	const resources = row.resources.map((r) => Object.freeze({
 		name: r.name,
@@ -1679,26 +2621,26 @@ async function bindSyncContext(config, declaration, space, auth) {
 /** A document target cannot escape its declared collection or select an operations route. */
 function syncDocumentPath(context, target) {
 	const resource = context.resources.find((r) => r.name === target.resource);
-	valid$2(resource !== void 0 && documentId.test(target.id));
+	valid$1(resource !== void 0 && documentId.test(target.id));
 	return `x/${context.extension}/${resource.path}/${target.id}`;
 }
 /** Pure complete-or-absent validation; never returns a truncated object. */
 async function verifySealedObject(original, manifest, chunks, maxObjectBytes) {
-	valid$2(documentId.test(original) && manifest.original === original);
-	valid$2(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
-	valid$2(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
-	valid$2(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
-	valid$2(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
-	valid$2(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
+	valid$1(documentId.test(original) && manifest.original === original);
+	valid$1(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
+	valid$1(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
+	valid$1(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
+	valid$1(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
+	valid$1(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
 	const bytes = new Uint8Array(manifest.bytes);
 	let offset = 0;
 	for (let i = 0; i < chunks.length; i++) {
 		const chunk = chunks[i];
-		valid$2(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
+		valid$1(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
 		bytes.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
+	valid$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
 }
 //#endregion
 //#region src/browser-store.ts
@@ -2941,33 +3883,33 @@ var empty = {
 	version: 1,
 	entries: []
 };
-function valid$1(condition, message = "The remote name or link is invalid") {
+function valid(condition, message = "The remote name or link is invalid") {
 	if (!condition) throw new RemoteRegistryError("REMOTE_SELECTOR_INVALID", message);
 }
 function fields(value, keys) {
-	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid(typeof value === "object" && value !== null && !Array.isArray(value));
 	const object = value;
-	valid$1(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
+	valid(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
 	return object;
 }
 function name$1(value) {
-	valid$1(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
+	valid(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
 }
 function target(entry) {
 	return new URL(entry.url).href;
 }
 async function reference(alias, address) {
 	name$1(alias);
-	valid$1(typeof address === "string" && address.length <= LIMIT);
+	valid(typeof address === "string" && address.length <= LIMIT);
 	let url;
 	try {
 		url = new URL(address);
 	} catch {
-		valid$1(false);
+		valid(false);
 	}
 	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") {
 		const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
-			valid$1(false);
+			valid(false);
 		});
 		return {
 			name: alias,
@@ -2976,7 +3918,7 @@ async function reference(alias, address) {
 			project: config.projectId
 		};
 	}
-	valid$1(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
+	valid(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
 	return {
 		name: alias,
 		kind: "local",
@@ -2986,8 +3928,8 @@ async function reference(alias, address) {
 }
 async function parseCatalog(value) {
 	const row = fields(value, ["version", "entries"]);
-	valid$1(row.version === 1 && Array.isArray(row.entries));
-	valid$1(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
+	valid(row.version === 1 && Array.isArray(row.entries));
+	valid(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
 	const entries = [];
 	for (const raw of row.entries) {
 		const r = fields(raw, [
@@ -2997,51 +3939,51 @@ async function parseCatalog(value) {
 			"project"
 		]);
 		const entry = await reference(r.name, r.url);
-		valid$1(entry.kind === r.kind && entry.project === r.project);
-		valid$1(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
+		valid(entry.kind === r.kind && entry.project === r.project);
+		valid(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
 		entries.push(Object.freeze(entry));
 	}
 	const catalog = {
 		version: 1,
 		entries: Object.freeze(entries)
 	};
-	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
+	valid(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
 	return Object.freeze(catalog);
 }
 function json(catalog) {
 	return JSON.stringify(catalog);
 }
 function decode$1(value) {
-	valid$1(/^[A-Za-z0-9_-]+$/.test(value));
+	valid(/^[A-Za-z0-9_-]+$/.test(value));
 	try {
 		const bytes = Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
-		valid$1(base64url(bytes) === value);
+		valid(base64url(bytes) === value);
 		return JSON.parse(decoder.decode(bytes));
 	} catch {
-		valid$1(false);
+		valid(false);
 	}
 }
 function hint(value) {
 	const r = fields(value, ["spaceId", "pageId"]);
-	valid$1(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
-	valid$1(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
+	valid(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
+	valid(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
 	return {
 		spaceId: r.spaceId,
 		pageId: r.pageId
 	};
 }
 async function parseHandoff(fragment) {
-	valid$1(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
+	valid(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
 	const params = new URLSearchParams(fragment.slice(1));
 	const keys = [...params.keys()];
-	valid$1(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
+	valid(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
 	const raw = params.get("tmt-remotes");
-	valid$1(raw !== null);
+	valid(raw !== null);
 	const catalog = await parseCatalog(decode$1(raw));
-	valid$1(base64url(encoder.encode(json(catalog))) === raw);
+	valid(base64url(encoder.encode(json(catalog))) === raw);
 	const page = params.get("tmt-page");
 	const checkedHint = page === null ? void 0 : hint(decode$1(page));
-	if (checkedHint) valid$1(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
+	if (checkedHint) valid(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
 	return {
 		catalog,
 		...checkedHint ? { hint: checkedHint } : {}
@@ -3049,12 +3991,12 @@ async function parseHandoff(fragment) {
 }
 async function buildHandoff(destination, value, page) {
 	const checked = await reference(destination.name, destination.url);
-	valid$1(checked.kind === destination.kind && checked.project === destination.project);
+	valid(checked.kind === destination.kind && checked.project === destination.project);
 	if (checked.kind === "firestore") return checked.url;
 	const catalog = await parseCatalog(value);
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
-	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
+	valid(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
 	return `${new URL("/remote/overview", checked.url).href}#${params}`;
 }
 async function planImport(incoming, current) {
@@ -3093,7 +4035,7 @@ async function planImport(incoming, current) {
 }
 async function mergeImport(plan, choices) {
 	const checked = await planImport(plan.incoming, plan.current);
-	valid$1(choices.length === checked.rows.length);
+	valid(choices.length === checked.rows.length);
 	const entries = [...checked.current.entries];
 	for (const [index, row] of checked.rows.entries()) {
 		const alias = choices[index];
@@ -3113,9 +4055,9 @@ async function mergeImport(plan, choices) {
 async function snapshot() {
 	try {
 		const raw = await readRegistry();
-		valid$1(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
+		valid(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
 		const catalog = raw === void 0 ? empty : await parseCatalog(JSON.parse(raw));
-		valid$1(raw === void 0 || raw === json(catalog));
+		valid(raw === void 0 || raw === json(catalog));
 		return {
 			raw,
 			catalog
@@ -3150,14 +4092,14 @@ var remoteRegistry = {
 			version: 1,
 			entries: [entry]
 		}, latest.catalog);
-		valid$1(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
+		valid(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
 		await remoteRegistry.confirmImport(plan, [alias]);
 	},
 	async rename(previous, alias) {
 		name$1(alias);
 		const latest = await snapshot();
-		valid$1(latest.catalog.entries.some((entry) => entry.name === previous));
-		valid$1(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
+		valid(latest.catalog.entries.some((entry) => entry.name === previous));
+		valid(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
 		const next = await parseCatalog({
 			version: 1,
 			entries: latest.catalog.entries.map((entry) => entry.name === previous ? {
@@ -3169,7 +4111,7 @@ var remoteRegistry = {
 	},
 	async remove(alias) {
 		const latest = await snapshot();
-		valid$1(latest.catalog.entries.some((entry) => entry.name === alias));
+		valid(latest.catalog.entries.some((entry) => entry.name === alias));
 		await commit(latest.raw, {
 			version: 1,
 			entries: latest.catalog.entries.filter((entry) => entry.name !== alias)
@@ -4666,7 +5608,7 @@ function startShellHost(root, routes, options = {}) {
 var home_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"home\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Home · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Home</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page tmt-home\">\n      <section class=\"tmt-ui-section\" aria-labelledby=\"home-needs-heading\">\n        <h2 id=\"home-needs-heading\" class=\"tmt-ui-section-heading\">◆ Needs you</h2>\n        <ul id=\"home-needs\" class=\"tmt-ui-list\"></ul>\n        <p id=\"home-needs-note\" class=\"home-note\" role=\"status\">Checking…</p>\n      </section>\n      <section id=\"home-recent-block\" class=\"tmt-ui-section\" aria-labelledby=\"home-recent-heading\" hidden>\n        <h2 id=\"home-recent-heading\" class=\"tmt-ui-section-heading\">Recent pages</h2>\n        <ul id=\"home-recent\" class=\"tmt-ui-list\"></ul>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/landing.html?raw
-var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landing\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Remote connection · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/landing.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote connection\">\n      <h1 class=\"header-title tmt-ui-title\">Remote connection</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page\">\n      <section\n        id=\"notice\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"overview\"\n        aria-labelledby=\"heading\"\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <div class=\"tmt-ui-notice-mark\">\n            <span id=\"mark\" class=\"state-mark\" aria-hidden=\"true\">◌</span\n            ><span id=\"state-label\">Checking</span>\n          </div>\n          <h2 id=\"heading\" class=\"tmt-ui-notice-heading\">Checking the connection…</h2>\n          <p id=\"status\" role=\"status\">Reading this browser's pairing.</p>\n          <button id=\"check\" class=\"tmt-ui-action\" type=\"button\" aria-describedby=\"status\" disabled>\n            Check again\n          </button>\n          <details class=\"tmt-ui-disclosure\" data-divided>\n            <summary>Details</summary>\n            <dl class=\"entry-status\">\n              <dt>Machine ID</dt>\n              <dd id=\"machine-id\">Not available</dd>\n              <dt>Last checked</dt>\n              <dd id=\"checked-time\">Not checked</dd>\n              <dt>Address</dt>\n              <dd id=\"protocol-address\">Not available</dd>\n              <dt>Fingerprint</dt>\n              <dd id=\"trust-pin\">Not available</dd>\n            </dl>\n            <p class=\"entry-note\">\n              Pairing gives this browser its own access. It does not make this browser a\n              settings administrator.\n            </p>\n          </details>\n        </div>\n      </section>\n      <div data-view=\"overview invites\"><section id=\"remote-guidance\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" hidden>\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"remote-guidance-heading\" class=\"tmt-ui-notice-heading\">Connect a browser</h2>\n          <p>Run commands on the machine that runs this Remote.</p>\n          <p id=\"remote-guide-members\" hidden>Check the saved member before changing access:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote members</code><button id=\"copy-guide-members\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote members\">Copy</button><span id=\"copy-feedback-guide-members\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <p id=\"remote-guide-status\" hidden>Check whether Remote is running:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote status</code><button id=\"copy-guide-status\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote status\">Copy</button><span id=\"copy-feedback-guide-status\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <div id=\"remote-guide-pair\" hidden>\n            <ol class=\"entry-steps\">\n              <li>Run <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code><button id=\"copy-guide-pair\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote pair\">Copy</button><span id=\"copy-feedback-guide-pair\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span></li>\n              <li>Open the link it prints in the browser you want to connect.</li>\n              <li>Name the browser and check the four words.</li><li>Confirm in the terminal.</li>\n            </ol>\n            <p id=\"pairing-note\" class=\"entry-note\">Pair links are private and work once.</p><p class=\"entry-note\">Pairing does not make a browser an admin.</p>\n          </div>\n        </div>\n      </section></div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landing\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Remote connection · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/landing.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote connection\">\n      <h1 class=\"header-title tmt-ui-title\">Remote connection</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page\">\n      <section\n        id=\"notice\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"overview\"\n        aria-labelledby=\"heading\"\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <div class=\"tmt-ui-notice-mark\">\n            <span id=\"mark\" class=\"state-mark\" aria-hidden=\"true\">◌</span\n            ><span id=\"state-label\">Checking</span>\n          </div>\n          <h2 id=\"heading\" class=\"tmt-ui-notice-heading\">Checking the connection…</h2>\n          <p id=\"status\" role=\"status\">Reading this browser's pairing.</p>\n          <button id=\"check\" class=\"tmt-ui-action\" type=\"button\" aria-describedby=\"status\" disabled>\n            Check again\n          </button>\n          <details class=\"tmt-ui-disclosure\" data-divided>\n            <summary>Details</summary>\n            <dl class=\"entry-status\">\n              <dt>Machine ID</dt>\n              <dd id=\"machine-id\">Not available</dd>\n              <dt>Last checked</dt>\n              <dd id=\"checked-time\">Not checked</dd>\n              <dt>Address</dt>\n              <dd id=\"protocol-address\">Not available</dd>\n              <dt>Fingerprint</dt>\n              <dd id=\"trust-pin\">Not available</dd>\n            </dl>\n            <p class=\"entry-note\">\n              Pairing gives this browser its own access. It does not make this browser a\n              settings administrator.\n            </p>\n          </details>\n        </div>\n      </section>\n      <section id=\"owner-invitation\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" data-view=\"invites\" aria-labelledby=\"invitation-heading\">\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"invitation-heading\" class=\"tmt-ui-notice-heading\">Confirm an invitation</h2>\n          <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. This browser must be locally designated to confirm.</p>\n          <p id=\"invitation-status\" role=\"status\">Check access to read the current invitation.</p>\n          <button id=\"invitation-refresh\" class=\"tmt-ui-action\" type=\"button\" disabled>Check invitation</button>\n          <div id=\"invitation-candidate\" hidden>\n            <h3 id=\"invitation-name\"></h3>\n            <p id=\"invitation-words\" class=\"entry-command\"></p>\n            <p id=\"invitation-expires\" class=\"entry-note\"></p>\n            <fieldset class=\"tmt-ui-choices invitation-choices\">\n              <legend class=\"tmt-ui-choices-legend\">Your decision</legend>\n              <label class=\"tmt-ui-choice\" for=\"invitation-compared\"><input id=\"invitation-compared\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\">I compared these four words with the person joining; they match.</span></label>\n              <label class=\"tmt-ui-choice\" for=\"invitation-sending\"><input id=\"invitation-sending\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\"><span>Allow this member to send messages to your agents.</span><span class=\"tmt-ui-choice-description\">Sending stays off unless you choose to allow it.</span></span></label>\n            </fieldset>\n            <div class=\"invitation-actions\"><button id=\"invitation-confirm\" class=\"tmt-ui-action\" data-variant=\"primary\" type=\"button\" disabled>Confirm invitation</button><button id=\"invitation-decline\" class=\"tmt-ui-action\" type=\"button\">Decline invitation</button></div>\n          </div>\n          <div id=\"invitation-original\" hidden>\n            <p>Original decision: <code id=\"invitation-original-id\"></code></p>\n            <button id=\"invitation-recover\" class=\"tmt-ui-action\" type=\"button\">Check original outcome</button>\n          </div>\n        </div>\n      </section>\n      <div data-view=\"overview invites\"><section id=\"remote-guidance\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" hidden>\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"remote-guidance-heading\" class=\"tmt-ui-notice-heading\">Connect a browser</h2>\n          <p>Run commands on the machine that runs this Remote.</p>\n          <p id=\"remote-guide-members\" hidden>Check the saved member before changing access:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote members</code><button id=\"copy-guide-members\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote members\">Copy</button><span id=\"copy-feedback-guide-members\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <p id=\"remote-guide-status\" hidden>Check whether Remote is running:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote status</code><button id=\"copy-guide-status\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote status\">Copy</button><span id=\"copy-feedback-guide-status\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <div id=\"remote-guide-pair\" hidden>\n            <ol class=\"entry-steps\">\n              <li>Run <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code><button id=\"copy-guide-pair\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote pair\">Copy</button><span id=\"copy-feedback-guide-pair\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span></li>\n              <li>Open the link it prints in the browser you want to connect.</li>\n              <li>Name the browser and check the four words.</li><li>Confirm in the terminal.</li>\n            </ol>\n            <p id=\"pairing-note\" class=\"entry-note\">Pair links are private and work once.</p><p class=\"entry-note\">Pairing does not make a browser an admin.</p>\n          </div>\n        </div>\n      </section></div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/settings.html?raw
 var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>My Remotes · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · My Remotes\">\n      <h1 class=\"header-title tmt-ui-title\">My Remotes</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page settings-page\">\n      <div id=\"remote-head\" class=\"remote-head\" data-view=\"remotes\">\n        <div class=\"remote-head-copy\">\n          <h2 class=\"settings-title\">My Remotes</h2>\n          <p class=\"settings-intro\">Names and addresses stay in this browser. Forgetting a row leaves access unchanged.</p>\n        </div>\n        <div class=\"remote-head-actions\">\n          <a class=\"tmt-ui-action\" data-variant=\"primary\" href=\"/remote/create\"><span class=\"tmt-ui-action-label\">Create a Remote</span></a>\n          <span id=\"remote-join\"></span>\n        </div>\n      </div>\n      <section id=\"remote-create\" class=\"create-guide\" data-view=\"create\" hidden>\n        <p class=\"settings-intro\">Choose a connection type, then follow the steps on this machine. Work stays in your terminal or provider console.</p>\n      </section>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"members my-devices settings service\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote members</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\" data-view=\"members my-devices settings service remotes\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section id=\"remote-local-name\" class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"local-name-heading\">\n        <div class=\"settings-section-body\"><div class=\"settings-summary\">\n          <h2 id=\"local-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Name in this browser</h2>\n          <p id=\"remote-local-name-value\">This machine</p><p>This name stays in this browser. It does not rename the Remote for anyone else.</p>\n        </div><div class=\"settings-fields\"><button id=\"remote-local-rename\" class=\"tmt-ui-action\" type=\"button\"><span class=\"tmt-ui-action-label\">Remember this Remote</span></button></div></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"browser-name-heading\">\n        <div class=\"settings-summary\"><h2 id=\"browser-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">This browser's device name</h2>\n          <p>This is the paired browser/device name, not a person's display name.</p></div>\n        <p id=\"current-browser-name-missing\">This browser is not reported on the current device page. Open Members to check its paired devices.</p>\n        <div id=\"current-browser-name\"></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"service\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Service &amp; upgrade</h2>\n          <p>Review this Remote’s service status. Make changes in this machine’s terminal or the provider console.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking service status…</div>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"members my-devices\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"tmt-ui-notice\" hidden>\n            <p id=\"remove-others-consequence\" class=\"tmt-ui-notice-body\" role=\"status\"></p>\n            <div class=\"tmt-ui-notice-actions\">\n              <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">\n                <span class=\"tmt-ui-action-label\">Cancel</span>\n              </button>\n            </div>\n          </div>\n          <div id=\"devices\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"tmt-ui-section\" data-view=\"remotes\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\" class=\"tmt-ui-visually-hidden\">Remote list</h2>\n        <ul id=\"remote-list\" class=\"tmt-ui-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
@@ -8823,288 +9765,6 @@ function shellApp() {
 	window.addEventListener("hashchange", changed);
 	return started;
 }
-//#endregion
-//#region src/budget.ts
-var budget_exports = /* @__PURE__ */ __exportAll({
-	ACTIVE_SECONDS_PER_DAY: () => ACTIVE_SECONDS_PER_DAY,
-	BUDGET_EXHAUSTED: () => BUDGET_EXHAUSTED,
-	BudgetModel: () => BudgetModel,
-	BudgetModelError: () => BudgetModelError,
-	MAX_MEMBERS: () => MAX_MEMBERS,
-	READS_PER_DAY: () => READS_PER_DAY,
-	READ_LOOKUPS: () => 2,
-	REFUSE_PERCENT: () => 90,
-	WARN_PERCENT: () => 70,
-	WRITES_PER_DAY: () => WRITES_PER_DAY,
-	WRITE_LOOKUPS: () => 4,
-	classifyProviderExhausted: () => classifyProviderExhausted,
-	decide: () => decide,
-	exhaustedIsCurrent: () => exhaustedIsCurrent,
-	newUsage: () => newUsage,
-	pacificDay: () => pacificDay,
-	parsePublishedLimits: () => parsePublishedLimits,
-	publishedLimitRows: () => publishedLimitRows,
-	recordedUsage: () => recordedUsage,
-	usageAt: () => usageAt
-});
-/**
-* Free-plan (Spark) Firestore budget guard, the browser twin of the Rust `firestore_budget`
-* module (#2180). Pure arithmetic: no I/O and no clock (callers pass `nowMs`). Quotas are
-* project-wide, every client sees only its own traffic and Rules cannot read quotas, so the
-* guard works from what a client really has: the member count from the signed membership, the
-* page's parameters, its own persisted counter for today and these constants. It does not read
-* Google's counter, and the counter a client keeps is per browser and device, so other
-* devices' appends are invisible to it: `decide` is a local estimate and the provider's own
-* `resource-exhausted` answer is the backstop. Both implementations are tested against the
-* same independent vectors, so a change to either one fails until both agree; the dated
-* numbers and the derivation are in the Remote reference guide's free-plan table.
-*/
-/** Spark (no-cost) Firestore document reads per day. */
-var READS_PER_DAY = 5e4;
-/** Spark (no-cost) Firestore document writes per day. */
-var WRITES_PER_DAY = 2e4;
-/** Planning assumption for the minimum flush interval: this many active seconds per day. */
-var ACTIVE_SECONDS_PER_DAY = 7200;
-/** Largest member count the model accepts. */
-var MAX_MEMBERS = 1e4;
-/** The error code of a refusal made before any effect. */
-var BUDGET_EXHAUSTED = "REMOTE_BUDGET_EXHAUSTED";
-/**
-* `out_of_range`: no members, no writers, more writers than members, or too many members.
-* `free_plan_cannot_host`: the modeled share is too small for the guard to allow even one
-* append. A page like that is refused when the model is built, never as a pause that would end
-* at the next reset and begin again.
-*/
-var BudgetModelError = class extends Error {
-	code;
-	constructor(code) {
-		super(code === "out_of_range" ? "The page size is out of range." : "The free plan cannot host a page this size.");
-		this.code = code;
-		this.name = "BudgetModelError";
-	}
-};
-/** One shared page: `members` have it open (every one a listener), `writers` of them append. */
-var BudgetModel = class BudgetModel {
-	members;
-	writers;
-	constructor(members, writers) {
-		this.members = members;
-		this.writers = writers;
-	}
-	static create(members, writers) {
-		const whole = (value) => Number.isSafeInteger(value);
-		if (!(whole(members) && whole(writers) && members >= 1 && members <= 1e4 && writers >= 1 && writers <= members)) throw new BudgetModelError("out_of_range");
-		const model = new BudgetModel(members, writers);
-		if (model.refuseAt() === 0) throw new BudgetModelError("free_plan_cannot_host");
-		return model;
-	}
-	/** Reads one append costs the project, pessimistically: the writer's lookups, then each other listener's. */
-	readsPerAppend() {
-		return 4 + (this.members - 1) * 3;
-	}
-	/** Appends per day the free plan allows this page if it were the project's only traffic. */
-	dailyAppendLimit() {
-		return Math.min(Math.floor(READS_PER_DAY / this.readsPerAppend()), WRITES_PER_DAY);
-	}
-	/** One client's modeled share of the page's daily allowance. */
-	share() {
-		return Math.floor(this.dailyAppendLimit() / this.writers);
-	}
-	/** Appends after which the guard warns, and the count at which it refuses. */
-	warnAt() {
-		return Math.floor(this.share() * 70 / 100);
-	}
-	refuseAt() {
-		return Math.floor(this.share() * 90 / 100);
-	}
-	/** Shortest average interval between flushed updates, in milliseconds, that keeps the planning assumption. */
-	minFlushIntervalMs() {
-		const appends = Math.max(Math.floor(this.dailyAppendLimit() * 70 / 100), 1);
-		return Math.ceil(ACTIVE_SECONDS_PER_DAY * 1e3 / appends);
-	}
-	/** What the guard says about the next append, given how many this client sent today. */
-	assess(appendsToday) {
-		if (appendsToday >= this.refuseAt()) return "refuse";
-		if (appendsToday >= this.warnAt()) return "warn";
-		return "ok";
-	}
-};
-var DAY_MS = 864e5;
-var HOUR_MS = 36e5;
-var floorDiv = (value, divisor) => Math.floor(value / divisor);
-/** Days since 1970-01-01 of a proleptic Gregorian date. */
-function daysFromCivil(year, month, day) {
-	const y = month <= 2 ? year - 1 : year;
-	const era = floorDiv(y, 400);
-	const yoe = y - era * 400;
-	const doy = floorDiv(153 * ((month + 9) % 12) + 2, 5) + day - 1;
-	const doe = yoe * 365 + floorDiv(yoe, 4) - floorDiv(yoe, 100) + doy;
-	return era * 146097 + doe - 719468;
-}
-function civilYear(days) {
-	const z = days + 719468;
-	const era = floorDiv(z, 146097);
-	const doe = z - era * 146097;
-	const yoe = floorDiv(doe - floorDiv(doe, 1460) + floorDiv(doe, 36524) - floorDiv(doe, 146096), 365);
-	const mp = floorDiv(5 * (doe - (365 * yoe + floorDiv(yoe, 4) - floorDiv(yoe, 100))) + 2, 153);
-	const month = mp < 10 ? mp + 3 : mp - 9;
-	return yoe + era * 400 + (month <= 2 ? 1 : 0);
-}
-/** The n-th Sunday (1-based) of `month` in `year`, as a day number. */
-function nthSunday(year, month, n) {
-	const first = daysFromCivil(year, month, 1);
-	return first + (7 - ((first + 4) % 7 + 7) % 7) % 7 + (n - 1) * 7;
-}
-/** United States rule since 2007: daylight time from 02:00 local on the second Sunday of March to 02:00 local on the first Sunday of November. */
-function isDstLocal(localMs) {
-	const year = civilYear(floorDiv(localMs, DAY_MS));
-	const start = nthSunday(year, 3, 2) * DAY_MS + 2 * HOUR_MS;
-	const end = nthSunday(year, 11, 1) * DAY_MS + 2 * HOUR_MS;
-	return localMs >= start && localMs < end;
-}
-/** The Pacific UTC offset at a UTC instant: -8 h, or -7 h in daylight time. */
-function offsetMs(utcMs) {
-	const year = civilYear(floorDiv(utcMs - 8 * HOUR_MS, DAY_MS));
-	const start = nthSunday(year, 3, 2) * DAY_MS + 10 * HOUR_MS;
-	const end = nthSunday(year, 11, 1) * DAY_MS + 9 * HOUR_MS;
-	return utcMs >= start && utcMs < end ? -7 * HOUR_MS : -8 * HOUR_MS;
-}
-function pacificDay(nowMs) {
-	const day = floorDiv(nowMs + offsetMs(nowMs), DAY_MS);
-	const nextMidnightLocal = (day + 1) * DAY_MS;
-	return {
-		day,
-		resetAtMs: nextMidnightLocal - (isDstLocal(nextMidnightLocal) ? -7 * HOUR_MS : -8 * HOUR_MS)
-	};
-}
-function newUsage(nowMs) {
-	return {
-		day: pacificDay(nowMs).day,
-		appends: 0
-	};
-}
-/** The same usage if still the same Pacific day, else a fresh day. */
-function usageAt(usage, nowMs) {
-	return pacificDay(nowMs).day === usage.day ? usage : newUsage(nowMs);
-}
-/** Count one append sent. */
-function recordedUsage(usage, nowMs) {
-	const today = usageAt(usage, nowMs);
-	return {
-		...today,
-		appends: Math.min(today.appends + 1, Number.MAX_SAFE_INTEGER)
-	};
-}
-/** Judge the next append. Rolls the usage over to today first. */
-function decide(model, usage, nowMs) {
-	const today = usageAt(usage, nowMs);
-	const verdict = model.assess(today.appends);
-	if (verdict === "ok") return { decision: "allow" };
-	if (verdict === "warn") return { decision: "warn" };
-	const { resetAtMs } = pacificDay(nowMs);
-	return {
-		decision: "refuse",
-		resetAtMs,
-		retryAfterMs: Math.max(resetAtMs - nowMs, 0)
-	};
-}
-function classifyProviderExhausted(attempt, nowMs) {
-	const { day, resetAtMs } = pacificDay(nowMs);
-	const evidence = {
-		day,
-		resetAtMs
-	};
-	if (attempt.mutation) return {
-		outcome: { outcome: "unknown" },
-		evidence
-	};
-	return {
-		outcome: {
-			outcome: "refused",
-			resetAtMs,
-			retryAfterMs: Math.max(resetAtMs - nowMs, 0)
-		},
-		evidence
-	};
-}
-/** Still a statement about today's quota. */
-function exhaustedIsCurrent(evidence, nowMs) {
-	return nowMs < evidence.resetAtMs;
-}
-var publishedLimitRows = [
-	[
-		"readsPerDay",
-		"Document reads",
-		"day",
-		false
-	],
-	[
-		"writesPerDay",
-		"Document writes",
-		"day",
-		false
-	],
-	[
-		"deletesPerDay",
-		"Document deletes",
-		"day",
-		false
-	],
-	[
-		"storedBytes",
-		"Stored data",
-		"",
-		true
-	],
-	[
-		"egressBytesPerMonth",
-		"Data sent out",
-		"month",
-		true
-	],
-	[
-		"databases",
-		"Free databases per project",
-		"",
-		false
-	],
-	[
-		"compositeIndexes",
-		"Composite indexes",
-		"",
-		false
-	],
-	[
-		"singleFieldIndexConfigs",
-		"Single-field index configs",
-		"",
-		false
-	],
-	[
-		"documentBytes",
-		"Document size",
-		"",
-		true
-	],
-	[
-		"rulesLookupsPerRequest",
-		"Rules document lookups per request",
-		"",
-		false
-	]
-];
-function parsePublishedLimits(value) {
-	const object = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-	const keys = (v, expected) => Object.keys(v).length === expected.length && expected.every((key) => Object.hasOwn(v, key));
-	if (!object(value) || !keys(value, [
-		"plan",
-		"readOn",
-		"resetsAt",
-		"limits",
-		"guard"
-	]) || value.plan !== "no-cost" || value.resetsAt !== "pacific-midnight" || typeof value.readOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.readOn) || !object(value.limits) || !keys(value.limits, publishedLimitRows.map((row) => row[0])) || !Object.values(value.limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0) || !object(value.guard) || !keys(value.guard, ["warnPercent", "refusePercent"]) || !Number.isSafeInteger(value.guard.warnPercent) || !Number.isSafeInteger(value.guard.refusePercent) || !(value.guard.warnPercent > 0 && value.guard.warnPercent < value.guard.refusePercent && value.guard.refusePercent <= 100)) throw new Error("Invalid Firestore budget response.");
-	return value;
-}
 var unavailable$2 = () => ({ code: "REMOTE_STATE_UNAVAILABLE" });
 function syncCallLive(call) {
 	if (call.signal.aborted || !Number.isFinite(call.deadlineAtMs) || Date.now() >= call.deadlineAtMs) throw unavailable$2();
@@ -9939,360 +10599,6 @@ async function boundedAdmission(attempt, signal, clock = runtime) {
 	throw new ReopenSessionError(ambiguous ? "unconfirmed" : last.reason, "budget-exhausted");
 }
 //#endregion
-//#region src/management-mutation.ts
-/** Both management facades share the existing verified signing lane and never retry effects. */
-async function managementMutation(call, operation, value, decode) {
-	const { operationId } = value;
-	try {
-		return await call(operation, operationId, value, decode, true);
-	} catch (error) {
-		if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
-		if (error instanceof RefusalError) return {
-			state: "refused",
-			operationId,
-			reason: error.code
-		};
-		throw error;
-	}
-}
-//#endregion
-//#region src/management-codec.ts
-function valid(condition) {
-	if (!condition) throw new Error("Invalid management response.");
-}
-function input(condition) {
-	if (!condition) throw new TypeError("Invalid management input.");
-}
-function object$1(value) {
-	valid(typeof value === "object" && value !== null && !Array.isArray(value));
-	return value;
-}
-function exact(value, keys) {
-	valid(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
-}
-var integer = (value) => Number.isSafeInteger(value) && value >= 0;
-Object.freeze({
-	status: "tmt remote status --layers",
-	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
-	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
-	nodeVersion: "node --version",
-	firebaseVersion: "firebase --version",
-	firebaseInstall: "npm install -g firebase-tools@15.29.0",
-	firebaseLogin: "firebase login"
-});
-//#endregion
-//#region src/firestore.ts
-var deploy = "tmt remote deploy firestore";
-var firestoreReasons = {
-	project: {
-		"not-configured": ["No Firebase project is set up.", true],
-		"access-lost": ["tmt can no longer reach the Firebase project.", true],
-		"not-checked": ["The Firebase project has not been checked.", false]
-	},
-	"sign-in": {
-		"provider-disabled": ["Sign-in is not enabled for the project.", true],
-		"permission-missing": ["This account isn't allowed to turn on sign-in for the project.", false],
-		"not-checked": ["Sign-in has not been checked.", false]
-	},
-	rules: {
-		"not-deployed": ["Firestore rules are not deployed.", true],
-		"out-of-date": ["Firestore rules are out of date.", true],
-		partial: ["Firestore rules are only partly deployed.", true],
-		"not-checked": ["Firestore rules have not been checked.", false]
-	},
-	indexes: {
-		building: [
-			"Firestore indexes are still building.",
-			true,
-			"Wait a few minutes, then run tmt remote deploy firestore."
-		],
-		"not-ready": [
-			"Firestore indexes have not been verified as ready.",
-			true,
-			"Run tmt remote deploy firestore."
-		],
-		"not-checked": [
-			"Firestore index readiness has not been checked.",
-			true,
-			"Run tmt remote deploy firestore."
-		]
-	},
-	"plan-tier": {
-		"paid-plan-required": ["This needs a paid Firebase plan.", false],
-		"not-checked": ["The Firebase plan has not been checked.", false]
-	},
-	quota: {
-		"headroom-low": ["Today's free Firebase quota is almost used up.", false],
-		exhausted: ["Today's free Firebase quota is used up.", false],
-		"not-checked": ["The free Firebase quota has not been checked.", false]
-	},
-	support: { "not-implemented": ["This isn't available in this release yet.", false] }
-};
-var firestoreSpecs = [
-	["sharing", [
-		"project",
-		"sign-in",
-		"rules",
-		"indexes",
-		"plan-tier",
-		"quota"
-	]],
-	["operations", ["plan-tier", "support"]],
-	["attachments", [
-		"support",
-		"project",
-		"rules",
-		"quota"
-	]]
-];
-function requireValid(condition) {
-	if (!condition) throw new Error("Invalid Firestore readiness response.");
-}
-function object(value) {
-	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
-	return value;
-}
-function keys(row, expected) {
-	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
-}
-function parseFirestoreLayers(value) {
-	requireValid(Array.isArray(value));
-	if (!value.length) return [];
-	requireValid(value.length === firestoreSpecs.length);
-	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
-		const row = object(value[index]);
-		keys(row, [
-			"layer",
-			"state",
-			"prerequisites"
-		]);
-		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
-		const states = [];
-		for (const [i, item] of items.entries()) {
-			const entry = object(row.prerequisites[i]);
-			requireValid(entry.item === item && [
-				"enabled",
-				"not-enabled",
-				"unknown"
-			].includes(entry.state));
-			states.push(entry.state);
-			if (entry.state === "enabled") {
-				keys(entry, ["item", "state"]);
-				continue;
-			}
-			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
-			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
-			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
-			keys(entry, reason[1] ? [
-				"item",
-				"state",
-				"reason",
-				"next"
-			] : [
-				"item",
-				"state",
-				"reason"
-			]);
-			requireValid(entry.next === (reason[1] ? deploy : void 0));
-		}
-		const aggregate = states.includes("not-enabled") ? "not-enabled" : states.includes("unknown") ? "unknown" : "enabled";
-		requireValid(row.state === aggregate);
-	}
-	return value;
-}
-//#endregion
-//#region src/management.ts
-var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
-function settings(value) {
-	const row = object$1(value);
-	exact(row, [
-		"open",
-		"source",
-		"sessionsPerDevice",
-		"sessionsPerDeviceSource",
-		"warning"
-	]);
-	valid(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
-	valid(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
-	valid(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
-	valid(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
-	return row;
-}
-function device(value, activity = false) {
-	const row = object$1(value);
-	exact(row, [
-		"clientId",
-		"name",
-		"kind",
-		"issuedAtMs",
-		"expiresAtMs",
-		"revision",
-		"revoked",
-		"talkEnabled",
-		...activity ? [
-			"thisBrowser",
-			"liveSessionCount",
-			"lastActivityAtMs",
-			"lastUsedAtMs"
-		] : []
-	]);
-	valid(typeof row.clientId === "string" && UUID$1.test(row.clientId));
-	valid(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-	valid([
-		"browser",
-		"addon",
-		"cli"
-	].includes(row.kind) && integer(row.issuedAtMs));
-	valid(row.expiresAtMs === null || integer(row.expiresAtMs));
-	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
-	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
-	return row;
-}
-var refusalCodes = /* @__PURE__ */ new Set([
-	"REMOTE_SCOPE_DENIED",
-	"REMOTE_INPUT_INVALID",
-	"REMOTE_RATE_LIMITED",
-	"REMOTE_INTENT_CONFLICT",
-	"REMOTE_CLOSED",
-	"REMOTE_SESSION_ENDED",
-	"REMOTE_SESSION_EVICTED",
-	"REMOTE_INPUT_TOO_LARGE",
-	"REMOTE_STATE_UNAVAILABLE",
-	"REMOTE_MANAGEMENT_READ_ONLY",
-	"REMOTE_MANAGEMENT_UNAVAILABLE",
-	"REMOTE_DEVICE_REVOKED",
-	"REMOTE_DEVICE_NOT_FOUND",
-	"REMOTE_SETTINGS_UNAVAILABLE",
-	"REMOTE_MANAGEMENT_CAPACITY",
-	"REMOTE_DEVICE_LIST_CHANGED",
-	"REMOTE_DEVICE_REMOVAL_LIMIT",
-	"REMOTE_MEMBER_OWNER_REQUIRED",
-	"REMOTE_MEMBER_CONFLICT"
-]);
-function parseManagementOutcome(value, operationId) {
-	const row = object$1(value);
-	valid(row.operationId === operationId);
-	if (row.state === "committed") {
-		exact(row, [
-			"operationId",
-			"state",
-			"result",
-			"sessionEnded"
-		]);
-		valid(typeof row.sessionEnded === "boolean");
-		const result = object$1(row.result);
-		valid(Object.keys(result).length === 1);
-		if (Object.hasOwn(result, "settings")) settings(result.settings);
-		else if (Object.hasOwn(result, "removed")) valid(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
-		else device(result.device);
-	} else {
-		exact(row, [
-			"operationId",
-			"state",
-			"reason"
-		]);
-		if (row.state === "unknown") valid(row.reason === "effect_outcome_unconfirmed");
-		else valid(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
-	}
-	return row;
-}
-/** Constructing this helper opens nothing. Unknown mutations are never resent.
-* After Session loss, explicitly reopen once and read operation(originalId).
-* Failed fresh admission changes access status; it cannot establish mutation outcome.
-*/
-function management(session, options = {}) {
-	const call = verifiedSessionRequest(session, options);
-	const clientId = channelFor(session).paired.clientId;
-	async function mutate(operation, value) {
-		const { operationId } = value;
-		input(UUID$1.test(operationId));
-		return managementMutation(call, operation, value, (reply) => {
-			const parsed = parseManagementOutcome(reply, operationId);
-			if (parsed.state === "committed") {
-				if (operation === "remote.settings.set") valid("settings" in parsed.result);
-				else if (operation === "remote.devices.remove-others") valid("removed" in parsed.result && parsed.sessionEnded === false);
-				else {
-					valid("device" in parsed.result && parsed.result.device.clientId === value.clientId);
-					if (operation === "remote.devices.rename") valid(parsed.result.device.name === value.name);
-					if (operation === "remote.devices.revoke") valid(parsed.result.device.revoked);
-					if (operation === "remote.devices.talk") valid(parsed.result.device.talkEnabled === value.enabled);
-				}
-			}
-			return parsed;
-		});
-	}
-	return {
-		clientId,
-		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
-			const row = object$1(value);
-			exact(row, ["count", "fingerprint"]);
-			valid(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
-			return row;
-		}),
-		removeOthers: (change) => {
-			input(typeof change.fingerprint === "string" && /^[0-9a-f]{64}$/.test(change.fingerprint));
-			return mutate("remote.devices.remove-others", { ...change });
-		},
-		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
-			const row = object$1(value);
-			exact(row, [
-				"settings",
-				"capabilities",
-				"readOnlyReason",
-				...options ? ["firestoreLayers", "firestoreBudget"] : []
-			]);
-			if (options) {
-				parseFirestoreLayers(row.firestoreLayers);
-				parsePublishedLimits(row.firestoreBudget);
-			}
-			settings(row.settings);
-			const capabilities = object$1(row.capabilities);
-			exact(capabilities, ["settingsWrite", "devicesWrite"]);
-			valid(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
-			valid(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
-			valid(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
-			return row;
-		})),
-		devices: (page) => {
-			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
-			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
-				const row = object$1(value);
-				exact(row, ["devices", "nextCursor"]);
-				valid(Array.isArray(row.devices) && row.devices.length <= page.limit);
-				const ids = /* @__PURE__ */ new Set();
-				for (const entry of row.devices) {
-					const item = device(entry, true);
-					valid(!item.revoked && !ids.has(item.clientId));
-					ids.add(item.clientId);
-				}
-				valid(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
-				return row;
-			});
-		},
-		set: (change) => {
-			input(change.setting === "open" && typeof change.value === "boolean" || change.setting === "sessions-per-device" && (change.value === null || decimal(change.value)));
-			return mutate("remote.settings.set", { ...change });
-		},
-		rename: (change) => {
-			input(UUID$1.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-			return mutate("remote.devices.rename", { ...change });
-		},
-		talk: (change) => {
-			input(UUID$1.test(change.clientId) && typeof change.enabled === "boolean");
-			return mutate("remote.devices.talk", { ...change });
-		},
-		revoke: (change) => {
-			input(UUID$1.test(change.clientId));
-			return mutate("remote.devices.revoke", { ...change });
-		},
-		operation: (operationId) => {
-			input(UUID$1.test(operationId));
-			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseManagementOutcome(value, operationId));
-		}
-	};
-}
-//#endregion
 //#region src/members.ts
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var cursor = (v) => v === null || typeof v === "string" && /^[A-Za-z0-9_-]{54}$/.test(v);
@@ -10309,7 +10615,7 @@ function page(value) {
 	input(cursor(value.cursor) && integer(value.limit) && value.limit >= 1 && value.limit <= 50);
 }
 function person(value) {
-	const row = object$1(value);
+	const row = object$3(value);
 	exact(row, [
 		"remoteId",
 		"memberId",
@@ -10320,11 +10626,11 @@ function person(value) {
 		"createdAtMs",
 		"revokedAtMs"
 	]);
-	valid(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && name(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
+	valid$6(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && name(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
 	return row;
 }
 function invitation(value) {
-	const row = object$1(value);
+	const row = object$3(value);
 	if (row.state === "unavailable" || row.state === "no-current-offer") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -10334,7 +10640,7 @@ function invitation(value) {
 			"localConfirmationKnown",
 			"cleanup"
 		]);
-		valid(row.state === "current" && time(row.expiresAtMs) && [
+		valid$6(row.state === "current" && time(row.expiresAtMs) && [
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -10351,7 +10657,7 @@ function invitation(value) {
 	return row;
 }
 function routes(value) {
-	const row = object$1(value);
+	const row = object$3(value);
 	if (row.state === "unavailable" || row.state === "not-recorded") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -10359,12 +10665,12 @@ function routes(value) {
 			"publicationPending",
 			"removalPending"
 		]);
-		valid(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
+		valid$6(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
 	}
 	return row;
 }
 function machine(value, caller) {
-	const row = object$1(value);
+	const row = object$3(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -10381,19 +10687,19 @@ function machine(value, caller) {
 		"liveSessionCount",
 		"lastActivityAtMs"
 	]);
-	valid(id(row.clientId) && name(row.name) && [
+	valid$6(id(row.clientId) && name(row.name) && [
 		"browser",
 		"addon",
 		"cli"
 	].includes(row.kind) && revision(row.revision) && typeof row.revoked === "boolean" && time(row.expiresAtMs) && typeof row.sendingScope === "boolean" && ["direct", "hold"].includes(row.delivery) && ["all", "restricted"].includes(row.recipientAccess) && typeof row.grantLive === "boolean" && time(row.lastUsedAtMs) && row.thisBrowser === (row.clientId === caller) && time(row.liveSessionCount) && time(row.lastActivityAtMs));
-	valid(!row.revoked || !row.grantLive);
-	valid(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer(row.lastActivityAtMs));
+	valid$6(!row.revoked || !row.grantLive);
+	valid$6(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer(row.lastActivityAtMs));
 	return row;
 }
 function original(value, operationId) {
-	const row = object$1(value);
+	const row = object$3(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
-	const result = object$1(row.result);
+	const result = object$3(row.result);
 	if (!Object.hasOwn(result, "member") && !Object.hasOwn(result, "remote")) return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -10401,15 +10707,15 @@ function original(value, operationId) {
 		"result",
 		"sessionEnded"
 	]);
-	valid(row.operationId === operationId && typeof row.sessionEnded === "boolean");
+	valid$6(row.operationId === operationId && typeof row.sessionEnded === "boolean");
 	if (Object.hasOwn(result, "member")) {
 		exact(result, ["member"]);
 		person(result.member);
 	} else {
 		exact(result, ["remote"]);
-		const remote = object$1(result.remote);
+		const remote = object$3(result.remote);
 		exact(remote, ["remoteId", "displayName"]);
-		valid(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && name(remote.displayName) && row.sessionEnded === false);
+		valid$6(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && name(remote.displayName) && row.sessionEnded === false);
 	}
 	return row;
 }
@@ -10425,12 +10731,12 @@ function members(session, options = {}) {
 		return managementMutation(call, operation, frozen, (value) => {
 			const parsed = original(value, frozen.operationId);
 			if (parsed.state === "committed") {
-				if (kind === "remote") valid("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
+				if (kind === "remote") valid$6("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
 				else {
-					valid("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
-					if (operation === "remote.members.rename") valid(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
-					if (operation === "remote.members.sending") valid(parsed.result.member.sendingEnabled === frozen.enabled);
-					if (operation === "remote.members.revoke") valid(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
+					valid$6("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
+					if (operation === "remote.members.rename") valid$6(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
+					if (operation === "remote.members.sending") valid$6(parsed.result.member.sendingEnabled === frozen.enabled);
+					if (operation === "remote.members.revoke") valid$6(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
 				}
 			}
 			return parsed;
@@ -10446,7 +10752,7 @@ function members(session, options = {}) {
 			page(value);
 			const frozen = { ...value };
 			return call("remote.members.list", crypto.randomUUID(), frozen, (value) => {
-				const row = object$1(value);
+				const row = object$3(value);
 				exact(row, [
 					"remoteId",
 					"administrator",
@@ -10456,15 +10762,15 @@ function members(session, options = {}) {
 					"invitation",
 					"routes"
 				]);
-				valid(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || name(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
+				valid$6(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || name(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.members) {
 					const member = person(entry);
-					valid(member.remoteId === row.remoteId && !seen.has(member.memberId));
+					valid$6(member.remoteId === row.remoteId && !seen.has(member.memberId));
 					seen.add(member.memberId);
 				}
 				if (row.administrator) invitation(row.invitation);
-				else valid(row.members.length <= 1 && row.invitation === null);
+				else valid$6(row.members.length <= 1 && row.invitation === null);
 				routes(row.routes);
 				return row;
 			});
@@ -10479,18 +10785,18 @@ function members(session, options = {}) {
 			input(id(value.memberId));
 			const frozen = { ...value };
 			return call("remote.members.machines", crypto.randomUUID(), frozen, (value) => {
-				const row = object$1(value);
+				const row = object$3(value);
 				exact(row, [
 					"remoteId",
 					"memberId",
 					"machines",
 					"nextCursor"
 				]);
-				valid(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
+				valid$6(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.machines) {
 					const item = machine(entry, clientId);
-					valid(!seen.has(item.clientId));
+					valid$6(!seen.has(item.clientId));
 					seen.add(item.clientId);
 				}
 				return row;
@@ -10544,8 +10850,8 @@ function members(session, options = {}) {
 			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => {
 				const parsed = original(value, operationId);
 				if (parsed.state === "committed") {
-					if ("member" in parsed.result) valid(parsed.result.member.remoteId === remoteId);
-					if ("remote" in parsed.result) valid(parsed.result.remote.remoteId === remoteId);
+					if ("member" in parsed.result) valid$6(parsed.result.member.remoteId === remoteId);
+					if ("remote" in parsed.result) valid$6(parsed.result.remote.remoteId === remoteId);
 				}
 				return parsed;
 			});
@@ -11090,6 +11396,8 @@ async function entryPairing() {
 async function landingPage(lifetime, registry, connected) {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	const registryState = registry ?? remoteRegistryPage();
+	const invitationRoot = document.getElementById("owner-invitation");
+	const ownerInvitations = invitationRoot ? invitationPage(invitationRoot, lifetime) : void 0;
 	const button = element("check");
 	let attempt = 0;
 	let departed = false;
@@ -11116,6 +11424,7 @@ async function landingPage(lifetime, registry, connected) {
 	}
 	window.addEventListener("popstate", showGuidance, { signal: lifetime });
 	const render = (state, validated = false, refusalCode) => {
+		if (state !== "connected") ownerInvitations?.();
 		const authorityEnded = ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(refusalCode ?? "");
 		const copy = {
 			missing: [
@@ -11271,6 +11580,7 @@ async function landingPage(lifetime, registry, connected) {
 				timeStyle: "short"
 			}).format(/* @__PURE__ */ new Date());
 			render("connected");
+			ownerInvitations?.(session);
 			connected?.(session);
 		} catch (error) {
 			if (!currentPage()) return;
@@ -11566,4 +11876,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

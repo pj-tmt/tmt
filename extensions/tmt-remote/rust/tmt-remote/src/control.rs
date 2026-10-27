@@ -335,20 +335,23 @@ fn session(
                 .as_ref()
                 .ok_or_else(crate::cloud_command::upgrade)?;
             match request["op"].as_str().unwrap() {
-                "cloud.invite" => cloud.invite(request["remote"].as_str(), |event| {
-                    write_line(&mut stream, &event).map_err(io_error)?;
-                    if event["event"] != "candidate" {
-                        return Ok(None);
-                    }
-                    let answer = read_line(
-                        &mut stream,
-                        &mut buffer,
-                        stop,
-                        Instant::now() + crate::pairing::Timing::CONTRACT.lifetime,
-                    )
-                    .ok_or_else(|| io_error("Invite cancelled"))?;
-                    Ok(Some((answer["confirm"] == true, answer["talk"] == true)))
-                }),
+                "cloud.invite" => {
+                    let mut awaiting = false;
+                    cloud.invite(request["remote"].as_str(), |event| {
+                        if event["event"] == "candidate" {
+                            awaiting = true;
+                        }
+                        write_line(&mut stream, &event).map_err(io_error)?;
+                        if !awaiting {
+                            return Ok(None);
+                        }
+                        let answer = poll_line(&mut stream, &mut buffer).map_err(io_error)?;
+                        Ok(answer.map(|answer| {
+                            awaiting = false;
+                            (answer["confirm"] == true, answer["talk"] == true)
+                        }))
+                    })
+                }
                 "cloud.join" => cloud.join(
                     request["code"]
                         .as_str()

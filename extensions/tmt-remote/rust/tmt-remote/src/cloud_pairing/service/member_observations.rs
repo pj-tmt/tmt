@@ -13,6 +13,9 @@ pub struct MemberObservationLink {
     service: OnceLock<Weak<Service>>,
 }
 impl MemberObservationLink {
+    pub(super) fn current(&self) -> Option<Arc<Service>> {
+        self.service.get().and_then(Weak::upgrade)
+    }
     pub fn attach(&self, service: &Arc<Service>) -> Result<(), RemoteError> {
         self.service
             .set(Arc::downgrade(service))

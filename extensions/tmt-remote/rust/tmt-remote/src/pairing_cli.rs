@@ -2,7 +2,7 @@
 use clap::{Arg, ArgMatches, Command};
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufReader, Write},
     os::unix::net::UnixStream,
     sync::{
         Arc,
@@ -12,6 +12,8 @@ use std::{
 };
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
 use tmt_remote::{control, error::RemoteError};
+
+mod presenter;
 
 pub fn command(join: bool) -> Command {
     let spec = CommandSpec {
@@ -24,16 +26,16 @@ pub fn command(join: bool) -> Command {
         examples: if join {
             &[Example {
                 command: "tmt remote join <code>",
-                note: "Compare the four words and confirm in the owner's terminal",
+                note: "Compare the words in the owner's terminal or designated browser",
             }]
         } else {
             &[Example {
                 command: "tmt remote invite",
-                note: "Compare the four words and confirm in the owner's terminal",
+                note: "Compare the words in the owner's terminal or designated browser",
             }]
         },
         outputs: OutputModes::HumanAndJson,
-        details: "Requires an interactive terminal. Confirmation never happens automatically; sending defaults to off. No --yes or --talk shortcut. The one-time invite expires in ten minutes.",
+        details: "Requires an interactive terminal. Confirmation never happens automatically; sending defaults to off. The designated paired owner browser can also confirm the same candidate. No --yes or --talk shortcut. The one-time invite expires in ten minutes.",
     };
     let mut cmd = tmt_cli_style::command(&spec);
     if join {
@@ -95,9 +97,10 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
     };
     writeln!(stream, "{request}")?;
     let mut reader = BufReader::new(stream.try_clone()?);
-    let mut line = String::new();
+    let mut frame = Vec::new();
+    let mut pending_event = None;
     let mut output = tmt_cli_style::stream::stdout(false);
-    loop {
+    'events: loop {
         if stop.load(Ordering::Acquire) {
             if !join {
                 writeln!(
@@ -107,35 +110,14 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
             }
             return Ok(());
         }
-        match reader.read_line(&mut line) {
-            Ok(0) => {
-                return Err(RemoteError::new(
-                    "REMOTE_CLOUD_UNCONFIRMED",
-                    "The connection could not be confirmed.",
-                ));
+        let event = if let Some(event) = pending_event.take() {
+            event
+        } else {
+            match presenter::read_event(&mut reader, &mut frame)? {
+                Some(event) => event,
+                None => continue,
             }
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::TimedOut
-                        | std::io::ErrorKind::WouldBlock
-                        | std::io::ErrorKind::Interrupted
-                ) =>
-            {
-                continue;
-            }
-            Err(e) => return Err(e.into()),
-            Ok(_) => {}
-        }
-        if line.len() > tmt_remote::limits::CLOUD_PAIR_CONTROL_BYTES {
-            return Err(RemoteError::new(
-                "REMOTE_INPUT_INVALID",
-                "Invalid pairing response.",
-            ));
-        }
-        let event: Value = serde_json::from_str(&line)
-            .map_err(|_| RemoteError::new("REMOTE_INPUT_INVALID", "Invalid pairing response."))?;
-        line.clear();
+        };
         if let Some(error) = event.get("error") {
             return Err(RemoteError::new(
                 error["code"].as_str().unwrap_or("REMOTE_CLOUD_UNAVAILABLE"),
@@ -183,19 +165,36 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
                     "{name} wants to connect.\nCompare these words with them: {words}"
                 )?;
                 output.flush()?;
-                let matched = super::confirm_terminal(
+                let matched = match presenter::confirm(
                     &mut std::io::stdin().lock(),
                     &mut tmt_cli_style::stream::stderr(),
                     &stop,
                     "Do the words match? [y/N]",
-                )?;
-                let talk = matched
-                    && super::confirm_terminal(
+                    &mut reader,
+                )? {
+                    presenter::Answer::Keyboard(answer) => answer,
+                    presenter::Answer::Coordinator(event) => {
+                        pending_event = Some(event);
+                        continue 'events;
+                    }
+                };
+                let talk = if matched {
+                    match presenter::confirm(
                         &mut std::io::stdin().lock(),
                         &mut tmt_cli_style::stream::stderr(),
                         &stop,
                         &format!("Let {name} send messages to your agents? [y/N]"),
-                    )?;
+                        &mut reader,
+                    )? {
+                        presenter::Answer::Keyboard(answer) => answer,
+                        presenter::Answer::Coordinator(event) => {
+                            pending_event = Some(event);
+                            continue 'events;
+                        }
+                    }
+                } else {
+                    false
+                };
                 if stop.load(Ordering::Acquire) {
                     continue;
                 }
@@ -212,6 +211,33 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
                     continue;
                 }
                 writeln!(stream, "{}", json!({"talk":talk}))?;
+            }
+            Some("owner-decision") => {
+                match event["outcome"].as_str() {
+                    Some("confirmed") if event["talk"].is_boolean() => {
+                        writeln!(
+                            output,
+                            "Confirmed from your browser; sending {}.",
+                            if event["talk"] == true { "on" } else { "off" }
+                        )?;
+                        if event["receiptDelivered"] != true {
+                            writeln!(
+                                output,
+                                "Confirmed locally; delivery of the original receipt is not yet confirmed."
+                            )?;
+                        }
+                    }
+                    Some("refused") => {
+                        writeln!(output, "Invitation refused from your browser.")?;
+                    }
+                    _ => {
+                        return Err(RemoteError::new(
+                            "REMOTE_CLOUD_UNCONFIRMED",
+                            "The browser decision's outcome is not confirmed. Check member status before sending a new invite.",
+                        ));
+                    }
+                }
+                return Ok(());
             }
             Some("connected") => {
                 let talk = event["talk"] == true;

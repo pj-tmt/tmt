@@ -100,6 +100,16 @@ impl ConfirmationSink for FirestoreConfirmation {
         }
         self.common.authorize(context, actor)
     }
+    fn decline(
+        &self,
+        actor: &OwnerActor,
+        snapshot: &Snapshot,
+        io: &crate::objects::IoBudget<'_>,
+    ) -> Result<(), ConfirmationFailure> {
+        self.authorize(&snapshot.context, actor)
+            .map_err(ConfirmationFailure::Refused)?;
+        self.common.decline(actor, snapshot, io)
+    }
     fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, ConfirmationFailure> {
         self.authorize(&input.snapshot.context, input.actor)
             .map_err(ConfirmationFailure::Refused)?;

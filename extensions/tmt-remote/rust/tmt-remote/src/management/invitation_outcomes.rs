@@ -1,6 +1,6 @@
 //! The browser's adopted original settles in the invitation writer transaction.
 use super::*;
-use crate::invitations::port::{Committed, OwnerOperation, Snapshot};
+use crate::invitations::port::{Committed, OwnerDecision, OwnerOperation, Snapshot};
 
 const CONFIRM: &str = "remote.invites.confirm";
 
@@ -9,12 +9,13 @@ pub(crate) fn check(
     client: &str,
     operation: &OwnerOperation,
     snapshot: &Snapshot,
-    sending: bool,
+    decision: OwnerDecision,
     now: u64,
 ) -> Result<()> {
     if operation.offer != snapshot.context.offer
         || operation.snapshot != snapshot.digest
-        || operation.sending != sending
+        || operation.matched != decision.matched
+        || operation.sending != decision.enable_sending
         || operation.id == snapshot.context.offer
     {
         return Err(invalid());
@@ -67,5 +68,21 @@ fn conflict() -> RemoteError {
     RemoteError::new(
         "REMOTE_INTENT_CONFLICT",
         "Original invitation decision conflicts.",
+    )
+}
+
+pub(crate) fn decline(
+    tx: &Transaction<'_>,
+    operation: &OwnerOperation,
+    snapshot: &Snapshot,
+) -> Result<()> {
+    super::settle(
+        tx,
+        &operation.id,
+        &json!({
+            "operationId":operation.id,"state":"committed","sessionEnded":false,
+            "result":{"invitation":{"offerId":snapshot.context.offer,
+                "clientId":snapshot.candidate.machine,"state":"refused"}}
+        }),
     )
 }

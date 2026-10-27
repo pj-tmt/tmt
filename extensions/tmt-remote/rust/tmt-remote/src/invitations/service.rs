@@ -44,6 +44,20 @@ pub struct Status {
     pub cleanup: ProviderCleanup,
 }
 
+/// Admitted owner-only observation of the existing memory offer; never provider I/O.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnerDecisionSource {
+    Terminal,
+    Browser,
+}
+
+pub struct OwnerOfferObservation {
+    pub status: Status,
+    pub candidate: Option<Snapshot>,
+    pub(crate) decided_by: Option<OwnerDecisionSource>,
+    pub(crate) committed: Option<Committed>,
+}
+
 pub struct Delivery {
     pub context: Context,
     code: [u8; 16],
@@ -85,6 +99,7 @@ struct Offer {
     receipt_done: bool,
     cleanup: ProviderCleanup,
     phase: Phase,
+    decided_by: Option<OwnerDecisionSource>,
 }
 impl Offer {
     fn clear_code(&mut self) {
@@ -224,6 +239,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             receipt_done: false,
             cleanup: ProviderCleanup::NotRequested,
             phase: Phase::Open,
+            decided_by: None,
         };
         drop(code);
         *state = Some(offer);
@@ -264,6 +280,31 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             context: offer.context.clone(),
             code: offer.code,
         })
+    }
+
+    pub fn owner_observation(
+        &self,
+        actor: &OwnerActor,
+        now_ms: u64,
+    ) -> Result<Option<OwnerOfferObservation>, RemoteError> {
+        let mut state = self.lock()?;
+        let Some(offer) = state.as_mut() else {
+            return Ok(None);
+        };
+        offer.expire(now_ms);
+        self.sink.authorize(&offer.context, actor)?;
+        Ok(Some(OwnerOfferObservation {
+            status: offer.status(),
+            decided_by: offer.decided_by,
+            committed: match &offer.phase {
+                Phase::Confirmed(value) => Some(value.clone()),
+                _ => None,
+            },
+            candidate: match &offer.phase {
+                Phase::Candidate(verified) => Some(snapshot(verified)),
+                _ => None,
+            },
+        }))
     }
 
     pub fn candidate(&self, now_ms: u64) -> Result<Option<Snapshot>, RemoteError> {
@@ -438,9 +479,28 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             return Err(invalid());
         }
         self.sink.authorize(&offer.context, actor)?;
+        let source = if actor.operation.is_some() {
+            OwnerDecisionSource::Browser
+        } else {
+            OwnerDecisionSource::Terminal
+        };
         if !decision.matched {
+            match self
+                .sink
+                .decline(actor, expected, &offer_io(io, offer.deadline))
+            {
+                Ok(()) => {}
+                Err(ConfirmationFailure::Refused(error)) => return Err(error),
+                Err(ConfirmationFailure::CommitUnknown(error)) => {
+                    offer.clear_code();
+                    offer.decided_by = Some(source);
+                    offer.phase = Phase::CommitUnknown(expected.clone());
+                    return Err(error);
+                }
+            }
             let context = offer.context.clone();
             offer.clear_code();
+            offer.decided_by = Some(source);
             offer.phase = Phase::End(State::Refused);
             offer.cleanup = ProviderCleanup::Unconfirmed;
             let result = offer.status();
@@ -463,6 +523,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             io: &confirmation_io,
         });
         offer.clear_code();
+        offer.decided_by = Some(source);
         offer.phase = Phase::CommitUnknown(expected.clone());
         let committed = match committed {
             Ok(committed) => committed,
@@ -538,6 +599,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             receipt_done: false,
             cleanup: ProviderCleanup::NotRequested,
             phase: Phase::Confirmed(committed),
+            decided_by: None,
         });
         drop(state);
         self.flush(now_ms, io)?;

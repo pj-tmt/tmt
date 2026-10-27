@@ -10,10 +10,12 @@ use crate::{
     state::Serving,
 };
 use std::sync::{Weak, atomic::AtomicUsize, mpsc};
+mod browser_ceremony_tests;
 #[path = "invitation_backend_tests.rs"]
 mod invitation_backend_tests;
 #[path = "invitation_cutover_tests.rs"]
 mod invitation_cutover_tests;
+const WINDOW: &str = "33333333-3333-4333-8333-333333333333";
 const PROJECT: &str = "demo-native-pairing";
 const TARGET: &str = "66666666-6666-4666-8666-666666666666";
 #[test]
@@ -475,41 +477,49 @@ fn service_with_identity(
     keys.maintain(crate::pairing::now_ms().unwrap()).unwrap();
     let sessions = Arc::new(DoorSessions::new(
         machine.id.clone(),
-        crate::store::uuid_v4().unwrap(),
+        WINDOW.into(),
         "http://127.0.0.1:1".into(),
         "/r/fixture/x/".into(),
         key.clone(),
         store.clone(),
         crate::session::IDLE,
     ));
+    let devices = Arc::new(crate::devices::Devices::new(
+        store.clone(),
+        Some(sessions.clone()),
+    ));
+    let link = Arc::new(MemberObservationLink::default());
     let operations = Arc::new(
         crate::operations::Operations::new(
             crate::core::CoreClient::at(core.root.join("tmt")).unwrap(),
             Arc::new(AtomicBool::new(false)),
             crate::limits::CLOUD_ENVELOPE_BYTES,
         )
-        .with_cloud_identity(identity),
+        .with_cloud_identity(identity)
+        .with_management(devices)
+        .with_member_observations(link.clone())
+        .with_owner_invitations(link.clone()),
     );
     let messages = Arc::new(
         MessageService::new(sessions.clone(), crate::limits::CLOUD_ENVELOPE_BYTES)
             .with_operations(operations),
     );
     let projects = Arc::new(Projects::new(layout.clone(), Some(ports)));
-    (
-        Arc::new(Service::new(Owner {
-            layout,
-            store,
-            key,
-            machine: machine.id,
-            keys,
-            sessions,
-            messages,
-            projects,
-            stop: Arc::new(AtomicBool::new(false)),
-        })),
-        lease,
-    )
+    let service = Arc::new(Service::new(Owner {
+        layout,
+        store,
+        key,
+        machine: machine.id,
+        keys,
+        sessions,
+        messages,
+        projects,
+        stop: Arc::new(AtomicBool::new(false)),
+    }));
+    link.attach(&service).unwrap();
+    (service, lease)
 }
+
 fn prepared(remote: &str) -> Vec<u8> {
     let operation = crate::store::uuid_v4().unwrap();
     json!({"version":1,"remote":remote,"requestId":operation,"createdAtMs":crate::pairing::now_ms().unwrap(),"from":{"id":"77777777-7777-4777-8777-777777777777","name":"sender"},"target":{"id":TARGET,"name":"target"},"message":"causal cloud pairing effect","reply":{"requestId":format!("req_{operation}"),"receipt":"PRIVATE_PAIRING_RECEIPT"}}).to_string().into_bytes()

@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 pub(crate) mod invitation_outcomes;
+pub mod invitation_requests;
 mod member_journal;
 
 type Result<T> = std::result::Result<T, RemoteError>;
@@ -169,7 +170,7 @@ fn refused(id: &str, code: &str) -> Value {
 fn writable(connection: &Connection, grant: &Grant) -> Result<bool> {
     connection.query_row("SELECT EXISTS(SELECT 1 FROM settings_designation d JOIN machine m ON m.singleton=d.singleton JOIN grants g ON g.client_id=d.client_id JOIN member_machines mm ON mm.remote_id=m.machine_id AND mm.client_id=g.client_id JOIN members person ON person.remote_id=mm.remote_id AND person.member_id=mm.member_id WHERE person.role='owner' AND person.revoked_at_ms IS NULL AND d.machine_id=m.machine_id AND d.client_id=?1 AND d.public_key=?2 AND g.public_key=?2)", params![grant.client_id,grant.public_key.as_slice()], |row|row.get(0)).map_err(database)
 }
-fn require_writable(connection: &Connection, grant: &Grant) -> Result<()> {
+pub(crate) fn require_writable(connection: &Connection, grant: &Grant) -> Result<()> {
     if writable(connection, grant)? {
         Ok(())
     } else {
@@ -654,6 +655,7 @@ pub(crate) fn append(
     devices: &crate::devices::Devices,
     firestore: &dyn crate::readiness::FirestoreEvidenceSource,
     member_observations: &dyn crate::members::observations::MemberObservationSource,
+    owner_invitations: &dyn invitation_requests::OwnerInvitationPort,
 ) -> Result<Vec<u8>> {
     if permit.message.payload.len() > crate::limits::MANAGEMENT_INPUT_BYTES {
         return Err(invalid());
@@ -663,6 +665,12 @@ pub(crate) fn append(
     }
     let envelope = permit.message.envelope();
     let operation = envelope.operation;
+    if matches!(
+        operation,
+        "remote.invites.pending" | "remote.invites.confirm"
+    ) {
+        return invitation_requests::append(permit, owner_invitations);
+    }
     match operation {
         "remote.members.list" | "remote.members.machines" => {
             return crate::members::reads::signed(permit, member_observations);

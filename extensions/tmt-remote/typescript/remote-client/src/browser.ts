@@ -1,3 +1,4 @@
+import { invitationPage } from './invitation-page.js';
 import { pairingGuidance } from './remote-state.js';
 export { invitePage } from './invite-page.js';
 import { remoteItem } from './remote-routes.js';
@@ -95,6 +96,14 @@ import { RefusalError, parseCapabilities, verifiedSessionRequest } from './opera
 export { operations, ClientError, RefusalError } from './operations.js';
 export { management } from './management.js';
 export { members } from './members.js';
+export { invitations } from './invitations.js';
+export type {
+  RemoteInvitations,
+  PendingInvitation,
+  InvitationCandidate,
+  InvitationDecision,
+  InvitationOutcome,
+} from './invitations.js';
 export type {
   RemoteMembers,
   RemoteMember,
@@ -450,6 +459,8 @@ export async function landingPage(
     );
   }
   const registryState = registry ?? remoteRegistryPage();
+  const invitationRoot = document.getElementById('owner-invitation');
+  const ownerInvitations = invitationRoot ? invitationPage(invitationRoot, lifetime) : undefined;
   const button = element('check') as HTMLButtonElement;
   let attempt = 0;
   let departed = false;
@@ -479,6 +490,7 @@ export async function landingPage(
   }
   window.addEventListener('popstate', showGuidance, { signal: lifetime });
   const render = (state: EntryState, validated = false, refusalCode?: string): void => {
+    if (state !== 'connected') ownerInvitations?.();
     const authorityEnded = ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED'].includes(
       refusalCode ?? '',
     );
@@ -670,6 +682,7 @@ export async function landingPage(
         timeStyle: 'short',
       }).format(new Date());
       render('connected');
+      ownerInvitations?.(session!);
       connected?.(session!);
     } catch (error) {
       if (!currentPage()) return;

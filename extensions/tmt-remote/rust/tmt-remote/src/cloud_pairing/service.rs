@@ -4,6 +4,7 @@ mod ceremony;
 mod join;
 
 mod member_observations;
+mod owner_confirmations;
 pub use member_observations::MemberObservationLink;
 
 use super::{

@@ -154,6 +154,13 @@ is created. The verified landing Session initializes management once; unavailabl
 initializes read-only without another discovery. Manual connection rechecks do not trigger an
 extra management admission; later management reads retain their bounded identity-checked recovery. Member admin-only tabs stay visible with lock word/mark, reason and a copy-only request.
 Unknown access has its own text. The existing composed-shell observation supplies Needs-you counts.
+`invitation-page.ts` retains the Invites decision model under that verified Session.
+Entry/explicit refresh reads the shared current candidate; it creates no offer or poller.
+Comparison and sending start unchecked and are separate choices. An explicit decision
+uses the SDK's existing signing lane and one original operation ID. Uncertainty keeps
+that ID for read-only lookup across tab/Session changes, disables another decision and
+never retries the effect. Route departure clears candidate/comparison state and fences
+late painting; native designation and Session checks remain the authority owner.
 A document-level registry modal remains visible from every tab and is removed on route abort;
 late validation cannot write or reopen it. `/p/<id>` still answers 308 to `/colab/p/<id>`.
 Remote forwards only `/read/<id>` in place to Colab's public mount socket, with the

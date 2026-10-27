@@ -106,7 +106,11 @@ pub trait Backend: Send + Sync {
 
 /// This value is made by the admitted control composition, not deserialized from
 /// a provider row or a JSON consent flag. The Store rechecks browser designation.
-pub struct OwnerActor(pub(super) Actor, pub(super) Option<OwnerOperation>);
+pub struct OwnerActor {
+    pub(super) authority: Actor,
+    pub(super) operation: Option<OwnerOperation>,
+    pub(super) admission: Option<crate::admission::BrowserMessageFence>,
+}
 
 /// Frozen identity of an already adopted, signed browser confirmation. It holds
 /// no invitation code or response capability and is never decoded from JSON.
@@ -115,6 +119,7 @@ pub(crate) struct OwnerOperation {
     pub(crate) intent: [u8; 32],
     pub(crate) offer: String,
     pub(crate) snapshot: [u8; 32],
+    pub(crate) matched: bool,
     pub(crate) sending: bool,
 }
 
@@ -131,49 +136,94 @@ pub(super) enum Actor {
 impl OwnerActor {
     /// Trusted local control only; the sink still owns admission and rechecks it.
     pub fn local_interactive() -> Self {
-        Self(Actor::LocalInteractive, None)
+        Self {
+            authority: Actor::LocalInteractive,
+            operation: None,
+            admission: None,
+        }
     }
     pub fn owner_browser(client: String, key: [u8; 32], revision: u64) -> Self {
-        Self(
-            Actor::OwnerBrowser {
+        Self {
+            authority: Actor::OwnerBrowser {
                 client,
                 key,
                 revision,
             },
-            None,
-        )
+            operation: None,
+            admission: None,
+        }
     }
     /// The signed management adapter must adopt this exact intent first. The
     /// writer independently verifies the adopted row and its member ownership.
-    pub fn owner_browser_confirmation(
+    pub fn owner_browser_decision(
         grant: &Grant,
         operation_id: String,
         intent: [u8; 32],
         snapshot: &Snapshot,
-        sending: bool,
+        decision: OwnerDecision,
     ) -> Result<Self, RemoteError> {
         if !crate::canonical::is_core_id(&operation_id)
             || operation_id == snapshot.context.offer
             || grant.kind != "browser"
+            || (!decision.matched && decision.enable_sending)
         {
             return Err(super::invalid());
         }
         let mut actor =
             Self::owner_browser(grant.client_id.clone(), grant.public_key, grant.revision);
-        actor.1 = Some(OwnerOperation {
+        actor.operation = Some(OwnerOperation {
             id: operation_id,
             intent,
             offer: snapshot.context.offer.clone(),
             snapshot: snapshot.digest,
-            sending,
+            matched: decision.matched,
+            sending: decision.enable_sending,
         });
         Ok(actor)
     }
+    pub(crate) fn with_admission(
+        mut self,
+        permit: &crate::admission::MessagePermit,
+    ) -> Result<Self, RemoteError> {
+        let matches = match &self.authority {
+            Actor::OwnerBrowser {
+                client,
+                key,
+                revision,
+            } => {
+                *client == permit.grant.client_id
+                    && *key == permit.grant.public_key
+                    && *revision == permit.grant.revision
+            }
+            _ => false,
+        };
+        let envelope = permit.message.envelope();
+        let bound = match &self.operation {
+            Some(op) => {
+                envelope.operation == "remote.invites.confirm"
+                    && envelope.id == op.id
+                    && crate::journal::intent(&permit.message)? == op.intent
+            }
+            None => matches!(
+                envelope.operation,
+                "remote.invites.pending" | "remote.invites.confirm"
+            ),
+        };
+        if !matches || !bound {
+            return Err(super::invalid());
+        }
+        self.admission = Some(permit.browser_fence()?);
+        Ok(self)
+    }
     pub fn automated() -> Self {
-        Self(Actor::Automated, None)
+        Self {
+            authority: Actor::Automated,
+            operation: None,
+            admission: None,
+        }
     }
     pub(super) fn interactive(&self) -> bool {
-        match &self.0 {
+        match &self.authority {
             Actor::LocalInteractive => true,
             Actor::OwnerBrowser {
                 client,
@@ -208,6 +258,7 @@ pub struct Confirmation<'a> {
 }
 
 /// Constructed by the admitted owner interaction, without a provider/JSON codec.
+#[derive(Clone, Copy)]
 pub struct OwnerDecision {
     pub matched: bool,
     pub enable_sending: bool,
@@ -263,6 +314,17 @@ pub enum ConfirmationFailure {
 pub trait ConfirmationSink: Send + Sync {
     fn authorize(&self, context: &Context, actor: &OwnerActor) -> Result<(), RemoteError>;
     fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, ConfirmationFailure>;
+    fn decline(
+        &self,
+        actor: &OwnerActor,
+        snapshot: &Snapshot,
+        io: &IoBudget<'_>,
+    ) -> Result<(), ConfirmationFailure> {
+        io.check()
+            .map_err(|_| ConfirmationFailure::Refused(super::invalid()))?;
+        self.authorize(&snapshot.context, actor)
+            .map_err(ConfirmationFailure::Refused)
+    }
     fn original(&self, snapshot: &Snapshot) -> Result<Option<Committed>, RemoteError>;
     fn claim(&self, committed: &Committed, part: Part) -> Result<Claim, RemoteError>;
     fn acknowledge(&self, committed: &Committed, part: Part) -> Result<bool, RemoteError>;

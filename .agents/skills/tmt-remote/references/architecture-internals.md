@@ -511,7 +511,13 @@ management row's actor member and immutable deadline, then settles it with the
 invitation receipt and grant in that same transaction. A failed settlement rolls
 all effects back; a terminal winner cannot be claimed by a new browser operation.
 The typed identity alone admits no request; the signed management adapter still
-owns browser-origin and live-Session admission.
+owns browser-origin and live-Session admission, and the captured Session fence is
+rechecked while entering the same Store writer. Explicit browser decline settles its
+existing management row without creating authority. `cloud_pairing::service` composes
+these requests through its existing weak Operations link. Both presenters observe one
+coordinator; private control reads and terminal stdin waits remain nonblocking with
+respect to browser decisions. A browser winner ends only that terminal presenter;
+original receipt delivery remains with the existing route/recovery worker.
 Separate owner sending consent uses the existing member-policy writer after
 the initial off/direct sink in that transaction. A definite sink refusal requires proven
 rollback; uncertain commit/rollback remains original-only. The candidate proof owner uses
