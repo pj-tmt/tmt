@@ -409,8 +409,8 @@ own module/drawing boundaries and verification.
   locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs.
   Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`,
   `tmt-pty-protocol` (a built-in host's terminal-stream frames); dev-only `tmt-test-support`.
-  One UI shares a lazy API session through `core::api_session`, with worker-only I/O,
-  interaction priority at response boundaries and no uncertain-request replay.
+  Each UI shares separate lazy API sessions for background and interaction workers,
+  with worker-only I/O and no uncertain-request replay.
   The refresh owner admits bounded retained projections through successful cursors
   and local stamps; independent clocks and action admission stay fresh.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata

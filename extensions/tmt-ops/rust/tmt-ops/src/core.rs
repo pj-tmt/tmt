@@ -94,10 +94,15 @@ pub struct Core {
     executable: PathBuf,
     cancellation: Option<runner::Cancellation>,
     deadline: Option<Instant>,
-    session: Option<Arc<api_session::Session>>,
-    priority: api_session::Priority,
+    session: Option<Arc<ApiSessions>>,
+    interactive: bool,
     retained: Option<Arc<RetainedReads>>,
     pub(crate) paths: Arc<crate::migration::Decision>,
+}
+
+struct ApiSessions {
+    background: api_session::Session,
+    interaction: api_session::Session,
 }
 
 impl Core {
@@ -132,7 +137,7 @@ impl Core {
             cancellation: None,
             deadline: None,
             session: None,
-            priority: Default::default(),
+            interactive: false,
             retained: None,
             paths: Arc::new(crate::migration::Decision::default()),
         })
@@ -146,7 +151,7 @@ impl Core {
             cancellation: None,
             deadline: None,
             session: None,
-            priority: Default::default(),
+            interactive: false,
             retained: None,
             paths: Arc::new(crate::migration::Decision::default()),
         }
@@ -159,17 +164,20 @@ impl Core {
         }
     }
 
-    /// The interactive board shares one API owner across its worker clones.
+    /// The board shares distinct background and interaction channels across clones.
     pub(crate) fn with_api_session(mut self) -> Result<Self, SquadError> {
-        self.session = Some(Arc::new(
-            api_session::Session::new(self.executable.clone()).map_err(invocation_error)?,
-        ));
+        self.session = Some(Arc::new(ApiSessions {
+            background: api_session::Session::new(self.executable.clone())
+                .map_err(invocation_error)?,
+            interaction: api_session::Session::new(self.executable.clone())
+                .map_err(invocation_error)?,
+        }));
         Ok(self)
     }
 
     pub(crate) fn interactive(&self) -> Self {
         Self {
-            priority: api_session::Priority::Interaction,
+            interactive: true,
             retained: None,
             ..self.clone()
         }
@@ -328,13 +336,13 @@ impl Core {
             return self.call_within(&["api".into()], payload.as_bytes(), timeout);
         };
         let deadline = self.deadline.unwrap_or_else(|| Instant::now() + timeout);
-        if let Some(document) = session
-            .call(
-                payload.as_bytes(),
-                deadline,
-                self.cancellation.as_ref(),
-                self.priority,
-            )
+        let lane = if self.interactive {
+            &session.interaction
+        } else {
+            &session.background
+        };
+        if let Some(document) = lane
+            .call(payload.as_bytes(), deadline, self.cancellation.as_ref())
             .map_err(invocation_error)?
         {
             return if document.get("error").is_some() {

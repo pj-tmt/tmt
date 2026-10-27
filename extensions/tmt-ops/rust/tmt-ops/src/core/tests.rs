@@ -68,7 +68,7 @@ fn lines(path: PathBuf) -> Vec<String> {
 }
 
 #[test]
-fn board_session_shares_one_child_preserves_attribution_and_closes_at_last_owner() {
+fn board_sessions_preserve_attribution_and_close_at_last_owner() {
     let fixture = Fixture::new();
     let core = session_fixture(&fixture);
     let clone = core.interactive();
@@ -93,11 +93,23 @@ fn board_session_shares_one_child_preserves_attribution_and_closes_at_last_owner
     let launches = lines(fixture.0.join("launches"));
     assert_eq!(
         launches.len(),
-        2,
-        "one capability probe and one persistent child"
+        4,
+        "each lane negotiates once and owns one persistent child"
     );
-    assert!(launches[0].ends_with(" api"));
-    assert!(launches[1].ends_with(" api --session"));
+    assert_eq!(
+        launches
+            .iter()
+            .filter(|line| line.ends_with(" api"))
+            .count(),
+        2
+    );
+    assert_eq!(
+        launches
+            .iter()
+            .filter(|line| line.ends_with(" api --session"))
+            .count(),
+        2
+    );
     drop(core);
     assert!(
         !fixture.0.join("eof").exists(),
@@ -167,6 +179,39 @@ fn buffering_session_times_out_without_replay_and_later_work_opens_a_new_child()
 }
 
 #[test]
+fn interaction_completes_while_background_exchange_is_held() {
+    let fixture = Fixture::new();
+    let core = session_fixture(&fixture);
+    let background = core.clone();
+    let held = std::thread::spawn(move || background.api("gate", json!({})));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !fixture.0.join("admitted").exists() {
+        assert!(Instant::now() < deadline, "background request admission");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let interactive = core.interactive();
+    let (send, recv) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        let _ = send.send(interactive.api_within("later", json!({}), Duration::from_secs(2)));
+    });
+    let result = recv.recv_timeout(Duration::from_secs(3));
+    // Release even on failure so a regression cannot strand the test process.
+    fs::write(fixture.0.join("release"), b"").unwrap();
+    thread.join().unwrap();
+    assert_eq!(held.join().unwrap().unwrap()["operation"], "gate");
+    assert_eq!(result.unwrap().unwrap()["operation"], "later");
+    drop(core);
+    let launches = lines(fixture.0.join("launches"));
+    assert_eq!(
+        launches
+            .iter()
+            .filter(|line| line.ends_with(" api --session"))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn old_core_is_negotiated_once_and_keeps_the_existing_one_shot_door() {
     let fixture = Fixture::new();
     fs::write(fixture.0.join("legacy"), b"").unwrap();
@@ -205,12 +250,12 @@ fn failed_capability_admission_never_submits_the_effect() {
 }
 
 #[test]
-fn cancelling_one_admitted_read_does_not_cancel_another_worker_or_replay_it() {
+fn cancelling_one_admitted_read_drains_the_exchange_and_keeps_the_session() {
     let fixture = Fixture::new();
     let core = session_fixture(&fixture);
     let cancel = runner::Cancellation::default();
     let reader = core.cancellable(cancel.clone());
-    let read = std::thread::spawn(move || reader.api("block", json!({})));
+    let read = std::thread::spawn(move || reader.api("gate", json!({})));
     let deadline = Instant::now() + Duration::from_secs(30);
     while !fixture.0.join("admitted").exists() {
         assert!(Instant::now() < deadline, "fixture request admission");
@@ -218,9 +263,16 @@ fn cancelling_one_admitted_read_does_not_cancel_another_worker_or_replay_it() {
     }
     cancel.cancel();
     assert!(read.join().unwrap().unwrap_err().was_cancelled());
+    fs::write(fixture.0.join("release"), b"").unwrap();
     assert_eq!(core.api("later", json!({})).unwrap()["operation"], "later");
     drop(core);
-    assert_eq!(lines(fixture.0.join("requests")).len(), 2);
+    let requests = lines(fixture.0.join("requests"));
+    assert_eq!(requests.len(), 2, "the cancelled call must not replay");
+    assert_eq!(
+        lines(fixture.0.join("launches")).len(),
+        2,
+        "capability plus one session"
+    );
 }
 
 #[test]

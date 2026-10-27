@@ -6,15 +6,16 @@
   on painted data. Results carry their generation and cannot replace a newer view. The worker
   owns one never-reset stop flag per generation; preemption and shutdown set it while the
   generation counter still fences events.
-- One UI shares a lazy `tmt api --session` child through `core::api_session`. One worker
-  serializes complete requests; interactions precede queued background reads at response
-  boundaries. No transport I/O or waiting occurs on paint/input. Capabilities negotiate once;
-  older Core keeps one-shot API calls. Ordinary API errors retain the channel. Stale schema,
-  malformed responses, cancellation and transport failures close it; only later work reopens,
-  never the submitted request. `tmt-invoke::LineChannel` owns bounded byte frames, stderr,
+- One UI shares two lazy `tmt api --session` children through `core::api_session`: one
+  serializes background reads and the other interactions, so an interaction never waits on
+  a background exchange. No transport I/O or waiting occurs on paint/input. Each lane
+  negotiates capabilities once; older Core keeps one-shot API calls. Ordinary API errors retain the channel. Cancelled queued
+  calls are discarded; an admitted exchange drains until its response or deadline, even if its
+  caller stops waiting. Stale schema, malformed responses, deadlines, shutdown and transport
+  failures close it; only later work reopens, never the submitted request. `tmt-invoke::LineChannel` owns bounded byte frames, stderr,
   deadlines and child-group cleanup. Other public commands retain their existing runner.
   Shutdown restores the terminal, drains admitted actions, cancels and joins readers, then
-  the last Core handle closes stdin and reaps the session child. Foreground and
+  the last Core handle closes stdin and reaps both session children. Foreground and
   reload handoffs release that handle before exec; a new board opens lazily.
 - Timer: the input loop requests a reload at the shown squad's `refresh` interval, which each
   snapshot carries, so a squad that failed to load retries at the default. The timer always runs.

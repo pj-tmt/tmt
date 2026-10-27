@@ -50,11 +50,13 @@ if args and args[0] == "resume":
             active.append(int(entry.name))
         except ProcessLookupError:
             pass
-    session = json.loads((root / "session.json").read_text())
-    leaked = leaked_pipes(session["pipes"])
+    sessions = [json.loads(path.read_text()) for path in (root / "sessions").glob("*.json")]
+    assert sessions, "the board must have opened a session before handoff"
+    leaked = sorted({fd for session in sessions for fd in leaked_pipes(session["pipes"])})
     packet = {"argv": args, "pid": os.getpid(), "tty": [os.isatty(fd) for fd in (0, 1, 2)],
               "modes": modes(0), "foreground": os.tcgetpgrp(0) == os.getpgrp(),
-              "activeReads": active, "sessionPid": session["pid"], "leakedSessionFds": leaked}
+              "activeReads": active, "sessionPids": [session["pid"] for session in sessions],
+              "leakedSessionFds": leaked}
     proof.write_text(json.dumps(packet))
     print("FOREGROUND_SESSION_REFUSAL", flush=True)
     # A real Core refusal must retain its own exit; no provider is ever started.
@@ -68,19 +70,9 @@ try:
         # The session owns stdin until board shutdown. Forward its pipes rather
         # than waiting for EOF before starting the real Core process.
         pipes = [[os.fstat(fd).st_dev, os.fstat(fd).st_ino] for fd in (0, 1)]
-        marker = root / "session.json"
-        previous = json.loads(marker.read_text()) if marker.exists() else None
-        prior_alive = False
-        if previous:
-            try:
-                os.kill(previous["pid"], 0)
-                prior_alive = True
-            except ProcessLookupError:
-                pass
-        data = {"pid": os.getpid(), "pipes": pipes, "priorAlive": prior_alive,
-                "priorLeakedFds": leaked_pipes(previous["pipes"]) if previous else []}
-        staged = root / "session.stage"
-        staged.write_text(json.dumps(data))
+        marker = root / "sessions" / f"{os.getpid()}.json"
+        staged = marker.with_suffix(".stage")
+        staged.write_text(json.dumps({"pid": os.getpid(), "pipes": pipes}))
         staged.replace(marker)
         sys.exit(subprocess.run(spec["cli"] + args).returncode)
     result = subprocess.run(spec["cli"] + args, input=sys.stdin.buffer.read(),

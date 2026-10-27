@@ -6822,3 +6822,352 @@ describe('Ops API process-cost probe', () => {
     240_000
   );
 });
+
+// Opt-in paired measurement: the same private world and real board are used with
+// either prebuilt Ops binary. The proxy can hold one cursor call to expose queueing.
+describe('Ops selected conversation latency probe', () => {
+  it.skipIf(!process.env.TMT_OPS_LATENCY_PROBE)(
+    'measures selection to committed reply with and without a held background read',
+    async () => {
+      const destination = process.env.TMT_OPS_LATENCY_PROBE!;
+      expect(path.isAbsolute(destination)).toBe(true);
+      await withSandbox(async (sandbox) => {
+        installSquad(sandbox);
+        const scratch = startPrivateTmux(sandbox, 'latency');
+        const { tmux } = scratch;
+        sandbox.env.TERM = 'xterm-256color';
+        sandbox.env.NO_COLOR = '1';
+        await identity(sandbox, 'Ben');
+        expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+        for (let i = 0; i < 6; i++) {
+          const member = `probe-member-${i}`;
+          await identity(sandbox, member);
+          expect((await squad(sandbox, ['add', member])).status).toBe(0);
+        }
+        for (const suffix of ['a', 'b']) {
+          const member = `probe-target-${suffix}`;
+          await identity(sandbox, member);
+          expect((await squad(sandbox, ['add', member])).status).toBe(0);
+          const sent = await runCli(sandbox, [
+            'talk',
+            member,
+            'probe prompt',
+            '--identity',
+            'Ben',
+            '--room',
+            'squad-product',
+            '--detach',
+            '--json',
+          ]);
+          expect(sent.status, sent.stderr).toBe(0);
+          const request = JSON.parse(sent.stdout).requestId;
+          const incoming = await runCli(sandbox, [
+            'x',
+            'show',
+            request,
+            '--incoming',
+            '--identity',
+            member,
+            '--json',
+          ]);
+          expect(incoming.status, incoming.stderr).toBe(0);
+          const reply = await runCli(sandbox, [
+            'reply',
+            request,
+            '--receipt',
+            JSON.parse(incoming.stdout).exchange.reply.receipt,
+            '--message',
+            `MEASURED-REPLY-${suffix.toUpperCase()}`,
+            '--json',
+          ]);
+          expect(reply.status, reply.stderr).toBe(0);
+        }
+        // Keep both targets in stable name order throughout the paired probe.
+        const acknowledged = await runCli(sandbox, ['x', 'ackall', '--identity', 'Ben', '--json']);
+        expect(acknowledged.status, acknowledged.stderr).toBe(0);
+        const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+        const proxy = path.join(sandbox.root, 'latency-core');
+        const control = path.join(sandbox.root, 'control');
+        mkdirSync(control);
+        const log = path.join(sandbox.root, 'latency-processes.jsonl');
+        writeFileSync(log, '');
+        const events = () =>
+          readFileSync(log, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line));
+        writeExecutable(
+          proxy,
+          `#!${process.execPath}
+const fs = require('node:fs');
+const { spawn } = require('node:child_process');
+const { StringDecoder } = require('node:string_decoder');
+const path = require('node:path');
+const args = process.argv.slice(2), dir = ${JSON.stringify(control)}, log = ${JSON.stringify(log)};
+const record = (value) => fs.appendFileSync(log, JSON.stringify({atMs:Date.now(),view:process.env.TMT_API_PROBE_VIEW,wrapper:process.pid,...value})+'\\n');
+const child = spawn(${JSON.stringify(sandbox.cli.executable)}, args, {stdio:['pipe','pipe','inherit']});
+record({event:'start',pid:child.pid,args});
+const decoder = new StringDecoder('utf8');
+let pending = '', work = Promise.resolve();
+const outstanding=[]; const responses = new StringDecoder('utf8'); let response='';
+child.stdout.pipe(process.stdout);
+child.stdout.on('data',bytes=>{response+=responses.write(bytes);let at;while((at=response.indexOf('\\n'))>=0){response=response.slice(at+1);const call=outstanding.shift();if(call)record({event:'response',operation:call.operation,backgroundPage:call.backgroundPage,ms:Number(process.hrtime.bigint()-call.started)/1e6});}});
+child.stdout.on('end',()=>{const call=outstanding.shift();if(call)record({event:'response',operation:call.operation,backgroundPage:call.backgroundPage,ms:Number(process.hrtime.bigint()-call.started)/1e6});});
+async function send(text, newline) {
+  let operation = '', input={};
+  try { const request=JSON.parse(text);operation=request.operation;input=request.input||{}; } catch {}
+  const backgroundPage=operation==='requests.list' && input.view==='results' && !input.recipientId;
+  if (process.env.TMT_API_PROBE_VIEW === 'product' && backgroundPage) {
+    try {
+      fs.renameSync(path.join(dir,'arm'),path.join(dir,'claimed'));
+      fs.writeFileSync(path.join(dir,'blocked'),String(process.pid));
+      const deadline = Date.now()+10000;
+      while (!fs.existsSync(path.join(dir,'release'))) {
+        if (Date.now()>deadline) throw new Error('cursor gate deadline');
+        await new Promise(resolve=>setTimeout(resolve,5));
+      }
+      fs.writeFileSync(path.join(dir,'unblocked'),'');
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  outstanding.push({operation,backgroundPage,started:process.hrtime.bigint()});
+  if (newline) child.stdin.write(text+'\\n'); else child.stdin.end(text);
+}
+process.stdin.on('data', bytes=>{
+  pending+=decoder.write(bytes);
+  let at;
+  while ((at=pending.indexOf('\\n'))>=0) {
+    const frame=pending.slice(0,at); pending=pending.slice(at+1);
+    work=work.then(()=>send(frame,true));
+  }
+});
+process.stdin.on('end',()=>{pending+=decoder.end();work=work.then(()=>pending ? send(pending,false) : child.stdin.end());});
+child.stdin.on('error',()=>process.stdin.destroy());
+child.on('error',error=>{record({event:'error',message:error.message});process.exitCode=1;});
+child.on('close',(code,signal)=>{record({event:'exit',pid:child.pid,code,signal});process.stdin.destroy();process.exitCode=code??1;});
+`
+        );
+        tmux(['new-session', '-d', '-s', 'latency', '-x', '160', '-y', '40', '/bin/sh']);
+        const server = Number(tmux(['display-message', '-p', '#{pid}']));
+        const boards: {
+          view: string;
+          pane: string;
+          pid: number;
+          trace: string;
+          navigation: string;
+        }[] = [];
+        try {
+          for (const view of ['global', 'product']) {
+            const pane = tmux([
+              'new-window',
+              '-d',
+              '-P',
+              '-F',
+              '#{pane_id}',
+              '-c',
+              sandbox.cwd,
+              '/bin/sh',
+            ]);
+            const pid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
+            const trace = path.join(sandbox.root, `${view}.trace.jsonl`);
+            const navigation = path.join(sandbox.root, `${view}.navigation.jsonl`);
+            boards.push({ view, pane, pid, trace, navigation });
+            const args = ['ui', '--view', `latency-${view}`, '--reset-view'];
+            if (view === 'product') args.push('--squad', 'product');
+            tmux([
+              'send-keys',
+              '-t',
+              pane,
+              '-l',
+              `exec env TMT_EXECUTABLE=${quote(proxy)} TMT_API_PROBE_VIEW=${view} TMT_OPS_TIMING_TRACE=${quote(trace)} TMT_OPS_TEST_KEY_TRACE=${quote(navigation)} ${quote(squadExecutable)} ${args.map(quote).join(' ')}`,
+            ]);
+            tmux(['send-keys', '-t', pane, 'Enter']);
+          }
+          await vi.waitFor(
+            () => {
+              for (const board of boards) {
+                expect(existsSync(board.trace)).toBe(true);
+                expect(readFileSync(board.trace, 'utf8')).toContain('fresh_board');
+              }
+            },
+            { timeout: 60000, interval: 50 }
+          );
+          const pane = boards.find((board) => board.view === 'product')!.pane;
+          const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+          tmux(['send-keys', '-t', pane, 'Right']);
+          await vi.waitFor(() => expect(screen()).toMatch(/^[ \t]+▾ product[ \t]+/m), {
+            timeout: 10000,
+            interval: 25,
+          });
+          // With answers acknowledged, target names sort last and stay adjacent.
+          tmux(['send-keys', '-t', pane, 'End']);
+          await vi.waitFor(() => expect(screen()).toContain('MEASURED-REPLY-B'), {
+            timeout: 30000,
+            interval: 10,
+          });
+          const backgroundTimes = () =>
+            events()
+              .filter(
+                (event) =>
+                  event.view === 'product' && event.event === 'response' && event.backgroundPage
+              )
+              .map((event) => event.ms as number);
+          // Calibrate the same real background page before applying contention.
+          for (let i = 0; i < 20; i++) {
+            const before = backgroundTimes().length;
+            tmux(['send-keys', '-t', pane, 'C-r']);
+            await vi.waitFor(() => expect(backgroundTimes().length).toBeGreaterThan(before), {
+              timeout: 15000,
+              interval: 10,
+            });
+          }
+          const unheldBackgroundMs = backgroundTimes();
+          const ordered = [...unheldBackgroundMs].sort((a, b) => a - b);
+          const pageP95 = ordered[Math.ceil(ordered.length * 0.95) - 1]!;
+          const recommendedHoldMs = pageP95 < 200 ? 500 : pageP95;
+          const holdMs = process.env.TMT_OPS_HOLD_MS
+            ? Number(process.env.TMT_OPS_HOLD_MS)
+            : recommendedHoldMs;
+          expect(Number.isFinite(holdMs) && holdMs >= 200).toBe(true);
+          const samples: { condition: string; target: string; ms: number }[] = [];
+          for (const condition of ['unheld', 'held']) {
+            for (let i = 0; i < 20; i++) {
+              const target = i % 2 === 0 ? 'A' : 'B';
+              if (condition === 'held') {
+                for (const file of ['arm', 'claimed', 'blocked', 'release', 'unblocked']) {
+                  try {
+                    unlinkSync(path.join(control, file));
+                  } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                  }
+                }
+                writeFileSync(path.join(control, 'arm'), '');
+                tmux(['send-keys', '-t', pane, 'C-r']);
+                await vi.waitFor(
+                  () => expect(existsSync(path.join(control, 'blocked'))).toBe(true),
+                  { timeout: 10000, interval: 10 }
+                );
+              }
+              const started = performance.now();
+              tmux(['send-keys', '-t', pane, target === 'A' ? 'Up' : 'End']);
+              // Observe immediately: main can paint before the intentional
+              // hold ends. The marker proves the background call is in flight.
+              const release =
+                condition === 'held'
+                  ? new Promise<void>((resolve) =>
+                      setTimeout(() => {
+                        writeFileSync(path.join(control, 'release'), '');
+                        resolve();
+                      }, holdMs)
+                    )
+                  : Promise.resolve();
+              try {
+                await vi.waitFor(() => expect(screen()).toContain(`MEASURED-REPLY-${target}`), {
+                  timeout: 30000,
+                  interval: 10,
+                });
+                samples.push({ condition, target, ms: performance.now() - started });
+              } finally {
+                await release;
+              }
+              if (condition === 'held') {
+                await vi.waitFor(
+                  () => expect(existsSync(path.join(control, 'unblocked'))).toBe(true),
+                  {
+                    timeout: 10000,
+                    interval: 10,
+                  }
+                );
+              }
+            }
+          }
+          const navigation = boards.find((board) => board.view === 'product')!.navigation;
+          const selections = () =>
+            readFileSync(navigation, 'utf8')
+              .split('\n')
+              .filter(Boolean)
+              .map((line) => JSON.parse(line))
+              .filter((row) => row.event === 'selection_write');
+          const beforeRapid = selections().length;
+          const rapidStart = Date.now();
+          tmux([
+            'send-keys',
+            '-t',
+            pane,
+            ...Array.from({ length: 10 }, () => ['Up', 'End']).flat(),
+          ]);
+          await vi.waitFor(
+            () => expect(selections().length - beforeRapid).toBeGreaterThanOrEqual(20),
+            { timeout: 2000, interval: 10 }
+          );
+          expect(Date.now() - rapidStart).toBeLessThanOrEqual(2000);
+          // This is a measured two-second observation window, not readiness.
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.max(0, rapidStart + 2000 - Date.now()))
+          );
+          const rapidReopens = events().filter(
+            (event) =>
+              event.view === 'product' &&
+              event.event === 'start' &&
+              event.atMs >= rapidStart &&
+              event.atMs < rapidStart + 2000 &&
+              event.args?.[0] === 'api' &&
+              event.args?.[1] === '--session'
+          ).length;
+          expect(rapidReopens).toBeLessThanOrEqual(1);
+          for (const board of boards) tmux(['send-keys', '-t', board.pane, 'q']);
+          const allEvents = events();
+          const owned = new Set<number>([
+            ...boards.map((board) => board.pid),
+            ...allEvents.flatMap((event) => [event.wrapper, ...(event.pid ? [event.pid] : [])]),
+          ]);
+          await vi.waitFor(
+            () => {
+              for (const pid of owned) expect(() => process.kill(pid, 0)).toThrow();
+            },
+            { timeout: 15000, interval: 100 }
+          );
+          writeFileSync(
+            destination,
+            JSON.stringify(
+              {
+                holdMs,
+                recommendedHoldMs,
+                unheldBackgroundMs,
+                rapidReopens,
+                rapidSelectionCount: selections().length - beforeRapid,
+                samples,
+                traces: boards.map(({ view, trace }) => ({
+                  view,
+                  trace: readFileSync(trace, 'utf8'),
+                })),
+                cleanup: { boardsAndCoreChildrenGone: true },
+              },
+              null,
+              2
+            ) + '\n'
+          );
+        } finally {
+          try {
+            // Failure paths still ask each owned board to join its workers before
+            // the private tmux server closes its terminal.
+            for (const board of boards) scratch.run(['send-keys', '-t', board.pane, 'q']);
+            await vi.waitFor(
+              () => {
+                for (const board of boards) expect(() => process.kill(board.pid, 0)).toThrow();
+              },
+              { timeout: 15000, interval: 100 }
+            );
+          } finally {
+            scratch.stop();
+            await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+              timeout: 10000,
+              interval: 100,
+            });
+            expect(scratch.run(['list-sessions']).status).not.toBe(0);
+          }
+        }
+      });
+    },
+    240_000
+  );
+});

@@ -1,10 +1,9 @@
-//! One UI's public API channel. The neutral leaf owns bytes and child lifecycle;
+//! One UI's public API channels. The neutral leaf owns bytes and child lifecycle;
 //! this owner schedules API requests and interprets capability/stale resources.
 
 use crate::runner::{self, Cancellation, RunError};
 use serde_json::{Value, json};
 use std::{
-    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -18,17 +17,9 @@ use tmt_invoke::{LineChannel, LineChannelOptions};
 
 const CANCEL_CHECK: Duration = Duration::from_millis(20);
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub(super) enum Priority {
-    #[default]
-    Background,
-    Interaction,
-}
-
 struct Call {
     payload: Vec<u8>,
     deadline: Instant,
-    priority: Priority,
     abandoned: Cancellation,
     parent: Option<Cancellation>,
     reply: Sender<Result<Option<Value>, RunError>>,
@@ -67,7 +58,6 @@ impl Session {
         payload: &[u8],
         deadline: Instant,
         cancellation: Option<&Cancellation>,
-        priority: Priority,
     ) -> Result<Option<Value>, RunError> {
         // Enqueuing and waiting are forbidden on the paint/input thread too.
         runner::assert_commands_allowed("API session");
@@ -86,7 +76,6 @@ impl Session {
             .send(Call {
                 payload: payload.to_vec(),
                 deadline,
-                priority,
                 abandoned,
                 parent: cancellation.cloned(),
                 reply,
@@ -126,23 +115,8 @@ enum Transport {
 }
 
 fn serve(executable: &Path, pending: &Receiver<Call>, stopped: &AtomicBool) {
-    let mut queued = VecDeque::new();
     let mut transport = Transport::Unknown;
-    loop {
-        if queued.is_empty() {
-            match pending.recv() {
-                Ok(call) => queued.push_back(call),
-                Err(_) => return,
-            }
-        }
-        queued.extend(pending.try_iter());
-        // A background acquisition queues at most its current request, not its
-        // entire scan. At every response boundary interactions take priority.
-        let next = queued
-            .iter()
-            .position(|call| call.priority == Priority::Interaction)
-            .unwrap_or(0);
-        let call = queued.remove(next).expect("one pending call");
+    while let Ok(call) = pending.recv() {
         let result = if stopped.load(Ordering::Acquire) || call.stopped() {
             Err(RunError::Cancelled)
         } else if call.deadline <= Instant::now() {
@@ -189,7 +163,14 @@ fn request(
     let Transport::Session(channel) = transport else {
         return Ok(None);
     };
-    let stop = || stopped.load(Ordering::Acquire) || call.stopped();
+    // A cancelled call that has not started must never be sent. Once an
+    // exchange starts, drain its response even if its caller loses interest;
+    // this preserves framing for the next request. Session shutdown still
+    // interrupts it, and the original deadline bounds the drain.
+    let stop = || stopped.load(Ordering::Acquire);
+    if call.stopped() {
+        return Err(RunError::Cancelled);
+    }
     if channel.is_none() {
         *channel = Some(
             LineChannel::start(
@@ -204,6 +185,9 @@ fn request(
             )
             .map_err(|error| runner::run_error(error.kind))?,
         );
+    }
+    if call.stopped() {
+        return Err(RunError::Cancelled);
     }
     let result =
         channel
@@ -236,7 +220,7 @@ mod tests {
     use crate::core::tests::{Fixture, session_fixture};
 
     #[test]
-    fn queued_interaction_precedes_background_and_abandoned_work_never_starts() {
+    fn abandoned_queued_work_never_starts() {
         let fixture = Fixture::new();
         let core = session_fixture(&fixture);
         let reader = core.clone();
@@ -247,49 +231,34 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         let (reply, replies) = mpsc::channel();
-        let session = core.session.as_ref().unwrap();
-        for (operation, priority, abandoned) in [
-            ("background", Priority::Background, false),
-            ("interaction", Priority::Interaction, false),
-            ("abandoned", Priority::Interaction, true),
-        ] {
-            let cancellation = Cancellation::default();
-            if abandoned {
-                cancellation.cancel();
-            }
-            session
-                .calls
-                .as_ref()
-                .unwrap()
-                .send(Call {
-                    payload: json!({"version":1,"operation":operation,"input":{}})
-                        .to_string()
-                        .into_bytes(),
-                    deadline,
-                    priority,
-                    abandoned: cancellation,
-                    parent: None,
-                    reply: reply.clone(),
-                })
-                .unwrap();
-        }
+        let cancellation = Cancellation::default();
+        cancellation.cancel();
+        core.session
+            .as_ref()
+            .unwrap()
+            .background
+            .calls
+            .as_ref()
+            .unwrap()
+            .send(Call {
+                payload: json!({"version":1,"operation":"abandoned","input":{}})
+                    .to_string()
+                    .into_bytes(),
+                deadline,
+                abandoned: cancellation,
+                parent: None,
+                reply,
+            })
+            .unwrap();
         std::fs::write(fixture.0.join("release"), b"").unwrap();
         assert_eq!(first.join().unwrap().unwrap()["operation"], "gate");
-        for _ in 0..3 {
-            let _ = replies.recv_timeout(Duration::from_secs(30)).unwrap();
-        }
+        assert!(matches!(
+            replies.recv_timeout(Duration::from_secs(30)).unwrap(),
+            Err(RunError::Cancelled)
+        ));
         drop(core);
-        let requests: Vec<Value> = std::fs::read_to_string(fixture.0.join("requests"))
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
-        assert_eq!(
-            requests
-                .iter()
-                .map(|request| request["operation"].as_str().unwrap())
-                .collect::<Vec<_>>(),
-            ["gate", "interaction", "background"]
-        );
+        let requests = std::fs::read_to_string(fixture.0.join("requests")).unwrap();
+        assert_eq!(requests.lines().count(), 1);
+        assert!(!requests.contains("abandoned"));
     }
 }
