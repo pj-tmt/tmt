@@ -124,19 +124,6 @@ pub(super) fn mode(app: &App, id: Option<&str>) -> String {
             crate::labels::digest::Mode::Interval => format!("timed {}", member.setting_value),
         })
 }
-pub(super) fn recipient<'a>(report: &'a Report, id: &str) -> Option<(Option<&'a str>, u64)> {
-    report
-        .exchange
-        .as_ref()?
-        .recipients_of(Some(id))
-        .iter()
-        .max_by(|a, b| {
-            a.count
-                .cmp(&b.count)
-                .then_with(|| b.recipient.cmp(&a.recipient))
-        })
-        .map(|flow| (flow.recipient.as_deref(), flow.count))
-}
 pub(super) fn name(app: &App, id: Option<&str>) -> String {
     id.map_or("unknown".into(), |id| {
         app.workspace_snapshot()

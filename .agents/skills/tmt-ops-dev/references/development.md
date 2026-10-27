@@ -105,9 +105,10 @@ CARGO_BUILD_JOBS=2 cargo +1.98.1 test --release --locked -p tmt-ops workspace_an
   The populated Digest probe (`digest_frame_timing`) holds the same 70 MB: with the cache
   release of [#4844](https://github.com/tmt-ninja/tmt/issues/4844#issuecomment-6441007162)
   and the flat `Traffic` flow of [#5441](https://github.com/tmt-ninja/tmt/issues/5441) it
-  measures 66.4 to 67.5 MB (3 interleaved pairs, Rust 1.98.1; main 83.2 to 86.1 MB). A flow
-  report of 10,000 senders is under 1 MB in that representation; do not reintroduce a
-  per-sender map node there without re-measuring this probe.
+  measures 67.1 to 69.0 MB (3 interleaved pairs, Rust 1.98.1; main 81.7 to 85.4 MB). A flow
+  report of 10,000 senders is under 1 MB in that representation, and the projection's
+  per-sender busiest-recipient map is sized once; do not reintroduce a per-sender map
+  node or a map grown by doubling there without re-measuring this probe.
   An overage is not cleared by being within a percentage of main. Run
   main and candidate once, back to back on the same quiet machine and build mode;
   the ANSI probe's candidate whole-process user+system CPU must be

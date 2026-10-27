@@ -300,17 +300,16 @@ pub(super) fn detail_lines(
                 app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
             ));
         }
-        text.push(
-            report
-                .and_then(|report| metrics::recipient(report, id))
-                .map_or("Talks to: unavailable".into(), |(id, count)| {
-                    format!(
-                        "Talks to: {} · {} messages",
-                        metrics::name(app, id),
-                        crate::source::tokens(u128::from(count))
-                    )
-                }),
-        );
+        text.push(super::talks(app).busiest(id).map_or(
+            "Talks to: unavailable".into(),
+            |(id, count)| {
+                format!(
+                    "Talks to: {} · {} messages",
+                    metrics::name(app, id),
+                    crate::source::tokens(u128::from(count))
+                )
+            },
+        ));
         if let Some(seat) = report.and_then(|report| report.seat(id)) {
             text.push(format!(
                 "Usage coverage: {}% of {}{}",
