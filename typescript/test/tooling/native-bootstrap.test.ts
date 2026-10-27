@@ -368,8 +368,8 @@ describe('native curl bootstrap', () => {
         const urls = readFileSync(run.curlLog, 'utf8').trim().split('\n');
         expect(urls.map((url) => new URL(url).hostname)).toEqual(['github.com', 'github.com']);
         expect(urls).toEqual([
-          `https://github.com/pj-tmt/tmt/releases/download/v${version}/dist-manifest.json`,
-          `https://github.com/pj-tmt/tmt/releases/download/v${version}/${path.basename(fixture.archive)}`,
+          `https://github.com/tmt-ninja/tmt/releases/download/v${version}/dist-manifest.json`,
+          `https://github.com/tmt-ninja/tmt/releases/download/v${version}/${path.basename(fixture.archive)}`,
         ]);
         expectCleanStage(run.stage);
       });
@@ -386,7 +386,7 @@ describe('native curl bootstrap', () => {
       expect(script).toContain(
         createHash('sha256').update(readFileSync(fixture.archive)).digest('hex')
       );
-      expect(script).toContain('https://github.com/pj-tmt/tmt/releases/download/');
+      expect(script).toContain('https://github.com/tmt-ninja/tmt/releases/download/');
       expect(script).not.toContain('endpointOverride');
     });
   });
@@ -475,7 +475,7 @@ describe('native curl bootstrap', () => {
         expect(run.log).toBe('');
         expect(existsSync(path.join(run.prefix, 'bin', 'tmt'))).toBe(false);
         const urls = readFileSync(run.curlLog, 'utf8').trim().split('\n');
-        const base = `https://github.com/pj-tmt/tmt/releases/download/v${fixture.version}`;
+        const base = `https://github.com/tmt-ninja/tmt/releases/download/v${fixture.version}`;
         expect(urls).toEqual([
           `${base}/dist-manifest.json`,
           ...(corrupt === 'archive' ? [`${base}/${path.basename(fixture.archive)}`] : []),
@@ -531,7 +531,7 @@ describe('native curl bootstrap', () => {
       expect(run.log).toBe('');
       expect(existsSync(path.join(run.prefix, 'bin', 'tmt'))).toBe(false);
       expect(readFileSync(run.curlLog, 'utf8').trim()).toBe(
-        `https://github.com/pj-tmt/tmt/releases/download/v${fixture.version}/dist-manifest.json`
+        `https://github.com/tmt-ninja/tmt/releases/download/v${fixture.version}/dist-manifest.json`
       );
       expectCleanStage(run.stage);
     });
