@@ -161,11 +161,13 @@ function expectNativeSchema(
     { version: 80, name: 'let a session-learning diagnostic name why a Digest Stop refused' },
     { version: 81, name: 'record pending orchestration wakes and summary projection' },
     { version: 82, name: 'name a Stop rejected without an admitted start' },
+    { version: 83, name: 'reserve binding publication outside the writer' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
+      'binding_reservations',
       'change_cursor',
       'capture_batches',
       'capture_entries',
@@ -239,6 +241,7 @@ function expectNativeSchema(
   ]);
   expect(table(migrated, 'orchestration_settings').rows).toEqual([]);
   for (const name of [
+    'binding_reservations',
     'orchestration_plans',
     'orchestration_plan_targets',
     'orchestration_member_overrides',
