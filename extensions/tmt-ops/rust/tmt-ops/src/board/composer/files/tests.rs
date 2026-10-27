@@ -1,31 +1,16 @@
 use super::*;
 use crate::board::app::App;
+use crate::test_support::Scratch;
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use std::path::PathBuf;
+use std::path::Path;
 
-/// A scratch directory under the system temp dir, removed when dropped.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("ops-files-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir.canonicalize().unwrap())
-    }
-    fn file(&self, name: &str, bytes: &[u8]) -> String {
-        let path = self.0.join(name);
-        std::fs::write(&path, bytes).unwrap();
-        path.to_str().unwrap().to_owned()
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
+/// Writes `bytes` to `name` in `dir` and returns the path as a dropped file spells it.
+fn file(dir: &Path, name: &str, bytes: &[u8]) -> String {
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).unwrap();
+    path.to_str().unwrap().to_owned()
 }
 
 fn png(width: u32, height: u32) -> Vec<u8> {
@@ -79,9 +64,9 @@ fn file_uris_decode_to_absolute_paths() {
 #[test]
 fn only_a_paste_of_existing_files_is_a_drop() {
     let dir = Scratch::new("parse");
-    let one = dir.file("screenshot.png", &png(1440, 900));
-    let spaced = dir.file("my notes.md", b"# Notes\n");
-    let other = dir.file("plain.txt", b"plain");
+    let one = file(&dir, "screenshot.png", &png(1440, 900));
+    let spaced = file(&dir, "my notes.md", b"# Notes\n");
+    let other = file(&dir, "plain.txt", b"plain");
     let files =
         |text: &str| parse(text).map(|files| files.into_iter().map(|f| f.path).collect::<Vec<_>>());
 
@@ -101,12 +86,9 @@ fn only_a_paste_of_existing_files_is_a_drop() {
         None,
         "a mix stays text"
     );
+    assert_eq!(files(&format!("{one} {}/missing.png", dir.display())), None);
     assert_eq!(
-        files(&format!("{one} {}/missing.png", dir.0.display())),
-        None
-    );
-    assert_eq!(
-        files(dir.0.to_str().unwrap()),
+        files(dir.to_str().unwrap()),
         None,
         "a directory is not a file"
     );
@@ -207,11 +189,11 @@ fn text_files_show_their_first_lines_and_binaries_show_nothing() {
 #[test]
 fn the_worker_reads_a_file_and_reports_one_that_cannot_be_read() {
     let dir = Scratch::new("probe");
-    let image = dir.file("a.png", &png(64, 32));
+    let image = file(&dir, "a.png", &png(64, 32));
     let (sent, received) = std::sync::mpsc::channel();
     let probe = Probe::spawn(move |delivery| sent.send(delivery).is_ok());
     probe.request(&image);
-    probe.request(&format!("{}/gone.png", dir.0.display()));
+    probe.request(&format!("{}/gone.png", dir.display()));
     let first = received
         .recv_timeout(std::time::Duration::from_secs(10))
         .unwrap();
@@ -376,8 +358,8 @@ fn chips(app: &App) -> Vec<(String, String)> {
 #[test]
 fn a_drop_into_the_open_composer_inserts_one_chip_per_file_and_sends_their_paths() {
     let dir = Scratch::new("drop");
-    let image = dir.file("screenshot.png", &png(1440, 900));
-    let notes = dir.file("my notes.md", b"# Notes\n");
+    let image = file(&dir, "screenshot.png", &png(1440, 900));
+    let notes = file(&dir, "my notes.md", b"# Notes\n");
     let mut app = open_composer();
     app.paste("look at ");
     app.paste(&format!("{image} '{notes}'"));
@@ -425,7 +407,7 @@ fn a_chip_quotes_a_path_only_when_its_boundary_would_blur() {
 #[test]
 fn a_probe_finds_a_quoted_chip_by_its_raw_path() {
     let dir = Scratch::new("quoted-probe");
-    let image = dir.file("my shot.png", &png(640, 480));
+    let image = file(&dir, "my shot.png", &png(640, 480));
     let mut app = open_composer();
     app.paste(&format!("'{image}'"));
     assert_eq!(chips(&app)[0].0, format!("'{image}'"));
@@ -448,7 +430,7 @@ fn a_probe_finds_a_quoted_chip_by_its_raw_path() {
 #[test]
 fn a_later_probe_widens_the_chip_with_the_image_size() {
     let dir = Scratch::new("probe-app");
-    let image = dir.file("screenshot.png", &png(1440, 900));
+    let image = file(&dir, "screenshot.png", &png(1440, 900));
     let mut app = open_composer();
     app.paste(&image);
     assert!(!draw(&mut app, 100, 36).contains("1440×900"));
@@ -474,7 +456,7 @@ fn a_later_probe_widens_the_chip_with_the_image_size() {
 #[test]
 fn ascii_chips_use_brackets_and_keep_the_size() {
     let dir = Scratch::new("ascii");
-    let image = dir.file("screenshot.png", &png(1440, 900));
+    let image = file(&dir, "screenshot.png", &png(1440, 900));
     let mut app = open_composer();
     app.cron_glyphs = crate::board::overview::cron_counts::GlyphSet::from_ascii(true);
     app.paste(&image);
@@ -492,7 +474,7 @@ fn ascii_chips_use_brackets_and_keep_the_size() {
 #[test]
 fn a_drop_with_the_composer_closed_opens_it_for_the_selected_member() {
     let dir = Scratch::new("closed");
-    let image = dir.file("a.png", &png(10, 10));
+    let image = file(&dir, "a.png", &png(10, 10));
     let mut app = crate::board::app::workspace::tests::board();
     assert!(app.input.is_none());
     app.paste(&image);
@@ -503,7 +485,7 @@ fn a_drop_with_the_composer_closed_opens_it_for_the_selected_member() {
 #[test]
 fn a_drop_with_nobody_selected_says_so_and_inserts_nothing() {
     let dir = Scratch::new("none");
-    let image = dir.file("a.png", &png(10, 10));
+    let image = file(&dir, "a.png", &png(10, 10));
     let mut app = crate::board::app::workspace::tests::board();
     app.workspace.selected = None;
     app.paste(&image);
@@ -514,10 +496,10 @@ fn a_drop_with_nobody_selected_says_so_and_inserts_nothing() {
 #[test]
 fn a_mixed_or_missing_paste_stays_ordinary_text() {
     let dir = Scratch::new("text");
-    let image = dir.file("a.png", &png(10, 10));
+    let image = file(&dir, "a.png", &png(10, 10));
     let mut app = open_composer();
     app.paste(&format!("{image} is the file"));
-    app.paste(&format!("{}/missing.png", dir.0.display()));
+    app.paste(&format!("{}/missing.png", dir.display()));
     assert!(chips(&app).is_empty());
     assert!(
         app.input
@@ -532,7 +514,7 @@ fn a_mixed_or_missing_paste_stays_ordinary_text() {
 #[test]
 fn clicking_a_chip_opens_the_file_popup_and_its_mark_removes_it() {
     let dir = Scratch::new("click");
-    let notes = dir.file("notes.md", b"# Title\nsecond line\n");
+    let notes = file(&dir, "notes.md", b"# Title\nsecond line\n");
     let mut app = open_composer();
     app.paste(&notes);
     app.apply_file_info(Delivery {
@@ -639,7 +621,7 @@ pub(in crate::board) fn capture_metadata(app: &App) -> serde_json::Value {
 #[test]
 fn file_probe_cannot_relabel_a_quote_of_the_same_path_in_any_draft() {
     let dir = Scratch::new("quote-path-probe");
-    let path = dir.file("same.png", &png(640, 480));
+    let path = file(&dir, "same.png", &png(640, 480));
     let mut app = open_composer();
     app.paste(&path);
     app.add_chat_quote("worker".into(), path.clone());

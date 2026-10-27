@@ -1,7 +1,60 @@
 //! Fixtures shared by Squad's unit tests.
 
-use std::path::Path;
+use std::{
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
+};
 use tmt_test_support::write_executable;
+
+/// A directory private to one test under the temporary directory, removed with
+/// everything in it when dropped, also when the test fails. It is the one owner of
+/// test scratch space: a test never removes its own directory by hand.
+pub(crate) struct Scratch(PathBuf);
+
+impl Scratch {
+    fn unique(label: &str) -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        std::env::temp_dir().join(format!(
+            "tmt-ops-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    /// A new empty directory, spelled without symlinks (macOS keeps its temporary
+    /// directory behind one).
+    pub(crate) fn new(label: &str) -> Self {
+        let path = Self::unique(label);
+        std::fs::create_dir(&path).expect("create the scratch directory");
+        Self(path.canonicalize().expect("resolve the scratch directory"))
+    }
+
+    /// A reserved path with no directory yet, for a test of code that creates its own.
+    pub(crate) fn missing(label: &str) -> Self {
+        Self(Self::unique(label))
+    }
+}
+
+impl Deref for Scratch {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for Scratch {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 /// The first line that is a full-width rule directly followed by another: a
 /// heading rule is mostly `─`, and neighbours share one. A pane's frame edge carries its corners and
@@ -80,20 +133,44 @@ pub(crate) fn replace_stored_jobs(directory: &Path, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        sync::atomic::{AtomicUsize, Ordering},
-        time::Duration,
-    };
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    use std::time::Duration;
+
+    #[test]
+    fn a_scratch_directory_is_removed_when_dropped_and_when_the_test_fails() {
+        let scratch = Scratch::new("guard");
+        let path = scratch.to_path_buf();
+        std::fs::write(path.join("kept"), b"x").unwrap();
+        std::fs::create_dir_all(path.join("nested/deeper")).unwrap();
+        drop(scratch);
+        assert!(!path.exists());
+
+        let escaped = std::cell::RefCell::new(PathBuf::new());
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let scratch = Scratch::new("guard");
+            *escaped.borrow_mut() = scratch.to_path_buf();
+            std::fs::write(scratch.join("kept"), b"x").unwrap();
+            panic!("the test fails with its files in place");
+        }));
+        assert!(failed.is_err());
+        assert!(!escaped.borrow().as_os_str().is_empty());
+        assert!(!escaped.borrow().exists());
+    }
+
+    #[test]
+    fn scratch_directories_are_distinct_and_a_missing_one_is_removed_after_the_code_creates_it() {
+        let (first, second) = (Scratch::new("same"), Scratch::new("same"));
+        assert_ne!(*first, *second);
+        let absent = Scratch::missing("same");
+        assert!(!absent.exists());
+        std::fs::create_dir_all(absent.join("made/by/the/code")).unwrap();
+        let path = absent.to_path_buf();
+        drop(absent);
+        assert!(!path.exists());
+    }
 
     #[test]
     fn readiness_has_no_payload_effects_and_a_stalled_probe_is_bounded() {
-        let dir = std::env::temp_dir().join(format!(
-            "tmt-ops-ready-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir(&dir).unwrap();
+        let dir = Scratch::new("ready");
         let file = dir.join("fixture");
         let marker = dir.join("called");
         write_ready_executable(
@@ -114,6 +191,5 @@ mod tests {
             probe(&stalled, Duration::from_millis(100)),
             Err(crate::runner::RunError::Timeout)
         ));
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

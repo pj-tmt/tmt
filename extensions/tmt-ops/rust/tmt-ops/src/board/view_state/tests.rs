@@ -3,24 +3,14 @@ use crate::board::{
     app::workspace::tests::{MEMBER, ROOM, board},
     workspace::OpsObservation,
 };
+use crate::test_support::Scratch;
 use std::{
     fs,
     os::unix::fs::{MetadataExt, PermissionsExt, symlink},
 };
 
-struct Scratch(PathBuf);
-impl Scratch {
-    fn new() -> Self {
-        Self(std::env::temp_dir().join(format!("ops-view-state-{}", crate::id::new_v4().unwrap())))
-    }
-    fn file(&self) -> PathBuf {
-        self.0.join("view.json")
-    }
-}
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
+fn view_file(scratch: &Path) -> PathBuf {
+    scratch.join("view.json")
 }
 
 fn saved() -> ViewState {
@@ -52,15 +42,15 @@ fn write(path: &Path, state: &ViewState) {
 
 #[test]
 fn restart_round_trip_restores_the_exact_view_without_names_or_drafts() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let mut first = board();
     first.workspace.pool_expanded = true;
-    let mut original = Session::load(scratch.file(), false, false);
+    let mut original = Session::load(view_file(&scratch), false, false);
     let now = Instant::now();
     let (restored, writer) = original.tick(&mut first, now);
     assert!(!restored);
     writer.unwrap().publish(now, false);
-    let bytes = fs::read(scratch.file()).unwrap();
+    let bytes = fs::read(view_file(&scratch)).unwrap();
     assert!(!String::from_utf8(bytes.clone()).unwrap().contains("worker"));
     let value: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(value.as_object().unwrap().len(), 7);
@@ -68,7 +58,7 @@ fn restart_round_trip_restores_the_exact_view_without_names_or_drafts() {
     assert_eq!(value["controls"]["query"], "");
     assert_eq!(value["scrolls"], json!([]));
     let mut next = cold();
-    let mut reopened = Session::load(scratch.file(), false, false);
+    let mut reopened = Session::load(view_file(&scratch), false, false);
     let (restored, job) = reopened.tick(&mut next, now);
     assert!(restored);
     assert!(
@@ -77,33 +67,37 @@ fn restart_round_trip_restores_the_exact_view_without_names_or_drafts() {
     );
     assert_eq!(ViewState::capture(&next), Some(saved()));
     assert_eq!(
-        fs::metadata(scratch.file()).unwrap().permissions().mode() & 0o777,
+        fs::metadata(view_file(&scratch))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
         0o600
     );
 }
 
 #[test]
 fn latest_pending_value_wins_without_a_queue_of_cursor_moves() {
-    let scratch = Scratch::new();
-    let writer = Writer::new(scratch.file(), None);
+    let scratch = Scratch::missing("view-state");
+    let writer = Writer::new(view_file(&scratch), None);
     let now = Instant::now();
     assert!(writer.offer(saved(), now));
     let mut latest = saved();
     latest.shell = OpsTab::Digest;
     assert!(!writer.offer(latest.clone(), now), "one outstanding job");
     writer.publish(now, false);
-    assert_eq!(ViewState::read(&scratch.file()), Some(latest.clone()));
-    let inode = fs::metadata(scratch.file()).unwrap().ino();
+    assert_eq!(ViewState::read(&view_file(&scratch)), Some(latest.clone()));
+    let inode = fs::metadata(view_file(&scratch)).unwrap().ino();
     assert!(!writer.offer(latest.clone(), now + SAVE_EVERY));
     writer.publish(now + SAVE_EVERY, false);
-    assert_eq!(fs::metadata(scratch.file()).unwrap().ino(), inode);
+    assert_eq!(fs::metadata(view_file(&scratch)).unwrap().ino(), inode);
     latest.pool_expanded = false;
     assert!(!writer.offer(latest.clone(), now + Duration::from_millis(1999)));
     assert!(writer.offer(latest.clone(), now + SAVE_EVERY));
     writer.publish(now + SAVE_EVERY, false);
-    assert_eq!(ViewState::read(&scratch.file()), Some(latest));
+    assert_eq!(ViewState::read(&view_file(&scratch)), Some(latest));
     assert_eq!(
-        fs::read_dir(&scratch.0).unwrap().count(),
+        fs::read_dir(&scratch).unwrap().count(),
         1,
         "no staging files"
     );
@@ -111,11 +105,11 @@ fn latest_pending_value_wins_without_a_queue_of_cursor_moves() {
 
 #[test]
 fn failed_publication_preserves_the_old_file_and_retries_on_a_later_tick() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let now = Instant::now();
-    write(&scratch.file(), &saved());
-    let original = fs::read(scratch.file()).unwrap();
-    let writer = Writer::new(scratch.file(), Some(saved()));
+    write(&view_file(&scratch), &saved());
+    let original = fs::read(view_file(&scratch)).unwrap();
+    let writer = Writer::new(view_file(&scratch), Some(saved()));
     let mut next = saved();
     next.shell = OpsTab::Digest;
     assert!(writer.offer(next.clone(), now));
@@ -126,19 +120,19 @@ fn failed_publication_preserves_the_old_file_and_retries_on_a_later_tick() {
         );
         cache::replace_if(path, bytes, || Err(io::ErrorKind::Interrupted.into()))
     });
-    assert_eq!(fs::read(scratch.file()).unwrap(), original);
-    assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 1);
+    assert_eq!(fs::read(view_file(&scratch)).unwrap(), original);
+    assert_eq!(fs::read_dir(&scratch).unwrap().count(), 1);
     assert!(!writer.offer(next.clone(), now + Duration::from_secs(1)));
     assert!(writer.offer(next.clone(), now + SAVE_EVERY));
     writer.publish(now + SAVE_EVERY, false);
-    assert_eq!(ViewState::read(&scratch.file()), Some(next));
+    assert_eq!(ViewState::read(&view_file(&scratch)), Some(next));
 }
 
 #[test]
 fn a_change_during_publication_is_retained_for_the_next_tick() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let now = Instant::now();
-    let writer = Writer::new(scratch.file(), None);
+    let writer = Writer::new(view_file(&scratch), None);
     assert!(writer.offer(saved(), now));
     let mut next = saved();
     next.shell = OpsTab::Digest;
@@ -147,10 +141,10 @@ fn a_change_during_publication_is_retained_for_the_next_tick() {
         assert!(!writer.offer(next.clone(), now));
         cache::replace(path, bytes)
     });
-    assert_eq!(ViewState::read(&scratch.file()), Some(saved()));
+    assert_eq!(ViewState::read(&view_file(&scratch)), Some(saved()));
     assert!(writer.offer(next.clone(), now + SAVE_EVERY));
     writer.publish(now + SAVE_EVERY, false);
-    assert_eq!(ViewState::read(&scratch.file()), Some(next));
+    assert_eq!(ViewState::read(&view_file(&scratch)), Some(next));
 }
 
 #[test]
@@ -160,16 +154,16 @@ fn partial_unknown_failed_and_loading_views_do_not_apply_or_clobber_the_hint() {
         OpsObservation::Unavailable,
         OpsObservation::Stale,
     ] {
-        let scratch = Scratch::new();
-        write(&scratch.file(), &saved());
-        let original = fs::read(scratch.file()).unwrap();
+        let scratch = Scratch::missing("view-state");
+        write(&view_file(&scratch), &saved());
+        let original = fs::read(view_file(&scratch)).unwrap();
         let mut app = cold();
         // The dense Overview defaults to an agent. This case tests whether a
         // pending saved hint can replace an explicit non-recipient selection.
         app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
         let initial_selection = app.workspace.selected.clone();
         assert!(app.workspace_selected_member().is_none());
-        let mut session = Session::load(scratch.file(), false, false);
+        let mut session = Session::load(view_file(&scratch), false, false);
         app.view
             .as_mut()
             .unwrap()
@@ -188,7 +182,7 @@ fn partial_unknown_failed_and_loading_views_do_not_apply_or_clobber_the_hint() {
             "pending hint grants no recipient"
         );
         session.flush(&mut app, Instant::now());
-        assert_eq!(fs::read(scratch.file()).unwrap(), original);
+        assert_eq!(fs::read(view_file(&scratch)).unwrap(), original);
         app.view
             .as_mut()
             .unwrap()
@@ -207,22 +201,22 @@ fn partial_unknown_failed_and_loading_views_do_not_apply_or_clobber_the_hint() {
         assert!(session.tick(&mut app, Instant::now()).0);
         assert_eq!(ViewState::capture(&app), Some(saved()));
     }
-    let scratch = Scratch::new();
-    write(&scratch.file(), &saved());
+    let scratch = Scratch::missing("view-state");
+    write(&view_file(&scratch), &saved());
     let mut app = App::default();
-    let mut session = Session::load(scratch.file(), false, false);
+    let mut session = Session::load(view_file(&scratch), false, false);
     assert!(!session.tick(&mut app, Instant::now()).0);
     session.flush(&mut app, Instant::now());
-    assert_eq!(ViewState::read(&scratch.file()), Some(saved()));
+    assert_eq!(ViewState::read(&view_file(&scratch)), Some(saved()));
 }
 
 #[test]
 fn removed_membership_or_room_has_the_cold_default_only_after_complete() {
     for remove in ["member", "membership", "room"] {
-        let scratch = Scratch::new();
-        write(&scratch.file(), &saved());
+        let scratch = Scratch::missing("view-state");
+        write(&view_file(&scratch), &saved());
         let mut app = cold();
-        let mut session = Session::load(scratch.file(), false, false);
+        let mut session = Session::load(view_file(&scratch), false, false);
         let roster = &mut app
             .view
             .as_mut()
@@ -257,7 +251,7 @@ fn removed_membership_or_room_has_the_cold_default_only_after_complete() {
         assert_eq!(app.workspace.selected, Some(OpsTarget::Pool));
         assert!(app.workspace_selected_member().is_none());
         writer.unwrap().publish(Instant::now(), false);
-        let after = ViewState::read(&scratch.file()).unwrap();
+        let after = ViewState::read(&view_file(&scratch)).unwrap();
         assert_eq!(after.selected, Some(OpsTarget::Pool));
         assert_eq!(after.expanded.contains(ROOM), remove != "room");
     }
@@ -265,12 +259,12 @@ fn removed_membership_or_room_has_the_cold_default_only_after_complete() {
 
 #[test]
 fn a_collapsed_parent_remains_collapsed_and_the_existing_target_is_hidden() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let mut hint = saved();
     hint.expanded.clear();
-    write(&scratch.file(), &hint);
+    write(&view_file(&scratch), &hint);
     let mut app = cold();
-    let mut session = Session::load(scratch.file(), false, false);
+    let mut session = Session::load(view_file(&scratch), false, false);
     assert!(session.tick(&mut app, Instant::now()).0);
     assert!(app.workspace.expanded.is_empty());
     assert_eq!(app.workspace.selected, hint.selected);
@@ -283,8 +277,8 @@ fn a_collapsed_parent_remains_collapsed_and_the_existing_target_is_hidden() {
 
 #[test]
 fn rename_and_reordering_do_not_change_the_saved_uuid_or_room_context() {
-    let scratch = Scratch::new();
-    write(&scratch.file(), &saved());
+    let scratch = Scratch::missing("view-state");
+    write(&view_file(&scratch), &saved());
     let mut app = cold();
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     workspace.roster.members.get_mut(MEMBER).unwrap().name = "renamed agent".into();
@@ -295,7 +289,7 @@ fn rename_and_reordering_do_not_change_the_saved_uuid_or_room_context() {
     earlier.members.clear();
     workspace.roster.squads.insert(0, earlier);
     workspace.rows.get_mut(&saved().selected.unwrap()).unwrap()["name"] = json!("renamed agent");
-    let mut session = Session::load(scratch.file(), false, false);
+    let mut session = Session::load(view_file(&scratch), false, false);
     assert!(session.tick(&mut app, Instant::now()).0);
     assert_eq!(app.workspace.selected, saved().selected);
     assert!(app.workspace_selection_visible());
@@ -304,10 +298,10 @@ fn rename_and_reordering_do_not_change_the_saved_uuid_or_room_context() {
 
 #[test]
 fn a_proven_gone_digest_target_uses_its_ordinary_visible_cold_default() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let mut hint = saved();
     hint.shell = OpsTab::Digest;
-    write(&scratch.file(), &hint);
+    write(&view_file(&scratch), &hint);
     let mut app = cold();
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     let other = "44444444-4444-4444-8444-444444444444";
@@ -324,7 +318,7 @@ fn a_proven_gone_digest_target_uses_its_ordinary_visible_cold_default() {
         },
         json!({"id":other,"name":"another visible agent","state":"working"}),
     );
-    let mut session = Session::load(scratch.file(), false, false);
+    let mut session = Session::load(view_file(&scratch), false, false);
     assert!(session.tick(&mut app, Instant::now()).0);
     assert_eq!(app.shell.tab, OpsTab::Digest);
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
@@ -333,17 +327,17 @@ fn a_proven_gone_digest_target_uses_its_ordinary_visible_cold_default() {
 
 #[test]
 fn exec_resume_and_explicit_startup_win_over_the_saved_destination_and_target() {
-    let scratch = Scratch::new();
-    write(&scratch.file(), &saved());
+    let scratch = Scratch::missing("view-state");
+    write(&view_file(&scratch), &saved());
     let mut app = cold();
     app.shell.tab = OpsTab::Digest;
-    let mut exec = Session::load(scratch.file(), true, false);
+    let mut exec = Session::load(view_file(&scratch), true, false);
     assert!(!exec.tick(&mut app, Instant::now()).0);
     assert_eq!(app.shell.tab, OpsTab::Digest);
     let mut app = cold();
     app.shell.tab = OpsTab::Agents;
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
-    let mut explicit = Session::load(scratch.file(), false, true);
+    let mut explicit = Session::load(view_file(&scratch), false, true);
     assert!(explicit.tick(&mut app, Instant::now()).0);
     assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(ROOM.into())));
     assert_eq!(app.shell.tab, OpsTab::Agents);
@@ -352,10 +346,10 @@ fn exec_resume_and_explicit_startup_win_over_the_saved_destination_and_target() 
 
 #[test]
 fn missing_corrupt_oversized_nonregular_and_foreign_hints_are_cache_misses() {
-    let scratch = Scratch::new();
-    assert!(ViewState::read(&scratch.file()).is_none());
-    cache::replace(&scratch.file(), b"{").unwrap();
-    assert!(ViewState::read(&scratch.file()).is_none());
+    let scratch = Scratch::missing("view-state");
+    assert!(ViewState::read(&view_file(&scratch)).is_none());
+    cache::replace(&view_file(&scratch), b"{").unwrap();
+    assert!(ViewState::read(&view_file(&scratch)).is_none());
     let mut value: Value = serde_json::from_slice(&saved().bytes().unwrap()).unwrap();
     value["version"] = json!(2);
     assert!(ViewState::decode(&value).is_none());
@@ -372,31 +366,31 @@ fn missing_corrupt_oversized_nonregular_and_foreign_hints_are_cache_misses() {
         ViewState::decode(&value).is_none(),
         "no legacy/name-addressed target wire form"
     );
-    cache::replace(&scratch.file(), &vec![b' '; MAX_BYTES as usize + 1]).unwrap();
-    assert!(ViewState::read(&scratch.file()).is_none());
-    fs::remove_file(scratch.file()).unwrap();
-    let other = scratch.0.join("foreign.json");
+    cache::replace(&view_file(&scratch), &vec![b' '; MAX_BYTES as usize + 1]).unwrap();
+    assert!(ViewState::read(&view_file(&scratch)).is_none());
+    fs::remove_file(view_file(&scratch)).unwrap();
+    let other = scratch.join("foreign.json");
     write(&other, &saved());
-    symlink(&other, scratch.file()).unwrap();
-    assert!(ViewState::read(&scratch.file()).is_none());
-    fs::remove_file(scratch.file()).unwrap();
-    fs::create_dir(scratch.file()).unwrap();
-    assert!(ViewState::read(&scratch.file()).is_none());
+    symlink(&other, view_file(&scratch)).unwrap();
+    assert!(ViewState::read(&view_file(&scratch)).is_none());
+    fs::remove_file(view_file(&scratch)).unwrap();
+    fs::create_dir(view_file(&scratch)).unwrap();
+    assert!(ViewState::read(&view_file(&scratch)).is_none());
 }
 
 #[test]
 fn a_clean_exit_flushes_the_last_changed_projection_inside_the_coalescing_window() {
-    let scratch = Scratch::new();
-    write(&scratch.file(), &saved());
+    let scratch = Scratch::missing("view-state");
+    write(&view_file(&scratch), &saved());
     let mut app = board();
     app.workspace.pool_expanded = true;
-    let mut session = Session::load(scratch.file(), false, false);
+    let mut session = Session::load(view_file(&scratch), false, false);
     let now = Instant::now();
     session.tick(&mut app, now);
     app.shell.tab = OpsTab::Digest;
     session.flush(&mut app, now);
     assert_eq!(
-        ViewState::read(&scratch.file()).unwrap().shell,
+        ViewState::read(&view_file(&scratch)).unwrap().shell,
         OpsTab::Digest
     );
 }
@@ -407,10 +401,10 @@ fn background_publication_does_not_become_an_action_or_repaint() {
     use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use std::{cell::Cell, sync::atomic::AtomicUsize, sync::mpsc::channel};
 
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let mut app = board();
     app.view.as_mut().unwrap().refresh = None;
-    let mut state = Session::load(scratch.file(), false, false);
+    let mut state = Session::load(view_file(&scratch), false, false);
     let (events, input) = channel();
     // Both inputs are already queued; a broken publication cannot hang waiting
     // for a mocked worker to finish the chain.
@@ -453,7 +447,7 @@ fn background_publication_does_not_become_an_action_or_repaint() {
     .unwrap();
     assert_eq!(publications.get(), 1);
     assert_eq!(paints.get(), 1, "publication completion is paint-neutral");
-    assert!(ViewState::read(&scratch.file()).is_some());
+    assert!(ViewState::read(&view_file(&scratch)).is_some());
 }
 
 #[test]
@@ -483,9 +477,9 @@ fn layer_names_admit_only_bounded_filename_components() {
 
 #[test]
 fn layers_share_by_name_and_reset_only_the_selected_file() {
-    let scratch = Scratch::new();
-    let default = Layer::default().path(&scratch.0);
-    let popup = Layer::parse("popup").unwrap().path(&scratch.0);
+    let scratch = Scratch::missing("view-state");
+    let default = Layer::default().path(&scratch);
+    let popup = Layer::parse("popup").unwrap().path(&scratch);
     let untouched = saved().bytes().unwrap();
     write(&default, &saved());
     let mut first = board();
@@ -509,11 +503,7 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
         "other layer stays byte-identical"
     );
     let mut second = cold();
-    let mut reopened = Session::load(
-        Layer::parse("popup").unwrap().path(&scratch.0),
-        false,
-        false,
-    );
+    let mut reopened = Session::load(Layer::parse("popup").unwrap().path(&scratch), false, false);
     assert!(reopened.tick(&mut second, Instant::now()).0);
     assert_eq!(second.search, "committed");
     assert_eq!(second.workspace.filter, first.workspace.filter);
@@ -532,15 +522,15 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
 
 #[test]
 fn old_default_v1_hint_needs_no_migration_and_retains_config_sort_defaults() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let mut old: Value = serde_json::from_slice(&saved().bytes().unwrap()).unwrap();
     old.as_object_mut().unwrap().remove("controls");
     old.as_object_mut().unwrap().remove("scrolls");
     let bytes = serde_json::to_vec(&old).unwrap();
-    cache::replace(&scratch.file(), &bytes).unwrap();
-    let mut session = Session::load(scratch.file(), false, false);
+    cache::replace(&view_file(&scratch), &bytes).unwrap();
+    let mut session = Session::load(view_file(&scratch), false, false);
     assert_eq!(
-        fs::read(scratch.file()).unwrap(),
+        fs::read(view_file(&scratch)).unwrap(),
         bytes,
         "read does not migrate"
     );
@@ -568,17 +558,17 @@ fn old_default_v1_hint_needs_no_migration_and_retains_config_sort_defaults() {
 
 #[test]
 fn search_draft_and_invalid_controls_never_replace_a_good_hint() {
-    let scratch = Scratch::new();
-    write(&scratch.file(), &saved());
-    let bytes = fs::read(scratch.file()).unwrap();
-    let mut session = Session::load(scratch.file(), false, false);
+    let scratch = Scratch::missing("view-state");
+    write(&view_file(&scratch), &saved());
+    let bytes = fs::read(view_file(&scratch)).unwrap();
+    let mut session = Session::load(view_file(&scratch), false, false);
     let mut app = board();
     session.tick(&mut app, Instant::now());
     app.searching = true;
     app.search = "draft".into();
     app.workspace.query = app.search.to_string();
     session.flush(&mut app, Instant::now());
-    assert_eq!(fs::read(scratch.file()).unwrap(), bytes);
+    assert_eq!(fs::read(view_file(&scratch)).unwrap(), bytes);
     let value: Value = serde_json::from_slice(&bytes).unwrap();
     for (key, bad) in [
         ("query", json!("a".repeat(4097))),
@@ -603,17 +593,17 @@ fn search_draft_and_invalid_controls_never_replace_a_good_hint() {
 
 #[test]
 fn original_reset_flag_is_never_replayed_after_exec_and_reset_errors_preserve_bytes() {
-    let scratch = Scratch::new();
-    write(&scratch.file(), &saved());
-    let bytes = fs::read(scratch.file()).unwrap();
-    let _exec = Session::open(scratch.file(), true, false, true).unwrap();
-    assert_eq!(fs::read(scratch.file()).unwrap(), bytes);
-    let _cold = Session::open(scratch.file(), false, false, true).unwrap();
-    assert!(!scratch.file().exists());
-    fs::create_dir_all(scratch.file()).unwrap();
-    let child = scratch.file().join("foreign");
+    let scratch = Scratch::missing("view-state");
+    write(&view_file(&scratch), &saved());
+    let bytes = fs::read(view_file(&scratch)).unwrap();
+    let _exec = Session::open(view_file(&scratch), true, false, true).unwrap();
+    assert_eq!(fs::read(view_file(&scratch)).unwrap(), bytes);
+    let _cold = Session::open(view_file(&scratch), false, false, true).unwrap();
+    assert!(!view_file(&scratch).exists());
+    fs::create_dir_all(view_file(&scratch)).unwrap();
+    let child = view_file(&scratch).join("foreign");
     fs::write(&child, b"preserve").unwrap();
-    assert!(Session::open(scratch.file(), false, false, true).is_err());
+    assert!(Session::open(view_file(&scratch), false, false, true).is_err());
     assert_eq!(fs::read(child).unwrap(), b"preserve");
 }
 
@@ -660,9 +650,9 @@ fn retired_agents_attention_filter_loads_as_all_without_discarding_other_control
 #[test]
 fn pane_ratios_restore_from_the_selected_named_layer_and_exec_controls() {
     use crate::action::ResizeBoundary as Id;
-    let scratch = Scratch::new();
-    let left = Layer::parse("wide").unwrap().path(&scratch.0);
-    let right = Layer::parse("review").unwrap().path(&scratch.0);
+    let scratch = Scratch::missing("view-state");
+    let left = Layer::parse("wide").unwrap().path(&scratch);
+    let right = Layer::parse("review").unwrap().path(&scratch);
     let now = Instant::now();
     let mut first = board();
     first
@@ -685,7 +675,7 @@ fn pane_ratios_restore_from_the_selected_named_layer_and_exec_controls() {
         Some(&7000)
     );
     assert_eq!(fs::read(&right).unwrap(), right_bytes);
-    let directory = scratch.0.join("reload");
+    let directory = scratch.join("reload");
     next.resume().unwrap().write(&directory, 17, 1_000).unwrap();
     let resume = crate::board::resume::Resume::take(&directory, 17, 1_000).unwrap();
     let mut exec = board();
@@ -703,9 +693,9 @@ fn pane_ratios_restore_from_the_selected_named_layer_and_exec_controls() {
 #[test]
 fn quota_window_is_layer_local_survives_exec_and_resets_with_only_its_layer() {
     use crate::board::limits::QuotaWindow;
-    let scratch = Scratch::new();
-    let left = Layer::parse("quota-short").unwrap().path(&scratch.0);
-    let right = Layer::parse("quota-weekly").unwrap().path(&scratch.0);
+    let scratch = Scratch::missing("view-state");
+    let left = Layer::parse("quota-short").unwrap().path(&scratch);
+    let right = Layer::parse("quota-weekly").unwrap().path(&scratch);
     let now = Instant::now();
     let mut first = board();
     let token_request = first.retained_history_request();
@@ -734,7 +724,7 @@ fn quota_window_is_layer_local_survives_exec_and_resets_with_only_its_layer() {
     );
     assert_eq!(next.usage_chart.borrow().quota_window(), QuotaWindow::Short);
     assert_eq!(fs::read(&right).unwrap(), right_bytes);
-    let directory = scratch.0.join("reload");
+    let directory = scratch.join("reload");
     next.resume().unwrap().write(&directory, 17, 1_000).unwrap();
     let resume = crate::board::resume::Resume::take(&directory, 17, 1_000).unwrap();
     let mut exec = board();
@@ -797,8 +787,8 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
             assert_eq!(startup_destination(Some(flag), preference, true), None);
         }
     }
-    let scratch = Scratch::new();
-    write(&scratch.file(), &saved());
+    let scratch = Scratch::missing("view-state");
+    write(&view_file(&scratch), &saved());
     for (_, tab) in fixed {
         let mut app = cold();
         app.workspace_startup = Some(crate::board::app::WorkspaceStartup {
@@ -811,7 +801,7 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
             "explicit tab beats scoped Agents launch"
         );
         assert!(app.workspace_startup.is_none());
-        let mut session = Session::load(scratch.file(), false, false);
+        let mut session = Session::load(view_file(&scratch), false, false);
         session.explicit_startup();
         assert!(session.prepare(&mut app).is_some());
         assert_eq!(
@@ -824,7 +814,7 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
         assert_eq!(app.shell.tab, OpsTab::Agents, "startup is consumed once");
     }
     let mut app = cold();
-    let mut session = Session::load(scratch.file(), false, false);
+    let mut session = Session::load(view_file(&scratch), false, false);
     session.prepare(&mut app).unwrap();
     assert_eq!(
         app.shell.tab,
@@ -894,9 +884,9 @@ fn saved_range_tok_restarts_from_confirmed_preferences_and_survives_refresh() {
     };
     let _no_commands = crate::runner::forbid_commands();
     for range in TokRange::ALL {
-        let scratch = Scratch::new();
-        fs::create_dir_all(&scratch.0).unwrap();
-        let path = scratch.0.join("ops.toml");
+        let scratch = Scratch::missing("view-state");
+        fs::create_dir_all(&scratch).unwrap();
+        let path = scratch.join("ops.toml");
         fs::write(&path, "# keep the viewer's preferences\n").unwrap();
         let mut first = App::new(Some(crate::board::ALL.into()));
         first.apply(preferences_snapshot(&path));
@@ -940,9 +930,9 @@ fn saved_range_refused_stale_write_does_not_change_the_viewer_or_saved_preferenc
         config::{Config, TokRange},
     };
     let _no_commands = crate::runner::forbid_commands();
-    let scratch = Scratch::new();
-    fs::create_dir_all(&scratch.0).unwrap();
-    let path = scratch.0.join("ops.toml");
+    let scratch = Scratch::missing("view-state");
+    fs::create_dir_all(&scratch).unwrap();
+    let path = scratch.join("ops.toml");
     fs::write(&path, "").unwrap();
     let mut app = App::new(Some(crate::board::ALL.into()));
     app.apply(preferences_snapshot(&path));
@@ -979,18 +969,18 @@ fn saved_range_agents_chart_restarts_through_the_selected_layer_writer() {
     use crate::board::overview::chart::model::Each;
     let _no_commands = crate::runner::forbid_commands();
     for each in [Each::Auto, Each::Fixed(60)] {
-        let scratch = Scratch::new();
+        let scratch = Scratch::missing("view-state");
         let mut first = board();
         first
             .usage_chart
             .borrow_mut()
             .restore_chart_controls(10_080, each);
         let now = Instant::now();
-        let mut original = Session::load(scratch.file(), false, false);
+        let mut original = Session::load(view_file(&scratch), false, false);
         let (_, writer) = original.tick(&mut first, now);
         writer.unwrap().publish(now, false);
         assert_eq!(
-            ViewState::read(&scratch.file())
+            ViewState::read(&view_file(&scratch))
                 .unwrap()
                 .controls
                 .unwrap()
@@ -1003,7 +993,7 @@ fn saved_range_agents_chart_restarts_through_the_selected_layer_writer() {
             restarted.usage_chart.borrow().chart_controls(),
             (60, Each::Auto)
         );
-        let mut selected = Session::load(scratch.file(), false, false);
+        let mut selected = Session::load(view_file(&scratch), false, false);
         assert!(selected.tick(&mut restarted, now).0);
         assert_eq!(restarted.shell.tab, OpsTab::Agents);
         assert_eq!(
@@ -1021,7 +1011,7 @@ fn saved_range_agents_chart_restarts_through_the_selected_layer_writer() {
         );
 
         let mut other = cold();
-        Session::load(scratch.0.join("other-view.json"), false, false).tick(&mut other, now);
+        Session::load(scratch.join("other-view.json"), false, false).tick(&mut other, now);
         assert_eq!(
             other.usage_chart.borrow().chart_controls(),
             (60, Each::Auto),
@@ -1035,14 +1025,14 @@ fn late_hint_after_navigation(paint: bool, explicit: bool, query: &str) {
     use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use std::cell::Cell;
     use std::sync::{atomic::AtomicUsize, mpsc::channel};
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let mut prior = board();
     prior.workspace.filter = AgentsFilter::All;
     prior.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     prior.search = query.into();
     prior.workspace_reconcile();
-    write(&scratch.file(), &ViewState::capture(&prior).unwrap());
-    let mut state = Session::load(scratch.file(), false, explicit);
+    write(&view_file(&scratch), &ViewState::capture(&prior).unwrap());
+    let mut state = Session::load(view_file(&scratch), false, explicit);
     let mut app = board();
     app.workspace.filter = AgentsFilter::All;
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
@@ -1192,9 +1182,9 @@ fn explicit_navigation_wins_over_a_delayed_initial_hint_in_all_eight_variants() 
 fn pending_hint_retires_on_search_edits_and_commit_but_not_cancel_or_unrelated_keys() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     for action in ["typed", "pasted", "commit", "cancel", "unrelated"] {
-        let scratch = Scratch::new();
-        write(&scratch.file(), &saved());
-        let mut state = Session::load(scratch.file(), false, false);
+        let scratch = Scratch::missing("view-state");
+        write(&view_file(&scratch), &saved());
+        let mut state = Session::load(view_file(&scratch), false, false);
         let mut app = board();
         app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
         app.workspace_reconcile();
@@ -1254,11 +1244,11 @@ fn pointer_selection_retires_a_pending_hint_but_hover_keeps_it() {
         MouseEventKind::Moved,
         MouseEventKind::Down(MouseButton::Left),
     ] {
-        let scratch = Scratch::new();
+        let scratch = Scratch::missing("view-state");
         let mut hint = saved();
         hint.selected = Some(OpsTarget::Squad(ROOM.into()));
-        write(&scratch.file(), &hint);
-        let mut state = Session::load(scratch.file(), false, false);
+        write(&view_file(&scratch), &hint);
+        let mut state = Session::load(view_file(&scratch), false, false);
         let mut app = board();
         app.workspace.selected = hint.selected.clone();
         app.workspace_reconcile();
@@ -1310,12 +1300,12 @@ fn pointer_selection_retires_a_pending_hint_but_hover_keeps_it() {
 #[test]
 fn pending_hint_does_not_restore_a_tab_after_navigation_before_the_first_roster() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let mut hint = saved();
     hint.shell = OpsTab::Digest;
     hint.selected = Some(OpsTarget::DigestAll);
-    write(&scratch.file(), &hint);
-    let mut state = Session::load(scratch.file(), false, false);
+    write(&view_file(&scratch), &hint);
+    let mut state = Session::load(view_file(&scratch), false, false);
     let mut app = board();
     app.view = None;
     app.shell.tab = OpsTab::Digest;
@@ -1346,7 +1336,7 @@ fn pending_hint_does_not_restore_squad_or_pool_expansion_after_navigation() {
     for pool in [false, true] {
         for expanded in [false, true] {
             let result = std::panic::catch_unwind(|| {
-                let scratch = Scratch::new();
+                let scratch = Scratch::missing("view-state");
                 let mut app = board();
                 app.workspace.filter = crate::board::workspace::AgentsFilter::All;
                 app.workspace.selected = Some(if pool {
@@ -1362,8 +1352,8 @@ fn pending_hint_does_not_restore_squad_or_pool_expansion_after_navigation() {
                 }
                 app.workspace_reconcile();
                 let hint = ViewState::capture(&app).unwrap();
-                write(&scratch.file(), &hint);
-                let mut state = Session::load(scratch.file(), false, false);
+                write(&view_file(&scratch), &hint);
+                let mut state = Session::load(view_file(&scratch), false, false);
                 app.view
                     .as_mut()
                     .unwrap()
@@ -1435,13 +1425,13 @@ fn retained_hint_input_timing() {
         panic!("run with --release");
     }
     let output = std::env::var("TMT_VIEW_INPUT_SAMPLES").expect("task-owned sample path");
-    let scratch = Scratch::new();
+    let scratch = Scratch::missing("view-state");
     let mut reports = Vec::new();
     for rows in [150, 1_000, 10_000] {
         let mut app = crate::board::app::workspace::tests::populated_board(36, rows);
         let target = app.workspace.selected.clone();
         let hint = ViewState::capture(&app).unwrap();
-        let mut state = Session::load(scratch.file(), true, false);
+        let mut state = Session::load(view_file(&scratch), true, false);
         for (name, key) in [
             ("row-down", KeyCode::Down),
             ("row-end", KeyCode::End),
@@ -1489,9 +1479,9 @@ fn retained_hint_input_timing() {
 fn navigation_trace_records_the_saved_hint_at_the_view_state_tick() {
     use crate::board::{BoardEvent, timing::Trace};
     use std::sync::{atomic::AtomicUsize, mpsc::channel};
-    let scratch = Scratch::new();
-    write(&scratch.file(), &saved());
-    let mut state = Session::load(scratch.file(), false, false);
+    let scratch = Scratch::missing("view-state");
+    write(&view_file(&scratch), &saved());
+    let mut state = Session::load(view_file(&scratch), false, false);
     let mut app = cold();
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     assert_ne!(app.workspace.selected, saved().selected);
