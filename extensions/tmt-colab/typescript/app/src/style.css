@@ -2416,36 +2416,59 @@ button.discussion-quote:focus-visible {
 }
 
 .storage-confirm {
-  max-width: min(420px, calc(100vw - 32px));
-  padding: 24px;
-  border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: 12px;
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--c-text);
+  --tmt-ui-host-action-padding: 7px 12px;
+  --tmt-ui-host-action-min-height: 24px;
+  --tmt-ui-host-action-size: 14px;
+  --tmt-ui-host-action-weight: 400;
+  --tmt-ui-host-action-line-height: 1.5;
+  --tmt-ui-host-action-font: var(--tmt-ui-font-body);
+  --tmt-ui-host-action-gap: 6px;
+  --tmt-ui-host-icon-action-size: 34px;
 }
-.storage-confirm::backdrop {
-  background: rgb(0 0 0 / 35%);
-}
-.storage-confirm h3 {
-  margin: 0 0 12px;
-  font: 600 16px/1.4 var(--tmt-ui-font-body);
-}
-.storage-confirm p {
-  margin: 0 0 20px;
-  font: 12px/1.7 var(--tmt-ui-font-body);
-}
-.storage-confirm > div {
+.storage-bar {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--tmt-ui-surface-rule);
+  margin-bottom: 12px;
 }
-
-.storage-confirm button {
-  padding: 7px 12px;
-  border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: 8px;
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--c-text);
-  font: inherit;
-  cursor: pointer;
+.storage-bar > span {
+  flex-basis: 0;
+  min-width: 0;
+}
+.storage-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.storage-bar [data-part='1'],
+.storage-dot[data-part='1'] {
+  background: var(--tmt-ui-color-accent);
+}
+.storage-bar [data-part='2'],
+.storage-dot[data-part='2'] {
+  background: var(--tmt-ui-color-link);
+}
+.storage-bar [data-part='3'],
+.storage-dot[data-part='3'] {
+  background: var(--tmt-ui-color-waiting);
+}
+.storage-bar [data-part='4'],
+.storage-dot[data-part='4'] {
+  background: var(--tmt-ui-color-edge);
+}
+.management-dialog .storage-cleanup .tmt-ui-action[data-variant='text'] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--tmt-ui-color-accent);
+}
+.management-dialog .storage-done .tmt-ui-notice {
+  margin: 0 0 16px;
+  padding: var(--tmt-ui-notice-padding);
+  border: var(--tmt-ui-notice-border-width) solid var(--tmt-ui-surface-rule);
 }

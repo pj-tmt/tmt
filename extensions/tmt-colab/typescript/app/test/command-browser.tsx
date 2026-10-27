@@ -51,7 +51,7 @@ const storage = params.has('storage')
           unusedAttachmentBytes: null,
           totalBytes: null,
           freeable: { history: cleaned || params.has('storage-skipped') ? 0 : 3900000, files: 0 },
-          lastCleanedAutomaticallyAtMs: null,
+          lastCleanedAutomaticallyAtMs: params.has('storage-time') ? Date.now() - 7200000 : null,
           skipped: params.has('storage-skipped') ? 'no-tail' : null,
         };
       },

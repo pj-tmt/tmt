@@ -13,9 +13,24 @@ test('storage shows the estimate, confirms, cancels and reports the actual clean
   await expect(dialog.getByText('Comments', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Kept: comments, resolved threads, archived state.')).toBeVisible();
   await expect(dialog.getByText(/removed after 30 days/)).toHaveCount(0);
+  await expect(dialog.getByText(/Last cleaned automatically/)).toHaveCount(0);
+  await expect(dialog.locator('.storage-bar')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Clean up now' })).toHaveAttribute(
+    'data-variant',
+    'text',
+  );
   await dialog.getByRole('button', { name: 'Clean up now' }).click();
   const confirm = page.getByRole('dialog', { name: 'Clean up “Review notes” now?' });
   await expect(confirm).toBeVisible();
+  await expect(confirm).toHaveClass(/tmt-ui-dialog/);
+  await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  expect(
+    (await confirm.getByRole('button', { name: 'Clean up', exact: true }).boundingBox())!.height,
+  ).toBeGreaterThanOrEqual(34);
+  await expect(confirm.getByRole('button', { name: 'Clean up', exact: true })).toHaveAttribute(
+    'data-variant',
+    'primary',
+  );
   await expect(confirm).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(
     confirm.getByText(
@@ -30,6 +45,7 @@ test('storage shows the estimate, confirms, cancels and reports the actual clean
     .getByRole('button', { name: 'Clean up', exact: true })
     .click();
   await expect(dialog.getByText(/Freed .* The page is unchanged\./)).toBeVisible();
+  await expect(dialog.locator('.storage-done')).toBeVisible();
   await expect(dialog.getByText(/can be freed/)).toHaveCount(0);
 });
 
@@ -52,7 +68,14 @@ test('known attachment allocation is shown without an unused or expiry claim', a
   await page.goto('/test/command-browser.html?storage&history=current&storage-known');
   const section = page.getByRole('region', { name: 'Storage on this Mac' });
   await expect(section.getByText('6.1 MB', { exact: true })).toBeVisible();
+  await expect(section.locator('.storage-bar')).toBeVisible();
+  await expect(section.locator('.storage-dot')).toHaveCount(4);
   await expect(section.getByText(/unused|removed after 30 days/)).toHaveCount(0);
+});
+
+test('known automatic cleanup time is shown', async ({ page }) => {
+  await page.goto('/test/command-browser.html?storage&history=current&storage-time');
+  await expect(page.getByText('Last cleaned automatically 2 hours ago')).toBeVisible();
 });
 
 test('skipped pages are read-only and report no new history', async ({ page }) => {

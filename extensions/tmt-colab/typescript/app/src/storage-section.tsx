@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { BrowserAction, BrowserDialog, BrowserNotice } from '@tmt/browser-ui/react';
 import { createPortal } from 'react-dom';
 import { relativeTime } from './display-time.js';
 import type { StoragePort, StorageRow } from './storage-usage.js';
@@ -19,44 +20,28 @@ function CleanupConfirmation({
   cancel(): void;
   confirm(): void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const cancelButton = useRef<HTMLButtonElement>(null);
-  useLayoutEffect(() => {
-    const trigger = document.activeElement;
-    const element = dialog.current;
-    element?.showModal();
-    cancelButton.current?.focus();
-    return () => {
-      element?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
-    };
-  }, []);
+  const cancelAction = useRef<HTMLSpanElement>(null);
   return createPortal(
-    <dialog
-      ref={dialog}
+    <BrowserDialog
+      open
       className="storage-confirm"
-      aria-labelledby="storage-confirm-title"
-      aria-describedby="storage-confirm-description"
-      onCancel={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        cancel();
-      }}
+      title={`Clean up “${title}” now?`}
+      initialFocus={() => cancelAction.current?.querySelector('button') ?? null}
+      onDismiss={cancel}
+      actions={
+        <>
+          <span ref={cancelAction}>
+            <BrowserAction type="button" variant="secondary" label="Cancel" onActivate={cancel} />
+          </span>
+          <BrowserAction type="button" variant="primary" label="Clean up" onActivate={confirm} />
+        </>
+      }
     >
-      <h3 id="storage-confirm-title">Clean up “{title}” now?</h3>
-      <p id="storage-confirm-description">
+      <p>
         Deleted text and old edit steps are removed. The page, its comments and attachments stay as
         they are. Other devices catch up from the current version.
       </p>
-      <div>
-        <button ref={cancelButton} type="button" onClick={cancel}>
-          Cancel
-        </button>{' '}
-        <button type="button" onClick={confirm}>
-          Clean up
-        </button>
-      </div>
-    </dialog>,
+    </BrowserDialog>,
     document.body,
   );
 }
@@ -74,6 +59,7 @@ export function StorageSection({
   const [row, setRow] = useState<StorageRow | null>(null);
   const [phase, setPhase] = useState<'loading' | 'ready' | 'confirm' | 'busy'>('loading');
   const [notice, setNotice] = useState('');
+  const [done, setDone] = useState(false);
   const [error, setError] = useState('');
   const submitting = useRef(false);
   const lifetime = useRef<AbortController | null>(null);
@@ -103,6 +89,7 @@ export function StorageSection({
     setPhase('busy');
     setError('');
     setNotice('');
+    setDone(false);
     try {
       const result = await port.reclaim(pageId, signal);
       if (signal?.aborted) return;
@@ -116,6 +103,7 @@ export function StorageSection({
       } else if (result.skipped) {
         setNotice('Nothing eligible to clean up. The page is unchanged.');
       } else {
+        setDone(true);
         setNotice(`Freed ${size(result.freed.history)}. The page is unchanged.`);
       }
       try {
@@ -133,32 +121,66 @@ export function StorageSection({
   }
   return (
     <section aria-label="Storage on this Mac">
+      {notice &&
+        (done ? (
+          <div className="storage-done">
+            <BrowserNotice
+              tone="working"
+              variant="tinted"
+              announcement="status"
+              mark="●"
+              stateLabel="Done"
+              title={notice}
+              body={null}
+              headingLevel="none"
+            />
+          </div>
+        ) : (
+          <p role="status">{notice}</p>
+        ))}
       <h3>Storage on this Mac</h3>
       {phase === 'loading' && <p role="status">Loading storage…</p>}
-      {notice && (
-        <p role="status">
-          <strong>Done</strong>
-          <br />
-          <span>{notice}</span>
-        </p>
-      )}
       {error && <p role="alert">{error}</p>}
       {row && (
         <>
+          {row.attachmentsBytes !== null && (
+            <div className="storage-bar" aria-hidden="true">
+              {[row.contentBytes, row.historyBytes, row.attachmentsBytes, row.commentsBytes].map(
+                (value, index) => (
+                  <span key={index} data-part={index + 1} style={{ flexGrow: value }} />
+                ),
+              )}
+            </div>
+          )}
           <dl className="storage-usage">
             <div>
-              <dt>Page content</dt>
+              <dt>
+                {row.attachmentsBytes !== null && (
+                  <i className="storage-dot" data-part="1" aria-hidden="true" />
+                )}
+                Page content
+              </dt>
               <dd>{size(row.contentBytes)}</dd>
             </div>
             <div>
-              <dt>Edit history</dt>
+              <dt>
+                {row.attachmentsBytes !== null && (
+                  <i className="storage-dot" data-part="2" aria-hidden="true" />
+                )}
+                Edit history
+              </dt>
               <dd>
                 {size(row.historyBytes)}
                 {row.freeable.history > 0 && ` (${size(row.freeable.history)} can be freed)`}
               </dd>
             </div>
             <div>
-              <dt>Attachments</dt>
+              <dt>
+                {row.attachmentsBytes !== null && (
+                  <i className="storage-dot" data-part="3" aria-hidden="true" />
+                )}
+                Attachments
+              </dt>
               <dd>
                 {size(row.attachmentsBytes)}
                 {row.unusedAttachmentBytes !== null &&
@@ -166,17 +188,26 @@ export function StorageSection({
               </dd>
             </div>
             <div>
-              <dt>Comments</dt>
+              <dt>
+                {row.attachmentsBytes !== null && (
+                  <i className="storage-dot" data-part="4" aria-hidden="true" />
+                )}
+                Comments
+              </dt>
               <dd>{size(row.commentsBytes)} (kept)</dd>
             </div>
           </dl>
-          <button
-            type="button"
-            disabled={phase === 'busy' || row.skipped !== null}
-            onClick={() => setPhase('confirm')}
-          >
-            Clean up now
-          </button>
+          <div className="storage-cleanup">
+            <BrowserAction
+              type="button"
+              variant="text"
+              label="Clean up now"
+              disabled={phase === 'busy' || row.skipped !== null}
+              onActivate={(event) => {
+                if (event.isTrusted) setPhase('confirm');
+              }}
+            />
+          </div>
           {row.skipped && (
             <p>
               {row.skipped === 'no-tail'
@@ -185,12 +216,9 @@ export function StorageSection({
             </p>
           )}
           <p>Kept: comments, resolved threads, archived state.</p>
-          <p>
-            Last cleaned automatically{' '}
-            {row.lastCleanedAutomaticallyAtMs === null
-              ? '—'
-              : relativeTime(row.lastCleanedAutomaticallyAtMs, now)}
-          </p>
+          {row.lastCleanedAutomaticallyAtMs !== null && (
+            <p>Last cleaned automatically {relativeTime(row.lastCleanedAutomaticallyAtMs, now)}</p>
+          )}
           {phase === 'confirm' && (
             <CleanupConfirmation
               title={title}
