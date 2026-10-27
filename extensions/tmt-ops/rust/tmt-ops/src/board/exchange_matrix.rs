@@ -77,15 +77,11 @@ impl Default for Options {
 /// What `sender` sent to anyone but itself, from the whole observed window.
 fn sent(traffic: &Traffic, sender: &str) -> u64 {
     traffic
-        .messages
-        .get(&Some(sender.to_owned()))
-        .map_or(0, |recipients| {
-            recipients
-                .iter()
-                .filter(|(recipient, _)| recipient.as_deref() != Some(sender))
-                .map(|(_, count)| *count)
-                .fold(0u64, u64::saturating_add)
-        })
+        .recipients_of(Some(sender))
+        .iter()
+        .filter(|flow| flow.recipient.as_deref() != Some(sender))
+        .map(|flow| flow.count)
+        .fold(0u64, u64::saturating_add)
 }
 
 /// Busiest first: messages sent plus received in the window, then name, then id.
@@ -100,18 +96,16 @@ pub(in crate::board) fn by_traffic(
     // Score the held flow once, not once per sort comparison. Missing endpoints
     // still contribute to a known peer; self messages never count as exchanges.
     let mut totals: BTreeMap<&str, u64> = BTreeMap::new();
-    for (sender, recipients) in &traffic.messages {
-        for (recipient, count) in recipients {
-            if sender == recipient {
-                continue;
-            }
-            for id in [sender.as_deref(), recipient.as_deref()]
-                .into_iter()
-                .flatten()
-            {
-                let total = totals.entry(id).or_default();
-                *total = total.saturating_add(*count);
-            }
+    for flow in traffic.flows() {
+        if flow.sender == flow.recipient {
+            continue;
+        }
+        for id in [flow.sender.as_deref(), flow.recipient.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            let total = totals.entry(id).or_default();
+            *total = total.saturating_add(flow.count);
         }
     }
     let total = |id: &str| totals.get(id).copied().unwrap_or(0);
@@ -251,14 +245,8 @@ pub(in crate::board) fn paint_with(
                 1,
             )
             .intersection(area);
-            let count = traffic.map(|traffic| {
-                traffic
-                    .messages
-                    .get(&Some(sender.id.clone()))
-                    .and_then(|recipients| recipients.get(&Some(recipient.id.clone())))
-                    .copied()
-                    .unwrap_or(0)
-            });
+            let count =
+                traffic.map(|traffic| traffic.count(&sender.id, &recipient.id).unwrap_or(0));
             let same = sender.id == recipient.id;
             let text = if same {
                 String::new()
@@ -358,9 +346,18 @@ mod tests {
     }
 
     fn flow(pairs: &[(&str, &str, u64)]) -> Traffic {
+        let pairs: Vec<_> = pairs
+            .iter()
+            .map(|(from, to, count)| (Some(*from), Some(*to), *count))
+            .collect();
+        flow_between(&pairs)
+    }
+
+    /// Like `flow`, with endpoints the report could not identify (`None`).
+    fn flow_between(pairs: &[(Option<&str>, Option<&str>, u64)]) -> Traffic {
         use crate::board::usage_report::model::{Pair, Who};
-        let who = |id: &str| Who {
-            id: Some(id.into()),
+        let who = |id: Option<&str>| Who {
+            id: id.map(str::to_owned),
             name: None,
             retired: false,
         };
@@ -368,8 +365,8 @@ mod tests {
             0,
             1,
             pairs.iter().map(|(from, to, count)| Pair {
-                sender: who(from),
-                recipient: who(to),
+                sender: who(*from),
+                recipient: who(*to),
                 kind: "talk".into(),
                 count: *count,
             }),
@@ -407,10 +404,12 @@ mod tests {
 
     #[test]
     fn traffic_scores_keep_saturation_unknown_endpoints_and_name_uuid_ties() {
-        let mut traffic = flow(&[("a", "b", u64::MAX), ("b", "c", 1), ("d", "d", u64::MAX)]);
-        traffic
-            .messages
-            .insert(None, [(Some("c".into()), u64::MAX)].into());
+        let traffic = flow_between(&[
+            (Some("a"), Some("b"), u64::MAX),
+            (Some("b"), Some("c"), 1),
+            (Some("d"), Some("d"), u64::MAX),
+            (None, Some("c"), u64::MAX),
+        ]);
         let ranked = by_traffic(
             vec![
                 seat("d", "aaa"),

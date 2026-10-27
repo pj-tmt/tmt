@@ -163,6 +163,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let rows = app.workspace_rows();
     let ids: Vec<_> = rows.iter().filter_map(metrics::id).collect();
     let report = metrics::report(app);
+    let talks = super::talks(app);
     let total = metrics::tokens(report, &ids);
     {
         let mut starts = app.row_starts.borrow_mut();
@@ -225,7 +226,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                     let spans = if matches!(field, Field::Activity) {
                         hourly(app, &metrics::activity(report, &row_ids), selected)
                     } else {
-                        let text = value(app, row, *field, report, reading, total, &row_ids);
+                        let text = value(app, row, *field, &talks, reading, total, &row_ids);
                         // Numeric tracks never show a clipped amount.
                         let text = if matches!(field, Field::Tokens | Field::Share | Field::Cost)
                             && unicode_width::UnicodeWidthStr::width(text.as_str())
@@ -272,7 +273,7 @@ fn value(
     app: &App,
     row: &OpsTreeRow,
     field: Field,
-    report: Option<&crate::board::usage_report::Report>,
+    talks: &super::Talks,
     reading: Option<(u128, bool)>,
     total: Option<(u128, bool)>,
     ids: &[&str],
@@ -283,7 +284,7 @@ fn value(
         Field::Activity => unreachable!(),
         Field::Tokens => metrics::token_text(reading),
         Field::Share => metrics::share(reading, total),
-        Field::Cost => metrics::input_price(app, report, ids)
+        Field::Cost => metrics::input_price(app, metrics::report(app), ids)
             .map_or("—".into(), crate::board::savings::usd_text),
         Field::Digest if metrics::id(row).is_none() => {
             metrics::held(app, ids).map_or("—".into(), |count| format!("{count} held"))
@@ -301,7 +302,7 @@ fn value(
             }
         }
         Field::Talks => metrics::id(row)
-            .and_then(|id| metrics::recipient(report?, id))
+            .and_then(|id| talks.busiest(id))
             .map_or("—".into(), |(id, _)| metrics::name(app, id)),
     }
 }

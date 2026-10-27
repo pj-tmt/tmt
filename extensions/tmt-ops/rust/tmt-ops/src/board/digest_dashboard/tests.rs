@@ -181,6 +181,7 @@ fn a_new_projection_is_built_after_the_stale_one_and_its_report_are_released() {
             super::Projection {
                 rows: std::rc::Rc::from([]),
                 exchanges: std::rc::Rc::from([]),
+                talks: Default::default(),
             },
         )),
     };
@@ -202,6 +203,7 @@ fn a_new_projection_is_built_after_the_stale_one_and_its_report_are_released() {
         super::Projection {
             rows: std::rc::Rc::from([]),
             exchanges: std::rc::Rc::from([]),
+            talks: Default::default(),
         }
     });
     assert!(built);

@@ -13,7 +13,7 @@ use crate::board::{
     usage_report::Report,
     workspace::{OpsTarget, OpsTreeRow, OpsVisibility, observe::OpsWorkspaceSnapshot},
 };
-use std::{rc::Rc, sync::Arc};
+use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 #[derive(Default)]
 pub(in crate::board) struct Cache {
@@ -24,6 +24,33 @@ pub(in crate::board) struct Cache {
 struct Projection {
     rows: Rc<[OpsTreeRow]>,
     exchanges: Rc<[crate::board::exchange_matrix::ExchangeParticipant]>,
+    talks: Rc<Talks>,
+}
+
+/// Whom each sender wrote to most, found once per report so a frame never searches the traffic.
+#[derive(Default)]
+pub(super) struct Talks(HashMap<Arc<str>, (Option<Arc<str>>, u64)>);
+
+impl Talks {
+    fn of(report: Option<&Report>) -> Self {
+        let Some(traffic) = report.and_then(|report| report.exchange.as_ref()) else {
+            return Self::default();
+        };
+        // Sized once: a map grown by doubling while it fills leaves its peak in the process.
+        let mut talks = HashMap::with_capacity(traffic.busiest_flows().count());
+        talks.extend(
+            traffic.busiest_flows().filter_map(|flow| {
+                Some((flow.sender.clone()?, (flow.recipient.clone(), flow.count)))
+            }),
+        );
+        Self(talks)
+    }
+
+    /// The recipient (`None` when the report could not identify it) and its message count.
+    pub(super) fn busiest(&self, id: &str) -> Option<(Option<&str>, u64)> {
+        let (recipient, count) = self.0.get(id)?;
+        Some((recipient.as_deref(), *count))
+    }
 }
 
 struct Key {
@@ -90,7 +117,12 @@ fn projection(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Projection {
             metrics::report(app).and_then(|report| report.exchange.as_ref()),
         )
         .into();
-        Projection { rows, exchanges }
+        let talks = Rc::new(Talks::of(metrics::report(app)));
+        Projection {
+            rows,
+            exchanges,
+            talks,
+        }
     })
 }
 
@@ -106,6 +138,11 @@ pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[
         return projected_rows(app, snapshot, Some(selected)).into();
     }
     canonical
+}
+
+pub(super) fn talks(app: &App) -> Rc<Talks> {
+    app.workspace_snapshot()
+        .map_or_else(Default::default, |snapshot| projection(app, snapshot).talks)
 }
 
 fn exchange_participants(app: &App) -> Rc<[crate::board::exchange_matrix::ExchangeParticipant]> {
