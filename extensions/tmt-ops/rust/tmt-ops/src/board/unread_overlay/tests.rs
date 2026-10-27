@@ -404,3 +404,89 @@ fn the_composer_chip_opens_the_overlay_and_the_mark_read_action_still_marks() {
         assert!(app.unread.writer.offer().is_some());
     });
 }
+
+/// Opt-in local release-mode P02 evidence, never a CI threshold: the overlay open over many
+/// unread answers, with every body loaded, against the conversation view's profile.
+#[test]
+#[ignore = "local release-mode timing evidence; no CI threshold"]
+fn unread_overlay_frame_timing() {
+    use crate::board::timing::probe::{measure, report};
+    if cfg!(debug_assertions) {
+        panic!("run this probe with --release");
+    }
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut app = crate::board::app::workspace::tests::populated_board(1, 10);
+        let members: Vec<String> = app.workspace_snapshot().unwrap().roster.squads[0]
+            .members
+            .clone();
+        let per_member = 20;
+        let mut items = Vec::new();
+        for (index, member) in members.iter().enumerate() {
+            for n in 0..per_member {
+                items.push((
+                    member.clone(),
+                    format!("req-{index}-{n}"),
+                    1_791_000_000_000u64 + (index * per_member + n) as u64 * 1_000,
+                ));
+            }
+        }
+        let borrowed: Vec<_> = items
+            .iter()
+            .map(|(member, request, at)| (member.as_str(), request.as_str(), *at, "final"))
+            .collect();
+        install(&mut app, &borrowed);
+        app.open_unread(&Scope::All);
+        for (index, member) in members.iter().enumerate() {
+            let texts: Vec<_> = (0..per_member)
+                .map(|n| {
+                    (
+                        format!("req-{index}-{n}"),
+                        (0..12)
+                            .map(|line| format!("answer {n} line {line} with `code` and **bold**"))
+                            .collect::<Vec<_>>()
+                            .join("\n\n"),
+                    )
+                })
+                .collect();
+            let refs: Vec<_> = texts
+                .iter()
+                .map(|(request, text)| (request.as_str(), text.as_str()))
+                .collect();
+            arrive(&mut app, member, replies(member, &refs));
+        }
+        let rows = items.len();
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        for _ in 0..10 {
+            measure(&mut app, &mut terminal, |_, _| {});
+        }
+        report(
+            rows,
+            "unread-steady",
+            (0..100)
+                .map(|_| measure(&mut app, &mut terminal, |_, _| {}))
+                .collect(),
+        );
+        report(
+            rows,
+            "unread-scroll",
+            (0..100)
+                .map(|_| {
+                    measure(&mut app, &mut terminal, |app, _| {
+                        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+                    })
+                })
+                .collect(),
+        );
+        report(
+            rows,
+            "unread-page",
+            (0..100)
+                .map(|_| {
+                    measure(&mut app, &mut terminal, |app, _| {
+                        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+                    })
+                })
+                .collect(),
+        );
+    });
+}
