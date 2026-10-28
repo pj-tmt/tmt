@@ -91,16 +91,18 @@ fn migrate_with_now<R: CommandRunner>(
                     // No retired marker needs no change and no rebind hint.
                     Ok(None) => (false, false),
                     Ok(Some(proof)) => {
-                        let migrated = storage
-                            .with_binding_transaction(|records| {
-                                // Changed rows cannot authorize effects from the old proof.
-                                if records.entry_by_id(&entry.identity.id)?.as_ref() != Some(&entry)
-                                {
-                                    return Ok::<_, StorageError>(false);
-                                }
-                                Ok(host.commit_option_rename(&proof, deadline).unwrap_or(false))
-                            })
+                        // The exact row check owns no host work. The command's
+                        // exact-byte CAS fences a replacement after this check.
+                        let admitted = storage
+                            .with_binding_transaction(|records| entry_is_current(records, &entry))
                             .unwrap_or(false);
+                        let migrated = admitted
+                            && host.commit_option_rename(&proof, deadline).unwrap_or(false)
+                            && storage
+                                .with_binding_transaction(|records| {
+                                    entry_is_current(records, &entry)
+                                })
+                                .unwrap_or(false);
                         (migrated, !migrated)
                     }
                     Err(_) => (false, true),
@@ -138,6 +140,30 @@ fn migrate_with_now<R: CommandRunner>(
     })
 }
 
+fn entry_is_current(
+    records: &dyn tmt_core::binding::BindingRecords<Error = StorageError>,
+    entry: &tmt_core::binding::BindingEntry,
+) -> Result<bool, StorageError> {
+    let binding = entry.binding.as_ref().expect("bound entry");
+    Ok(
+        records.entry_by_id(&entry.identity.id)?.as_ref() == Some(entry)
+            && records
+                .reservation_by_identity(&entry.identity.id)?
+                .is_none()
+            && records
+                .reservation_by_pane(
+                    binding.server.host,
+                    &binding.server.server_id,
+                    &binding.pane_id,
+                )?
+                .is_none(),
+    )
+}
+
+#[cfg(test)]
+#[path = "rename_race_tests.rs"]
+mod race_tests;
+
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
@@ -166,9 +192,9 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 mod tests {
     use super::*;
     use tmt_adapters::process::{CommandError, CommandOutput, CommandRequest};
-    struct Directory(std::path::PathBuf);
+    pub(super) struct Directory(pub(super) std::path::PathBuf);
     impl Directory {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             use std::sync::atomic::{AtomicU64, Ordering};
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let path = std::env::temp_dir().join(format!(

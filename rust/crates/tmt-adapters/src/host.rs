@@ -496,7 +496,8 @@ impl<R: CommandRunner> Host<R> {
             .map_err(Into::into)
     }
 
-    /// Caller holds the full-record storage fence while committing this proof.
+    /// Caller checks the exact stored row before this external CAS, then checks
+    /// it again before claiming success. No SQLite writer spans this operation.
     pub fn commit_option_rename(
         &self,
         proof: &OptionRename,

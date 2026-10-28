@@ -1,5 +1,5 @@
 //! One-release upgrade step. Ordinary host observations never read retired keys.
-//! Storage ownership is fenced by the caller; tmux compares the captured values
+//! The caller checks storage before and after host work; tmux compares captured values
 //! inside its command queue before changing only this binding's options.
 
 use super::{
@@ -106,7 +106,8 @@ impl<R: CommandRunner> Tmux<R> {
         }))
     }
 
-    /// The caller must compare the full stored entry under its mutation lock.
+    /// The caller compares the full stored entry before this external operation
+    /// and rechecks it afterward. A detached old marker remains reclaimable.
     /// False/unknown never authorizes replacing metadata or retiring an identity.
     pub fn commit_option_rename(
         &self,
