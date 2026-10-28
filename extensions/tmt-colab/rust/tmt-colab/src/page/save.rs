@@ -229,6 +229,8 @@ pub struct SaveResult {
     pub code: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
     /// Committed only: the page had changed since the editor opened it and the save was merged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merged: Option<bool>,
@@ -255,6 +257,7 @@ impl SaveResult {
             revision: None,
             code: None,
             message: None,
+            reason: None,
             merged: None,
             source_sha256: None,
             conflicts: None,
@@ -321,6 +324,7 @@ impl SaveResult {
         Self {
             code: Some(code),
             message: Some(message),
+            reason: crate::work_admission::reason(error),
             findings: error
                 .downcast_ref::<crate::question_registry::Refused>()
                 .map(|refused| refused.details()),

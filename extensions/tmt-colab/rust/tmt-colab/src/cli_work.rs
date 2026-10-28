@@ -169,7 +169,7 @@ pub fn task_command() -> Command {
         spec(
             "link",
             "Make a task follow another page",
-            "The task's state then follows that page: todo while the page has no task, in-progress while it has, done when all of its tasks are (in-review instead when the task needs sign-off). A page has one parent, and a link that would make a loop is refused (COLAB_LINK_REFUSED). A task with an external ID cannot follow a page, and the state of a task that follows one cannot be set.",
+            "The task's state then follows that page: todo while the page has no task, in-progress while it has, done when all of its tasks are (in-review instead when the task needs sign-off). A page has at most one parent and one level of sub-pages: a child cannot get children, and a page with children cannot become a child. A loop or an existing invalid hierarchy is refused (COLAB_LINK_REFUSED with a stable reason). Inspect legacy links with tmt colab show PAGE --json and repair them with task unlink. A task with an external ID cannot follow a page, and the state of a task that follows one cannot be set.",
             example!("tmt colab task link 10000000-0000-4000-8000-000000000001 T-3 20000000-0000-4000-8000-000000000001 --json"),
         )
         .arg(crate::cli_grammar::page())
@@ -187,7 +187,7 @@ pub fn task_command() -> Command {
         spec(
             "unlink",
             "Stop a task following its page",
-            "The task shows its own state again. The page is not changed.",
+            "The task shows its own state again. Removing a link can repair an invalid hierarchy, even if restoring the task exceeds the work-in-progress limit. The child page is not changed.",
             example!("tmt colab task unlink 10000000-0000-4000-8000-000000000001 T-3 --json"),
         )
         .arg(crate::cli_grammar::page())
@@ -198,7 +198,7 @@ pub fn task_command() -> Command {
         spec(
             "convert",
             "Turn a task into a page of its own and follow it",
-            "Creates a new page titled like the task, with the task's detail as its text, then makes the task follow it. If the link fails the page already exists: the command prints it and the tmt colab task link command that finishes the job. It never opens a browser.",
+            "Refuses a child page or an existing invalid hierarchy before creating anything (COLAB_LINK_REFUSED with a stable reason). Otherwise creates a new page titled like the task, with the task's detail as its text, then makes the task follow it. If the link fails the page already exists: the command prints it and the tmt colab task link command that finishes the job. It never opens a browser.",
             example!("tmt colab task convert 10000000-0000-4000-8000-000000000001 T-3 --json"),
         )
         .arg(crate::cli_grammar::page())
@@ -347,7 +347,12 @@ fn fault(
     error: Box<dyn std::error::Error + Send + Sync>,
 ) -> Box<dyn std::error::Error + Send + Sync> {
     match error.downcast_ref::<Refused>() {
-        Some(refused) => fail(refused.code, &refused.message),
+        Some(refused) => Box::new(crate::cli_management::ManagementFault {
+            code: refused.code,
+            message: refused.message.clone(),
+            correlation: json!({}),
+            source: Some(error),
+        }),
         None => error,
     }
 }
@@ -568,6 +573,24 @@ fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
     // Refuse what the link would refuse before a page exists.
     let task = tmt_colab::work_convert::convertible(&read.work, task_id)
         .map_err(|blocked| invalid(&blocked.message(task_id)))?;
+    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
+    let key = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    let admitted = work_admission::admit_conversion(
+        &Space {
+            root,
+            layout: &layout,
+            store: &store,
+            key: &key,
+        },
+        &mut decoder,
+        &page_id,
+        task_id,
+    );
+    let closed = store.close();
+    admitted.map_err(fault)?;
+    closed?;
     let title = task["title"].as_str().unwrap_or_default();
     let created = crate::cli_management::commit_creation(
         root,
@@ -599,10 +622,12 @@ fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
         Some(&now.revision),
     )
     .map_err(|error| {
-        fail(
-            crate::error_code(error.as_ref()),
-            &format!("{error} {finish}"),
-        )
+        Box::new(crate::cli_management::ManagementFault {
+            code: crate::error_code(error.as_ref()),
+            message: format!("{error} {finish}"),
+            correlation: json!({}),
+            source: Some(error),
+        }) as Box<dyn std::error::Error + Send + Sync>
     })?;
     let receipt = written.receipt;
     let json_output = args.get_flag("json");
