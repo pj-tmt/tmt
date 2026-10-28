@@ -501,8 +501,9 @@ fn owned_window_layout_detection_is_fenced_and_precedes_application() {
         let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
         let saved = snapshot();
         let prepared = tmt_core::workspace::layout::prepare_layout(&saved).unwrap();
-        // cwd readback, border status, manual sizing and resize precede detection.
-        for output in ["/tmp\n", "", "", "", live, "", ""] {
+        // cwd readback, border status, manual sizing and resize precede detection; the size
+        // override is released last, whether or not the layout was applied.
+        for output in ["/tmp\n", "", "", "", live, "", "", ""] {
             tmux.runner
                 .scripted
                 .push_output(output.as_bytes().to_vec(), vec![]);
@@ -529,7 +530,8 @@ fn owned_window_layout_detection_is_fenced_and_precedes_application() {
         );
         if live == "unrecognized" || live == REFUSED {
             assert!(result.is_err());
-            assert_eq!(calls.len(), 5);
+            assert_eq!(calls.len(), 6);
+            assert_eq!(calls[5].args[8], release_command("@3"));
         } else {
             assert!(result.is_ok());
             let layout = if live == live_json {
@@ -546,9 +548,168 @@ fn owned_window_layout_detection_is_fenced_and_precedes_application() {
                     layout.into()
                 ])
             );
-            assert_eq!(calls.len(), 7);
+            assert_eq!(calls.len(), 8);
+            assert_eq!(calls[7].args[8], release_command("@3"));
         }
     }
+}
+
+/// The only command that gives a window its size back.
+fn release_command(window: &str) -> String {
+    command(&[
+        "set-option".into(),
+        "-wu".into(),
+        "-t".into(),
+        window.into(),
+        "window-size".into(),
+    ])
+}
+
+fn scripted_window(
+    outputs: &[Result<&'static str, CommandError>],
+) -> (Tmux<Runner>, Result<(), TmuxError>) {
+    let tmux = Tmux::new(Runner::default());
+    let mut owner = restore(&tmux);
+    let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+    let saved = snapshot();
+    let prepared = tmt_core::workspace::layout::prepare_layout(&saved).unwrap();
+    for output in outputs {
+        match output {
+            Ok(text) => tmux
+                .runner
+                .scripted
+                .push_output(text.as_bytes().to_vec(), vec![]),
+            Err(_) => tmux
+                .runner
+                .scripted
+                .results
+                .borrow_mut()
+                .push_back(Err(failure(false))),
+        }
+    }
+    let result = owner.window(0, &prepared[0], &created);
+    (tmux, result)
+}
+
+/// Whether the recorded guarded commands start with exactly these tmux commands, in order.
+fn ran_in_order(tmux: &Tmux<Runner>, names: &[&str]) -> bool {
+    let calls = tmux.runner.scripted.calls.borrow();
+    calls.len() == names.len()
+        && calls
+            .iter()
+            .zip(names)
+            .all(|(call, name)| call.args[8].starts_with(&command(&[(*name).into()])))
+}
+
+#[test]
+fn the_size_override_is_released_once_after_the_layout_and_selection() {
+    let (tmux, result) = scripted_window(&[
+        Ok("/tmp\n"),
+        Ok(""),
+        Ok(""),
+        Ok(""),
+        Ok("b25e,80x24,0,0,1"),
+        Ok(""),
+        Ok(""),
+        Ok(""),
+    ]);
+    result.unwrap();
+    assert!(ran_in_order(
+        &tmux,
+        &[
+            "display-message",
+            "set-option",
+            "set-option",
+            "resize-window",
+            "display-message",
+            "select-layout",
+            "select-pane",
+            "set-option"
+        ]
+    ));
+    let calls = tmux.runner.scripted.calls.borrow();
+    // Every release is scoped to the one window this restore created.
+    assert_eq!(calls[7].args[8], release_command("@3"));
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| call.args[8].contains(&command(&["window-size".into()])))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn a_failed_step_after_the_override_still_releases_it_and_keeps_its_own_error() {
+    // The layout read fails: the window is half built, but must follow its clients again.
+    let (tmux, result) =
+        scripted_window(&[Ok("/tmp\n"), Ok(""), Ok(""), Ok(""), Ok(REFUSED), Ok("")]);
+    let error = result.unwrap_err();
+    assert!(
+        error.to_string().contains("no longer"),
+        "the layout step's own refusal is reported, got: {error}"
+    );
+    assert_eq!(
+        tmux.runner.scripted.calls.borrow().last().unwrap().args[8],
+        release_command("@3")
+    );
+}
+
+#[test]
+fn a_release_that_fails_does_not_hide_the_original_failure_but_does_fail_a_clean_restore() {
+    // Original failure wins over a failing release.
+    let (_, result) = scripted_window(&[
+        Ok("/tmp\n"),
+        Ok(""),
+        Ok(""),
+        Ok(""),
+        Ok(REFUSED),
+        Err(failure(false)),
+    ]);
+    assert!(
+        result.unwrap_err().to_string().contains("no longer"),
+        "the release failure must not replace the layout failure"
+    );
+    // A restore that only fails to release reports that failure.
+    let (_, result) = scripted_window(&[
+        Ok("/tmp\n"),
+        Ok(""),
+        Ok(""),
+        Ok(""),
+        Ok("b25e,80x24,0,0,1"),
+        Ok(""),
+        Ok(""),
+        Err(failure(false)),
+    ]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn a_failing_resize_still_releases_the_override_it_may_have_set() {
+    let (tmux, result) =
+        scripted_window(&[Ok("/tmp\n"), Ok(""), Ok(""), Err(failure(false)), Ok("")]);
+    assert!(result.is_err());
+    assert_eq!(
+        tmux.runner.scripted.calls.borrow().last().unwrap().args[8],
+        release_command("@3")
+    );
+}
+
+#[test]
+fn the_release_runs_after_the_restore_deadline_has_passed() {
+    let tmux = Tmux::new(Runner::default());
+    let mut owner = restore(&tmux);
+    let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+    owner.deadline = Instant::now() - Duration::from_secs(1);
+    let past = owner.deadline;
+    tmux.runner.scripted.push_output(vec![], vec![]);
+    owner.release_window_size(&created).unwrap();
+    let calls = tmux.runner.scripted.calls.borrow();
+    assert!(calls[0].deadline > Instant::now());
+    assert_eq!(
+        owner.deadline, past,
+        "the restore's own deadline is unchanged"
+    );
 }
 
 fn live_row(

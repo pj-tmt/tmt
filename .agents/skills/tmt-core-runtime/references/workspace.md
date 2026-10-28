@@ -170,6 +170,7 @@ pass no command and inherit tmux's `default-command`/`default-shell`, entering
 recorded directories checked before creation and read back afterwards. No saved
 identity, provider session or external command is replayed or bound. Window-local
 geometry and border settings affect only created windows; existing server options and pre-existing resources are preserved.
+A created window is pinned to its saved size only while its layout is built; the window-level `window-size` override is removed afterwards, on every exit path, so the window follows its clients again.
 A fenced layout read from a created window determines the live server encoding.
 Compatible encoding and assignment order keep the saved bytes; adaptation uses
 only validated geometry and invocation creation order.
