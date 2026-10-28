@@ -633,7 +633,10 @@ activity stays unchanged. Exact setup
 observers in eligible user/system `hooks.json` or explicit invocation sources remain
 the only recorder; missing Stop observation is activity-only. Non-empty inline hooks
 in user/system `config.toml` or `requirements.toml` use the original command fallback
-because the invocation layer can shadow their event arrays. Unsupported profiles/plugins,
+because the invocation layer can shadow their event arrays. Codex's `hooks.state`
+trust records are not definitions: records holding only `trusted_hash` are admitted and
+never copied or written; any other `hooks.state` shape, or a launch argument that sets
+it, uses the fallback. Unsupported profiles/plugins,
 managed hook directories, project hook sources with uncertain eligibility, unreadable
 or edited/duplicated sources, and disabled/managed-only policy use the same original
 command fallback. Other invocation config remains intact; explicit invocation hook
