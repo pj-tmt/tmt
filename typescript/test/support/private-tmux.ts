@@ -88,6 +88,32 @@ export function locateTmux(): string {
   return found.stdout.trim();
 }
 
+/** Remove a stale socket only after tmux reports that this exact private server is gone. */
+export function removeStoppedPrivateTmuxSocket(
+  socket: string,
+  root: string,
+  result: unknown
+): boolean {
+  if (
+    !result ||
+    typeof result !== 'object' ||
+    !('status' in result) ||
+    result.status !== 1 ||
+    ('error' in result && result.error) ||
+    !('stderr' in result) ||
+    !(typeof result.stderr === 'string' || Buffer.isBuffer(result.stderr)) ||
+    String(result.stderr).trim() !== `no server running on ${socket}`
+  )
+    return false;
+  assertPrivateSocket(socket, root);
+  const stat = fs.lstatSync(socket, { throwIfNoEntry: false });
+  if (stat) {
+    if (!stat.isSocket()) throw new Error(`E2E socket changed type: ${socket}`);
+    fs.unlinkSync(socket);
+  }
+  return true;
+}
+
 /** Stop an already-created server only after revalidating its exact private socket. */
 export function stopPrivateTmuxSocket(
   socket: string,

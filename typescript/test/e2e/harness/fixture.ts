@@ -6,7 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TMUX_COMMAND_INSPECTION } from '../tmux-command-inspection.js';
 import { resolveCliExecutables, type CliExecutables } from '../../support/cli-executable.mjs';
-import { assertPrivateSocket, stopPrivateTmuxSocket } from '../../support/private-tmux.js';
+import {
+  assertPrivateSocket,
+  removeStoppedPrivateTmuxSocket,
+  stopPrivateTmuxSocket,
+} from '../../support/private-tmux.js';
 import {
   groupLeader,
   paneOwnedGroups,
@@ -883,12 +887,14 @@ exit ${'$'}status
           }
         }
       } catch (error) {
-        recordCleanupError(
-          new Error(
-            `Could not record E2E pane groups at ${this.expectedSocketPath}: ${String(error)}`,
-            { cause: error }
-          )
-        );
+        if (!removeStoppedPrivateTmuxSocket(this.expectedSocketPath, this.socketRoot, error)) {
+          recordCleanupError(
+            new Error(
+              `Could not record E2E pane groups at ${this.expectedSocketPath}: ${String(error)}`,
+              { cause: error }
+            )
+          );
+        }
       }
     }
     if (
@@ -902,7 +908,10 @@ exit ${'$'}status
           this.tmuxPath,
           this.env
         );
-        if (stopped.error || stopped.status !== 0) {
+        if (
+          (stopped.error || stopped.status !== 0) &&
+          !removeStoppedPrivateTmuxSocket(this.expectedSocketPath, this.socketRoot, stopped)
+        ) {
           throw new Error(String(stopped.error ?? stopped.stderr));
         }
       } catch (error) {

@@ -143,7 +143,8 @@ it.each([
         'owned fixture readiness'
       );
       proof = JSON.parse(fs.readFileSync(proofFile, 'utf8')) as Proof;
-      assertPrivateSocket(proof.socket, proof.socketRoot, env);
+      // Normal completion may already have removed its roots; every tmux call
+      // reasserts its private socket at the point of use below.
       ownedGroup = { pid: proof.pid, started: proof.started };
       expect(ownedGroup.started, 'the fixture pane must lead its own process group').not.toBe('');
       if (scenario === 'foreground SIGINT' || scenario === 'foreground SIGTERM') {

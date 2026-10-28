@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5,7 +6,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import * as privateTmux from '../support/private-tmux.js';
 import { createCliProbe } from '../support/cli-probe.js';
-import { E2EFixture, withE2EFixture } from './harness.js';
+import { E2EFixture, withE2EFixture, processState } from './harness.js';
 import { spawnRealTmuxCli, releaseRealTmuxCli, readRealTmuxCli } from './real-tmux-caller.js';
 
 describe('CLI executable selection', () => {
@@ -126,6 +127,49 @@ describe('CLI executable selection', () => {
     } finally {
       await fixture?.stop();
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('removes a dead private socket left by partial startup without a recorded server PID', async () => {
+    const fixture = new E2EFixture();
+    let serverStopped = false;
+    try {
+      await fixture.start();
+      const socket = fixture.socketPath;
+      privateTmux.assertPrivateSocket(socket, fixture.socketRoot);
+      const stopped = privateTmux.stopPrivateTmuxSocket(
+        socket,
+        fixture.socketRoot,
+        fixture.tmuxPath,
+        {}
+      );
+      expect(stopped.status).toBe(0);
+      await fixture.waitFor(
+        () => processState(fixture.serverPid) === 'absent',
+        5000,
+        'private server exit'
+      );
+      serverStopped = true;
+      // An abrupt Unix listener exit leaves its socket inode without a server.
+      if (!fs.existsSync(socket))
+        execFileSync(process.execPath, [
+          '-e',
+          "require('node:net').createServer().listen(process.argv[1], () => process.exit(0))",
+          socket,
+        ]);
+      expect(fs.lstatSync(socket).isSocket()).toBe(true);
+      fixture.serverPid = 0;
+      await expect(fixture.stop()).resolves.toBeUndefined();
+      expect(fs.existsSync(socket)).toBe(false);
+      expect(fs.existsSync(fixture.root)).toBe(false);
+      expect(fs.existsSync(fixture.socketRoot)).toBe(false);
+    } finally {
+      // A failed red preserves the owned roots; remove only the inert test socket before retrying.
+      if (serverStopped && fs.existsSync(fixture.socketRoot)) {
+        privateTmux.assertPrivateSocket(fixture.socketPath, fixture.socketRoot);
+        if (fs.existsSync(fixture.socketPath)) fs.unlinkSync(fixture.socketPath);
+      }
+      await fixture.stop();
     }
   });
 

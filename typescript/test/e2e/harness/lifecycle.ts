@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
-import { assertPrivateSocket, stopPrivateTmuxSocket } from '../../support/private-tmux.js';
+import {
+  assertPrivateSocket,
+  removeStoppedPrivateTmuxSocket,
+  stopPrivateTmuxSocket,
+} from '../../support/private-tmux.js';
 import { processState } from './cleanup.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -138,7 +142,9 @@ export function groupLeader(pid: number): OwnedGroup | undefined {
       env: { ...process.env, LC_ALL: 'C' },
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
-    const match = /^(\d+)\s+(.+)$/.exec(text);
+    const match = /^(-?\d+)\s+(.+)$/.exec(text);
+    // Linux ps can print the exited-process PGID -1 as an unsigned value.
+    if (match && (match[1] === '-1' || match[1] === '4294967295')) return undefined;
     if (!match || Number(match[1]) !== pid) {
       throw new Error(`E2E process ${pid} is not its own group leader: ${text}`);
     }
@@ -163,7 +169,8 @@ export function paneOwnedGroups(panePid: number): OwnedGroup[] {
     }).trim();
     if (!/^-?\d+$/.test(text)) throw new Error(`Invalid E2E terminal foreground group: ${text}`);
     const pid = Number(text);
-    if (pid > 1 && pid !== panePid) groups.push(groupLeader(pid) ?? { pid, started: '' });
+    if (pid > 1 && pid !== 4294967295 && pid !== panePid)
+      groups.push(groupLeader(pid) ?? { pid, started: '' });
   } catch (error) {
     if (!(error instanceof Error && 'status' in error && error.status === 1)) throw error;
   }
@@ -183,24 +190,25 @@ function groupExists(pid: number): boolean {
 /** Signal only a group whose leader still has the recorded start time. */
 export function stopOwnedGroups(groups: readonly OwnedGroup[]): void {
   const failures: Error[] = [];
-  const matched: OwnedGroup[] = [];
+  const waiting: OwnedGroup[] = [];
   for (const group of groups) {
     let verified = false;
     try {
       const leader = groupLeader(group.pid);
       if (leader && leader.started !== group.started) continue;
       if (!leader) {
-        if (groupExists(group.pid))
-          failures.push(new Error(`Cannot identify E2E group ${group.pid}.`));
+        // The leader may have exited before the group finishes disappearing.
+        // Observe it within the same cleanup bound; never signal without identity.
+        if (groupExists(group.pid)) waiting.push(group);
         continue;
       }
       verified = true;
       if (!groupExists(group.pid)) continue;
-      matched.push(group);
+      waiting.push(group);
       process.kill(-group.pid, 'SIGTERM');
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'EPERM' && verified) {
-        if (!matched.includes(group)) matched.push(group);
+        if (!waiting.includes(group)) waiting.push(group);
       } else if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
         failures.push(new Error(`Could not stop E2E group ${group.pid}: ${String(error)}`));
       }
@@ -209,7 +217,7 @@ export function stopOwnedGroups(groups: readonly OwnedGroup[]): void {
   }
   const deadline = Date.now() + 2_000;
   for (;;) {
-    const pending = matched.filter((group) => {
+    const pending = waiting.filter((group) => {
       try {
         const leader = groupLeader(group.pid);
         if (leader && leader.started !== group.started) return false;
@@ -282,52 +290,63 @@ function cleanupFixture(fixture: OwnedFixture): void {
       );
       const pid = Number(queried.stdout?.trim());
       if (queried.error || queried.status !== 0 || !Number.isSafeInteger(pid) || pid <= 1) {
-        failures.push(new Error(`Could not identify E2E server at ${fixture.socketPath}.`));
+        if (!removeStoppedPrivateTmuxSocket(fixture.socketPath, fixture.socketRoot, queried))
+          failures.push(new Error(`Could not identify E2E server at ${fixture.socketPath}.`));
       } else {
         serverPid = pid;
       }
     }
-    const panes = spawnSync(
-      fixture.tmuxPath,
-      ['-S', fixture.socketPath, 'list-panes', '-a', '-F', '#{pane_pid}'],
-      {
-        env,
-        encoding: 'utf8',
-        timeout: 2_000,
-      }
-    );
-    if (panes.error || panes.status !== 0) {
-      failures.push(
-        new Error(
-          `Could not enumerate E2E panes at ${fixture.socketPath}: ${panes.error ?? panes.stderr}`
-        )
+    if (fs.existsSync(fixture.socketPath)) {
+      const panes = spawnSync(
+        fixture.tmuxPath,
+        ['-S', fixture.socketPath, 'list-panes', '-a', '-F', '#{pane_pid}'],
+        {
+          env,
+          encoding: 'utf8',
+          timeout: 2_000,
+        }
       );
-    } else {
-      for (const line of panes.stdout.split('\n').filter(Boolean)) {
-        try {
-          const pid = Number(line);
-          if (!Number.isSafeInteger(pid) || pid <= 1)
-            throw new Error(`Invalid E2E pane PID: ${line}`);
-          for (const group of paneOwnedGroups(pid)) {
-            if (!groups.some((existing) => existing.pid === group.pid)) groups.push(group);
+      if (
+        (panes.error || panes.status !== 0) &&
+        !removeStoppedPrivateTmuxSocket(fixture.socketPath, fixture.socketRoot, panes)
+      ) {
+        failures.push(
+          new Error(
+            `Could not enumerate E2E panes at ${fixture.socketPath}: ${panes.error ?? panes.stderr}`
+          )
+        );
+      } else if (panes.status === 0) {
+        for (const line of panes.stdout.split('\n').filter(Boolean)) {
+          try {
+            const pid = Number(line);
+            if (!Number.isSafeInteger(pid) || pid <= 1)
+              throw new Error(`Invalid E2E pane PID: ${line}`);
+            for (const group of paneOwnedGroups(pid)) {
+              if (!groups.some((existing) => existing.pid === group.pid)) groups.push(group);
+            }
+          } catch (error) {
+            failures.push(new Error(`Could not identify E2E pane group: ${String(error)}`));
           }
-        } catch (error) {
-          failures.push(new Error(`Could not identify E2E pane group: ${String(error)}`));
         }
       }
-    }
-    const stopped = stopPrivateTmuxSocket(
-      fixture.socketPath,
-      fixture.socketRoot,
-      fixture.tmuxPath,
-      env
-    );
-    if (stopped.error || stopped.status !== 0) {
-      failures.push(
-        new Error(
-          `Could not stop E2E server ${fixture.socketPath}: ${stopped.error ?? stopped.stderr}`
-        )
-      );
+      if (fs.existsSync(fixture.socketPath)) {
+        const stopped = stopPrivateTmuxSocket(
+          fixture.socketPath,
+          fixture.socketRoot,
+          fixture.tmuxPath,
+          env
+        );
+        if (
+          (stopped.error || stopped.status !== 0) &&
+          !removeStoppedPrivateTmuxSocket(fixture.socketPath, fixture.socketRoot, stopped)
+        ) {
+          failures.push(
+            new Error(
+              `Could not stop E2E server ${fixture.socketPath}: ${stopped.error ?? stopped.stderr}`
+            )
+          );
+        }
+      }
     }
   }
   try {
