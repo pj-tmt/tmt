@@ -723,6 +723,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
     await creatorDialog.getByLabel('Agent name or ID').fill('missing-hosted-metadata-agent');
     await creatorDialog.getByRole('button', { name: 'Change creator', exact: true }).click();
     await metadataSettled(false);
+    await expect(metadataStatus).toContainText('That identity was not found.');
     expect(secondWrites).toHaveLength(7); // Enrollment, two source requests, four metadata requests.
     expect(paths.some((path) => path.includes('/api/serve-release'))).toBe(false);
     expect(unexpected).toEqual([]);

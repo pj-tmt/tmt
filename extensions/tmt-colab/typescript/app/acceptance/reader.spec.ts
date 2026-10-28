@@ -907,11 +907,13 @@ test('editor metadata: owner applies creator and handled/reopen requests, refuse
       .toMatchObject({ questions: [{ id: question, state: 'open' }] });
     await changeCreator('definitely-missing-metadata-agent');
     await settled(false);
+    await expect(status).toContainText('That identity was not found.');
     await expect.poll(read).toMatchObject({ creator: { agent: { id: next.id } } });
     await changeCreator(next.name, () => {
       colab(world, ['page', 'creator', created.pageId, first.name]);
     });
     await settled(false);
+    await expect(status).toContainText('Page changed since the editing base');
     expect(read()).toMatchObject({ creator: { agent: { id: first.id } }, source });
     for (const role of ['viewer', 'commenter']) {
       const args = ['share', 'link', 'add', created.pageId, '--yes'];
@@ -930,8 +932,9 @@ test('editor metadata: owner applies creator and handled/reopen requests, refuse
     }
     colab(world, ['share', 'link', 'reset', created.pageId, added.linkId as string, '--yes']);
     await expect(
-      editor.page.getByRole('heading', { name: 'Access ended', exact: true }),
+      editor.page.getByRole('heading', { name: 'Access ended', exact: true, level: 2 }),
     ).toBeVisible({ timeout: 60000 });
+    await expect(editor.page.locator('iframe')).toHaveCount(0);
     expect(read()).toMatchObject({ creator: { agent: { id: first.id } }, source });
   });
 });
