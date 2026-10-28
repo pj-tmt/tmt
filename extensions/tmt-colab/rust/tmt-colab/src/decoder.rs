@@ -605,7 +605,19 @@ impl Decoder {
         edit: ContentEdit<'_>,
         stop: Option<&AtomicBool>,
     ) -> Result<PreparedContent, DecodeFault> {
-        self.prepare_mutation(batch, expected_base, edit, None, stop)
+        self.prepare_mutation(batch, expected_base, edit, None, None, stop)
+    }
+    /// [`Self::prepare_content_batch`] with the parent's own check of `edit.source`, so the
+    /// edit's admission does not parse the same source again.
+    pub(crate) fn prepare_checked_content_batch(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        expected_base: &Value,
+        edit: ContentEdit<'_>,
+        checked: &crate::page_check::Report,
+        stop: Option<&AtomicBool>,
+    ) -> Result<PreparedContent, DecodeFault> {
+        self.prepare_mutation(batch, expected_base, edit, Some(checked), None, stop)
     }
     /// One structured action (a shell's or a page's work) against the exact admitted projection;
     /// the HTML source, layout and attachments stay as they are.
@@ -625,6 +637,7 @@ impl Decoder {
                 layout: None,
                 attachments: None,
             },
+            None,
             Some(edit),
             stop,
         )
@@ -634,6 +647,7 @@ impl Decoder {
         batch: UpdateBatch<'_>,
         expected_base: &Value,
         edit: ContentEdit<'_>,
+        checked: Option<&crate::page_check::Report>,
         structured: Option<&StructuredEdit>,
         stop: Option<&AtomicBool>,
     ) -> Result<PreparedContent, DecodeFault> {
@@ -666,7 +680,7 @@ impl Decoder {
         }
         let expected = match structured {
             Some(structured) => edited_structured_projection(expected_base, structured)?,
-            None => edited_projection(expected_base, edit)?,
+            None => edited_projection_checked(expected_base, edit, checked)?,
         };
         let wire = WireContentPreparation {
             version: 1,
@@ -1271,11 +1285,19 @@ struct WirePreparedContent<B = String> {
     pid: u32,
 }
 fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Result<Value, DecodeFault> {
-    crate::question_registry::admit_edit(
-        edit.source,
-        base["html"].as_str().ok_or(DecodeFault::InvalidInput)?,
-        &base["meta"],
-    )
+    edited_projection_checked(base, edit, None)
+}
+/// [`edited_projection`], admitting the edit with the parent's check of its source when given.
+fn edited_projection_checked(
+    base: &Value,
+    edit: ContentEdit<'_>,
+    checked: Option<&crate::page_check::Report>,
+) -> Result<Value, DecodeFault> {
+    let base_source = base["html"].as_str().ok_or(DecodeFault::InvalidInput)?;
+    match checked {
+        Some(report) => crate::question_registry::admit_checked(report, base_source, &base["meta"]),
+        None => crate::question_registry::admit_edit(edit.source, base_source, &base["meta"]),
+    }
     .map_err(|_| DecodeFault::InvalidInput)?;
     // A source replacement never converts structured content into HTML.
     if base["meta"].get("pageType").is_some() {

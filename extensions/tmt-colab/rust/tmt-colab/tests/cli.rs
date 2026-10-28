@@ -12862,6 +12862,110 @@ exec {core} "$@"
     assert_eq!(own["revision"], "2");
 }
 
+/// A patch's commit reuses the source it read only while the page is still at that revision.
+/// Another writer committing between the read and the commit is never overwritten: a fenced
+/// patch refuses with the stale base, an unfenced one reads again and keeps both changes.
+#[test]
+fn a_write_between_a_patch_read_and_its_commit_is_never_overwritten() {
+    let pilot = Pilot::new(None);
+    fs::write(
+        pilot.root.join("source.html"),
+        "<p>Before</p><p>Elsewhere</p>",
+    )
+    .unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Concurrent write",
+        "--layout",
+        "column",
+        "--file",
+        pilot.root.join("source.html").to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    // A lock elsewhere makes the patch look up its caller after reading the page and before
+    // committing; the wrapper commits another writer's change at that moment, once.
+    pilot.call(&["page", "lock", page, "--find", "Elsewhere", "--json"]);
+    let race = |name: &str, replacement: &str| {
+        let wrapper = pilot.root.join(format!("core-write-race-{name}"));
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1 $2 $3" = 'identity show --json' ] && [ ! -f {trigger} ]; then
+: > {trigger}
+TMT_EXECUTABLE={core} {binary} page patch {page} --find Elsewhere --replace {replacement} --json > {receipt} || exit 9
+fi
+exec {core} "$@"
+"#,
+            trigger = quote(
+                pilot
+                    .root
+                    .join(format!("{name}-triggered"))
+                    .to_str()
+                    .unwrap()
+            ),
+            core = quote(pilot.root.join("core").to_str().unwrap()),
+            binary = quote(BINARY),
+            page = quote(page),
+            replacement = quote(replacement),
+            receipt = quote(pilot.root.join(format!("{name}.json")).to_str().unwrap())
+        );
+        tmt_test_support::write_executable(&wrapper, script.as_bytes(), 0o700).unwrap();
+        wrapper
+    };
+
+    let before = pilot.call(&["page", "read", page, "--json"]);
+    let revision = before["revision"].as_str().unwrap();
+    let output = pilot
+        .command()
+        .env("TMT_EXECUTABLE", race("fenced", "Elsewhere too"))
+        .args([
+            "page",
+            "patch",
+            page,
+            "--find",
+            "Before",
+            "--replace",
+            "Mine",
+            "--expected-revision",
+            revision,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    let refused: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(!output.status.success(), "{refused}");
+    assert_eq!(refused["error"]["code"], "COLAB_STALE_BASE");
+    assert!(pilot.root.join("fenced.json").exists());
+    let read = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(read["source"], "<p>Before</p><p>Elsewhere too</p>");
+    // The other writer held that lock and its patch released it; lock the passage again.
+    pilot.call(&["page", "lock", page, "--find", "Elsewhere", "--json"]);
+
+    let output = pilot
+        .command()
+        .env("TMT_EXECUTABLE", race("unfenced", "Elsewhere again"))
+        .args([
+            "page",
+            "patch",
+            page,
+            "--find",
+            "Before",
+            "--replace",
+            "Mine",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let concurrent = fs::read_to_string(pilot.root.join("unfenced.json")).unwrap();
+    assert!(concurrent.contains("\"revision\""), "{concurrent}");
+    let read = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(read["source"], "<p>Mine</p><p>Elsewhere again too</p>");
+}
+
 #[test]
 fn page_compact_history_current_preserves_native_edits() {
     let pilot = Pilot::new(None);

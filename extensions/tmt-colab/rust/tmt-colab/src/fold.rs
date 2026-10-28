@@ -811,26 +811,37 @@ impl Snapshot {
         page: &str,
         edit: crate::decoder::ContentEdit<'_>,
         base_sha256: Option<&[u8; 32]>,
+        known: Option<(&str, &serde_json::Value)>,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
         let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
-        let base = input.materialize(page, decoder, None)?;
-        if base.meta.get("pageType").is_some() {
+        // `known` is this snapshot's source and metadata, read by the caller at its revision.
+        // Attachment changes need the full view for their creation proofs.
+        let decoded = match known {
+            Some(_) if edit.attachments.is_none() => None,
+            _ => Some(input.materialize(page, decoder, None)?),
+        };
+        let (base_source, base_meta) = match (&decoded, known) {
+            (Some(view), _) => (view.source.as_str(), &view.meta),
+            (None, Some(known)) => known,
+            (None, None) => return Err(crate::page::Fault::Invalid.into()),
+        };
+        if base_meta.get("pageType").is_some() {
             return Err(crate::page::Fault::Invalid.into());
         }
         // A caller that edited from a source it saw refuses to overwrite a different one.
-        if base_sha256.is_some_and(|d| *d != crypto::digest(base.source.as_bytes())) {
+        if base_sha256.is_some_and(|d| *d != crypto::digest(base_source.as_bytes())) {
             return Err(crate::page::Fault::StaleBase.into());
         }
         let report =
             crate::page_check::check(edit.source).map_err(|_| crate::page::Fault::Capacity)?;
         if !report.question_sources.is_empty() {
             let identities =
-                crate::core::reference_names(&crate::question_registry::identity_ids(&base.meta));
+                crate::core::reference_names(&crate::question_registry::identity_ids(base_meta));
             let findings = crate::question_registry::edit_findings(
                 &report,
-                &base.source,
-                &base.meta,
+                base_source,
+                base_meta,
                 page,
                 identities.as_ref(),
             )?;
@@ -848,12 +859,15 @@ impl Snapshot {
                 {
                     return Err(crate::page::Fault::Invalid.into());
                 }
-                crate::attachments::creation_proof(&base, descriptor)?;
+                crate::attachments::creation_proof(
+                    decoded.as_ref().ok_or(crate::page::Fault::Invalid)?,
+                    descriptor,
+                )?;
             }
         }
-        let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
+        let expected_base = serde_json::json!({"html":base_source,"meta":base_meta});
         let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let prepared = decoder.prepare_content_batch(
+        let prepared = decoder.prepare_checked_content_batch(
             UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &input.baseline,
@@ -861,6 +875,7 @@ impl Snapshot {
             },
             &expected_base,
             edit,
+            &report,
             None,
         )?;
         if let crate::decoder::ContentBatch::Updates(updates) = &prepared.batch {

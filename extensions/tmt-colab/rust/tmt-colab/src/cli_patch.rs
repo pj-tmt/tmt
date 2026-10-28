@@ -260,7 +260,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 }
                 Err(error) => return Err(error),
             }
-            let base = page::read(&store, &key, &id, &mut decoder)?;
+            let (base, reusable) = page::read_for_patch(&store, &key, &id, &mut decoder)?;
             let edited = match patch.apply(&base.source) {
                 Ok(edited) => edited,
                 Err(fault) => {
@@ -299,6 +299,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 expected.as_deref().or(locks.revision.as_deref()),
                 Some(crypto::digest(base.source.as_bytes())),
                 None,
+                Some(&reusable),
                 &mut decoder,
             ) {
                 Ok(mut receipt) => {

@@ -734,6 +734,7 @@ fn commit_source(
     expected_revision: Option<&str>,
     base_source_sha256: Option<[u8; 32]>,
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    base: Option<&tmt_colab::page::PatchBase>,
     decoder: &mut tmt_colab::decoder::Decoder,
 ) -> Result<tmt_colab::page::Receipt> {
     use tmt_colab::page::{self, PublishOptions};
@@ -765,6 +766,7 @@ fn commit_source(
                 expected_revision,
                 base_source_sha256,
                 operation_id: None,
+                base,
             },
             decoder,
             &clock,
