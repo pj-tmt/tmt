@@ -74,7 +74,13 @@ fn a_racing_binding_or_preferences_change_wins_over_an_approval_notification() {
     assert_activity_cas("claude", "Notification", ActivityPhase::Waiting);
 }
 
+#[test]
+fn a_pending_stop_does_not_invalidate_the_next_prompt_inside_its_commit() {
+    assert_activity_cas("codex", "UserPromptSubmit", ActivityPhase::Working);
+}
+
 fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhase) {
+    let prompt = event == "UserPromptSubmit";
     let registry = RuntimeRegistry::first_party();
     let driver = registry
         .lifecycle(&HarnessId::new(provider).unwrap())
@@ -84,7 +90,7 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
     let interrupt = driver
         .decode_activity(
             serde_json::json!({
-                "hook_event_name":event, "session_id":"s-1", "turn_id":"a",
+                "hook_event_name":event, "session_id":"s-1", "turn_id":if prompt { "b" } else { "a" },
                 "notification_type":"permission_prompt", "model":"hook-model",
             })
             .to_string()
@@ -103,7 +109,12 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             .state_observed_model(state)
             .map(|observed| observed.model)
     };
-    for race in ["unchanged", "preferences", "binding"] {
+    let races = if prompt {
+        &["unchanged", "preferences", "binding", "queued-stop"][..]
+    } else {
+        &["unchanged", "preferences", "binding"][..]
+    };
+    for &race in races {
         let directory = Directory::new();
         let paths = ConfigPaths {
             global_dir: directory.0.clone(),
@@ -144,7 +155,14 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
         preferences.remembered.as_mut().unwrap().state = Some(working.clone());
         storage
             .with_binding_transaction::<_, StorageError>(|records| {
-                records.insert_binding(&identity, &server, &pane)?;
+                let binding = records.insert_binding(&identity, &server, &pane)?;
+                let mut state = binding.session.clone();
+                state.state = tmt_core::binding::session::RuntimeState::Running;
+                state.key = Some(tmt_core::binding::session::ObservedSessionKey {
+                    incarnation: process.clone(),
+                    provider_session: Some(session.clone()),
+                });
+                assert!(records.set_session_state(&binding.id, &binding.session, &state)?);
                 records.set_session_preferences(&identity.id, &preferences)
             })
             .unwrap();
@@ -178,6 +196,39 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             })
             .unwrap();
         storage.close().unwrap();
+        let queue =
+            tmt_adapters::storage::hook_queue::HookQueue::open(&paths.database, Duration::ZERO)
+                .unwrap();
+        let _flusher = queue.claim().unwrap();
+        let mut queued_batch = None;
+        if race == "queued-stop" {
+            // Force enqueue after the prompt's snapshot, before its writer.
+            // Holding the finite flusher fence leaves only the shared writer
+            // wrapper capable of running this older Stop during the commit.
+            let end = turn(ActivityPhase::Idle, "a");
+            let event = tmt_adapters::storage::hook_queue::CaptureEvent::prepare(
+                &paths.database,
+                &tmt_adapters::storage::TurnCapture {
+                    expected: &stored,
+                    process: &process,
+                    activity: &end,
+                    response: Some(tmt_adapters::storage::ResponseCapture {
+                        text: tmt_core::responses::FinalText::new("previous answer").unwrap(),
+                    }),
+                    interrupted: false,
+                    now_ms: 150,
+                    deadline: Instant::now() + Duration::from_secs(2),
+                },
+                Default::default(),
+            )
+            .unwrap();
+            queue.enqueue(&event).unwrap();
+            queued_batch = serde_json::to_value(queue.next().unwrap().unwrap()).unwrap()["capture"]
+                ["batch"]
+                .as_str()
+                .map(str::to_owned);
+            assert!(queued_batch.is_some());
+        }
         let before = Storage::context_by_identity(&paths.database, &identity.id, 0)
             .unwrap()
             .unwrap();
@@ -187,20 +238,33 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             next.clone(),
             None,
             None,
-            None,
+            prompt.then_some(tmt_adapters::storage::TurnBoundary::StartedWithoutPrompt {
+                turn: Some("b"),
+            }),
             Instant::now() + Duration::from_secs(2),
         )
         .unwrap();
         let after = Storage::context_by_identity(&paths.database, &identity.id, 0)
             .unwrap()
             .unwrap();
-        assert_eq!(applied, race == "unchanged", "{race}");
+        assert_eq!(
+            applied,
+            matches!(race, "unchanged" | "queued-stop"),
+            "{race}"
+        );
         if applied {
-            let state = after.preferences.remembered.unwrap().state.unwrap();
-            assert_eq!(Some(&state), next.as_ref());
-            assert_eq!(driver.state_activity(&state).unwrap().phase, expected_phase);
+            let state = after
+                .preferences
+                .remembered
+                .as_ref()
+                .unwrap()
+                .state
+                .as_ref()
+                .unwrap();
+            assert_eq!(Some(state), next.as_ref());
+            assert_eq!(driver.state_activity(state).unwrap().phase, expected_phase);
             assert_eq!(
-                observed(&state).as_deref(),
+                observed(state).as_deref(),
                 (provider == "codex").then_some("hook-model")
             );
         } else {
@@ -208,17 +272,54 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             assert_eq!(after.preferences, before.preferences, "{race}");
             // The losing hook's model is never stored. A racing Claude prompt
             // can clear optional state, which must stay cleared after this CAS.
-            let state = after.preferences.remembered.unwrap().state;
+            let state = after
+                .preferences
+                .remembered
+                .as_ref()
+                .unwrap()
+                .state
+                .as_ref();
             let expected = (race == "preferences" && provider == "codex").then_some("racer-model");
-            assert_eq!(
-                state.as_ref().and_then(observed).as_deref(),
-                expected,
-                "{race}"
-            );
+            assert_eq!(state.and_then(observed).as_deref(), expected, "{race}");
         }
-        // An interrupt never adds a consumption source or a response.
+        // Activity observation never adds a consumption source or a response.
         assert_eq!(rows(&paths.database, "consumption_sources"), 0);
         assert_eq!(rows(&paths.database, "recent_responses"), 0);
+        if race == "queued-stop" {
+            assert!(queue.next().unwrap().is_some());
+            let mut storage = Storage::open(&paths.database).unwrap();
+            storage
+                .ingest_pending_hook_captures_for_identity(&identity.id)
+                .unwrap();
+            storage.close().unwrap();
+            let retained = Storage::context_by_identity(&paths.database, &identity.id, 0)
+                .unwrap()
+                .unwrap();
+            assert_eq!(retained.preferences, after.preferences);
+            assert_eq!(rows(&paths.database, "recent_responses"), 1);
+            let db = rusqlite::Connection::open_with_flags(
+                &paths.database,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            let (final_batch, closed): (String, Option<i64>) = db.query_row(
+                "SELECT e.batch_id,b.closed_ms FROM capture_entries e JOIN capture_batches b ON b.id=e.batch_id WHERE e.kind='final'",
+                [], |row| Ok((row.get(0)?,row.get(1)?)),
+            ).unwrap();
+            assert_eq!(Some(final_batch.clone()), queued_batch);
+            assert!(
+                closed.is_some(),
+                "the older final stays in its historical batch"
+            );
+            let current_batch: String = db
+                .query_row(
+                    "SELECT id FROM capture_batches WHERE identity_id=? AND closed_ms IS NULL",
+                    [&identity.id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_ne!(current_batch, final_batch);
+        }
     }
 }
 

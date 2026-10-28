@@ -201,10 +201,13 @@ pub(super) fn with_immediate_transaction<T, E>(
 where
     E: From<StorageError>,
 {
-    // Recovery is opportunistic: an independent queue failure cannot veto an
-    // explicit Core mutation. Digest uses its own strict pre-publication drain.
-    let _ = storage.ingest_pending_hook_captures();
-    commit_immediate_transaction(storage, operation_name, operation)
+    // A caller may have read its CAS snapshot before entering this boundary.
+    // Never ingest an older queued Stop here and invalidate that snapshot.
+    let result = commit_immediate_transaction(storage, operation_name, operation);
+    // Recovery remains event-driven and outside the completed transaction;
+    // an independent queue/startup failure cannot veto the explicit mutation.
+    let _ = storage.notify_pending_hook_captures();
+    result
 }
 
 /// Queue ingestion, its fenced terminal diagnostic and its failure recorder

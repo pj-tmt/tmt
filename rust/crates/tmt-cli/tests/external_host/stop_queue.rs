@@ -179,6 +179,89 @@ fn stop_returns_under_contention_and_recovers_real_flusher_crashes_before_and_af
 }
 
 #[test]
+fn a_writer_notifies_the_finite_flusher_after_a_stop_worker_could_not_start() {
+    struct BlockWorker(PathBuf);
+    impl Drop for BlockWorker {
+        fn drop(&mut self) {
+            fs::remove_dir(&self.0).unwrap();
+        }
+    }
+    register();
+    let fixture = Fixture::delivering("capture-spawn-recovery");
+    bind(&fixture, fixture.approve());
+    install_capture_hook(&fixture, "claude");
+    let mut provider = SteppedProvider::start(&fixture, "claude", "spawn-recovery-steps");
+    ok(provider.hook(claude_event("SessionStart")));
+    ok(provider.hook(claude_event("UserPromptSubmit")));
+    let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+    // A directory at the worker lock path deterministically refuses startup
+    // without disturbing enqueue or relying on platform permission repair.
+    let queue = rusqlite::Connection::open(fixture.state().join("hook-writes.db")).unwrap();
+    let pending = || {
+        queue
+            .query_row("SELECT count(*) FROM hook_writes", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    let finals = || {
+        db.query_row("SELECT count(*) FROM recent_responses", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .unwrap()
+    };
+    let output = {
+        let lock = fixture.state().join("hook-writes.lock");
+        assert!(!lock.exists(), "no worker lock was needed before Stop");
+        fs::create_dir(&lock).unwrap();
+        let _block = BlockWorker(lock);
+        let mut stop = claude_event("Stop");
+        stop["last_assistant_message"] = "retained after a failed worker start".into();
+        provider.hook_command(stop, &[])
+    };
+    ok(output);
+    assert_eq!(
+        pending(),
+        1,
+        "Stop must be durably queued despite startup failure"
+    );
+    assert_eq!(
+        finals(),
+        0,
+        "no finite worker could have ingested this final"
+    );
+    let timeline = passthrough::api(
+        &fixture,
+        "ok",
+        "responses.timeline",
+        serde_json::json!({"identityId":agent}),
+    );
+    assert_eq!(timeline["responses"], serde_json::json!([]));
+    assert_eq!(pending(), 1, "a read never impersonates queue completion");
+    fixture.json(&[
+        "role",
+        "set",
+        "notification recovery",
+        "--identity",
+        "worker",
+        "--json",
+    ]);
+    wait_flushed(&fixture.state());
+    assert_eq!(pending(), 0);
+    assert_eq!(finals(), 1);
+    let text: String = db
+        .query_row("SELECT text FROM recent_responses", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(text, "retained after a failed worker start");
+    let role = fixture.json(&["role", "show", "--identity", "worker", "--json"]);
+    assert_eq!(role["role"]["content"], "notification recovery");
+}
+
+#[test]
 fn an_admitted_prompt_without_text_still_opens_a_turn_batch() {
     register();
     let fixture = Fixture::delivering("prompt-without-text-batch");

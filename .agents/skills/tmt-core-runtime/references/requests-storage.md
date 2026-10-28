@@ -394,11 +394,14 @@ The CLI's finite `__flush` worker uses the detached process owner and a stable n
 flock. SQLite `busy_timeout` is its only writer wait: no polling, timer or resident daemon.
 It never holds the queue writer while waiting for Core. Its empty handoff releases the
 flock inside the queue writer transaction, before producers can append, preventing a
-lost wakeup. The common Core writer boundary opportunistically ingests a bounded capture prefix
-and notifies the same finite worker after a crash; recovery errors cannot veto an
-explicit mutation. Read-only observations and timeline calls do not ingest. Digest ingests the
-verified identity's pending captures before reading its claim snapshot; unrelated backlog cannot
-block its continuation. Invalid queue rows are atomically removed with a content-free durable
+lost wakeup. The common Core writer boundary only notifies that finite worker after
+its transaction, including recovery after a crash or failed spawn. It never ingests
+captures between an observer's snapshot and its compare-and-set; recovery errors
+cannot veto an explicit mutation. Non-Stop hooks explicitly drain before taking
+their observer snapshot, within the hook budget; a drain failure leaves work queued
+and the event proceeds. Read-only observations and timeline calls do not ingest.
+Digest strictly ingests the verified identity's pending captures before claiming;
+unrelated backlog cannot block its continuation. Invalid queue rows are atomically removed with a content-free durable
 queue failure receipt, so they cannot poison the flusher or another identity.
 
 A main transaction commits capture plus its UUID receipt; queue acknowledgment follows.

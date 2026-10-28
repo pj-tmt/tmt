@@ -569,8 +569,34 @@ impl Storage {
             hook_allowance: None,
         })
     }
-    /// Existing writer entry points ingest a bounded productive prefix before
-    /// reading their own mutable state. Follow-up telemetry remains flusher-owned.
+    /// A completed Core transaction may wake the finite worker after a crash or
+    /// failed spawn. Notification never ingests or changes the caller's snapshot.
+    pub(in crate::storage) fn notify_pending_hook_captures(&self) -> Result<(), StorageError> {
+        if !super::HookQueue::exists(&self.path) {
+            return Ok(());
+        }
+        let deadline = self
+            .hook_allowance
+            .unwrap_or_else(|| std::time::Instant::now() + Duration::from_secs(3));
+        if std::time::Instant::now() >= deadline {
+            return Ok(());
+        }
+        let queue = match super::HookQueue::open(&self.path, Duration::ZERO) {
+            Ok(queue) => queue,
+            Err(error) if error.code == super::super::StorageErrorCode::IncompatibleSchema => {
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        if queue.has_entries()? {
+            queue
+                .start_flusher(deadline)
+                .map_err(|error| super::super::errors::classify_io(error, "Notify hook flusher"))?;
+        }
+        Ok(())
+    }
+    /// Explicit pre-snapshot callers ingest a bounded productive prefix.
+    /// Follow-up telemetry remains flusher-owned.
     pub fn ingest_pending_hook_captures(&mut self) -> Result<(), StorageError> {
         self.ingest_pending_for_identity(None)
     }
