@@ -1,3 +1,7 @@
+import { MetadataRequests, metadataRecord, type ReaderMetadata } from './link-metadata.js';
+import { requestFitsDocument } from './link-edit.js';
+import { OwnAppendRefused } from './own-publication.js';
+import { EditTooLarge } from './save.js';
 import { readEditLocks } from './edit-locks.js';
 import { AttachmentService, disclosureScope } from './attachment-service.js';
 import {
@@ -65,6 +69,10 @@ export class ReaderSession {
   readonly #page = new PageAnswer();
   /** Sends this link device's edit requests; created by its first edit. */
   #writer: Writer | null = null;
+  #metadata?: MetadataRequests;
+  get metadata(): ReaderMetadata | undefined {
+    return this.target.role === 'editor' ? this.#metadata : undefined;
+  }
   private constructor(
     readonly target: ReaderLink,
     readonly mount: URL,
@@ -161,6 +169,33 @@ export class ReaderSession {
     });
     // The link names the space; the owner key the server presents must derive that exact ID.
     await admission.restore();
+    const scope = `${space}:${page}:${admission.epoch}:${this.device.id}`;
+    if (this.#metadata?.scope !== scope) {
+      this.#metadata?.end();
+      this.#writer?.close();
+      this.#writer = null;
+      const metadata: MetadataRequests = new MetadataRequests(
+        scope,
+        this.device.id,
+        async (request) => {
+          if (this.#closed || this.#metadata !== metadata || this.target.role !== 'editor')
+            return 'refused';
+          try {
+            await this.#ownWriter().submitOwnRecords(
+              [metadataRecord(request)],
+              requestFitsDocument,
+            );
+            return 'sent';
+          } catch (error) {
+            return error instanceof OwnAppendRefused || error instanceof EditTooLarge
+              ? 'refused'
+              : 'unconfirmed';
+          }
+        },
+      );
+      this.#metadata = metadata;
+    }
+    const metadata = this.#metadata;
     const token = binary(granted.token, 32, 32);
     let connection!: Connection;
     const dropped = new Promise<Error>((resolve) => {
@@ -170,6 +205,7 @@ export class ReaderSession {
         SHARING,
         (view) => {
           this.#page.show(view.source);
+          metadata.show(view.own ?? {}, (writer) => connection.objects.statusWriter(writer));
           if (!this.#closed)
             this.publish({
               ...view,
@@ -208,8 +244,11 @@ export class ReaderSession {
     for (;;) {
       this.#connection = null;
       if (this.#closed) return;
-      if (accessEnded(error)) return this.ended(new AccessEndedError());
-      if (++this.#failures > RETRIES) return this.ended(error);
+      if (accessEnded(error) || ++this.#failures > RETRIES) {
+        this.#metadata?.end();
+        this.#page.end();
+        return this.ended(accessEnded(error) ? new AccessEndedError() : error);
+      }
       await new Promise((resolve) =>
         setTimeout(resolve, Math.min(500 * 2 ** this.#failures, 15_000)),
       );
@@ -231,13 +270,22 @@ export class ReaderSession {
     const before = this.#page.shown;
     // A link session stores nothing in the owner app's records: its writer keeps its state in
     // memory, for the life of the tab.
+    await sendEditRequest(this.#ownWriter(), base, source);
+    return this.#page.answer(source, before, onWaiting);
+  }
+  #ownWriter(): Writer {
+    const metadata = this.#metadata;
+    if (!metadata) throw new AccessEndedError();
     this.#writer ??= new Writer(
-      `colab-link-writer:${this.target.space}:${this.device.id}`,
-      () => this.#active(),
+      `colab-link-writer:${metadata.scope}`,
+      async () => {
+        const connection = await this.#active();
+        if (this.#metadata !== metadata) throw new AccessEndedError();
+        return connection;
+      },
       memoryRecords(),
     );
-    await sendEditRequest(this.#writer, base, source);
-    return this.#page.answer(source, before, onWaiting);
+    return this.#writer;
   }
   /** The connection to write over, waiting a short while for a dropped one to return. */
   async #active(): Promise<Connection> {
@@ -252,6 +300,7 @@ export class ReaderSession {
   }
   close() {
     this.#closed = true;
+    this.#metadata?.end();
     this.#writer?.close();
     this.#writer = null;
     this.#connection?.close();

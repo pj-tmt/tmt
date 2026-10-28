@@ -10,3 +10,20 @@
 .metadata-creator-search {
   width: 100%;
 }
+
+.metadata-request-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.metadata-request-title > span {
+  display: inline-flex;
+  flex: none;
+}
+.metadata-request-title svg {
+  width: 16px;
+  height: 16px;
+}
+.metadata-request-title[data-waiting] {
+  color: var(--tmt-ui-color-waiting);
+}

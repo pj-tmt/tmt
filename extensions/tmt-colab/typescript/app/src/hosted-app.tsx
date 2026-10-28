@@ -114,6 +114,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
           state={{ kind: 'ready', view: state.view, pageId: state.pageId }}
           canEdit={state.role === 'editor'}
           edit={state.role === 'editor' ? state.edit : undefined}
+          metadata={state.role === 'editor' ? state.metadata : undefined}
           accessNote={
             state.role === 'editor' ? 'The owner applies edits while Colab is running.' : undefined
           }

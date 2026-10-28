@@ -207,7 +207,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
     const unexpected: string[] = [],
       paths: string[] = [],
       writes: string[] = [];
-    let phase: 'open' | 'wake' | 'edit' = 'open';
+    let phase: 'open' | 'wake' | 'edit' | 'metadata' = 'open';
     const queries: Array<{
       phase: string;
       collection: string;
@@ -666,6 +666,65 @@ test('a hosted editor verifies native content, publishes own edit requests and o
     // holder's three (two before, one after the second uid's first) and the second uid's two.
     expect(own.split('\n').sort()).toEqual(['0|2', '0|5']);
     expect(writes).toHaveLength(4);
+    // The last writer now changes metadata through the same hosted own stream. These are
+    // owner-authenticated terminal receipts, rather than source-text inference or optimistic UI.
+    phase = 'metadata';
+    const metadataAgent = await world.startAgent('hosted-metadata-agent');
+    const question = '40000000-0000-4000-8000-000000000519';
+    run(world, world.binaries.colab, [
+      'question',
+      'add',
+      created.pageId,
+      '--id',
+      question,
+      '--title',
+      'Hosted registered question',
+      '--json',
+    ]);
+    await secondPage.getByRole('button', { name: 'Close Source', exact: true }).click();
+    await secondPage.getByLabel('Info', { exact: true }).click();
+    const metadataPanel = secondPage.locator('.reader-information-panel');
+    await expect(metadataPanel).toContainText('Hosted registered question', { timeout: 60000 });
+    const metadataStatus = metadataPanel.getByTestId('reader-metadata-status');
+    const metadataSettled = async (applied: boolean) => {
+      await expect(metadataStatus).toContainText(applied ? 'Change applied' : 'Not applied', {
+        timeout: 60000,
+      });
+      const dialog = secondPage.getByRole('dialog', { name: 'Change creator', exact: true });
+      if (await dialog.isVisible())
+        await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      if (
+        !(await secondPage
+          .locator('.reader-information')
+          .evaluate((node) => (node as HTMLDetailsElement).open))
+      )
+        await secondPage.getByLabel('Info', { exact: true }).click();
+    };
+    await metadataPanel.getByRole('button', { name: 'Change creator…', exact: true }).click();
+    const creatorDialog = secondPage.getByRole('dialog', { name: 'Change creator', exact: true });
+    await creatorDialog.getByLabel('Agent name or ID').fill(metadataAgent.name);
+    await creatorDialog.getByRole('button', { name: 'Change creator', exact: true }).click();
+    await metadataSettled(true);
+    await expect
+      .poll(() =>
+        JSON.parse(run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json'])),
+      )
+      .toMatchObject({ creator: { agent: { id: metadataAgent.id } } });
+    await metadataPanel.getByRole('button', { name: 'Mark handled', exact: true }).click();
+    await metadataSettled(true);
+    await metadataPanel.getByRole('button', { name: 'Reopen', exact: true }).click();
+    await metadataSettled(true);
+    await expect
+      .poll(() =>
+        JSON.parse(run(world, world.binaries.colab, ['question', 'ls', created.pageId, '--json'])),
+      )
+      .toMatchObject({ questions: [{ id: question, state: 'open' }] });
+    await metadataPanel.getByRole('button', { name: 'Change creator…', exact: true }).click();
+    await creatorDialog.getByLabel('Agent name or ID').fill('missing-hosted-metadata-agent');
+    await creatorDialog.getByRole('button', { name: 'Change creator', exact: true }).click();
+    await metadataSettled(false);
+    await expect(metadataStatus).toContainText('That identity was not found.');
+    expect(secondWrites).toHaveLength(7); // Enrollment, two source requests, four metadata requests.
     expect(paths.some((path) => path.includes('/api/serve-release'))).toBe(false);
     expect(unexpected).toEqual([]);
     expect(crashes).toEqual([]);
