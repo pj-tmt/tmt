@@ -160,29 +160,78 @@ impl PrivateServer {
             })
     }
 }
+/// How long a killed private server may take to disappear: the command returns first, the
+/// server exits next and its socket file is removed last.
+const ABSENCE_DEADLINE: Duration = Duration::from_secs(5);
+const ABSENCE_POLL: Duration = Duration::from_millis(25);
+
+/// What one `list-sessions` request on the owned socket showed.
+enum Listing {
+    Sessions(String),
+    Failed { exit: Option<u32>, stderr: String },
+    Unobserved(String),
+}
+impl Listing {
+    fn observe(result: Result<String, CommandError>) -> Self {
+        match result {
+            Ok(sessions) => Self::Sessions(sessions),
+            Err(error) => match (error.kind, error.cleanup_error, error.output) {
+                (CommandFailure::Exit { code, signal: None }, None, Some(output)) => Self::Failed {
+                    exit: code,
+                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                },
+                (kind, cleanup, _) => Self::Unobserved(format!("{kind:?}, cleanup {cleanup:?}")),
+            },
+        }
+    }
+    /// Only tmux saying that no server answers on the socket proves absence. A refused
+    /// connection on a socket file that is not yet removed is a server still shutting down.
+    fn proves_absence(&self) -> bool {
+        matches!(self, Self::Failed { exit: Some(1), stderr }
+            if stderr.starts_with("no server running on ")
+                || (stderr.starts_with("error connecting to ")
+                    && stderr.trim_end().ends_with("(No such file or directory)")))
+    }
+    fn describe(&self) -> String {
+        match self {
+            Self::Sessions(sessions) => format!("a server still lists sessions: {sessions}"),
+            Self::Failed { exit, stderr } => format!("exit {exit:?}: {}", stderr.trim_end()),
+            Self::Unobserved(why) => format!("not observed: {why}"),
+        }
+    }
+}
+
+/// Polls until a listing proves absence or `wait` has passed; the error is the last listing.
+fn await_absence(
+    mut list: impl FnMut() -> Listing,
+    wait: Duration,
+    poll: Duration,
+) -> Result<(), String> {
+    let deadline = Instant::now() + wait;
+    loop {
+        let listing = list();
+        if listing.proves_absence() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(listing.describe());
+        }
+        std::thread::sleep(poll);
+    }
+}
+
 impl Drop for PrivateServer {
     fn drop(&mut self) {
         let _ = self.command(&["kill-server"]);
-        let absent = self.command(&["list-sessions"]).err().is_some_and(|error| {
-            error.cleanup_error.is_none()
-                && matches!(
-                    error.kind,
-                    CommandFailure::Exit {
-                        code: Some(1),
-                        signal: None
-                    }
-                )
-                && error.output.is_some_and(|output| {
-                    let text = String::from_utf8_lossy(&output.stderr);
-                    text.starts_with("no server running on ")
-                        || (text.starts_with("error connecting to ")
-                            && text.trim_end().ends_with("(No such file or directory)"))
-                })
-        });
-        if !absent {
+        let absent = await_absence(
+            || Listing::observe(self.command(&["list-sessions"])),
+            ABSENCE_DEADLINE,
+            ABSENCE_POLL,
+        );
+        if let Err(last) = absent {
             let directory = self.directory.take().unwrap();
             eprintln!(
-                "Private cutover server cleanup unconfirmed: {}",
+                "Private cutover server cleanup unconfirmed: {} (last listing: {last})",
                 directory.0.display()
             );
             std::mem::forget(directory);
@@ -193,6 +242,107 @@ impl Drop for PrivateServer {
         }
     }
 }
+fn gone(stderr: &str) -> Listing {
+    Listing::Failed {
+        exit: Some(1),
+        stderr: stderr.into(),
+    }
+}
+const NO_SERVER: &str = "no server running on /tmp/s";
+const REFUSED: &str = "error connecting to /tmp/s (Connection refused)";
+const NO_SOCKET: &str = "error connecting to /tmp/s (No such file or directory)\n";
+
+#[test]
+fn only_tmux_saying_no_server_answers_proves_absence() {
+    assert!(gone(NO_SERVER).proves_absence());
+    assert!(gone(NO_SOCKET).proves_absence());
+    for not_proof in [
+        gone(REFUSED),
+        gone("error connecting to /tmp/s (Permission denied)"),
+        gone("something else"),
+        Listing::Failed {
+            exit: Some(2),
+            stderr: NO_SERVER.into(),
+        },
+        Listing::Sessions("cutover: 1 windows".into()),
+        Listing::Unobserved("Timeout".into()),
+    ] {
+        assert!(!not_proof.proves_absence(), "{}", not_proof.describe());
+    }
+}
+
+#[test]
+fn a_server_still_shutting_down_is_waited_for_not_declared_unconfirmed() {
+    let mut calls = 0;
+    let result = await_absence(
+        || {
+            calls += 1;
+            if calls < 4 {
+                gone(REFUSED)
+            } else {
+                gone(NO_SERVER)
+            }
+        },
+        Duration::from_secs(5),
+        Duration::from_millis(1),
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(calls, 4);
+}
+
+#[test]
+fn absence_seen_at_once_is_not_polled_again() {
+    let mut calls = 0;
+    let result = await_absence(
+        || {
+            calls += 1;
+            gone(NO_SOCKET)
+        },
+        Duration::from_secs(5),
+        Duration::from_millis(1),
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(calls, 1);
+}
+
+#[test]
+fn a_server_that_never_goes_away_fails_after_the_deadline_with_its_last_listing() {
+    let started = Instant::now();
+    let mut calls = 0;
+    let result = await_absence(
+        || {
+            calls += 1;
+            gone(REFUSED)
+        },
+        Duration::from_millis(60),
+        Duration::from_millis(5),
+    );
+    assert_eq!(
+        result,
+        Err(format!("exit Some(1): {REFUSED}")),
+        "the evidence is the last listing"
+    );
+    assert!(calls > 1, "it polled before giving up");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the wait is bounded"
+    );
+}
+
+#[test]
+fn a_listing_that_cannot_be_read_never_counts_as_absence() {
+    let listing = Listing::Unobserved("Timeout, cleanup None".into());
+    assert!(
+        await_absence(
+            || Listing::Unobserved("Timeout".into()),
+            Duration::ZERO,
+            Duration::ZERO
+        )
+        .is_err()
+    );
+    assert_eq!(listing.describe(), "not observed: Timeout, cleanup None");
+}
+
 struct Fixture {
     server: PrivateServer,
     database: PathBuf,
