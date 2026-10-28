@@ -164,9 +164,12 @@ channels and the driver protocol. The owner map is in
   process, a changed entry, or the shared 1 s budget running out keep tmux, and tmux doubt
   (a stale or partial tmux environment) counts as no tmux pane. The one exception is a
   selection read that fails to clean up: a process it started may still be running, so tmux
-  would be a guess. `Host::for_caller*` return that error, every ordinary command reports it
-  through `caller_context::host` as `CLEANUP_ERROR` (nothing ran; running again is safe), and
-  only the best-effort workspace refresh and `context` observation ignore it.
+  would be a guess. `Host::for_caller*` return that error; caller-scoped operations select
+  through `caller_context::host` and report `CLEANUP_ERROR` (nothing ran; running again is
+  safe). Selection is lazy: explicit senders and stored identity/binding operations do not
+  discover the caller's host; explicit panes use `Host::for_target`, and binding sessions
+  observe each stored binding on its own host. Focus and `focus --client` remain caller-scoped.
+  Only the best-effort workspace refresh and `context` observation ignore selection failure.
   The tmux pane check waits 1 s (`OPERATION_TIMEOUT`); `name`, `whoami`, `unbind` and
   `ls --here` (`binding_command::labeled_caller_pane` through `Host::caller_pane_required`)
   wait 5 s once, no retry, when `TMUX` and `TMUX_PANE` both name a pane. A late tmux there

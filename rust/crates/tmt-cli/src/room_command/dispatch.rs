@@ -43,6 +43,18 @@ fn failure(error: DispatchError, operation_id: &str) -> Failure {
 }
 
 fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
+    run_with(
+        operation,
+        || ConfigPaths::discover().map_err(Failure::from),
+        || crate::caller_context::host(&CallerEnvironment::current()),
+    )
+}
+
+fn run_with(
+    operation: RoomOperation,
+    paths: impl FnOnce() -> Result<ConfigPaths, Failure>,
+    host: impl FnOnce() -> Result<tmt_adapters::host::Host, Failure>,
+) -> Result<DispatchReceipt, Failure> {
     let RoomOperation::Dispatch {
         room,
         message,
@@ -61,7 +73,7 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
             1,
         ));
     }
-    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let paths = paths()?;
     let settings = ConfigFiles {
         paths: paths.clone(),
     }
@@ -89,18 +101,14 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
                 1,
             ));
         }
-        let originator = identity_context::optional(
-            &mut storage,
-            &crate::caller_context::host(&CallerEnvironment::current())?,
-            identity.as_deref(),
-        )?
-        .map_or(Originator::Unknown, |sender| {
-            if identity.is_some() {
-                Originator::Explicit(sender.id)
-            } else {
-                Originator::Verified(sender.id)
-            }
-        });
+        let originator = identity_context::optional(&mut storage, host, identity.as_deref())?
+            .map_or(Originator::Unknown, |sender| {
+                if identity.is_some() {
+                    Originator::Explicit(sender.id)
+                } else {
+                    Originator::Verified(sender.id)
+                }
+            });
         storage
             .dispatch_request(
                 DispatchInput {
@@ -197,3 +205,67 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
         &[""],
         &[],
     )];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::caller_context::test_support::{World, cleanup_failure};
+    use tmt_core::{
+        identity::{Lifetime, create_or_resolve},
+        request::RequestKind,
+        room::{self, MembershipChange, RoomRepository},
+    };
+
+    #[test]
+    fn explicit_room_dispatch_bypasses_failed_caller_selection_but_implicit_dispatch_does_not() {
+        for explicit in [true, false] {
+            let world = World::new();
+            let mut storage = world.storage();
+            let sender = create_or_resolve(&mut storage, "Sender", Lifetime::Saved)
+                .unwrap()
+                .identity;
+            let target = create_or_resolve(&mut storage, "Recipient", Lifetime::Saved)
+                .unwrap()
+                .identity;
+            let room = room::create(&mut storage, "Team".into()).unwrap();
+            storage
+                .change_meeting_membership(&room.id, &target.id, MembershipChange::Join)
+                .unwrap();
+            storage.close().unwrap();
+            let operation_id = tmt_core::operation::new_operation_id();
+            let result = run_with(
+                RoomOperation::Dispatch {
+                    room: room.id,
+                    message: "stored audience".into(),
+                    identity: explicit.then(|| "Sender".into()),
+                    operation_id: Some(operation_id.clone()),
+                    kind: RequestKind::Request,
+                },
+                || Ok(world.paths.clone()),
+                || Err(cleanup_failure()),
+            );
+            if explicit {
+                let receipt = result.unwrap_or_else(|error| panic!("{}", error.message));
+                assert_eq!(receipt.items.len(), 1);
+                assert_eq!(receipt.items[0].recipient_id, target.id);
+                let mut storage = world.storage();
+                let detail = tmt_core::request::RequestService::new(&mut storage, wall_time_ms)
+                    .request_detail(&receipt.items[0].request_id)
+                    .unwrap();
+                assert_eq!(detail.item.originator, Originator::Explicit(sender.id));
+                assert_eq!(
+                    detail.item.recipient_identity_id.as_deref(),
+                    Some(target.id.as_str())
+                );
+                storage.close().unwrap();
+            } else {
+                let error = result.expect_err("implicit caller selection fails");
+                let expected = cleanup_failure().suggestion(format!(
+                    "Retain operation ID {operation_id}; retry only the same composition."
+                ));
+                assert_eq!(error.document(), expected.document());
+                assert_eq!(error.status, 1);
+            }
+        }
+    }
+}

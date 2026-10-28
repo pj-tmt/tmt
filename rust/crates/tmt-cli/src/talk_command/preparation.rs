@@ -10,12 +10,19 @@ use tmt_core::{
 
 pub(super) fn prepare(
     storage: &mut Storage,
-    host: &Host,
+    host: impl FnOnce() -> Result<Host, Failure>,
     input: &Input,
     settings: &Settings,
     interrupt: Option<&Interrupt>,
     data_dir: &std::path::Path,
 ) -> Result<Prepared, Failure> {
+    // Selection must precede recipient reconciliation: Policy A's refusal
+    // promises no effects. Explicit senders need no caller evidence.
+    let caller = if input.originator.is_none() {
+        Some(host()?)
+    } else {
+        None
+    };
     let room = input
         .options
         .room
@@ -129,18 +136,19 @@ pub(super) fn prepare(
             ));
         }
     }
-    let (originator, sender) =
-        identity_context::optional(storage, host, input.originator.as_deref())?.map_or(
-            (Originator::Unknown, "unknown".to_owned()),
-            |identity| {
-                let originator = if input.originator.is_some() {
-                    Originator::Explicit(identity.id)
-                } else {
-                    Originator::Verified(identity.id)
-                };
-                (originator, identity.name)
-            },
-        );
+    let (originator, sender) = identity_context::optional(
+        storage,
+        || Ok(caller.expect("implicit sender host acquired before recipient work")),
+        input.originator.as_deref(),
+    )?
+    .map_or((Originator::Unknown, "unknown".to_owned()), |identity| {
+        let originator = if input.originator.is_some() {
+            Originator::Explicit(identity.id)
+        } else {
+            Originator::Verified(identity.id)
+        };
+        (originator, identity.name)
+    });
     let (request_id, attempt_id) = request_ids();
     let mut correlation = Correlation {
         data_dir: data_dir.to_path_buf(),

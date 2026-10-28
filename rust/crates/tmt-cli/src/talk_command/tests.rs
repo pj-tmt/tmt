@@ -223,3 +223,91 @@ fn unverified_delivery_reports_no_live_input_and_recipient_recovery_in_json() {
             .contains("tmt resume 'Team Lead' there")
     );
 }
+
+#[test]
+fn explicit_local_talk_prepares_a_durable_inbox_request_without_caller_discovery() {
+    use crate::caller_context::test_support::{World, cleanup_failure};
+    use tmt_core::identity::{Lifetime, create_or_resolve};
+    let world = World::new();
+    let mut storage = world.storage();
+    let sender = create_or_resolve(&mut storage, "Sender", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let recipient = create_or_resolve(&mut storage, "Recipient", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let input = caller_host_input(Some("Sender"));
+    let prepared = preparation::prepare(
+        &mut storage,
+        || Err(cleanup_failure()),
+        &input,
+        &Settings::default(),
+        None,
+        &world.paths.global_dir,
+    )
+    .unwrap_or_else(|error| panic!("{}", error.message));
+    assert!(prepared.correlation.inbox);
+    assert_eq!(
+        prepared.correlation.identity.as_ref().unwrap().id,
+        recipient.id
+    );
+    let detail = RequestService::new(&mut storage, wall_time_ms)
+        .request_detail(&prepared.correlation.request_id)
+        .unwrap();
+    assert_eq!(
+        detail.item.originator,
+        tmt_core::request::Originator::Explicit(sender.id)
+    );
+    assert_eq!(
+        detail.item.recipient_identity_id.as_deref(),
+        Some(recipient.id.as_str())
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn implicit_local_talk_still_reports_the_caller_selection_cleanup_error() {
+    use crate::caller_context::test_support::{World, cleanup_failure};
+    use tmt_core::identity::{Lifetime, create_or_resolve};
+    let world = World::new();
+    let mut storage = world.storage();
+    create_or_resolve(&mut storage, "Recipient", Lifetime::Saved).unwrap();
+    for target in ["Recipient", "Missing"] {
+        let mut input = caller_host_input(None);
+        input.target = target.into();
+        let error = preparation::prepare(
+            &mut storage,
+            || Err(cleanup_failure()),
+            &input,
+            &Settings::default(),
+            None,
+            &world.paths.global_dir,
+        )
+        .err()
+        .expect("caller selection precedes recipient work");
+        assert_eq!(error.document(), cleanup_failure().document());
+        assert_eq!(error.status, 1);
+    }
+    storage.close().unwrap();
+}
+
+fn caller_host_input(sender: Option<&str>) -> Input {
+    Input {
+        expected_binding: None,
+        deadline: None,
+        target: "Recipient".into(),
+        message: "explicit sender survives caller selection failure".into(),
+        originator: sender.map(str::to_owned),
+        options: TalkOptions {
+            urgent: false,
+            passthrough: false,
+            digest_kind: tmt_core::request::digest::DigestKind::Fyi,
+            room: None,
+            force: false,
+            detach: true,
+            delay_seconds: None,
+            timeout_seconds: None,
+            no_preamble: true,
+        },
+    }
+}

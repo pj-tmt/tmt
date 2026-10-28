@@ -573,10 +573,9 @@ fn run(
             "Could not open request storage; no message was sent.",
         )
     })?;
-    // The originator is caller-scoped; the recipient's own host delivers.
-    let host = crate::caller_context::host(&CallerEnvironment::current())?;
+    // Only an implicit originator needs the caller; the recipient owns its host.
     let mut cleanup_correlation = None;
-    let pending = preparation::prepare(&mut storage, &host, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
+    let pending = preparation::prepare(&mut storage, || crate::caller_context::host(&CallerEnvironment::current()), &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
         cleanup_correlation = Some(prepared.correlation.clone());
         if !mode.json && !input.options.detach && !input.options.force && let Some(previous) = &prepared.previous_request_id {
             let mut stderr = tmt_cli_style::stream::stderr();

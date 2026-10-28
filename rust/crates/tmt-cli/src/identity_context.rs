@@ -83,7 +83,6 @@ pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
     }
     select(
         &crate::caller_context::host(&CallerEnvironment::current())?,
-        None,
         false,
     )?
     .ok_or_else(required_failure)
@@ -102,23 +101,20 @@ pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Fa
 
 pub fn optional(
     storage: &mut Storage,
-    host: &Host,
+    host: impl FnOnce() -> Result<Host, Failure>,
     explicit: Option<&str>,
 ) -> Result<Option<Identity>, Failure> {
-    match select(host, explicit, true)? {
-        Some(selector) => selected(storage, || Ok(host), selector),
+    if let Some(name) = explicit {
+        return selected(storage, host, Selector::Explicit(name.to_owned()));
+    }
+    let host = host()?;
+    match select(&host, true)? {
+        Some(selector) => selected(storage, || Ok(&host), selector),
         None => Ok(None),
     }
 }
 
-fn select(
-    host: &Host,
-    explicit: Option<&str>,
-    allow_anonymous: bool,
-) -> Result<Option<Selector>, Failure> {
-    if let Some(name) = explicit {
-        return Ok(Some(Selector::Explicit(name.to_owned())));
-    }
+fn select(host: &Host, allow_anonymous: bool) -> Result<Option<Selector>, Failure> {
     if let Err(error) = crate::caller_context::require_independent_host() {
         // Anonymous delivery remains valid, but must not acquire the identity
         // of an unrelated conversation through the shared host's pane.
@@ -181,5 +177,70 @@ fn selected<H: std::borrow::Borrow<Host>>(
                 .map_err(binding_failure)?;
             Ok(observed.identity)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::caller_context::test_support::{World, cleanup_failure};
+    use std::cell::Cell;
+    use tmt_core::identity::{Lifetime, create_or_resolve};
+
+    #[test]
+    fn an_explicit_optional_identity_does_not_acquire_the_callers_host() {
+        let world = World::new();
+        let mut storage = world.storage();
+        let expected = create_or_resolve(&mut storage, "Sender", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let calls = Cell::new(0);
+        let selected = optional(
+            &mut storage,
+            || {
+                calls.set(calls.get() + 1);
+                Err(cleanup_failure())
+            },
+            Some("Sender"),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.id, expected.id);
+        assert_eq!(calls.get(), 0);
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn a_missing_explicit_identity_keeps_its_error_without_caller_discovery() {
+        let world = World::new();
+        let mut storage = world.storage();
+        let missing = optional(
+            &mut storage,
+            || panic!("explicit name discovered caller"),
+            Some("Missing"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            (missing.code.as_str(), missing.status),
+            ("NAME_NOT_FOUND", 3)
+        );
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn an_implicit_optional_identity_preserves_the_selection_cleanup_failure() {
+        let world = World::new();
+        let mut storage = world.storage();
+        let expected = create_or_resolve(&mut storage, "Sender", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let failure = optional(&mut storage, || Err(cleanup_failure()), None).unwrap_err();
+        assert_eq!(failure.document(), cleanup_failure().document());
+        assert_eq!(failure.status, 1);
+        assert_eq!(
+            storage.resolve_identity("Sender").unwrap().unwrap(),
+            expected
+        );
+        storage.close().unwrap();
     }
 }

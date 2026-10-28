@@ -226,3 +226,56 @@ mod tests {
         );
     }
 }
+
+/// Private roots shared by caller-host composition regressions.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use std::{fs, path::PathBuf};
+    use tmt_adapters::{config::ConfigPaths, storage::Storage};
+
+    pub struct World {
+        root: PathBuf,
+        pub paths: ConfigPaths,
+    }
+
+    impl World {
+        pub fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "tmt-caller-host-{}",
+                tmt_core::operation::new_operation_id()
+            ));
+            fs::create_dir_all(root.join("global")).unwrap();
+            let paths = ConfigPaths {
+                global_dir: root.join("global"),
+                global_config: root.join("global/config.json"),
+                local_config: root.join("local.json"),
+                database: root.join("global/tmt.db"),
+            };
+            Self { root, paths }
+        }
+
+        pub fn storage(&self) -> Storage {
+            Storage::open(&self.paths.database).unwrap()
+        }
+    }
+
+    impl Drop for World {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+
+    pub fn cleanup_failure() -> Failure {
+        selection_failed(HostError::Unavailable("caller probe survived".into()))
+    }
+
+    pub fn environment() -> CallerEnvironment {
+        CallerEnvironment {
+            tmux: None,
+            pane: None,
+            process_id: std::process::id().into(),
+            driver_env: Default::default(),
+        }
+    }
+}
