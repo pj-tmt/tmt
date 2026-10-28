@@ -143,6 +143,25 @@ impl Reads {
     fn lock(&self) -> MutexGuard<'_, HashMap<Target, Slot>> {
         self.slots.lock().unwrap_or_else(PoisonError::into_inner)
     }
+    /// The cross-machine summary reads only Ops' public roster, never cron or the broad browser projection.
+    pub fn squad_summary(
+        &self,
+        machine_name: &str,
+    ) -> Result<crate::squads::Summary, crate::error::RemoteError> {
+        let unavailable = || {
+            crate::error::RemoteError::new(
+                "REMOTE_SUMMARY_UNAVAILABLE",
+                "The public Ops squad summary is unavailable.",
+            )
+        };
+        let board = self
+            .json(
+                &["ops", "squad", "ls", "--json"],
+                Instant::now() + self.wait,
+            )
+            .map_err(|_| unavailable())?;
+        crate::squads::Summary::from_ops(machine_name, now_ms(), &board).map_err(|_| unavailable())
+    }
     /// The JSON body to send for `read`, waiting at most `READ_WAIT` in total.
     pub(crate) fn body(&self, read: Target) -> Arc<Vec<u8>> {
         let deadline = Instant::now() + self.wait;

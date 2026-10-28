@@ -12,6 +12,14 @@ use crate::{
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
+/// Evidence acquired through the existing carrier or a verified original-operation observation.
+pub(crate) enum DeliveryEvidence {
+    Unknown,
+    CarrierStored,
+    Journal(serde_json::Value),
+    Request(serde_json::Value),
+}
+
 pub struct Sender {
     provider: Provider,
     store: Arc<Mutex<Store>>,
@@ -351,6 +359,67 @@ impl Sender {
             None => Err(unconfirmed()),
         }
     }
+    /// Never invokes dispatch.create, claims the original again or reconstructs its plaintext.
+    pub(crate) async fn delivery(
+        &self,
+        original: &str,
+        descriptor: &VerifiedDescriptor,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<DeliveryEvidence, RemoteError> {
+        let old = self
+            .store
+            .lock()
+            .map_err(crate::store::database)?
+            .cloud_observe_outgoing(&self.peer, original, self.provider.machine())?;
+        let Some(old) = old.filter(|row| row.attempted) else {
+            return Ok(DeliveryEvidence::Unknown);
+        };
+        super::check_request_age(old.created_ms, now)?;
+        let observed = self.provider.get(&self.peer, "inbox", original, io).await?;
+        match observed {
+            Some(doc) if doc.bytes() == old.carrier => {}
+            Some(_) => return Err(conflict()),
+            None => return Err(unconfirmed()),
+        }
+        // Queued means an exact durable carrier is observed with no recipient response yet.
+        // A failed read or timeout never supplies this evidence.
+        if self
+            .provider
+            .get(&self.peer, "responses", original, io)
+            .await?
+            .is_none()
+        {
+            return Ok(DeliveryEvidence::CarrierStored);
+        }
+        let bytes = self.recover(original, descriptor, now, io).await?;
+        let journal = SignedMessage::decode_any(&bytes, crate::limits::CLOUD_ENVELOPE_BYTES)
+            .ok_or_else(invalid)?
+            .input;
+        if journal["operationId"] != original {
+            return Err(invalid());
+        }
+        if journal["state"] != "accepted" {
+            return Ok(DeliveryEvidence::Journal(journal));
+        }
+        let request = journal["requestId"]
+            .as_str()
+            .filter(|id| id.strip_prefix("req_").is_some_and(canonical::is_core_id))
+            .ok_or_else(invalid)?;
+        let payload =
+            json!({"version":1,"operation":"requests.show","input":{"requestId":request}})
+                .to_string();
+        let detail = self
+            .read_remote("requests.show", &payload, descriptor, now, io)
+            .await?;
+        let detail = SignedMessage::decode_any(&detail, crate::limits::CLOUD_ENVELOPE_BYTES)
+            .ok_or_else(invalid)?
+            .input;
+        if detail["requestId"] != request {
+            return Err(invalid());
+        }
+        Ok(DeliveryEvidence::Request(detail))
+    }
     fn claim(
         &self,
         id: &str,
@@ -403,12 +472,27 @@ impl Sender {
         now: u64,
         io: &IoBudget<'_>,
     ) -> Result<Vec<u8>, RemoteError> {
-        // Fresh signed observation, never a second dispatch. A lost observation can itself be
-        // replaced by another read-only observation of the original operation, not a reseal.
+        self.read_remote(
+            "operation.show",
+            &json!({"operationId":original}).to_string(),
+            descriptor,
+            now,
+            io,
+        )
+        .await
+    }
+    async fn read_remote(
+        &self,
+        operation: &str,
+        payload: &str,
+        descriptor: &VerifiedDescriptor,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<Vec<u8>, RemoteError> {
+        // Fresh signed observation, never a second dispatch. Recovery uses the original ID.
         let id = uuid_v4()?;
         let window = uuid_v4()?;
         let session = uuid_v4()?;
-        let payload = json!({"operationId":original}).to_string();
         let envelope = Envelope {
             kind: "request",
             id: &id,
@@ -420,7 +504,7 @@ impl Sender {
             sequence: "1",
             timestamp_ms: now,
             origin: "cli",
-            operation: "operation.show",
+            operation,
             payload: payload.as_bytes(),
         };
         let signature = canonical::base64url(
@@ -428,7 +512,7 @@ impl Sender {
                 .key
                 .sign(&canonical::envelope(&envelope).map_err(|_| invalid())?),
         );
-        let exact=json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":envelope.machine_id,"windowId":window,"clientId":self.peer,"sessionId":session,"sequence":"1","timestampMs":now,"origin":"cli","operation":"operation.show","payload":canonical::base64url(payload.as_bytes()),"signature":signature}).to_string();
+        let exact=json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":envelope.machine_id,"windowId":window,"clientId":self.peer,"sessionId":session,"sequence":"1","timestampMs":now,"origin":"cli","operation":operation,"payload":canonical::base64url(payload.as_bytes()),"signature":signature}).to_string();
         let (carrier, opener) = super::seal_native(
             exact.as_bytes(),
             descriptor,
@@ -444,7 +528,18 @@ impl Sender {
             .lock()
             .map_err(crate::store::database)?
             .cloud_freeze_outgoing(&self.peer, &id, payload.as_bytes(), &carrier, now)?;
-        self.exchange(&id, &carrier, opener, io).await
+        let bytes = self.exchange(&id, &carrier, opener, io).await?;
+        let signed = SignedMessage::decode_any(&bytes, crate::limits::CLOUD_ENVELOPE_BYTES)
+            .ok_or_else(invalid)?;
+        let header = signed.envelope();
+        if header.kind != "response"
+            || header.correlation_id != Some(id.as_str())
+            || header.operation != operation
+            || header.machine_id != self.provider.machine()
+        {
+            return Err(invalid());
+        }
+        Ok(bytes)
     }
 }
 fn invalid() -> RemoteError {

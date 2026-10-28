@@ -78,3 +78,5 @@ pub(crate) mod test_isolation;
 #[cfg(test)]
 #[path = "../tests/support/emulator_http.rs"]
 pub(crate) mod emulator_http;
+
+pub mod squads;
