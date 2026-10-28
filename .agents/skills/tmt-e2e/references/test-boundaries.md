@@ -172,8 +172,12 @@ tracks only this run's fixtures and process groups; suite teardown and the
 main-process SIGINT/SIGTERM handlers clean them, report survivors and retain
 unconfirmed paths. Before stopping a private server, cleanup records each pane's
 group and terminal foreground group with their leader start times; it signals a
-group only if its leader still matches. SIGKILL supervision remains outside this
-boundary.
+group only if its leader still matches. Exited-process PGID sentinels (-1 or their
+unsigned representation) are gone observations; a still-live group without a
+verifiable leader fails cleanup. An exact no-server response from the owned
+private tmux socket permits removing its stale socket inode after reasserting
+the private-root boundary. Other failures and changed file types remain errors.
+SIGKILL supervision remains outside this boundary.
 
 Unknown group inspection stays pending inside the one-second cleanup bound;
 surviving or uninspectable groups fail cleanup. Preserve fixture cleanup order

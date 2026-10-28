@@ -1,21 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { spawn } from 'node:child_process';
+import * as childProcess from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
   FixtureRegistration,
   groupLeader,
+  paneOwnedGroups,
   registerFixture,
   setup,
   stopOwnedGroups,
 } from '../e2e/harness/lifecycle.js';
+import { locateTmux } from '../support/private-tmux.js';
 import { killAndWait } from '../e2e/harness/cleanup.js';
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFileSync: vi.fn(actual.execFileSync),
+    spawnSync: vi.fn(actual.spawnSync),
+  };
+});
 
 const gone = Object.assign(new Error('group gone'), { code: 'ESRCH' });
 const unknown = Object.assign(new Error('inspection denied'), { code: 'EPERM' });
 
 afterEach(() => {
+  vi.resetAllMocks();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -154,6 +167,105 @@ describe('E2E group identity', () => {
         process.kill(-child.pid, 'SIGKILL');
       }
       await closed;
+    }
+  });
+});
+
+describe('exited E2E group observations', () => {
+  it.each(['-1', '4294967295'])('treats ps group %s as already gone', (pgid) => {
+    vi.spyOn(childProcess, 'execFileSync').mockReturnValue(`${pgid} Wed Oct 28 04:09:33 2026`);
+    const signal = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw gone;
+    });
+    expect(groupLeader(95404)).toBeUndefined();
+    expect(paneOwnedGroups(95404)).toEqual([]);
+    expect(() =>
+      stopOwnedGroups([{ pid: 95404, started: 'Wed Oct 28 04:09:33 2026' }])
+    ).not.toThrow();
+    expect(signal.mock.calls.every(([, value]) => value === 0)).toBe(true);
+  });
+
+  it('accepts exit while waiting for a verified group to stop', () => {
+    vi.spyOn(childProcess, 'execFileSync')
+      .mockReturnValueOnce('95407 known')
+      .mockReturnValue('4294967295 known');
+    let stopped = false;
+    vi.spyOn(process, 'kill').mockImplementation((_pid, value) => {
+      if (value === 'SIGTERM') {
+        stopped = true;
+        return true;
+      }
+      if (stopped) throw gone;
+      return true;
+    });
+    expect(() => stopOwnedGroups([{ pid: 95407, started: 'known' }])).not.toThrow();
+  });
+
+  it.each(['-1', '4294967295'])('ignores an exited foreground group %s', (pgid) => {
+    vi.spyOn(childProcess, 'execFileSync')
+      .mockReturnValueOnce('95405 Wed Oct 28 04:09:33 2026')
+      .mockReturnValueOnce(pgid);
+    expect(paneOwnedGroups(95405)).toEqual([{ pid: 95405, started: 'Wed Oct 28 04:09:33 2026' }]);
+  });
+
+  it('keeps an unidentifiable surviving group failing', () => {
+    vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+      throw Object.assign(new Error('gone'), { status: 1 });
+    });
+    const signal = vi.spyOn(process, 'kill').mockReturnValue(true);
+    expect(() => stopOwnedGroups([{ pid: 95406, started: 'known' }])).toThrow(
+      'Cannot identify E2E group'
+    );
+    expect(signal.mock.calls.every(([, value]) => value === 0)).toBe(true);
+  });
+});
+
+describe('stopped registered E2E server', () => {
+  it('removes the stale socket at the first no-server observation without retrying absent resources', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-e2e-stale-')));
+    const parent =
+      process.platform === 'darwin'
+        ? fs.realpathSync('/private/tmp')
+        : fs.realpathSync(os.tmpdir());
+    const socketRoot = fs.mkdtempSync(path.join(parent, 'te2e-stale-'));
+    const socket = path.join(socketRoot, 'stale.sock');
+    const teardown = setup();
+    try {
+      const tmuxPath = locateTmux();
+      childProcess.execFileSync(process.execPath, [
+        '-e',
+        "require('node:net').createServer().listen(process.argv[1], () => process.exit(0))",
+        socket,
+      ]);
+      registerFixture({
+        root,
+        socketRoot,
+        socketPath: socket,
+        tmuxPath,
+        serverPid: 0,
+        paneGroups: [],
+        cliGroups: [],
+      });
+      const stderr = `no server running on ${socket}`;
+      const query = vi.spyOn(childProcess, 'spawnSync').mockReturnValue({
+        pid: 0,
+        output: [null, '', stderr],
+        stdout: '',
+        stderr,
+        status: 1,
+        signal: null,
+      });
+      query.mockClear();
+      // Registered fixtures still trigger the suite-end survivor verdict; cleanup itself succeeds.
+      expect(teardown).toThrow(`E2E fixture survived suite end: ${root}`);
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(fs.existsSync(root)).toBe(false);
+      expect(fs.existsSync(socketRoot)).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(socketRoot, { recursive: true, force: true });
+      teardown();
     }
   });
 });

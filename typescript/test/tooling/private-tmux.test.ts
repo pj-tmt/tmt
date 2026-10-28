@@ -5,6 +5,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
   symlinkSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -15,6 +16,7 @@ import {
   hostSocketDirectories,
   privateTmux,
   stopPrivateTmuxSocket,
+  removeStoppedPrivateTmuxSocket,
   PrivateTmuxRefused,
 } from '../support/private-tmux.js';
 
@@ -224,6 +226,28 @@ describe('hostSocketDirectories', () => {
       expect(() => assertPrivateSocket(`/tmp/tmux-${uid}/probe.sock`, fixture.root, {})).toThrow(
         PrivateTmuxRefused
       );
+    });
+  });
+});
+
+describe('stopped private tmux sockets', () => {
+  it('accepts only the exact no-server response and retains other failures', async () => {
+    await withFixture((fixture) => {
+      const socket = path.join(fixture.root, 'stale.sock');
+      const absent = { status: 1, stderr: `no server running on ${socket}` };
+      expect(removeStoppedPrivateTmuxSocket(socket, fixture.root, absent)).toBe(true);
+      for (const result of [
+        { status: 0, stderr: '' },
+        { status: 1, stderr: 'permission denied' },
+        { status: 1, stderr: `no server running on ${socket}.other` },
+        { ...absent, error: new Error('timed out') },
+      ])
+        expect(removeStoppedPrivateTmuxSocket(socket, fixture.root, result)).toBe(false);
+      writeFileSync(socket, 'keep evidence');
+      expect(() => removeStoppedPrivateTmuxSocket(socket, fixture.root, absent)).toThrow(
+        'changed type'
+      );
+      expect(readFileSync(socket, 'utf8')).toBe('keep evidence');
     });
   });
 });
