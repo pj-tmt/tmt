@@ -473,13 +473,22 @@ fn final_process_recheck_cannot_spend_the_delivery_receipt_budget() {
     let (release_observation, release) = mpsc::channel();
     let (queued, queues) = mpsc::channel();
     let (release_receipt, receipt) = mpsc::channel();
+    let (release_startup, startup) = mpsc::channel();
+    // Only send's own deadlines are clocks here. The controller waits on the
+    // fixture by disconnection: a fixture that ends early drops its sender.
     let controller = std::thread::spawn(move || {
-        let deadline = observes.recv_timeout(Duration::from_secs(3)).unwrap();
+        let deadline = observes.recv().expect("send reaches its final recheck");
         hold_until(deadline - Duration::from_millis(150));
         release_observation.send(()).unwrap();
-        queues.recv_timeout(Duration::from_secs(3)).unwrap(); // independent proof that the sole queue frame arrived
+        queues.recv().expect("the sole queue frame arrives");
         hold_until(deadline + Duration::from_millis(10));
         release_receipt.send(()).unwrap();
+    });
+    // Fixture startup is outside send's budgets. A stall as long as the whole
+    // preparation budget, before send starts, cannot fail the test.
+    let startup_holder = std::thread::spawn(move || {
+        hold_until(Instant::now() + PREPARATION_BUDGET);
+        release_startup.send(()).unwrap();
     });
     let runner = GatedObservation {
         calls: std::cell::Cell::new(0),
@@ -489,6 +498,7 @@ fn final_process_recheck_cannot_spend_the_delivery_receipt_budget() {
     let outcome = real_socket_send(
         0,
         PeerControl {
+            startup: Some(startup),
             receipt: PeerReceipt::AfterGate {
                 queued,
                 release: receipt,
@@ -497,8 +507,11 @@ fn final_process_recheck_cannot_spend_the_delivery_receipt_budget() {
         },
         &runner,
     );
+    let calls = runner.calls.get();
+    drop(runner);
+    startup_holder.join().unwrap();
     controller.join().unwrap();
-    assert_eq!(runner.calls.get(), 6);
+    assert_eq!(calls, 6);
     assert_eq!(outcome, ActionResult::Completed(DeliveryAcceptance::Queued));
 }
 #[test]
@@ -507,7 +520,7 @@ fn expired_final_process_recheck_sends_no_queue_frame() {
     let (entered, observes) = mpsc::channel();
     let (release_observation, release) = mpsc::channel();
     let controller = std::thread::spawn(move || {
-        let deadline = observes.recv_timeout(Duration::from_secs(3)).unwrap();
+        let deadline = observes.recv().expect("send reaches its final recheck");
         hold_until(deadline + Duration::from_millis(10));
         release_observation.send(()).unwrap();
     });
@@ -524,8 +537,10 @@ fn expired_final_process_recheck_sends_no_queue_frame() {
         },
         &runner,
     );
+    let calls = runner.calls.get();
+    drop(runner);
     controller.join().unwrap();
-    assert_eq!(runner.calls.get(), 6);
+    assert_eq!(calls, 6);
     assert_eq!(outcome, denied(ChannelFault::NotReady));
 }
 
