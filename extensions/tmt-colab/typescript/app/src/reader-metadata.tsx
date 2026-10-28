@@ -34,7 +34,7 @@ export function ReaderMetadataInfo({
   focusFallback(): HTMLElement | null;
 }) {
   const [creator, setCreator] = useState<PageView>();
-  const theme = useSyncExternalStore(subscribeTheme, getTheme);
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const observed = useSyncExternalStore(
     metadata?.subscribe ?? noSubscription,
     metadata?.snapshot ?? noStatus,

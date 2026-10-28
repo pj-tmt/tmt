@@ -6,7 +6,7 @@ import { text } from './strings.js';
 import './question-registry-view.css';
 const t = text.metadata;
 
-/** Shared read-only presentation. Only the owner dialog supplies its admitted action controls. */
+/** Shared registry presentation. Callers supply controls through their admitted write boundary. */
 export function QuestionRegistryView({
   view,
   renderAction,
