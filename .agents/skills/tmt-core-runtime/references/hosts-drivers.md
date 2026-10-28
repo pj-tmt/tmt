@@ -49,6 +49,7 @@ channels and the driver protocol. The owner map is in
   drivers add nothing. `check` is bounded diagnostics,
   never a response channel. `response_input` polls against the deadline before each read and
   never mutates stdin flags.
+- A leaf probe such as `ps` never forks and stays in its caller's process group, so a supervisor's group kill also ends it; `process::interactive` owns direct terminal children without taking the shared process group.
 
 ## Host port
 

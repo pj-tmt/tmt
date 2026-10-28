@@ -151,7 +151,6 @@ core wins every collision. On Unix the adapter `exec`s, so the extension inherit
 stdio, TTY and signals and its exit status is the command's. `core_executable` hands
 companions the managed stable launcher via `TMT_EXECUTABLE`, else the invoking executable.
 Only the tail is forwarded; missing official names reuse native installation.
-Completion v1 is optional, bounded and falls back to file completion on any failure.
 
 ### Local extension API (v1)
 
@@ -164,7 +163,6 @@ Request admission stays fresh and a schema change ends it with a reopen code.
 frames. The CLI owns publication, request boundaries and cleanup, with no listener
 or daemon. Protocol major 1 accepts additive operations and fields; incompatible
 changes need a new major.
-[Optional extension uses](contracts/extension-api.md#optional-cross-extension-uses) follow the receipt-only query contract.
 Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The
 [extension API contract](contracts/extension-api.md) owns the protocol and operation contracts.
@@ -193,7 +191,6 @@ nothing.
 
 The [grammar](rust/crates/tmt-cli/src/grammar.rs) owns primary names, aliases and
 the public help surface; core reserves its names before external dispatch.
-Hidden internal commands are not a public surface.
 Core owns [workspace geometry/codecs](contracts/workspace-v1.md#restore-authority) and generations; adapters, atomic publication/fenced
 creation; CLI, consent/output. Restore pins bytes; full restore uses ordinary
 resume/external dispatch in created panes. Layout-only grants no launch authority.
@@ -223,13 +220,9 @@ check keeps name/pane routing and its existing Digest opportunity.
   hands off once and uses the existing stop/move and caller-owned launch paths.
   Drivers verify processes, map events and own state; core never parses it. CLI learns direct sessions after output via this admission/CAS,
   with bounded silent refusal, storage-only prechecks and private TTL hints.
-  Provider end leaves readiness Unknown until fresh start; only proven process loss
-  ends the incarnation. Claude approval notifications set waiting;
-  only admitted events clear it, never a timer.
-- Presence reads acquire host evidence outside the database writer lock and
-  recheck their captured records before reconciliation. Changed records never
-  authorize retirement or detachment; unchanged records retain conclusive stale
-  binding cleanup.
+  Only proven process loss ends the incarnation.
+- Presence reads acquire host evidence outside the writer lock; changed records
+  never authorize retirement or detachment.
 - Lifecycle hooks complete existing bindings, never create or move identities. The one binding a
   hook makes is SessionStart in an unbound pane for the one saved identity that remembers that
   exact session ([rule](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
@@ -238,7 +231,7 @@ check keeps name/pane routing and its existing Digest opportunity.
   setup publication (including interactively approved upgrade scopes) and recorded refresh change provider settings.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
   one value for comparing local processes.
-- Concrete caller/target and storage rules:
+- Concrete caller/target, row and clear, presence, readiness and storage rules:
   [identity and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md)
   and [workspace recovery](.agents/skills/tmt-core-runtime/references/workspace.md).
 
@@ -257,9 +250,7 @@ preserves notebooks.
 `tmt-adapters::config::ConfigPaths` is the sole path owner and managed-release-only default cutover owner, refusing a new database beside a former store;
 `config::document` preserves unknown JSON fields and validates known settings
 through `tmt-core::settings`; `init` creates the local file exclusively and never
-opens SQLite or tmux. Global `theme.base` writes reuse the CLI style base registry; the global `theme` object is presentation, interpreted only by
-`tmt-cli-style` (and read by Ops through `config show`); a bad theme never fails
-configuration loading. Only `tmt-cli-style` names colors. Details are in the
+opens SQLite or tmux. Only `tmt-cli-style` names colors and interprets the presentation-only `theme`. Details are in the
 [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md#configuration-and-theme).
 
 ### SQLite and durable exchanges
@@ -282,25 +273,19 @@ maps their modules and Stop queue. A [passthrough](contracts/request-response-v1
 a person's typed text, not a request; it settles that agent's oldest open request
 and earns its turn's final. CLI and API share admission. Capture admits the full runtime registry before Digest;
 [batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals, granting no runtime authority.
-Adapters admit idle handoff; extensions schedule. Talk and Digest share one item
-frame; checklist claims seal whole-item prefixes within 32 KiB (live paste may
-carry one oversized first item; hooks leave it held). Clocks sample at transaction entry;
+Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
 the durable identity inbox, which settles `queued`. Unbound identity delivery uses
-the foreground observer and recipient pull. Reply notice windows are persisted;
-detached workers are finite. The [request contract](contracts/request-response-v1.md)
+the foreground observer and recipient pull. The [request contract](contracts/request-response-v1.md)
 owns behavior and limits.
 
 ### Tmux and process effects
 
 `tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
 monotonic deadlines, group cleanup, reaping and invocation-owned SIGINT forwarding) and
-native-first process-incarnation acquisition. A leaf probe such as `ps` never forks and
-stays in its caller's process group, so a supervisor's group kill also ends it;
-`process::interactive` owns direct terminal children without taking the shared process
-group. `tmux` pins caller or recorded
+native-first process-incarnation acquisition. `process::interactive` owns direct terminal children. `tmux` pins caller or recorded
 sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
 
@@ -356,12 +341,8 @@ Managed agent guidance is a filesystem concern separate from application state.
 embedded and materialized by digest under `skill_installation`, and the
 architecture test rejects duplicate multi-name lists in production Rust. Core install exposes
 only `tmt` and `tmt-inbox`.
-[Retired bundle verification and preservation](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills) follow the installer owner;
-explicit generic owner removal retains its existing authority, and explicit `--purge` retains its existing semantics.
-Refresh and default uninstall preserve retired links, owner records and sources.
-Skill installation never opens configuration,
-SQLite or tmux.
-[Catalog publication](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills) follows the installer owner.
+Skill installation never opens configuration, SQLite or tmux. Retired bundles, catalog
+publication, removal and refresh/uninstall preservation follow the [installer owner](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills).
 Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
 (explicit consent), are stored per owner and linked into the same roots; the first
 owner of a name keeps it until an explicit force and core names are reserved.
@@ -427,10 +408,10 @@ own module/drawing boundaries and verification.
   No Ops data enters `config.json` or Core's database.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
-  `board::unread` and `board::selected_conversation` project Core answers off-thread and acknowledge only through public `requests.ack`; `board::buttons` owns chip paint and hover. Lifecycles and module rules: [Ops references](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
+  Lifecycles and module rules: [Ops references](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
   The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.
-  Savings and usage figures come from `labels::Reader`/`labels::digest` (supplier estimates, never provider history) and `usage_report::Reader`; `usage_report::valuation` is the one reader of TOK and input price, for the Digest table and the Agents TOK figures alike. [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns ranges and lifecycles.
+  Savings and usage figures are supplier estimates, never provider history; [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns their readers, valuation and lifecycles.
   Member references resolve through the acquired global identity inventory and grant no delivery authority or paint/input I/O ([reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md)).
   Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config under owned locks; cron jobs and counters remain keyed by that UUID. Partial results
   offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
