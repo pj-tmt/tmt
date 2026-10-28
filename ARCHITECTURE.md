@@ -263,9 +263,11 @@ and retention, refuse customized table definitions instead of rebuilding them, a
 board-relevant core tables advance the durable change cursor through triggers that a
 test requires new tables and columns to extend. Typed not-writable storage failures
 are classified once and projected through `tmt-command-output::Failure::storage_access`.
-Bundled SQLite is built with `SQLITE_DEFAULT_MEMSTATUS=0` ([`.cargo/config.toml`](.cargo/config.toml)):
+Repository Cargo builds default bundled SQLite to `SQLITE_DEFAULT_MEMSTATUS=0` ([`.cargo/config.toml`](.cargo/config.toml)):
 with statistics on, every allocation takes one process-wide mutex, and parallel cold opens
-convoy past the busy bound (#5335). No code may read SQLite memory statistics.
+convoy past the busy bound (#5335). An exported `LIBSQLITE3_FLAGS`, Cargo runs outside the
+checkout and Docker stages that do not copy `.cargo/` keep SQLite's default. No code may read
+SQLite memory statistics.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and retention
