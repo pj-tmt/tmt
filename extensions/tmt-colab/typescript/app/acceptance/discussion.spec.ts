@@ -40,10 +40,10 @@ async function view(page: Page, name: 'Open' | 'Resolved') {
     .click();
 }
 async function comments(page: Page) {
-  // The document header precedes verified threads after reload. Its count is absent until
-  // that projection is ready; do not toggle against the opening header and lose the action.
+  // The dock's Comments action precedes verified threads after reload. Its count is absent until
+  // that projection is ready; do not toggle before it and lose the action.
   await expect(
-    page.locator('.page-header-actions').getByRole('button', { name: /^Discussion \(\d+\)/ }),
+    page.locator('.page-floating-actions').getByRole('button', { name: /^Comments \(\d+\)/ }),
   ).toBeVisible();
   const panel = commentsRegion(page);
   if (!(await panel.isVisible())) await (await pageAction(page, 'Comments')).click();
@@ -223,7 +223,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       console.log(
         JSON.stringify({ width, windowScrollTop, frameScrollTop, marker: 'END OF PAGE' }),
       );
-      expect((await first.locator('.tmt-ui-topbar:visible').boundingBox())?.y).toBe(0);
+      expect((await first.locator('.tmt-ui-header:visible').boundingBox())?.y).toBe(0);
       await first.screenshot({
         path: `${captureDir}/1587-native-${width}-light-long-scrolled.png`,
       });
@@ -316,7 +316,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         agent.pane,
       );
       await expect(first.locator('iframe')).not.toHaveAttribute('data-source-digest', digest!);
-      await expect(first.locator('.tmt-ui-topbar .status')).toContainText('Live');
+      await expect(first.locator('.tmt-ui-header .status')).toContainText('Live');
     };
     await replaceSource(
       html.replace('An &amp; <em>🌍 exact quote</em> for review.', 'The source was updated.'),

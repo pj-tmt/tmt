@@ -95,7 +95,7 @@ test('the served Agents view reads the admitted directory without sending or reo
     const row = panel.locator('.agent-status-list li').filter({ hasText: agent.id });
     await expect(row).toContainText(agent.name);
     await expect(row).toHaveAttribute('data-presence', /^(active|offline|unknown)$/);
-    await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(2);
+    await expect(panel.getByText('Read', { exact: true })).toHaveCount(2);
     await panel.getByRole('button', { name: 'Recheck status' }).click();
     await expect(panel.getByRole('button', { name: 'Recheck status' })).toBeEnabled();
     await expect(row).toBeVisible();

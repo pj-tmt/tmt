@@ -18,6 +18,11 @@ export async function showResolvedOn(page: Page) {
   await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
 }
 
+/** The visible bar's buttons: the shared top bar where Colab is the shell's root, the module header
+ * in the shell bar where a host's shell mounts Colab (the hosted mount keeps its own header). */
+const BAR_BUTTONS =
+  '.tmt-ui-topbar:visible button:visible, .tmt-ui-shell-bar:visible > .tmt-ui-header:visible button:visible';
+
 /** Resolve page actions: Comments and Chat are the dock's, page tools (including Agent status) are in
  * the top bar's More menu, and readers keep their direct Files control. */
 export async function pageAction(host: Page | Locator, name: string): Promise<Locator> {
@@ -36,10 +41,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
       return;
     }
     // The first covered-header press dismisses only; the action needs a second press.
-    const button = await page
-      .locator('.tmt-ui-topbar:visible button:visible')
-      .first()
-      .boundingBox();
+    const button = await page.locator(BAR_BUTTONS).first().boundingBox();
     if (!button) throw new Error('Open drawer has no visible header return target');
     await page.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
     await drawer.waitFor({ state: 'hidden' });
