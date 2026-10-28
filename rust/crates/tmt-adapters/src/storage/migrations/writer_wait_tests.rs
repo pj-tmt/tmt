@@ -11,11 +11,12 @@ use std::{
     thread,
 };
 
-// Each version outlasts a writer slice, so some slices see no progress, but
-// none outlasts the stall bound; the whole chain outlasts it several times.
-const CHAIN: usize = 5;
-const STEP: Duration = Duration::from_millis(250);
-const STALL: Duration = Duration::from_millis(400);
+// Each version outlasts the 100 ms writer slice, so some slices see no
+// progress, yet takes a fifth of the stall bound, leaving 800 ms of slack for a
+// loaded host; the whole chain outlasts the stall bound twice.
+const CHAIN: usize = 10;
+const STEP: Duration = Duration::from_millis(200);
+const STALL: Duration = Duration::from_millis(1000);
 
 fn history_database(directory: &TestDirectory, recorded: usize) -> PathBuf {
     let path = directory.path.join("history.db");
