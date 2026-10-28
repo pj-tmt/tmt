@@ -143,7 +143,7 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
   for (const [reason, copy] of [
     [
       'TALK_NOT_ENABLED',
-      'cannot send to agents. Ask the owner to enable sending for this device in Remote settings, or on the machine that runs Remote: tmt remote devices talk',
+      'cannot send to agents. Ask the owner to enable sending for your member in Remote settings, or on the machine that runs Remote: tmt remote members sending <member-id> on',
     ],
     ['REMOTE_SCOPE_DENIED', 'Your Remote permission does not allow this ask.'],
     ['REMOTE_INPUT_INVALID', 'Remote rejected this message. Write a new message.'],
@@ -161,6 +161,12 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
     await run(page, 'syncRefusal', reason);
     await expect(page.getByTestId('ask-state').first()).toContainText('Not delivered');
     await expect(page.getByTestId('ask-entry').first()).toContainText(copy);
+    if (reason === 'TALK_NOT_ENABLED') {
+      await expect(page.getByTestId('ask-entry').first()).toContainText(`browser ID: ${id(4)}`);
+      await expect(page.getByTestId('ask-entry').first()).not.toContainText(
+        `members sending ${id(4)}`,
+      );
+    }
     const mark = page
       .getByTestId('ask-state')
       .first()

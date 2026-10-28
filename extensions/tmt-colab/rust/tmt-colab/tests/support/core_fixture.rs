@@ -81,15 +81,20 @@ exec "$TMT_COLAB_TEST_ROOT/core" "$@"
         r#"#!/bin/sh
 if [ "$1" = __fixture_ready ]; then exit 0; fi
 cd "$TMT_COLAB_TEST_ROOT" || exit 9
-case "$1 $2 $3" in
-'remote status --json')
+case "$*" in
+'remote status --json'*)
 . ./remote-status
 ;;
-'remote devices --json')
-[ -f devices.json ] && cat devices.json && exit 0
+'remote members --json --limit 10')
+[ -f machines.json ] || exit 1
+printf '%s\n' '{"members":[{"memberId":"fixture-person","revokedAtMs":null}],"nextCursor":null}'
+exit 0
+;;
+'remote members machines fixture-person --json --limit 10')
+[ -f machines.json ] && cat machines.json && exit 0
 exit 1
 ;;
-'remote serve --json')
+'remote serve --json'*)
 printf '%s\n' "$*" >> serve.calls
 echo $$ > serve.pid
 . ./remote-serve

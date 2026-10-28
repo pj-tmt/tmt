@@ -548,7 +548,7 @@ export const text = {
   askFinalUnavailable: 'The agent result is unavailable.',
   askScopeDenied: 'Your Remote permission does not allow this ask.',
   askTalkNotEnabled: (device: string) =>
-    `This browser can read pages but cannot send to agents. Ask the owner to enable sending for this device in Remote settings, or on the machine that runs Remote: tmt remote devices talk ${device} on`,
+    `This browser can read pages but cannot send to agents. Ask the owner to enable sending for your member in Remote settings, or on the machine that runs Remote: tmt remote members sending <member-id> on. Find the member with tmt remote members and tmt remote members machines <member-id> (browser ID: ${device}).`,
   askInputInvalid: 'Remote rejected this message. Write a new message.',
   askRateLimited: 'Remote is busy. Try again later.',
   askIntentConflict: 'This operation already has a different message. Write a new message.',
