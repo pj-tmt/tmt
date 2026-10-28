@@ -353,6 +353,7 @@ binary activation are warnings with path/cause and partial publication; human an
 JSON summaries retain each product's activation and skills outcome.
 
 Native executable installation is a different owner under `tmt-adapters::native_install`.
+Its cosmetic pane-option cutover performs host CAS outside SQLite, between short row checks.
 `Product` owns installable products; archive data adds none. Every product uses one acquisition,
 receipt and atomic-publication path with independent links, lock and current
 release, and the active executable is the authority for a managed update: receipts

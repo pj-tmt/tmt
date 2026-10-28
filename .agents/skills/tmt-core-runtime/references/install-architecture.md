@@ -80,8 +80,10 @@ refresh dispatch bypasses generic driver registration and observers so they cann
 discover configuration before this protocol owner. Install and setup never gain
 host effects. It selects the caller's
 explicit server socket and existing stored bindings, captures exact old metadata
-and native server/pane incarnations, then compares the full binding record under
-the mutation transaction before tmux's exact-value command-queue fence. Changed
+and native server/pane incarnations, then compares the full binding record and
+conflicting reservations in a short transaction. Tmux's exact-value command-queue
+fence and readback run outside the writer; a postcheck counts only unchanged rows.
+A detach during the CAS can leave only the exact-old marker, which a later bind reclaims. Changed
 rows, occupied new keys, unknown evidence and edited pane formats remain intact.
 Only an unchanged owned pane border prefix is rewritten; inherited formats and
 other host presentation are untouched. The former server key remains recovery
