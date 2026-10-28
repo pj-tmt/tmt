@@ -611,6 +611,76 @@ fn failed_retirement_is_reported_beside_the_original_error() {
     storage.close().unwrap();
 }
 
+const LEFTOVER_BINDING: &str = "11111111-1111-4111-8111-111111111111";
+const LEFTOVER_IDENTITY: &str = "22222222-2222-4222-8222-222222222222";
+
+fn leftover_marker(server_id: &str, pane_pid: u64) -> tmt_core::endpoint::BindingMarker {
+    tmt_core::endpoint::BindingMarker {
+        name: "Ghost".into(),
+        canonical_name: "ghost".into(),
+        identity_id: LEFTOVER_IDENTITY.into(),
+        binding_id: LEFTOVER_BINDING.into(),
+        server_id: server_id.into(),
+        pane_pid,
+    }
+}
+
+#[test]
+fn a_respawned_pane_binds_its_name_again_over_the_dead_processs_marker() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let first = bind_identity(&mut storage, &mut endpoint, "%1", "Respawn", true).unwrap();
+    let old = first.binding.unwrap();
+    // respawn-pane keeps the pane and its options but starts another process.
+    endpoint.pane_mut("%1").pane_pid += 1;
+    let again = bind_identity(&mut storage, &mut endpoint, "%1", "Respawn", true).unwrap();
+    let new = again.binding.unwrap();
+    assert_ne!(new.id, old.id);
+    assert_eq!(new.pane_pid, endpoint.pane_mut("%1").pane_pid);
+    let marker = endpoint.pane_mut("%1").marker.clone().unwrap();
+    assert_eq!((marker.binding_id, marker.pane_pid), (new.id, new.pane_pid));
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_leftover_marker_of_another_process_is_replaced_only_when_nothing_owns_its_binding() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2", "%3"]);
+    let server = endpoint.server.server_id.clone();
+    let pid = endpoint.pane_mut("%1").pane_pid;
+    // No row owns the binding and the writing process is not the pane's: reclaimable.
+    endpoint.pane_mut("%1").marker = Some(leftover_marker(&server, pid + 100));
+    let bound = bind_identity(&mut storage, &mut endpoint, "%1", "Fresh", false).unwrap();
+    let binding = bound.binding.unwrap();
+    assert_eq!(
+        endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
+        binding.id
+    );
+
+    // The same marker copied onto a pane while its binding is still active is not.
+    let owned = endpoint.pane_mut("%1").marker.clone().unwrap();
+    endpoint.pane_mut("%2").marker = Some(owned.clone());
+    let refused = bind_identity(&mut storage, &mut endpoint, "%2", "Copy", false);
+    assert!(
+        matches!(refused, Err(BindingError::Unverified)),
+        "{refused:?}"
+    );
+    assert_eq!(endpoint.pane_mut("%2").marker.as_ref(), Some(&owned));
+
+    // Another server's marker is never reclaimed.
+    let foreign = leftover_marker("another-server", pid);
+    endpoint.pane_mut("%3").marker = Some(foreign.clone());
+    let refused = bind_identity(&mut storage, &mut endpoint, "%3", "Foreign", false);
+    assert!(
+        matches!(refused, Err(BindingError::Unverified)),
+        "{refused:?}"
+    );
+    assert_eq!(endpoint.pane_mut("%3").marker.as_ref(), Some(&foreign));
+    storage.close().unwrap();
+}
+
 #[test]
 fn publish_and_verification_failures_rollback_binding_but_keep_identity() {
     let fixture = Fixture::new();
