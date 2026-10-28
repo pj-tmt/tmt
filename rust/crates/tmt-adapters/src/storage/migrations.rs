@@ -1,4 +1,6 @@
-use rusqlite::{Connection, TransactionBehavior, params};
+use std::time::{Duration, Instant};
+
+use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use tmt_core::limits::MAX_JS_SAFE_INTEGER;
 
 use super::errors::{StorageError, StorageErrorCode, classify, incompatible};
@@ -79,6 +81,8 @@ mod whiteboard_snapshot_tests;
 mod whiteboard_tests;
 #[cfg(test)]
 mod world_layout_tests;
+#[cfg(test)]
+mod writer_wait_tests;
 
 /// Use the actual predecessor schemas, never a subtraction from today's inventory.
 #[cfg(test)]
@@ -465,9 +469,9 @@ pub(super) fn compiled_schema() -> super::CompiledSchema {
 
 /// The number of migrations recorded as applied, read in one snapshot with no
 /// write lock; None when there is no history table yet.
-fn recorded_through(connection: &mut Connection) -> Result<Option<usize>, StorageError> {
+fn recorded_through(connection: &Connection) -> Result<Option<usize>, StorageError> {
     let snapshot = connection
-        .transaction()
+        .unchecked_transaction()
         .map_err(|error| classify(error, "Read migration history"))?;
     let recorded: bool = snapshot
         .query_row(
@@ -483,6 +487,64 @@ fn recorded_through(connection: &mut Connection) -> Result<Option<usize>, Storag
     validate_history(&snapshot).map(Some)
 }
 
+/// How long one wait for the migration writer lasts before the history is read.
+const WRITER_SLICE: Duration = Duration::from_millis(100);
+
+/// Takes the migration writer, or returns None once `needed` versions are
+/// recorded and there is nothing left to apply.
+///
+/// SQLite's busy handler polls, and the opener that is migrating takes the
+/// writer again right after each version commits, so a waiter can starve for
+/// the whole chain. A total-time bound would then fail an opener behind a
+/// healthy but slow chain (#5335). Wait in short slices and read the lock-free
+/// history between them: return as soon as it is complete, restart the stall
+/// clock whenever it advances, and fail with Busy only when it has not advanced
+/// for `stall`, which is how a stuck writer still ends.
+fn take_migration_writer<'a>(
+    connection: &'a Connection,
+    needed: usize,
+    stall: Duration,
+    what: &'static str,
+) -> Result<Option<Transaction<'a>>, StorageError> {
+    let result = wait_for_migration_writer(connection, needed, stall, what);
+    connection
+        .busy_timeout(super::BUSY_TIMEOUT)
+        .map_err(|error| classify(error, "Configure busy timeout"))?;
+    result
+}
+
+fn wait_for_migration_writer<'a>(
+    connection: &'a Connection,
+    needed: usize,
+    stall: Duration,
+    what: &'static str,
+) -> Result<Option<Transaction<'a>>, StorageError> {
+    let mut seen = recorded_through(connection)?.unwrap_or(0);
+    let mut advanced = Instant::now();
+    loop {
+        connection
+            .busy_timeout(WRITER_SLICE)
+            .map_err(|error| classify(error, "Configure busy timeout"))?;
+        let error = match Transaction::new_unchecked(connection, TransactionBehavior::Immediate) {
+            Ok(transaction) => return Ok(Some(transaction)),
+            Err(error) => classify(error, what),
+        };
+        if error.code != StorageErrorCode::Busy {
+            return Err(error);
+        }
+        let recorded = recorded_through(connection)?.unwrap_or(0);
+        if recorded >= needed {
+            return Ok(None);
+        }
+        if recorded > seen {
+            seen = recorded;
+            advanced = Instant::now();
+        } else if advanced.elapsed() >= stall {
+            return Err(error);
+        }
+    }
+}
+
 /// Applies the pending migrations up to and including version `last`.
 fn apply_through(connection: &mut Connection, last: usize) -> Result<(), StorageError> {
     // A current database has nothing to apply. Opening it must neither wait for
@@ -491,9 +553,15 @@ fn apply_through(connection: &mut Connection, last: usize) -> Result<(), Storage
     if recorded_through(connection)?.is_some_and(|recorded| recorded >= last) {
         return Ok(());
     }
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| classify(error, "Initialize migration history"))?;
+    let Some(transaction) = take_migration_writer(
+        connection,
+        last,
+        super::BUSY_TIMEOUT,
+        "Initialize migration history",
+    )?
+    else {
+        return Ok(());
+    };
     transaction.execute_batch("CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)")
         .map_err(|error| classify(error, "Initialize migration history"))?;
     validate_table(&transaction)?;
@@ -555,9 +623,16 @@ fn apply_version(
     version: u32,
     migration: &Migration,
 ) -> Result<(), StorageError> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| classify(error, "Acquire migration lock"))?;
+    let Some(transaction) = take_migration_writer(
+        connection,
+        version as usize,
+        super::BUSY_TIMEOUT,
+        "Acquire migration lock",
+    )?
+    else {
+        // Another opener migrated while this one waited for the lock.
+        return Ok(());
+    };
     let apply_one = (|| {
         // Another opener may have migrated while this one waited for the lock.
         if validate_history(&transaction)? >= version as usize {
