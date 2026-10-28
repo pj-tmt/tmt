@@ -7,7 +7,6 @@ import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import * as privateTmux from '../support/private-tmux.js';
 import { createCliProbe } from '../support/cli-probe.js';
 import { E2EFixture, withE2EFixture, processState } from './harness.js';
-import { waitFor } from './harness/readiness.js';
 import { spawnRealTmuxCli, releaseRealTmuxCli, readRealTmuxCli } from './real-tmux-caller.js';
 
 describe('CLI executable selection', () => {
@@ -145,7 +144,7 @@ describe('CLI executable selection', () => {
         {}
       );
       expect(stopped.status).toBe(0);
-      await waitFor(
+      await fixture.waitFor(
         () => processState(fixture.serverPid) === 'absent',
         5000,
         'private server exit'
