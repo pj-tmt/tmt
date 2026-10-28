@@ -348,6 +348,8 @@ windows to `tmt __allowance claude` (#5187). The marketplace stays picker-only. 
 nothing without usage consent and never opens the SQL store: it writes one private JSON file
 under the data root, and `claude/allowance.rs` returns the newer of that entry and the
 `cachedUsageUtilization` cache ([extension API](../../../../contracts/extension-api.md)).
+`allowance::accounts` lists every account of that store and of the ambient root for the
+storage-free `consumption.limits`, through the lifecycle slot `account_limits` (#5418).
 Consented setup installs it (see [setup and uninstall](identity-bindings.md#hooks-setup-and-uninstall));
 its own test runs under `claude plugin test`.
 

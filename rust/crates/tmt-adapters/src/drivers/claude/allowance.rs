@@ -2,7 +2,7 @@
 //! first-party mod pushes (#5187). Never refresh the cache, read credentials, or retain unrelated
 //! configuration fields. The newest observation per account wins, whole.
 use crate::{
-    runtime::consumption::{RateAccount, RateLimits, RateWindow},
+    runtime::consumption::{AccountLimits, NoLimits, RateAccount, RateLimits, RateWindow},
     skill_installation::ProviderEnvironment,
 };
 use serde::{Deserialize, Serialize};
@@ -133,14 +133,96 @@ pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<Opt
 pub(super) fn rate_account(environment: &ProviderEnvironment) -> Option<RateAccount> {
     let bytes =
         crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES).ok()?;
-    let uuid = account(&bytes)?;
+    Some(root_account(environment, account(&bytes)?))
+}
+
+/// The account `uuid` as the environment's Claude root names it.
+fn root_account(environment: &ProviderEnvironment, uuid: &str) -> RateAccount {
     let root = super::config_root(environment);
     let name = root.file_name().and_then(|name| name.to_str());
-    Some(RateAccount::derive(
-        super::NAME,
-        uuid,
-        name.unwrap_or_default(),
-    ))
+    RateAccount::derive(super::NAME, uuid, name.unwrap_or_default())
+}
+
+/// What each Claude account Core can see has now (#5418): the accounts in the pushed store and
+/// the ambient root's own. Per account the newest observation with a current window wins whole
+/// and a tie prefers the cache, as in `read`. An account with none is still returned, with
+/// `expired` when an observation existed and has elapsed and `none_observed` when the account
+/// is known and nothing was ever seen. A source that cannot be read adds nothing.
+pub(super) fn accounts(environment: &ProviderEnvironment, now_ms: u64) -> Vec<AccountLimits> {
+    #[derive(Default)]
+    struct Seen {
+        account: Option<RateAccount>,
+        pushed: Option<RateLimits>,
+        cached: Option<RateLimits>,
+    }
+    let mut seen: BTreeMap<String, Seen> = BTreeMap::new();
+    if let Some(store) = environment
+        .data_root()
+        .and_then(|root| load(&root.join(STORE)))
+    {
+        for (uuid, mut stored) in store.accounts {
+            if stored.provider != super::NAME || stored.observed_at_ms > now_ms || !stored.valid() {
+                continue;
+            }
+            seen.insert(
+                uuid,
+                Seen {
+                    account: stored.account.take(),
+                    pushed: Some(stored),
+                    cached: None,
+                },
+            );
+        }
+    }
+    if let Ok(bytes) =
+        crate::bounded_file::read_no_follow(&config_path(environment), MAX_CONFIG_BYTES)
+        && let Some(uuid) = account(&bytes)
+    {
+        let entry = seen.entry(uuid.to_owned()).or_default();
+        // The root's own name labels its account, whatever an older push recorded.
+        entry.account = Some(root_account(environment, uuid));
+        entry.cached = cache(&bytes, now_ms);
+    }
+    let mut listed: Vec<AccountLimits> = seen
+        .into_iter()
+        .map(|(uuid, seen)| {
+            let account = seen
+                .account
+                .unwrap_or_else(|| RateAccount::derive(super::NAME, &uuid, ""));
+            let observed = seen.pushed.is_some() || seen.cached.is_some();
+            let (cached, pushed) = (
+                seen.cached.and_then(|limits| current(limits, now_ms)),
+                seen.pushed.and_then(|limits| current(limits, now_ms)),
+            );
+            let newest = match (cached, pushed) {
+                (Some(cached), Some(pushed)) if pushed.observed_at_ms > cached.observed_at_ms => {
+                    Some(pushed)
+                }
+                (Some(cached), _) => Some(cached),
+                (None, pushed) => pushed,
+            };
+            AccountLimits {
+                reason: newest.is_none().then_some(if observed {
+                    NoLimits::Expired
+                } else {
+                    NoLimits::NoneObserved
+                }),
+                rate_limits: newest.map(|mut limits| {
+                    limits.account = Some(account.clone());
+                    limits
+                }),
+                account,
+            }
+        })
+        .collect();
+    listed.sort_by(|left, right| left.account.key.cmp(&right.account.key));
+    listed
+}
+
+/// The windows of `limits` that have not elapsed, or nothing when none remain.
+fn current(mut limits: RateLimits, now_ms: u64) -> Option<RateLimits> {
+    limits.windows.retain(|window| window.resets_at_ms > now_ms);
+    (!limits.windows.is_empty()).then_some(limits)
 }
 
 #[derive(Deserialize)]
@@ -186,8 +268,9 @@ fn pushed(data_root: &Path, account: &str, now_ms: u64) -> Option<RateLimits> {
     if limits.provider != super::NAME || limits.observed_at_ms > now_ms || !limits.valid() {
         return None;
     }
-    limits.windows.retain(|window| window.resets_at_ms > now_ms);
-    (!limits.windows.is_empty()).then_some(limits)
+    // Callers attach the account of their own root; the stored label is for the account view.
+    limits.account = None;
+    current(limits, now_ms)
 }
 
 #[derive(Deserialize)]
@@ -264,6 +347,9 @@ pub(super) fn push(
     let Some(account) = account(&bytes) else {
         return Ok(false);
     };
+    // The store is keyed by the raw account id and has no root name, so the label the account
+    // view shows is recorded with the entry.
+    limits.account = Some(root_account(environment, account));
     let path = data_root.join(STORE);
     let mut store = load(&path).unwrap_or(PushedWindowStore {
         version: 1,
@@ -293,6 +379,11 @@ pub(super) fn push(
 }
 
 fn parse(bytes: &[u8], now_ms: u64) -> Option<RateLimits> {
+    cache(bytes, now_ms).and_then(|limits| current(limits, now_ms))
+}
+
+/// The root's usage cache as it was fetched, elapsed windows included.
+fn cache(bytes: &[u8], now_ms: u64) -> Option<RateLimits> {
     // Unknown fields are skipped by serde, rather than building a Value tree
     // containing provider settings, MCP configuration or other private data.
     let config: Config<'_> = serde_json::from_slice(bytes).ok()?;
@@ -322,11 +413,7 @@ fn parse(bytes: &[u8], now_ms: u64) -> Option<RateLimits> {
             });
         }
     }
-    if !limits.valid() {
-        return None;
-    }
-    limits.windows.retain(|window| window.resets_at_ms > now_ms);
-    (!limits.windows.is_empty()).then_some(limits)
+    limits.valid().then_some(limits)
 }
 
 /// Claude caches RFC3339 resets with fractional seconds and a numeric offset.

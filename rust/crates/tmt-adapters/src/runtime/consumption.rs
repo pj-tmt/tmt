@@ -10,7 +10,7 @@ pub use attribution::ModelUsage;
 pub(crate) use attribution::valid_service_tier;
 pub use credits::Credits;
 pub(crate) use rate_limits::timestamp_ms;
-pub use rate_limits::{RateAccount, RateLimits, Window as RateWindow};
+pub use rate_limits::{AccountLimits, NoLimits, RateAccount, RateLimits, Window as RateWindow};
 pub(crate) const MAX_MODELS: usize = 4;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

@@ -101,6 +101,27 @@ impl RateAccount {
     }
 }
 
+/// Why an account the provider is known to have carries no current window (#5418).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoLimits {
+    /// The account is known and no window was ever seen for it.
+    NoneObserved,
+    /// A window was seen and has elapsed.
+    Expired,
+}
+
+/// One provider account in the account-level limits view (#5418): its newest current limits, or
+/// `null` and the reason there are none. The limits carry the account too, like a seat's reading.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountLimits {
+    pub account: RateAccount,
+    pub rate_limits: Option<RateLimits>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<NoLimits>,
+}
+
 fn codex_provider() -> String {
     tmt_core::driver::descriptor::CODEX.name.into()
 }

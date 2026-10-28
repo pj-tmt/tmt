@@ -81,6 +81,7 @@ const OPS: &[&str] = &[
     "identity.rename",
     "user.identity",
     "consumption.history",
+    "consumption.limits",
     "extensions.uses",
 ];
 
@@ -193,6 +194,7 @@ pub enum Request {
     OrchestrationWrite(Box<crate::orchestration::OrchWriteQuery>),
     Digest(Box<digest::Operation>),
     Capabilities,
+    ConsumptionLimits,
     ConversationTimeline {
         identity_id: String,
         limit: u64,
@@ -358,6 +360,11 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         {
             Request::StorageRoot
         }
+        "consumption.limits"
+            if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
+        {
+            Request::ConsumptionLimits
+        }
         "workspace.capture"
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
@@ -496,6 +503,9 @@ impl Session {
             return serde_json::to_vec(&json!({"dataRoot": root}))
                 .map_err(|_| Fault::unavailable());
         }
+        if matches!(request, Request::ConsumptionLimits) {
+            return consumption::limits(&paths.global_dir);
+        }
         if matches!(request, Request::WorkspaceCapture) {
             let report =
                 crate::workspace::capture_recorded(paths).map_err(|_| Fault::unavailable())?;
@@ -551,6 +561,7 @@ impl Session {
             Request::Notes(id) => notes::read(paths, storage, id),
             Request::Capabilities
             | Request::StorageRoot
+            | Request::ConsumptionLimits
             | Request::WorkspaceCapture
             | Request::ExtensionUse { .. }
             | Request::SkillsInstall { .. }
@@ -747,6 +758,34 @@ mod tests {
             r#"{"version":1,"operation":"storage.root","identity":"Ada","input":{}}"#,
             r#"{"version":1,"operation":"storage.root","originator":"anonymous","input":{}}"#,
             r#"{"version":1,"operation":"storage.root","input":{},"extra":true}"#,
+        ] {
+            assert!(
+                matches!(
+                    decode(body),
+                    Err(Fault {
+                        code: "API_INPUT_INVALID",
+                        ..
+                    })
+                ),
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn consumption_limits_is_listed_and_requires_empty_input_and_no_originator() {
+        assert!(capabilities_list().contains(&"consumption.limits".to_owned()));
+        assert!(matches!(
+            decode(r#"{"version":1,"operation":"consumption.limits","input":{}}"#),
+            Ok(Request::ConsumptionLimits)
+        ));
+        for body in [
+            r#"{"version":1,"operation":"consumption.limits","input":{"driver":"claude"}}"#,
+            r#"{"version":1,"operation":"consumption.limits","input":null}"#,
+            r#"{"version":1,"operation":"consumption.limits","input":[]}"#,
+            r#"{"version":1,"operation":"consumption.limits","identity":"Ada","input":{}}"#,
+            r#"{"version":1,"operation":"consumption.limits","originator":"anonymous","input":{}}"#,
+            r#"{"version":1,"operation":"consumption.limits","input":{},"extra":true}"#,
         ] {
             assert!(
                 matches!(

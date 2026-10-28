@@ -432,6 +432,17 @@ pub trait RuntimeLifecycle {
         false
     }
 
+    /// Every account of this provider whose limits Core can read without an agent: its pushed
+    /// store and the ambient root's own config (#5418). Most drivers keep no account-level
+    /// source and report none; an unreadable source yields what could be read.
+    fn account_limits(
+        &self,
+        _environment: &ProviderEnvironment,
+        _now_ms: u64,
+    ) -> Vec<crate::runtime::consumption::AccountLimits> {
+        Vec::new()
+    }
+
     /// Resolve an exact remembered source for foreground-owned collection.
     fn sampling_turn(
         &self,

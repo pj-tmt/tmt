@@ -1,7 +1,7 @@
-//! Bounded normalized history reads; no provider discovery or access.
+//! Bounded normalized history reads, and the account-level limits read.
 use super::{Fault, Request, invalid};
 use crate::storage::{BUCKET_MS, MAX_BUCKETS, MAX_RESPONSE_BUCKETS, Storage, window_resolution_ms};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 #[derive(Deserialize)]
@@ -65,6 +65,49 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
         through_ms: value.through_ms,
     })
 }
+/// The limits of every provider account Core can read without an agent (#5418). Storage-free:
+/// each driver reads its own account sources (the pushed store and the ambient root), so the
+/// call opens no database and creates nothing.
+pub(super) fn limits(data_root: &std::path::Path) -> Result<Vec<u8>, Fault> {
+    let environment = crate::skill_installation::ProviderEnvironment::capture()
+        .map_err(|_| Fault::unavailable())?
+        .with_data_root(data_root);
+    limits_in(&environment, crate::request_runtime::wall_time_ms())
+}
+
+fn limits_in(
+    environment: &crate::skill_installation::ProviderEnvironment,
+    now: u64,
+) -> Result<Vec<u8>, Fault> {
+    #[derive(Serialize)]
+    struct Entry<'a> {
+        driver: &'a str,
+        #[serde(flatten)]
+        limits: crate::runtime::consumption::AccountLimits,
+    }
+    let registry = crate::runtime::RuntimeRegistry::first_party();
+    let mut entries = Vec::new();
+    for driver in registry.harnesses() {
+        let Some(lifecycle) = tmt_core::binding::session::HarnessId::new(driver)
+            .ok()
+            .and_then(|harness| registry.lifecycle(&harness))
+        else {
+            continue;
+        };
+        entries.extend(
+            lifecycle
+                .account_limits(environment, now)
+                .into_iter()
+                .map(|limits| Entry { driver, limits }),
+        );
+    }
+    entries.sort_by(|left, right| {
+        (left.driver, &left.limits.account.key).cmp(&(right.driver, &right.limits.account.key))
+    });
+    serde_json::to_vec(&serde_json::json!({"observedAtMs": now, "accounts": entries}))
+        .map_err(|_| Fault::unavailable())
+}
+
 pub(super) fn history(
     storage: &mut Storage,
     identities: Vec<String>,
@@ -88,6 +131,101 @@ pub(super) fn history(
         )
         .map_err(|_| Fault::unavailable())?;
     serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+    use crate::{skill_installation::ProviderEnvironment, test_support::TestDirectory};
+    use serde_json::{Value, json};
+
+    const NOW: u64 = 1_791_607_000_000;
+    const RESET: u64 = 1_791_620_000_679;
+
+    fn environment(home: &TestDirectory, data: &TestDirectory) -> ProviderEnvironment {
+        ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), [])
+            .with_data_root(&data.path)
+    }
+
+    fn write_config(home: &TestDirectory, cache: bool) {
+        let mut config = json!({"oauthAccount": {"accountUuid": "account-a"}});
+        if cache {
+            config["cachedUsageUtilization"] = json!({
+                "fetchedAtMs": NOW - 1_000, "accountUuid": "account-a",
+                "utilization": {
+                    "five_hour": {"utilization": 8, "resets_at": "2026-10-10T08:13:20.679456+00:00"},
+                    "seven_day": null
+                }
+            });
+        }
+        std::fs::write(
+            home.path.join(".claude.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn read(environment: &ProviderEnvironment) -> Value {
+        serde_json::from_slice(&limits_in(environment, NOW).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn an_account_comes_back_with_the_public_rate_limit_shape_the_driver_and_its_key() {
+        let (home, data) = (TestDirectory::new(), TestDirectory::new());
+        write_config(&home, true);
+        let result = read(&environment(&home, &data));
+        assert_eq!(result["observedAtMs"], NOW);
+        let [entry] = result["accounts"].as_array().unwrap().as_slice() else {
+            panic!("one account expected: {result}");
+        };
+        assert_eq!(entry["driver"], "claude");
+        assert_eq!(entry["account"]["label"], "claude");
+        assert_eq!(entry["account"]["key"].as_str().unwrap().len(), 12);
+        assert_eq!(entry.get("reason"), None);
+        assert_eq!(
+            entry["rateLimits"],
+            json!({
+                "provider": "claude",
+                "observedAtMs": NOW - 1_000,
+                "windows": [{"windowMinutes": 300, "usedPercent": 8.0, "resetsAtMs": RESET}],
+                "account": entry["account"]
+            })
+        );
+    }
+
+    #[test]
+    fn a_known_account_with_no_current_window_is_null_with_its_reason() {
+        let (home, data) = (TestDirectory::new(), TestDirectory::new());
+        write_config(&home, false);
+        let result = read(&environment(&home, &data));
+        let entry = &result["accounts"][0];
+        assert_eq!(entry["rateLimits"], Value::Null);
+        assert_eq!(entry["reason"], "none_observed");
+        assert_eq!(entry["driver"], "claude");
+        // The cache's only window has elapsed by the time of the read.
+        write_config(&home, true);
+        let later = serde_json::from_slice::<Value>(
+            &limits_in(&environment(&home, &data), RESET + 1).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(later["accounts"][0]["rateLimits"], Value::Null);
+        assert_eq!(later["accounts"][0]["reason"], "expired");
+    }
+
+    #[test]
+    fn nothing_known_is_an_empty_list_and_the_read_creates_nothing() {
+        let (home, data) = (TestDirectory::new(), TestDirectory::new());
+        let result = read(&environment(&home, &data));
+        assert_eq!(result["accounts"], json!([]));
+        write_config(&home, true);
+        let before = std::fs::read(home.path.join(".claude.json")).unwrap();
+        let _ = read(&environment(&home, &data));
+        assert_eq!(std::fs::read_dir(&data.path).unwrap().count(), 0);
+        assert_eq!(
+            std::fs::read(home.path.join(".claude.json")).unwrap(),
+            before
+        );
+    }
 }
 
 #[cfg(test)]
