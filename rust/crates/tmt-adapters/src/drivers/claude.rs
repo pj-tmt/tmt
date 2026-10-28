@@ -632,6 +632,14 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         allowance::waiting(environment, data_root)
     }
 
+    fn account_limits(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        now_ms: u64,
+    ) -> Vec<crate::runtime::consumption::AccountLimits> {
+        allowance::accounts(environment, now_ms)
+    }
+
     fn turn_observation(
         &self,
         turn: &crate::runtime::lifecycle::TurnEnd,

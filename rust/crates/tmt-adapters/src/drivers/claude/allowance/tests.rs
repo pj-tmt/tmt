@@ -447,9 +447,14 @@ fn the_account_is_named_by_the_root_and_never_by_a_reading() {
     let account = rate_account(&pushed.environment()).unwrap();
     assert_eq!(account.label, "claude");
     assert!(!account.key.contains("account-a"));
-    // The pushed store keeps no account: it is keyed by the account id already.
+    // The pushed store is keyed by the raw account id and records the key and label the
+    // account view shows (#5418); the raw id is never in the value, and `read` strips it again.
     let store = fs::read_to_string(pushed.data.path.join(STORE)).unwrap();
-    assert!(!store.contains("\"account\"") && !store.contains(&account.key));
+    assert!(store.contains(&account.key) && store.contains("\"label\":\"claude\""));
+    assert_eq!(
+        pushed.store().unwrap().accounts["account-a"].account,
+        Some(account.clone())
+    );
     // Another account is another key.
     let mut other = config();
     other["oauthAccount"]["accountUuid"] = json!("account-b");
@@ -505,4 +510,211 @@ fn an_account_waits_for_its_first_push_whatever_the_cache_says() {
     assert!(waiting(&pushed));
     pushed.config(&json!({}));
     assert!(waiting(&pushed));
+}
+
+fn listed(pushed: &PushedFixture, now: u64) -> Vec<AccountLimits> {
+    accounts(&pushed.environment(), now)
+}
+
+fn bare() -> Value {
+    let mut bare = config();
+    bare.as_object_mut()
+        .unwrap()
+        .remove("cachedUsageUtilization");
+    bare
+}
+
+#[test]
+fn the_account_view_returns_the_cache_alone_with_its_root_label_and_the_account_inside() {
+    let pushed = PushedFixture::new(&config());
+    let [only] = listed(&pushed, NOW).try_into().unwrap();
+    let account = rate_account(&pushed.environment()).unwrap();
+    assert_eq!((only.account.clone(), only.reason), (account.clone(), None));
+    let limits = only.rate_limits.unwrap();
+    assert_eq!(
+        (limits.observed_at_ms, used(&limits)),
+        (FETCHED, vec![12.5, 78.0])
+    );
+    // Like a seat's reading, the limits carry the account.
+    assert_eq!(limits.account, Some(account));
+}
+
+#[test]
+fn a_known_account_with_nothing_seen_or_nothing_left_says_why_instead_of_vanishing() {
+    // Known from its config only: nothing was ever observed.
+    let pushed = PushedFixture::new(&bare());
+    let [only] = listed(&pushed, NOW).try_into().unwrap();
+    assert_eq!(
+        (only.rate_limits, only.reason),
+        (None, Some(NoLimits::NoneObserved))
+    );
+    // A push that has since elapsed: observed, no longer current.
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let [only] = listed(&pushed, WEEK_RESET).try_into().unwrap();
+    assert_eq!(
+        (only.rate_limits, only.reason),
+        (None, Some(NoLimits::Expired))
+    );
+    // A cache whose windows have elapsed counts the same.
+    let cached = PushedFixture::new(&config());
+    let [only] = listed(&cached, WEEK_RESET).try_into().unwrap();
+    // The serialized entry is `null` plus the bounded reason, never an omitted account.
+    let value = serde_json::to_value(&only).unwrap();
+    assert_eq!(value["rateLimits"], Value::Null);
+    assert_eq!(value["reason"], "expired");
+    assert_eq!(
+        (only.rate_limits, only.reason),
+        (None, Some(NoLimits::Expired))
+    );
+}
+
+#[test]
+fn the_newest_observation_wins_whole_in_the_account_view_and_a_tie_prefers_the_cache() {
+    let pushed = PushedFixture::new(&config());
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let newest = |pushed: &PushedFixture, now| {
+        let [only] = listed(pushed, now).try_into().unwrap();
+        let limits = only.rate_limits.unwrap();
+        (limits.observed_at_ms, used(&limits))
+    };
+    assert_eq!(newest(&pushed, NOW + 5_000), (NOW, vec![20.0, 80.0]));
+    let mut tie = config();
+    tie["cachedUsageUtilization"]["fetchedAtMs"] = json!(NOW);
+    pushed.config(&tie);
+    assert_eq!(newest(&pushed, NOW + 5_000), (NOW, vec![12.5, 78.0]));
+}
+
+#[test]
+fn several_accounts_come_back_sorted_by_key_and_each_keeps_the_label_of_its_push() {
+    let pushed = PushedFixture::new(&bare());
+    let work = pushed.home.path.join(".claude-work");
+    fs::create_dir(&work).unwrap();
+    let mut other = bare();
+    other["oauthAccount"]["accountUuid"] = json!("account-b");
+    fs::write(
+        work.join(".claude.json"),
+        serde_json::to_vec(&other).unwrap(),
+    )
+    .unwrap();
+    // Both roots pushed into the same data root.
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let selected = ProviderEnvironment::from_parts(
+        &pushed.home.path,
+        &pushed.home.path,
+        Vec::new(),
+        [("CLAUDE_CONFIG_DIR", work.clone())],
+    )
+    .with_data_root(&pushed.data.path);
+    assert!(
+        push(
+            &selected,
+            &pushed.data.path,
+            &push_body(21.0, 81.0),
+            NOW + 1
+        )
+        .unwrap()
+    );
+    // Seen from a root that has no account of its own, both are store-only and keep their labels.
+    let elsewhere = TestDirectory::new();
+    let environment =
+        ProviderEnvironment::from_parts(&elsewhere.path, &elsewhere.path, Vec::new(), [])
+            .with_data_root(&pushed.data.path);
+    let listing = accounts(&environment, NOW + 5_000);
+    assert_eq!(listing.len(), 2);
+    assert!(listing[0].account.key < listing[1].account.key);
+    let mut labels: Vec<_> = listing
+        .iter()
+        .map(|entry| entry.account.label.as_str())
+        .collect();
+    labels.sort_unstable();
+    assert_eq!(labels, ["claude", "claude-work"]);
+    // Every entry's limits carry its own account, and no raw id appears.
+    for entry in &listing {
+        assert_eq!(
+            entry.rate_limits.as_ref().unwrap().account.as_ref(),
+            Some(&entry.account)
+        );
+        assert!(!serde_json::to_string(entry).unwrap().contains("account-"));
+    }
+}
+
+#[test]
+fn an_entry_pushed_before_labels_were_recorded_falls_back_to_the_provider_name() {
+    let pushed = PushedFixture::new(&bare());
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    // Rewrite the store as an earlier build wrote it: no account on the entry.
+    let mut store = pushed.store().unwrap();
+    store.accounts.get_mut("account-a").unwrap().account = None;
+    fs::write(
+        pushed.data.path.join(STORE),
+        serde_json::to_vec(&store).unwrap(),
+    )
+    .unwrap();
+    let elsewhere = TestDirectory::new();
+    let environment =
+        ProviderEnvironment::from_parts(&elsewhere.path, &elsewhere.path, Vec::new(), [])
+            .with_data_root(&pushed.data.path);
+    let [only] = accounts(&environment, NOW).try_into().unwrap();
+    assert_eq!(only.account.label, "claude");
+    assert_eq!(
+        only.account.key,
+        RateAccount::derive("claude", "account-a", "").key
+    );
+}
+
+#[test]
+fn unreadable_or_foreign_sources_add_nothing_and_never_fail() {
+    let pushed = PushedFixture::new(&bare());
+    // No config, no store: nothing is known.
+    fs::remove_file(pushed.home.path.join(".claude.json")).unwrap();
+    assert_eq!(listed(&pushed, NOW), Vec::new());
+    // A malformed store and an oversized one give an empty list.
+    fs::create_dir_all(pushed.data.path.join("claude")).unwrap();
+    for bytes in [b"{broken".to_vec(), vec![b' '; STORE_LIMIT + 1]] {
+        fs::write(pushed.data.path.join(STORE), bytes).unwrap();
+        assert_eq!(listed(&pushed, NOW), Vec::new());
+    }
+    // An entry of another provider, a future entry and an invalid one are skipped, the rest kept.
+    fs::remove_dir_all(pushed.data.path.join("claude")).unwrap();
+    pushed.config(&config());
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let mut store = pushed.store().unwrap();
+    let mut foreign = store.accounts["account-a"].clone();
+    foreign.provider = "codex".into();
+    store.accounts.insert("account-codex".into(), foreign);
+    let mut future = store.accounts["account-a"].clone();
+    future.observed_at_ms = NOW + 10_000;
+    store.accounts.insert("account-future".into(), future);
+    let mut invalid = store.accounts["account-a"].clone();
+    invalid.windows[0].used_percent = 140.0;
+    store.accounts.insert("account-invalid".into(), invalid);
+    fs::write(
+        pushed.data.path.join(STORE),
+        serde_json::to_vec(&store).unwrap(),
+    )
+    .unwrap();
+    let listing = listed(&pushed, NOW);
+    assert_eq!(listing.len(), 1);
+    assert_eq!(
+        listing[0].account,
+        rate_account(&pushed.environment()).unwrap()
+    );
+}
+
+#[test]
+fn reading_the_account_view_changes_no_file() {
+    let pushed = PushedFixture::new(&config());
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let before = (
+        fs::read(pushed.data.path.join(STORE)).unwrap(),
+        fs::read(pushed.home.path.join(".claude.json")).unwrap(),
+    );
+    let _ = listed(&pushed, NOW);
+    assert_eq!(
+        before,
+        (
+            fs::read(pushed.data.path.join(STORE)).unwrap(),
+            fs::read(pushed.home.path.join(".claude.json")).unwrap(),
+        )
+    );
 }

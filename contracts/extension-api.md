@@ -37,7 +37,7 @@ mutation. Clean EOF closes storage and exits 0 even if individual requests faile
 The API resource connection opens lazily once and is reused. The one exception is
 `workspace.capture`: its owner retains a bounded, zero-busy-timeout read-only
 identity snapshot, preserving its no-create and current-schema admission behavior.
-Constant capabilities and `storage.root`
+Constant capabilities, `storage.root` and `consumption.limits`
 create no storage. Every operation still validates its own input and current
 identity/role/retirement state; delivery settings reload per request. No database
 transaction spans frames. Lifecycle observations drain and deliver after each
@@ -130,7 +130,7 @@ Clients must tolerate additive response fields. Public `tmt api` storage opens,
 including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
 OS-denied or read-only data directory. The message names that directory; no API
 operation was performed. Other storage-open failures retain `API_UNAVAILABLE`
-or the resource's existing code. `capabilities` and `storage.root` remain
+or the resource's existing code. `capabilities`, `storage.root` and `consumption.limits` remain
 independent of storage access.
 
 | Operation                | Input                                                                                               | Result                                                                                                                                                                                                                                  |
@@ -164,6 +164,7 @@ independent of storage access.
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                 | `owner`, `removed` and `kept` targets                                                                                                                                                                                                   |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                      |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs` | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                                                                                    |
+| `consumption.limits`     | `{}`                                                                                                | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                   |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                                                                                                 |
 | `user.identity`          | `{}`                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                                                                                               |
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                                                                                  |
@@ -690,7 +691,8 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   root's `oauthAccount.accountUuid`, and stamps `observedAtMs` with its own receive time,
   never the mod's. The reader returns whichever of the pushed entry and the cache has
   the newer `observedAtMs`, whole; a tie prefers the cache. Windows of the two are never
-  merged or summed. Setup installs the mod only with usage consented, as a marked copy
+  merged or summed. Each pushed entry also records the account's `{key,label}` (the label is the
+  root's name) for [account limits](#account-limits); the reader above strips it. Setup installs the mod only with usage consented, as a marked copy
   in Claude's skills root; `--no-usage`, `--remove` and uninstall remove it, and a
   directory that is not TMT's is never overwritten. `observedAtMs` is `fetchedAtMs`, never read time or file mtime; future
   fetch times are dropped. `five_hour` and `seven_day` map to 300 and 10,080 minutes;
@@ -863,6 +865,55 @@ at the bucket resolution. Credits repeat across seats on one account: a reader d
 the newest `observedAtMs` and never sums them. Buckets from before schema 56 carry
 neither. The identity-level `reporting`, `availableFromMs`, `lastSampleAtMs` and `latest`
 still describe the 5-second tier.
+
+## Account limits
+
+`consumption.limits` v1 is a storage-free read of the limits of every provider account Core
+can see without an agent. The input is `{}`; any other input, an originator or an extra field
+is `API_INPUT_INVALID`. The call opens no database and creates nothing: each driver reads its
+own account sources, so it is cheap enough for a header refresh.
+
+```json
+{ "version": 1, "operation": "consumption.limits", "input": {} }
+```
+
+The result is `{observedAtMs, accounts}`; `observedAtMs` is the read time and `accounts` is
+sorted by `driver`, then `account.key`. Each entry is:
+
+```json
+{
+  "driver": "claude",
+  "account": { "key": "a1b2c3d4e5f6", "label": "claude-work" },
+  "rateLimits": {
+    "provider": "claude",
+    "observedAtMs": 1793000000000,
+    "windows": [{ "windowMinutes": 300, "usedPercent": 8, "resetsAtMs": 1793018000000 }],
+    "account": { "key": "a1b2c3d4e5f6", "label": "claude-work" }
+  }
+}
+```
+
+`rateLimits` is the public `consumption.rateLimits` shape that `resume.consumption` and the
+history buckets carry, so a reader reuses its parser; it also names the account. An account
+Core knows but that has no current window is returned, not omitted: `rateLimits` is `null`
+and `reason` is `none_observed` (the account is known and no window was ever seen) or
+`expired` (a window was seen and has elapsed). Accounts Core cannot see at all are absent, and
+a source that cannot be read adds nothing and is never an error. `reason` is absent whenever
+`rateLimits` is present. `account` is the opaque key and label of `rateLimits.account`; a raw
+provider account id never appears.
+
+Only Claude reports accounts today, behind a per-driver lifecycle slot that defaults to none;
+every entry carries its `driver`, so other drivers join without changing the shape. For
+Claude the sources are the store the first-party mod pushes into (`claude/allowance.json` in
+the data directory, at most 8 accounts, each stamped with Core's receive time) and the usage
+cache of the ambient Claude root, the one the invoking process's environment selects. Per
+account the newest observation with a current window wins whole, never merged per window, and
+a tie prefers the cache. Caches of other Claude roots that no mod has pushed stay reachable
+only through an agent's own environment, which is the per-identity path. The label is the
+name of the account's config root, recorded with each push; an entry pushed before that was
+recorded is labelled with the provider name until its next push. An older Core answers the
+unknown operation with `API_INPUT_INVALID`, which a reader treats as unavailable and falls
+back to the per-identity readings.
 
 ## Dispatch readiness and input safety
 
