@@ -279,14 +279,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     decoder: &mut decoder,
                 },
             )?;
-            let locks = crate::cli_edit_locks::patch_locks(
-                &store,
-                &key,
-                &id,
-                &base.source,
-                &edited,
-                &mut decoder,
-            )?;
+            let locks = crate::cli_edit_locks::patch_locks(&base, &edited)?;
             if expected.is_some()
                 && locks
                     .revision
