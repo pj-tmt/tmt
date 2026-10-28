@@ -1085,6 +1085,10 @@ fn observe(
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
     let activity = lifecycle.decode_activity(input.as_bytes());
+    // A following event must see the preceding queued Stop before taking its
+    // snapshot (notably Claude prompts without turn IDs). This explicit drain
+    // shares the hook budget; failure leaves recovery to __flush and the event
+    // proceeds. Mutation wrappers must never drain after this snapshot.
     if lifecycle.decode_turn(input.as_bytes()).is_none()
         && !named_turn_end(input.as_bytes())
         && let Ok(paths) = ConfigPaths::discover()
