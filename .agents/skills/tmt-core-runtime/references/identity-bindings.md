@@ -184,9 +184,11 @@ delivery. They install and launch nothing.
   transcript or session file is read. Codex's `CODEX_THREAD_ID`, `state_5.sqlite`
   index and rollout metadata are implementation evidence, not a documented
   compatibility interface. The driver reads the exact thread with a read-only,
-  no-wait parameterized query after checking the captured table shape, then only
-  the bounded first `session_meta` header under `CODEX_HOME/sessions`; root ID,
-  CLI/exec source and absence of a parent must agree. Missing/held storage, absent
+  no-wait parameterized query after checking the shape of the columns it reads
+  (other, additive columns are ignored), then only the bounded first
+  `session_meta` header under `CODEX_HOME/sessions`; root ID, CLI/exec source and
+  absence of a parent (the header's `parent_thread_id`, and Codex 0.165's
+  `attached_thread_parent_id` when the column exists) must agree. Missing/held storage, absent
   WAL shared memory, changed env/index/header shapes or subagent metadata leave
   the session unrecorded, without repair or scanning. Verified direct Codex
   discovery uses the admitted resume transition when its main thread changes

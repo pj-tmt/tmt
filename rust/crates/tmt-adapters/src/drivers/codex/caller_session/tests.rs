@@ -117,7 +117,8 @@ fn captured_current_version_root_is_read_only_and_exact_id() {
 fn changed_index_columns_table_and_missing_database_refuse_without_repair() {
     for change in [
         "ALTER TABLE threads RENAME COLUMN source TO origin",
-        "ALTER TABLE threads ADD COLUMN unknown TEXT",
+        "ALTER TABLE threads RENAME COLUMN rollout_path TO path",
+        "ALTER TABLE threads ADD COLUMN attached_thread_parent_id INTEGER",
         "DROP TABLE threads",
     ] {
         let fixture = Fixture::new();
@@ -270,6 +271,70 @@ fn unknown_headers_and_same_process_subagents_degrade_to_not_recorded() {
             .execute("UPDATE threads SET source = ?", [source])
             .unwrap();
         assert_eq!(fixture.admit(), Err(CallerSessionRefusal::NotRoot));
+    }
+}
+
+/// Codex 0.165.0 adds one nullable column to the captured 42: `PRAGMA
+/// table_info(threads)` of a 0.165.0 `~/.codex/state_5.sqlite`, read
+/// 2026-10-28 for #5494 without reading thread content, ends with
+/// `42|attached_thread_parent_id|TEXT|0||0`.
+const CODEX_0_165_COLUMN: &str = "ALTER TABLE threads ADD COLUMN attached_thread_parent_id TEXT";
+
+#[test]
+fn additive_index_columns_are_accepted_including_the_0_165_shape() {
+    for change in [
+        CODEX_0_165_COLUMN,
+        "ALTER TABLE threads ADD COLUMN unknown TEXT",
+    ] {
+        let fixture = Fixture::new();
+        Connection::open(&fixture.database)
+            .unwrap()
+            .execute_batch(change)
+            .unwrap();
+        let before = fs::read(&fixture.database).unwrap();
+        assert_eq!(fixture.admit(), Ok(()), "{change}");
+        assert_eq!(fs::read(&fixture.database).unwrap(), before);
+    }
+}
+
+#[test]
+fn a_thread_attached_to_a_parent_is_not_a_root_caller_session() {
+    let fixture = Fixture::new();
+    let connection = Connection::open(&fixture.database).unwrap();
+    connection.execute_batch(CODEX_0_165_COLUMN).unwrap();
+    connection
+        .execute(
+            "UPDATE threads SET attached_thread_parent_id = ?",
+            ["019a0000-0000-7000-8000-000000000001"],
+        )
+        .unwrap();
+    assert_eq!(fixture.admit(), Err(CallerSessionRefusal::NotRoot));
+    connection
+        .execute("UPDATE threads SET attached_thread_parent_id = NULL", [])
+        .unwrap();
+    assert_eq!(fixture.admit(), Ok(()));
+}
+
+#[test]
+fn a_read_column_with_another_shape_refuses() {
+    for definition in [
+        "id TEXT PRIMARY KEY, rollout_path TEXT, source TEXT NOT NULL",
+        "id TEXT, rollout_path TEXT NOT NULL, source TEXT NOT NULL",
+        "id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, source BLOB NOT NULL",
+        "id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL",
+    ] {
+        let fixture = Fixture::new();
+        Connection::open(&fixture.database)
+            .unwrap()
+            .execute_batch(&format!(
+                "DROP TABLE threads; CREATE TABLE threads ({definition});"
+            ))
+            .unwrap();
+        assert_eq!(
+            fixture.admit(),
+            Err(CallerSessionRefusal::IndexShape),
+            "{definition}"
+        );
     }
 }
 
