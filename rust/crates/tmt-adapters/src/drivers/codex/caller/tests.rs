@@ -109,6 +109,22 @@ fn shared_host_is_fenced_by_snapshot_ancestry_not_the_marker() {
 }
 
 #[test]
+fn a_malformed_or_repeated_row_of_an_unrelated_process_does_not_hide_the_caller() {
+    // Other processes start and exit while ps reads the table; only the caller's own rows count.
+    for session in [Some(SESSION), None] {
+        let probe = Probe::new([
+            Ok("77 x bad\n88\n99 1 a\n99 1 b\n42 41 /usr/bin/zsh\n41 1 /opt/Codex App/bin/codex\n"),
+            Ok("/opt/Codex App/bin/codex app-server --remote-control\n"),
+        ]);
+        let ActionResult::Completed(caller) = probe.identify(session) else {
+            panic!("recognized host");
+        };
+        assert_eq!(caller.harness.as_str(), "codex");
+        assert!(!caller.permits_host_fallback());
+    }
+}
+
+#[test]
 fn independent_invocation_preserves_host_verification_even_with_invalid_marker() {
     for session in [Some(SESSION), None, Some("invalid")] {
         let probe = Probe::new([

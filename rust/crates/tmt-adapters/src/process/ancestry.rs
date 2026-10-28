@@ -22,13 +22,22 @@ pub enum AncestryError {
 }
 
 /// Executable names along one complete caller chain, from a single bounded ps
-/// snapshot. Missing, cyclic or truncated evidence is unavailable, never human.
+/// snapshot. Only the rows the walk visits are read: each visited PID must have exactly
+/// one well-formed row. A malformed or repeated row of an unrelated process (one that
+/// started or exited while `ps` read the table) does not matter, but a line that does not
+/// start with a PID is not a ps row at all. Missing, cyclic or truncated evidence is
+/// unavailable, never human.
 pub fn command_chain<R: CommandRunner>(
     runner: &R,
     first: u32,
     deadline: Instant,
 ) -> Result<Vec<(u32, String)>, AncestryError> {
     use std::collections::{HashMap, HashSet};
+    /// What the snapshot holds for one PID, before any of its fields are read.
+    enum Rows<'a> {
+        One(&'a str),
+        Repeated,
+    }
     let output = query_ps(
         runner,
         &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
@@ -37,23 +46,16 @@ pub fn command_chain<R: CommandRunner>(
     )
     .map_err(AncestryError::Command)?;
     let text = std::str::from_utf8(&output.stdout).map_err(|_| AncestryError::Unavailable)?;
-    let mut processes = HashMap::new();
+    let mut rows: HashMap<u32, Rows<'_>> = HashMap::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
         let (pid, rest) = line
             .trim()
             .split_once(char::is_whitespace)
-            .ok_or(AncestryError::Unavailable)?;
-        let (parent, executable) = rest
-            .trim_start()
-            .split_once(char::is_whitespace)
-            .ok_or(AncestryError::Unavailable)?;
+            .unwrap_or((line.trim(), ""));
         let pid = pid.parse::<u32>().map_err(|_| AncestryError::Unavailable)?;
-        let parent = parent
-            .parse::<u32>()
-            .map_err(|_| AncestryError::Unavailable)?;
-        if processes.insert(pid, (parent, executable.trim())).is_some() {
-            return Err(AncestryError::Unavailable);
-        }
+        rows.entry(pid)
+            .and_modify(|row| *row = Rows::Repeated)
+            .or_insert(Rows::One(rest));
     }
     let mut pid = first;
     let mut seen = HashSet::new();
@@ -65,8 +67,17 @@ pub fn command_chain<R: CommandRunner>(
         if !seen.insert(pid) {
             return Err(AncestryError::Unavailable);
         }
-        let &(parent, executable) = processes.get(&pid).ok_or(AncestryError::Unavailable)?;
-        chain.push((pid, executable.to_owned()));
+        let Some(&Rows::One(rest)) = rows.get(&pid) else {
+            return Err(AncestryError::Unavailable);
+        };
+        let (parent, executable) = rest
+            .trim_start()
+            .split_once(char::is_whitespace)
+            .ok_or(AncestryError::Unavailable)?;
+        let parent = parent
+            .parse::<u32>()
+            .map_err(|_| AncestryError::Unavailable)?;
+        chain.push((pid, executable.trim().to_owned()));
         pid = parent;
     }
     Err(AncestryError::Unavailable)
@@ -634,5 +645,99 @@ mod tests {
                 Err(AncestryError::Unavailable)
             ));
         }
+    }
+    fn walk(snapshot: &str, first: u32) -> Result<Vec<(u32, String)>, AncestryError> {
+        let runner = crate::scripted_runner::ScriptedRunner::default();
+        runner.push_output(snapshot.as_bytes().to_vec(), vec![]);
+        command_chain(&runner, first, soon())
+    }
+
+    fn expected() -> Vec<(u32, String)> {
+        [
+            (1200, "codex"),
+            (900, "-zsh"),
+            (700, "tmux: server"),
+            (500, "launchd"),
+        ]
+        .map(|(pid, name)| (pid, name.to_owned()))
+        .into()
+    }
+
+    const CHAIN: &str =
+        "  500     1 launchd\n  700   500 tmux: server\n  900   700 -zsh\n 1200   900 codex\n";
+
+    #[test]
+    fn a_complete_chain_keeps_executable_names_with_spaces() {
+        assert_eq!(walk(CHAIN, 1200).unwrap(), expected());
+        // PID 1 and below end the walk; a start at the root has no chain.
+        assert_eq!(walk(CHAIN, 1).unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn a_malformed_or_repeated_row_off_the_chain_does_not_refuse_it() {
+        for noise in [
+            "  3000\n",                     // no parent, no command
+            "  3001 abc zsh\n",             // parent is not a number
+            "  3002     1\n",               // no command
+            "  3003 -4 zsh\n",              // parent is not an unsigned number
+            "  4000   1 a\n  4000   1 b\n", // a repeated PID
+            "\n   \n",                      // blank lines
+        ] {
+            let snapshot = format!("{noise}{CHAIN}{noise}");
+            assert_eq!(
+                walk(&snapshot, 1200).unwrap(),
+                expected(),
+                "noise {noise:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bad_missing_or_repeated_row_on_the_chain_is_unavailable() {
+        let others = |without: u32| -> String {
+            CHAIN
+                .lines()
+                .filter(|line| line.split_whitespace().next() != Some(&without.to_string()))
+                .map(|line| format!("{line}\n"))
+                .collect()
+        };
+        for pid in [1200, 900, 700, 500] {
+            for broken in [
+                String::new(),                     // missing
+                format!("{pid}\n"),                // no parent
+                format!("{pid} abc zsh\n"),        // parent is not a number
+                format!("{pid} 1\n"),              // no command
+                format!("{pid} 1 a\n{pid} 1 b\n"), // repeated
+            ] {
+                let snapshot = format!("{}{broken}", others(pid));
+                assert!(
+                    matches!(walk(&snapshot, 1200), Err(AncestryError::Unavailable)),
+                    "pid {pid}, {broken:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_that_does_not_start_with_a_pid_refuses_the_snapshot() {
+        for line in ["garbage\n", "x 1 zsh\n", "-5 1 zsh\n", " 12abc 1 zsh\n"] {
+            let snapshot = format!("{CHAIN}{line}");
+            assert!(
+                matches!(walk(&snapshot, 1200), Err(AncestryError::Unavailable)),
+                "{line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cycle_or_a_chain_past_the_depth_bound_is_still_unavailable() {
+        assert!(matches!(
+            walk("  800   801 a\n  801   800 b\n", 800),
+            Err(AncestryError::Unavailable)
+        ));
+        let deep: String = (2..=(MAX_DEPTH as u32 + 3))
+            .map(|pid| format!("{pid} {} p\n", pid + 1))
+            .collect();
+        assert!(matches!(walk(&deep, 2), Err(AncestryError::Unavailable)));
     }
 }
