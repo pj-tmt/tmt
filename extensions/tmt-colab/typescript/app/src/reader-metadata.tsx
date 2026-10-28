@@ -1,11 +1,8 @@
+import { Alert, AlertTitle, AlertDescription, UiTheme } from '@tmt/browser-ui/ui';
+import '@tmt/browser-ui/ui.css';
+import { getTheme, subscribeTheme } from './theme.js';
 import { Check, Diamond, X } from 'lucide-react';
-import {
-  BrowserAction,
-  BrowserDialog,
-  BrowserField,
-  BrowserNotice,
-  BusyMark,
-} from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserDialog, BrowserField, BusyMark } from '@tmt/browser-ui/react';
 import { createPortal } from 'react-dom';
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { PageAttribution, creatorName } from './page-attribution.js';
@@ -37,6 +34,7 @@ export function ReaderMetadataInfo({
   focusFallback(): HTMLElement | null;
 }) {
   const [creator, setCreator] = useState<PageView>();
+  const theme = useSyncExternalStore(subscribeTheme, getTheme);
   const observed = useSyncExternalStore(
     metadata?.subscribe ?? noSubscription,
     metadata?.snapshot ?? noStatus,
@@ -78,67 +76,72 @@ export function ReaderMetadataInfo({
     if (!metadata || !status?.outcome || status.busy) return;
     await metadata.check(status.outcome.operationId);
   }
+  const label = status?.busy
+    ? t.changing
+    : status?.outcome?.state === 'applied'
+      ? t.applied
+      : status?.outcome?.state === 'unconfirmed'
+        ? t.unconfirmed
+        : t.notApplied;
+  const detail =
+    status?.error ??
+    (status?.outcome?.state === 'refused'
+      ? status.outcome.message
+      : status?.outcome?.state === 'ended'
+        ? text.readerEnded
+        : status?.outcome?.state === 'not-sent'
+          ? t.notSent
+          : status?.outcome?.state === 'unconfirmed'
+            ? t.requestUnconfirmed
+            : undefined);
   const notice = status && (
-    <div data-testid="reader-metadata-status">
-      <BrowserNotice
-        mark={
-          status.busy ? (
-            <BusyMark />
-          ) : status.outcome?.state === 'applied' ? (
-            <Check />
-          ) : status.outcome?.state === 'unconfirmed' ? (
-            <Diamond fill="currentColor" />
-          ) : (
-            <X />
-          )
+    <UiTheme theme={theme}>
+      <Alert
+        data-testid="reader-metadata-status"
+        role={status.error || status.outcome?.state === 'refused' ? 'alert' : 'status'}
+        variant={
+          status.error ||
+          status.outcome?.state === 'refused' ||
+          status.outcome?.state === 'not-sent'
+            ? 'destructive'
+            : 'default'
         }
-        tone={
-          status.busy || status.outcome?.state === 'unconfirmed'
-            ? 'waiting'
-            : status.outcome?.state === 'applied'
-              ? 'muted'
-              : 'blocked'
-        }
-        announcement={status.error || status.outcome?.state === 'refused' ? 'alert' : 'status'}
-        stateLabel={
-          status.busy
-            ? t.changing
-            : status.outcome?.state === 'applied'
-              ? t.applied
-              : status.outcome?.state === 'unconfirmed'
-                ? t.unconfirmed
-                : t.notApplied
-        }
-        title={
-          status.busy
-            ? t.changing
-            : (status.error ??
-              (status.outcome?.state === 'applied'
-                ? t.applied
-                : status.outcome?.state === 'refused'
-                  ? status.outcome.message
-                  : status.outcome?.state === 'ended'
-                    ? text.readerEnded
-                    : status.outcome?.state === 'not-sent'
-                      ? t.notSent
-                      : t.requestUnconfirmed))
-        }
-        body={null}
-        actions={
-          status.outcome?.state === 'unconfirmed' && (
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={t.checkResult}
-              disabled={status.busy}
-              onActivate={() => {
-                void check();
-              }}
-            />
-          )
-        }
-      />
-    </div>
+      >
+        <AlertTitle
+          className="metadata-request-title"
+          data-waiting={status.busy || status.outcome?.state === 'unconfirmed' ? '' : undefined}
+        >
+          <span aria-hidden="true">
+            {status.busy ? (
+              <BusyMark />
+            ) : status.outcome?.state === 'applied' ? (
+              <Check />
+            ) : status.outcome?.state === 'unconfirmed' ? (
+              <Diamond fill="currentColor" />
+            ) : (
+              <X />
+            )}
+          </span>
+          {label}
+        </AlertTitle>
+        {(detail || status.outcome?.state === 'unconfirmed') && (
+          <AlertDescription>
+            {detail}
+            {status.outcome?.state === 'unconfirmed' && (
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={t.checkResult}
+                disabled={status.busy}
+                onActivate={() => {
+                  void check();
+                }}
+              />
+            )}
+          </AlertDescription>
+        )}
+      </Alert>
+    </UiTheme>
   );
   return (
     <>

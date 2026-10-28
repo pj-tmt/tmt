@@ -236,6 +236,7 @@ export function ReaderApp({
                     metadata={canEdit ? metadata : undefined}
                     onOpen={() => {
                       information.current?.removeAttribute('open');
+                      information.current?.querySelector('summary')?.focus({ preventScroll: true });
                       setSourceOpen(false);
                       setFiles(false);
                     }}
