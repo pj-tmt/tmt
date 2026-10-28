@@ -17,6 +17,7 @@ import type { DecoderCommand, FoldCommand } from '../src/fold-protocol.js';
 import * as budgetMath from '../../../../tmt-remote/typescript/remote-client/src/budget.js';
 import { HostedBudget } from '../src/hosted-budget.js';
 import { HostedPageReader } from '../src/hosted-reader.js';
+import * as Y from 'yjs';
 
 vi.mock('../src/storage.js', () => ({
   record: () => {
@@ -445,6 +446,54 @@ it('feeds exact signed authority and contiguous cross-namespace updates to the e
   expect(f.admission.root).toBeNull();
   expect(f.fold.close).toHaveBeenCalledOnce();
 });
+it('a share reader sees manual state in a later signed encrypted update', async () => {
+  vi.resetModules();
+  const surface = {
+      onmessage: null as unknown as (event: {
+        data: { id: number; command: DecoderCommand };
+      }) => Promise<void>,
+      postMessage: (data: unknown) => worker.onmessage?.({ data }),
+    },
+    worker = {
+      onmessage: null as null | ((event: { data: unknown }) => void),
+      onerror: null,
+      terminate: vi.fn(),
+      postMessage: (data: { id: number; command: DecoderCommand }) => {
+        void surface.onmessage({ data });
+      },
+    };
+  vi.stubGlobal('self', surface);
+  await import('../src/fold.worker.js');
+  const decoder = new Fold(worker as unknown as Worker);
+  const f = await fixture(undefined, '1', decoder);
+  try {
+    const doc = new Y.Doc();
+    doc.getText('html').insert(0, '<p>Shared page</p>');
+    doc.getMap('meta').set('title', 'Shared');
+    const first = await f.seal({}, undefined, Y.encodeStateAsUpdate(doc));
+    await f.log(first);
+    await expect(
+      f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints'])),
+    ).resolves.toMatchObject({ source: '<p>Shared page</p>', state: 'todo', progress: null });
+    const before = Y.encodeStateVector(doc);
+    doc.getMap('meta').set('pageState', 'done');
+    await f.log(
+      await f.seal(
+        { streamSeq: '2', prevHash: await first.hash() },
+        undefined,
+        Y.encodeStateAsUpdate(doc, before),
+      ),
+    );
+    await expect(f.reader.refresh(call(), new Set(['log']))).resolves.toMatchObject({
+      source: '<p>Shared page</p>',
+      state: 'done',
+    });
+  } finally {
+    await f.reader.close();
+    vi.unstubAllGlobals();
+  }
+});
+
 it('uses its admitted stream position on later wakes with only chain inventory discovery', async () => {
   const f = await fixture(),
     one = await f.seal();

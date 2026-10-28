@@ -50,6 +50,26 @@ fn revision() -> Arg {
         .value_parser(crate::revision_token)
         .help("Refuse unless this revision is still current; otherwise use the revision just read")
 }
+pub fn state_command() -> Command {
+    crate::cli_work::spec(
+        "state",
+        "Set the page's manual state",
+        "Only an explicit owner action changes the state; progress never changes it.",
+        &[Example {
+            command: "tmt colab page state 10000000-0000-4000-8000-000000000001 done --json",
+            note: "Mark a page done",
+        }],
+    )
+    .arg(crate::cli_grammar::page())
+    .arg(
+        Arg::new("state")
+            .required(true)
+            .index(2)
+            .value_parser(["todo", "in-progress", "done"]),
+    )
+    .arg(revision())
+}
+
 pub fn question_command() -> Command {
     let mut command = spec("question", "Register and handle a page's questions",
         "Question registration and handling are editor-owned content. Answered state comes from verified answers, independently of Ask delivery. Changes use the current verified revision and never open a browser.")
@@ -311,7 +331,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     let (name, args) = if group == "question" {
         args.subcommand().expect("required question command")
     } else {
-        ("creator", args)
+        (group, args)
     };
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
@@ -359,7 +379,10 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     }
     let mut body = json!({});
     let mut identity_verified = None;
-    let (kind, action) = if name == "creator" {
+    let (kind, action) = if name == "state" {
+        body["state"] = json!(args.get_one::<String>("state").expect("state"));
+        (StructuredKind::PageState, "page.state")
+    } else if name == "creator" {
         (StructuredKind::Creator, "creator.set")
     } else {
         (
@@ -372,7 +395,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             },
         )
     };
-    if name != "creator" {
+    if name != "creator" && name != "state" {
         body["id"] = json!(args.get_one::<String>("id").expect("id"));
         for field in if name == "add" {
             &["title", "group"][..]

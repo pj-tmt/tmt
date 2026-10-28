@@ -16,6 +16,9 @@ import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
 import type { MetadataAction, WorkAction } from './save.js';
 export interface PageView extends Projection {
+  /** The manual state of an ordinary page; a shell has none. */
+  readonly state?: 'todo' | 'in-progress' | 'done' | null;
+  readonly progress?: import('./bootstrap.js').PageProgress | null;
   /** The document is shown, but its threads and asks are still being verified: `threads`, `asks`
    * and `threadPresentations` are absent, never empty, so nothing unverified reads as verified. */
   readonly discussionPending?: boolean;
@@ -35,6 +38,9 @@ import type { PageActivity, PageId, ProjectPins } from './bootstrap.js';
 import type { DraftStore } from './draft-store.js';
 import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
+  readonly state?: PageView['state'];
+  readonly progress?: PageView['progress'];
+  readonly stateError?: 'page-unavailable';
   readonly id: string;
   readonly title: string;
   /** No usable browser-local title has been cached yet. */
@@ -61,6 +67,7 @@ export interface PageSnapshot extends PageSummary {
   readonly shell?: Projection['shell'];
   /** The page's summary and task list (`meta.work`); never on a dashboard. */
   readonly work?: Projection['work'];
+  readonly pageState?: Projection['pageState'];
   readonly creator?: Projection['creator'];
   readonly questions?: Projection['questions'];
   readonly creationRecipient?: Projection['creationRecipient'];

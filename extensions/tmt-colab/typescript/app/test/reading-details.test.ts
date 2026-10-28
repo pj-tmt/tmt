@@ -40,6 +40,25 @@ it('admits one complete fingerprinted reading result and explicit unknown states
   expect(read.state === 'ready' && read.readings[0].state).toBe('read');
 });
 
+it('validates owner page state and direct progress without inventing unknown counts', () => {
+  const progress = { done: 1, inProgress: 0, todo: 1, unknown: 1, total: 3 };
+  const value = { ...ready(), pageState: 'todo', progress };
+  expect(readingDetails(value, pageId)).toEqual(value);
+  expect(readingDetails({ ...ready(), pageState: null, progress: null }, pageId)).toMatchObject({
+    pageState: null,
+    progress: null,
+  });
+  for (const patch of [
+    { pageState: 'blocked', progress },
+    { pageState: 'todo' },
+    { progress },
+    { pageState: null, progress },
+    { pageState: 'todo', progress: { ...progress, total: 2 } },
+    { pageState: 'done', progress: { ...progress, unknown: -1 } },
+  ])
+    expect(() => readingDetails({ ...ready(), ...patch }, pageId)).toThrow();
+});
+
 it('admits the named passages and the latest excerpt, each optional field only where it belongs', () => {
   const review = { kind: 'review' as const, id: pageId, title: 'Plan', agent: 'Agent 2' };
   const value = {

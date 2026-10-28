@@ -225,6 +225,7 @@ impl Engine {
                     _ => (questions.clone(), from_template.clone()),
                 };
                 let input = BaselineInput {
+                    page_state: None,
                     creator: creator.as_ref(),
                     questions: questions.as_ref(),
                     template: None,

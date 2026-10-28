@@ -434,7 +434,8 @@ fn grammar() -> Command {
                     .subcommand(cli_edit_locks::lock_command())
                     .subcommand(cli_edit_locks::unlock_command())
                     .subcommand(cli_layout::command())
-                    .subcommand(cli_metadata::creator_command()),
+                    .subcommand(cli_metadata::creator_command())
+                    .subcommand(cli_metadata::state_command()),
             )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
@@ -929,8 +930,8 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     if command == "reclaim" {
         return cli_storage::page(root, args);
     }
-    if command == "creator" {
-        return cli_metadata::run(root, "creator", args);
+    if command == "creator" || command == "state" {
+        return cli_metadata::run(root, command, args);
     }
     if command == "create" {
         // The layout is chosen before any state is initialized or any source is read. A template

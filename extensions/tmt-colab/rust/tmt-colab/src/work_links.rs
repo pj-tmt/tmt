@@ -78,6 +78,9 @@ impl Graph<'_> {
     /// `None` for a page with no work or one that is not in the index.
     pub fn derived(&self, page: &str) -> Option<Value> {
         let work = self.0.get(page)?.as_ref()?;
+        if !work.has_work {
+            return None;
+        }
         if work.lines.is_empty() {
             return Some(work.derived.clone());
         }
@@ -89,6 +92,21 @@ impl Graph<'_> {
             self.stage(child, &mut trail.clone())
         });
         Some(derived.to_value())
+    }
+
+    /// The explicit page state and direct-item progress, only from current known entries.
+    pub fn page_state(&self, page: &str) -> Option<&str> {
+        self.0.get(page)?.as_ref().map(|work| work.state.as_str())
+    }
+
+    pub fn progress(&self, page: &str) -> Option<crate::page_state::Progress> {
+        let work = self.0.get(page)?.as_ref()?;
+        if work.lines.is_empty() {
+            return Some(work.own_progress.clone());
+        }
+        Some(crate::page_state::progress(&work.lines, &|child| {
+            self.page_state(child).map(str::to_owned)
+        }))
     }
 
     /// The task that follows each followed page: the lowest page ID, then the lowest task number,
@@ -318,6 +336,9 @@ mod tests {
         let derived = work::derive(&lines, &|_| None).to_value();
         let linked = lines.iter().any(|line| line.child.is_some());
         Some(PageWork {
+            state: "todo".into(),
+            has_work: true,
+            own_progress: crate::page_state::progress(&lines, &|_| None),
             derived,
             held: vec![],
             lines: if linked { lines } else { vec![] },
@@ -328,6 +349,32 @@ mod tests {
             .into_iter()
             .map(|(id, work)| (id.to_owned(), work))
             .collect::<BTreeMap<_, _>>()
+    }
+
+    #[test]
+    fn manual_progress_is_one_level_deduplicated_and_unknown_when_child_is_stale() {
+        let mut child = page(vec![line("T-1", "todo", Some("a"))]).unwrap();
+        child.state = "done".into();
+        let found = found(vec![
+            (
+                "a",
+                page(vec![
+                    line("T-1", "todo", Some("b")),
+                    line("T-2", "todo", Some("b")),
+                    line("T-3", "done", Some("missing")),
+                    line("T-4", "in-review", None),
+                    line("T-5", "todo", None),
+                ]),
+            ),
+            ("b", Some(child)),
+        ]);
+        let graph = Graph(&found);
+        assert_eq!(
+            serde_json::to_value(graph.progress("a")).unwrap(),
+            json!({"done":1,"inProgress":1,"todo":1,"unknown":1,"total":4})
+        );
+        assert_eq!(graph.page_state("a"), Some("todo"));
+        assert!(graph.progress("missing").is_none());
     }
 
     #[test]

@@ -1208,3 +1208,7 @@ summary and no task offers the owner the add-task field directly.
   Crypto/scope tests live in `test/title-cache.test.ts`; real IndexedDB reload and
   safe rendering are covered in `e2e/live.spec.ts`, and native page-create title
   propagation/profile isolation in `acceptance/titles.spec.ts`.
+
+## Manual page state and progress (#5504)
+
+Ordinary-page `meta.pageState` is a closed value in the encrypted content document; the native decoder, browser fold and structured metadata action share the validation and admission boundaries. The work index keeps only a fingerprinted derived copy for fresh owner projections, while direct-page progress is computed from tasks and at most one level of referenced child state. Shell pages have no manual state. The contract owns state values, progress buckets, unknown data and CLI shapes.

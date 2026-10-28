@@ -176,6 +176,8 @@ export async function mountedTransport(
                 projects: page.projects,
                 ...(page.pinned ? { pinned: true } : {}),
                 summary: page.summary,
+                state: page.state,
+                stateError: page.stateError,
               };
             }),
           ),

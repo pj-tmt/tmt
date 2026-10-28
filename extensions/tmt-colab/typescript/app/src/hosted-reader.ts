@@ -304,6 +304,8 @@ export class HostedPageReader {
       this.metadata?.show(projection.own ?? {}, (writer) => this.objects.statusWriter(writer));
       return {
         ...projection,
+        state: projection.pageType === 'shell' ? null : (projection.pageState ?? 'todo'),
+        progress: null,
         ownData: this.objects.ownData,
         editLocks: readEditLocks(
           projection.own ?? {},

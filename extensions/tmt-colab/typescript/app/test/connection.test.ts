@@ -183,7 +183,13 @@ it('verifies live author chains before envelope admission and Worker publication
     socket.receive(broadcast());
     await connection.run(async () => {});
     expect(calls).toEqual(['chain', 'admit', 'fold']);
-    expect(publish).toHaveBeenLastCalledWith({ source: 'updated', title: 'Title', ownData: false });
+    expect(publish).toHaveBeenLastCalledWith({
+      source: 'updated',
+      title: 'Title',
+      state: 'todo',
+      ownData: false,
+      archived: undefined,
+    });
     expect(failed).not.toHaveBeenCalled();
     calls.length = 0;
     socket.receive(broadcast(false));

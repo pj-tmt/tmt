@@ -86,6 +86,7 @@ export interface Projection {
   shell?: Shell;
   /** An ordinary page's summary and task list (`meta.work`); never on a dashboard. */
   work?: Work;
+  pageState?: 'todo' | 'in-progress' | 'done';
   attachments?: attachment.AttachmentDescriptor[];
   creationRecipient?: CreationRecipient;
   source: string;
@@ -233,8 +234,16 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  if (['creator', 'questions', 'template', 'fromTemplate'].some((key) => Object.hasOwn(value, key)))
+  if (
+    ['creator', 'questions', 'template', 'fromTemplate', 'pageState'].some((key) =>
+      Object.hasOwn(value, key),
+    )
+  )
     requireValue(!Object.hasOwn(value, 'pageType') && !Object.hasOwn(value, 'shell'));
+  if (Object.hasOwn(value, 'pageState'))
+    requireValue(
+      ['todo', 'in-progress', 'done'].includes((value as Projection).pageState as string),
+    );
   if (Object.hasOwn(value, 'template')) validateTemplateMark((value as Projection).template);
   if (Object.hasOwn(value, 'fromTemplate'))
     validateTemplateSource((value as Projection).fromTemplate);
@@ -319,6 +328,8 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
   return (
     a.source === b.source &&
     a.title === b.title &&
+    Object.hasOwn(a, 'pageState') === Object.hasOwn(b, 'pageState') &&
+    a.pageState === b.pageState &&
     a.publisherAgent === b.publisherAgent &&
     a.originalAuthor === b.originalAuthor &&
     Object.hasOwn(a, 'creator') === Object.hasOwn(b, 'creator') &&

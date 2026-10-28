@@ -213,6 +213,7 @@ it('keeps 1000 worst-sized work rows and parents inside the bounded response', a
     ...metadata,
     pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
     projects: [`${String(index).padStart(3, '0')}${rockets}`],
+    state: 'in-progress',
     summary: {
       comments: 4_294_967_295,
       waiting: true,
@@ -301,6 +302,24 @@ it('keeps a reply the owner filled to its budget with titles inside the bounded 
   const boot = await discover(mount);
   expect(boot.pages.filter((p) => p.title !== undefined)).toHaveLength(fit);
 });
+it('accepts state-only list rows and refuses invalid state', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  await response([{ ...metadata, state: 'todo' }]);
+  expect((await discover(mount)).pages[0].state).toBe('todo');
+  for (const patch of [
+    { state: 'unknown' },
+    { state: 'todo', progress: { done: 0, inProgress: 0, todo: 0, unknown: 0, total: 0 } },
+    { state: null, stateError: 'bad' },
+  ]) {
+    await response([{ ...metadata, ...patch }]);
+    await expect(discover(mount), JSON.stringify(patch)).rejects.toThrow();
+  }
+  await response([{ ...metadata, state: null, stateError: 'page-unavailable' }]);
+  expect((await discover(mount)).pages[0].stateError).toBe('page-unavailable');
+});
+
 it('accepts a work row and the task that follows the page, each on its own', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, run: () => unknown) => run() },

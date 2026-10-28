@@ -911,6 +911,9 @@ impl Snapshot {
             StructuredKind::Creator if !shell && edit.action == "creator.set" => {
                 crate::question_registry::set_creator(&edit.body, &edit.attribution).map(drop)
             }
+            StructuredKind::PageState if !shell => {
+                crate::page_state::validate_action(&edit.action, &edit.body)
+            }
             StructuredKind::Template if !shell => {
                 crate::template_marks::apply(&edit.action, &edit.body).map(drop)
             }
@@ -981,6 +984,7 @@ impl Snapshot {
             )?)?;
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             let view = BaselineInput {
+                page_state: None,
                 creator: None,
                 questions: None,
                 template: None,

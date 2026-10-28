@@ -4,6 +4,7 @@ import { Fold, decodeBudgetMs } from '../src/fold.js';
 import {
   WRITE_TAIL_BYTES,
   validateProjection,
+  sameContent,
   type DecoderCommand,
   type FoldCommand,
 } from '../src/fold-protocol.js';
@@ -130,6 +131,7 @@ it('the actual Worker reads work from the document and keeps it through a source
     doc.transact(() => {
       doc.getText('html').insert(0, '<p>page</p>');
       doc.getMap('meta').set('title', 'Page');
+      doc.getMap('meta').set('pageState', 'in-progress');
       if (work !== undefined) doc.getMap('meta').set('work', work);
     });
     return Y.encodeStateAsUpdate(doc);
@@ -161,6 +163,7 @@ it('the actual Worker reads work from the document and keeps it through a source
     const applied = await send({ type: 'apply', updates: [contentUpdate(work)] });
     expect(applied.error).toBeUndefined();
     expect(applied.work).toEqual(work);
+    expect(applied.pageState).toBe('in-progress');
     const edit = await send({
       type: 'prepare-content',
       source: '<p>Later source</p>',
@@ -168,9 +171,11 @@ it('the actual Worker reads work from the document and keeps it through a source
     });
     expect(edit.error).toBeUndefined();
     expect(edit.projection.work).toEqual(work);
+    expect(edit.projection.pageState).toBe('in-progress');
     const later = await send({ type: 'apply', updates: edit.updates });
     expect(later.source).toBe('<p>Later source</p>');
     expect(later.work).toEqual(work);
+    expect(later.pageState).toBe('in-progress');
     // A page with no work projects none, and a value the contract refuses never projects.
     expect(
       Object.hasOwn(await (await open())({ type: 'apply', updates: [contentUpdate()] }), 'work'),
@@ -812,4 +817,23 @@ it('keeps creator and question metadata on ordinary pages', () => {
       }),
     ).toThrow();
   }
+});
+
+it('validates and preserves the manual page state in content snapshots', () => {
+  const page = { source: '<p>page</p>', title: 'Page' };
+  for (const pageState of ['todo', 'in-progress', 'done'])
+    expect(() => validateProjection({ ...page, pageState })).not.toThrow();
+  for (const pageState of ['blocked', null, 1])
+    expect(() => validateProjection({ ...page, pageState })).toThrow();
+  const shell = {
+    source: '',
+    title: 'Shell',
+    pageType: 'shell' as const,
+    shell: { version: 1 as const, items: {}, order: [] },
+  };
+  expect(() => validateProjection({ ...shell, pageState: 'done' })).toThrow();
+  const admitted = { ...page, pageState: 'done' as const, own: {} };
+  expect(sameContent(admitted, { ...admitted })).toBe(true);
+  expect(sameContent(admitted, { ...page, own: {} })).toBe(false);
+  expect(sameContent(admitted, { ...admitted, pageState: 'todo' })).toBe(false);
 });

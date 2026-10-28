@@ -911,6 +911,12 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     }
     listed["title"] = show["page"]["title"].clone();
     listed["layout"] = show["page"]["layout"].clone();
+    assert_eq!(
+        show["page"]["progress"],
+        json!({"done":0,"inProgress":0,"todo":0,"unknown":0,"total":0})
+    );
+    assert!(listed.get("progress").is_none());
+    listed["progress"] = show["page"]["progress"].clone();
     assert_eq!(show["page"], listed);
     assert_eq!(show["members"][0]["id"], MEMBER);
     assert_eq!(show["page"]["warnings"], json!([]));
@@ -2133,11 +2139,13 @@ fn the_summary_fold_carries_a_pages_own_work_and_its_follow_lines() {
     assert_eq!(top_work.derived["total"], 1);
     assert_eq!(top_work.lines.len(), 1);
     assert_eq!(top_work.lines[0].child.as_deref(), Some(leaf.as_str()));
-    // Without a follow the lines are not kept; a page with no task has no work.
+    // Without a follow the lines are not kept; a page with no task still has its manual state.
     let leaf_work = summarize(&leaf).expect("a page with a task has work");
     assert_eq!(leaf_work.derived["total"], 1);
     assert!(leaf_work.lines.is_empty());
-    assert!(summarize(&bare).is_none());
+    let bare_work = summarize(&bare).expect("ordinary page has manual state");
+    assert_eq!(bare_work.state, "todo");
+    assert!(!bare_work.has_work);
 }
 
 #[test]
@@ -13544,4 +13552,185 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
             *leaf
         );
     }
+}
+
+#[test]
+fn page_state_commands_read_filter_and_never_auto_complete() {
+    fn call(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let page = call(
+            &pilot,
+            &[
+                "page",
+                "create",
+                "--title",
+                "State test",
+                "--layout",
+                "column",
+                "--no-open",
+                "--json",
+            ],
+        )["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let shell = call(
+            &pilot,
+            &["dashboard", "create", "--title", "Shell", "--json"],
+        )["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let shell_show = call(&pilot, &["show", &shell, "--json"]);
+        assert!(shell_show["page"]["state"].is_null());
+        assert!(shell_show["page"]["progress"].is_null());
+        let denied = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(["page", "state", &shell, "done", "--json"])
+            .output()
+            .unwrap();
+        assert!(!denied.status.success());
+        let show = || call(&pilot, &["show", &page, "--json"]);
+        assert_eq!(show()["page"]["state"], "todo");
+        assert_eq!(
+            show()["page"]["progress"],
+            json!({"done":0,"inProgress":0,"todo":0,"unknown":0,"total":0})
+        );
+        call(&pilot, &["page", "state", &page, "in-progress", "--json"]);
+        call(
+            &pilot,
+            &["task", "add", &page, "--title", "Finish", "--json"],
+        );
+        call(&pilot, &["task", "state", &page, "T-1", "done", "--json"]);
+        assert_eq!(show()["page"]["state"], "in-progress");
+        assert_eq!(
+            show()["page"]["progress"],
+            json!({"done":1,"inProgress":0,"todo":0,"unknown":0,"total":1})
+        );
+        let filtered = call(&pilot, &["ls", "--state", "in-progress", "--json"]);
+        assert!(
+            filtered["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["pageId"] == page && row["state"] == "in-progress")
+        );
+        assert!(
+            !filtered["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["pageId"] == shell)
+        );
+        call(&pilot, &["page", "state", &page, "done", "--json"]);
+        assert_eq!(show()["page"]["state"], "done");
+    }
+}
+
+#[test]
+fn state_filtered_listing_reports_unreadable_pages_and_includes_archived_when_requested() {
+    use tmt_colab::{keyring::Layout, store::Store};
+    let pilot = Pilot::new(None);
+    let active = titled_page(&pilot, "Active state");
+    let archived = titled_page(&pilot, "Archived state");
+    let archived_unknown = titled_page(&pilot, "Unreadable archived state");
+    pilot.call(&["archive", &archived, "--json"]);
+    pilot.call(&["archive", &archived_unknown, "--json"]);
+    // A catalog-only page has neither epoch secret nor content and cannot supply a state.
+    let unknown = "10000000-0000-4000-8000-000000000099";
+    let layout = Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let store = Store::open(&layout).unwrap();
+    store.create_page(unknown).unwrap();
+    drop(store);
+    // Simulate an archived page whose local content key cannot decrypt its content.
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    assert_eq!(
+        db.execute(
+            "UPDATE epoch_secrets SET secret = zeroblob(32) WHERE page = ?1",
+            [&archived_unknown]
+        )
+        .unwrap(),
+        1
+    );
+    drop(db);
+    let filtered = pilot.call(&["ls", "--state", "todo", "--json"]);
+    assert_eq!(filtered["stateUnavailable"], json!([unknown]));
+    let human = pilot
+        .command()
+        .args(["ls", "--state", "todo"])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert!(text.contains("State unavailable"));
+    assert!(text.contains(unknown));
+    assert!(
+        filtered["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["pageId"] == active)
+    );
+    assert!(
+        !filtered["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["pageId"] == unknown || row["pageId"] == archived)
+    );
+    let with_archived = pilot.call(&["ls", "--archived", "--state", "todo", "--json"]);
+    let unavailable = with_archived["stateUnavailable"].as_array().unwrap();
+    assert_eq!(unavailable.len(), 2);
+    assert!(unavailable.contains(&json!(unknown)));
+    assert!(unavailable.contains(&json!(archived_unknown)));
+    let rows = with_archived["pages"].as_array().unwrap();
+    assert!(rows.iter().any(|row| row["pageId"] == active));
+    assert!(
+        rows.iter()
+            .any(|row| row["pageId"] == archived && row["archived"] == true)
+    );
+}
+
+#[test]
+fn show_reuses_one_work_index_including_archived_pages() {
+    let pilot = Pilot::new(None);
+    let active = titled_page(&pilot, "Active cache");
+    let archived = titled_page(&pilot, "Archived cache");
+    let deleted = titled_page(&pilot, "Deleted cache");
+    pilot.call(&["archive", &archived, "--json"]);
+    pilot.call(&["delete", &deleted, "--yes", "--json"]);
+    pilot.call(&["show", &active, "--json"]);
+    let cache = pilot.root.join("selected/colab/work-index.json");
+    let before = fs::read(&cache).unwrap();
+    let parsed: Value = serde_json::from_slice(&before).unwrap();
+    assert!(
+        parsed["pages"][&archived]["fingerprint"].is_string(),
+        "archived page must remain indexed"
+    );
+    let modified = fs::metadata(&cache).unwrap().modified().unwrap();
+    pilot.call(&["show", &active, "--json"]);
+    assert_eq!(fs::read(&cache).unwrap(), before);
+    assert_eq!(
+        fs::metadata(&cache).unwrap().modified().unwrap(),
+        modified,
+        "unchanged show must not rewrite the cache"
+    );
 }

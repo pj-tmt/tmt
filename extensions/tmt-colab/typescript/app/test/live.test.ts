@@ -196,6 +196,53 @@ vi.mock('../src/writer.js', () => ({
   },
 }));
 
+it('returns owner page progress only when the details state matches the admitted page', async () => {
+  connections.length = 0;
+  const pageId = '10000000-0000-4000-8000-000000000001';
+  const progress = { done: 1, inProgress: 0, todo: 0, unknown: 0, total: 1 };
+  let pageState = 'done';
+  vi.stubGlobal(
+    'fetch',
+    async () =>
+      new Response(
+        JSON.stringify({
+          pageId,
+          state: 'ready',
+          fingerprint: 'a'.repeat(64),
+          pageState,
+          progress,
+          summary: { comments: 0, waiting: false, needsYou: 0 },
+          readings: [],
+          needs: [],
+        }),
+      ),
+  );
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      projectPins: { names: [], automatic: true },
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId, epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  try {
+    await live.snapshot();
+    connections.at(-1)!.publish({ source: 'verified', title: 'Page', state: 'done' });
+    await vi.waitFor(async () => expect((await live.snapshot()).progress).toEqual(progress));
+    pageState = 'todo';
+    expect((await live.snapshot()).progress).toBeNull();
+  } finally {
+    live.close();
+    vi.unstubAllGlobals();
+  }
+});
+
 it('successful catchup resets reconnect failures across the page lifetime', async () => {
   connections.length = 0;
   const live = new Live(

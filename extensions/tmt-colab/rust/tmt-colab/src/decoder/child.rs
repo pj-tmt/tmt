@@ -846,6 +846,10 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
         || wire
+            .page_state
+            .as_ref()
+            .is_some_and(|v| !valid_page_state(v))
+        || wire
             .creator
             .as_ref()
             .is_some_and(|v| crate::question_registry::validate_creator(v).is_err())
@@ -900,12 +904,16 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 layout: wire.layout.as_ref(),
                 attachments: wire.attachments.as_ref(),
                 work: wire.work.as_ref(),
+                page_state: wire.page_state.as_ref(),
             };
             if creation.layout.is_some_and(|layout| !layout.valid()) {
                 return Err(DecodeFault::InvalidInput);
             }
             // Work rides on an ordinary page's single baseline update, never on a shell or on the
             // chunked creation of a new page.
+            if wire.page_state.is_some() && (shell.is_some() || chunk_bytes.is_some()) {
+                return Err(DecodeFault::InvalidInput);
+            }
             if let Some(work) = &wire.work {
                 crate::work::validate(work).map_err(|_| DecodeFault::InvalidInput)?;
                 if shell.is_some() || chunk_bytes.is_some() {
@@ -978,6 +986,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         .map_err(|_| DecodeFault::Rejected)?;
     let projection = project(&doc, Namespace::Content)?;
     if producing && projection["meta"].get("shell") != expected_shell.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
+    if producing && projection["meta"].get("pageState") != wire.page_state.as_ref() {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("work") != wire.work.as_ref() {
@@ -1104,6 +1115,7 @@ struct BaselineMeta<'a> {
     layout: Option<&'a crate::decoder::PageLayout>,
     attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
     work: Option<&'a Value>,
+    page_state: Option<&'a Value>,
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
@@ -1112,6 +1124,7 @@ impl BaselineMeta<'_> {
             ("questions", self.questions),
             ("template", self.template),
             ("fromTemplate", self.from_template),
+            ("pageState", self.page_state),
         ] {
             if let Some(value) = value {
                 meta.insert(
@@ -1201,6 +1214,7 @@ mod baseline_tests {
                 source,
                 title,
                 &BaselineMeta {
+                    page_state: None,
                     creator: None,
                     questions: None,
                     template: None,
