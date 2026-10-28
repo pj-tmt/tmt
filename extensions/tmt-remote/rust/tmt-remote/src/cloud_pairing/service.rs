@@ -545,6 +545,39 @@ impl Service {
         )?)
         .map_err(|_| unavailable())
     }
+    pub(crate) fn delivery(
+        &self,
+        selected: &str,
+        original: &str,
+    ) -> Result<crate::cloud_inbox::DeliveryEvidence, RemoteError> {
+        if selected == "local" || !crate::remote_catalog::name_ok(selected) {
+            return Err(unavailable());
+        }
+        canonical::uuid(original).map_err(|_| wire::invalid())?;
+        let record = self
+            .store()?
+            .cloud_connection(selected)?
+            .filter(|record| record.confirmed)
+            .ok_or_else(unavailable)?;
+        if self
+            .store()?
+            .cloud_observe_outgoing(&record.peer, original, &record.owner)?
+            .is_none_or(|row| !row.attempted)
+        {
+            return Ok(crate::cloud_inbox::DeliveryEvidence::Unknown);
+        }
+        let provider = self.provider(&record.config, &record.owner, false)?;
+        let io = self.io();
+        let descriptor = self.descriptor(&provider, &record.owner_key, &record.descriptor, &io)?;
+        let sender = Sender::new(provider, self.store.clone(), &record.peer, self.key.clone())?;
+        run(
+            sender.delivery(original, &descriptor, crate::pairing::now_ms()?, &io),
+            &io,
+        )
+    }
+    pub(crate) fn machine_id(&self) -> &str {
+        &self.machine
+    }
     fn reroute(
         &self,
         record: &mut Connection,

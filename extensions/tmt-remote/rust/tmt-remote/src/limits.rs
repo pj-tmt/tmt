@@ -311,3 +311,13 @@ pub const CLOUD_ENROLLMENT_CLEANUP: Duration = Duration::from_secs(3_600);
 /// Firebase Hosting site IDs and Management API app IDs admitted as resource selectors.
 pub const HOSTING_SITE_ID_BYTES: usize = 30;
 pub const HOSTING_WEB_APP_ID_BYTES: usize = 256;
+
+/// Only the bounded machine/squad/member projection is eligible for cross-machine summary sync.
+pub const SQUAD_SUMMARY_BYTES: usize = 64 * 1024;
+pub const SQUAD_SUMMARY_NAME_BYTES: usize = 128;
+pub const SQUAD_SUMMARY_SQUADS: usize = 64;
+pub const SQUAD_SUMMARY_MEMBERS: usize = 512;
+/// Unchanged summaries heartbeat every five minutes; readers derive age from observedAt.
+pub const SQUAD_SUMMARY_HEARTBEAT_MS: u64 = 300_000;
+/// One bounded other-machine list, before filtering the local machine.
+pub const SQUAD_SUMMARY_MACHINES: usize = 32;

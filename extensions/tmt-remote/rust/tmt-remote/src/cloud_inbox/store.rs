@@ -322,6 +322,28 @@ pub(crate) struct Outgoing {
     pub created_ms: u64,
 }
 impl Store {
+    /// Only a prepared send with the existing private route binding is a delivery subject.
+    pub(crate) fn cloud_observe_outgoing(
+        &self,
+        peer: &str,
+        id: &str,
+        machine: &str,
+    ) -> Result<Option<Outgoing>, RemoteError> {
+        canonical::uuid(peer).map_err(|_| invalid())?;
+        canonical::uuid(id).map_err(|_| invalid())?;
+        let row: Option<(Outgoing,String)> = self.connection.query_row(
+            "SELECT carrier,attempted,created_ms,binding FROM cloud_transport WHERE peer_id=?1 AND kind='outbox' AND id=?2 AND binding IS NOT NULL",
+            [peer,id], |row| Ok((Outgoing {carrier:row.get(0)?,attempted:row.get(1)?,created_ms:row.get::<_,i64>(2)? as u64},row.get(3)?)),
+        ).optional().map_err(database)?;
+        row.map(|(outgoing, binding)| {
+            let binding: ReplyOrigin = serde_json::from_str(&binding).map_err(database)?;
+            if binding.machine != machine {
+                return Err(invalid());
+            }
+            Ok(outgoing)
+        })
+        .transpose()
+    }
     pub(crate) fn cloud_outgoing(
         &self,
         peer: &str,

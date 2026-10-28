@@ -575,3 +575,51 @@ fn the_vector_bounds_are_the_door_bounds() {
     assert_eq!(bounds["text"]["link"], limits::READ_OPS_LINK);
     assert_eq!(bounds["text"]["what"], limits::READ_OPS_WHAT);
 }
+
+#[test]
+fn squad_summary_uses_only_the_public_roster_and_reports_missing_failed_or_changed_ops_as_unavailable()
+ {
+    let fake = Fake::new();
+    fake.answer(LS, &board().to_string());
+    let summary = fake.reads().squad_summary("Studio").unwrap();
+    assert_eq!(summary.squads().unwrap()[0].squad, "tmt-core");
+    assert_eq!(fake.calls(), [LS]);
+    fake.set(LS, "exit", "2");
+    fake.answer(
+        LS,
+        r#"{"error":{"code":"USAGE_ERROR","message":"Ops absent"}}"#,
+    );
+    assert!(
+        fake.reads()
+            .squad_summary("Studio")
+            .unwrap()
+            .squads()
+            .is_none()
+    );
+    fake.set(LS, "exit", "1");
+    fake.answer(LS, r#"{"error":{"code":"FAILED","message":"Ops failed"}}"#);
+    assert!(
+        fake.reads()
+            .squad_summary("Studio")
+            .unwrap()
+            .squads()
+            .is_none()
+    );
+    fake.set(LS, "exit", "0");
+    for changed in [
+        "not-json",
+        r#"{"squads":{}}"#,
+        r#"{"squads":[{"squad":null}]}"#,
+    ] {
+        fake.answer(LS, changed);
+        let unavailable = fake.reads().squad_summary("Studio").unwrap();
+        let value = serde_json::to_value(unavailable).unwrap();
+        assert_eq!(value["status"], "unavailable");
+        assert_eq!(value["machineName"], "Studio");
+        assert!(value.get("squads").is_none());
+    }
+    assert!(
+        fake.calls().iter().all(|argv| argv == LS),
+        "no cron read or fallback"
+    );
+}

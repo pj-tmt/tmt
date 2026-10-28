@@ -15,6 +15,7 @@ mod browser_ceremony_tests;
 mod invitation_backend_tests;
 #[path = "invitation_cutover_tests.rs"]
 mod invitation_cutover_tests;
+mod squad_interface_tests;
 const WINDOW: &str = "33333333-3333-4333-8333-333333333333";
 const PROJECT: &str = "demo-native-pairing";
 const TARGET: &str = "66666666-6666-4666-8666-666666666666";
