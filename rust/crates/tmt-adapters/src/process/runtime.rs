@@ -16,8 +16,9 @@ pub enum ProcessObservation {
     /// Present but stopped: refuse a second foreground launch, without treating
     /// the suspended process as a deliverable runtime.
     Stopped(ProcessIncarnation),
-    /// Only an owned, unreaped child's probe retains this identity. Ordinary
-    /// runtime observation maps zombies to Gone, and this never permits input.
+    /// A zombie, or a process that is exiting (ps flag E). Only an owned,
+    /// unreaped child's probe retains this identity. Ordinary runtime
+    /// observation maps both to Gone, and this never permits input.
     UnreapedZombie(ProcessIncarnation),
     Gone,
     Unknown,
@@ -269,8 +270,9 @@ pub fn observe_start<R: CommandRunner>(
 
 /// The incarnations of several processes, with one batched ps fallback, for an
 /// external host's verification (#570): its server and its scoped pane
-/// shells. A pid that is gone, a zombie or not parsed is absent, and a failed
-/// call leaves every pid absent; an absent pid is unknown, never evidence.
+/// shells. A pid that is gone, a zombie, exiting or not parsed is absent, and
+/// a failed call leaves every pid absent; an absent pid is unknown, never
+/// evidence.
 /// Only a fallback child that could not be cleaned up fails.
 pub fn observe_starts<R: CommandRunner>(
     runner: &R,
