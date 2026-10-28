@@ -66,13 +66,13 @@ def sampled():
         assert completed.stderr=='',completed.stderr
         report=json.loads(completed.stdout)
         reasons=report.pop('reasons',{})
-        assert report=={'attempted':1,'published':0,'skipped':0},completed.stdout
+        assert report=={'attempted':1,'published':0,'skipped':0},'a sample call must not publish or skip, got %s'%completed.stdout
         taken=topology_reads()-reads
         if taken==0 and len(unread)<${CAPTURE_MAX_UNREAD}:
-            assert reasons and 'unchanged' not in reasons,(len(samples),reasons)
+            assert reasons and 'unchanged' not in reasons,'sample %d made no topology read but reported %s'%(len(samples),reasons or 'no reason')
             unread.append(reasons)
             continue
-        assert taken==1,(len(samples),taken,unread,reasons,1000*elapsed)
+        assert taken==1,'sample %d took %d topology reads, expected exactly 1 (unread attempts so far: %s; reasons: %s; %.0f ms)'%(len(samples),taken,unread,reasons,1000*elapsed)
         samples.append({'cpuMs':1000*((after.ru_utime+after.ru_stime)-(before.ru_utime+before.ru_stime)),'wallMs':1000*elapsed,'reasons':reasons})
     publish(result,json.dumps({'panes':32,'agents':8,'periodMs':30000,'samples':samples,'unreadAttempts':len(unread),'unreadReasons':unread}))
 try:

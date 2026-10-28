@@ -45,6 +45,8 @@ function runMeter(mode: 'samples' | 'changed', seconds: number, command: string[
   return { run, elapsedMs: Date.now() - started };
 }
 
+const countCall = () => `echo call >> ${path.join(root, 'calls')}`;
+const callCount = () => fs.readFileSync(path.join(root, 'calls'), 'utf8').trim().split('\n').length;
 const read = (name: string) => fs.readFileSync(path.join(root, name), 'utf8');
 const exists = (name: string) => fs.existsSync(path.join(root, name));
 
@@ -75,6 +77,45 @@ describe('capture meter', () => {
     expect(result.samples).toHaveLength(3);
   });
 
+  it('fails a sample that took two topology reads and names the count', () => {
+    const { run } = runMeter(
+      'samples',
+      5,
+      stubApi(`${reads('a')}\n${reads('b')}\necho '${unchanged}'`)
+    );
+    expect(run.status).toBe(1);
+    expect(read('result.json.failure')).toContain(
+      'sample 0 took 2 topology reads, expected exactly 1'
+    );
+    expect(exists('result.json')).toBe(false);
+  });
+
+  it('does not count an unchanged answer that made no read as a retry', () => {
+    const { run } = runMeter('samples', 5, stubApi(`${countCall()}\necho '${unchanged}'`));
+    expect(run.status).toBe(1);
+    expect(read('result.json.failure')).toContain(
+      "sample 0 made no topology read but reported {'unchanged': 1}"
+    );
+    expect(callCount()).toBe(1);
+  });
+
+  it('fails a sample call that publishes', () => {
+    const published = '{"attempted":1,"published":1,"skipped":0,"reasons":{"unchanged":1}}';
+    const { run } = runMeter('samples', 5, stubApi(`${reads('a')}\necho '${published}'`));
+    expect(run.status).toBe(1);
+    expect(read('result.json.failure')).toContain('a sample call must not publish or skip');
+  });
+
+  it('stops after the bounded retries when no attempt ever reads, naming the reasons', () => {
+    const busy = '{"attempted":1,"published":0,"skipped":0,"reasons":{"busy":1}}';
+    const { run, elapsedMs } = runMeter('samples', 30, stubApi(`${countCall()}\necho '${busy}'`));
+    expect(run.status).toBe(1);
+    expect(callCount()).toBe(CAPTURE_MAX_UNREAD + 1);
+    expect(read('result.json.failure')).toContain('sample 0 took 0 topology reads');
+    expect(read('result.json.failure')).toContain("[{'busy': 1}, {'busy': 1}]");
+    expect(elapsedMs).toBeLessThan(10_000);
+  });
+
   it('names a failing capture call in a file instead of only in the pane', () => {
     const { run } = runMeter('samples', 5, stubApi('echo broken >&2; exit 7'));
     expect(run.status).toBe(1);
@@ -84,7 +125,7 @@ describe('capture meter', () => {
   });
 
   it('ends a stalled capture call inside its allowance and says so', () => {
-    const { run, elapsedMs } = runMeter('samples', 0.4, stubApi('sleep 30'));
+    const { run, elapsedMs } = runMeter('samples', 0.4, stubApi('exec sleep 30'));
     expect(run.status).toBe(1);
     expect(read('result.json.failure')).toContain('TimeoutExpired');
     expect(elapsedMs).toBeLessThan(3_000);
