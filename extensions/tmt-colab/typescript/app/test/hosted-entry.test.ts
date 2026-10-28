@@ -494,3 +494,46 @@ it('a request still waiting ends when the page is left or the entry closes', asy
   await f.entry.close();
   expect(await ended).toBe('Page closed');
 });
+
+it('an editor metadata request uses the shared own transport and closes without replay on replacement', async () => {
+  const f = await fixture();
+  await ready(f);
+  const shown = f.states.at(-1);
+  if (shown?.phase !== 'ready' || !shown.metadata) throw new Error('expected metadata writer');
+  const metadata = shown.metadata;
+  publication.outcome = 'unconfirmed';
+  const outcome = await metadata.send({
+    action: 'creator.set',
+    body: { selector: 'Named creator' },
+    target: { creator: null, creationRecipient: null },
+  });
+  expect(outcome.state).toBe('unconfirmed');
+  expect(publication.fits).toBe(true);
+  const record = publication.records[0];
+  expect(c.metadataRequest.metadataRequest(record.value, record.root, record.key)).toMatchObject({
+    version: 2,
+    action: 'creator.set',
+    body: { selector: 'Named creator' },
+  });
+  const sent = structuredClone(publication.records);
+  await f.entry.visible(false);
+  await f.entry.visible(true);
+  const restored = f.states.at(-1);
+  if (restored?.phase !== 'ready') throw new Error('expected restored editor');
+  expect(restored.metadata).toBe(metadata);
+  expect(restored.metadata?.snapshot()?.outcome).toEqual(outcome);
+  expect(publication.records).toEqual(sent);
+  await f.entry.select(target('00000000-0000-4000-8000-000000000456'));
+  expect((await metadata.check(outcome.operationId)).state).toBe('ended');
+  expect(
+    (
+      await metadata.send({
+        action: 'creator.set',
+        body: { selector: 'Again' },
+        target: { creator: null, creationRecipient: null },
+      })
+    ).state,
+  ).toBe('ended');
+  expect(publication.records).toEqual(sent);
+  await f.entry.close();
+});

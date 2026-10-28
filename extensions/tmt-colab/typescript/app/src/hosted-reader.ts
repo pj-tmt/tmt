@@ -1,3 +1,4 @@
+import type { MetadataRequests } from './link-metadata.js';
 import { readEditLocks } from './edit-locks.js';
 import {
   binary,
@@ -61,6 +62,7 @@ export class HostedPageReader {
     private readonly limits: ReadonlyMap<string, HostedRunLimit>,
     fold?: Pick<Fold, 'run' | 'close'>,
     private readonly ownAuthor?: OwnAuthor,
+    private readonly metadata?: MetadataRequests,
   ) {
     requireValue(admission.reader !== undefined);
     this.fold = fold ?? new Fold();
@@ -299,6 +301,7 @@ export class HostedPageReader {
       a.validateRead(['link', 'public']);
       writers.forEach((writer) => this.knownWriters.add(writer));
       this.started = true;
+      this.metadata?.show(projection.own ?? {}, (writer) => this.objects.statusWriter(writer));
       return {
         ...projection,
         ownData: this.objects.ownData,

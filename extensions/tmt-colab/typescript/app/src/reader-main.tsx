@@ -2,6 +2,7 @@ import { entryMount, publicEntry } from './entry.js';
 import { createRoot } from 'react-dom/client';
 import type { AttachmentBinding } from './attachment-service.js';
 import { ReaderApp, type ReaderState } from './reader-app.js';
+import type { ReaderMetadata } from './link-metadata.js';
 import type { ReaderEdit } from './reader-source.js';
 import { isOlderReaderFragment, parseReaderFragment } from './reader-link.js';
 import { accessEnded, ReaderSession } from './reader.js';
@@ -12,7 +13,7 @@ import { UnsupportedBrowserNotice } from './notice-card.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { startHosted } from './hosted-main.js';
 
-/** Public entry for a read-only link. The fragment holds the seed: it leaves the address bar
+/** Public entry for a share link. The fragment holds the seed: it leaves the address bar
  * before anything else runs and is never stored, logged or sent to the server. */
 const hosted = isHostedOrigin(location.origin);
 let fragment = hosted ? '' : location.hash;
@@ -22,8 +23,17 @@ let shown: ReaderState = { kind: 'opening' };
 let files: AttachmentBinding | undefined;
 let canEdit = false;
 let edit: ReaderEdit | undefined;
+let metadata: ReaderMetadata | undefined;
 const render = () =>
-  root.render(<ReaderApp state={shown} attachments={files} canEdit={canEdit} edit={edit} />);
+  root.render(
+    <ReaderApp
+      state={shown}
+      attachments={files}
+      canEdit={canEdit}
+      edit={edit}
+      metadata={metadata}
+    />,
+  );
 const show = (state: ReaderState) => {
   shown = state;
   render();
@@ -61,16 +71,22 @@ async function start() {
   canEdit = link.role === 'editor';
   const failure = (error: Error) => show({ kind: accessEnded(error) ? 'ended' : 'failed' });
   try {
-    const session = await ReaderSession.open(
+    let session: ReaderSession | undefined;
+    const opened = await ReaderSession.open(
       link,
       publicEntry() ? entryMount() : new URL('./', location.href),
-      (view) => show({ kind: 'ready', view, pageId: link.page }),
+      (view) => {
+        metadata = session?.metadata;
+        show({ kind: 'ready', view, pageId: link.page });
+      },
       failure,
     );
-    files = session.attachments;
-    if (canEdit) edit = (source, base, onWaiting) => session.edit(source, base, onWaiting);
+    session = opened;
+    files = opened.attachments;
+    metadata = opened.metadata;
+    if (canEdit) edit = (source, base, onWaiting) => opened.edit(source, base, onWaiting);
     render();
-    addEventListener('pagehide', () => session.close());
+    addEventListener('pagehide', () => opened.close());
   } catch (error) {
     failure(error instanceof Error ? error : new Error('Reader unavailable'));
   }

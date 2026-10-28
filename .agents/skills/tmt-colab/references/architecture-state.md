@@ -939,7 +939,14 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   the decision; owner-authenticated `edit-result` own records transport it to door and hosted
   readers. Recovery uses the same operation journal before reevaluating a target and republishes
   only a lost receipt. Source-request behavior is unchanged. The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256)
-  owns fields, identity refusals, provenance and replay rules; the browser UI follows in B.
+  owns fields, identity refusals, provenance and replay rules. `link-metadata.ts` builds requests
+  and retains their receipt observations and UI status across dialog closure, UI recovery and
+  same-epoch reconnects;
+  `Objects.statusWriter` and the client codec bind results to verified owner membership and the
+  exact request. `reader-metadata.tsx` owns direct editor controls, the frozen creator before-image
+  and focus restoration, independently of Source drafts. Door and hosted entries supply only their
+  existing own senders; page/epoch replacement ends observations and the door writer/tab channel.
+  Viewers, commenters, archived pages and absent legacy registries gain no actions.
 
 `quick-switcher-dialog.tsx` composes the website Search presentation over the existing
 source and ranking owners. Its project menu edits the same `SearchEdit` as query chips;

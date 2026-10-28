@@ -1,3 +1,9 @@
+import {
+  MetadataRequests,
+  metadataRecord,
+  type MetadataSend,
+  type ReaderMetadata,
+} from './link-metadata.js';
 import { certificate, requireValue } from '@tmt/colab-client';
 import type { PublicWebConfig } from '../../../../tmt-remote/typescript/remote-client/src/firebase-bootstrap.js';
 import type { SyncCall } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
@@ -12,7 +18,12 @@ import type { ReaderLink } from './reader-link.js';
 import type { Registration } from './registration.js';
 import type { PageView } from './transport.js';
 import type { EditRequestOutcome, ReaderEdit } from './reader-source.js';
-import { PageAnswer, sendEditRequest } from './link-edit.js';
+import {
+  PageAnswer,
+  sendEditRequest,
+  requestFitsDocument,
+  type RequestTransport,
+} from './link-edit.js';
 import { EditTooLarge } from './save.js';
 
 const sameConfig = (a: PublicWebConfig, b: PublicWebConfig) =>
@@ -31,6 +42,7 @@ export type HostedEntryState =
       budget: Usage;
       role?: ReaderLink['role'];
       edit?: ReaderEdit;
+      metadata?: ReaderMetadata;
     }
   | { phase: 'failed'; failure: unknown };
 interface Options {
@@ -45,6 +57,8 @@ interface Page {
   /** The page text last shown for this page, across hidden and recovered sessions: how a sent
    * edit request is answered. Ended when the page is left. */
   answer: PageAnswer;
+  metadata?: MetadataRequests;
+  sendMetadata?: MetadataSend;
 }
 
 /** One origin/auth/declaration owner with one selected page. No native door fallback. */
@@ -69,6 +83,7 @@ export class HostedEntry {
     const generation = ++this.generation,
       retiring = this.retire();
     this.page?.answer.end();
+    this.page?.metadata?.end();
     this.options.state({ phase: 'loading' });
     const prepare = async (target?: ReaderLink): Promise<Page | undefined> =>
       target
@@ -127,6 +142,7 @@ export class HostedEntry {
     this.controller.abort();
     const retiring = this.retire();
     this.page?.answer.end();
+    this.page?.metadata?.end();
     await this.changes;
     await retiring;
     const boot = await this.boot?.catch(() => undefined);
@@ -143,6 +159,7 @@ export class HostedEntry {
     const work = this.changes.then(action).catch((failure) => {
       if (this.current(generation)) {
         this.terminal = { failure };
+        this.page?.metadata?.end();
         this.options.state({ phase: 'failed', failure });
       }
     });
@@ -240,6 +257,15 @@ export class HostedEntry {
                 expiresAt: hints.expiresAtMs,
               },
             );
+            const metadataScope = `${target.space}:${target.page}:${hints.epoch}:${keys.device.id}`;
+            if (target.role === 'editor' && page.metadata?.scope !== metadataScope) {
+              page.metadata?.end();
+              page.metadata = new MetadataRequests(
+                metadataScope,
+                keys.device.id,
+                (request) => page.sendMetadata?.(request) ?? Promise.resolve('refused'),
+              );
+            }
             reader = new HostedPageReader(
               port,
               admission,
@@ -247,6 +273,7 @@ export class HostedEntry {
               boot.limits,
               undefined,
               (_device, revision) => admission.ownAuthor(revision),
+              page.metadata,
             );
             const scope = {
               space: { stringValue: target.space },
@@ -279,6 +306,10 @@ export class HostedEntry {
           const budget = await boot.budget.snapshot();
           if (this.current(generation) && this.shown && !call.signal.aborted) {
             answer.show(view.source);
+            page.sendMetadata = (request) =>
+              this.sendRequest(reader!, generation, call.signal, (transport) =>
+                transport.submitOwnRecords([metadataRecord(request)], requestFitsDocument),
+              );
             this.options.state({
               phase: 'ready',
               pageId: target.page,
@@ -287,6 +318,7 @@ export class HostedEntry {
               role: target.role,
               ...(target.role === 'editor' && reader
                 ? {
+                    metadata: page.metadata,
                     edit: (source, base, onWaiting) =>
                       this.edit(reader!, generation, call.signal, answer, source, base, onWaiting),
                   }
@@ -301,6 +333,7 @@ export class HostedEntry {
           if (!this.current(generation)) return;
           this.terminal = { failure };
           answer.end();
+          page.metadata?.end();
           this.options.state({ phase: 'failed', failure });
         },
       },
@@ -331,32 +364,38 @@ export class HostedEntry {
     source: string,
     base: string,
   ): Promise<'sent' | EditRequestOutcome> {
+    return this.sendRequest(reader, generation, signal, (transport) =>
+      sendEditRequest(transport, base, source),
+    );
+  }
+  private async sendRequest(
+    reader: HostedPageReader,
+    generation: number,
+    signal: AbortSignal,
+    publish: (transport: RequestTransport) => Promise<unknown>,
+  ): Promise<'sent' | EditRequestOutcome> {
     if (!this.current(generation) || !this.shown || this.terminal || signal.aborted)
       return 'refused';
     let submitted = false;
     try {
       let outcome: 'sent' | EditRequestOutcome = 'refused';
-      await sendEditRequest(
-        {
-          submitOwnRecords: async (records, fits) => {
-            if (!this.current(generation) || signal.aborted) return;
-            submitted = true;
-            const result = await reader.submitOwn(
-              records,
-              { signal, deadlineAtMs: Date.now() + 30_000 },
-              fits,
-            );
-            // The reader reports a request that does not fit as a refusal; the page names its size.
-            if (result.failure instanceof EditTooLarge) throw result.failure;
-            // An occupied ID is a race lost to another holder of the link (the Rules admit one
-            // uid after another, and holders are not told apart): nothing of ours was stored, so
-            // it is not sent, and the next deliberate Save catches up and sends at the new head.
-            outcome = result.outcome === 'writer-in-use' ? 'refused' : result.outcome;
-          },
+      await publish({
+        submitOwnRecords: async (records, fits) => {
+          if (!this.current(generation) || signal.aborted) return;
+          submitted = true;
+          const result = await reader.submitOwn(
+            records,
+            { signal, deadlineAtMs: Date.now() + 30_000 },
+            fits,
+          );
+          // The reader reports a request that does not fit as a refusal; the page names its size.
+          if (result.failure instanceof EditTooLarge) throw result.failure;
+          // An occupied ID is a race lost to another holder of the link (the Rules admit one
+          // uid after another, and holders are not told apart): nothing of ours was stored, so
+          // it is not sent, and the next deliberate Save catches up and sends at the new head.
+          outcome = result.outcome === 'writer-in-use' ? 'refused' : result.outcome;
         },
-        base,
-        source,
-      );
+      });
       return outcome;
     } catch (failure) {
       if (failure instanceof EditTooLarge) throw failure;

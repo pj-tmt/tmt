@@ -839,3 +839,99 @@ test('public transport is read-only and both narrowing paths revoke two-page lin
     expect(world.coreCalls().filter((c) => c.operation === 'dispatch.create')).toHaveLength(0);
   });
 });
+
+test('editor metadata: owner applies creator and handled/reopen requests, refuses stale/unknown, and readers stay read-only', async () => {
+  await withWorld(async (world) => {
+    const first = await world.startAgent('metadata-first');
+    const next = await world.startAgent('metadata-next');
+    const door = await startDoor(world, await freePort());
+    const question = randomUUID();
+    const created = createPage(
+      world,
+      'Editor metadata acceptance',
+      `<h1>Metadata stays separate from source</h1><tmt-questions data-id="${randomUUID()}"><p data-title>Questions</p><tmt-question data-id="${question}" data-kind="short"><p data-question>Verify the release</p></tmt-question></tmt-questions>`,
+      first.pane,
+      [{ id: question }],
+    );
+    const read = () => colab(world, ['page', 'read', created.pageId]);
+    const source = read().source;
+    colab(world, ['share', 'mode', created.pageId, 'link', '--yes']);
+    const added = colab(world, [
+      'share',
+      'link',
+      'add',
+      created.pageId,
+      '--role',
+      'editor',
+      '--yes',
+    ]);
+    const editor = await openReaderLink(world, door, added.readerPath as string, 'metadata-editor');
+    const info = editor.page.getByLabel('Info', { exact: true });
+    const panel = editor.page.locator('.reader-information-panel');
+    await expect(editor.page.locator('.status')).toContainText('Live');
+    await info.click();
+    const status = panel.getByTestId('reader-metadata-status');
+    const settled = async (applied: boolean) => {
+      await expect(status).toContainText(applied ? 'Change applied' : 'Not applied', {
+        timeout: 30000,
+      });
+      const dialog = editor.page.getByRole('dialog', { name: 'Change creator', exact: true });
+      if (await dialog.isVisible())
+        await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      if (
+        !(await editor.page
+          .locator('.reader-information')
+          .evaluate((node) => (node as HTMLDetailsElement).open))
+      )
+        await info.click();
+    };
+    const changeCreator = async (selector: string, beforeSend?: () => void) => {
+      await panel.getByRole('button', { name: 'Change creator…', exact: true }).click();
+      const dialog = editor.page.getByRole('dialog', { name: 'Change creator', exact: true });
+      await dialog.getByLabel('Agent name or ID').fill(selector);
+      beforeSend?.();
+      await dialog.getByRole('button', { name: 'Change creator', exact: true }).click();
+    };
+    await changeCreator(next.name);
+    await settled(true);
+    await expect.poll(read).toMatchObject({ creator: { agent: { id: next.id } } });
+    await panel.getByRole('button', { name: 'Mark handled', exact: true }).click();
+    await settled(true);
+    await expect
+      .poll(() => colab(world, ['question', 'ls', created.pageId]))
+      .toMatchObject({ questions: [{ id: question, state: 'handled' }] });
+    await panel.getByRole('button', { name: 'Reopen', exact: true }).click();
+    await settled(true);
+    await expect
+      .poll(() => colab(world, ['question', 'ls', created.pageId]))
+      .toMatchObject({ questions: [{ id: question, state: 'open' }] });
+    await changeCreator('definitely-missing-metadata-agent');
+    await settled(false);
+    await expect.poll(read).toMatchObject({ creator: { agent: { id: next.id } } });
+    await changeCreator(next.name, () => {
+      colab(world, ['page', 'creator', created.pageId, first.name]);
+    });
+    await settled(false);
+    expect(read()).toMatchObject({ creator: { agent: { id: first.id } }, source });
+    for (const role of ['viewer', 'commenter']) {
+      const args = ['share', 'link', 'add', created.pageId, '--yes'];
+      if (role !== 'viewer') args.push('--role', role);
+      const link = colab(world, args);
+      const reader = await openReaderLink(
+        world,
+        door,
+        link.readerPath as string,
+        `metadata-${role}`,
+      );
+      await reader.page.getByLabel('Info', { exact: true }).click();
+      await expect(
+        reader.page.locator('.reader-information-panel').getByRole('button'),
+      ).toHaveCount(0);
+    }
+    colab(world, ['share', 'link', 'reset', created.pageId, added.linkId as string, '--yes']);
+    await expect(
+      editor.page.getByRole('heading', { name: 'Access ended', exact: true }),
+    ).toBeVisible({ timeout: 60000 });
+    expect(read()).toMatchObject({ creator: { agent: { id: first.id } }, source });
+  });
+});

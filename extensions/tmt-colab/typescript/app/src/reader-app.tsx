@@ -7,8 +7,8 @@ import type { AttachmentBinding } from './attachment-service.js';
 import { FilesSurface } from './files-panel.js';
 import { BusyMark } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
-import { PageAttribution } from './page-attribution.js';
-import { QuestionRegistryView } from './question-registry-view.js';
+import { ReaderMetadataInfo } from './reader-metadata.js';
+import type { ReaderMetadata } from './link-metadata.js';
 import { ReaderSource, type ReaderEdit } from './reader-source.js';
 import { NoticeCard } from './notice-card.js';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
@@ -26,8 +26,8 @@ export type ReaderState =
   | { kind: 'older' }
   | { kind: 'failed' };
 
-/** The shared page: no Ask, export or share controls exist in this entry. It is read-only, except
- * that a link whose role is editor shows the owner's Source drawer and can save page text. */
+/** The shared page has no Ask, export or share controls. Editor links can request source and
+ * metadata changes through the owner; they never receive the owner metadata publisher. */
 export function ReaderApp({
   state,
   attachments,
@@ -35,6 +35,7 @@ export function ReaderApp({
   canEdit = false,
   accessNote,
   edit,
+  metadata,
 }: {
   state: ReaderState;
   /** Authorized reads of the page's files; absent until the session is open. */
@@ -45,7 +46,10 @@ export function ReaderApp({
   accessNote?: string;
   /** Saves page text; absent until the session is open. */
   edit?: ReaderEdit;
+  /** A verified link-own request writer, never the owner metadata publisher. */
+  metadata?: ReaderMetadata;
 }) {
+  const information = useRef<HTMLDetailsElement>(null);
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const shell = state.kind === 'ready' && state.view.pageType === 'shell';
@@ -220,28 +224,23 @@ export function ReaderApp({
                 {text.files} {descriptors.length}
               </button>
             )}
-            <details className="reader-information">
+            <details className="reader-information" ref={information}>
               <summary className={ui.action} data-variant="text" aria-label={text.readerInfo}>
                 <Info aria-hidden />
               </summary>
               <div className="reader-information-panel">
                 {state.kind === 'ready' && (
-                  <section>
-                    <h3>{text.aboutAuthor}</h3>
-                    <PageAttribution
-                      creator={state.view.creator}
-                      creationRecipient={state.view.creationRecipient}
-                      originalAuthor={state.view.originalAuthor}
-                      publisherAgent={state.view.publisherAgent}
-                    />
-                  </section>
-                )}
-                {state.kind === 'ready' && state.view.questions !== undefined && (
-                  <section>
-                    <h3>{text.metadata.questions}</h3>
-                    {canEdit && <p>{text.metadata.ownerOnly}</p>}
-                    <QuestionRegistryView view={state.view} />
-                  </section>
+                  <ReaderMetadataInfo
+                    key={metadata?.scope ?? state.pageId ?? 'reader'}
+                    view={state.view}
+                    metadata={canEdit ? metadata : undefined}
+                    onOpen={() => {
+                      information.current?.removeAttribute('open');
+                      setSourceOpen(false);
+                      setFiles(false);
+                    }}
+                    focusFallback={() => information.current?.querySelector('summary') ?? null}
+                  />
                 )}
                 <section>
                   <h3>{text.aboutScripts}</h3>

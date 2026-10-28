@@ -34,6 +34,21 @@ export const text = {
     creatorTitle: 'Page creator',
     creatorItem: (name?: string) => (name ? `Creator: ${name}…` : 'Set creator…'),
     setCreator: 'Set creator',
+    changeCreatorItem: 'Change creator…',
+    changeCreator: 'Change creator',
+    creatorSelector: 'Agent name or ID',
+    changing: 'Changing…',
+    applied: 'Change applied',
+    unconfirmed: 'Unconfirmed',
+    notApplied: 'Not applied',
+    notSent: 'The change was not sent. Try again with a current editor link.',
+    requestUnconfirmed:
+      'The change may still be applied. Check its result without sending it again.',
+    requestInvalid:
+      'Could not prepare this change. Close this view and try again from the current page.',
+    checkResult: 'Check result',
+    archived: 'Archived pages cannot be changed.',
+
     creator: 'Creator',
     noCreator: 'No creator',
     ownerOnly: 'Only the page owner can change this here',

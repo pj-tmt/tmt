@@ -1363,9 +1363,22 @@ A result is durable before its own publication is attempted; losing that publica
 only the receipt. Exhausted capacity or transient publication failure is not a successful
 reply. An access-ended reader cannot be promised a delivered result.
 
-The current reader Info UI remains read-only until slice B adds direct Change creator…,
-Mark handled and Reopen actions with busy/result/refusal presentation. It must distinguish an
-uncertain send from a refusal, never automatically resend, and add no approval-wait state.
+Editor readers offer Change creator…, Mark handled and Reopen in Info when a verified request
+writer is available. Creator accepts a name or ID without an owner directory. Opening it closes
+Info; closing restores focus to the opener or Info. The target is captured when the creator dialog
+opens, or when a question action is chosen, independently of any Source draft. Viewer/commenter
+links and readers without a writer stay read-only; archived pages offer no metadata actions.
+Missing legacy question registries remain absent.
+
+A busy mark lasts through submission and bounded receipt observation. Confirmed owner results
+show the new state or the stable refusal reason. An uncertain append or missing receipt is
+Unconfirmed, never Not sent or Applied. Check result observes the original operation without
+sending it again; opening/closing a dialog and reconnecting also never resend. The receipt observer
+and its last busy/result/refusal status outlive dialogs and same-page UI recovery; page/epoch replacement or ended access ends its lifetime and ignores late
+results. Door writers and their tab channel are scoped to the verified page, epoch and writer,
+so a request prepared before an epoch change cannot be republished in the replacement epoch.
+Source edit requests retain their existing publication and source-observation semantics. No
+approval queue or pending-owner-approval state is added.
 Viewers/commenters keep the owner-only line without CLI guidance. Both door and hosted readers
 consume the same verified records. `vectors/editor-metadata-v1.json` pins request/result grammar;
 metadata UI and integrated door/hosted proofs belong to B, not this native slice.

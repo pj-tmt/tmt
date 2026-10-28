@@ -311,6 +311,15 @@ counterpart in `page_check/group.rs`, a review-section rule in `REVIEW_RULES` an
 
 ## App and browser client
 
+Editor metadata checks: app `test/link-metadata.test.ts` and `test/hosted-entry.test.ts`
+cover request identity, receipt provenance, uncertainty and replacement; `e2e/reader-metadata.spec.ts`
+covers controls, focus, drafts and 1440/390 light/dark captures. Real owner state and reader
+receipts are checked by the `editor metadata` case in `acceptance/reader.spec.ts` and the
+metadata phase of `acceptance/hosted-reader.proof.ts` (the existing emulator wrapper).
+Reader Info changes require the `colab-acceptance` PR label. Capture-only before evidence can
+select a frozen pre-change ReaderApp module with `COLAB_5195_BEFORE_MODULE`; behavior assertions
+always run against the current component.
+
 The opaque renderer's annotation paint roles come from the browser role tokens;
 its number-circle CSS comes from the app's `src/annotation-number.css` and the page
 frame of a framed layout from `src/page-frame.css`, without a network fetch. After any
