@@ -404,7 +404,6 @@ fn observe_for_binding<R: BindingRepository, O: BindingEndpoint>(
             let orphan_marker = match &pane.marker {
                 Some(marker)
                     if marker.server_id == snapshot.server.server_id
-                        && marker.pane_pid == pane.pane_pid
                         && crate::dispatch::canonical_id(&marker.binding_id)
                         && crate::dispatch::canonical_id(&marker.identity_id)
                         && !records.binding_exists(&marker.binding_id)? =>

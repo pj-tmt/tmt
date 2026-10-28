@@ -80,7 +80,8 @@ delivery. They install and launch nothing.
   unverified reservation refuses a competing bind; dead or expired reservations
   are reclaimable. Host compare-and-swap accepts only the captured empty marker,
   exact stale binding ID, or this binding's own ID. An orphan marker is reclaimable
-  only when no active binding or live or unverified reservation owns its ID.
+  only when no active binding or live or unverified reservation owns its ID, whichever
+  process wrote it: a pane respawned in place keeps its marker but not its process.
   Publication and verification run without a SQLite writer; conditional activation or
   compensation never retires a committed identity or replays an uncertain effect.
   A detached publisher conditionally clears only its own marker. External drivers
