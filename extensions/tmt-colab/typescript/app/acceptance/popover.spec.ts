@@ -157,13 +157,13 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     const reply = agent.rows().find((row) => row.event === 'replied')!.body as string;
     await expect(popover.getByTestId('ask-reply')).toHaveText(reply);
     await expect(openPanel(page)).toHaveCount(0);
-    // Sending clears the old body; the enabled toggle seeds the next fresh message.
+    // Sending clears the old body; the next fresh message is seeded with the same recipient.
     await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
     await expect(input.locator('.agent-chip-name')).toHaveText(`@${agent.name}`);
-    await expect(
-      popover.getByRole('button', { name: `Send to @${agent.name}`, exact: true }),
-    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(popover.getByRole('button', { name: /^Who is asked/ })).toHaveText(
+      `Ask ${agent.name}`,
+    );
     await expect(input).not.toContainText('Hold this send.');
     expect(agent.received()).toHaveLength(1);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
