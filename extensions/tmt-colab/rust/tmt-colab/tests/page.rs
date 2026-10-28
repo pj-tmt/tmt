@@ -7301,3 +7301,67 @@ fn a_writer_refuses_a_ninth_live_lock_atomically_and_release_makes_room() {
         8
     );
 }
+
+#[test]
+fn manual_page_state_reaches_a_separate_owner_replica_through_an_encrypted_update() {
+    use tmt_colab::decoder::StructuredKind;
+    let mut owner = Fixture::new();
+    owner.write("<p>replica</p>");
+    let mut replica = owner.copy();
+    assert_eq!(replica.read().state.as_deref(), Some("todo"));
+    let current = owner.read();
+    let prepared = page::prepare_structured_publication(
+        &owner.store,
+        &owner.key,
+        PAGE,
+        page::StructuredAction {
+            kind: StructuredKind::PageState,
+            action: "page.state",
+            body: &json!({"state":"done"}),
+            expected_revision: &current.revision,
+            display_agent: None,
+            operation_id: None,
+        },
+        &mut owner.decoder(),
+        &|| Ok(NOW),
+    )
+    .unwrap();
+    let page::PublicationPreparation::Write(frozen) = prepared else {
+        panic!("expected state publication")
+    };
+    let stream = frozen.job().manifest.stream_id.clone();
+    let sequences: Vec<u64> = frozen
+        .job()
+        .manifest
+        .entries
+        .iter()
+        .map(|entry| entry.seq.parse().unwrap())
+        .collect();
+    owner.commit(&frozen, NOW).unwrap();
+    assert_eq!(owner.read().state.as_deref(), Some("done"));
+    assert_eq!(replica.read().state.as_deref(), Some("todo"));
+    for seq in sequences {
+        deliver(&owner, &mut replica, &stream, seq);
+    }
+    assert_eq!(replica.read().state.as_deref(), Some("done"));
+    assert_eq!(replica.read().source, current.source);
+    owner.write("<p>After state change</p>");
+    assert_eq!(owner.read().state.as_deref(), Some("done"));
+    Engine::with_decoder_config(support::decoder_config(BINARY.into()))
+        .unwrap()
+        .advance_epoch(
+            &mut owner.store,
+            &owner.key,
+            EpochAdvance {
+                page: PAGE,
+                operation_id: "40000000-0000-4000-8000-000000000002",
+                expected_revision: 2,
+            },
+            NOW,
+        )
+        .unwrap();
+    let rotated = owner.read();
+    assert_eq!(rotated.epoch, "2");
+    assert_eq!(rotated.state.as_deref(), Some("done"));
+    assert_eq!(rotated.source, "<p>After state change</p>");
+}

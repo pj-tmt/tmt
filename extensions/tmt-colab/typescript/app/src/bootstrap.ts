@@ -75,6 +75,31 @@ export interface PageWorkRow {
   /** How many more assignees work, when more than `ROW_WORKING` do. */
   more?: number;
 }
+export type PageState = 'todo' | 'in-progress' | 'done';
+export interface PageProgress {
+  done: number;
+  inProgress: number;
+  todo: number;
+  unknown: number;
+  total: number;
+}
+
+/** An owner-derived direct-item count, bounded by the work task limit. */
+export function pageProgress(value: unknown): asserts value is PageProgress {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  exactKeys(value, ['done', 'inProgress', 'todo', 'unknown', 'total']);
+  for (const field of ['done', 'inProgress', 'todo', 'unknown', 'total'] as const)
+    requireValue(
+      Number.isSafeInteger(value[field]) &&
+        Number(value[field]) >= 0 &&
+        Number(value[field]) <= WORK_TASKS,
+    );
+  requireValue(
+    Number(value.total) ===
+      Number(value.done) + Number(value.inProgress) + Number(value.todo) + Number(value.unknown),
+  );
+}
+
 /** What the owner derives for the list: comment count, a proposal awaiting the owner, the creator. */
 export interface PageActivity {
   comments: number;
@@ -91,6 +116,8 @@ export interface PageActivity {
   parent?: { page: string; task: string; title?: string };
 }
 export interface PageInfo extends ExpiryInfo {
+  state?: PageState | null;
+  stateError?: 'page-unavailable';
   pageId: string;
   epoch: string;
   sharing: 'private' | 'link' | 'public';
@@ -279,10 +306,22 @@ export async function discover(
       'projects',
       ...(page !== null && typeof page === 'object' && 'pinned' in page ? ['pinned'] : []),
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
+      ...(page !== null && typeof page === 'object' && 'state' in page ? ['state'] : []),
+      ...(page !== null && typeof page === 'object' && 'stateError' in page ? ['stateError'] : []),
       ...(page !== null && typeof page === 'object' && 'title' in page ? ['title'] : []),
     ]);
     if ('pinned' in page) requireValue(page.pinned === true && page.archived === false);
     if ('summary' in page) activity(page.summary);
+    if ('state' in page)
+      requireValue(
+        page.state === null ||
+          page.state === 'todo' ||
+          page.state === 'in-progress' ||
+          page.state === 'done',
+      );
+    if ('stateError' in page)
+      requireValue(page.stateError === 'page-unavailable' && page.state === null);
+
     // Untrusted display text: one line of plain text, as the owner's store keeps it.
     if ('title' in page)
       requireValue(

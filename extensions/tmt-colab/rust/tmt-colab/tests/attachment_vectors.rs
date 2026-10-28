@@ -98,6 +98,7 @@ fn descriptors_survive_real_decode_source_edits_checkpoints_and_baselines() {
         let attachments: DocumentAttachments =
             serde_json::from_value(projection["meta"]["attachments"].clone()).unwrap();
         let view = || BaselineInput {
+            page_state: None,
             creator: None,
             questions: None,
             template: None,

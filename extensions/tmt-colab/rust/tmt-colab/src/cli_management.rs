@@ -1002,22 +1002,13 @@ fn confirmation_scope(
     (operation, scope, confirmation.clone())
 }
 
-/// Diagnostics share admission's fresh graph, folding only changed page fingerprints.
-fn attach_hierarchy_warnings(
-    layout: &Layout,
-    store: &Store,
-    key: &Keyring,
-    page: &mut Value,
-) -> Result<()> {
-    let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
-    let pages = inspection::all_page_ids(store, key)?;
-    let found = tmt_colab::work_index::scan(layout, store, key, &mut decoder, &pages)?;
+/// Diagnostics and manual progress use the same freshly scanned graph.
+fn attach_hierarchy_warnings(graph: &tmt_colab::work_links::Graph<'_>, page: &mut Value) {
     let id = page["pageId"].as_str().unwrap_or_default();
-    let warnings = tmt_colab::work_links::Graph(&found).warnings(id);
+    let warnings = graph.warnings(id);
     if let Some(shown) = page["warnings"].as_array_mut() {
         shown.extend(warnings.into_iter().map(|warning| json!(warning)));
     }
-    Ok(())
 }
 
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
@@ -1163,6 +1154,24 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
                 }
             }
         }
+        let state_found = state_index(&layout, &store, &key, &ids).unwrap_or_default();
+        let state_graph = tmt_colab::work_links::Graph(&state_found);
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            attach_state_progress(page, &state_graph);
+            page.as_object_mut()
+                .expect("page catalog row")
+                .remove("progress");
+        }
+        if let Some(state) = args.get_one::<String>("state") {
+            let rows = catalog["pages"].as_array_mut().expect("page catalog");
+            let unavailable: Vec<_> = rows
+                .iter()
+                .filter(|page| page.get("stateError").is_some())
+                .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+                .collect();
+            rows.retain(|page| page["state"] == *state);
+            catalog["stateUnavailable"] = json!(unavailable);
+        }
         // One door lookup for the whole listing; each page carries its own path and link.
         let reach = crate::reach::Reach::gather().with_pages(&ids);
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
@@ -1222,7 +1231,11 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     }
     if command == "show" {
         title_or_error(&store, &key, &mut page)?;
-        attach_hierarchy_warnings(&layout, &store, &key, &mut page)?;
+        let pages = inspection::all_page_ids(&store, &key)?;
+        let found = state_index(&layout, &store, &key, &pages)?;
+        let graph = tmt_colab::work_links::Graph(&found);
+        attach_hierarchy_warnings(&graph, &mut page);
+        attach_state_progress(&mut page, &graph);
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
@@ -1435,6 +1448,36 @@ fn catalog_ids(catalog: &Value) -> Vec<String> {
         .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
         .collect()
 }
+/// Refresh the existing per-page projection before returning manual state or progress.
+fn state_index(
+    layout: &tmt_colab::keyring::Layout,
+    store: &tmt_colab::store::Store,
+    key: &tmt_colab::keyring::Keyring,
+    ids: &[String],
+) -> Result<tmt_colab::work_index::Found> {
+    let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
+    tmt_colab::work_index::scan(layout, store, key, &mut decoder, ids)
+}
+
+fn attach_state_progress(page: &mut Value, graph: &tmt_colab::work_links::Graph<'_>) {
+    let id = page["pageId"].as_str().unwrap_or_default().to_owned();
+    match (graph.page_state(&id), graph.progress(&id)) {
+        (Some(state), Some(progress)) => {
+            page["state"] = json!(state);
+            page["progress"] = json!(progress);
+        }
+        _ => {
+            page["state"] = Value::Null;
+            page["progress"] = Value::Null;
+            // A freshly folded shell has no state by design; an absent index entry is unknown.
+            if !matches!(graph.0.get(&id), Some(None)) {
+                page["stateError"] =
+                    json!({"code":"COLAB_UNAVAILABLE", "message":"Page state is unavailable."});
+            }
+        }
+    }
+}
+
 /// A page's work on one dim line: its stage, progress, who is working and the sign-offs waiting.
 fn work_line(work: &Value) -> String {
     let mut line = format!(
@@ -1797,6 +1840,14 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
         }
         // A footer, set off from the rows at the list indent: what to do, then the standing note.
         writeln!(out)?;
+        if let Some(unavailable) = value["stateUnavailable"].as_array()
+            && !unavailable.is_empty()
+        {
+            writeln!(out, "  State unavailable; these pages may match:")?;
+            for page in unavailable.iter().filter_map(Value::as_str) {
+                writeln!(out, "    {}", escape(page))?;
+            }
+        }
         if let Some(step) = value["pairStep"].as_str() {
             writeln!(out, "  {}", terminal.paint(Token::Dim, &escape(step)))?;
         }

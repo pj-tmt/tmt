@@ -1,5 +1,11 @@
 import { exactKeys, requireValue } from '@tmt/colab-client';
-import { activity, type PageActivity } from './bootstrap.js';
+import {
+  activity,
+  pageProgress,
+  type PageActivity,
+  type PageProgress,
+  type PageState,
+} from './bootstrap.js';
 import { validReadingId } from './reading-link.js';
 import { jsonResponse } from './registration.js';
 
@@ -36,6 +42,8 @@ export type ReadingDetails =
       state: 'ready';
       fingerprint: string;
       summary: PageActivity;
+      pageState?: PageState | null;
+      progress?: PageProgress | null;
       readings: ReadingDescriptor[];
       /** The first pending items by rank (review, question, reading, proposal); the count stays `summary.needsYou`. */
       needs: NeedDescriptor[];
@@ -111,10 +119,23 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
     'summary',
     'readings',
     'needs',
+    ...('pageState' in value ? ['pageState'] : []),
+    ...('progress' in value ? ['progress'] : []),
     ...('latest' in value ? ['latest'] : []),
   ]);
   requireValue(typeof value.fingerprint === 'string' && /^[0-9a-f]{64}$/.test(value.fingerprint));
   activity(value.summary);
+  requireValue('pageState' in value === 'progress' in value);
+  if ('pageState' in value) {
+    requireValue(
+      value.pageState === null ||
+        value.pageState === 'todo' ||
+        value.pageState === 'in-progress' ||
+        value.pageState === 'done',
+    );
+    requireValue((value.pageState === null) === (value.progress === null));
+    if (value.progress !== null) pageProgress(value.progress);
+  }
   requireValue(Array.isArray(value.readings) && value.readings.length <= 50);
   const ids = new Set<string>();
   const readings: ReadingDescriptor[] = [];
@@ -142,6 +163,12 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
     state: 'ready',
     fingerprint: value.fingerprint,
     summary: value.summary,
+    ...('pageState' in value
+      ? {
+          pageState: value.pageState as PageState | null,
+          progress: value.progress as PageProgress | null,
+        }
+      : {}),
     readings,
     needs,
     ...('latest' in value ? { latest: latestComment(value.latest) } : {}),

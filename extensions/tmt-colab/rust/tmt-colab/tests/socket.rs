@@ -1920,7 +1920,7 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
     let page = |projects: Value| {
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130","pageIds":[{"pageId":PAGE,"deleted":false}],
         "projects":projects,"projectPins":{"names":[],"automatic":true},
-        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"projects":projects}]})
+        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"projects":projects,"state":null,"stateError":"page-unavailable"}]})
     };
     // The reply names the space's projects and every entry the projects it is in (display-only,
     // from the owner store, sorted), empty by default. The sidebar pins are the automatic default

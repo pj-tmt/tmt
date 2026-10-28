@@ -110,7 +110,15 @@ impl Fixture {
         .unwrap();
         let context = json!({"deviceId":"30000000-0000-4000-8000-000000000001", "kind":"browser", "origin":"http://127.0.0.1:1", "name":"Owner", "owner":true, "grantRevision":1,
             "publicKey":values::encode_binary(SigningKey::from_bytes(&[9;32]).verifying_key().as_bytes())}).to_string();
-        let api_pages: Value = serde_json::from_slice(&api.pages(Some(&context)).unwrap()).unwrap();
+        let mut api_pages: Value =
+            serde_json::from_slice(&api.pages(Some(&context)).unwrap()).unwrap();
+        // This isolated fixture has no summary source: state is explicitly unavailable.
+        for page in api_pages["pages"].as_array_mut().unwrap() {
+            assert_eq!(page.get("state"), Some(&Value::Null));
+            assert_eq!(page["stateError"], "page-unavailable");
+            page.as_object_mut().unwrap().remove("state");
+            page.as_object_mut().unwrap().remove("stateError");
+        }
         // The CLI catalog also says when each page is archived (#2600); the browser's does not, and
         // everything else is the same verified projection.
         let mut shared = cli["pages"].clone();

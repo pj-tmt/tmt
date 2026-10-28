@@ -98,6 +98,7 @@ export class Fold {
             ...(Object.hasOwn(value.projection, 'fromTemplate') ? ['fromTemplate'] : []),
             ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
             ...(Object.hasOwn(value.projection, 'work') ? ['work'] : []),
+            ...(Object.hasOwn(value.projection, 'pageState') ? ['pageState'] : []),
           ]);
           validateProjection(value.projection);
           validateOwn(value.projection.own);
@@ -133,6 +134,7 @@ export class Fold {
           ...(Object.hasOwn(event.data as object, 'pageType') ? ['pageType'] : []),
           ...(Object.hasOwn(event.data as object, 'shell') ? ['shell'] : []),
           ...(Object.hasOwn(event.data as object, 'work') ? ['work'] : []),
+          ...(Object.hasOwn(event.data as object, 'pageState') ? ['pageState'] : []),
           ...(Object.hasOwn(event.data as object, 'creator') ? ['creator'] : []),
           ...(Object.hasOwn(event.data as object, 'questions') ? ['questions'] : []),
           ...(Object.hasOwn(event.data as object, 'template') ? ['template'] : []),
@@ -168,6 +170,7 @@ export class Fold {
               pageType: value.pageType,
               shell: value.shell,
               work: value.work,
+              pageState: value.pageState,
               own: value.own,
             }),
           ).length > STATE_BYTES
@@ -190,6 +193,7 @@ export class Fold {
             ? { pageType: value.pageType, shell: value.shell }
             : {}),
           ...(Object.hasOwn(value, 'work') ? { work: value.work } : {}),
+          ...(Object.hasOwn(value, 'pageState') ? { pageState: value.pageState } : {}),
           ...(Object.hasOwn(value, 'creator') ? { creator: value.creator } : {}),
           ...(Object.hasOwn(value, 'questions') ? { questions: value.questions } : {}),
           ...(Object.hasOwn(value, 'template') ? { template: value.template } : {}),
@@ -232,6 +236,7 @@ export class Fold {
       ...(Object.hasOwn(base, 'fromTemplate') ? ['fromTemplate'] : []),
       ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
       ...(Object.hasOwn(base, 'work') ? ['work'] : []),
+      ...(Object.hasOwn(base, 'pageState') ? ['pageState'] : []),
     ]);
     validateProjection(base);
     validateProjection({ ...base, source });

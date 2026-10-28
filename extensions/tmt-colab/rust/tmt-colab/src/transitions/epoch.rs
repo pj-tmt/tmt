@@ -38,6 +38,7 @@ impl Prepared {
             .transpose()?;
         let layout = crate::decoder::layout_of_meta(&view.meta);
         let baseline_input = BaselineInput {
+            page_state: view.meta.get("pageState"),
             creator: view.meta.get("creator"),
             questions: view.meta.get("questions"),
             template: view.meta.get("template"),

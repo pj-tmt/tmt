@@ -304,8 +304,11 @@ impl Registration {
                 continue;
             };
             let Some(summary) = fresh.get(&id) else {
+                page["state"] = serde_json::Value::Null;
+                page["stateError"] = serde_json::json!("page-unavailable");
                 continue;
             };
+            page["state"] = serde_json::json!(graph.page_state(&id));
             page["summary"] = summary.json();
             if let Some(work) = graph.row(&id) {
                 page["summary"]["work"] = work;
@@ -353,7 +356,23 @@ impl Registration {
                     .iter()
                     .map(|b| format!("{b:02x}"))
                     .collect();
+                let (catalog, fingerprints) = self.owner_catalog_fingerprinted()?;
+                let found: crate::work_index::Found = catalog["pages"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|row| {
+                        let id = row["pageId"].as_str()?;
+                        let summary = self.summaries.get(id, fingerprints.get(id)?)?;
+                        Some((id.to_owned(), summary.work.as_deref().cloned()))
+                    })
+                    .collect();
+                let graph = crate::work_links::Graph(&found);
+                let current = fingerprints.get(page) == Some(&fingerprint);
+                let state = current.then(|| graph.page_state(page)).flatten();
+                let progress = current.then(|| graph.progress(page)).flatten();
                 let mut ready = serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
+                    "pageState":state,"progress":progress,
                     "summary":projection.summary.json(),"readings":projection.readings,
                     "needs":projection.needs});
                 if let Some(latest) = &projection.latest {
@@ -1691,11 +1710,12 @@ mod describe_tests {
             json!(["T-1", "T-2"]),
             3,
         );
-        let leaf_work = work(
+        let mut leaf_work = work(
             json!({"T-1":{"title":"Do","state":"done"}}),
             json!(["T-1"]),
             2,
         );
+        leaf_work["pageState"] = json!("done");
         let put = |page: &str, fingerprint: &str, meta: Option<&serde_json::Value>| {
             service.summaries.put(
                 page,
@@ -1713,7 +1733,7 @@ mod describe_tests {
         };
         put(top, &fingerprints[top], Some(&top_work));
         put(leaf, &fingerprints[leaf], Some(&leaf_work));
-        put(bare, &fingerprints[bare], None);
+        put(bare, &fingerprints[bare], Some(&json!({})));
         let rows =
             |service: &Registration| -> std::collections::BTreeMap<String, serde_json::Value> {
                 let list: serde_json::Value =
@@ -1740,10 +1760,23 @@ mod describe_tests {
             list[leaf]["summary"]["parent"],
             json!({"page":top,"task":"T-1","title":"Leaf"})
         );
+        assert_eq!(list[top]["state"], "todo");
+        assert!(list[top].get("progress").is_none());
+        assert_eq!(list[leaf]["state"], "done");
+        let details: serde_json::Value =
+            serde_json::from_slice(&service.page_summary_details(Some(&context), top).unwrap())
+                .unwrap();
+        assert_eq!(details["pageState"], "todo");
+        assert_eq!(
+            details["progress"],
+            json!({"done":2,"inProgress":0,"todo":0,"unknown":0,"total":2})
+        );
         // A fresh page without work has a summary and neither field; a page without a fresh summary
         // has no summary at all.
         assert!(list[bare]["summary"].get("work").is_none());
         assert!(list[bare]["summary"].get("parent").is_none());
+        assert_eq!(list[bare]["state"], "todo");
+        assert!(list[bare].get("progress").is_none());
         assert!(list[top]["summary"].get("parent").is_none());
         assert!(list[unread].get("summary").is_none());
 
@@ -1753,6 +1786,14 @@ mod describe_tests {
         assert_eq!(list[top]["summary"]["work"]["stage"], "in-progress");
         assert_eq!(list[top]["summary"]["work"]["done"], 1);
         assert!(list[leaf].get("summary").is_none());
+        assert!(list[top].get("progress").is_none());
+        let details: serde_json::Value =
+            serde_json::from_slice(&service.page_summary_details(Some(&context), top).unwrap())
+                .unwrap();
+        assert_eq!(
+            details["progress"],
+            json!({"done":1,"inProgress":0,"todo":0,"unknown":1,"total":2})
+        );
     }
 
     #[test]

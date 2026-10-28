@@ -137,6 +137,11 @@ pub struct ContentEdit<'a> {
     /// A typed change to `meta.attachments`, bound to `source`; `None` keeps the list as it is.
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentChange>,
 }
+/// The closed manual state stored in an ordinary page's encrypted metadata.
+pub fn valid_page_state(value: &Value) -> bool {
+    matches!(value.as_str(), Some("todo" | "in-progress" | "done"))
+}
+
 /// A closed editor-owned value beside page HTML, or the structured dashboard value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -146,6 +151,7 @@ pub enum StructuredKind {
     Questions,
     Creator,
     Template,
+    PageState,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -156,6 +162,7 @@ impl StructuredKind {
             Self::Questions => "questions",
             Self::Creator => "creator",
             Self::Template => "template",
+            Self::PageState => "pageState",
         }
     }
 }
@@ -229,6 +236,8 @@ pub struct BaselineInput<'a> {
     pub creation_recipient: Option<&'a CreationRecipient>,
     /// The work an ordinary page carries beside its HTML; a new epoch keeps it.
     pub work: Option<&'a Value>,
+    /// Manual page state; an absent value reads as todo.
+    pub page_state: Option<&'a Value>,
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
@@ -732,7 +741,11 @@ impl Decoder {
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
         crate::shell::validate(shell).map_err(|_| DecodeFault::InvalidInput)?;
-        if !view.source.is_empty() || view.attachments.is_some() || view.work.is_some() {
+        if !view.source.is_empty()
+            || view.attachments.is_some()
+            || view.work.is_some()
+            || view.page_state.is_some()
+        {
             return Err(DecodeFault::InvalidInput);
         }
         self.baseline(
@@ -817,6 +830,9 @@ impl Decoder {
         if view.creation_recipient.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
+        if view.page_state.is_some_and(|v| !valid_page_state(v)) {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view.work.is_some_and(|v| crate::work::validate(v).is_err()) {
             return Err(DecodeFault::InvalidInput);
         }
@@ -884,6 +900,7 @@ impl Decoder {
             creation_recipient: view.creation_recipient.cloned(),
             layout: view.layout.cloned(),
             work: view.work.cloned(),
+            page_state: view.page_state.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -1212,6 +1229,14 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
                 crate::question_registry::set_creator(&edit.body, &edit.attribution)
                     .map_err(|_| DecodeFault::InvalidInput)?;
         }
+        StructuredKind::PageState if !shell && edit.action == "page.state" => {
+            crate::page_state::validate_action(&edit.action, &edit.body)
+                .map_err(|_| DecodeFault::InvalidInput)?;
+            let state = &edit.body["state"];
+            if base["meta"].get("pageState").is_some() || state.as_str() != Some("todo") {
+                expected["meta"]["pageState"] = state.clone();
+            }
+        }
         StructuredKind::Template if !shell => {
             match crate::template_marks::apply(&edit.action, &edit.body)
                 .map_err(|_| DecodeFault::InvalidInput)?
@@ -1367,6 +1392,8 @@ struct WireBaseline {
     layout: Option<PageLayout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     work: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    page_state: Option<Value>,
     version: u8,
     source: String,
     title: String,
@@ -1474,6 +1501,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "pageType" => v.as_str() != Some("shell"),
                 "shell" => crate::shell::validate(v).is_err(),
                 "work" => crate::work::validate(v).is_err(),
+                "pageState" => !valid_page_state(v),
                 _ => true,
             }) {
                 return Err(DecodeFault::InvalidOutput);
@@ -1488,9 +1516,16 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             // Work belongs to an ordinary page; a shell keeps its own summary.
             if meta.contains_key("pageType") != meta.contains_key("shell")
                 || (meta.contains_key("pageType")
-                    && ["work", "creator", "questions", "template", "fromTemplate"]
-                        .iter()
-                        .any(|key| meta.contains_key(*key)))
+                    && [
+                        "work",
+                        "creator",
+                        "questions",
+                        "template",
+                        "fromTemplate",
+                        "pageState",
+                    ]
+                    .iter()
+                    .any(|key| meta.contains_key(*key)))
                 || (meta.contains_key("shell")
                     && (roots["html"].as_str() != Some("") || meta.contains_key("attachments")))
             {

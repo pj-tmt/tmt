@@ -19,6 +19,10 @@ pub struct MetadataEdit {
 pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
     let invalid = || super::Fault::Invalid;
     match action {
+        "page.state" => {
+            crate::page_state::validate_action(action, body).map_err(|_| invalid())?;
+            Ok(StructuredKind::PageState)
+        }
         "creator.set" => {
             crate::question_registry::validate_creator_selection(body).map_err(|_| invalid())?;
             // A browser never chooses the editor's machine attribution.

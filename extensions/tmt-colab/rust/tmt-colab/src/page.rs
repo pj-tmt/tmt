@@ -123,6 +123,8 @@ pub struct Page {
     pub page_id: String,
     pub source: String,
     pub title: String,
+    /// Manual state from the encrypted page metadata; absent is todo.
+    pub state: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publisher_agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -489,6 +491,8 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
         from_template: view.meta.get("fromTemplate").cloned(),
         space_id: key.space_id.clone(),
         page_id: page.into(),
+        state: (view.meta["pageType"].as_str() != Some("shell"))
+            .then(|| view.meta["pageState"].as_str().unwrap_or("todo").to_owned()),
         source: view.source,
         title: view.title,
         publisher_agent: view.publisher_agent,
@@ -542,6 +546,8 @@ pub fn read_shell(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkPage {
+    #[serde(skip)]
+    pub state: String,
     pub space_id: String,
     pub page_id: String,
     pub title: String,
@@ -557,10 +563,20 @@ pub fn read_work(
     page: &str,
     decoder: &mut Decoder,
 ) -> Result<WorkPage> {
+    read_work_or_shell(store, key, page, decoder)?.ok_or_else(|| Fault::Invalid.into())
+}
+
+/// Unlike `read_work`, distinguishes a verified shell from an unreadable page.
+pub(crate) fn read_work_or_shell(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<Option<WorkPage>> {
     let s = snapshot(store, key, page, false)?;
     let view = s.materialize(key, page, decoder)?;
     if view.meta["pageType"].as_str() == Some("shell") {
-        return Err(Fault::Invalid.into());
+        return Ok(None);
     }
     let work = view
         .meta
@@ -570,7 +586,8 @@ pub fn read_work(
     let derived = crate::work::derived(&work)
         .map_err(|_| Fault::Invalid)?
         .to_value();
-    Ok(WorkPage {
+    Ok(Some(WorkPage {
+        state: view.meta["pageState"].as_str().unwrap_or("todo").to_owned(),
         space_id: key.space_id.clone(),
         page_id: page.into(),
         title: view.title,
@@ -579,7 +596,7 @@ pub fn read_work(
         epoch: s.epoch.to_string(),
         membership_head: Head::from(&s.authority.head),
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
-    })
+    }))
 }
 /// NOOP carries no original operation or certificate; it reports the captured base.
 pub enum PublicationPreparation {

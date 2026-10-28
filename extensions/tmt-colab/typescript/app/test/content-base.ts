@@ -12,6 +12,7 @@ export function contentBase(result: FoldResult): ContentSnapshot {
     ...(result.layout !== undefined ? { layout: result.layout } : {}),
     ...(result.layoutReason !== undefined ? { layoutReason: result.layoutReason } : {}),
     ...(Object.hasOwn(result, 'work') ? { work: result.work } : {}),
+    ...(Object.hasOwn(result, 'pageState') ? { pageState: result.pageState } : {}),
     ...(Object.hasOwn(result, 'creationRecipient')
       ? { creationRecipient: result.creationRecipient }
       : {}),

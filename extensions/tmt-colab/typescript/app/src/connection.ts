@@ -308,9 +308,12 @@ export class Connection {
     this.#socket.send(raw);
   }
   #emit(projection: PageView) {
-    this.#projection = projection;
-    this.publish({
+    this.#projection = {
       ...projection,
+      state: projection.pageType === 'shell' ? null : (projection.pageState ?? 'todo'),
+    };
+    this.publish({
+      ...this.#projection,
       ownData: this.objects.ownData,
       archived: this.admission.archived,
     });

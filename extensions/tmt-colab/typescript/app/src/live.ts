@@ -1,3 +1,4 @@
+import { readReadingDetails } from './reading-details.js';
 import { readEditLocks } from './edit-locks.js';
 import { canonical } from './closed.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
@@ -598,10 +599,25 @@ export class Live implements PageBinding {
     // The first open does not wait for verification: the document shows, and the threads and asks
     // follow through the binding. A page already verified waits for its latest view as before.
     if (this.#discussionVerified) await this.#views;
+    // This optional owner-only projection can be pending or unavailable; never invent counts.
+    const observed = this.#projection;
+    const detail = await readReadingDetails(
+      this.mount,
+      this.page.pageId,
+      this.signal ?? new AbortController().signal,
+    ).catch(() => null);
+    this.signal?.throwIfAborted();
+    const progress =
+      observed === this.#projection &&
+      detail?.state === 'ready' &&
+      detail.pageState === observed.state
+        ? (detail.progress ?? null)
+        : null;
     return {
       id: this.page.pageId,
       sharing: this.page.sharing,
       ...structuredClone(this.#projection),
+      progress,
       title: this.#projection.title || text.unknownPageTitle,
       binding: this,
     };

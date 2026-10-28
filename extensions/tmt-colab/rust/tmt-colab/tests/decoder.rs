@@ -99,6 +99,7 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
         "attribution":{"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1000}
     }});
     let view = || BaselineInput {
+        page_state: None,
         creator: None,
         questions: None,
         template: None,
@@ -151,6 +152,7 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
 fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base() {
     use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
     let view = || BaselineInput {
+        page_state: None,
         creator: None,
         questions: None,
         template: None,
@@ -247,6 +249,7 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
     let baseline = decoder
         .produce_page(
             BaselineInput {
+                page_state: None,
                 creator: Some(&creator),
                 questions: Some(&questions),
                 ..work_view(source, None)
@@ -309,6 +312,7 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
     let fresh = decoder
         .produce_baseline(
             BaselineInput {
+                page_state: None,
                 creator: rewritten.projection["meta"].get("creator"),
                 questions: rewritten.projection["meta"].get("questions"),
                 ..work_view(b"<p>changed</p>", None)
@@ -507,6 +511,7 @@ fn template_marks_survive_baselines_and_edits_and_the_mark_is_set_and_cleared_by
 }
 fn work_view<'a>(source: &'a [u8], work: Option<&'a serde_json::Value>) -> BaselineInput<'a> {
     BaselineInput {
+        page_state: None,
         creator: None,
         questions: None,
         template: None,
@@ -1554,6 +1559,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
 fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
+        page_state: None,
         creator: None,
         questions: None,
         template: None,
@@ -1631,6 +1637,7 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         let produced = decoder
             .produce_baseline(
                 BaselineInput {
+                    page_state: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -1707,6 +1714,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         .unwrap();
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
+        page_state: None,
         creator: None,
         questions: None,
         template: None,
@@ -1922,6 +1930,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                page_state: None,
                 creator: None,
                 questions: None,
                 template: None,
@@ -2041,6 +2050,7 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
     let made = decoder
         .produce_page(
             BaselineInput {
+                page_state: None,
                 work: None,
                 layout: None,
                 original_author: Some("original-author"),
@@ -2159,6 +2169,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    page_state: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -2642,6 +2653,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    page_state: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -2738,6 +2750,7 @@ fn prepared_edit(decoder: &mut Decoder, old: &str, new: &str) -> (Vec<u8>, Vec<V
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                page_state: None,
                 work: None,
                 template: None,
                 from_template: None,
@@ -2972,4 +2985,132 @@ fn own_merge_preserves_pending_structs_and_delete_sets_as_exact_raw_merges() {
             );
         }
     }
+}
+
+#[test]
+fn page_state_metadata_accepts_only_the_three_explicit_values() {
+    for (state, valid) in [
+        (serde_json::json!("todo"), true),
+        (serde_json::json!("in-progress"), true),
+        (serde_json::json!("done"), true),
+        (serde_json::json!("blocked"), false),
+        (serde_json::Value::Null, false),
+        (serde_json::json!(42), false),
+    ] {
+        let doc = Doc::new();
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let mut tx = doc.transact_mut();
+        html.insert(&mut tx, 0, "<p>page</p>");
+        meta.insert(&mut tx, "title", "Page");
+        meta.insert(
+            &mut tx,
+            "pageState",
+            yrs::Any::from_json(&state.to_string()).unwrap(),
+        );
+        let bytes = tx.encode_state_as_update_v1(&StateVector::default());
+        drop(tx);
+        let result = owner().decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &bytes,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        );
+        assert_eq!(result.is_ok(), valid, "pageState {state}");
+        if let Ok(value) = result {
+            assert_eq!(value.projection["meta"]["pageState"], state);
+            gone(value.child_pid);
+        }
+    }
+}
+
+#[test]
+fn page_state_action_preserves_source_and_remains_in_the_next_baseline() {
+    use tmt_colab::decoder::{ContentBatch, StructuredEdit, StructuredKind};
+    let source = b"<p>the page</p>";
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_baseline(work_view(source, None), None)
+        .unwrap();
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: &baseline.update,
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert!(before.projection["meta"].get("pageState").is_none());
+    let edit = |state: serde_json::Value| StructuredEdit {
+        kind: StructuredKind::PageState,
+        action: "page.state".into(),
+        body: serde_json::json!({"state": state}),
+        attribution: serde_json::json!({"writerId": WRITER,"timeMs": 1000}),
+    };
+    let noop = decoder
+        .prepare_structured_batch(
+            batch(),
+            &before.projection,
+            &edit(serde_json::json!("todo")),
+            None,
+        )
+        .unwrap();
+    assert!(matches!(noop.batch, ContentBatch::Noop));
+    let prepared = decoder
+        .prepare_structured_batch(
+            batch(),
+            &before.projection,
+            &edit(serde_json::json!("done")),
+            None,
+        )
+        .unwrap();
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(after.projection["meta"]["pageState"], "done");
+    assert_eq!(after.projection["html"], "<p>the page</p>");
+    let next = decoder
+        .produce_baseline(
+            BaselineInput {
+                page_state: after.projection["meta"].get("pageState"),
+                ..work_view(source, None)
+            },
+            None,
+        )
+        .unwrap();
+    let rotated = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &next.update,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(rotated.projection["meta"]["pageState"], "done");
+    assert!(
+        decoder
+            .prepare_structured_batch(
+                batch(),
+                &before.projection,
+                &edit(serde_json::json!("blocked")),
+                None
+            )
+            .is_err()
+    );
 }

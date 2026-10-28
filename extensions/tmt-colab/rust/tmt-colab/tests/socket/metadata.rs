@@ -663,3 +663,50 @@ fn owner_metadata_handles_and_reopens_a_registered_question_removed_from_source(
         assert_eq!(current.source, before.source);
     }
 }
+
+#[test]
+fn manual_page_state_uses_owner_metadata_admission_and_denies_share_writers() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let before = read(&layout, &key);
+    assert_eq!(before.state.as_deref(), Some("todo"));
+    send(
+        &mut peer,
+        server.frame(
+            "metadata",
+            json!({
+                "operationId": WORK_ONE, "expectedRevision": before.revision,
+                "action": "page.state", "body": {"state":"done"}
+            }),
+        ),
+    );
+    let result = receive_acked(&server, &mut peer, "metadataresult");
+    assert_eq!(result["state"], "committed", "{result}");
+    let after = read(&layout, &key);
+    assert_eq!(after.state.as_deref(), Some("done"));
+    assert_eq!(after.source, before.source);
+    drop(peer);
+    drop(server);
+    for role in ["viewer", "commenter", "editor"] {
+        let server = Running::start(Tunnels::PRODUCT);
+        let layout = Layout::existing(&server.root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let session = server.link_session(role);
+        let current = read(&layout, &key);
+        let mut reader = server.reader_peer(&session);
+        send(
+            &mut reader,
+            server.reader_frame(
+                &session,
+                "metadata",
+                json!({
+                    "operationId": WORK_TWO, "expectedRevision": current.revision,
+                    "action": "page.state", "body": {"state":"todo"}
+                }),
+            ),
+        );
+        let (error, frames) = receive_until(&mut reader, "error");
+        assert_eq!(error["code"], "DENIED", "{error}");
+        assert!(frames.iter().all(|frame| frame["type"] != "metadataresult"));
+        assert_eq!(read(&layout, &key).state, current.state);
+    }
+}

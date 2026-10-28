@@ -3093,6 +3093,14 @@ title and needs-you counts do not treat dashboard references as authored questio
 integration or migration of older collection data exists. Native and browser
 consume the shared `shell-v1.json` vectors.
 
+### Page state and progress (#5504)
+
+An ordinary page has an independent manual state: `todo`, `in-progress`, or `done`. It is the optional `meta.pageState` string in the encrypted content document; an absent value reads as `todo`. Invalid values are refused by native and browser decoders. A dashboard shell is not a ticket: it cannot carry this field and its state and progress read as `null`. Only an explicit owner-device structured `page.state` action `{state}` changes the field; its revision and operation follow the existing structured publication path. The owner's CLI, agents and paired browser use that admission; a share or non-owner writer gains no authority. Other devices and admitted readers observe the encrypted page state through normal sync. Source edits and epoch baselines retain it.
+
+Page progress is derived at read time and never stored in the page or used to change its manual state. It is `progress: {done,inProgress,todo,unknown,total}`, all nonnegative integers, where `total` is the sum of the four buckets. An unlinked task counts once: `todo` is todo, `done` is done, and `in-progress`, `blocked`, and `in-review` are in progress. A task following a child and that child count once, using the child's manual state; duplicate links to the same child count once per parent. Resolution reads one level and terminates even for legacy cycles. Archived children count normally. A child whose current state is unavailable or stale counts as unknown, never done. If the page's own current projection cannot be read, state and progress are null with an unavailable reason rather than invented counts.
+
+`tmt colab page state PAGE todo|in-progress|done [--json]` writes a manual state; `tmt colab show PAGE --json` returns state and progress; `tmt colab ls --json` returns state. Owner page-list rows likewise carry state, not the progress buckets, to stay within the bounded discovery response. The existing owner-only per-page summary-details read carries the state and progress pair when its projection is fresh; pending, unreadable, or shell projections yield no progress. Mounted page reads return this bounded projection when available. A share reader gets its state from the encrypted fold and progress `null`. `ls --state` selects known pages in an explicit state and never matches shells. It succeeds when a page is unreadable and reports those page IDs in the top-level `stateUnavailable` array (and in text output), so callers know the filtered result may be incomplete. The existing task-derived stage remains a separate value.
+
 ### Work (#4050)
 
 An ordinary HTML page may carry work: a two-line summary and a task list, in the content

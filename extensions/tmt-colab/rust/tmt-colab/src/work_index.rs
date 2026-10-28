@@ -15,16 +15,19 @@ use crate::{
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// 2: a kept task line carries its title.
-const VERSION: u64 = 2;
+/// 3: the index also keeps verified manual state and direct-item progress.
+const VERSION: u64 = 3;
 
 /// The work of the pages of the space: a page missing from it is unavailable (not asked, deleted,
-/// unreadable), and `None` is a page with no work.
+/// unreadable), and `None` is a verified shell.
 pub type Found = BTreeMap<String, Option<PageWork>>;
 
 /// One page's work, as the list and the limit need it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageWork {
+    pub state: String,
+    pub has_work: bool,
+    pub own_progress: crate::page_state::Progress,
     /// `work::Derived::to_value()` of the tasks' own states.
     pub derived: Value,
     pub held: Vec<Held>,
@@ -66,6 +69,9 @@ impl Kept for Option<PageWork> {
     fn to_json(&self) -> Value {
         let mut entry = json!({});
         if let Some(work) = self {
+            entry["state"] = json!(work.state);
+            entry["hasWork"] = json!(work.has_work);
+            entry["ownProgress"] = json!(work.own_progress);
             entry["derived"] = work.derived.clone();
             entry["held"] = work
                 .held
@@ -101,7 +107,19 @@ impl Kept for Option<PageWork> {
                 .map(line_from)
                 .collect::<Option<Vec<_>>>()?,
         };
+        let state = entry["state"].as_str()?;
+        if !crate::decoder::valid_page_state(&json!(state)) {
+            return None;
+        }
+        let own_progress: crate::page_state::Progress =
+            serde_json::from_value(entry["ownProgress"].clone()).ok()?;
+        if !own_progress.valid() {
+            return None;
+        }
         Some(Some(PageWork {
+            state: state.to_owned(),
+            has_work: entry["hasWork"].as_bool()?,
+            own_progress,
             derived: entry["derived"].clone(),
             held,
             lines,
@@ -131,14 +149,11 @@ pub fn scan(
     })
 }
 
-/// `Some(None)`: the page has no work (or is a shell). `None`: it could not be read.
+/// `Some(None)`: the page is a shell. `None`: it could not be read.
 fn fold(store: &Store, key: &Keyring, id: &str, decoder: &mut Decoder) -> Option<Option<PageWork>> {
-    match page::read_work(store, key, id, decoder) {
-        Ok(read) => Some(from_work(id, &read.work, read.derived)),
-        // A shell holds no work.
-        Err(error) if error.downcast_ref::<page::Fault>() == Some(&page::Fault::Invalid) => {
-            Some(None)
-        }
+    match page::read_work_or_shell(store, key, id, decoder) {
+        Ok(Some(read)) => Some(from_work(id, &read.work, read.derived, &read.state)),
+        Ok(None) => Some(None),
         Err(_) => None,
     }
 }
@@ -149,19 +164,25 @@ pub fn page_work(id: &str, meta: &Value) -> Option<PageWork> {
     if meta["pageType"].as_str() == Some("shell") {
         return None;
     }
-    let work = meta.get("work")?;
+    let empty = crate::work::empty();
+    let work = meta.get("work").unwrap_or(&empty);
     let derived = crate::work::derived(work).ok()?.to_value();
-    from_work(id, work, derived)
+    let state = match meta.get("pageState") {
+        None => "todo",
+        Some(value) if crate::decoder::valid_page_state(value) => value.as_str()?,
+        Some(_) => return None,
+    };
+    from_work(id, work, derived, state)
 }
 
-fn from_work(id: &str, work: &Value, derived: Value) -> Option<PageWork> {
-    if *work == crate::work::empty() {
-        return None;
-    }
+fn from_work(id: &str, work: &Value, derived: Value, state: &str) -> Option<PageWork> {
     let lines = crate::work::lines(work).ok()?;
     Some(PageWork {
+        state: state.to_owned(),
+        has_work: *work != crate::work::empty(),
         held: crate::wip::held(id, work),
         derived,
+        own_progress: crate::page_state::progress(&lines, &|_| None),
         lines: if lines.iter().any(|line| line.child.is_some()) {
             lines
         } else {
@@ -202,6 +223,9 @@ mod tests {
             .owner_read(&key.space_id, &key.owner_public(), |tx| tx.page_progress())
             .unwrap();
         let work = Some(PageWork {
+            state: "todo".into(),
+            has_work: true,
+            own_progress: Default::default(),
             derived: json!({"stage":"in-progress","done":0,"total":1,"working":[],"signoff":0}),
             held: vec![],
             lines: vec![],
@@ -237,6 +261,9 @@ mod tests {
     #[test]
     fn an_entry_survives_the_file_and_a_damaged_one_is_dropped() {
         let work = Some(PageWork {
+            state: "todo".into(),
+            has_work: true,
+            own_progress: Default::default(),
             derived: json!({"stage":"in-progress","done":0,"total":1,"working":[],"signoff":0}),
             held: vec![Held {
                 agent: "ada".into(),
@@ -265,8 +292,23 @@ mod tests {
         );
     }
     #[test]
+    fn state_without_work_is_kept_and_invalid_cached_counts_are_rejected() {
+        let empty = page_work("p", &json!({"pageState":"done"})).unwrap();
+        assert_eq!(empty.state, "done");
+        assert!(!empty.has_work);
+        assert_eq!(empty.own_progress, crate::page_state::Progress::default());
+        assert!(page_work("p", &json!({"pageState":null})).is_none());
+        let mut entry = page_index::entry_json(&Some(empty), "f1");
+        entry["ownProgress"]["done"] = json!(1);
+        assert!(<Option<PageWork>>::from_json("p", &entry).is_none());
+    }
+
+    #[test]
     fn held_elsewhere_leaves_out_the_page_being_changed() {
         let held = |page: &str| PageWork {
+            state: "todo".into(),
+            has_work: true,
+            own_progress: Default::default(),
             derived: json!({}),
             held: vec![Held {
                 agent: "ada".into(),
