@@ -29,11 +29,19 @@ impl CommandRunner for PrivateRunner<'_> {
         if request.program != OsStr::new("tmux") {
             return UnixCommandRunner.execute(request);
         }
-        assert!(self.socket.starts_with(self.root));
+        assert!(
+            self.socket.starts_with(self.root),
+            "private tmux socket must remain under its task root"
+        );
         assert_ne!(
             self.socket.file_name(),
             Some(OsStr::new("default")),
             "never the host default socket"
+        );
+        assert_eq!(
+            request.args.first().map(OsString::as_os_str),
+            Some(OsStr::new("-u")),
+            "private tmux command must start -u -S <socket>"
         );
         assert_eq!(
             request.args.get(1).map(OsString::as_os_str),
@@ -54,6 +62,47 @@ impl CommandRunner for PrivateRunner<'_> {
         })
     }
 }
+// Each rejected request names only an absent socket in a fresh owned directory.
+// A missing assertion would make the should-panic control fail without reaching
+// a host server or starting any tmux server.
+fn probe_private_runner(root: &Path, socket: &Path, first: &str) {
+    let args = [
+        first.into(),
+        "-S".into(),
+        socket.as_os_str().to_owned(),
+        "list-sessions".into(),
+    ];
+    let _ = PrivateRunner { root, socket }.execute(CommandRequest {
+        program: OsStr::new("tmux"),
+        args: &args,
+        input: &[],
+        deadline: Instant::now() + Duration::from_secs(1),
+        max_output_bytes: 1024,
+    });
+}
+
+#[test]
+#[should_panic(expected = "private tmux socket must remain under its task root")]
+fn a_private_runner_refuses_a_socket_outside_its_root_before_exec() {
+    let root = Directory::new();
+    let other = Directory::new();
+    probe_private_runner(&root.0, &other.0.join("s"), "-u");
+}
+
+#[test]
+#[should_panic(expected = "never the host default socket")]
+fn a_private_runner_refuses_a_default_socket_name_before_exec() {
+    let root = Directory::new();
+    probe_private_runner(&root.0, &root.0.join("default"), "-u");
+}
+
+#[test]
+#[should_panic(expected = "private tmux command must start -u -S <socket>")]
+fn a_private_runner_refuses_a_changed_command_prefix_before_exec() {
+    let root = Directory::new();
+    probe_private_runner(&root.0, &root.0.join("s"), "-2");
+}
+
 struct PrivateServer {
     directory: Option<Directory>,
     socket: PathBuf,

@@ -38,6 +38,8 @@ const ALLOWED: Record<string, string> = {
   'typescript/test/tooling/host-tmux-guard.test.ts': HOOK,
   'rust/crates/tmt-adapters/src/tmux/server_id_tests.rs':
     'PrivateServer, which proves its socket private before every command',
+  'rust/crates/tmt-cli/src/native_upgrade_command/rename_race_tests.rs':
+    'PrivateServer for the option-cutover races: PrivateRunner asserts the exact owned -S socket under its task directory (never the default) and unsets TMUX and TMUX_PANE before every command',
   'typescript/test/e2e/harness/fixture.ts': FIXTURE,
   'typescript/test/e2e/multi-server.e2e.test.ts': FIXTURE,
   'typescript/test/e2e/workspace-snapshot.e2e.test.ts': FIXTURE,
