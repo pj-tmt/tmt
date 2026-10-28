@@ -790,6 +790,99 @@ fn backlog_outside_tail_rebaselines_at_eof_without_catchup() {
 }
 
 #[test]
+fn foreign_only_initial_transcripts_count_the_first_assistant_append() {
+    let root = TestDirectory::new();
+    let path = root.path.join("first-agy-turn.jsonl");
+    let user = json!({"step_index":0,"type":"USER_INPUT","source":"USER_EXPLICIT","status":"DONE"});
+    fs::write(&path, format!("{user}\n")).unwrap();
+    let first = super::agy(
+        &root.path,
+        &path,
+        None,
+        NOW,
+        Instant::now() + std::time::Duration::from_secs(2),
+    )
+    .expect("a foreign-only transcript must establish the pre-turn baseline");
+    assert_eq!(first.value.counts(), Counts::default());
+    assert!(first.value.complete && !first.value.gap);
+    let cursor = first.cursor.as_ref().unwrap();
+    assert_eq!(cursor.offset, fs::metadata(&path).unwrap().len());
+    assert!(cursor.last.is_none() && cursor.counts.is_none());
+    let response = json!({"step_index":1,"type":"PLANNER_RESPONSE","source":"MODEL","status":"DONE","input_tokens":1200,"cache_read_tokens":300,"output_tokens":45,"model":"gemini-4-argon"});
+    append(&path, &format!("{response}\n"));
+    let next = super::agy(
+        &root.path,
+        &path,
+        Some(&first),
+        NOW + 1,
+        Instant::now() + std::time::Duration::from_secs(2),
+    )
+    .unwrap();
+    assert_eq!(
+        next.value.counts(),
+        Counts {
+            input: 1500,
+            output: 45,
+            cached: 300
+        }
+    );
+    assert_eq!(next.value.epoch, first.value.epoch);
+    assert_eq!(
+        super::agy(
+            &root.path,
+            &path,
+            Some(&next),
+            NOW + 2,
+            Instant::now() + std::time::Duration::from_secs(2)
+        ),
+        Some(next)
+    );
+
+    // The shared cursor owner must also keep Claude's first user record from
+    // suppressing its first completed assistant group.
+    let path = root.path.join("first-claude-turn.jsonl");
+    fs::write(
+        &path,
+        "{\"type\":\"user\",\"message\":{\"role\":\"user\"}}\n",
+    )
+    .unwrap();
+    let first = claude(&root.path, &path, None, NOW).expect("Claude foreign-only baseline");
+    assert_eq!(first.value.counts(), Counts::default());
+    assert!(first.cursor.as_ref().unwrap().last.is_none());
+    let response = CLAUDE.lines().nth(1).unwrap();
+    append(&path, &format!("{response}\n"));
+    let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert_eq!(
+        next.value.counts(),
+        claude_message(response).unwrap().unwrap().counts
+    );
+}
+
+#[test]
+fn invalid_initial_assistant_evidence_never_becomes_a_complete_foreign_baseline() {
+    let root = TestDirectory::new();
+    let path = root.path.join("invalid-first-turn.jsonl");
+    for content in [
+        "{\"type\":\"USER_INPUT\"}\n{broken}\n",
+        "{\"type\":\"PLANNER_RESPONSE\",\"source\":\"MODEL\",\"status\":\"DONE\",\"input_tokens\":\"bad\"}\n",
+        "{\"type\":\"USER_INPUT\"}",
+    ] {
+        fs::write(&path, content).unwrap();
+        let initial = super::agy(
+            &root.path,
+            &path,
+            None,
+            NOW,
+            Instant::now() + std::time::Duration::from_secs(2),
+        );
+        assert!(
+            initial.is_none_or(|state| !state.value.complete || state.value.gap),
+            "{content}"
+        );
+    }
+}
+
+#[test]
 fn empty_source_baseline_counts_first_append_before_stop() {
     let root = TestDirectory::new();
     let path = root.path.join("empty.jsonl");

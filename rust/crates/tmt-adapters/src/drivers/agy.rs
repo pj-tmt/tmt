@@ -218,14 +218,24 @@ fn parse_main_payload(bytes: &[u8]) -> Result<(Payload, ProviderSessionId), Hook
 }
 
 fn concrete_model(value: Option<&serde_json::Value>) -> Option<String> {
-    value
-        .and_then(serde_json::Value::as_str)
-        .filter(|model| {
-            !model.is_empty()
-                && *model != "auto"
-                && crate::runtime::driver_state::valid_model(model)
-        })
-        .map(str::to_owned)
+    let raw = value.and_then(serde_json::Value::as_str)?.trim();
+    if raw.is_empty() || raw.eq_ignore_ascii_case("auto") {
+        return None;
+    }
+    if crate::runtime::driver_state::valid_model(raw) {
+        return Some(raw.to_owned());
+    }
+    // Provider display labels are not arbitrary text: normalize only their
+    // known family labels and punctuation, preserving already concrete slugs.
+    let family = raw.split_once(' ')?.0;
+    if !(family.eq_ignore_ascii_case("Gemini") || family.eq_ignore_ascii_case("Claude"))
+        || !raw.bytes().all(|byte| byte.is_ascii_alphanumeric() || b" ._()-".contains(&byte))
+    {
+        return None;
+    }
+    let model = raw.split([' ', '(', ')']).filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase).collect::<Vec<_>>().join("-");
+    crate::runtime::driver_state::valid_model(&model).then_some(model)
 }
 
 impl Payload {
@@ -798,10 +808,22 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
             usage.and_then(|tokens| crate::runtime::driver_state::Usage::new(tokens, None, now_ms));
         let previous_consumption =
             previous.and_then(crate::runtime::driver_state::state_consumption);
-        let consumption = crate::runtime::consumption::agy(
+        // A remembered resume model is not completion evidence. Only a hook
+        // observation made during this admitted session's current turn can fill
+        // an omitted response model; later/older observations grant nothing.
+        let observed_model = previous.and_then(|state| {
+            let activity = crate::runtime::driver_state::state_activity(state)?;
+            let observed = crate::runtime::driver_state::state_observed_model(state)?;
+            (activity.session == turn.session
+                && observed.observed_at_ms >= activity.since_ms
+                && observed.observed_at_ms <= now_ms)
+                .then_some(observed.model)
+        });
+        let consumption = crate::runtime::consumption::agy_with_model(
             &root,
             path,
             previous_consumption.as_ref(),
+            observed_model.as_deref(),
             now_ms,
             deadline,
         );

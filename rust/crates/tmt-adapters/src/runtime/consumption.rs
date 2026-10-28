@@ -388,6 +388,10 @@ fn claude_message(line: &str) -> Result<Option<Message>, ()> {
 /// Ok(None) is a foreign, sidechain or synthetic record; Err means a main
 /// assistant record cannot establish its consumption safely.
 fn agy_message(line: &str) -> Result<Option<Message>, ()> {
+    agy_message_with_model(line, None)
+}
+
+fn agy_message_with_model(line: &str, observed_model: Option<&str>) -> Result<Option<Message>, ()> {
     if !line.contains("\"PLANNER_RESPONSE\"")
         && !line.contains('\\')
         && line
@@ -430,7 +434,12 @@ fn agy_message(line: &str) -> Result<Option<Message>, ()> {
         request: None,
         counts,
         cache_write: None,
-        model: attribution::model(&entry["model"]),
+        // Only an omitted field may use the current hook's observation. An
+        // explicit invalid/auto model is uncertainty, never fallback authority.
+        model: match entry.get("model") {
+            Some(value) => attribution::model(value),
+            None => observed_model.filter(|model| attribution::valid_model(model)).map(str::to_owned),
+        }.filter(|model| !model.eq_ignore_ascii_case("auto")),
     }))
 }
 
@@ -458,6 +467,22 @@ pub fn agy(
     })
 }
 
+/// Agy may omit the model from its completed response. Its driver may supply
+/// the model observed by an admitted hook during this same turn, never a
+/// remembered launch model. Explicit transcript evidence always wins.
+pub fn agy_with_model(
+    root: &Path,
+    path: &Path,
+    previous: Option<&State>,
+    observed_model: Option<&str>,
+    now: u64,
+    deadline: Instant,
+) -> Option<State> {
+    appended_until(root, path, previous, now, |line| agy_message_with_model(line, observed_model), false, || {
+        Instant::now() >= deadline
+    })
+}
+
 fn claude_until(
     root: &Path,
     path: &Path,
@@ -473,7 +498,7 @@ fn appended_until(
     path: &Path,
     previous: Option<&State>,
     now: u64,
-    parse: fn(&str) -> Result<Option<Message>, ()>,
+    parse: impl Fn(&str) -> Result<Option<Message>, ()>,
     tracks_cache_write: bool,
     mut expired: impl FnMut() -> bool,
 ) -> Option<State> {
@@ -513,20 +538,34 @@ fn appended_until(
             next.value.delta_by_model = Some(Vec::new());
             return Some(next);
         }
-        // Absorb the last historical group if later content-block records
-        // for it are appended. IDs absent from legacy fixtures mean no counter.
-        let message = transcript::latest_at(&mut file, end, |line| parse(line).ok().flatten())?;
+        // Inspect one bounded captured tail. Foreign-only transcripts (for
+        // example Agy's index-0 USER_INPUT) still establish the pre-turn cursor;
+        // otherwise the first assistant response would become the baseline.
+        // Invalid evidence is not a foreign record and cannot prove zero usage.
+        let tail = transcript::read_tail(&mut file, end)?;
+        let text = std::str::from_utf8(&tail).ok()?;
+        let complete = if boundary { text } else { text.rsplit_once('\n').map_or("", |(lines, _)| lines) };
+        let mut latest = None;
+        for line in complete.lines().filter(|line| !line.trim().is_empty()) {
+            if expired() { return None; }
+            if let Some(message) = parse(line).ok()? { latest = Some(message); }
+        }
+        if expired() { return None; }
         let mut next = baseline(false);
         next.value.complete = boundary;
         if tracks_cache_write {
             next.value.cache_write_tokens = Some(0);
         }
-        next.value.model_id = message.model;
         next.value.delta_by_model = Some(Vec::new());
-        let cursor = next.cursor.as_mut()?;
-        cursor.last = Some(message.id);
-        cursor.request = message.request;
-        cursor.counts = Some(message.counts);
+        // Absorb an existing historical group, but never invent one for an
+        // initial transcript containing only user/foreign records.
+        if let Some(message) = latest {
+            next.value.model_id = message.model;
+            let cursor = next.cursor.as_mut()?;
+            cursor.last = Some(message.id);
+            cursor.request = message.request;
+            cursor.counts = Some(message.counts);
+        }
         return Some(next);
     };
     if now < previous.value.observed_at_ms {
