@@ -87,7 +87,7 @@ case "$*" in
 ;;
 'remote members --json --limit 10')
 [ -f machines.json ] || exit 1
-printf '%s\n' '{"members":[{"memberId":"fixture-person"}],"nextCursor":null}'
+printf '%s\n' '{"members":[{"memberId":"fixture-person","revokedAtMs":null}],"nextCursor":null}'
 exit 0
 ;;
 'remote members machines fixture-person --json --limit 10')

@@ -4602,7 +4602,8 @@ Pairing is never done by `serve`: it reads `tmt remote members --json --limit 10
 `tmt remote members machines <member-id> --json --limit 10` for each member. Each view
 follows its own `nextCursor` until null, within one three-second lookup deadline. Only
 machines whose `revoked` is false count; `grantLive` and sending scope do not determine
-pairing. A failed, malformed or incomplete lookup is unknown. It only reports. Running
+pairing. Persons with a non-null `revokedAtMs` are skipped before reading their machines.
+A failed, malformed or incomplete lookup is unknown. It only reports. Running
 `tmt remote serve` separately keeps working and is the attach path.
 
 `serve --json` prints one line, then nothing until shutdown. Keys are stable and absent

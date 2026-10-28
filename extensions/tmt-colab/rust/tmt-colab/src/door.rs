@@ -231,6 +231,11 @@ impl Pairing {
                 if !member_ids.insert(id.to_owned()) {
                     return None;
                 }
+                match member.get("revokedAtMs")? {
+                    serde_json::Value::Null => {}
+                    value if value.is_i64() || value.is_u64() => continue,
+                    _ => return None,
+                }
                 let machines =
                     pairing_rows(&["members", "machines", id], "machines", &mut |words| {
                         let text = call(words)?;
@@ -509,8 +514,8 @@ mod tests {
             let args = words.join(" ");
             calls.push(args.clone());
             Some(match args.as_str() {
-                "members --json --limit 10" => r#"{"members":[{"memberId":"person-a"}],"nextCursor":"people-next"}"#,
-                "members --json --limit 10 --cursor people-next" => r#"{"members":[{"memberId":"person-b"}],"nextCursor":null}"#,
+                "members --json --limit 10" => r#"{"members":[{"memberId":"person-a","revokedAtMs":null}],"nextCursor":"people-next"}"#,
+                "members --json --limit 10 --cursor people-next" => r#"{"members":[{"memberId":"person-b","revokedAtMs":null}],"nextCursor":null}"#,
                 "members machines person-a --json --limit 10" => r#"{"memberId":"person-a","machines":[{"clientId":"machine-1","revoked":false,"grantLive":false}],"nextCursor":"machines-next"}"#,
                 "members machines person-a --json --limit 10 --cursor machines-next" => r#"{"memberId":"person-a","machines":[{"clientId":"machine-2","revoked":true}],"nextCursor":null}"#,
                 "members machines person-b --json --limit 10" => r#"{"memberId":"person-b","machines":[{"clientId":"machine-3","revoked":false}],"nextCursor":null}"#,
@@ -519,6 +524,21 @@ mod tests {
         });
         assert_eq!(result, Pairing::Paired(2));
         assert_eq!(calls.len(), 5);
+    }
+    #[test]
+    fn pairing_skips_revoked_people_even_with_non_revoked_machines() {
+        use super::Pairing;
+        let mut calls = Vec::new();
+        let result = Pairing::lookup_with(|words| {
+            calls.push(words.join(" "));
+            Some(if words[1] == "machines" {
+                r#"{"memberId":"revoked-person","machines":[{"clientId":"machine","revoked":false}],"nextCursor":null}"#
+            } else {
+                r#"{"members":[{"memberId":"revoked-person","revokedAtMs":1}],"nextCursor":null}"#
+            }.to_owned())
+        });
+        assert_eq!(result, Pairing::Unpaired);
+        assert_eq!(calls, ["members --json --limit 10"]);
     }
     #[test]
     fn pairing_requires_complete_valid_observations() {
@@ -552,7 +572,8 @@ mod tests {
                 Pairing::lookup_with(|words| Some(if words[1] == "machines" {
                     machines.to_owned()
                 } else {
-                    r#"{"members":[{"memberId":"person"}],"nextCursor":null}"#.to_owned()
+                    r#"{"members":[{"memberId":"person","revokedAtMs":null}],"nextCursor":null}"#
+                        .to_owned()
                 })),
                 expected,
                 "{machines}"
@@ -579,7 +600,7 @@ mod tests {
             Pairing::lookup_with(|_| {
                 calls += 1;
                 match calls {
-                    1 => Some(r#"{"members":[{"memberId":"person"}],"nextCursor":null}"#.into()),
+                    1 => Some(r#"{"members":[{"memberId":"person","revokedAtMs":null}],"nextCursor":null}"#.into()),
                     2 => Some(r#"{"memberId":"person","machines":[{"clientId":"machine","revoked":false}],"nextCursor":"more"}"#.into()),
                     _ => None,
                 }
