@@ -11,51 +11,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-// Captured state_5.sqlite table shape; unknown schemas refuse. See fixture provenance.
-const INDEX_COLUMNS: &[(&str, &str, i64, i64)] = &[
+// The `threads` columns the content query reads, with their captured shape
+// (name, type, not-null, primary key). Each must appear exactly once; other
+// columns are additive and ignored (#5494). See fixture provenance.
+const READ_COLUMNS: &[(&str, &str, i64, i64)] = &[
     ("id", "TEXT", 0, 1),
     ("rollout_path", "TEXT", 1, 0),
-    ("created_at", "INTEGER", 1, 0),
-    ("updated_at", "INTEGER", 1, 0),
     ("source", "TEXT", 1, 0),
-    ("model_provider", "TEXT", 1, 0),
-    ("cwd", "TEXT", 1, 0),
-    ("title", "TEXT", 1, 0),
-    ("sandbox_policy", "TEXT", 1, 0),
-    ("approval_mode", "TEXT", 1, 0),
-    ("tokens_used", "INTEGER", 1, 0),
-    ("has_user_event", "INTEGER", 1, 0),
-    ("archived", "INTEGER", 1, 0),
-    ("archived_at", "INTEGER", 0, 0),
-    ("git_sha", "TEXT", 0, 0),
-    ("git_branch", "TEXT", 0, 0),
-    ("git_origin_url", "TEXT", 0, 0),
-    ("cli_version", "TEXT", 1, 0),
-    ("first_user_message", "TEXT", 1, 0),
-    ("agent_nickname", "TEXT", 0, 0),
-    ("agent_role", "TEXT", 0, 0),
-    ("memory_mode", "TEXT", 1, 0),
-    ("model", "TEXT", 0, 0),
-    ("reasoning_effort", "TEXT", 0, 0),
-    ("agent_path", "TEXT", 0, 0),
-    ("created_at_ms", "INTEGER", 0, 0),
-    ("updated_at_ms", "INTEGER", 0, 0),
-    ("thread_source", "TEXT", 0, 0),
-    ("preview", "TEXT", 1, 0),
-    ("recency_at", "INTEGER", 1, 0),
-    ("recency_at_ms", "INTEGER", 1, 0),
-    ("history_mode", "TEXT", 1, 0),
-    ("name", "TEXT", 0, 0),
-    ("is_pinned", "INTEGER", 1, 0),
-    ("thread_section_id", "TEXT", 0, 0),
-    ("section_position", "INTEGER", 0, 0),
-    ("section_entered_at_ms", "INTEGER", 0, 0),
-    ("project_id", "TEXT", 0, 0),
-    ("originator", "TEXT", 0, 0),
-    ("daybreak_enabled", "BOOLEAN", 0, 0),
-    ("creator_user_id", "TEXT", 0, 0),
-    ("creator_account_id", "TEXT", 0, 0),
 ];
+// Codex 0.165 links a thread attached to a parent here. When the column
+// exists it is read, and a linked thread is not a root caller session.
+const PARENT_COLUMN: (&str, &str, i64, i64) = ("attached_thread_parent_id", "TEXT", 0, 0);
 
 pub(super) fn coordinates(session: Option<&std::ffi::OsStr>) -> Option<CallerSession> {
     let text = session?.to_str()?;
@@ -218,26 +184,47 @@ fn indexed_path(database: &Path, session: &str) -> Result<PathBuf, CallerSession
         .map_err(|_| IndexUnavailable)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| IndexUnavailable)?;
-    if columns.len() != INDEX_COLUMNS.len()
-        || !columns.iter().zip(INDEX_COLUMNS).all(|(found, expected)| {
-            found.0 == expected.0
-                && found.1 == expected.1
-                && found.2 == expected.2
-                && found.3 == expected.3
-        })
-    {
-        return Err(IndexShape);
+    let shaped = |expected: &(&str, &str, i64, i64)| -> Result<bool, CallerSessionRefusal> {
+        let mut found = columns.iter().filter(|column| column.0 == expected.0);
+        match (found.next(), found.next()) {
+            (None, _) => Ok(false),
+            (Some(column), None)
+                if column.1 == expected.1 && column.2 == expected.2 && column.3 == expected.3 =>
+            {
+                Ok(true)
+            }
+            _ => Err(IndexShape),
+        }
+    };
+    for expected in READ_COLUMNS {
+        if !shaped(expected)? {
+            return Err(IndexShape);
+        }
     }
+    let parent = if shaped(&PARENT_COLUMN)? {
+        "attached_thread_parent_id IS NOT NULL"
+    } else {
+        "0"
+    };
     // The only content SELECT is parameterized by this exact thread ID.
     let row = connection
         .query_row(
-            "SELECT rollout_path, source FROM threads WHERE id = ?1",
+            &format!("SELECT rollout_path, source, {parent} FROM threads WHERE id = ?1"),
             [session],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            },
         )
         .optional()
         .map_err(|_| IndexUnavailable)?
         .ok_or(IndexUnavailable)?;
+    if row.2 {
+        return Err(NotRoot);
+    }
     if matches!(row.1.as_str(), "cli" | "exec") {
         Ok(PathBuf::from(row.0))
     } else {
