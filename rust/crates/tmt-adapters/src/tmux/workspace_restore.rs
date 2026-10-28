@@ -16,7 +16,7 @@ use std::{
     io,
     os::unix::fs::FileTypeExt,
     path::Path,
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tmt_core::{
     endpoint::ProcessIncarnation,
@@ -32,6 +32,8 @@ use tmt_core::{
 const REFUSED: &str = "tmt-workspace-effect-refused";
 const SEP: &str = super::evidence::SEPARATOR;
 const BOOTSTRAP_COMMAND: [&str; 2] = ["/bin/sh", "-i"];
+/// Extra time to give back a window's size override once the restore's own deadline has passed.
+const RELEASE_GRACE: Duration = Duration::from_secs(2);
 fn created_format() -> String {
     [
         "#{socket_path}",
@@ -837,7 +839,10 @@ impl<R: CommandRunner> Restore<'_, R> {
                 saved.border_status.into(),
             ],
         )?;
-        self.guard(
+        // `window-size manual` only holds the saved geometry while it is built; the window must
+        // follow its clients again afterwards, so the override is released on every exit path
+        // once it was attempted.
+        let held = self.guard(
             Some(&created.pane),
             &[],
             vec![
@@ -848,7 +853,18 @@ impl<R: CommandRunner> Restore<'_, R> {
                 "window-size".into(),
                 "manual".into(),
             ],
-        )?;
+        );
+        let laid_out = held.and_then(|_| self.lay_out(saved, created));
+        let released = self.release_window_size(created);
+        laid_out.and(released)
+    }
+
+    /// Rebuilds the saved geometry in a window whose size is pinned.
+    fn lay_out(
+        &mut self,
+        saved: &WorkspaceLayoutWindow<'_>,
+        created: &Created,
+    ) -> Result<(), TmuxError> {
         self.guard(
             Some(&created.pane),
             &[],
@@ -956,6 +972,26 @@ impl<R: CommandRunner> Restore<'_, R> {
             )?;
         }
         Ok(())
+    }
+
+    /// Removes the window-level `window-size` override again, after a restore that may already
+    /// be out of time. Only this window's option is touched, never a session or global one.
+    fn release_window_size(&mut self, created: &Created) -> Result<(), TmuxError> {
+        let deadline = self.deadline;
+        self.deadline = deadline.max(Instant::now() + RELEASE_GRACE);
+        let released = self.guard(
+            Some(&created.pane),
+            &[],
+            vec![
+                "set-option".into(),
+                "-wu".into(),
+                "-t".into(),
+                created.window.clone(),
+                "window-size".into(),
+            ],
+        );
+        self.deadline = deadline;
+        released.map(|_| ())
     }
 
     fn verify_cwd(&self, pane: &str, expected: &str) -> Result<(), TmuxError> {
@@ -1267,3 +1303,6 @@ fn command(args: &[String]) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod size_release_tests;
