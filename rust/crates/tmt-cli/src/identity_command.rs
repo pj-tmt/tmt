@@ -13,7 +13,7 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    host::CallerEnvironment,
+    host::Host,
     storage::{Storage, StorageError},
 };
 use tmt_core::{
@@ -186,7 +186,11 @@ fn pinned(storage: &mut Storage, id: &str, expected: &str) -> Result<Report, Fai
     let identity = identity_context::pinned_identity(storage, id, expected)?;
     // Presence is read as `tmt ls <name>` reads it, so a host that cannot answer is "unknown",
     // never a reason to refuse an identity that still has its name.
-    let host = crate::caller_context::host(&CallerEnvironment::current())?;
+    let host = Host::for_host(
+        tmt_core::host::HostKind::Tmux,
+        tmt_adapters::process::UnixCommandRunner,
+        tmt_adapters::host::external::approved(),
+    );
     let presence = match binding::name_presence(storage, &mut host.session(), &identity.name) {
         Ok(observed) if observed.identity.id == id => observed.presence.as_str(),
         Ok(_) | Err(BindingError::NameNotFound(_)) => {
@@ -576,4 +580,38 @@ pub(crate) fn list_document(paths: &ConfigPaths) -> Result<serde_json::Value, Fa
     let mut storage = Storage::open(&paths.database).map_err(unavailable)?;
     let pending = operation(&mut storage, IdentityRequest::List(Vec::new()), None, None);
     after_cleanup(pending, || storage.close()).map(|report| document(&report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::caller_context::test_support::World;
+
+    #[test]
+    fn pinned_identity_presence_uses_stored_facts_and_keeps_the_name_guard() {
+        let world = World::new();
+        let mut storage = world.storage();
+        let identity = identity::create_or_resolve(&mut storage, "Pinned", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let report = pinned(&mut storage, &identity.id, "Pinned")
+            .unwrap_or_else(|error| panic!("{}", error.message));
+        let Report::Shown(found, _, presence, _) = report else {
+            panic!("not a pinned identity report")
+        };
+        assert_eq!(found.id, identity.id);
+        assert_eq!(presence, Some("offline"));
+        let mismatch = pinned(&mut storage, &identity.id, "Replacement")
+            .err()
+            .expect("name pin refuses mismatch");
+        assert_eq!(
+            (mismatch.code.as_str(), mismatch.status),
+            ("IDENTITY_CHANGED", 5)
+        );
+        assert_eq!(
+            storage.resolve_identity("Pinned").unwrap().unwrap(),
+            identity
+        );
+        storage.close().unwrap();
+    }
 }

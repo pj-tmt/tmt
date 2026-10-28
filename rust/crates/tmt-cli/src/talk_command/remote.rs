@@ -159,6 +159,7 @@ fn run(
         program.as_os_str(),
         runner,
         budget,
+        || crate::caller_context::host(&CallerEnvironment::current()),
     );
     after_cleanup(result, || storage.close())
 }
@@ -197,10 +198,10 @@ fn send(
     program: &OsStr,
     runner: &dyn CommandRunner,
     budget: Duration,
+    host: impl FnOnce() -> Result<tmt_adapters::host::Host, Failure>,
 ) -> Result<Report, Failure> {
-    let host = crate::caller_context::host(&CallerEnvironment::current())?;
     let (originator, sender) =
-        identity_context::optional(storage, &host, input.originator.as_deref())?
+        identity_context::optional(storage, host, input.originator.as_deref())?
             .map(|identity| {
                 let originator = if input.originator.is_some() {
                     Originator::Explicit(identity.id.clone())

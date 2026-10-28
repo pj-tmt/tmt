@@ -58,6 +58,7 @@ impl Setup {
             program.as_os_str(),
             &UnixCommandRunner,
             Duration::from_secs(10),
+            || Err(crate::caller_context::test_support::cleanup_failure()),
         )
     }
 
@@ -303,4 +304,21 @@ fn names_and_the_peer_are_bounded_before_anything_is_stored() {
         );
     }
     assert!(validate(&input("reviewer", None)).is_ok());
+}
+
+#[test]
+fn an_implicit_remote_sender_still_reports_caller_selection_cleanup_failure() {
+    let mut setup = Setup::new("implicit-caller-cleanup");
+    let program = setup.remote(&answer("sent"));
+    let mut request = input("reviewer", None);
+    request.originator = None;
+    let error = setup
+        .send(&request, &program)
+        .expect_err("caller selection fails");
+    assert_eq!(
+        error.document(),
+        crate::caller_context::test_support::cleanup_failure().document()
+    );
+    assert_eq!(error.status, 1);
+    assert!(!setup.root.join("stdin").exists(), "Remote must not run");
 }

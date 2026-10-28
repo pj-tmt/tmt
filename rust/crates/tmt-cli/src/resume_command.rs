@@ -52,85 +52,14 @@ pub fn execute(request: Request<'_>) -> io::Result<u8> {
             return crate::run_command::resume_with_options(name, resume, &options, channel, host);
         }
     }
-    let selected = (|| {
-        if name.is_none() {
-            crate::caller_context::require_independent_host()?;
-        }
-
-        if !options.valid() {
-            return Err(Failure::new(
-                "RESUME_SETTINGS_INVALID",
-                "Model and effort must be bounded, non-option tokens.",
-                1,
-            ));
-        }
-        let paths = ConfigPaths::discover().map_err(Failure::from)?;
-        let mut storage = Storage::open(&paths.database).map_err(storage_failure)?;
-        let host = crate::caller_context::host(&tmt_adapters::host::CallerEnvironment::current())?;
-        let identity = match crate::identity_context::optional(&mut storage, &host, name)? {
-            Some(identity) => identity,
-            None => {
-                let names = storage
-                    .list_identities()
-                    .map_err(storage_failure)?
-                    .into_iter()
-                    .filter(|i| i.lifetime == tmt_core::identity::Lifetime::Saved)
-                    .map(|i| i.name)
-                    .collect::<Vec<_>>();
-                return Err(Failure::new(
-                    "IDENTITY_REQUIRED",
-                    format!(
-                        "No identity is bound to this pane. Specify a saved identity: {}",
-                        if names.is_empty() {
-                            "(none)".into()
-                        } else {
-                            names.join(", ")
-                        }
-                    ),
-                    1,
-                ));
-            }
-        };
-        let report = if show {
-            let mut preset = tmt_adapters::runtime::launch_preset::read(&storage, &identity.id)
-                .map_err(storage_failure)?;
-            let preferences = storage
-                .session_preferences(&identity.id)
-                .map_err(storage_failure)?;
-            if let (Some(preset), Some(session)) = (&mut preset, &preferences.remembered)
-                && preset.matches(session)
-            {
-                preset.associate(
-                    session,
-                    &tmt_adapters::runtime::RuntimeRegistry::first_party(),
-                );
-            }
-            Some(
-                serde_json::to_string_pretty(
-                    &serde_json::json!({"identity": identity.name, "launch": preset.map(|preset|
-                        serde_json::json!({"executable": preset.executable,
-                            "model": preset.model, "effort": preset.effort,
-                            "env": preset.env, "associated": preset.session.is_some()}))}),
-                )
-                .expect("launch preset serializes"),
-            )
-        } else if forget_launch {
-            if !tmt_adapters::runtime::launch_preset::clear(&mut storage, &identity.id)
-                .map_err(storage_failure)?
-            {
-                return Err(Failure::new(
-                    "NAME_NOT_FOUND",
-                    "The identity changed before clearing its launch preset.",
-                    3,
-                ));
-            }
-            Some(format!("Forgot {}'s launch preset.", identity.name))
-        } else {
-            None
-        };
-        storage.close().map_err(storage_failure)?;
-        Ok((identity.name, report))
-    })();
+    let selected = prepare(
+        name,
+        show,
+        forget_launch,
+        &options,
+        || ConfigPaths::discover().map_err(Failure::from),
+        || crate::caller_context::host(&tmt_adapters::host::CallerEnvironment::current()),
+    );
     match selected {
         Ok((_, Some(report))) => {
             let mut stdout = tmt_cli_style::stream::stdout(false);
@@ -143,6 +72,92 @@ pub fn execute(request: Request<'_>) -> io::Result<u8> {
         }
         Err(error) => error.publish(OutputMode::default()),
     }
+}
+
+fn prepare(
+    name: Option<&str>,
+    show: bool,
+    forget_launch: bool,
+    options: &tmt_adapters::runtime::launch_preset::LaunchSettings,
+    paths: impl FnOnce() -> Result<ConfigPaths, Failure>,
+    host: impl FnOnce() -> Result<tmt_adapters::host::Host, Failure>,
+) -> Result<(String, Option<String>), Failure> {
+    if name.is_none() {
+        crate::caller_context::require_independent_host()?;
+    }
+
+    if !options.valid() {
+        return Err(Failure::new(
+            "RESUME_SETTINGS_INVALID",
+            "Model and effort must be bounded, non-option tokens.",
+            1,
+        ));
+    }
+    let paths = paths()?;
+    let mut storage = Storage::open(&paths.database).map_err(storage_failure)?;
+    let identity = match crate::identity_context::optional(&mut storage, host, name)? {
+        Some(identity) => identity,
+        None => {
+            let names = storage
+                .list_identities()
+                .map_err(storage_failure)?
+                .into_iter()
+                .filter(|i| i.lifetime == tmt_core::identity::Lifetime::Saved)
+                .map(|i| i.name)
+                .collect::<Vec<_>>();
+            return Err(Failure::new(
+                "IDENTITY_REQUIRED",
+                format!(
+                    "No identity is bound to this pane. Specify a saved identity: {}",
+                    if names.is_empty() {
+                        "(none)".into()
+                    } else {
+                        names.join(", ")
+                    }
+                ),
+                1,
+            ));
+        }
+    };
+    let report = if show {
+        let mut preset = tmt_adapters::runtime::launch_preset::read(&storage, &identity.id)
+            .map_err(storage_failure)?;
+        let preferences = storage
+            .session_preferences(&identity.id)
+            .map_err(storage_failure)?;
+        if let (Some(preset), Some(session)) = (&mut preset, &preferences.remembered)
+            && preset.matches(session)
+        {
+            preset.associate(
+                session,
+                &tmt_adapters::runtime::RuntimeRegistry::first_party(),
+            );
+        }
+        Some(
+            serde_json::to_string_pretty(
+                &serde_json::json!({"identity": identity.name, "launch": preset.map(|preset|
+                    serde_json::json!({"executable": preset.executable,
+                        "model": preset.model, "effort": preset.effort,
+                        "env": preset.env, "associated": preset.session.is_some()}))}),
+            )
+            .expect("launch preset serializes"),
+        )
+    } else if forget_launch {
+        if !tmt_adapters::runtime::launch_preset::clear(&mut storage, &identity.id)
+            .map_err(storage_failure)?
+        {
+            return Err(Failure::new(
+                "NAME_NOT_FOUND",
+                "The identity changed before clearing its launch preset.",
+                3,
+            ));
+        }
+        Some(format!("Forgot {}'s launch preset.", identity.name))
+    } else {
+        None
+    };
+    storage.close().map_err(storage_failure)?;
+    Ok((identity.name, report))
 }
 
 pub fn forget(name: &str) -> io::Result<u8> {
@@ -209,4 +224,74 @@ fn forgotten(name: &str) -> Result<(bool, String), Failure> {
     let message = result?;
     closed?;
     Ok(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::caller_context::test_support::{World, cleanup_failure};
+    use tmt_core::identity::{Lifetime, create_or_resolve};
+
+    #[test]
+    fn named_preset_inspection_and_clear_bypass_failed_caller_selection() {
+        for show in [true, false] {
+            let world = World::new();
+            let mut storage = world.storage();
+            let identity = create_or_resolve(&mut storage, "Member", Lifetime::Saved)
+                .unwrap()
+                .identity;
+            let preset = tmt_adapters::runtime::launch_preset::LaunchPreset {
+                executable: "fixture-provider".into(),
+                model: Some("model-a".into()),
+                effort: None,
+                env: Default::default(),
+                binding: tmt_core::operation::new_operation_id(),
+                owner_pid: std::process::id().into(),
+                owner_start: "fixture-owner".into(),
+                harness: None,
+                session: None,
+            };
+            assert!(
+                tmt_adapters::runtime::launch_preset::remember(&mut storage, &identity.id, &preset)
+                    .unwrap()
+            );
+            assert_eq!(
+                tmt_adapters::runtime::launch_preset::read(&storage, &identity.id).unwrap(),
+                Some(preset.clone())
+            );
+            storage.close().unwrap();
+            let (name, report) = prepare(
+                Some("Member"),
+                show,
+                !show,
+                &Default::default(),
+                || Ok(world.paths.clone()),
+                || Err(cleanup_failure()),
+            )
+            .unwrap();
+            assert_eq!(name, "Member");
+            if show {
+                let document: serde_json::Value = serde_json::from_str(&report.unwrap()).unwrap();
+                assert_eq!(document["identity"], "Member");
+                assert_eq!(document["launch"]["executable"], "fixture-provider");
+                assert_eq!(document["launch"]["model"], "model-a");
+                assert_eq!(document["launch"]["associated"], false);
+                let mut storage = world.storage();
+                assert_eq!(
+                    tmt_adapters::runtime::launch_preset::read(&storage, &identity.id).unwrap(),
+                    Some(preset)
+                );
+                storage.close().unwrap();
+            } else {
+                assert_eq!(report.unwrap(), "Forgot Member's launch preset.");
+                let mut storage = world.storage();
+                assert!(
+                    tmt_adapters::runtime::launch_preset::read(&storage, &identity.id)
+                        .unwrap()
+                        .is_none()
+                );
+                storage.close().unwrap();
+            }
+        }
+    }
 }

@@ -2,6 +2,8 @@
 //! Preflight caller/target checks precede configuration and database effects.
 
 #[cfg(test)]
+mod caller_host_tests;
+#[cfg(test)]
 mod guarded_tests;
 mod presentation;
 mod session;
@@ -256,7 +258,10 @@ struct ListedTarget {
     opened: Option<(ConfigPaths, Storage)>,
 }
 
-fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
+fn listed_target(
+    request: &Invocation,
+    paths: &impl Fn() -> Result<ConfigPaths, Failure>,
+) -> Result<ListedTarget, Failure> {
     let target = match request {
         Invocation::List {
             target: Some(target),
@@ -275,7 +280,7 @@ fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
             opened: None,
         });
     }
-    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let paths = paths()?;
     let storage = open_storage(&paths)?;
     let pane = tmt_core::identity::addresses_pane(&storage, target).map_err(|error| {
         Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
@@ -287,9 +292,39 @@ fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
 }
 
 fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failure> {
-    let environment = CallerEnvironment::current();
-    let caller = crate::caller_context::host(&environment)?;
-    let listed = listed_target(&request)?;
+    run_with(
+        request,
+        CallerEnvironment::current(),
+        || ConfigPaths::discover().map_err(Failure::from),
+        crate::caller_context::host,
+    )
+}
+
+fn run_with(
+    request: Invocation,
+    environment: CallerEnvironment,
+    paths: impl Fn() -> Result<ConfigPaths, Failure>,
+    caller_host: impl FnOnce(&CallerEnvironment) -> Result<Host, Failure>,
+) -> Result<(Report, Option<AgentNameOutcome>), Failure> {
+    let listed = listed_target(&request, &paths)?;
+    let caller = match &request {
+        Invocation::Bind { pane: None, .. }
+        | Invocation::BindMarked { .. }
+        | Invocation::Whoami
+        | Invocation::Unbind
+        | Invocation::List {
+            target: None,
+            scope: ListScope { here: true, .. },
+            ..
+        } => caller_host(&environment)?,
+        // This session observes stored bindings on their own hosts; its primary
+        // host is not caller evidence. Explicit panes are selected below.
+        _ => Host::for_host(
+            tmt_core::host::HostKind::Tmux,
+            tmt_adapters::process::UnixCommandRunner,
+            tmt_adapters::host::external::approved(),
+        ),
+    };
     let pane = preflight(&request, &caller, &environment, listed.pane)?;
     // An explicit target's own host observes it; stored bindings are always
     // probed on theirs.
@@ -299,7 +334,7 @@ fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failur
     };
     let (paths, storage) = match listed.opened {
         Some((paths, storage)) => (paths, Some(storage)),
-        None => (ConfigPaths::discover().map_err(Failure::from)?, None),
+        None => (paths()?, None),
     };
     let badge = if matches!(
         request,
