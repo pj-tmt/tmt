@@ -1083,22 +1083,19 @@ pub(super) fn read_line_until(
 /// `Ok(None)` means no record exists (not opted in); an unreadable or invalid
 /// one is an error, never a reason to assume the session did not opt in.
 fn read_record(directory: &Path, binding_id: &str) -> Result<Option<Record>, ChannelFault> {
+    // One no-follow open, then checks on the opened file: a record removed or
+    // replaced between a separate check and the open is absent or the new
+    // record, never an invalid one (#5500).
     let path = record_path(directory, binding_id);
-    let metadata = match fs::symlink_metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+    let bytes = match crate::bounded_file::read_no_follow(&path, RECORD_LIMIT as usize) {
+        Ok(bytes) => bytes,
+        Err(crate::bounded_file::FileReadError::Io(error))
+            if error.kind() == io::ErrorKind::NotFound =>
+        {
+            return Ok(None);
+        }
         Err(_) => return Err(ChannelFault::InvalidRecord),
     };
-    if !metadata.file_type().is_file() {
-        return Err(ChannelFault::InvalidRecord);
-    }
-    let mut bytes = Vec::new();
-    fs::File::open(&path)
-        .and_then(|file| file.take(RECORD_LIMIT + 1).read_to_end(&mut bytes))
-        .map_err(|_| ChannelFault::InvalidRecord)?;
-    if bytes.len() as u64 > RECORD_LIMIT {
-        return Err(ChannelFault::InvalidRecord);
-    }
     serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|_| ChannelFault::InvalidRecord)

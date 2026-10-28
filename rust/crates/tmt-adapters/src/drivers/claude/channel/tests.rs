@@ -453,7 +453,16 @@ fn an_unreadable_record_denies_instead_of_treating_the_session_as_unenrolled() {
             ("denied", ChannelFault::InvalidRecord)
         );
     }
-    // A record path that is not a regular file is not evidence either.
+    // A record path that is not a regular file is not evidence either, and a
+    // symlink is not followed even to a well-formed record.
+    fs::remove_file(record_path(&scratch.0, BINDING)).unwrap();
+    let target = scratch.0.join("elsewhere.json");
+    fs::write(&target, serde_json::to_vec(&intent(&live_owner())).unwrap()).unwrap();
+    std::os::unix::fs::symlink(&target, record_path(&scratch.0, BINDING)).unwrap();
+    assert_eq!(
+        fault(deliver(&scratch, &entry, MESSAGE)),
+        ("denied", ChannelFault::InvalidRecord)
+    );
     fs::remove_file(record_path(&scratch.0, BINDING)).unwrap();
     fs::create_dir(record_path(&scratch.0, BINDING)).unwrap();
     assert_eq!(
