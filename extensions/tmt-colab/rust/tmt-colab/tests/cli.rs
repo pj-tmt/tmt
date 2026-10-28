@@ -110,8 +110,8 @@ case "$*" in
 printf '%s\n' {ordinary}
 exit 0
 ;;
-'remote devices --json')
-printf '%s\n' '{{"devices":[]}}'
+'remote members --json --limit 10')
+printf '%s\n' '{{"members":[],"nextCursor":null}}'
 exit 0
 ;;
 esac
@@ -148,7 +148,7 @@ exec {core} "$@"
         );
         assert!(
             calls.iter().all(|s| s == "remote status --machine --json"
-                || s == "remote devices --json"
+                || s == "remote members --json --limit 10"
                 || s.starts_with("remote launch ")),
             "unexpected call or fallback: {calls:?}"
         );
@@ -5679,7 +5679,7 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         pilot
             .creation_calls()
             .iter()
-            .filter(|s| *s == "remote devices --json")
+            .filter(|s| *s == "remote members --json --limit 10")
             .count(),
         2
     );
@@ -5709,7 +5709,7 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
         pilot
             .creation_calls()
             .iter()
-            .all(|s| s != "remote devices --json")
+            .all(|s| s != "remote members --json --limit 10")
     );
     assert!(
         started.elapsed() >= Duration::from_secs(2),
@@ -6525,9 +6525,9 @@ impl Pilot {
         fs::write(self.root.join("remote-serve"), serve).unwrap();
         core_fixture::link(&self.root, "core-remote", core_fixture::Program::Remote)
     }
-    /// What the scripted Remote answers to `devices --json`; absent means it gives no answer.
-    fn devices(&self, json: &str) {
-        fs::write(self.root.join("devices.json"), json).unwrap();
+    /// What the scripted Remote answers to `members machines`; absent means it gives no answer.
+    fn paired_machines(&self, json: &str) {
+        fs::write(self.root.join("machines.json"), json).unwrap();
     }
     fn serve_pid(&self) -> Option<Pid> {
         let text = fs::read_to_string(self.root.join("serve.pid")).ok()?;
@@ -6611,7 +6611,7 @@ fn assert_gone(pid: Pid) {
 #[test]
 fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
     let pilot = Pilot::new(None);
-    pilot.devices(r#"{"devices":[]}"#);
+    pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[],"nextCursor":null}"#);
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
     let text = squashed(&Serving::wait_for(&serving.out, "create "));
     // Whole values in the existing LOCAL SPACE layout: state first, then the next steps.
@@ -7174,9 +7174,29 @@ fn stopping_serve_stops_everything_a_wrapped_door_left_behind() {
     assert_gone(grandchild);
 }
 #[test]
+fn serve_reports_unpaired_when_all_machines_are_revoked() {
+    let pilot = Pilot::new(None);
+    pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[{"clientId":"old-browser","revoked":true}],"nextCursor":null}"#);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    let ready = serving.ready();
+    assert_eq!(ready["paired"], false);
+    assert_eq!(ready["devices"], 0);
+    assert!(
+        ready["next"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("tmt remote pair"))
+    );
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
 fn a_paired_space_with_a_page_prints_its_link_and_no_pairing_step() {
     let pilot = Pilot::new(None);
-    pilot.devices(r#"{"devices":[{"revoked":true},{"revoked":false,"name":"laptop"}]}"#);
+    pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[{"clientId":"revoked-browser","revoked":true},{"clientId":"laptop","revoked":false}],"nextCursor":null}"#);
     let created = pilot.call(&[
         "page", "create", "--title", "First", "--layout", "column", "--json",
     ]);
@@ -8097,7 +8117,7 @@ fn the_page_expiry_setting_is_days_off_or_default_and_keeps_other_settings() {
 fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_retention() {
     use std::time::{SystemTime, UNIX_EPOCH};
     let pilot = Pilot::new(None);
-    pilot.devices(r#"{"devices":[]}"#);
+    pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[],"nextCursor":null}"#);
     let created = pilot.call(&[
         "page",
         "create",
@@ -8209,7 +8229,7 @@ fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_
 fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
     use std::time::{SystemTime, UNIX_EPOCH};
     let pilot = Pilot::new(None);
-    pilot.devices(r#"{"devices":[]}"#);
+    pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[],"nextCursor":null}"#);
     let created = pilot.call(&[
         "page",
         "create",
@@ -8400,7 +8420,7 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
 #[test]
 fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none() {
     let pilot = Pilot::new(None);
-    pilot.devices(r#"{"devices":[]}"#);
+    pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[],"nextCursor":null}"#);
     let created = pilot.call(&[
         "page", "create", "--title", "Notes", "--layout", "column", "--json",
     ]);

@@ -4598,9 +4598,12 @@ with a bounded call each (three seconds, 16 KiB), never Remote's files:
   when Remote answered but would not start, Remote's own error message if available,
   otherwise `The Remote door did not start; ...`.
 
-Pairing is never done by `serve`: it reads `tmt remote devices --json` (devices not
-`revoked`) and only reports. Running `tmt remote serve` separately keeps working and is the
-attach path.
+Pairing is never done by `serve`: it reads `tmt remote members --json --limit 10`, then
+`tmt remote members machines <member-id> --json --limit 10` for each member. Each view
+follows its own `nextCursor` until null, within one three-second lookup deadline. Only
+machines whose `revoked` is false count; `grantLive` and sending scope do not determine
+pairing. A failed, malformed or incomplete lookup is unknown. It only reports. Running
+`tmt remote serve` separately keeps working and is the attach path.
 
 `serve --json` prints one line, then nothing until shutdown. Keys are stable and absent
 facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounted"`,
@@ -4619,17 +4622,18 @@ unavailable: see warning`), never a command that `serve` replaces.
 
 Bare `tmt remote pair` grants page access without sending. Sending an Ask or Chat to an
 agent requires a yes at the pairing prompt, `tmt remote pair --talk`, or the owner enabling
-sending for that device in Remote settings. Only a refusal the SDK verifies as `reason:"REMOTE_SCOPE_DENIED",
+sending for that member in Remote settings. Only a refusal the SDK verifies as `reason:"REMOTE_SCOPE_DENIED",
 scope:"talk"` becomes the retained own-stream reason `TALK_NOT_ENABLED` and the specific
-read-but-cannot-send notice, which also names `tmt remote devices talk <device> on` with the
-row's own device ID; an absent scope or a recipient restriction keeps the generic
-permission copy. No Ask identity, record shape or retry rule changes.
+read-but-cannot-send notice, which also names `tmt remote members sending <member-id> on`.
+The row retains its browser ID and directs the owner to `tmt remote members` and `tmt remote members machines <member-id>` to find
+its member; a device ID is never substituted for a member ID. An absent scope or a recipient
+restriction keeps the generic permission copy. No Ask identity, record shape or retry rule changes.
 
 ### Page links and opening the browser (#1614)
 
 Every command that names a page tells a person where to open it, from one door and pairing
-lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
-runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
+lookup per command (`tmt remote status --json`, then the paginated member/machine pairing observation while a door
+runs; the same bounded lookup as `serve`). `page create`, `ls`, `show` and the `share` commands
 print the **short owner link**, `<origin>/colab/p/<shortId>`, while a door runs: a route of the
 [one TMT web app](#colab-in-the-tmt-web-app-3937), which does not bypass pairing or grant
 admission. The older `<origin>/p/<shortId>` keeps working: the door redirects it there.

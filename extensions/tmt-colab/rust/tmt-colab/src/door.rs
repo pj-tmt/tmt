@@ -149,11 +149,6 @@ fn creation_observation_from_reply(reply: &str) -> CreationObservation {
     })();
     parsed.unwrap_or_else(unknown)
 }
-/// The answer of a call that succeeded; anything else is no answer.
-fn remote_json(words: &[&str]) -> Option<String> {
-    remote_call(words).and_then(|(ok, text)| ok.then_some(text))
-}
-
 /// A Remote error envelope, `{"error":{"code","message"}}`, shown as Remote wrote it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RemoteFailure {
@@ -200,7 +195,7 @@ pub enum Lookup {
     /// No answer: missing command, failure, timeout or an unrecognized document.
     Unknown,
 }
-/// Whether any device is paired with the door, from `tmt remote devices --json`.
+/// Whether any machine is paired with the door, from Remote's public member roster.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Pairing {
     /// This many devices are paired and not revoked.
@@ -218,18 +213,73 @@ impl Pairing {
             Self::Unknown => Some("if this browser is new, pair for page access: tmt remote pair"),
         }
     }
-    /// `{"devices":[{"revoked":false,...},...]}`: revoked devices no longer count.
+    /// Read both paginated views within one deadline; a partial roster is not an answer.
     pub fn lookup() -> Self {
-        remote_json(&["devices", "--json"]).map_or(Self::Unknown, |text| Self::interpret(&text))
+        let deadline = Instant::now() + TIMEOUT;
+        Self::lookup_with(|words| {
+            remote_call_until(words, deadline).and_then(|(ok, text)| ok.then_some(text))
+        })
     }
-    pub fn interpret(json: &str) -> Self {
-        let value: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
-        let Some(devices) = value["devices"].as_array() else {
-            return Self::Unknown;
-        };
-        match devices.iter().filter(|d| d["revoked"] != true).count() {
-            0 => Self::Unpaired,
-            n => Self::Paired(n),
+    fn lookup_with(mut call: impl FnMut(&[&str]) -> Option<String>) -> Self {
+        let count = (|| {
+            let members = pairing_rows(&["members"], "members", &mut call)?;
+            let mut member_ids = std::collections::HashSet::new();
+            let mut machine_ids = std::collections::HashSet::new();
+            let mut count = 0;
+            for member in members {
+                let id = member["memberId"].as_str().filter(|id| !id.is_empty())?;
+                if !member_ids.insert(id.to_owned()) {
+                    return None;
+                }
+                let machines =
+                    pairing_rows(&["members", "machines", id], "machines", &mut |words| {
+                        let text = call(words)?;
+                        let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+                        (value["memberId"] == id).then_some(text)
+                    })?;
+                for machine in machines {
+                    let id = machine["clientId"].as_str().filter(|id| !id.is_empty())?;
+                    if !machine_ids.insert(id.to_owned()) {
+                        return None;
+                    }
+                    if !machine["revoked"].as_bool()? {
+                        count += 1;
+                    }
+                }
+            }
+            Some(count)
+        })();
+        match count {
+            Some(0) => Self::Unpaired,
+            Some(n) => Self::Paired(n),
+            None => Self::Unknown,
+        }
+    }
+}
+/// Small pages keep each full Remote projection below the shared invocation output cap.
+/// Repeated cursors and malformed/failed pages invalidate the complete observation.
+fn pairing_rows(
+    words: &[&str],
+    key: &str,
+    call: &mut impl FnMut(&[&str]) -> Option<String>,
+) -> Option<Vec<serde_json::Value>> {
+    let mut rows = Vec::new();
+    let mut cursor = None::<String>;
+    let mut seen = std::collections::HashSet::new();
+    loop {
+        let mut args = words.to_vec();
+        args.extend(["--json", "--limit", "10"]);
+        if let Some(cursor) = &cursor {
+            args.extend(["--cursor", cursor]);
+        }
+        let value: serde_json::Value = serde_json::from_str(&call(&args)?).ok()?;
+        rows.extend(value[key].as_array()?.iter().cloned());
+        match value.get("nextCursor")? {
+            serde_json::Value::Null => return Some(rows),
+            serde_json::Value::String(next) if !next.is_empty() && seen.insert(next.clone()) => {
+                cursor = Some(next.clone());
+            }
+            _ => return None,
         }
     }
 }
@@ -452,20 +502,90 @@ mod tests {
         }
     }
     #[test]
-    fn counts_only_devices_that_are_not_revoked() {
+    fn pairing_counts_machines_across_both_page_sequences() {
         use super::Pairing;
+        let mut calls = Vec::new();
+        let result = Pairing::lookup_with(|words| {
+            let args = words.join(" ");
+            calls.push(args.clone());
+            Some(match args.as_str() {
+                "members --json --limit 10" => r#"{"members":[{"memberId":"person-a"}],"nextCursor":"people-next"}"#,
+                "members --json --limit 10 --cursor people-next" => r#"{"members":[{"memberId":"person-b"}],"nextCursor":null}"#,
+                "members machines person-a --json --limit 10" => r#"{"memberId":"person-a","machines":[{"clientId":"machine-1","revoked":false,"grantLive":false}],"nextCursor":"machines-next"}"#,
+                "members machines person-a --json --limit 10 --cursor machines-next" => r#"{"memberId":"person-a","machines":[{"clientId":"machine-2","revoked":true}],"nextCursor":null}"#,
+                "members machines person-b --json --limit 10" => r#"{"memberId":"person-b","machines":[{"clientId":"machine-3","revoked":false}],"nextCursor":null}"#,
+                _ => panic!("unexpected pairing call: {args}"),
+            }.to_owned())
+        });
+        assert_eq!(result, Pairing::Paired(2));
+        assert_eq!(calls.len(), 5);
+    }
+    #[test]
+    fn pairing_requires_complete_valid_observations() {
+        use super::Pairing;
+        for (machines, expected) in [
+            (
+                r#"{"memberId":"person","machines":[],"nextCursor":null}"#,
+                Pairing::Unpaired,
+            ),
+            (
+                r#"{"memberId":"person","machines":[{"clientId":"machine","revoked":true}],"nextCursor":null}"#,
+                Pairing::Unpaired,
+            ),
+            (
+                r#"{"memberId":"person","machines":[{"clientId":"machine"}],"nextCursor":null}"#,
+                Pairing::Unknown,
+            ),
+            (
+                r#"{"memberId":"other","machines":[],"nextCursor":null}"#,
+                Pairing::Unknown,
+            ),
+            (
+                r#"{"memberId":"person","machines":[],"nextCursor":"repeat"}"#,
+                Pairing::Unknown,
+            ),
+            (r#"{"memberId":"person","machines":[]}"#, Pairing::Unknown),
+            (r#"{"error":{"code":"REMOTE_X"}}"#, Pairing::Unknown),
+            ("", Pairing::Unknown),
+        ] {
+            assert_eq!(
+                Pairing::lookup_with(|words| Some(if words[1] == "machines" {
+                    machines.to_owned()
+                } else {
+                    r#"{"members":[{"memberId":"person"}],"nextCursor":null}"#.to_owned()
+                })),
+                expected,
+                "{machines}"
+            );
+        }
         assert_eq!(
-            Pairing::interpret(r#"{"devices":[{"revoked":false},{"revoked":true},{"name":"x"}]}"#),
-            Pairing::Paired(2)
-        );
-        assert_eq!(
-            Pairing::interpret(r#"{"devices":[{"revoked":true}]}"#),
+            Pairing::lookup_with(|_| Some(r#"{"members":[],"nextCursor":null}"#.into())),
             Pairing::Unpaired
         );
-        assert_eq!(Pairing::interpret(r#"{"devices":[]}"#), Pairing::Unpaired);
-        for unusable in ["", "{}", r#"{"devices":null}"#, r#"{"error":{}}"#] {
-            assert_eq!(Pairing::interpret(unusable), Pairing::Unknown, "{unusable}");
+        for roster in [
+            "",
+            "{}",
+            r#"{"members":[],"nextCursor":"repeat"}"#,
+            r#"{"members":[{}],"nextCursor":null}"#,
+        ] {
+            assert_eq!(
+                Pairing::lookup_with(|_| Some(roster.into())),
+                Pairing::Unknown
+            );
         }
+        // Even a known live machine cannot turn a failed continuation into a paired result.
+        let mut calls = 0;
+        assert_eq!(
+            Pairing::lookup_with(|_| {
+                calls += 1;
+                match calls {
+                    1 => Some(r#"{"members":[{"memberId":"person"}],"nextCursor":null}"#.into()),
+                    2 => Some(r#"{"memberId":"person","machines":[{"clientId":"machine","revoked":false}],"nextCursor":"more"}"#.into()),
+                    _ => None,
+                }
+            }),
+            Pairing::Unknown
+        );
     }
     #[test]
     fn a_remote_error_envelope_is_a_failure_with_one_wording_for_an_outdated_serve() {
