@@ -70,7 +70,8 @@ test('references resolve against the page’s current document attachments', asy
       ['attachment-ref-unresolved', 4],
     ]);
 
-    // A write reads the same attachment list and reports the same two as warnings.
+    // A write reads the same attachment list and reports the same two as warnings. Replacing the
+    // whole page also carries the separate large-patch advice, which has no line.
     const before = colab(['page', 'read', created.pageId]);
     const written = colab(
       patchArgs(world, created.pageId, ['--file', html, '--expected-revision', before.revision]),
@@ -78,6 +79,7 @@ test('references resolve against the page’s current document attachments', asy
     expect(written.warnings.map((f: { code: string; line: number }) => [f.code, f.line])).toEqual([
       ['attachment-ref-unresolved', 3],
       ['attachment-ref-unresolved', 4],
+      ['large-patch', undefined],
     ]);
 
     // --strict refuses before anything is written; the page keeps its revision.

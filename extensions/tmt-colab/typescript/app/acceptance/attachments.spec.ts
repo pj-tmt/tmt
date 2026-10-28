@@ -462,6 +462,10 @@ test('files added to the page reach another device and a read-only link byte-ide
         /^data:image\/png;base64,/,
       );
       await expect(page.locator('video, audio, object, embed')).toHaveCount(0);
+      // The viewer is a modal dialog over the rows; close it before their controls are used.
+      const viewer = page.getByRole('dialog', { name: picture.name, exact: true });
+      await viewer.getByRole('button', { name: text.filesClose, exact: true }).click();
+      await expect(viewer).toBeHidden();
       for (const file of all) {
         const download = page.waitForEvent('download');
         await row(file.name).getByRole('button', { name: text.attachmentDownload }).click();
@@ -1017,7 +1021,7 @@ for (const surface of ['chat', 'thread'] as const)
           : page.getByTestId('comment-thread').first();
       const input = await annotationInput(panel);
       await input.fill('A posted image at the message edge.');
-      const attachName = text.messageAttach;
+      const attachName = text.attachFiles;
       const posted = page.waitForEvent('filechooser');
       await panel.getByRole('button', { name: attachName, exact: true }).click();
       await (
@@ -1064,7 +1068,10 @@ for (const surface of ['chat', 'thread'] as const)
             panel.querySelector('.conversation-turn .comment-body')!,
           ].map((node) => Math.abs(node.getBoundingClientRect().left - text));
         });
-        expect(edges.every((edge) => edge <= 1)).toBe(true);
+        // The pending item shares the input text's edge. A Chat bubble's text sits 32px in past the
+        // avatar; a thread's field is a box on the message column, so its text sits 13px in.
+        expect(edges[0]).toBeLessThanOrEqual(1);
+        expect(Math.abs(edges[1] - (surface === 'chat' ? 32 : 13))).toBeLessThanOrEqual(1);
         await page.mouse.move(0, 0);
         await capture('pending', width, theme);
       }

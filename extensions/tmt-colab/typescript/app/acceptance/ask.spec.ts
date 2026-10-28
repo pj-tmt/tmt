@@ -400,7 +400,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             const noticeBox = await notice.boundingBox();
             expect(fieldBox).not.toBeNull();
             expect(noticeBox).not.toBeNull();
-            expect(Math.abs(noticeBox!.x - fieldBox!.x)).toBeLessThanOrEqual(1);
+            // The notice sits inside the composer's box, under the text and aligned with it: 12px in.
+            expect(Math.abs(noticeBox!.x - (fieldBox!.x + 12))).toBeLessThanOrEqual(1);
             expect(noticeBox!.y - (fieldBox!.y + fieldBox!.height)).toBeGreaterThanOrEqual(0);
             expect(noticeBox!.y - (fieldBox!.y + fieldBox!.height)).toBeLessThanOrEqual(12);
             await s.askerPage.screenshot({
@@ -423,7 +424,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           });
           await expect(action).toBeEnabled();
           await expect(container.locator('.annotation-hint[role="status"]')).toHaveText(
-            surface === 'Chat' ? '' : `Asks ${s.recipient.name}.`,
+            `Asks ${s.recipient.name} · Enter to send`,
           );
           await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
           await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));

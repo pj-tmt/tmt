@@ -5,7 +5,11 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { openPanel } from '../test/comments-region.js';
 
 /** A real touch: CDP dispatches touch events, which the browser turns into touch pointer events. */
-async function tap(page: Page, target: ReturnType<Page['locator']>) {
+async function tap(
+  page: Page,
+  target: ReturnType<Page['locator']>,
+  position?: { x: number; y: number },
+) {
   // Wait for the control to stop moving: its position follows the selection asynchronously.
   let box = (await target.boundingBox())!;
   for (let settled = 0; settled < 3;) {
@@ -14,7 +18,9 @@ async function tap(page: Page, target: ReturnType<Page['locator']>) {
     settled = next.x === box.x && next.y === box.y ? settled + 1 : 0;
     box = next;
   }
-  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1 };
+  const point = position
+    ? { x: box.x + position.x, y: box.y + position.y, id: 1 }
+    : { x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1 };
   const client = await page.context().newCDPSession(page);
   await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
@@ -72,9 +78,11 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
 
         // A press outside the popover.
         await open(touch);
-        const bar = page.locator('.tmt-ui-topbar:visible');
-        if (touch) await tap(page, bar);
-        else await bar.click({ position: { x: 4, y: 4 } });
+        // The header's corner is empty; its centre holds the page's own controls.
+        const bar = page.locator('.tmt-ui-header:visible');
+        const corner = { x: 4, y: 4 };
+        if (touch) await tap(page, bar, corner);
+        else await bar.click({ position: corner });
         await expect(popover).toHaveCount(0);
 
         // A cleared selection closes an untouched composer, including its automatic creator seed.
@@ -100,7 +108,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await expect(input).toHaveText(`@${agent.name} Keep this draft.`, { useInnerText: true });
     await expect(popover.getByText('Draft kept', { exact: true })).toBeVisible();
     await page.screenshot({ path: '/tmp/1713-native-1440-light-draft-kept.png' });
-    await page.locator('.tmt-ui-topbar:visible').click({ position: { x: 4, y: 4 } });
+    await page.locator('.tmt-ui-header:visible').click({ position: { x: 4, y: 4 } });
     await expect(popover).toHaveCount(0);
     // A different selection gets its settled creator seed, never the earlier typed body.
     await selectInRenderer(page, '#other');
@@ -138,7 +146,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await close.click();
     await close.focus();
     await page.keyboard.press('Escape');
-    await page.locator('.tmt-ui-topbar:visible').click({ position: { x: 4, y: 4 } });
+    await page.locator('.tmt-ui-header:visible').click({ position: { x: 4, y: 4 } });
     await clearSelection(page);
     await page.waitForTimeout(300);
     await expect(popover).toBeVisible();
@@ -149,13 +157,13 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     const reply = agent.rows().find((row) => row.event === 'replied')!.body as string;
     await expect(popover.getByTestId('ask-reply')).toHaveText(reply);
     await expect(openPanel(page)).toHaveCount(0);
-    // Sending clears the old body; the enabled toggle seeds the next fresh message.
+    // Sending clears the old body; the next fresh message is seeded with the same recipient.
     await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
     await expect(input.locator('.agent-chip-name')).toHaveText(`@${agent.name}`);
-    await expect(
-      popover.getByRole('button', { name: `Send to @${agent.name}`, exact: true }),
-    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(popover.getByRole('button', { name: /^Who is asked/ })).toHaveText(
+      `Ask ${agent.name}`,
+    );
     await expect(input).not.toContainText('Hold this send.');
     expect(agent.received()).toHaveLength(1);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
