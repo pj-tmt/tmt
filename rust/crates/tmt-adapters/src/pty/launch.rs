@@ -23,12 +23,22 @@ pub struct StartedMember {
 #[derive(Debug)]
 pub enum LaunchError {
     NotStarted(io::Error),
-    Unconfirmed { pane: String, cause: io::Error },
+    Exited {
+        status: tmt_pty_protocol::Exit,
+        output: String,
+    },
+    Unconfirmed {
+        pane: String,
+        cause: io::Error,
+    },
 }
 impl std::fmt::Display for LaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotStarted(error) => write!(f, "no member was launched: {error}"),
+            Self::Exited { status, output } => {
+                write!(f, "command exited during startup ({status:?}): {output}")
+            }
             Self::Unconfirmed { pane, cause } => {
                 write!(f, "launch in {pane} is not confirmed: {cause}")
             }
@@ -37,10 +47,11 @@ impl std::fmt::Display for LaunchError {
 }
 impl std::error::Error for LaunchError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(match self {
-            Self::NotStarted(error) => error,
-            Self::Unconfirmed { cause, .. } => cause,
-        })
+        match self {
+            Self::NotStarted(error) => Some(error),
+            Self::Unconfirmed { cause, .. } => Some(cause),
+            Self::Exited { .. } => None,
+        }
     }
 }
 impl From<io::Error> for LaunchError {
@@ -108,6 +119,15 @@ pub fn start_member(
             )))
         })?;
     drop(client);
+    let marker = match marker {
+        super::LaunchOutcome::Launched(marker) => marker,
+        super::LaunchOutcome::Exited { status, output } => {
+            // The member has ended, so this is a confirmed outcome, never an
+            // uncertain launch that could still be running.
+            let _ = fs::remove_file(&log_path);
+            return Err(LaunchError::Exited { status, output });
+        }
+    };
     let marker: tmt_driver_protocol::Marker =
         serde_json::from_str(&marker).map_err(|error| uncertain(io::Error::other(error)))?;
     let cleanup_warning = fs::remove_file(&log_path).err().map(|error| {

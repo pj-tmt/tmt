@@ -11,6 +11,7 @@ pub mod channel_context;
 pub mod channel_hooks;
 pub mod delivery;
 mod digest;
+mod launch_permissions;
 pub mod lease;
 pub mod pane;
 pub mod queue;
@@ -443,112 +444,117 @@ pub fn record_client_exit(
 
 pub struct CodexLifecycle;
 
+fn prepare_managed_launch(
+    command: &mut crate::runtime::RuntimeCommand,
+    state_directory: &std::path::Path,
+    exact_resume: bool,
+    keep_state_root: bool,
+) {
+    // Only provider options select a connection mode. A flag-looking prompt,
+    // option value or text after `--` never does.
+    let mut words = command.args.iter();
+    let mut embedded = exact_resume && command.args.last().is_some_and(|arg| arg == "--no-daemon");
+    let mut writable = false;
+    while let Some(word) = words.next().and_then(|word| word.to_str()) {
+        if word == "--" {
+            break;
+        }
+        let (flag, inline) = launch_permissions::split_option(word);
+        if flag == "--remote" {
+            return;
+        }
+        if flag == "--no-daemon" {
+            embedded = true;
+            continue;
+        }
+        if flag == "--add-dir" {
+            let value = inline
+                .map(std::ffi::OsStr::new)
+                .or_else(|| words.next().map(|v| v.as_os_str()));
+            writable |= value == Some(state_directory.as_os_str());
+            continue;
+        }
+        if launch_permissions::takes_value(flag) {
+            if inline.is_none() {
+                words.next();
+            }
+        } else if !word.starts_with('-') {
+            if matches!(word, "resume" | "fork") {
+                continue;
+            }
+            if matches!(
+                word,
+                "app-server"
+                    | "agents"
+                    | "exec"
+                    | "e"
+                    | "review"
+                    | "login"
+                    | "logout"
+                    | "mcp"
+                    | "plugin"
+                    | "remote-control"
+                    | "app"
+                    | "completion"
+                    | "update"
+                    | "doctor"
+                    | "sandbox"
+                    | "debug"
+                    | "apply"
+                    | "a"
+                    | "queue"
+                    | "archive"
+                    | "delete"
+                    | "migrate-rollouts"
+                    | "unarchive"
+                    | "cloud"
+                    | "exec-server"
+                    | "features"
+                    | "help"
+            ) {
+                return;
+            }
+            break;
+        }
+    }
+    let mut options = Vec::new();
+    if !embedded {
+        options.push("--no-daemon".into());
+    }
+    if !writable && keep_state_root {
+        options.extend(["--add-dir".into(), state_directory.as_os_str().to_owned()]);
+    }
+    // Exact resumes retain their provider-owned subcommand grammar.
+    let index = usize::from(command.args.first().is_some_and(|arg| arg == "resume"));
+    command.args.splice(index..index, options);
+}
+
 impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
     fn prepare_launch(
         &self,
         command: &mut crate::runtime::RuntimeCommand,
         state_directory: &std::path::Path,
         exact_resume: bool,
+        launch_environment: &[(std::ffi::OsString, std::ffi::OsString)],
     ) {
-        // Only provider options select a connection mode. A flag-looking prompt,
-        // option value or text after `--` never does.
-        let mut words = command.args.iter();
-        let mut embedded =
-            exact_resume && command.args.last().is_some_and(|arg| arg == "--no-daemon");
-        let mut writable = false;
-        while let Some(word) = words.next().and_then(|word| word.to_str()) {
-            if word == "--" {
-                break;
-            }
-            let (flag, inline) = word
-                .split_once('=')
-                .map_or((word, None), |(k, v)| (k, Some(v)));
-            if flag == "--remote" {
-                return;
-            }
-            if flag == "--no-daemon" {
-                embedded = true;
-                continue;
-            }
-            if flag == "--add-dir" {
-                let value = inline
-                    .map(std::ffi::OsStr::new)
-                    .or_else(|| words.next().map(|v| v.as_os_str()));
-                writable |= value == Some(state_directory.as_os_str());
-                continue;
-            }
-            if matches!(
-                flag,
-                "-c" | "--config"
-                    | "--enable"
-                    | "--disable"
-                    | "-m"
-                    | "--model"
-                    | "-s"
-                    | "--sandbox"
-                    | "-a"
-                    | "--ask-for-approval"
-                    | "-C"
-                    | "--cd"
-                    | "-p"
-                    | "--profile"
-                    | "--local-provider"
-                    | "--remote-auth-token-env"
-                    | "-i"
-                    | "--image"
-            ) {
-                if inline.is_none() {
-                    words.next();
-                }
-            } else if !word.starts_with('-') {
-                if matches!(word, "resume" | "fork") {
-                    continue;
-                }
-                if matches!(
-                    word,
-                    "app-server"
-                        | "agents"
-                        | "exec"
-                        | "e"
-                        | "review"
-                        | "login"
-                        | "logout"
-                        | "mcp"
-                        | "plugin"
-                        | "remote-control"
-                        | "app"
-                        | "completion"
-                        | "update"
-                        | "doctor"
-                        | "sandbox"
-                        | "debug"
-                        | "apply"
-                        | "a"
-                        | "queue"
-                        | "archive"
-                        | "delete"
-                        | "migrate-rollouts"
-                        | "unarchive"
-                        | "cloud"
-                        | "exec-server"
-                        | "features"
-                        | "help"
-                ) {
-                    return;
-                }
-                break;
-            }
-        }
-        let mut options = Vec::new();
-        if !embedded {
-            options.push("--no-daemon".into());
-        }
-        if !writable {
-            options.extend(["--add-dir".into(), state_directory.as_os_str().to_owned()]);
-        }
-        // Exact resumes retain their provider-owned subcommand grammar.
-        let index = usize::from(command.args.first().is_some_and(|arg| arg == "resume"));
-        command.args.splice(index..index, options);
+        // A replayed wrapper can select an account or policy internally; its
+        // inherited configuration is not evidence of the provider's default.
+        let directly_named = command
+            .executable
+            .to_str()
+            .and_then(tmt_core::driver::descriptor::for_executable)
+            .is_some_and(|driver| driver.name == NAME);
+        let keep_state_root = !directly_named
+            || crate::skill_installation::ProviderEnvironment::capture()
+                .map(|environment| {
+                    launch_permissions::keep_state_root(
+                        &command.args,
+                        &environment,
+                        launch_environment,
+                    )
+                })
+                .unwrap_or(true);
+        prepare_managed_launch(command, state_directory, exact_resume, keep_state_root);
     }
 
     fn caller_refusal(
@@ -1095,7 +1101,7 @@ mod tests {
 
     #[test]
     fn managed_launch_prefix_is_accepted_by_the_script_fixture() {
-        use crate::runtime::{RuntimeCommand, lifecycle::RuntimeLifecycle};
+        use crate::runtime::RuntimeCommand;
         let original: Vec<std::ffi::OsString> = ["/script", "literal argument", "--listen"]
             .map(Into::into)
             .to_vec();
@@ -1103,14 +1109,19 @@ mod tests {
             executable: NAME.into(),
             args: original.clone(),
         };
-        CodexLifecycle.prepare_launch(&mut command, std::path::Path::new("/private-state"), false);
+        prepare_managed_launch(
+            &mut command,
+            std::path::Path::new("/private-state"),
+            false,
+            true,
+        );
         provider_launch::scripted_launch_options(&mut command.args);
         assert_eq!(command.args, original);
     }
 
     #[test]
     fn managed_foreground_launch_and_fallback_are_embedded_with_only_the_state_root_added() {
-        use crate::runtime::{RuntimeCommand, lifecycle::RuntimeLifecycle};
+        use crate::runtime::RuntimeCommand;
         for (args, expected) in [
             (vec![], vec!["--no-daemon", "--add-dir", "/state"]),
             (
@@ -1156,7 +1167,7 @@ mod tests {
                 executable: NAME.into(),
                 args: args.into_iter().map(Into::into).collect(),
             };
-            CodexLifecycle.prepare_launch(&mut command, std::path::Path::new("/state"), false);
+            prepare_managed_launch(&mut command, std::path::Path::new("/state"), false, true);
             assert_eq!(
                 command.args,
                 expected
@@ -1164,7 +1175,7 @@ mod tests {
                     .map(std::ffi::OsString::from)
                     .collect::<Vec<_>>()
             );
-            CodexLifecycle.prepare_launch(&mut command, std::path::Path::new("/state"), false);
+            prepare_managed_launch(&mut command, std::path::Path::new("/state"), false, true);
             assert_eq!(
                 command.args,
                 expected
@@ -1189,7 +1200,7 @@ mod tests {
 
     #[test]
     fn exact_resume_adds_the_state_root_without_losing_its_session_or_embedded_mode() {
-        use crate::runtime::{RuntimeCommand, lifecycle::RuntimeLifecycle};
+        use crate::runtime::RuntimeCommand;
         let mut command = RuntimeCommand {
             executable: NAME.into(),
             args: [
@@ -1202,7 +1213,7 @@ mod tests {
             .collect(),
         };
         for _ in 0..2 {
-            CodexLifecycle.prepare_launch(&mut command, std::path::Path::new("/state"), true);
+            prepare_managed_launch(&mut command, std::path::Path::new("/state"), true, true);
             assert_eq!(
                 command.args,
                 [

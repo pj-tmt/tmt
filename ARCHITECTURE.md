@@ -302,7 +302,7 @@ host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` a
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
 fullwidth `！` in typed text and the ESC of a bracketed-paste marker to `␛`. The built-in host uses this seam in process.
 `tmt-adapters::pty` owns per-member supervisors, crash residue cleanup under nonblocking
-flocks, current screens and live attach; CLI restores terminal modes.
+flocks, current screens, bounded startup output and live attach; CLI restores terminal modes.
 [Terminal stream v1](contracts/terminal-stream-v1.md) and the
 [host reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#built-in-host) own snapshots and lifecycle.
 
