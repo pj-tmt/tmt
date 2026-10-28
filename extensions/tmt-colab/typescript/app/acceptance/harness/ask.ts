@@ -40,11 +40,22 @@ export function run(
   }
 }
 
-/** Fresh whole-fixture range for scenarios testing native publication rather than anchoring. */
-export function patchArgs(world: AcceptanceWorld, page: string, flags: string[]): string[] {
-  const { source } = JSON.parse(
-    run(world, world.binaries.colab, ['page', 'read', page, '--json']),
-  ) as { source: string };
+/** Fresh whole-fixture range for scenarios testing native publication rather than anchoring.
+ * A scenario that already holds the page's exact current source passes it as `held` and
+ * skips the read; the patch's range fence still refuses any other source. */
+export function patchArgs(
+  world: AcceptanceWorld,
+  page: string,
+  flags: string[],
+  held?: string,
+): string[] {
+  const source =
+    held ??
+    (
+      JSON.parse(run(world, world.binaries.colab, ['page', 'read', page, '--json'])) as {
+        source: string;
+      }
+    ).source;
   const lines = Math.max(1, source.split('\n').length - Number(source.endsWith('\n')));
   return [
     'page',

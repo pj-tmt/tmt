@@ -64,13 +64,20 @@ test('a 2 MiB page keeps taking changes and reads back exact', async () => {
     const colab = world.binaries.colab;
     let source = text(2 * MIB - 16 * 1024);
     const created = createPage(world, 'Big and busy', source);
+    const readSource = () =>
+      (
+        JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+          source: string;
+        }
+      ).source;
+    expect(readSource() === source).toBe(true);
+    // Each patch is anchored on the source this case holds: every patch's range fence proves the
+    // page still has it, so only the first and last reads go through the CLI.
     for (let i = 0; i < 300; i++) {
+      const held = source;
       source = source.slice(0, -4) + `<i>${i}</i>` + source.slice(-4);
-      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), source);
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json'], held), source);
     }
-    const read = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
-      source: string;
-    };
-    expect(read.source === source).toBe(true);
+    expect(readSource() === source).toBe(true);
   });
 });
