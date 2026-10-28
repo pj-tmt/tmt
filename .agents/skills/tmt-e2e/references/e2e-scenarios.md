@@ -59,6 +59,9 @@ Hosted Docker E2E, Packed install musl and dependency-archive seed jobs use a be
   Synchronous fixture tmux calls fail after five seconds and kill the client;
   scenario timeouts stay required. Install a fixture's tmux trace once and reuse
   `clear()`.
+  A scenario with several slow stages divides its own timeout with `StageBudget`
+  (`typescript/test/e2e/stage-budget.ts`): each wait gets the time left minus a
+  cleanup reserve, and a stalled stage fails by name before the framework's timeout.
   Private-server pane borders are visible by default; the badge hint case opts out.
 - Shared cross-suite utilities go in `typescript/test/support/`; helper tests go in
   `typescript/test/tooling/` and must prove rejection as well as positive behavior.

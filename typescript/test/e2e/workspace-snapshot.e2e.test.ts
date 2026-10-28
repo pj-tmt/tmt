@@ -8,6 +8,8 @@ import { withE2EFixture, type E2EFixture } from './harness.js';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { waitForFileContent } from './wait-for-file.js';
 import { installTmuxTrace } from './tmux-trace.js';
+import { StageBudget } from './stage-budget.js';
+import { captureMeterScript } from './capture-meter.js';
 
 type Snapshot = {
   version: number;
@@ -48,6 +50,13 @@ type Snapshot = {
   }>;
 };
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
+// The capture-cost probe owns its deadline: every wait inside it is carved out of the test's own
+// timeout, so a stalled stage fails by name before the framework's "Test timed out" can hide it.
+const CAPTURE_PROBE_TIMEOUT_MS = 15_000;
+const CAPTURE_PROBE_CLEANUP_RESERVE_MS = 3_000;
+const CAPTURE_SAMPLE_STAGE_CAP_MS = 7_000;
+const CAPTURE_PUBLICATION_STAGE_CAP_MS = 4_000;
 const snapshotPath = (fixture: E2EFixture) =>
   path.join(
     fixture.globalDir,
@@ -110,6 +119,155 @@ function guardWorkspaceServer(fixture: E2EFixture) {
     return invoke(['-S', socket, ...args]);
   };
   return { createdServer };
+}
+
+interface CaptureMeasurement {
+  samples: Array<{ cpuMs: number; wallMs: number; reasons: Record<string, number> }>;
+  unreadAttempts: number;
+  unreadReasons: Array<Record<string, number>>;
+}
+
+/** The meter pane's script, its result files and its stage evidence for one capture probe. */
+interface CaptureProbe {
+  meter: string;
+  script: string;
+  result: string;
+  status: string;
+  psLog: string;
+  trace: ReturnType<typeof installTmuxTrace>;
+  /** Waits for a meter file inside the stage allowance; a timeout carries the meter's evidence. */
+  wait(file: string, allowanceMs: number, description: string): Promise<string>;
+}
+
+function prepareCaptureProbe(
+  fixture: E2EFixture,
+  directory: string,
+  meter: string,
+  samples: number
+): CaptureProbe {
+  const trace = installTmuxTrace(fixture);
+  const script = path.join(fixture.root, 'capture-cost.py');
+  const result = path.join(fixture.root, 'capture-cost.json');
+  const psLog = path.join(fixture.root, 'capture-ps.log');
+  const ps = path.join(fixture.wrapperDir, 'ps');
+  expect(fs.existsSync(ps)).toBe(false);
+  writeExecutable(ps, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${quote(psLog)}\nexec /usr/bin/ps "$@"\n`);
+  fs.writeFileSync(
+    script,
+    captureMeterScript({
+      directory,
+      result,
+      trace: trace.path,
+      globalDir: fixture.globalDir,
+      command: [fixture.executables.cli.executable, ...fixture.executables.cli.args, 'api'],
+      samples,
+    })
+  );
+  trace.clear();
+  const evidence = () => {
+    const read = (file: string) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : 'none');
+    let pane = 'unavailable';
+    try {
+      pane = fixture
+        .tmux(['capture-pane', '-p', '-t', meter])
+        .trimEnd()
+        .split('\n')
+        .slice(-6)
+        .join(' | ');
+    } catch {
+      // The pane may already be gone; the files above still say where the meter was.
+    }
+    return `Meter progress: ${read(`${result}.progress`)}; failure: ${read(`${result}.failure`)}; pane tail: ${pane}`;
+  };
+  return {
+    meter,
+    script,
+    result,
+    status: path.join(fixture.root, 'capture-cost.status'),
+    psLog,
+    trace,
+    async wait(file, allowanceMs, description) {
+      try {
+        return await waitForFileContent(file, { timeoutMs: allowanceMs, description });
+      } catch (error) {
+        throw new Error(`${(error as Error).message} ${evidence()}`, { cause: error });
+      }
+    },
+  };
+}
+
+// The meter ends its own run a little before the stage allowance does, so it reports its own
+// failure instead of leaving the test to time out on a file that never appears.
+const meterBudgetSeconds = (allowanceMs: number) =>
+  String(Math.max(allowanceMs - 500, allowanceMs / 2) / 1000);
+
+function sendToMeter(fixture: E2EFixture, probe: CaptureProbe, command: string[], tail = '') {
+  fixture.tmux(['send-keys', '-t', probe.meter, '-l', `${command.map(quote).join(' ')}${tail}`]);
+  fixture.tmux(['send-keys', '-t', probe.meter, 'Enter']);
+}
+
+async function acquireSamples(
+  fixture: E2EFixture,
+  probe: CaptureProbe,
+  allowanceMs: number
+): Promise<CaptureMeasurement> {
+  sendToMeter(
+    fixture,
+    probe,
+    [
+      'env',
+      `TMT_HOME=${fixture.globalDir}`,
+      'python3',
+      probe.script,
+      'samples',
+      meterBudgetSeconds(allowanceMs),
+    ],
+    `; printf '%s' "$?" > ${quote(probe.status)}`
+  );
+  const status = await probe.wait(probe.status, allowanceMs, 'isolated capture CPU samples');
+  if (status !== '0') {
+    const failure = fs.existsSync(`${probe.result}.failure`)
+      ? fs.readFileSync(`${probe.result}.failure`, 'utf8')
+      : 'no failure recorded';
+    throw new Error(`The capture meter exited ${status}: ${failure}`);
+  }
+  return JSON.parse(fs.readFileSync(probe.result, 'utf8')) as CaptureMeasurement;
+}
+
+function resetCaptureInterval(directory: string) {
+  const stamp = path.join(directory, 'capture-attempt.json');
+  const attempt = JSON.parse(fs.readFileSync(stamp, 'utf8'));
+  fs.writeFileSync(stamp, JSON.stringify({ ...attempt, attemptedAtMs: 0 }));
+}
+
+async function publishChangedLayout(
+  fixture: E2EFixture,
+  probe: CaptureProbe,
+  allowanceMs: number,
+  runner = ['python3', probe.script, 'changed', meterBudgetSeconds(allowanceMs)]
+) {
+  fixture.tmux(['rename-window', '-t', probe.meter, 'capture-publish-control']);
+  sendToMeter(fixture, probe, ['env', `TMT_HOME=${fixture.globalDir}`, ...runner]);
+  const outcome = JSON.parse(
+    await probe.wait(
+      `${probe.result}.positive`,
+      allowanceMs,
+      'changed capture publishes through the real API'
+    )
+  ) as { error?: string };
+  if (outcome.error !== undefined)
+    throw new Error(`The changed-layout capture failed in the meter: ${outcome.error}`);
+  return outcome;
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    throw error;
+  }
 }
 
 describe('event-driven workspace recovery snapshots', () => {
@@ -186,186 +344,167 @@ describe('event-driven workspace recovery snapshots', () => {
     });
   });
 
-  it('measures unchanged capture cost on 32 panes including child CPU, one topology read and no recovery rewrite', async () => {
+  it(
+    'measures unchanged capture cost on 32 panes including child CPU, one topology read and no recovery rewrite',
+    { timeout: CAPTURE_PROBE_TIMEOUT_MS },
+    async ({ onTestFailed }) => {
+      const budget = new StageBudget({
+        totalMs: CAPTURE_PROBE_TIMEOUT_MS,
+        cleanupReserveMs: CAPTURE_PROBE_CLEANUP_RESERVE_MS,
+      });
+      // The framework's timeout rejects the test without running any more of it, so the stage
+      // that was still running is reported from here.
+      onTestFailed(() => console.error(`workspace capture probe: ${budget.evidence()}`));
+      await withRestoreFixture(async (fixture) => {
+        guardWorkspaceServer(fixture);
+        const samples = 12;
+        const { directory, recovery, before, probe } = await budget.stage(
+          'fixture setup',
+          async () => {
+            const bound = [fixture.pane];
+            for (let index = 1; index < 8; index++)
+              bound.push((await fixture.createMockPane(`meter-agent-${index}`)).pane);
+            for (let index = 8; index < 31; index++)
+              fixture.createShellPane(`meter-shell-${index}`);
+            const meter = fixture.createShellPane('capture-meter').pane;
+            for (const [index, pane] of bound.entries())
+              expect(
+                (await fixture.runJsonCli(['name', `Meter ${index}`, '-s'], { pane })).code
+              ).toBe(0);
+            expect(readSnapshot(fixture).panes).toHaveLength(32);
+            const directory = path.dirname(snapshotPath(fixture));
+            const recovery = () =>
+              fs
+                .readdirSync(directory)
+                .filter((name) => name !== 'capture-attempt.json')
+                .sort()
+                .map((name) => {
+                  const filename = path.join(directory, name);
+                  const metadata = fs.statSync(filename);
+                  return {
+                    name,
+                    bytes: fs.readFileSync(filename).toString('base64'),
+                    inode: metadata.ino,
+                    mtimeMs: metadata.mtimeMs,
+                  };
+                });
+            const before = recovery();
+            return {
+              directory,
+              recovery,
+              before,
+              probe: prepareCaptureProbe(fixture, directory, meter, samples),
+            };
+          }
+        );
+        const measured = await budget.stage(
+          'sample acquisition',
+          (allowanceMs) => acquireSamples(fixture, probe, allowanceMs),
+          { capMs: CAPTURE_SAMPLE_STAGE_CAP_MS }
+        );
+        await budget.stage('unchanged-state checks', () => {
+          expect(measured.samples).toHaveLength(samples);
+          const cpu = measured.samples.map((sample) => sample.cpuMs);
+          const mean = cpu.reduce((sum, value) => sum + value, 0) / samples;
+          console.log(
+            'workspace capture cost',
+            JSON.stringify({
+              panes: 32,
+              agents: 8,
+              samples,
+              unreadAttempts: measured.unreadAttempts,
+              unreadReasons: measured.unreadReasons,
+              sampleReasons: measured.samples.map((sample) => sample.reasons),
+              meanCpuMs: mean,
+              maxCpuMs: Math.max(...cpu),
+              cpuPercentAt30s: mean / 300,
+              targetPercent: 0.2,
+            })
+          );
+          expect(
+            Math.max(...cpu),
+            'each due attempt must use less than 1% of one CPU at 30s'
+          ).toBeLessThan(300);
+          expect(probe.trace.commands().filter((command) => command === 'list-panes')).toHaveLength(
+            samples
+          );
+          expect(fs.existsSync(probe.psLog) ? fs.readFileSync(probe.psLog, 'utf8') : '').toBe('');
+          expect(recovery()).toEqual(before);
+        });
+        // An attempted callback can fail silently. A changed-layout positive
+        // control proves this same real API path can acquire and publish content.
+        const published = await budget.stage(
+          'changed-layout publication',
+          (allowanceMs) => {
+            resetCaptureInterval(directory);
+            return publishChangedLayout(fixture, probe, allowanceMs);
+          },
+          { capMs: CAPTURE_PUBLICATION_STAGE_CAP_MS }
+        );
+        await budget.stage('changed-layout checks', () => {
+          expect(published).toEqual({ attempted: 1, published: 1, skipped: 0 });
+          const changedBytes = fs.readFileSync(snapshotPath(fixture));
+          expect(changedBytes).not.toEqual(
+            Buffer.from(before.find((entry) => entry.name === 'latest.json')!.bytes, 'base64')
+          );
+          expect(
+            readSnapshot(fixture).windows.some(
+              (window) => window.name === 'capture-publish-control'
+            )
+          ).toBe(true);
+          const changedDigest = createHash('sha256').update(changedBytes).digest('hex');
+          expect(fs.readFileSync(path.join(directory, `auto-${changedDigest}.json`))).toEqual(
+            changedBytes
+          );
+          const catalogue = JSON.parse(
+            fs.readFileSync(path.join(directory, 'generations.json'), 'utf8')
+          );
+          expect(catalogue.entries.at(-1).id).toBe(`g:${changedDigest}`);
+          expect(probe.trace.commands().filter((command) => command === 'list-panes')).toHaveLength(
+            samples + 1
+          );
+        });
+        console.log('workspace capture probe stages', budget.evidence());
+      });
+    }
+  );
+
+  it('names the changed-layout publication stage when it stalls, and tears the stalled child down', async () => {
+    const started = Date.now();
+    let stalledPid = 0;
     await withRestoreFixture(async (fixture) => {
       guardWorkspaceServer(fixture);
-      const bound = [fixture.pane];
-      for (let index = 1; index < 8; index++)
-        bound.push((await fixture.createMockPane(`meter-agent-${index}`)).pane);
-      for (let index = 8; index < 31; index++) fixture.createShellPane(`meter-shell-${index}`);
       const meter = fixture.createShellPane('capture-meter').pane;
-      for (const [index, pane] of bound.entries())
-        expect((await fixture.runJsonCli(['name', `Meter ${index}`, '-s'], { pane })).code).toBe(0);
-      expect(readSnapshot(fixture).panes).toHaveLength(32);
-      const directory = path.dirname(snapshotPath(fixture));
-      const recovery = () =>
-        fs
-          .readdirSync(directory)
-          .filter((name) => name !== 'capture-attempt.json')
-          .sort()
-          .map((name) => {
-            const filename = path.join(directory, name);
-            const metadata = fs.statSync(filename);
-            return {
-              name,
-              bytes: fs.readFileSync(filename).toString('base64'),
-              inode: metadata.ino,
-              mtimeMs: metadata.mtimeMs,
-            };
-          });
-      const before = recovery();
-      const samples = 12;
-      // An attempt that fails before it reads the topology still reports attempted:1, published:0
-      // and consumes its interval; its report names why in `reasons`. The meter re-measures such
-      // an attempt a bounded number of times and prints the reasons it saw; every measured sample
-      // is held to exactly one read, and an attempt that reports `unchanged` must have read.
-      const maxUnread = 2;
-      const trace = installTmuxTrace(fixture);
-      const script = path.join(fixture.root, 'capture-cost.py');
-      const result = path.join(fixture.root, 'capture-cost.json');
-      const status = path.join(fixture.root, 'capture-cost.status');
-      const psLog = path.join(fixture.root, 'capture-ps.log');
-      const ps = path.join(fixture.wrapperDir, 'ps');
-      expect(fs.existsSync(ps)).toBe(false);
-      writeExecutable(
-        ps,
-        `#!/bin/sh\nprintf '%s\\n' "$*" >> ${quote(psLog)}\nexec /usr/bin/ps "$@"\n`
-      );
-      fs.writeFileSync(
-        script,
-        `
-import json, os, pathlib, resource, subprocess, sys, time
-root=pathlib.Path(${JSON.stringify(directory)})
-result=pathlib.Path(${JSON.stringify(result)})
-trace=pathlib.Path(${JSON.stringify(trace.path)})
-env=dict(os.environ)
-env.pop('TMUX',None);env.pop('TMUX_PANE',None)
-env['TMT_HOME']=${JSON.stringify(fixture.globalDir)}
-command=${JSON.stringify([fixture.executables.cli.executable, ...fixture.executables.cli.args, 'api'])}
-request=json.dumps({'version':1,'operation':'workspace.capture','input':{}})
-if len(sys.argv)>1 and sys.argv[1]=='changed':
-    completed=subprocess.run(command,input=request,text=True,capture_output=True,env=env,timeout=3)
-    assert completed.returncode==0,(completed.returncode,completed.stdout,completed.stderr)
-    assert completed.stderr=='',completed.stderr
-    assert json.loads(completed.stdout)=={'attempted':1,'published':1,'skipped':0},completed.stdout
-    positive=pathlib.Path(str(result)+'.positive')
-    stage=pathlib.Path(str(positive)+'.tmp');stage.write_text(completed.stdout);stage.replace(positive)
-    raise SystemExit(0)
-def topology_reads():
-    # The wrapper logs before it execs tmux, so a finished attempt's reads are already here.
-    return sum(1 for line in trace.read_text().splitlines() if line.startswith('list-panes\t'))
-samples=[];unread=[]
-while len(samples)<${samples}:
-    stamp=root/'capture-attempt.json'
-    if stamp.exists():
-        value=json.loads(stamp.read_text());value['attemptedAtMs']=0
-        stamp.write_text(json.dumps(value))
-    reads=topology_reads()
-    before=resource.getrusage(resource.RUSAGE_CHILDREN);start=time.monotonic()
-    completed=subprocess.run(command,input=request,text=True,capture_output=True,env=env,timeout=3)
-    elapsed=time.monotonic()-start;after=resource.getrusage(resource.RUSAGE_CHILDREN)
-    assert completed.returncode==0,(completed.returncode,completed.stdout,completed.stderr)
-    assert completed.stderr=='',completed.stderr
-    report=json.loads(completed.stdout)
-    reasons=report.pop('reasons',{})
-    assert report=={'attempted':1,'published':0,'skipped':0},completed.stdout
-    taken=topology_reads()-reads
-    if taken==0 and len(unread)<${maxUnread}:
-        assert reasons and 'unchanged' not in reasons,(len(samples),reasons)
-        unread.append(reasons)
-        continue
-    assert taken==1,(len(samples),taken,unread,reasons,1000*elapsed)
-    samples.append({'cpuMs':1000*((after.ru_utime+after.ru_stime)-(before.ru_utime+before.ru_stime)),'wallMs':1000*elapsed,'reasons':reasons})
-value={'panes':32,'agents':8,'periodMs':30000,'samples':samples,'unreadAttempts':len(unread),'unreadReasons':unread}
-stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage.replace(result)
-`
-      );
-      trace.clear();
-      const command = ['env', `TMT_HOME=${fixture.globalDir}`, 'python3', script]
-        .map(quote)
-        .join(' ');
-      fixture.tmux([
-        'send-keys',
-        '-t',
-        meter,
-        '-l',
-        `${command}; printf '%s' "$?" > ${quote(status)}`,
-      ]);
-      fixture.tmux(['send-keys', '-t', meter, 'Enter']);
-      expect(
-        await waitForFileContent(status, {
-          timeoutMs: 20_000,
-          description: 'isolated capture CPU samples',
-        })
-      ).toBe('0');
-      const measured = JSON.parse(fs.readFileSync(result, 'utf8')) as {
-        samples: Array<{ cpuMs: number; wallMs: number; reasons: Record<string, number> }>;
-        unreadAttempts: number;
-        unreadReasons: Array<Record<string, number>>;
-      };
-      expect(measured.samples).toHaveLength(samples);
-      const cpu = measured.samples.map((sample) => sample.cpuMs);
-      const mean = cpu.reduce((sum, value) => sum + value, 0) / samples;
-      console.log(
-        'workspace capture cost',
-        JSON.stringify({
-          panes: 32,
-          agents: 8,
-          samples,
-          unreadAttempts: measured.unreadAttempts,
-          unreadReasons: measured.unreadReasons,
-          sampleReasons: measured.samples.map((sample) => sample.reasons),
-          meanCpuMs: mean,
-          maxCpuMs: Math.max(...cpu),
-          cpuPercentAt30s: mean / 300,
-          targetPercent: 0.2,
-        })
-      );
-      expect(
-        Math.max(...cpu),
-        'each due attempt must use less than 1% of one CPU at 30s'
-      ).toBeLessThan(300);
-      expect(trace.commands().filter((command) => command === 'list-panes')).toHaveLength(samples);
-      expect(fs.existsSync(psLog) ? fs.readFileSync(psLog, 'utf8') : '').toBe('');
-      expect(recovery()).toEqual(before);
-      // An attempted callback can fail silently. A changed-layout positive
-      // control proves this same real API path can acquire and publish content.
-      fixture.tmux(['rename-window', '-t', meter, 'capture-publish-control']);
-      const stamp = path.join(directory, 'capture-attempt.json');
-      const attempt = JSON.parse(fs.readFileSync(stamp, 'utf8'));
-      fs.writeFileSync(stamp, JSON.stringify({ ...attempt, attemptedAtMs: 0 }));
-      const changedCommand = ['env', `TMT_HOME=${fixture.globalDir}`, 'python3', script, 'changed']
-        .map(quote)
-        .join(' ');
-      fixture.tmux(['send-keys', '-t', meter, '-l', changedCommand]);
-      fixture.tmux(['send-keys', '-t', meter, 'Enter']);
-      expect(
-        JSON.parse(
-          await waitForFileContent(`${result}.positive`, {
-            timeoutMs: 20_000,
-            description: 'changed capture publishes through the real API',
-          })
+      const probe = prepareCaptureProbe(fixture, path.dirname(snapshotPath(fixture)), meter, 12);
+      const pidFile = path.join(fixture.root, 'stalled.pid');
+      const budget = new StageBudget({ totalMs: 8_000, cleanupReserveMs: 3_000 });
+      const failure = await budget
+        .stage(
+          'changed-layout publication',
+          (allowanceMs) =>
+            publishChangedLayout(fixture, probe, allowanceMs, [
+              'sh',
+              '-c',
+              `echo $$ > ${quote(pidFile)}; exec sleep 30`,
+            ]),
+          { capMs: 1_500 }
         )
-      ).toEqual({ attempted: 1, published: 1, skipped: 0 });
-      const changedBytes = fs.readFileSync(snapshotPath(fixture));
-      expect(changedBytes).not.toEqual(
-        Buffer.from(before.find((entry) => entry.name === 'latest.json')!.bytes, 'base64')
-      );
-      expect(
-        readSnapshot(fixture).windows.some((window) => window.name === 'capture-publish-control')
-      ).toBe(true);
-      const changedDigest = createHash('sha256').update(changedBytes).digest('hex');
-      expect(fs.readFileSync(path.join(directory, `auto-${changedDigest}.json`))).toEqual(
-        changedBytes
-      );
-      const catalogue = JSON.parse(
-        fs.readFileSync(path.join(directory, 'generations.json'), 'utf8')
-      );
-      expect(catalogue.entries.at(-1).id).toBe(`g:${changedDigest}`);
-      expect(trace.commands().filter((command) => command === 'list-panes')).toHaveLength(
-        samples + 1
-      );
+        .then(
+          () => undefined,
+          (error: Error) => error
+        );
+      expect(failure?.message).toContain('Stage "changed-layout publication" failed after');
+      expect(failure?.message).toContain('changed capture publishes through the real API');
+      expect(failure?.message).toContain('Meter progress: none; failure: none; pane tail:');
+      // The stalled stage fails inside its own cap, long before the test's framework timeout.
+      expect(Date.now() - started).toBeLessThan(5_000);
+      stalledPid = Number(await waitForFileContent(pidFile, { timeoutMs: 1_000 }));
+      expect(processIsRunning(stalledPid)).toBe(true);
     });
+    const gone = Date.now() + 2_000;
+    while (processIsRunning(stalledPid) && Date.now() < gone)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(processIsRunning(stalledPid), 'the stalled child outlived the fixture').toBe(false);
   });
 
   it('previews current durable resume state without changing layout, snapshot or identity data', async () => {
