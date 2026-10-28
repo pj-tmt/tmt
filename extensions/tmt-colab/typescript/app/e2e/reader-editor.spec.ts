@@ -336,7 +336,7 @@ for (const theme of ['light', 'dark'] as const)
 
 for (const role of ['viewer', 'editor'] as const)
   for (const width of [1440, 390]) {
-    test(`reader Info shows the real creator and question state without owner actions: ${role} ${width}`, async ({
+    test(`reader Info without a metadata writer shows creator and question state read-only: ${role} ${width}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 568 });
@@ -358,12 +358,12 @@ for (const role of ['viewer', 'editor'] as const)
       expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width);
       expect(stateBox.x + stateBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width);
       await expect(
-        panel.getByRole('button', { name: /Mark handled|Reopen|Set creator/ }),
+        panel.getByRole('button', { name: /Mark handled|Reopen|Set creator|Change creator/ }),
       ).toHaveCount(0);
       await expect(panel.locator('code')).toHaveCount(0);
       await expect(
         panel.getByText('Only the page owner can change this here', { exact: true }),
-      ).toHaveCount(role === 'editor' ? 1 : 0);
+      ).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       expect(await saves(page)).toEqual([]);
     });
