@@ -13354,8 +13354,8 @@ fn subpage_legacy_hierarchies_read_with_warnings_and_can_be_repaired() {
             assert_eq!(read["source"], "<p>Legacy content</p>");
         }
         assert!(
-            !cache.exists(),
-            "diagnostic reads must not rewrite the work cache"
+            cache.exists(),
+            "show may refresh the rebuildable work cache without changing page data"
         );
         for (page, before) in pages.iter().zip(&work_before) {
             let after = pilot.call(&["task", "ls", page, "--json"]);
@@ -13444,4 +13444,104 @@ fn subpage_unlink_repairs_legacy_depth_even_when_it_restores_an_over_limit_task(
             .unwrap()
             .contains(&json!("subpage-depth-exceeded"))
     );
+}
+
+#[test]
+fn subpage_show_refreshes_fingerprints_after_page_edits() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("fingerprints.html");
+        fs::write(&source, "<p>Before</p>").unwrap();
+        let pages: Vec<_> = ["Parent", "Middle", "Leaf"]
+            .into_iter()
+            .map(|title| {
+                let made = pilot.call(&[
+                    "page",
+                    "create",
+                    "--title",
+                    title,
+                    "--layout",
+                    "column",
+                    "--file",
+                    source.to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ]);
+                let id = made["pageId"].as_str().unwrap().to_owned();
+                pilot.call(&["task", "add", &id, "--title", "Work", "--json"]);
+                id
+            })
+            .collect();
+        let (parent, middle, leaf) = (&pages[0], &pages[1], &pages[2]);
+        pilot.call(&["task", "link", parent, "T-1", middle, "--json"]);
+        // Warm a current graph, then simulate a publication from an older/racing writer.
+        pilot.call(&["task", "ls", parent, "--json"]);
+        let cache = pilot.root.join("selected/colab/work-index.json");
+        let fingerprints =
+            || -> Value { serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap() };
+        let before = fingerprints();
+        assert!(before["pages"][middle]["fingerprint"].is_string());
+        legacy_subpage_action(
+            &pilot,
+            middle,
+            "task.link",
+            json!({"taskId":"T-1","pageId":leaf}),
+        );
+        assert_eq!(
+            fingerprints(),
+            before,
+            "publication leaves the derived cache stale"
+        );
+        let warn = || {
+            let shown = pilot.call(&["show", parent, "--json"]);
+            assert!(
+                shown["page"]["warnings"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("subpage-depth-exceeded")),
+                "{shown}"
+            );
+        };
+        warn();
+        let linked = fingerprints();
+        assert_ne!(
+            linked["pages"][middle]["fingerprint"], before["pages"][middle]["fingerprint"],
+            "show must refresh the edited page's cached fingerprint"
+        );
+        assert_eq!(linked["pages"][parent], before["pages"][parent]);
+        // A source edit changes the progress key without removing the legacy relationship.
+        pilot.call(&[
+            "page",
+            "patch",
+            middle,
+            "--find",
+            "Before",
+            "--replace",
+            "After",
+            "--json",
+        ]);
+        assert_eq!(fingerprints(), linked);
+        warn();
+        let edited = fingerprints();
+        assert_ne!(
+            edited["pages"][middle]["fingerprint"],
+            linked["pages"][middle]["fingerprint"]
+        );
+        assert_eq!(edited["pages"][parent], linked["pages"][parent]);
+        warn();
+        assert_eq!(
+            fingerprints(),
+            edited,
+            "an unchanged graph keeps its cached entries"
+        );
+        let read = pilot.call(&["page", "read", middle, "--json"]);
+        assert_eq!(read["source"], "<p>After</p>");
+        assert_eq!(
+            pilot.call(&["task", "ls", middle, "--json"])["work"]["tasks"]["T-1"]["child"],
+            *leaf
+        );
+    }
 }

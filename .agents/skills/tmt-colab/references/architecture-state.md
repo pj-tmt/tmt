@@ -1116,8 +1116,9 @@ and browser `workresult`. CLI and `page/convert` run its conversion preflight be
 then retain the existing post-create link admission and publication fences. Unlink bypasses WIP
 admission so legacy links remain repairable; task/value and authority/revision checks still apply.
 
-Explicit `tmt colab show PAGE --json` diagnostics fold current readable work without writing the list cache and
-report connected-component conflicts through `page.warnings`. They neither rewrite links nor
+Explicit `tmt colab show PAGE --json` diagnostics share admission's `work_index::scan` graph,
+refreshing only changed page fingerprints in the rebuildable cache, and report connected-component
+conflicts through `page.warnings`. They neither rewrite links nor
 change deterministic parent selection or bounded legacy resolution. An invalid component refuses
 new links; unrelated components remain usable. `page/save::SaveResult` and the strict app
 `save.ts` parser preserve the optional refusal reason through `SaveRefused`; older owners may omit it.

@@ -3234,8 +3234,9 @@ Two writers on different pages can still race to publish conflicting links; as w
 is a working agreement, not a cross-page lock. Existing deeper, cyclic or multiple-parent data stays
 readable and is never automatically rewritten. `tmt colab show PAGE --json` adds the warning strings
 `subpage-depth-exceeded`, `subpage-cycle`, and/or `subpage-multiple-parents` to `page.warnings` for
-pages in the affected connected hierarchy. These explicit diagnostics fold current readable work
-without writing the list cache. New links involving that hierarchy are refused; unrelated valid
+pages in the affected connected hierarchy. These explicit diagnostics use the same fresh
+`work_index::scan` graph as admission, refreshing rebuildable cache entries only when their page
+fingerprints change; page content and links are never rewritten. New links involving that hierarchy are refused; unrelated valid
 components remain usable. Readers retain every stored link and resolve the displayed parent by
 the lowest page ID, then the lowest task number; a loop or deeper legacy chain is bounded as above. An archived page keeps its link and its stage
 is followed. The work-in-progress limit does not count a task that follows a page as held: the work is
