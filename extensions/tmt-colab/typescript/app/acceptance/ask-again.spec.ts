@@ -55,13 +55,9 @@ for (const surface of ['chat', 'thread'])
       // Sent text draws each mention as the chip, whose icon takes the place of the typed @.
       const shown = body.replace(`@${alpha.name} @${beta.name}`, `${alpha.name} ${beta.name}`);
       await input.fill(body);
-      if (surface === 'chat') {
-        await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks ');
-      } else {
-        await expect(panel.locator('.annotation-hint[role="status"]')).toContainText(
-          `Asks ${alpha.name}, ${beta.name}.`,
-        );
-      }
+      await expect(panel.locator('.annotation-hint[role="status"]')).toContainText(
+        `Asks ${alpha.name}, ${beta.name} · Enter to send`,
+      );
       // Lose one ordinary context GET before adoption; no signed Remote outcome,
       // object append, directory response or dispatch is fabricated.
       let failures = 0;

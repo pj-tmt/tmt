@@ -5,7 +5,11 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { openPanel } from '../test/comments-region.js';
 
 /** A real touch: CDP dispatches touch events, which the browser turns into touch pointer events. */
-async function tap(page: Page, target: ReturnType<Page['locator']>) {
+async function tap(
+  page: Page,
+  target: ReturnType<Page['locator']>,
+  position?: { x: number; y: number },
+) {
   // Wait for the control to stop moving: its position follows the selection asynchronously.
   let box = (await target.boundingBox())!;
   for (let settled = 0; settled < 3;) {
@@ -14,7 +18,9 @@ async function tap(page: Page, target: ReturnType<Page['locator']>) {
     settled = next.x === box.x && next.y === box.y ? settled + 1 : 0;
     box = next;
   }
-  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1 };
+  const point = position
+    ? { x: box.x + position.x, y: box.y + position.y, id: 1 }
+    : { x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1 };
   const client = await page.context().newCDPSession(page);
   await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
@@ -72,9 +78,11 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
 
         // A press outside the popover.
         await open(touch);
+        // The header's corner is empty; its centre holds the page's own controls.
         const bar = page.locator('.tmt-ui-header:visible');
-        if (touch) await tap(page, bar);
-        else await bar.click({ position: { x: 4, y: 4 } });
+        const corner = { x: 4, y: 4 };
+        if (touch) await tap(page, bar, corner);
+        else await bar.click({ position: corner });
         await expect(popover).toHaveCount(0);
 
         // A cleared selection closes an untouched composer, including its automatic creator seed.

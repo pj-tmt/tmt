@@ -32,14 +32,19 @@ async function edit(found: Locator, body: string) {
   await comment.getByRole('button', { name: 'Save comment', exact: true }).click();
   await expect(comment.locator('.comment-body')).toHaveText(body);
 }
-/** Select the Comments list view, returning from a retained Discussion first. */
+/** Open the Comments list, returning from a retained Discussion first. Resolved threads are listed
+ * only while Show resolved is on: `Resolved` turns it on, `Open` leaves it off. */
 async function view(page: Page, name: 'Open' | 'Resolved') {
   await commentList(page);
-  await commentsRegion(page)
-    .getByRole('tab', { name: new RegExp(`^(● )?${name}`) })
-    .click();
+  const toggle = commentsRegion(page).getByRole('button', { name: text.showResolved, exact: true });
+  if (((await toggle.getAttribute('aria-pressed')) === 'true') !== (name === 'Resolved'))
+    await toggle.click();
 }
 async function comments(page: Page) {
+  // An open anchored window replaces the dock; collapse it to reach the Comments action.
+  const anchored = page.getByRole('dialog', { name: 'Annotate selection' });
+  if (await anchored.isVisible())
+    await anchored.getByRole('button', { name: 'Collapse thread', exact: true }).click();
   // The dock's Comments action precedes verified threads after reload. Its count is absent until
   // that projection is ready; do not toggle before it and lose the action.
   await expect(
@@ -233,6 +238,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await selectInRenderer(first, '#quote');
     await expect(first.getByTestId('selection-ask')).toBeVisible();
     await first.screenshot({ path: `${captureDir}/1587-native-1440-light-selection.png` });
+    // The first open seeds the page creator; each pass removes that mention, and the composer keeps
+    // that edited draft for this selection, so later passes open empty.
+    let seeded = true;
     for (const width of [1440, 390]) {
       await first.setViewportSize({ width, height: 900 });
       for (const theme of ['light', 'dark']) {
@@ -241,17 +249,22 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await first.getByTestId('selection-ask').click();
         const popover = first.getByRole('dialog', { name: 'Annotate selection' });
         const prefilled = popover.getByRole('combobox', { name: 'Message' });
-        await expect(prefilled).toHaveText('', { useInnerText: true });
+        await expect(prefilled).toHaveText(seeded ? `@${agent.name} ` : '', { useInnerText: true });
+        seeded = false;
         await expect(prefilled).toBeFocused();
         expect(
           await prefilled.evaluate((node) => {
             const selection = node.ownerDocument.getSelection();
-            return (
-              !!selection?.isCollapsed &&
-              !!selection.anchorNode &&
-              node.contains(selection.anchorNode) &&
-              selection.anchorOffset === 0
-            );
+            if (
+              !selection?.isCollapsed ||
+              !selection.anchorNode ||
+              !node.contains(selection.anchorNode)
+            )
+              return false;
+            const after = node.ownerDocument.createRange();
+            after.selectNodeContents(node);
+            after.setStart(selection.anchorNode, selection.anchorOffset);
+            return after.toString() === '';
           }),
         ).toBe(true);
         await expect(commentsRegion(first)).toHaveCount(0);
@@ -698,8 +711,10 @@ test('composer records plain annotations and replies without a recipient, then s
       thread.getByText('Agents are unavailable. You can still post a comment.', { exact: true }),
     ).toBeVisible();
     await thread.getByRole('button', { name: 'Try again', exact: true }).click();
+    // The fresh reply composer keeps the page creator mentioned, so the hint names it once the
+    // directory is read again.
     await expect(thread.locator('.annotation-hint[role="status"]')).toContainText(
-      text.messageCommentSend,
+      text.messageAsksSend.replace('{agents}', agent.name),
     );
     await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
     const question = `@${agent.name} Explain this exact quote.\n  Keep these spaces and this line.  `;

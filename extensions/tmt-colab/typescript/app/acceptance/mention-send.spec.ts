@@ -52,7 +52,9 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     await input.fill(
       `@${alpha.name} @${beta.name} @${alpha.name} @${offline.name} <script>Keep exact bytes.</script>`,
     );
-    await expect(panel.locator('.annotation-hint[role=status]')).toHaveText('');
+    await expect(panel.locator('.annotation-hint[role=status]')).toHaveText(
+      `Asks ${alpha.name}, ${beta.name}, ${offline.name} (offline) · Enter to send`,
+    );
     await input.press('Enter');
     await until(
       () => alpha.received().length === 1 && beta.received().length === 1,

@@ -19,9 +19,8 @@ export async function showResolvedOn(page: Page) {
 }
 
 /** The visible bar's buttons: the shared top bar where Colab is the shell's root, the module header
- * in the shell bar where a host's shell mounts Colab (the hosted mount keeps its own header). */
-const BAR_BUTTONS =
-  '.tmt-ui-topbar:visible button:visible, .tmt-ui-shell-bar:visible > .tmt-ui-header:visible button:visible';
+ * where a host's shell mounts Colab (the hosted mount keeps its own header). */
+const BAR_BUTTONS = '.tmt-ui-topbar:visible button:visible, .tmt-ui-header:visible button:visible';
 
 /** Resolve page actions: Comments and Chat are the dock's, page tools (including Agent status) are in
  * the top bar's More menu, and readers keep their direct Files control. */

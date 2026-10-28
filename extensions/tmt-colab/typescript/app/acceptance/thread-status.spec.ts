@@ -10,11 +10,16 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 async function comments(page: Page) {
   if (!(await commentsRegion(page).isVisible())) await (await pageAction(page, 'Comments')).click();
 }
-/** The Comments drawer's view tab; the tab carries a mark and `New` while a resolved thread has news. */
-const view = (page: Page, name: 'Open' | 'Needs you' | 'Resolved') =>
-  commentsRegion(page)
-    .getByRole('tab', { name: new RegExp(`^(● )?${name}`) })
-    .click();
+/** The Comments list shows resolved threads only while Show resolved is on: `Resolved` turns it on and
+ * `Open` leaves it off. */
+async function view(page: Page, name: 'Open' | 'Resolved') {
+  const toggle = commentsRegion(page).getByRole('button', { name: text.showResolved, exact: true });
+  if (((await toggle.getAttribute('aria-pressed')) === 'true') !== (name === 'Resolved'))
+    await toggle.click();
+}
+/** Resolve and Reopen are the open thread's actions in the Comments panel header. */
+const threadAction = (page: Page, name: string) =>
+  commentsRegion(page).getByRole('button', { name, exact: true });
 const markers = (page: Page) => page.frameLocator('iframe').locator('[data-colab-thread]');
 
 test.afterEach(disposeActiveWorlds);
@@ -62,15 +67,14 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     // second device and the CLI read the same state, and Reopen restores them.
     await comments(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
-    const t1 = first.getByTestId('comment-thread').first();
-    await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
-    await expect(t1.getByRole('button', { name: text.threadReopen, exact: true })).toBeEnabled();
+    await threadAction(first, text.threadResolve).click();
+    await expect(threadAction(first, text.threadReopen)).toBeEnabled();
     await expect(markers(first)).toHaveCount(0);
     await view(second, 'Resolved');
     await expect(row2).toContainText(text.threadResolved);
     await expect(markers(second)).toHaveCount(0);
     await expect.poll(() => listing().threads[0].resolved).toBe(true);
-    await t1.getByRole('button', { name: text.threadReopen, exact: true }).click();
+    await threadAction(first, text.threadReopen).click();
     await expect(markers(first)).toHaveCount(1);
     await expect(markers(second)).toHaveCount(1);
     await view(second, 'Open');
@@ -106,7 +110,9 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     await expect(reloaded).toContainText(unseen);
     await reloaded.click();
     const t2 = second.getByTestId('comment-thread').first();
-    await expect(t2).toContainText(text.threadResolvedBy(agent.name));
+    await expect(second.getByTestId('discussion-state')).toContainText(
+      text.threadResolvedBy(agent.name),
+    );
     await expect(t2).toHaveAttribute('data-anchor', 'resolved');
     await expect(reloaded).not.toContainText(text.threadUnseen);
     await expect(commentsAction(second)).not.toHaveAccessibleName(new RegExp(text.threadUnseen));
@@ -213,7 +219,9 @@ test('status states captured for the UX look', async () => {
     await comments(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     const t1 = first.getByTestId('comment-thread').first();
-    await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
+    await threadAction(first, text.threadResolve).click();
+    // A resolved thread shows its summary; the conversation, with the notice, opens on request.
+    await first.getByRole('button', { name: 'Show conversation', exact: true }).click();
     const notNotified = t1.getByRole('status').filter({ hasText: text.threadNotNotified });
     await expect(notNotified).toBeVisible();
     await expect(notNotified.locator('.agent-chip')).toHaveText('ghost-agent');
@@ -222,7 +230,7 @@ test('status states captured for the UX look', async () => {
     await expect(row2).toContainText(text.threadResolvedBy('status-author'));
     await shoot(first, 'person-resolved-not-notified');
     await shoot(second, 'person-resolved');
-    await t1.getByRole('button', { name: text.threadReopen, exact: true }).click();
+    await threadAction(first, text.threadReopen).click();
     await view(second, 'Open');
     await expect(row2).toContainText(text.commentCount(1));
 
