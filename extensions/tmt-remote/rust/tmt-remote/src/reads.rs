@@ -148,19 +148,18 @@ impl Reads {
         &self,
         machine_name: &str,
     ) -> Result<crate::squads::Summary, crate::error::RemoteError> {
-        let unavailable = || {
-            crate::error::RemoteError::new(
-                "REMOTE_SUMMARY_UNAVAILABLE",
-                "The public Ops squad summary is unavailable.",
-            )
-        };
-        let board = self
-            .json(
-                &["ops", "squad", "ls", "--json"],
-                Instant::now() + self.wait,
-            )
-            .map_err(|_| unavailable())?;
-        crate::squads::Summary::from_ops(machine_name, now_ms(), &board).map_err(|_| unavailable())
+        let board = self.json(
+            &["ops", "squad", "ls", "--json"],
+            Instant::now() + self.wait,
+        );
+        let observed_at = now_ms();
+        match board.and_then(|value| {
+            crate::squads::Summary::from_ops(machine_name, observed_at, &value)
+                .map_err(|_| Reason::ReadFailed)
+        }) {
+            Ok(summary) => Ok(summary),
+            Err(_) => crate::squads::Summary::unavailable(machine_name, observed_at),
+        }
     }
     /// The JSON body to send for `read`, waiting at most `READ_WAIT` in total.
     pub(crate) fn body(&self, read: Target) -> Arc<Vec<u8>> {

@@ -1,5 +1,14 @@
 use super::*;
 use crate::squads::{DeliveryPhase, Firestore, Interface, Record, SummaryReader};
+struct FailedSource;
+impl SummaryReader for FailedSource {
+    fn read(&self) -> Result<Vec<Record>, RemoteError> {
+        Err(RemoteError::new(
+            "REMOTE_SUMMARY_UNAVAILABLE",
+            "Fixture source failure",
+        ))
+    }
+}
 struct Empty;
 impl SummaryReader for Empty {
     fn read(&self) -> Result<Vec<Record>, RemoteError> {
@@ -37,6 +46,10 @@ fn directory_adapter_reads_original_delivery_and_final_without_dispatch_replay()
         .to_owned();
     wire.route(&owner);
     wire.route(&sender);
+    assert!(
+        Firestore::new(&sender, &FailedSource).list().is_err(),
+        "failed source is not an empty list"
+    );
     let interface = Firestore::new(&sender, &Empty);
     let before = wire.reads.lock().unwrap().len();
     assert_eq!(
@@ -128,6 +141,17 @@ fn directory_adapter_reads_original_delivery_and_final_without_dispatch_replay()
         !serde_json::to_string(&observed)
             .unwrap()
             .contains("PRIVATE")
+    );
+    assert_eq!(core.sends(), 1);
+    std::fs::write(
+        core.root.join(format!("final-{request}")),
+        json!({"status":"expired"}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        interface.delivery(&remote, &operation).unwrap().state,
+        DeliveryPhase::Answered,
+        "answer identity survives final-body expiry"
     );
     assert_eq!(core.sends(), 1);
     let query = sender

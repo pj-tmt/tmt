@@ -582,22 +582,28 @@ fn squad_summary_uses_only_the_public_roster_and_reports_missing_failed_or_chang
     let fake = Fake::new();
     fake.answer(LS, &board().to_string());
     let summary = fake.reads().squad_summary("Studio").unwrap();
-    assert_eq!(summary.squads[0].squad, "tmt-core");
+    assert_eq!(summary.squads().unwrap()[0].squad, "tmt-core");
     assert_eq!(fake.calls(), [LS]);
     fake.set(LS, "exit", "2");
     fake.answer(
         LS,
         r#"{"error":{"code":"USAGE_ERROR","message":"Ops absent"}}"#,
     );
-    assert_eq!(
-        fake.reads().squad_summary("Studio").unwrap_err().code,
-        "REMOTE_SUMMARY_UNAVAILABLE"
+    assert!(
+        fake.reads()
+            .squad_summary("Studio")
+            .unwrap()
+            .squads()
+            .is_none()
     );
     fake.set(LS, "exit", "1");
     fake.answer(LS, r#"{"error":{"code":"FAILED","message":"Ops failed"}}"#);
-    assert_eq!(
-        fake.reads().squad_summary("Studio").unwrap_err().code,
-        "REMOTE_SUMMARY_UNAVAILABLE"
+    assert!(
+        fake.reads()
+            .squad_summary("Studio")
+            .unwrap()
+            .squads()
+            .is_none()
     );
     fake.set(LS, "exit", "0");
     for changed in [
@@ -606,10 +612,11 @@ fn squad_summary_uses_only_the_public_roster_and_reports_missing_failed_or_chang
         r#"{"squads":[{"squad":null}]}"#,
     ] {
         fake.answer(LS, changed);
-        assert_eq!(
-            fake.reads().squad_summary("Studio").unwrap_err().code,
-            "REMOTE_SUMMARY_UNAVAILABLE"
-        );
+        let unavailable = fake.reads().squad_summary("Studio").unwrap();
+        let value = serde_json::to_value(unavailable).unwrap();
+        assert_eq!(value["status"], "unavailable");
+        assert_eq!(value["machineName"], "Studio");
+        assert!(value.get("squads").is_none());
     }
     assert!(
         fake.calls().iter().all(|argv| argv == LS),

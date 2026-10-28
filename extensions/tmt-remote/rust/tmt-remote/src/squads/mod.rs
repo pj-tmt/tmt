@@ -1,6 +1,6 @@
 //! One Remote-owned list/send/delivery interface; backends never grant agent authority.
 mod summary;
-pub use summary::{Member, MemberPresence, Squad, State, Summary};
+pub use summary::{Member, MemberPresence, Squad, SquadObservation, State, Summary};
 
 #[cfg(test)]
 mod tests;
@@ -15,7 +15,7 @@ use serde::Serialize;
 pub struct Record {
     pub machine_id: String,
     pub remote: String,
-    pub summary: Summary,
+    pub summary: Vec<u8>,
 }
 /// Supplies verified retained Firestore summaries; this boundary does not own caching or storage.
 pub trait SummaryReader {
@@ -24,7 +24,16 @@ pub trait SummaryReader {
 #[derive(Serialize)]
 pub struct Machine {
     pub remote: String,
-    pub summary: Summary,
+    pub status: MachineSummaryStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<Summary>,
+}
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MachineSummaryStatus {
+    Available,
+    Unavailable,
+    Incompatible,
 }
 #[derive(Serialize)]
 pub struct List {
@@ -111,11 +120,12 @@ fn project_records(local: &str, records: Vec<Record>) -> Result<List, RemoteErro
         {
             return Err(unavailable());
         }
-        record.summary.validate().map_err(|_| unavailable())?;
         if record.machine_id != local {
+            let (status, summary) = classify_summary(&record.summary);
             machines.push(Machine {
                 remote: record.remote,
-                summary: record.summary,
+                status,
+                summary,
             });
         }
     }
@@ -123,6 +133,33 @@ fn project_records(local: &str, records: Vec<Record>) -> Result<List, RemoteErro
         version: 1,
         machines,
     })
+}
+fn classify_summary(bytes: &[u8]) -> (MachineSummaryStatus, Option<Summary>) {
+    use MachineSummaryStatus::*;
+    if bytes.len() > crate::limits::SQUAD_SUMMARY_BYTES {
+        return (Unavailable, None);
+    }
+    let Some(value) = crate::wire::strict_json(bytes) else {
+        return (Unavailable, None);
+    };
+    if value
+        .get("version")
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|version| version != 1)
+    {
+        return (Incompatible, None);
+    }
+    match Summary::read(bytes) {
+        Ok(summary) => (
+            if summary.squads().is_some() {
+                Available
+            } else {
+                Unavailable
+            },
+            Some(summary),
+        ),
+        Err(_) => (Unavailable, None),
+    }
 }
 fn project_delivery(operation_id: &str, evidence: DeliveryEvidence) -> Delivery {
     use DeliveryPhase::*;
@@ -142,7 +179,7 @@ fn project_delivery(operation_id: &str, evidence: DeliveryEvidence) -> Delivery 
             _ => (Unknown, None),
         },
         DeliveryEvidence::Request(value) => match value["messageState"]["state"].as_str() {
-            Some("answered") if value["final"]["status"] == "retained" => (Answered, None),
+            Some("answered") => (Answered, None),
             Some("delivered" | "working") => (Delivered, None),
             Some("sent") => (Queued, None),
             Some("batched") => (Held, None),

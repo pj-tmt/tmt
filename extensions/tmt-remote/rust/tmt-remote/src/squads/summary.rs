@@ -50,7 +50,14 @@ pub struct Summary {
     pub version: u64,
     pub machine_name: String,
     pub observed_at: u64,
-    pub squads: Vec<Squad>,
+    #[serde(flatten)]
+    pub observation: SquadObservation,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub enum SquadObservation {
+    Available { squads: Vec<Squad> },
+    Unavailable,
 }
 fn invalid() -> RemoteError {
     RemoteError::new("REMOTE_SUMMARY_INVALID", "Invalid machine squad summary.")
@@ -136,10 +143,27 @@ impl Summary {
             version: 1,
             machine_name: machine_name.into(),
             observed_at,
-            squads,
+            observation: SquadObservation::Available { squads },
         };
         summary.validate()?;
         Ok(summary)
+    }
+    /// A failed public read is a publishable observation, never an empty available roster.
+    pub fn unavailable(machine_name: &str, observed_at: u64) -> Result<Self, RemoteError> {
+        let summary = Self {
+            version: 1,
+            machine_name: machine_name.into(),
+            observed_at,
+            observation: SquadObservation::Unavailable,
+        };
+        summary.validate()?;
+        Ok(summary)
+    }
+    pub fn squads(&self) -> Option<&[Squad]> {
+        match &self.observation {
+            SquadObservation::Available { squads } => Some(squads),
+            SquadObservation::Unavailable => None,
+        }
     }
     /// Reading drops unlisted fields and normalizes unknown enum strings before any reserialization.
     pub fn read(bytes: &[u8]) -> Result<Self, RemoteError> {
@@ -148,21 +172,23 @@ impl Summary {
         }
         let mut value = crate::wire::strict_json(bytes).ok_or_else(invalid)?;
         // The receiver applies the same enum allowlists to every member, even non-string values.
-        let squads = value
-            .get_mut("squads")
-            .and_then(Value::as_array_mut)
-            .ok_or_else(invalid)?;
-        for squad in squads {
-            let squad = squad.as_object_mut().ok_or_else(invalid)?;
-            if let Some(lead) = squad.get_mut("lead").filter(|lead| !lead.is_null()) {
-                normalize(lead)?;
-            }
-            for row in squad
-                .get_mut("members")
+        if value.get("status").and_then(Value::as_str) == Some("available") {
+            let squads = value
+                .get_mut("squads")
                 .and_then(Value::as_array_mut)
-                .ok_or_else(invalid)?
-            {
-                normalize(row)?;
+                .ok_or_else(invalid)?;
+            for squad in squads {
+                let squad = squad.as_object_mut().ok_or_else(invalid)?;
+                if let Some(lead) = squad.get_mut("lead").filter(|lead| !lead.is_null()) {
+                    normalize(lead)?;
+                }
+                for row in squad
+                    .get_mut("members")
+                    .and_then(Value::as_array_mut)
+                    .ok_or_else(invalid)?
+                {
+                    normalize(row)?;
+                }
             }
         }
         let summary: Self = serde_json::from_value(value).map_err(|_| invalid())?;
@@ -180,13 +206,13 @@ impl Summary {
     pub fn validate(&self) -> Result<(), RemoteError> {
         if self.version != 1
             || self.observed_at > crate::cloud_hpke::INTEGER_MAX
-            || self.squads.len() > limits::SQUAD_SUMMARY_SQUADS
+            || self.squads().map_or(0, <[Squad]>::len) > limits::SQUAD_SUMMARY_SQUADS
         {
             return Err(invalid());
         }
         name(&Value::String(self.machine_name.clone()))?;
         let mut count = 0usize;
-        for squad in &self.squads {
+        for squad in self.squads().unwrap_or_default() {
             let mut ids = std::collections::HashSet::new();
             name(&Value::String(squad.squad.clone()))?;
             for row in squad.lead.iter().chain(&squad.members) {

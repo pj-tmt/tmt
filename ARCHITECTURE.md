@@ -532,11 +532,10 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 [SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
 [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`.
 
-Remote uses public Core JSON only via absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; capture-only pins UUIDs.
-Core never uses Remote trust; extensions use public ports only.
-Remote owns member/channel authority, fenced effects and the other-machine summary/send/delivery interface (public `tmt ops squad ls --json` only); UI grants none.
-Firestore uses Auth/Rules only. Read-only auto-pair; no companions/skills.
-Emulation never ships.
+Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
+Core distrusts Remote. Other extensions: public CLI/SDK/`tmt-extension-objects`, never Remote state files.
+Remote owns member/channel authority, People, local effect fences, invites, join UI and summary/send/delivery (`ops squad ls --json`); UI grants none.
+Firestore: only Auth/Rules; read-only auto-pair; no companions/skills or shipped emulation.
 
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,
 with scope/allowlist/hold and UUID/name checks and same-ID Core dispatch/recovery.

@@ -19,6 +19,7 @@ One encrypted summary has this JSON shape:
   "version": 1,
   "machineName": "Studio",
   "observedAt": 1700000000000,
+  "status": "available",
   "squads": [
     {
       "squad": "infra",
@@ -61,14 +62,16 @@ path or conversation field enters the summary. There is no fallback to the broad
 owner-browser Ops projection, cron, private Ops/Core state or host inspection.
 
 A missing/failing Ops command, invalid JSON or changed required document shape
-returns `REMOTE_SUMMARY_UNAVAILABLE`; it is never an empty success. An explicitly
-empty `squads` list is valid. `Summary::read` rejects incompatible versions,
+produces a publishable `{version:1,machineName,observedAt,status:"unavailable"}`
+snapshot with no `squads`. It is never an empty available success and contains no
+stale facts or diagnostic free text. An explicitly empty available `squads` list
+is valid. `Summary::read` rejects incompatible versions,
 malformed identity/name/shape and duplicate JSON keys. Names are bounded text
 without controls or bidi-control characters. Named limits live in `limits.rs`;
 overflow refuses instead of truncating identity. Received unlisted fields are
 removed before any subsequent serialization.
 
-`observedAt` is Unix milliseconds, sampled after the public read succeeds. A
+`observedAt` is Unix milliseconds, sampled after the public read attempt finishes. A
 viewer computes age; a future timestamp cannot prove freshness. It must not replace
 observed time with its local read time or persist an online/offline flag as fact.
 The unchanged-summary heartbeat is five minutes; changed allowed data is coalesced
@@ -79,12 +82,16 @@ Firestore project guard and has no separate quota allowance.
 
 `Interface` has exactly three operations:
 
-- `list`: return a versioned list of `{remote, summary}` entries for other machines.
-  The source port supplies verified retained summaries and existing local routing
-  metadata. The Firestore adapter filters its own machine UUID, bounds the list,
-  validates summaries and refuses conflicting routing keys. A failed source is
-  unavailable, not an empty list. Machine identity and the local `remote` selector
-  are transport/routing metadata; they are not added to the synchronized summary.
+- `list`: return a versioned list of `{remote,status,summary?}` entries for other
+  machines. The source port supplies verified retained bytes and existing local
+  routing metadata. Each machine is `available`, `unavailable` or `incompatible`.
+  A malformed record is unavailable; an unsupported version is incompatible;
+  neither hides healthy peers or exposes squads. A published unavailable snapshot
+  retains its machine name and observation time, with no squads. The adapter
+  filters its own machine UUID. Only failed local sources, invalid routing keys,
+  duplicate machine IDs, conflicting selectors or machine-limit overflow fail the
+  entire list. Machine identity and the local `remote` selector are routing
+  metadata, outside the synchronized summary.
 - `send`: carry exact Core-prepared message bytes through the existing serving
   service. Preserve its current version-1 answer. In particular, `sent` is not
   proof that the receiving agent was handed the message.
@@ -111,7 +118,10 @@ existing signed `operation.show` recovery for that original ID. Its `accepted`
 receipt identifies the original Core request. Read that request through the
 existing signed `requests.show` operation; do not parse pane output or another
 agent's conversation history. Returned free text and final bodies are not exposed
-by the delivery projection.
+by the delivery projection. A delivery observation can issue two signed remote
+reads (`operation.show`, then `requests.show`), each a Firestore round-trip charged
+to the shared project guard. Consumers observe on demand or on change, never in a
+polling loop.
 
 | Observed evidence                                         | Interface state |
 | --------------------------------------------------------- | --------------- |
@@ -119,7 +129,7 @@ by the delivery projection.
 | Original Core `messageState` is `sent`                    | `queued`        |
 | Journal is `held`, or Core is `batched`                   | `held`          |
 | Core is `delivered` or `working`                          | `delivered`     |
-| Core is `answered` and its final is retained              | `answered`      |
+| Core is `answered`, regardless of final retention         | `answered`      |
 | Original journal refused/cancelled, or Core is `not_sent` | `failed`        |
 | Journal is `uncertain`, or Core is `unconfirmed`          | `unconfirmed`   |
 | No eligible original, or an unrecognized/missing state    | `unknown`       |
