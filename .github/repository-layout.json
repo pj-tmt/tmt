@@ -2,6 +2,7 @@
   "$comment": "Top-level permission only; ARCHITECTURE Repository layout owns responsibilities and pending moves. Component ownership remains in components.json. site/src/blog owns blog code; site/src/posts/<slug> holds approved English articles and optional independently approved <lang>/ variants; generated site/blog is ignored. Temporary entries name their removal issues. languageExceptions maps exact handbook or per-post translation directories to HTML language tags (AGENTS, Repository content language); add an entry with its first approved translation, never an empty allowance.",
   "permanent": [
     ".agents",
+    ".cargo",
     ".claude",
     ".claude-plugin",
     ".dockerignore",

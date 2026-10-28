@@ -1,0 +1,6 @@
+# Cargo reads this file from the repository root for builds started anywhere in
+# the checkout, including `rust/` and `--manifest-path rust/Cargo.toml`.
+[env]
+# Bundled SQLite: no process-wide memory statistics, whose mutex every allocation
+# takes (#5335). A builder that exports its own LIBSQLITE3_FLAGS keeps its choice.
+LIBSQLITE3_FLAGS = "SQLITE_DEFAULT_MEMSTATUS=0"

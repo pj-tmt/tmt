@@ -26,6 +26,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | ------------------------- | ------------------------------------------------------------------------------------ |
 | Repository root           | Entry points, contributor guidance, license and required configuration               |
 | `.agents/`                | Contributor skills and their area references                                         |
+| `.cargo/`                 | Cargo build environment for every Rust build in the checkout (bundled SQLite flags)  |
 | `.claude/`                | Claude Code project settings: the host-tmux guard hook                               |
 | `.claude-plugin/`         | Claude Code marketplace manifest for the bundled Claude plugins                      |
 | `.github/`                | Ownership/layout maps, workflows, shared Actions and isolated release tooling        |
@@ -262,6 +263,9 @@ and retention, refuse customized table definitions instead of rebuilding them, a
 board-relevant core tables advance the durable change cursor through triggers that a
 test requires new tables and columns to extend. Typed not-writable storage failures
 are classified once and projected through `tmt-command-output::Failure::storage_access`.
+Bundled SQLite is built with `SQLITE_DEFAULT_MEMSTATUS=0` ([`.cargo/config.toml`](.cargo/config.toml)):
+with statistics on, every allocation takes one process-wide mutex, and parallel cold opens
+convoy past the busy bound (#5335). No code may read SQLite memory statistics.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and retention

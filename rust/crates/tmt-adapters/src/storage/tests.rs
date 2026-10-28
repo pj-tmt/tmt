@@ -345,6 +345,23 @@ fn cold_open_race_initializes_wal_for_every_caller() {
     }
 }
 
+#[test]
+fn bundled_sqlite_keeps_no_process_wide_memory_statistics() {
+    // With statistics on, every SQLite allocation takes one process-wide mutex;
+    // parallel cold opens then convoy past the busy bound (#5335).
+    let connection = Connection::open_in_memory().unwrap();
+    let mut statement = connection.prepare("PRAGMA compile_options").unwrap();
+    let options = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert!(
+        options.iter().any(|option| option == "DEFAULT_MEMSTATUS=0"),
+        "{options:?}"
+    );
+}
+
 fn concurrent_opens(fixture: &Fixture) -> Vec<Result<u32, StorageError>> {
     let barrier = std::sync::Barrier::new(8);
     std::thread::scope(|scope| {
