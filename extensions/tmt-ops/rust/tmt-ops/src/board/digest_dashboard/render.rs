@@ -12,8 +12,15 @@ use tmt_tui::components::strip;
 /// Summary and content share the same placement owner as focus and pointer input.
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let _rows = app.workspace_frame_rows();
-    super::band::paint(frame, app, area);
-    let band_height = super::band::HEIGHT.min(area.height);
+    let band_height = super::summary::height(area.width, area.height);
+    super::summary::paint(
+        frame,
+        app,
+        Rect {
+            height: band_height,
+            ..area
+        },
+    );
     let now = crate::status::now_ms();
     let chart_height = if app.usage_chart.borrow().focused()
         && app.digest_panels().shown(crate::config::DigestPanel::Chart)
@@ -38,22 +45,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         ),
         now,
     );
-    let allowance_height = super::allowance::height(
-        app,
-        area.width,
-        area.height.saturating_sub(band_height + chart_height),
-    );
-    super::allowance::paint(
-        frame,
-        app,
-        Rect::new(
-            area.x,
-            area.y.saturating_add(band_height + chart_height),
-            area.width,
-            allowance_height,
-        ),
-    );
-    let top = band_height + chart_height + allowance_height;
+    let top = band_height + chart_height;
     let body = Rect::new(
         area.x,
         area.y.saturating_add(top),
@@ -231,7 +223,7 @@ pub(super) fn detail_lines(
         }),
         format!(
             "{} · TOK {}",
-            app.tok_range().argument(),
+            app.digest_range().argument(),
             metrics::token_text(metrics::tokens(report, &ids))
         ),
     ];
@@ -254,7 +246,7 @@ pub(super) fn detail_lines(
     }
     text.push(format!("Impact · {}", app.digest_window().label()));
     let summary = metrics::savings(app, &ids);
-    text.extend(super::band::fields(
+    text.extend(super::summary::fields(
         &summary,
         app.digest_window(),
         ["Est. ctx avoided", "List-price equivalent:"],
@@ -281,15 +273,7 @@ pub(super) fn detail_lines(
     if !price_column_shown {
         text.push("Input tokens at list price; not a bill.".into());
     }
-    text.push(super::band::DEFINITION.into());
-    if let Some(start) = crate::board::savings::savings_start(
-        &summary,
-        app.digest_window(),
-        app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
-        usize::from(width),
-    ) {
-        text.push(start);
-    }
+    text.push(super::summary::DEFINITION.into());
     text.push("Estimate basis".into());
     if let Some(id) = row.and_then(|row| row["id"].as_str()) {
         if statistics_available {
@@ -314,7 +298,7 @@ pub(super) fn detail_lines(
             text.push(format!(
                 "Usage coverage: {}% of {}{}",
                 seat.covered_ms.saturating_mul(100) / seat.window_ms.max(1),
-                app.tok_range().argument(),
+                app.digest_range().argument(),
                 if seat.complete {
                     " · complete"
                 } else {
@@ -371,7 +355,7 @@ pub(super) fn detail_lines(
             ));
         }
     }
-    match app.usage_report.view_for(app.tok_range()) {
+    match app.usage_report.view_for(app.digest_range()) {
         View::Loading => text.push("Usage loading…".into()),
         View::Failed(error) => text.push(format!("Usage unavailable: {error}")),
         View::Report(report) => {
@@ -394,7 +378,7 @@ pub(super) fn detail_lines(
             );
         }
     }
-    if let Some(error) = app.usage_report.refresh_error(app.tok_range()) {
+    if let Some(error) = app.usage_report.refresh_error(app.digest_range()) {
         text.push(format!("Stale usage retained · refresh failed: {error}"));
     }
     let narrow_activity = app.conversation.borrow().area.width.saturating_sub(2) < 70;

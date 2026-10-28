@@ -207,7 +207,6 @@ pub struct OpsPreferences {
     pub overview_sort: Option<OverviewSort>,
     pub layout: OpsLayout,
     pub tok_range: TokRange,
-    pub digest_window: super::DigestWindow,
     pub savings_unit: super::SavingsUnit,
     pub overview_panels: Option<PanelSetting<OverviewPanel>>,
     pub digest_panels: Option<PanelSetting<DigestPanel>>,
@@ -595,14 +594,8 @@ impl Config {
                             invalid("`workspace.tok_range` must be 1h, 3h, 6h, 1d or 7d.")
                         })?;
                 }
-                "digest_window" => {
-                    result.digest_window = item
-                        .as_str()
-                        .and_then(super::DigestWindow::parse)
-                        .ok_or_else(|| {
-                            invalid("`workspace.digest_window` must be 24h, 7d or lifetime.")
-                        })?;
-                }
+                // The Digest window is view state now; an older file still loads.
+                "digest_window" => {}
                 "savings_unit" => {
                     result.savings_unit = item
                         .as_str()
@@ -723,7 +716,6 @@ impl Config {
                 table.remove("overview_reverse");
             }
             document["workspace"]["tok_range"] = value(next.tok_range.argument());
-            document["workspace"]["digest_window"] = value(next.digest_window.argument());
             document["workspace"]["savings_unit"] = value(next.savings_unit.argument());
             document["workspace"]["layout"] = value(match next.layout {
                 OpsLayout::Auto => "auto",

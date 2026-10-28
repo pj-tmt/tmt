@@ -9,7 +9,7 @@ use crate::labels::digest::SavingsSummary;
 pub(super) use crate::board::usage_report::valuation::{input_price, tokens};
 
 pub(super) fn report(app: &App) -> Option<&Report> {
-    match app.usage_report.view_for(app.tok_range()) {
+    match app.usage_report.view_for(app.digest_range()) {
         View::Report(report) => Some(report),
         _ => None,
     }

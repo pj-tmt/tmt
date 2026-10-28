@@ -34,6 +34,7 @@ pub(super) fn project(
     labels: &Supplied,
     visibility: &crate::board::workspace::OpsVisibility,
     activity_stale: bool,
+    window: DigestWindow,
 ) -> Summary {
     let roster = &snapshot.roster;
     // Visibility affects this view's counts, never the acquired global roster
@@ -50,7 +51,7 @@ pub(super) fn project(
                 .iter()
                 .filter(|squad| visibility.shows_squad(&squad.room_id, &snapshot.preferences))
                 .all(|squad| squad.observation == OpsObservation::Complete),
-        window: snapshot.preferences.digest_window,
+        window,
         unit: snapshot.preferences.savings_unit,
         ..Default::default()
     };

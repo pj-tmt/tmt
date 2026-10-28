@@ -18,7 +18,7 @@ pub(in crate::board) fn savings_value(
         }
     };
     // (value, coverage, note about values that could not be combined)
-    match unit.shown(window) {
+    match unit {
         SavingsUnit::Tokens => (
             summary
                 .tokens
@@ -170,39 +170,6 @@ fn scaled(dollars: u128, unit: u128, suffix: &str) -> String {
     } else {
         format!("{}{suffix}", (dollars + unit / 2) / unit)
     }
-}
-
-/// Dates describe the included members' own collection starts, never a common
-/// reconstructed window. The caller supplies its local zone; tests pin one.
-pub(in crate::board) fn savings_start(
-    summary: &crate::labels::digest::SavingsSummary,
-    window: crate::config::DigestWindow,
-    zone: &jiff::tz::TimeZone,
-    width: usize,
-) -> Option<String> {
-    if window != crate::config::DigestWindow::AllTime {
-        return None;
-    }
-    let date = |ms| {
-        jiff::Timestamp::from_millisecond(i64::try_from(ms).ok()?)
-            .ok()
-            .map(|time| time.to_zoned(zone.clone()).strftime("%m-%d").to_string())
-    };
-    let first = date(summary.earliest_from_ms?)?;
-    let last = date(summary.latest_from_ms?)?;
-    Some(if first == last {
-        format!("since Digest began recording on {first}")
-    } else {
-        let prefix = "since Digest began recording ·";
-        let range = format!("members started {first} to {last}");
-        let line = format!("{prefix} {range}");
-        // Keep the collection range together on narrow usage surfaces.
-        if unicode_width::UnicodeWidthStr::width(line.as_str()) > width {
-            format!("{prefix}\n{range}")
-        } else {
-            line
-        }
-    })
 }
 
 #[cfg(test)]
@@ -382,39 +349,6 @@ mod tests {
         assert_eq!(
             caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
             "Est. ctx avoided 1d: — (0 of 3)"
-        );
-    }
-
-    #[test]
-    fn lifetime_detail_uses_individual_source_starts_in_local_dates() {
-        use crate::{config::DigestWindow, labels::digest::SavingsSummary};
-        let ms = |value: &str| value.parse::<jiff::Timestamp>().unwrap().as_millisecond() as u64;
-        let zone = jiff::tz::TimeZone::get("Asia/Tokyo").unwrap();
-        let mut value = SavingsSummary {
-            tokens: Some(1),
-            included: 1,
-            total: 1,
-            earliest_from_ms: Some(ms("2026-10-01T16:00:00Z")),
-            latest_from_ms: Some(ms("2026-10-08T16:00:00Z")),
-            ..Default::default()
-        };
-        assert_eq!(
-            super::savings_start(&value, DigestWindow::AllTime, &zone, 160).as_deref(),
-            Some("since Digest began recording · members started 10-02 to 10-09")
-        );
-        value.latest_from_ms = value.earliest_from_ms;
-        assert_eq!(
-            super::savings_start(&value, DigestWindow::AllTime, &zone, 160).as_deref(),
-            Some("since Digest began recording on 10-02")
-        );
-        assert_eq!(
-            super::savings_start(&value, DigestWindow::Day, &zone, 160),
-            None
-        );
-        value.earliest_from_ms = None;
-        assert_eq!(
-            super::savings_start(&value, DigestWindow::AllTime, &zone, 160),
-            None
         );
     }
 }

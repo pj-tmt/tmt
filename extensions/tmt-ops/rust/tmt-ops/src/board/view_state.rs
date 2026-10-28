@@ -90,6 +90,7 @@ pub(super) struct Controls {
     query: String,
     agents_filter: super::workspace::AgentsFilter,
     quota_window: super::limits::QuotaWindow,
+    digest_window: crate::config::DigestWindow,
     chart: (u32, super::overview::chart::model::Each),
     order: Order,
 }
@@ -100,6 +101,7 @@ impl Controls {
             query: app.search.to_string(),
             agents_filter: app.workspace.filter,
             quota_window: app.usage_chart.borrow().quota_window(),
+            digest_window: app.digest_window,
             chart: app.usage_chart.borrow().chart_controls(),
             order: app.workspace_order(),
         }
@@ -109,6 +111,7 @@ impl Controls {
         app.search = self.query.clone().into();
         app.workspace.query = self.query.clone();
         app.workspace.filter = self.agents_filter;
+        app.digest_window = self.digest_window;
         app.usage_chart
             .borrow_mut()
             .restore_quota_window(self.quota_window);
@@ -124,6 +127,7 @@ impl Controls {
         json!({ "paneRatios": super::pane_resize::ratios_json(&self.ratios), "query": self.query,
             "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Agents => "agents", AgentsFilter::Pinned => "pinned" },
             "quotaWindow": self.quota_window.key(),
+            "digestWindow": self.digest_window.label(),
             "chart": {"rangeMinutes": self.chart.0, "eachMinutes": match self.chart.1 { super::overview::chart::model::Each::Auto => None, super::overview::chart::model::Each::Fixed(n) => Some(n) }},
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
             "reversed": self.order.reversed,
@@ -152,6 +156,11 @@ impl Controls {
                 .get("quotaWindow")
                 .and_then(Value::as_str)
                 .and_then(super::limits::QuotaWindow::parse)
+                .unwrap_or_default(),
+            digest_window: value
+                .get("digestWindow")
+                .and_then(Value::as_str)
+                .and_then(crate::config::DigestWindow::parse)
                 .unwrap_or_default(),
             order: Order {
                 agents: match value["sort"].as_str()? {

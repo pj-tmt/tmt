@@ -162,21 +162,22 @@ impl Default for Reminders {
 
 pub use idle_alert::IdleAlert;
 
-/// The window requested from Digest's own retained evidence, not the token meter.
+/// The Digest tab's window: the supplier's savings window and, while the tab shows, the
+/// usage range. It is per-viewer view state, never Config.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DigestWindow {
     #[default]
     Day,
     Week,
-    AllTime,
 }
 
 impl DigestWindow {
+    pub const ALL: [Self; 2] = [Self::Day, Self::Week];
+
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "24h" | "1d" => Some(Self::Day),
             "7d" => Some(Self::Week),
-            "lifetime" => Some(Self::AllTime),
             _ => None,
         }
     }
@@ -185,7 +186,6 @@ impl DigestWindow {
         match self {
             Self::Day => "24h",
             Self::Week => "7d",
-            Self::AllTime => "lifetime",
         }
     }
 
@@ -193,7 +193,14 @@ impl DigestWindow {
         match self {
             Self::Day => "1d",
             Self::Week => "7d",
-            Self::AllTime => "all time",
+        }
+    }
+
+    /// The usage range the Digest tab reads for this window.
+    pub fn range(self) -> TokRange {
+        match self {
+            Self::Day => TokRange::Day,
+            Self::Week => TokRange::Week,
         }
     }
 }
@@ -226,21 +233,9 @@ impl SavingsUnit {
         }
     }
 
-    /// The unit actually shown: lifetime has no percent, so a saved percent
-    /// reads as tokens there without rewriting the saved choice.
-    pub fn shown(self, window: DigestWindow) -> Self {
-        if self == Self::Percent && window == DigestWindow::AllTime {
-            Self::Tokens
-        } else {
-            self
-        }
-    }
-
-    /// Click and keyboard order on every surface: tokens, percent, cost, and
-    /// back, skipping percent where the window cannot show it.
-    pub fn next(self, window: DigestWindow) -> Self {
-        match self.shown(window) {
-            Self::Tokens if window == DigestWindow::AllTime => Self::Cost,
+    /// Click and keyboard order on every surface: tokens, percent, cost, and back.
+    pub fn next(self) -> Self {
+        match self {
             Self::Tokens => Self::Percent,
             Self::Percent => Self::Cost,
             Self::Cost => Self::Tokens,

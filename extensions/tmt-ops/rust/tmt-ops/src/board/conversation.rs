@@ -934,13 +934,6 @@ fn render_target(
             header.push(Line::styled(line, look.role(Role::Dim)));
         }
     }
-    if let Some(start) = app.digest_savings_start(&savings, usize::from(area.width)) {
-        header.extend(
-            super::notes::wrap(&start, usize::from(area.width))
-                .into_iter()
-                .map(|line| Line::styled(line, look.role(Role::Dim))),
-        );
-    }
     let flow = if session.change == Change::NewOutput {
         "new output · End resumes follow"
     } else if session.change == Change::Unavailable {

@@ -384,10 +384,6 @@ impl Cost {
 
 impl Percent {
     fn parse(value: &Value, window: DigestWindow) -> Option<Self> {
-        // Lifetime has no percent; a supplier that sends one is not trusted.
-        if window == DigestWindow::AllTime {
-            return None;
-        }
         let avoided = number(value.get("estimatedInputTokensAvoided")?)?;
         let observed = number(value.get("observedInputTokens")?)?;
         let from_ms = number(value.get("fromMs")?)?;

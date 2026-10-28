@@ -669,6 +669,7 @@ fn session(
     // The event that ended a wheel burst; it is the next turn's first event.
     let mut deferred: Option<BoardEvent> = None;
     let mut wanted: Option<usage_report::Request> = None;
+    let mut labels_published = crate::config::DigestWindow::default();
     let mut history_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
@@ -770,6 +771,11 @@ fn session(
         dirty |= next_spinner != spinner || next_marks != marks;
         spinner = next_spinner;
         marks = next_marks;
+        // The labels reader starts at the default window; a restored or chosen one follows.
+        if app.digest_window() != labels_published {
+            labels_published = app.digest_window();
+            labels_window(labels_published);
+        }
         // The reader runs only while the panel is on screen, for its window.
         let want = app.usage_report_want();
         if want != wanted {
@@ -924,11 +930,7 @@ fn session(
                                 revision += 1;
                                 app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
-                            let previous_window = app.digest_window();
                             app.apply(*snapshot);
-                            if app.digest_window() != previous_window {
-                                labels_window(app.digest_window());
-                            }
                             dirty = true;
                             Effect::None
                         } else {
@@ -1683,7 +1685,7 @@ pub fn run(
         &core,
         config.label_sources()?,
         crate::labels::Timing::default(),
-        config.workspace_preferences()?.digest_window,
+        crate::config::DigestWindow::default(),
         {
             let events = events.clone();
             move |supplied| events.send(BoardEvent::Labels(supplied)).is_ok()
