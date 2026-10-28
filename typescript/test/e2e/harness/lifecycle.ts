@@ -190,24 +190,25 @@ function groupExists(pid: number): boolean {
 /** Signal only a group whose leader still has the recorded start time. */
 export function stopOwnedGroups(groups: readonly OwnedGroup[]): void {
   const failures: Error[] = [];
-  const matched: OwnedGroup[] = [];
+  const waiting: OwnedGroup[] = [];
   for (const group of groups) {
     let verified = false;
     try {
       const leader = groupLeader(group.pid);
       if (leader && leader.started !== group.started) continue;
       if (!leader) {
-        if (groupExists(group.pid))
-          failures.push(new Error(`Cannot identify E2E group ${group.pid}.`));
+        // The leader may have exited before the group finishes disappearing.
+        // Observe it within the same cleanup bound; never signal without identity.
+        if (groupExists(group.pid)) waiting.push(group);
         continue;
       }
       verified = true;
       if (!groupExists(group.pid)) continue;
-      matched.push(group);
+      waiting.push(group);
       process.kill(-group.pid, 'SIGTERM');
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'EPERM' && verified) {
-        if (!matched.includes(group)) matched.push(group);
+        if (!waiting.includes(group)) waiting.push(group);
       } else if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
         failures.push(new Error(`Could not stop E2E group ${group.pid}: ${String(error)}`));
       }
@@ -216,7 +217,7 @@ export function stopOwnedGroups(groups: readonly OwnedGroup[]): void {
   }
   const deadline = Date.now() + 2_000;
   for (;;) {
-    const pending = matched.filter((group) => {
+    const pending = waiting.filter((group) => {
       try {
         const leader = groupLeader(group.pid);
         if (leader && leader.started !== group.started) return false;

@@ -185,6 +185,24 @@ describe('exited E2E group observations', () => {
     expect(signal.mock.calls.every(([, value]) => value === 0)).toBe(true);
   });
 
+  it.each(['-1', '4294967295'])(
+    'waits for a transiently visible group after ps reports %s',
+    (pgid) => {
+      vi.spyOn(childProcess, 'execFileSync').mockReturnValue(`${pgid} known`);
+      const signal = vi
+        .spyOn(process, 'kill')
+        .mockReturnValueOnce(true)
+        .mockImplementation(() => {
+          throw gone;
+        });
+      expect(() => stopOwnedGroups([{ pid: 95408, started: 'known' }])).not.toThrow();
+      expect(signal.mock.calls).toEqual([
+        [-95408, 0],
+        [-95408, 0],
+      ]);
+    }
+  );
+
   it('accepts exit while waiting for a verified group to stop', () => {
     vi.spyOn(childProcess, 'execFileSync')
       .mockReturnValueOnce('95407 known')
@@ -214,7 +232,7 @@ describe('exited E2E group observations', () => {
     });
     const signal = vi.spyOn(process, 'kill').mockReturnValue(true);
     expect(() => stopOwnedGroups([{ pid: 95406, started: 'known' }])).toThrow(
-      'Cannot identify E2E group'
+      'E2E process groups survived or cannot be inspected: 95406'
     );
     expect(signal.mock.calls.every(([, value]) => value === 0)).toBe(true);
   });
