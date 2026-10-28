@@ -80,6 +80,12 @@ function start(
   }
   const home = path.join(f.root, `home-${name}-${run}`);
   fs.mkdirSync(home);
+  if (extra.MOCK_SANDBOX_MODE) {
+    fs.writeFileSync(
+      path.join(home, 'config.toml'),
+      `sandbox_mode = ${JSON.stringify(extra.MOCK_SANDBOX_MODE)}\napproval_policy = "on-request"\n`
+    );
+  }
   if (extra.MOCK_DIGEST_INLINE_HOOKS === '1') {
     fs.writeFileSync(path.join(home, 'config.toml'), inlineHookConfig);
   }
@@ -482,6 +488,39 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     });
   });
 
+  it.each(['workspace-write', 'read-only', 'danger-full-access'])(
+    'preserves private Codex permissions and user roots under %s',
+    async (mode) => {
+      await withE2EFixture(async (f) => {
+        const userRoot = path.join(f.root, 'user-writable-root');
+        fs.mkdirSync(userRoot);
+        const worker = start(
+          f,
+          'Permissions',
+          false,
+          { MOCK_SANDBOX_MODE: mode },
+          undefined,
+          false,
+          ['--add-dir', userRoot]
+        );
+        const config = path.join(worker.home, 'config.toml');
+        const original = fs.readFileSync(config, 'utf8');
+        await ready(f, worker);
+        expect(events(worker, 'started')[0].args).toEqual([
+          '--no-daemon',
+          ...(mode === 'workspace-write' ? ['--add-dir', f.globalDir] : []),
+          '--add-dir',
+          userRoot,
+          '-c',
+          expect.stringContaining(' __digest-hook codex --discover-launch'),
+        ]);
+        expect(fs.readFileSync(config, 'utf8')).toBe(original);
+        await quit(worker);
+        expect(records(f)).toEqual([]);
+      });
+    }
+  );
+
   it('Default launches plain Codex without enrollment and processes paste', async () => {
     await withE2EFixture(async (f) => {
       const worker = start(f, 'Default', 'default');
@@ -491,8 +530,6 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       expect(events(worker, 'attached')).toEqual([]);
       expect(events(worker, 'started')[0].args).toEqual([
         '--no-daemon',
-        '--add-dir',
-        f.globalDir,
         '-c',
         expect.stringContaining(' __digest-hook codex --discover-launch'),
       ]);
@@ -629,8 +666,6 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           expect(records(f)).toEqual([]);
           expect(events(resumed, 'started')[0].args).toEqual([
             'resume',
-            '--add-dir',
-            f.globalDir,
             '-c',
             expect.stringContaining(' __digest-hook codex --discover-launch'),
             original,
@@ -687,8 +722,6 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         await ready(f, plain);
         expect(events(plain, 'started')[0].args).toEqual([
           'resume',
-          '--add-dir',
-          f.globalDir,
           '-c',
           expect.stringContaining(' __digest-hook codex --discover-launch'),
           original,
@@ -1061,12 +1094,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           args
         );
         await ready(f, s);
-        expect(events(s, 'started')[0].args).toEqual([
-          '--no-daemon',
-          '--add-dir',
-          f.globalDir,
-          ...args,
-        ]);
+        expect(events(s, 'started')[0].args).toEqual(['--no-daemon', ...args]);
         expect(
           f
             .capture(200, s.pane)

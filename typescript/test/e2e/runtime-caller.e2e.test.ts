@@ -105,7 +105,7 @@ describe(
         expect(calls).toHaveLength(2);
         for (const args of calls) {
           expect(args.filter((word) => word === '--no-daemon')).toHaveLength(1);
-          expect(args[args.indexOf('--add-dir') + 1]).toBe(fixture.globalDir);
+          expect(args).not.toContain('--add-dir');
         }
         expect(calls[0]).toContain('fixture-model');
         expect(calls[1][0]).toBe('resume');
