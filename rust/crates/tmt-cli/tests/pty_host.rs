@@ -400,6 +400,104 @@ fn run_without_tmux_starts_independent_members_and_check_reads_causal_output() {
 }
 
 #[test]
+fn stored_binding_reads_rename_and_force_remove_use_the_pty_host_without_tmux() {
+    for tripwire in [false, true] {
+        let mut world = World::new();
+        // World clears the caller environment and exposes only ps and sh on PATH.
+        assert!(!world.root.join("bin/tmux").exists());
+        let tmux_called = world.root.join("tmux-called");
+        if tripwire {
+            // A refusing sentinel in place of an absent executable also catches
+            // attempts whose spawn errors the command might otherwise ignore.
+            let script = format!(
+                "#!/bin/sh\nprintf called >> '{}'\nexit 99\n",
+                tmux_called.display()
+            );
+            tmt_test_support::write_executable(
+                &world.root.join("bin/tmux"),
+                script.as_bytes(),
+                0o755,
+            )
+            .unwrap();
+        }
+        let started = world.run(&[
+            "run",
+            "--host",
+            "pty",
+            "--no-channel",
+            "--save",
+            "alpha",
+            "/bin/sh",
+            "-c",
+            "printf 'stored-pty-ready\n'; while IFS= read -r line; do :; done",
+        ]);
+        assert!(started.status.success(), "{started:?}");
+        let named = world.json(&["ls", "alpha", "--json"]);
+        assert_eq!(named["presence"], "active", "{named:#}");
+        let id = named["identity"]["id"].as_str().unwrap().to_owned();
+        let pane = named["pane"]["id"].as_str().unwrap().to_owned();
+        let database = support::state_dir(&world.root).join("tmt.db");
+        let original = tmt_adapters::storage::Storage::context_by_identity(&database, &id, 0)
+            .unwrap()
+            .unwrap()
+            .entry
+            .binding
+            .unwrap();
+        assert_eq!(original.server.host, tmt_core::host::HostKind::pty());
+        let listed = world.json(&["ls", "--json"]);
+        let rows = listed["identities"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "{listed:#}");
+        assert_eq!(rows[0]["id"], id);
+        assert_eq!(rows[0]["presence"], "active");
+        assert_eq!(rows[0]["location"]["host"], "pty");
+        assert_eq!(rows[0]["pane"], pane);
+
+        let renamed = world.json(&["rename", "alpha", "renamed", "--json"]);
+        assert_eq!(renamed["renamed"], true, "{renamed:#}");
+        assert_eq!(renamed["identity"]["id"], id);
+        let current = tmt_adapters::storage::Storage::context_by_identity(&database, &id, 0)
+            .unwrap()
+            .unwrap()
+            .entry;
+        assert_eq!(current.identity.name, "renamed");
+        assert_eq!(current.binding.as_ref().unwrap().id, original.id);
+        let directory = support::state_dir(&world.root).join("pty");
+        let mut terminal = Connection::connect(&directory, &pane).unwrap();
+        let ControlReply::State { marker, .. } = terminal
+            .control(Control::Inspect, Duration::from_secs(3))
+            .unwrap()
+        else {
+            panic!("renamed supervisor did not return state");
+        };
+        let marker: Value = serde_json::from_str(marker.as_deref().unwrap()).unwrap();
+        assert_eq!(marker["name"], "renamed");
+        assert_eq!(marker["bindingId"], original.id);
+
+        let removed = world.json(&["rm", "renamed", "--force", "--json"]);
+        assert_eq!(removed["removed"], true, "{removed:#}");
+        assert_eq!(removed["identity"]["id"], id);
+        assert!(
+            tmt_adapters::storage::Storage::context_by_identity(&database, &id, 0)
+                .unwrap()
+                .is_none()
+        );
+        let ControlReply::State { marker, .. } = terminal
+            .control(Control::Inspect, Duration::from_secs(3))
+            .unwrap()
+        else {
+            panic!("removed binding's supervisor did not return state");
+        };
+        assert!(
+            marker.is_none(),
+            "force-remove did not clear the PTY marker"
+        );
+        drop(terminal);
+        assert!(!tmux_called.exists(), "stored PTY operations invoked tmux");
+        assert!(world.clean());
+    }
+}
+
+#[test]
 fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_member() {
     use tmt_adapters::host::{Host, PaneClose};
     let mut world = World::new();
