@@ -2225,9 +2225,8 @@ fn a_task_follows_a_page_with_one_parent_and_no_loop_and_a_task_becomes_a_page()
         assert!(human.contains("in-progress  follows"), "{human}");
 
         // Linking the same page again changes nothing, and a second parent, a loop, itself and a
-        // page that is not there are each refused, naming why. The loop needs the chain top, middle,
-        // leaf first.
-        call(&pilot, &["task", "link", &mid, "T-1", &leaf, "--json"]);
+        // page that is not there are each refused, naming why. The direct child can close a loop back to its parent.
+
         let again = call(&pilot, &["task", "link", &top, "T-1", &mid, "--json"]);
         assert!(!again["changed"].as_bool().unwrap());
         for (args, words) in [
@@ -2235,10 +2234,7 @@ fn a_task_follows_a_page_with_one_parent_and_no_loop_and_a_task_becomes_a_page()
                 vec!["task", "link", &top, "T-2", &mid],
                 "already followed by T-1",
             ),
-            (
-                vec!["task", "link", &leaf, "T-1", &top],
-                "would make a loop",
-            ),
+            (vec!["task", "link", &mid, "T-1", &top], "would make a loop"),
             (vec!["task", "link", &top, "T-2", &top], "own page"),
             (
                 vec![
@@ -2294,9 +2290,8 @@ fn a_task_follows_a_page_with_one_parent_and_no_loop_and_a_task_becomes_a_page()
             "COLAB_INPUT_INVALID"
         );
 
-        // The state follows all the way down: a finished leaf finishes the middle page and the
-        // task above it.
-        call(&pilot, &["task", "state", &leaf, "T-1", "done", "--json"]);
+        // The finished direct child finishes the task that follows it.
+        call(&pilot, &["task", "state", &mid, "T-1", "done", "--json"]);
         let done = tasks(&top);
         assert_eq!(done["derived"]["states"], json!({"T-1":"done"}));
         assert_eq!(done["derived"]["done"], 1);
@@ -13121,4 +13116,432 @@ fn storage_reclaim_skips_shared_history_and_keeps_page_revision() {
     let after = pilot.call(&["page", "read", page, "--json"]);
     assert_eq!(before["source"], after["source"]);
     assert_eq!(before["revision"], after["revision"]);
+}
+
+/// Admission failures must not publish a link or create a conversion's orphan page.
+fn check_subpage_refusal(case: &str) {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("hierarchy.html");
+        fs::write(&source, "<p>Hierarchy source</p>").unwrap();
+        let mut pages = Vec::new();
+        for title in ["Parent", "Child", "Other"] {
+            let made = pilot.call(&[
+                "page",
+                "create",
+                "--title",
+                title,
+                "--layout",
+                "column",
+                "--file",
+                source.to_str().unwrap(),
+                "--no-open",
+                "--json",
+            ]);
+            let page = made["pageId"].as_str().unwrap().to_owned();
+            pilot.call(&["task", "add", &page, "--title", "A task", "--json"]);
+            pages.push(page);
+        }
+        let (parent, child, other) = (&pages[0], &pages[1], &pages[2]);
+        pilot.call(&["task", "link", parent, "T-1", child, "--json"]);
+        let snapshot = || {
+            let listed = pilot.call(&["ls", "--json"]);
+            let work: Vec<_> = pages
+                .iter()
+                .map(|page| pilot.call(&["task", "ls", page, "--json"]))
+                .collect();
+            let content: Vec<_> = pages
+                .iter()
+                .map(|page| {
+                    let read = pilot.call(&["page", "read", page, "--json"]);
+                    json!({"source":read["source"],"revision":read["revision"]})
+                })
+                .collect();
+            json!({"head":listed["membershipHead"],"pages":listed["pages"].as_array().unwrap().iter().map(|page| page["pageId"].clone()).collect::<Vec<_>>(),"work":work,"content":content})
+        };
+        let before = snapshot();
+        let (args, reason): (Vec<&str>, _) = match case {
+            "second-parent" => (
+                vec!["task", "link", other, "T-1", child, "--json"],
+                "second-parent",
+            ),
+            "grandchild" => (
+                vec!["task", "link", child, "T-1", other, "--json"],
+                "child-has-parent",
+            ),
+            "parent-as-child" => (
+                vec!["task", "link", other, "T-1", parent, "--json"],
+                "parent-has-children",
+            ),
+            "cycle" => (
+                vec!["task", "link", child, "T-1", parent, "--json"],
+                "cycle",
+            ),
+            "self" => (vec!["task", "link", other, "T-1", other, "--json"], "cycle"),
+            "convert" => (
+                vec!["task", "convert", child, "T-1", "--json"],
+                "child-has-parent",
+            ),
+            _ => unreachable!(),
+        };
+        let output = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .args(&args)
+            .output()
+            .unwrap();
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(
+            !output.status.success(),
+            "{case} serving={serving}: {result}"
+        );
+        assert_eq!(
+            result["error"]["code"], "COLAB_LINK_REFUSED",
+            "{case}: {result}"
+        );
+        assert_eq!(result["error"]["reason"], reason, "{case}: {result}");
+        assert!(!result["error"]["message"].as_str().unwrap().is_empty());
+        assert_eq!(snapshot(), before, "{case}: refusal changed durable state");
+    }
+}
+
+#[test]
+fn subpage_refuses_second_parent_without_writing() {
+    check_subpage_refusal("second-parent");
+}
+#[test]
+fn subpage_refuses_grandchild_without_writing() {
+    check_subpage_refusal("grandchild");
+}
+#[test]
+fn subpage_refuses_attaching_a_parent_without_writing() {
+    check_subpage_refusal("parent-as-child");
+}
+#[test]
+fn subpage_refuses_cycle_without_writing() {
+    check_subpage_refusal("cycle");
+}
+#[test]
+fn subpage_refuses_self_without_writing() {
+    check_subpage_refusal("self");
+}
+#[test]
+fn subpage_refuses_convert_on_child_before_creating_a_page() {
+    check_subpage_refusal("convert");
+}
+
+/// Publish an old/racing client's valid work value without today's cross-page admission.
+fn legacy_subpage_action(pilot: &Pilot, page: &str, action: &str, body: Value) {
+    use tmt_colab::{
+        decoder::StructuredKind,
+        page::{self, PublicationPreparation, StructuredAction},
+        store::Store,
+    };
+    let mut source = page::save::open_source(
+        &pilot.root.join("selected"),
+        support::decoder_config(BINARY.into()),
+    )
+    .unwrap();
+    let before =
+        page::read_work(&source.store, &source.keyring, page, &mut source.decoder).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let prepared = page::prepare_structured_publication(
+        &source.store,
+        &source.keyring,
+        page,
+        StructuredAction {
+            kind: StructuredKind::Work,
+            action,
+            body: &body,
+            expected_revision: &before.revision,
+            display_agent: None,
+            operation_id: None,
+        },
+        &mut source.decoder,
+        &|| Ok(now),
+    )
+    .unwrap();
+    source.store.close().unwrap();
+    let PublicationPreparation::Write(frozen) = prepared else {
+        panic!("legacy fixture must publish a change")
+    };
+    let mut store = Store::open(&source.layout).unwrap();
+    page::commit_publication(
+        &mut store,
+        &source.keyring,
+        frozen.job(),
+        frozen.packet(),
+        frozen.chain(),
+        now,
+    )
+    .unwrap();
+    store.close().unwrap();
+}
+
+#[test]
+fn subpage_legacy_hierarchies_read_with_warnings_and_can_be_repaired() {
+    for (kind, warning) in [
+        ("depth", "subpage-depth-exceeded"),
+        ("parents", "subpage-multiple-parents"),
+        ("cycle", "subpage-cycle"),
+    ] {
+        let pilot = Pilot::new(None);
+        let source = pilot.root.join("legacy.html");
+        fs::write(&source, "<p>Legacy content</p>").unwrap();
+        let pages: Vec<_> = ["A", "B", "C", "Unrelated", "Free"]
+            .into_iter()
+            .map(|title| {
+                let made = pilot.call(&[
+                    "page",
+                    "create",
+                    "--title",
+                    title,
+                    "--layout",
+                    "column",
+                    "--file",
+                    source.to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ]);
+                let id = made["pageId"].as_str().unwrap().to_owned();
+                pilot.call(&["task", "add", &id, "--title", "First", "--json"]);
+                pilot.call(&["task", "add", &id, "--title", "Second", "--json"]);
+                id
+            })
+            .collect();
+        let (a, b, c, d, e) = (&pages[0], &pages[1], &pages[2], &pages[3], &pages[4]);
+        let edges = match kind {
+            "depth" => vec![(a, b), (b, c)],
+            "parents" => vec![(a, c), (b, c)],
+            "cycle" => vec![(a, b), (b, a)],
+            _ => unreachable!(),
+        };
+        for (parent, child) in &edges {
+            legacy_subpage_action(
+                &pilot,
+                parent,
+                "task.link",
+                json!({"taskId":"T-1","pageId":child}),
+            );
+        }
+        let work_before: Vec<_> = pages
+            .iter()
+            .map(|page| pilot.call(&["task", "ls", page, "--json"]))
+            .collect();
+        let cache = pilot.root.join("selected/colab/work-index.json");
+        assert!(
+            cache.exists(),
+            "explicit work reads must seed the cache control"
+        );
+        fs::remove_file(&cache).unwrap();
+        for page in [a, b] {
+            let shown = pilot.call(&["show", page, "--json"]);
+            assert!(
+                shown["page"]["warnings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|flag| flag == warning),
+                "{kind}: {shown}"
+            );
+            let read = pilot.call(&["page", "read", page, "--json"]);
+            assert_eq!(read["source"], "<p>Legacy content</p>");
+        }
+        assert!(
+            cache.exists(),
+            "show may refresh the rebuildable work cache without changing page data"
+        );
+        for (page, before) in pages.iter().zip(&work_before) {
+            let after = pilot.call(&["task", "ls", page, "--json"]);
+            assert_eq!(after["work"], before["work"]);
+            assert_eq!(after["revision"], before["revision"]);
+        }
+        for (parent, child) in &edges {
+            assert_eq!(
+                pilot.call(&["task", "ls", parent, "--json"])["work"]["tasks"]["T-1"]["child"],
+                **child
+            );
+        }
+        let out = pilot
+            .command()
+            .args(["task", "link", a, "T-2", d, "--json"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        let refused: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(refused["error"]["reason"], "invalid-hierarchy");
+        // No global freeze: a disconnected component can still accept a valid link.
+        pilot.call(&["task", "link", d, "T-1", e, "--json"]);
+        pilot.call(&["task", "unlink", b, "T-1", "--json"]);
+        for page in [a, b, c] {
+            let shown = pilot.call(&["show", page, "--json"]);
+            assert!(
+                !shown["page"]["warnings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|flag| flag
+                        .as_str()
+                        .is_some_and(|flag| flag.starts_with("subpage-"))),
+                "{shown}"
+            );
+        }
+    }
+}
+
+#[test]
+fn subpage_unlink_repairs_legacy_depth_even_when_it_restores_an_over_limit_task() {
+    let pilot = Pilot::new(None);
+    let source = pilot.root.join("repair.html");
+    fs::write(&source, "<p>Repair</p>").unwrap();
+    let pages: Vec<_> = ["Top", "Middle", "Leaf"]
+        .into_iter()
+        .map(|title| {
+            let made = pilot.call(&[
+                "page",
+                "create",
+                "--title",
+                title,
+                "--layout",
+                "column",
+                "--file",
+                source.to_str().unwrap(),
+                "--no-open",
+                "--json",
+            ]);
+            let id = made["pageId"].as_str().unwrap().to_owned();
+            pilot.call(&["task", "add", &id, "--title", "Work", "--json"]);
+            id
+        })
+        .collect();
+    let (top, middle, leaf) = (&pages[0], &pages[1], &pages[2]);
+    pilot.call(&["task", "link", top, "T-1", middle, "--json"]);
+    legacy_subpage_action(
+        &pilot,
+        middle,
+        "task.link",
+        json!({"taskId":"T-1","pageId":leaf}),
+    );
+    pilot.call(&["task", "assign", middle, "T-1", "agent:Worker", "--json"]);
+    pilot.call(&["task", "assign", leaf, "T-1", "agent:Worker", "--json"]);
+    pilot.call(&["task", "unlink", middle, "T-1", "--json"]);
+    let repaired = pilot.call(&["task", "ls", middle, "--json"]);
+    assert!(repaired["work"]["tasks"]["T-1"].get("child").is_none());
+    assert_eq!(
+        repaired["work"]["tasks"]["T-1"]["assignee"],
+        json!({"kind":"agent","name":"Worker"})
+    );
+    let shown = pilot.call(&["show", middle, "--json"]);
+    assert!(
+        !shown["page"]["warnings"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("subpage-depth-exceeded"))
+    );
+}
+
+#[test]
+fn subpage_show_refreshes_fingerprints_after_page_edits() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("fingerprints.html");
+        fs::write(&source, "<p>Before</p>").unwrap();
+        let pages: Vec<_> = ["Parent", "Middle", "Leaf"]
+            .into_iter()
+            .map(|title| {
+                let made = pilot.call(&[
+                    "page",
+                    "create",
+                    "--title",
+                    title,
+                    "--layout",
+                    "column",
+                    "--file",
+                    source.to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ]);
+                let id = made["pageId"].as_str().unwrap().to_owned();
+                pilot.call(&["task", "add", &id, "--title", "Work", "--json"]);
+                id
+            })
+            .collect();
+        let (parent, middle, leaf) = (&pages[0], &pages[1], &pages[2]);
+        pilot.call(&["task", "link", parent, "T-1", middle, "--json"]);
+        // Warm a current graph, then simulate a publication from an older/racing writer.
+        pilot.call(&["task", "ls", parent, "--json"]);
+        let cache = pilot.root.join("selected/colab/work-index.json");
+        let fingerprints =
+            || -> Value { serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap() };
+        let before = fingerprints();
+        assert!(before["pages"][middle]["fingerprint"].is_string());
+        legacy_subpage_action(
+            &pilot,
+            middle,
+            "task.link",
+            json!({"taskId":"T-1","pageId":leaf}),
+        );
+        assert_eq!(
+            fingerprints(),
+            before,
+            "publication leaves the derived cache stale"
+        );
+        let warn = || {
+            let shown = pilot.call(&["show", parent, "--json"]);
+            assert!(
+                shown["page"]["warnings"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("subpage-depth-exceeded")),
+                "{shown}"
+            );
+        };
+        warn();
+        let linked = fingerprints();
+        assert_ne!(
+            linked["pages"][middle]["fingerprint"], before["pages"][middle]["fingerprint"],
+            "show must refresh the edited page's cached fingerprint"
+        );
+        assert_eq!(linked["pages"][parent], before["pages"][parent]);
+        // A source edit changes the progress key without removing the legacy relationship.
+        pilot.call(&[
+            "page",
+            "patch",
+            middle,
+            "--find",
+            "Before",
+            "--replace",
+            "After",
+            "--json",
+        ]);
+        assert_eq!(fingerprints(), linked);
+        warn();
+        let edited = fingerprints();
+        assert_ne!(
+            edited["pages"][middle]["fingerprint"],
+            linked["pages"][middle]["fingerprint"]
+        );
+        assert_eq!(edited["pages"][parent], linked["pages"][parent]);
+        warn();
+        assert_eq!(
+            fingerprints(),
+            edited,
+            "an unchanged graph keeps its cached entries"
+        );
+        let read = pilot.call(&["page", "read", middle, "--json"]);
+        assert_eq!(read["source"], "<p>After</p>");
+        assert_eq!(
+            pilot.call(&["task", "ls", middle, "--json"])["work"]["tasks"]["T-1"]["child"],
+            *leaf
+        );
+    }
 }

@@ -18,6 +18,7 @@ use std::path::Path;
 pub struct Refused {
     pub code: &'static str,
     pub message: String,
+    pub reason: Option<&'static str>,
 }
 impl std::fmt::Display for Refused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,6 +33,7 @@ pub(crate) fn refused(
     Box::new(Refused {
         code,
         message: message.into(),
+        reason: None,
     })
 }
 /// An action the value or its body cannot take, or a task the page does not have.
@@ -96,13 +98,55 @@ pub fn link_refusal(
             short(page),
             short(page)
         ),
+        Refusal::ChildHasParent => format!(
+            "{} already has a parent. Sub-pages cannot have children; unlink it from its parent first.",
+            short(page)
+        ),
+        Refusal::ParentHasChildren => format!(
+            "{} already has children. A page with children cannot be attached as a sub-page; unlink its children first.",
+            short(child)
+        ),
+        Refusal::InvalidHierarchy => format!(
+            "{} belongs to a hierarchy with conflicting links. Inspect tmt colab show {} --json and repair it with task unlink before adding a link.",
+            short(page),
+            short(page)
+        ),
         Refusal::Loop => format!(
             "{} has {} below it, so {task} following it would make a loop.",
             short(child),
             short(page)
         ),
     };
-    refused("COLAB_LINK_REFUSED", message)
+    Box::new(Refused {
+        code: "COLAB_LINK_REFUSED",
+        message,
+        reason: Some(why.reason()),
+    })
+}
+
+/// Preserve the reason when a CLI adds context to the original admission refusal.
+pub fn reason(mut error: &(dyn std::error::Error + 'static)) -> Option<&'static str> {
+    loop {
+        if let Some(refused) = error.downcast_ref::<Refused>() {
+            return refused.reason;
+        }
+        error = error.source()?;
+    }
+}
+
+/// Shared by CLI and browser conversion, before either creates a page.
+pub fn admit_conversion(
+    space: &Space<'_>,
+    decoder: &mut Decoder,
+    page: &str,
+    task: &str,
+) -> crate::Result<()> {
+    let pages = inspection::all_page_ids(space.store, space.key)?;
+    let found = work_index::scan(space.layout, space.store, space.key, decoder, &pages)?;
+    if let Some(why) = Graph(&found).conversion_refusal(page) {
+        return Err(link_refusal(&why, page, task, ""));
+    }
+    Ok(())
 }
 
 /// Admits one `task.*` action on `page`, whose work now is `before`: the task it names exists, the
@@ -126,9 +170,11 @@ pub fn admit(
     }
     let after = work::apply(before, action, body, &Value::Null)
         .map_err(|_| invalid("Invalid task value or action; nothing was changed."))?;
-    if wip::held(page, &after)
-        .iter()
-        .any(|task| !wip::held(page, before).contains(task))
+    // Unlink is a repair operation, including when its restored task exceeds WIP.
+    if action != "task.unlink"
+        && wip::held(page, &after)
+            .iter()
+            .any(|task| !wip::held(page, before).contains(task))
     {
         let pages = inspection::active_page_ids(space.store, space.key)?;
         let found = work_index::scan(space.layout, space.store, space.key, decoder, &pages)?;

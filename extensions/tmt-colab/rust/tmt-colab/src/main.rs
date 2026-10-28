@@ -1432,6 +1432,9 @@ fn main() -> ExitCode {
                     value = recovery.correlation.clone();
                 }
                 value["error"] = json!({"code":code,"message":reported_error.to_string()});
+                if let Some(reason) = tmt_colab::work_admission::reason(error) {
+                    value["error"]["reason"] = json!(reason);
+                }
                 if let Some(failure) = patch_failure {
                     value["lockRelease"] = json!(failure.release);
                 }

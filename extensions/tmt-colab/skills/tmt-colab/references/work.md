@@ -41,8 +41,12 @@ tmt colab task unlink PAGE T-3 --json
 
 A task that follows a page shows that page's stage: `todo` while the page has no task, `in-progress`
 while it has, `done` when all of them are (`in-review` instead if the task needs sign-off). You
-cannot set its state; `task ls` shows the states it follows. A page has one parent, and a link that
-would make a loop is refused as `COLAB_LINK_REFUSED` naming why. A task cannot follow a page and have
+cannot set its state; `task ls` shows the states it follows. A page has one parent and at most one
+level of sub-pages: a child cannot get children, and a page with children cannot become a child.
+Invalid links are refused as `COLAB_LINK_REFUSED` with a stable `reason` and an explanation.
+Converting on a child is refused before creating a page. Existing conflicting links remain readable;
+`tmt colab show PAGE --json` flags them in `page.warnings`. Repair them with `task unlink`, which remains
+available even if restoring an assigned task exceeds its work-in-progress limit. A task cannot follow a page and have
 an external ID. If `convert` fails after making the page, it prints the page and the `task link`
 command that finishes the job; do not run `convert` again.
 

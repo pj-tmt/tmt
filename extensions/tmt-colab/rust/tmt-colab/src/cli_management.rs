@@ -1002,6 +1002,24 @@ fn confirmation_scope(
     (operation, scope, confirmation.clone())
 }
 
+/// Diagnostics share admission's fresh graph, folding only changed page fingerprints.
+fn attach_hierarchy_warnings(
+    layout: &Layout,
+    store: &Store,
+    key: &Keyring,
+    page: &mut Value,
+) -> Result<()> {
+    let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
+    let pages = inspection::all_page_ids(store, key)?;
+    let found = tmt_colab::work_index::scan(layout, store, key, &mut decoder, &pages)?;
+    let id = page["pageId"].as_str().unwrap_or_default();
+    let warnings = tmt_colab::work_links::Graph(&found).warnings(id);
+    if let Some(shown) = page["warnings"].as_array_mut() {
+        shown.extend(warnings.into_iter().map(|warning| json!(warning)));
+    }
+    Ok(())
+}
+
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
     let layout = Layout::existing(root)?;
     let Some(layout) = layout else {
@@ -1204,6 +1222,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     }
     if command == "show" {
         title_or_error(&store, &key, &mut page)?;
+        attach_hierarchy_warnings(&layout, &store, &key, &mut page)?;
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }

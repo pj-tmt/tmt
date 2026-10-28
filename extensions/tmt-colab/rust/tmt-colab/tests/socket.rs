@@ -5186,6 +5186,7 @@ fn a_browser_work_action_meets_the_same_admission_as_the_write_command() {
         json!({"taskId":"T-1","pageId":"70000000-0000-4000-8000-0000000000ff"}),
     );
     assert_eq!(link["code"], "COLAB_LINK_REFUSED", "{link}");
+    assert_eq!(link["reason"], "unavailable", "{link}");
     // Nothing else was written.
     let tasks = native_work(&layout, &key)["order"].clone();
     assert_eq!(tasks, json!(["T-1"]));
@@ -7107,4 +7108,148 @@ fn storage_read_returns_charged_namespace_usage_to_owner_and_local_client() {
         .unwrap();
     assert_eq!(row["attachmentsBytes"], 2048, "{row}");
     remote.join().unwrap();
+}
+
+/// A fixture publication at the same boundary an older device would use.
+fn hierarchy_fixture_action(layout: &Layout, key: &Keyring, page: &str, action: &str, body: Value) {
+    use tmt_colab::{
+        decoder::{Decoder, StructuredKind},
+        page::{self, PublicationPreparation, StructuredAction},
+    };
+    let store = Store::read(layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let read = page::read_work(&store, key, page, &mut decoder).unwrap();
+    let time = now();
+    let prepared = page::prepare_structured_publication(
+        &store,
+        key,
+        page,
+        StructuredAction {
+            kind: StructuredKind::Work,
+            action,
+            body: &body,
+            expected_revision: &read.revision,
+            display_agent: None,
+            operation_id: None,
+        },
+        &mut decoder,
+        &|| Ok(time),
+    )
+    .unwrap();
+    store.close().unwrap();
+    let PublicationPreparation::Write(frozen) = prepared else {
+        panic!("fixture must publish")
+    };
+    let mut store = Store::open(layout).unwrap();
+    page::commit_publication(
+        &mut store,
+        key,
+        frozen.job(),
+        frozen.packet(),
+        frozen.chain(),
+        time,
+    )
+    .unwrap();
+    store.close().unwrap();
+}
+
+#[test]
+fn browser_subpage_refusals_have_reasons_and_convert_creates_no_orphan() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for frame in server.save_frames(SAVE_ONE, "", "<p>One level</p>") {
+        send(&mut peer, frame);
+    }
+    receive_acked(&server, &mut peer, "saveresult");
+    let work = |peer: &mut _, number: u32, action: &str, body: Value| {
+        let operation = format!("60000000-0000-4000-8000-{number:012}");
+        send(
+            peer,
+            server.frame(
+                "work",
+                json!({"operationId":operation,"action":action,"body":body}),
+            ),
+        );
+        receive_acked(&server, peer, "workresult")
+    };
+    work(
+        &mut peer,
+        101,
+        "task.add",
+        json!({"task":{"title":"First"}}),
+    );
+    work(
+        &mut peer,
+        102,
+        "task.add",
+        json!({"task":{"title":"Second"}}),
+    );
+    let first = work(&mut peer, 103, "task.convert", json!({"taskId":"T-1"}));
+    let other = work(&mut peer, 104, "task.convert", json!({"taskId":"T-2"}));
+    assert_eq!(first["state"], "committed", "{first}");
+    assert_eq!(other["state"], "committed", "{other}");
+    let parent = first["childPage"].as_str().unwrap();
+    let other = other["childPage"].as_str().unwrap();
+    work(&mut peer, 105, "task.unlink", json!({"taskId":"T-1"}));
+    work(&mut peer, 106, "task.unlink", json!({"taskId":"T-2"}));
+    hierarchy_fixture_action(
+        &layout,
+        &key,
+        parent,
+        "task.add",
+        json!({"task":{"title":"Follows original"}}),
+    );
+    hierarchy_fixture_action(
+        &layout,
+        &key,
+        parent,
+        "task.link",
+        json!({"taskId":"T-1","pageId":PAGE}),
+    );
+    let before = page_ids(&layout, &key);
+    let source = native_page(&layout, &key, PAGE);
+    let tasks = native_work(&layout, &key);
+    for (n, action, body, reason) in [
+        (
+            107,
+            "task.link",
+            json!({"taskId":"T-1","pageId":other}),
+            "child-has-parent",
+        ),
+        (
+            108,
+            "task.convert",
+            json!({"taskId":"T-1"}),
+            "child-has-parent",
+        ),
+        (
+            109,
+            "task.link",
+            json!({"taskId":"T-1","pageId":parent}),
+            "cycle",
+        ),
+    ] {
+        let refused = work(&mut peer, n, action, body);
+        assert_eq!(refused["state"], "rejected", "{refused}");
+        assert_eq!(refused["code"], "COLAB_LINK_REFUSED", "{refused}");
+        assert_eq!(refused["reason"], reason, "{refused}");
+        assert!(refused.get("childPage").is_none(), "{refused}");
+        assert_eq!(page_ids(&layout, &key), before);
+        assert_eq!(native_work(&layout, &key), tasks);
+        let after = native_page(&layout, &key, PAGE);
+        assert_eq!(after.source, source.source);
+        assert_eq!(after.revision, source.revision);
+    }
+    // If this operation made a page earlier, a later hierarchy refusal must still name it.
+    let replay = work(&mut peer, 103, "task.convert", json!({"taskId":"T-2"}));
+    assert_eq!(replay["reason"], "child-has-parent", "{replay}");
+    assert_eq!(replay["childPage"], parent, "{replay}");
+    assert_eq!(page_ids(&layout, &key), before);
+    let repaired = work(&mut peer, 110, "task.unlink", json!({"taskId":"T-1"}));
+    assert_eq!(repaired["state"], "unchanged", "{repaired}");
 }

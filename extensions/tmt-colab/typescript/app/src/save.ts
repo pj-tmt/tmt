@@ -14,6 +14,16 @@ export interface QuestionWriteFinding {
   line: number;
   fix: string;
 }
+/** Stable relationship-admission reasons; absent on replies from older owners. */
+const LINK_REFUSAL_REASONS = [
+  'second-parent',
+  'child-has-parent',
+  'parent-has-children',
+  'cycle',
+  'invalid-hierarchy',
+  'unavailable',
+] as const;
+export type LinkRefusalReason = (typeof LINK_REFUSAL_REASONS)[number];
 export interface SaveResult {
   findings?: QuestionWriteFinding[];
   operationId: string;
@@ -25,6 +35,7 @@ export interface SaveResult {
   sourceSha256?: string;
   code?: string;
   message?: string;
+  reason?: LinkRefusalReason;
   /** Rejected as `COLAB_PATCH_CONFLICT` only: the hunks, as sent (0-based), that do not fit. */
   conflicts?: number[];
   /** A `task.convert` only: the page the operation made, whatever became of its link. */
@@ -72,6 +83,7 @@ export class SaveRefused extends Error {
     /** A convert refused after its page was made: the page exists and the task is not linked. */
     readonly childPage?: string,
     readonly findings?: QuestionWriteFinding[],
+    readonly reason?: LinkRefusalReason,
   ) {
     super(findings?.length ? `${message} Fix: ${findings[0].fix}` : message);
   }
@@ -119,6 +131,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     ...(state === 'committed' && Object.hasOwn(frame, 'merged') ? ['merged', 'sourceSha256'] : []),
     ...(state === 'rejected' ? ['code'] : []),
     ...(state === 'rejected' && Object.hasOwn(frame, 'message') ? ['message'] : []),
+    ...(state === 'rejected' && Object.hasOwn(frame, 'reason') ? ['reason'] : []),
     ...(state === 'rejected' && Object.hasOwn(frame, 'conflicts') ? ['conflicts'] : []),
     ...(state === 'rejected' && Object.hasOwn(frame, 'findings') ? ['findings'] : []),
     ...(Object.hasOwn(frame, 'childPage') ? ['childPage'] : []),
@@ -134,6 +147,12 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
         (frame.message === undefined ||
           (typeof frame.message === 'string' && frame.message.length <= 512)),
     );
+  requireValue(
+    frame.reason === undefined ||
+      (frame.code === 'COLAB_LINK_REFUSED' &&
+        typeof frame.reason === 'string' &&
+        LINK_REFUSAL_REASONS.some((reason) => reason === frame.reason)),
+  );
   // A made page is named only where a convert's outcome is final: committed, absent or rejected.
   requireValue(
     frame.childPage === undefined ||
@@ -195,6 +214,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
       : {}),
     ...(typeof frame.code === 'string' ? { code: frame.code } : {}),
     ...(typeof frame.message === 'string' ? { message: frame.message } : {}),
+    ...(typeof frame.reason === 'string' ? { reason: frame.reason as LinkRefusalReason } : {}),
     ...(Array.isArray(conflicts) ? { conflicts: conflicts as number[] } : {}),
     ...(Array.isArray(findings) ? { findings: findings as unknown as QuestionWriteFinding[] } : {}),
     ...(typeof frame.childPage === 'string' ? { childPage: frame.childPage } : {}),
@@ -220,6 +240,7 @@ export function settled(result: SaveResult): SaveResult {
       result.conflicts,
       result.childPage,
       result.findings,
+      result.reason,
     );
   return result;
 }

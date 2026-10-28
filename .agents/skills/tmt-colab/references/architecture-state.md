@@ -1107,6 +1107,22 @@ controls, and the shared and hosted readers keep `ShellNotice`.
   Exact warning codes and forever semantics live in the contract.
   The link artifact is a transient ID/seed, not a new reader URL/import grammar.
 
+## Sub-page relationship admission
+
+`work_links::Graph` owns cross-page relationship checks and diagnostics; the stored work value
+keeps accepting old links. Admission permits one parent/task and one level, with no cycles.
+`work_admission` maps refusals to `COLAB_LINK_REFUSED` and a stable reason shared by native JSON
+and browser `workresult`. CLI and `page/convert` run its conversion preflight before creation,
+then retain the existing post-create link admission and publication fences. Unlink bypasses WIP
+admission so legacy links remain repairable; task/value and authority/revision checks still apply.
+
+Explicit `tmt colab show PAGE --json` diagnostics share admission's `work_index::scan` graph,
+refreshing only changed page fingerprints in the rebuildable cache, and report connected-component
+conflicts through `page.warnings`. They neither rewrite links nor
+change deterministic parent selection or bounded legacy resolution. An invalid component refuses
+new links; unrelated components remain usable. `page/save::SaveResult` and the strict app
+`save.ts` parser preserve the optional refusal reason through `SaveRefused`; older owners may omit it.
+
 ## The work band
 
 An ordinary page whose view carries `work` (`PageSnapshot.work`, then every live projection), or

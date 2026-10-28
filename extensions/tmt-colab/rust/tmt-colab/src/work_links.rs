@@ -1,7 +1,7 @@
 //! Pages that follow pages (contract: Work). A task may follow another page, and its state is then
 //! that page's stage. One page's value cannot see another's, so this is read over what the work index
 //! holds for the whole space: how a page's derived values resolve through the pages its tasks follow,
-//! and the rules `task.link` is admitted by (one parent, no loop, a page that exists). These are the
+//! and the rules `task.link` is admitted by (one parent, one level, no loop, an available page). These are the
 //! write owner's rules, never a rule of the stored value, so a race of two writers can leave pages
 //! the rules would refuse; readers then resolve them the same way every time and never loop.
 use crate::{work, work_index::Found};
@@ -24,6 +24,24 @@ pub enum Refusal {
     HasParent { page: String, task: String },
     /// An ancestor of the page, so the link would close a loop.
     Loop,
+    /// The proposed parent is already a child.
+    ChildHasParent,
+    /// The proposed child already has children.
+    ParentHasChildren,
+    /// Existing conflicting links must be repaired before adding more.
+    InvalidHierarchy,
+}
+impl Refusal {
+    pub fn reason(&self) -> &'static str {
+        match self {
+            Self::Itself | Self::Loop => "cycle",
+            Self::Unavailable => "unavailable",
+            Self::HasParent { .. } => "second-parent",
+            Self::ChildHasParent => "child-has-parent",
+            Self::ParentHasChildren => "parent-has-children",
+            Self::InvalidHierarchy => "invalid-hierarchy",
+        }
+    }
 }
 
 /// What the work index holds for the pages of the space: a page absent from it is unavailable, a
@@ -158,6 +176,82 @@ impl Graph<'_> {
         found
     }
 
+    /// Diagnostics cover the connected hierarchy, including every competing parent claim.
+    /// They never alter stored links or the deterministic parent/reader projection.
+    pub fn warnings(&self, page: &str) -> Vec<&'static str> {
+        let mut children: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        let mut parents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for (parent, work) in self.0 {
+            for child in work
+                .iter()
+                .flat_map(|work| &work.lines)
+                .filter_map(|line| line.child.as_deref())
+            {
+                children.entry(parent).or_default().insert(child);
+                parents.entry(child).or_default().push(parent);
+            }
+        }
+        let mut component = BTreeSet::new();
+        let mut open = vec![page];
+        while let Some(next) = open.pop() {
+            if !component.insert(next) {
+                continue;
+            }
+            open.extend(children.get(next).into_iter().flatten().copied());
+            open.extend(parents.get(next).into_iter().flatten().copied());
+        }
+        let mut warnings = Vec::new();
+        if component
+            .iter()
+            .any(|id| parents.get(id).is_some_and(|claims| claims.len() > 1))
+        {
+            warnings.push("subpage-multiple-parents");
+        }
+        if component
+            .iter()
+            .any(|id| parents.contains_key(id) && children.contains_key(id))
+        {
+            warnings.push("subpage-depth-exceeded");
+        }
+        // Topological removal detects a cycle without recursive reads or a depth assumption.
+        let mut incoming: BTreeMap<&str, usize> = component
+            .iter()
+            .map(|id| {
+                let count = parents
+                    .get(id)
+                    .map_or(0, |claims| claims.iter().collect::<BTreeSet<_>>().len());
+                (*id, count)
+            })
+            .collect();
+        let mut ready: Vec<_> = incoming
+            .iter()
+            .filter_map(|(id, count)| (*count == 0).then_some(*id))
+            .collect();
+        let mut removed = 0;
+        while let Some(parent) = ready.pop() {
+            removed += 1;
+            for child in children.get(parent).into_iter().flatten() {
+                let count = incoming.get_mut(child).expect("child is in its component");
+                *count -= 1;
+                if *count == 0 {
+                    ready.push(child);
+                }
+            }
+        }
+        if removed != component.len() {
+            warnings.push("subpage-cycle");
+        }
+        warnings
+    }
+
+    /// A conversion creates a new child, so check the source page before creation.
+    pub fn conversion_refusal(&self, page: &str) -> Option<Refusal> {
+        if !self.warnings(page).is_empty() {
+            return Some(Refusal::InvalidHierarchy);
+        }
+        self.parent(page).map(|_| Refusal::ChildHasParent)
+    }
+
     /// Why task `task` of `page` may not follow `child`, if it may not.
     pub fn refusal(&self, page: &str, task: &str, child: &str) -> Option<Refusal> {
         if child == page {
@@ -166,17 +260,38 @@ impl Graph<'_> {
         if !self.0.contains_key(child) {
             return Some(Refusal::Unavailable);
         }
-        if let Some((parent, parent_task)) = self.parent(child)
-            && (parent.as_str(), parent_task.as_str()) != (page, task)
-        {
+        if let Some((parent, parent_task)) = self.0.iter().find_map(|(parent, work)| {
+            work.iter()
+                .flat_map(|work| &work.lines)
+                .find(|line| {
+                    line.child.as_deref() == Some(child)
+                        && (parent.as_str(), line.id.as_str()) != (page, task)
+                })
+                .map(|line| (parent.clone(), line.id.clone()))
+        }) {
             return Some(Refusal::HasParent {
                 page: parent,
                 task: parent_task,
             });
         }
-        self.descendants(child)
-            .contains(page)
-            .then_some(Refusal::Loop)
+        if self.descendants(child).contains(page) {
+            return Some(Refusal::Loop);
+        }
+        if !self.warnings(page).is_empty() || !self.warnings(child).is_empty() {
+            return Some(Refusal::InvalidHierarchy);
+        }
+        if self.parent(page).is_some() {
+            return Some(Refusal::ChildHasParent);
+        }
+        if self
+            .0
+            .get(child)
+            .and_then(Option::as_ref)
+            .is_some_and(|work| work.lines.iter().any(|line| line.child.is_some()))
+        {
+            return Some(Refusal::ParentHasChildren);
+        }
+        None
     }
 }
 
@@ -471,8 +586,11 @@ mod tests {
                 task: "T-1".into()
             })
         );
-        // The same task linking the same page again is not a second parent.
-        assert_eq!(graph.refusal("a", "T-1", "b"), None);
+        // The same task is not a second parent, but this existing deeper hierarchy is invalid.
+        assert_eq!(
+            graph.refusal("a", "T-1", "b"),
+            Some(Refusal::InvalidHierarchy)
+        );
         // c is below a through b, so a page below it may not follow a.
         assert_eq!(graph.refusal("c", "T-1", "a"), Some(Refusal::Loop));
         assert_eq!(graph.refusal("b", "T-2", "a"), Some(Refusal::Loop));
@@ -483,6 +601,86 @@ mod tests {
                 task: "T-1".into()
             })
         );
-        assert_eq!(graph.refusal("a", "T-2", "d"), None);
+        assert_eq!(
+            graph.refusal("a", "T-2", "d"),
+            Some(Refusal::InvalidHierarchy)
+        );
+    }
+    #[test]
+    fn one_level_links_allow_siblings_and_retries_but_not_either_kind_of_nesting() {
+        let found = found(vec![
+            ("a", page(vec![line("T-1", "todo", Some("b"))])),
+            ("b", None),
+            ("c", None),
+        ]);
+        let graph = Graph(&found);
+        assert!(graph.warnings("a").is_empty());
+        assert_eq!(graph.refusal("a", "T-1", "b"), None);
+        assert_eq!(graph.refusal("a", "T-2", "c"), None);
+        assert_eq!(
+            graph.refusal("b", "T-1", "c"),
+            Some(Refusal::ChildHasParent)
+        );
+        assert_eq!(
+            graph.refusal("c", "T-1", "a"),
+            Some(Refusal::ParentHasChildren)
+        );
+        assert_eq!(graph.refusal("b", "T-1", "a"), Some(Refusal::Loop));
+        assert_eq!(graph.conversion_refusal("a"), None);
+        assert_eq!(graph.conversion_refusal("b"), Some(Refusal::ChildHasParent));
+    }
+
+    #[test]
+    fn legacy_diagnostics_keep_every_claim_and_do_not_freeze_unrelated_components() {
+        for (edges, warning) in [
+            (vec![("a", "b"), ("b", "c")], "subpage-depth-exceeded"),
+            (vec![("a", "c"), ("b", "c")], "subpage-multiple-parents"),
+            (vec![("a", "b"), ("b", "a")], "subpage-cycle"),
+        ] {
+            let mut found = found(vec![
+                ("a", None),
+                ("b", None),
+                ("c", None),
+                ("d", None),
+                ("e", None),
+            ]);
+            for (parent, child) in edges {
+                found.insert(parent.into(), page(vec![line("T-1", "todo", Some(child))]));
+            }
+            let graph = Graph(&found);
+            for id in ["a", "b"] {
+                assert!(graph.warnings(id).contains(&warning));
+            }
+            assert_eq!(
+                graph.refusal("a", "T-2", "d"),
+                Some(Refusal::InvalidHierarchy)
+            );
+            assert_eq!(graph.refusal("d", "T-1", "e"), None);
+            assert_eq!(
+                graph.conversion_refusal("a"),
+                Some(Refusal::InvalidHierarchy)
+            );
+            assert!(graph.warnings("d").is_empty());
+            // Readers still resolve old links, including a cycle, and never change their inputs.
+            let before = found.clone();
+            graph.derived("a");
+            graph.parent("b");
+            assert_eq!(found, before);
+        }
+        let found = found(vec![
+            (
+                "a",
+                page(vec![
+                    line("T-1", "todo", Some("b")),
+                    line("T-2", "todo", Some("b")),
+                ]),
+            ),
+            ("b", None),
+        ]);
+        assert!(
+            Graph(&found)
+                .warnings("b")
+                .contains(&"subpage-multiple-parents")
+        );
     }
 }

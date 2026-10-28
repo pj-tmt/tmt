@@ -243,3 +243,39 @@ it('keeps bounded line-specific question repairs alongside a short Save refusal'
     saveResult(frame({ state: 'committed', revision: 'v1:abc', findings }), 'o'),
   ).toThrow();
 });
+
+it('keeps stable link refusal reasons through parsing and settlement', () => {
+  const reply = (fields: Record<string, unknown>) => ({ ...frame(fields), type: 'workresult' });
+  for (const reason of [
+    'second-parent',
+    'child-has-parent',
+    'parent-has-children',
+    'cycle',
+    'invalid-hierarchy',
+    'unavailable',
+  ]) {
+    const result = workResult(
+      reply({ state: 'rejected', code: 'COLAB_LINK_REFUSED', message: 'Repair the link', reason }),
+      'o',
+    );
+    expect(result).toMatchObject({ reason });
+    try {
+      settledAgainst(result);
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(SaveRefused);
+      expect(error).toMatchObject({ reason });
+    }
+  }
+  // Replies from an older owner remain readable.
+  expect(
+    workResult(reply({ state: 'rejected', code: 'COLAB_LINK_REFUSED' }), 'o'),
+  ).not.toHaveProperty('reason');
+  for (const fields of [
+    { state: 'rejected', code: 'COLAB_LINK_REFUSED', reason: 'unknown' },
+    { state: 'rejected', code: 'COLAB_LINK_REFUSED', reason: 7 },
+    { state: 'rejected', code: 'COLAB_INPUT_INVALID', reason: 'cycle' },
+    { state: 'committed', revision: 'v1:abc', reason: 'cycle' },
+  ])
+    expect(() => workResult(reply(fields), 'o')).toThrow();
+});

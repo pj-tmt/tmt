@@ -49,6 +49,20 @@ pub fn prepare(
             .clone();
         let page = child_page_id(&source.keyring.space_id, &edit.operation_id);
         let made = all_page_ids(&source.store, &source.keyring)?.contains(&page);
+        if made {
+            child = Some(page.clone());
+        }
+        crate::work_admission::admit_conversion(
+            &crate::work_admission::Space {
+                root: &source.root,
+                layout: &source.layout,
+                store: &source.store,
+                key: &source.keyring,
+            },
+            &mut source.decoder,
+            &edit.page,
+            task_id,
+        )?;
         let title = task["title"].as_str().unwrap_or_default();
         if !made {
             create(
