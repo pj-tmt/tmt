@@ -192,6 +192,80 @@ fn empty_persistent_hook_tables_allow_stable_launch_composition() {
     .unwrap();
     assert_eq!(hooks(&prepared)["Stop"].as_array().unwrap().len(), 2);
 }
+const TRUST: &str = "model='kept'\n[hooks.state.\"/u/hooks.json:stop:0:0\"]\ntrusted_hash = \"sha256:aa\"\n[hooks.state.\"/<session-flags>/config.toml:session_start:0:0\"]\ntrusted_hash = \"sha256:bb\"\n";
+
+#[test]
+fn trust_only_hook_state_composes_and_is_never_carried_into_the_launch() {
+    for root in [".codex", "system"] {
+        let d = TestDirectory::new();
+        let path = d.path.join(root).join("config.toml");
+        fs::create_dir(path.parent().unwrap()).unwrap();
+        fs::write(&path, TRUST).unwrap();
+        let prepared = prepare_in(
+            &d,
+            &command(&[]),
+            &launch("11111111-1111-4111-8111-111111111111"),
+        )
+        .unwrap();
+        assert_eq!(
+            hooks(&prepared)["Stop"].as_array().unwrap().len(),
+            2,
+            "{root}"
+        );
+        let setting = hook_setting(&prepared);
+        assert!(
+            !setting.contains("state") && !setting.contains("trusted_hash"),
+            "{root}: {setting}"
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), TRUST);
+    }
+}
+
+#[test]
+fn hook_state_beside_a_definition_or_in_another_shape_refuses() {
+    let foreign = json!({"hooks":[{"type":"command","command":"/user/hook","timeout":7}]});
+    let event = format!(
+        "[hooks]\nStop={}\n",
+        settings::toml(&json!([foreign])).unwrap()
+    );
+    let cases = [
+        format!("{event}[hooks.state.\"k\"]\ntrusted_hash = \"x\"\n"),
+        "[hooks.state.\"k\"]\ntrusted_hash = \"x\"\nnote = \"y\"\n".into(),
+        "[hooks.state.\"k\"]\ntrusted_hash = 1\n".into(),
+        "[hooks.state.\"k\"]\n".into(),
+        "[hooks]\nstate = { k = \"x\" }\n".into(),
+        "[hooks]\nstate = \"x\"\n".into(),
+        "[hooks]\nfuture = {}\n".into(),
+        format!("[plugins]\n{}", TRUST.trim_start_matches("model='kept'\n")),
+    ];
+    for text in cases {
+        let d = TestDirectory::new();
+        let path = d.path.join(".codex/config.toml");
+        fs::create_dir(path.parent().unwrap()).unwrap();
+        fs::write(&path, &text).unwrap();
+        assert!(
+            prepare_in(
+                &d,
+                &command(&[]),
+                &launch("11111111-1111-4111-8111-111111111111")
+            )
+            .is_err(),
+            "{text}"
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), text);
+    }
+    // A launch argument never sets trust for the provider.
+    let d = TestDirectory::new();
+    assert!(
+        prepare_in(
+            &d,
+            &command(&["-c", r#"hooks.state={"k"={trusted_hash="x"}}"#]),
+            &launch("11111111-1111-4111-8111-111111111111")
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn disable_ambiguous_edited_and_unreadable_sources_refuse_without_mutation() {
     let d = TestDirectory::new();

@@ -101,14 +101,31 @@ fn inspect(document: &DocumentMut) -> io::Result<Value> {
         .map(item)
         .transpose()?
         .unwrap_or_else(|| json!({}));
-    let map = hooks.as_object().ok_or_else(unavailable)?;
+    let mut map = hooks.as_object().ok_or_else(unavailable)?.clone();
     if map
         .keys()
         .any(|key| key == "managed_dir" || key == "windows_managed_dir")
     {
         return Err(unavailable());
     }
-    Ok(json!({"hooks":hooks}))
+    // Codex keeps hook trust in the same table. Those records are not hook
+    // definitions: admit only their exact shape, and never project, copy or
+    // write them (#5495). Anything else under `hooks` stays a definition.
+    if let Some(state) = map.remove("state") {
+        trust_records(&state)?;
+    }
+    Ok(json!({"hooks":map}))
+}
+
+fn trust_records(state: &Value) -> io::Result<()> {
+    let records = state.as_object().ok_or_else(unavailable)?;
+    for record in records.values() {
+        let fields = record.as_object().ok_or_else(unavailable)?;
+        if fields.len() != 1 || !fields.get("trusted_hash").is_some_and(Value::is_string) {
+            return Err(unavailable());
+        }
+    }
+    Ok(())
 }
 
 fn require_no_inline_hooks(text: &str) -> io::Result<()> {
@@ -227,6 +244,14 @@ pub(super) fn launch_settings(plan: &LaunchHooks<'_>) -> io::Result<(Value, Path
         let doc = value.parse::<DocumentMut>().map_err(|_| unavailable())?;
         let projected = inspect(&doc)?;
         if let Some(hooks) = doc.get("hooks") {
+            // Trust records belong to the provider's own review; a launch
+            // argument that sets them is not composed.
+            if hooks
+                .as_table_like()
+                .is_none_or(|table| table.contains_key("state"))
+            {
+                return Err(unavailable());
+            }
             for name in projected["hooks"]
                 .as_object()
                 .ok_or_else(unavailable)?
