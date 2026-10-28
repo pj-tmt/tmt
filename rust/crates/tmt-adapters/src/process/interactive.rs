@@ -35,6 +35,7 @@ pub struct InteractiveChild {
     job: Job,
     signals: ChildSignals,
     finished: bool,
+    startup_exit: Option<u32>,
 }
 
 impl InteractiveChild {
@@ -66,7 +67,21 @@ impl InteractiveChild {
             job,
             signals,
             finished: false,
+            startup_exit: None,
         })
+    }
+
+    /// Observe the initial launch boundary without changing terminal streams.
+    /// A returned exit is reaped once and retained for the ordinary wait; Drop
+    /// must never signal that PID after it could have been reused.
+    pub fn startup_exit(&mut self, within: Duration) -> io::Result<Option<u32>> {
+        if self.startup_exit.is_none()
+            && let Some(status) = self.job.wait_timeout(within)?
+        {
+            self.startup_exit = Some(exit_code(status));
+            self.finished = true;
+        }
+        Ok(self.startup_exit)
     }
 
     pub fn pid(&self) -> u32 {
@@ -95,6 +110,9 @@ impl InteractiveChild {
         &self,
         deadline: std::time::Instant,
     ) -> Result<super::runtime::ProcessObservation, CommandError> {
+        if self.startup_exit.is_some() {
+            return Ok(super::runtime::ProcessObservation::Gone);
+        }
         super::runtime::observe_owned_child(&super::UnixCommandRunner, self, deadline)
     }
 
@@ -144,6 +162,9 @@ impl InteractiveChild {
     }
 
     fn wait_for_exit(&mut self, mut tick: Option<(Duration, &mut dyn FnMut())>) -> io::Result<u32> {
+        if let Some(code) = self.startup_exit {
+            return Ok(code);
+        }
         let mut next = tick.as_ref().map(|(every, _)| Instant::now() + *every);
         loop {
             // Drain before checking completion: an exit racing with the check

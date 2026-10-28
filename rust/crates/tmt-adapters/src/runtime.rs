@@ -498,6 +498,13 @@ mod tests {
     #[test]
     fn switch_input_stays_one_literal_message_after_provider_settings_and_policy() {
         let registry = RuntimeRegistry::first_party();
+        let directory = crate::test_support::TestDirectory::new();
+        std::fs::write(
+            directory.path.join("config.toml"),
+            "sandbox_mode=\"workspace-write\"\n",
+        )
+        .unwrap();
+        let environment = vec![("CODEX_HOME".into(), directory.path.clone().into_os_string())];
         for name in ["claude", "codex"] {
             let harness = HarnessId::new(name).unwrap();
             let lifecycle = registry.lifecycle(&harness).unwrap();
@@ -511,7 +518,12 @@ mod tests {
             ));
             let message = "-untrusted notes\n--model must stay literal";
             assert!(lifecycle.initial_message(&mut command, message));
-            lifecycle.prepare_launch(&mut command, std::path::Path::new("/private-state"), false);
+            lifecycle.prepare_launch(
+                &mut command,
+                std::path::Path::new("/private-state"),
+                false,
+                &environment,
+            );
             assert_eq!(
                 &command.args[command.args.len() - 2..],
                 &[OsString::from("--"), OsString::from(message)]

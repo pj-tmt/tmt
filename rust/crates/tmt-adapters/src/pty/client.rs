@@ -21,6 +21,16 @@ use tmt_pty_protocol::{
 
 const HANDSHAKE: Duration = Duration::from_secs(5);
 
+/// A startup receipt is distinct from a command that ended before that receipt.
+#[derive(Debug)]
+pub enum LaunchOutcome {
+    Launched(String),
+    Exited {
+        status: tmt_pty_protocol::Exit,
+        output: String,
+    },
+}
+
 /// An attached client. Dropping it detaches; the program keeps running.
 pub struct Connection {
     stream: UnixStream,
@@ -191,13 +201,25 @@ impl Connection {
 
     /// Waits once for managed launch admission while draining output. Failure
     /// includes a bounded output tail; it never resends or stops the member.
-    pub fn await_launch(&mut self, timeout: Duration) -> io::Result<String> {
+    pub fn await_launch(&mut self, timeout: Duration) -> io::Result<LaunchOutcome> {
         let deadline = Instant::now() + timeout;
         self.send(&ClientMessage::Control(Control::AwaitLaunch))?;
         let mut output = Vec::new();
         loop {
             match self.receive(deadline.saturating_duration_since(Instant::now()))? {
-                Some(ServerMessage::Control(ControlReply::Launched(marker))) => return Ok(marker),
+                Some(ServerMessage::Control(ControlReply::Launched(marker))) => {
+                    return Ok(LaunchOutcome::Launched(marker));
+                }
+                Some(ServerMessage::Exited(status)) => {
+                    // stdout/stderr retain the original PTY. Report a bounded
+                    // tail without allowing provider control bytes to affect
+                    // the launching terminal when rendered as a diagnostic.
+                    let output = String::from_utf8_lossy(&output)
+                        .chars()
+                        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+                        .collect::<String>();
+                    return Ok(LaunchOutcome::Exited { status, output });
+                }
                 Some(ServerMessage::Output(bytes)) => {
                     output.extend(bytes);
                     if output.len() > 8192 {

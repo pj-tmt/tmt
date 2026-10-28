@@ -594,8 +594,6 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
               // hooks, retaining the exact positional thread before --no-daemon.
               expect(argv).toEqual([
                 'resume',
-                '--add-dir',
-                fixture.globalDir,
                 '-c',
                 expect.stringMatching(/^hooks=/),
                 expectedSession,

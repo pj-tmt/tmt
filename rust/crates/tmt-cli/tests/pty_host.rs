@@ -984,7 +984,7 @@ IFS= read -r line
 }
 
 #[test]
-fn a_fast_exit_has_one_confirmed_startup_and_a_missing_program_is_not_success() {
+fn a_fast_exit_reports_completion_and_a_missing_program_is_not_success() {
     let mut world = World::new();
     let fast = world.run(&[
         "run",
@@ -996,6 +996,12 @@ fn a_fast_exit_has_one_confirmed_startup_and_a_missing_program_is_not_success() 
         "exit 0",
     ]);
     assert!(fast.status.success(), "{fast:?}");
+    let completed = String::from_utf8_lossy(&fast.stderr);
+    assert!(
+        completed.contains("ended during startup (exit status 0)"),
+        "{fast:?}"
+    );
+    assert!(!completed.contains("started alpha on host"), "{fast:?}");
     let failed = world.run(&[
         "run",
         "--no-channel",
@@ -1005,9 +1011,10 @@ fn a_fast_exit_has_one_confirmed_startup_and_a_missing_program_is_not_success() 
     ]);
     assert!(!failed.status.success(), "{failed:?}");
     assert!(
-        String::from_utf8_lossy(&failed.stderr).contains("launch"),
+        String::from_utf8_lossy(&failed.stderr).contains("Could not start the requested command"),
         "{failed:?}"
     );
+    assert!(!String::from_utf8_lossy(&failed.stderr).contains("not confirmed"));
     assert!(world.clean());
 }
 
@@ -1017,3 +1024,6 @@ mod attach;
 mod e2e;
 #[path = "pty_host/terminal_stream.rs"]
 mod terminal_stream;
+
+#[path = "pty_host/startup.rs"]
+mod startup;

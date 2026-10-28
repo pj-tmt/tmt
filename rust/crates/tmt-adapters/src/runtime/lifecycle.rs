@@ -140,11 +140,14 @@ pub trait RuntimeLifecycle {
 
     /// Apply provider policy to the selected foreground command after optional
     /// hook/channel composition, including their original-command fallback.
+    /// Environment entries are the child-only provider overrides selected for
+    /// this launch, so configuration evidence follows a replayed provider home.
     fn prepare_launch(
         &self,
         _command: &mut super::RuntimeCommand,
         _state_directory: &std::path::Path,
         _exact_resume: bool,
+        _environment: &[(std::ffi::OsString, std::ffi::OsString)],
     ) {
     }
 

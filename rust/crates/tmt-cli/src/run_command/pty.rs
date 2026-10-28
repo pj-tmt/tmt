@@ -58,17 +58,48 @@ pub(super) fn start(request: RunRequest<'_>, paths: &ConfigPaths) -> Result<u8, 
         )
         .caused_by(error)
     })?;
-    let started = tmt_adapters::pty::start_member(executable.as_os_str(), &arguments(request), paths)
-        .map_err(|error| {
+    let started = match tmt_adapters::pty::start_member(
+        executable.as_os_str(),
+        &arguments(request),
+        paths,
+    ) {
+        Ok(started) => started,
+        Err(tmt_adapters::pty::LaunchError::Exited { status, output }) => {
+            let (code, outcome) = match status {
+                tmt_adapters::pty::protocol::Exit::Code(code) => {
+                    (code.clamp(0, 255) as u8, format!("exit status {code}"))
+                }
+                tmt_adapters::pty::protocol::Exit::Signal(signal) => (
+                    (128 + signal).clamp(1, 255) as u8,
+                    format!("signal {signal}"),
+                ),
+            };
+            let message = format!(
+                "The requested command ended during startup ({outcome}).{}",
+                if output.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("\n{}", output.trim())
+                }
+            );
+            if code == 0 {
+                diagnostic(&message);
+                return Ok(0);
+            }
+            return Err(Failure::new("COMMAND_EXITED", message, code));
+        }
+        Err(error) => {
             let failure = match &error {
                 tmt_adapters::pty::LaunchError::NotStarted(_) => Failure::new(
                     "PTY_LAUNCH_FAILED", "No member was launched: built-in host startup failed.", 1),
                 tmt_adapters::pty::LaunchError::Unconfirmed {pane, ..} => Failure::new(
                     "PTY_LAUNCH_FAILED", "The built-in host launch was not confirmed; a member may have started. Do not blindly rerun.", 1)
                     .suggestion(format!("Inspect the pane first: tmt check -- {}", crate::output::shell_word(pane))),
+                tmt_adapters::pty::LaunchError::Exited { .. } => unreachable!("handled above"),
             };
-            failure.caused_by(error)
-        })?;
+            return Err(failure.caused_by(error));
+        }
+    };
     if let Some(warning) = &started.cleanup_warning {
         diagnostic(warning);
     }

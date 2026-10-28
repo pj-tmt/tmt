@@ -3,16 +3,17 @@
 // model-free channel peers execute their generated hooks instead.
 pub(crate) fn scripted_launch_options(args: &mut Vec<std::ffi::OsString>) {
     if args.first().is_some_and(|arg| arg == "--no-daemon") {
-        assert!(
-            args.get(1).is_some_and(|arg| arg == "--add-dir"),
-            "managed Codex must name its state root"
-        );
-        assert!(
-            args.get(2)
-                .is_some_and(|root| std::path::Path::new(root).is_absolute()),
-            "managed Codex state root must be absolute"
-        );
-        args.drain(..3);
+        args.remove(0);
+        // Fresh defaults and explicit non-workspace modes omit the managed root.
+        // Consume it only when present; scenario arguments remain literal.
+        if args.first().is_some_and(|arg| arg == "--add-dir") {
+            assert!(
+                args.get(1)
+                    .is_some_and(|root| std::path::Path::new(root).is_absolute()),
+                "managed Codex state root must be absolute"
+            );
+            args.drain(..2);
+        }
     }
     if args.len() < 2 {
         return;
@@ -51,8 +52,6 @@ mod tests {
     #[test]
     fn malformed_managed_prefixes_and_hook_overrides_are_refused() {
         for raw in [
-            vec!["--no-daemon"],
-            vec!["--no-daemon", "--other", "/state"],
             vec!["--no-daemon", "--add-dir"],
             vec!["/script", "--settings", "{"],
             vec!["/script", "--settings", "[]"],
@@ -79,16 +78,21 @@ mod tests {
                 if listen {
                     original.push("--listen".into());
                 }
-                let mut args: Vec<std::ffi::OsString> =
-                    ["--no-daemon", "--add-dir", "/private-state"]
-                        .map(Into::into)
-                        .to_vec();
-                args.extend(original.clone());
-                if hooks {
-                    args.extend(["-c".into(), "hooks={Stop=[]}".into()]);
+                for root in [false, true] {
+                    let mut args: Vec<std::ffi::OsString> = vec!["--no-daemon".into()];
+                    if root {
+                        args.extend(["--add-dir".into(), "/private-state".into()]);
+                    }
+                    args.extend(original.clone());
+                    if hooks {
+                        args.extend(["-c".into(), "hooks={Stop=[]}".into()]);
+                    }
+                    scripted_launch_options(&mut args);
+                    assert_eq!(
+                        args, original,
+                        "listen={listen}, hooks={hooks}, root={root}"
+                    );
                 }
-                scripted_launch_options(&mut args);
-                assert_eq!(args, original, "listen={listen}, hooks={hooks}");
             }
         }
     }

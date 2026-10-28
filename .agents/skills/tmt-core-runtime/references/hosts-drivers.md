@@ -317,8 +317,13 @@ stream through the public `terminal.stream` API rather than deriving socket path
   to await the supervisor readiness line, retaining kill/reap ownership until that line.
   Child-only locators replace inherited host variables. The ordinary managed launcher
   runs inside the PTY: it waits until the outer launcher is listening, then applies
-  its existing bind/session/channel admission and reports the committed marker. Startup
-  receipt controls are ephemeral and grant no session authority. An uncertain launch
+  its existing bind/session/channel admission and reports the committed marker after a
+  one-second owned-child initial-exit observation. An exit in that boundary is reaped
+  once and returned with its status and an at-most-8-KiB original terminal output tail
+  (including provider stderr), with diagnostic control bytes removed. Terminal streams
+  stay attached to the PTY. This live receipt does not promise a later provider session
+  or continued liveness; first-run sign-in need not emit hooks. Startup receipt controls
+  are ephemeral and grant no session authority. An uncertain launch
   names the pane for inspection and never resends or stops a possibly running member.
 - **Evidence and markers.** Core observes the supervisor and pane process incarnations
   and verifies their direct parent/child relationship. Publication requires the matching
@@ -394,8 +399,14 @@ its own test runs under `claude plugin test`.
 
 The runtime lifecycle owns final foreground argv policy, after optional hooks and
 channel composition, so plain fallbacks retain it. Managed Codex interactive launches
-use `--no-daemon` and add only `ConfigPaths.global_dir` through `--add-dir`, including
-exact resume and Ops launches through Core. Explicit remote connections and provider
+use `--no-daemon`. Their `--add-dir` grant names only `ConfigPaths.global_dir`, including
+exact resume and Ops launches through Core. A narrow read-only sandbox-mode check omits
+that synthetic grant for confirmed read-only/full-access policy and fresh default
+configuration. Inherited workspace-write retains it. Unknown policy, config-read failure,
+and ambiguous overrides retain the existing grant; no provider defaults are rewritten.
+Selected profile reads follow the child's replayed provider home and are local evidence,
+not a copy of the provider's config resolver.
+User-supplied roots and options remain unchanged. Explicit remote connections and provider
 utility commands retain their mode; an enrolled channel retains its private attributed
 endpoint. No launch edits provider configuration. Drivers also own typed refusal
 explanations (reason, why, consequence and fix); shared command output renders them

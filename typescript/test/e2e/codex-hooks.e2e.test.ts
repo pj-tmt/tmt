@@ -268,8 +268,6 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         // Resume replays the exact session with the model its hooks reported.
         expect(JSON.parse(fs.readFileSync(resumed, 'utf8'))).toEqual([
           'resume',
-          '--add-dir',
-          fixture.globalDir,
           '-c',
           expect.stringContaining(' __digest-hook codex --discover-launch'),
           '-m',

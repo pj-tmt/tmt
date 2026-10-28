@@ -13,7 +13,7 @@ mod supervisor;
 mod tests;
 
 pub use attach::{AttachEnd, AttachSignals, attach};
-pub use client::Connection;
+pub use client::{Connection, LaunchOutcome};
 pub use launch::{LaunchError, StartedMember, start_member};
 pub use supervisor::{Launch, Supervisor};
 pub use tmt_pty_protocol as protocol;

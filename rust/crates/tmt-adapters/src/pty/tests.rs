@@ -1122,3 +1122,25 @@ fn launch_preparation_waits_for_a_listener_and_readiness_carries_the_committed_m
     drop(launcher);
     member.finish().unwrap();
 }
+
+#[test]
+fn startup_exit_keeps_a_bounded_terminal_tail_without_rendering_control_bytes() {
+    let member = Member::start(&[
+        "/bin/sh",
+        "-c",
+        "IFS= read -r release; i=0; while [ \"$i\" -lt 300 ]; do printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'; i=$((i+1)); done; printf '\\033[2Jfixture-startup-reason\\n' >&2; exit 31",
+    ]);
+    let mut client = member.connect();
+    client.input(b"release\r").unwrap();
+    match client.await_launch(WAIT).unwrap() {
+        super::LaunchOutcome::Exited { status, output } => {
+            assert_eq!(status, Exit::Code(31));
+            assert!(output.contains("fixture-startup-reason"), "{output}");
+            assert!(!output.contains('\u{1b}'));
+            assert!(output.len() <= 8192, "{}", output.len());
+        }
+        other => panic!("unexpected startup result: {other:?}"),
+    }
+    drop(client);
+    member.finish().unwrap();
+}

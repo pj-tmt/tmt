@@ -625,7 +625,12 @@ pub(super) fn run_bound(
         );
     }
     let mut planned = lease.command(launch_command).clone();
-    lifecycle.prepare_launch(&mut planned, &paths.global_dir, launch.resumed.is_some());
+    lifecycle.prepare_launch(
+        &mut planned,
+        &paths.global_dir,
+        launch.resumed.is_some(),
+        &environment,
+    );
     tmt_adapters::workspace::refresh_server(paths, host, &binding.server);
     let learning = if let (Some(owner), Some(driver)) = (&owner, &claim) {
         let recorded = storage
@@ -704,7 +709,7 @@ pub(super) fn run_bound(
             })
             .flatten()
     };
-    let child =
+    let mut child =
         InteractiveChild::start_with(&planned.executable, &planned.args, &child_environment)
             .map_err(|error| {
                 if let Some(owner)=&owner
@@ -734,6 +739,23 @@ pub(super) fn run_bound(
             diagnostic("could not clear the previous launch preset; this command keeps running.");
         }
     }
+    // The built-in launch receipt has a one-second initial-exit boundary,
+    // independent of provider hooks (first-run sign-in has no admitted session).
+    // Wait on the owned child, never sleep or redirect its terminal stderr.
+    let startup_live = if host.kind() == tmt_core::host::HostKind::pty() {
+        match child.startup_exit(Duration::from_secs(1)) {
+            Ok(None) => true,
+            Ok(Some(_)) => false,
+            Err(error) => {
+                diagnostic(&format!(
+                    "could not confirm initial command liveness: {error}"
+                ));
+                false
+            }
+        }
+    } else {
+        true
+    };
     let child_evidence = child
         .observe_runtime(Instant::now() + Duration::from_secs(3))
         .unwrap_or(ProcessObservation::Unknown);
@@ -765,7 +787,7 @@ pub(super) fn run_bound(
         },
     )
     .unwrap_or(None);
-    if admitted.is_none() {
+    if admitted.is_none() && startup_live {
         diagnostic(
             "command started, but runtime ownership could not be recorded; automatic delivery is not established.",
         );
@@ -817,7 +839,7 @@ pub(super) fn run_bound(
         binding,
         Instant::now() + Duration::from_secs(1),
     );
-    if let Err(error) = host.notify_launch_ready(binding) {
+    if startup_live && let Err(error) = host.notify_launch_ready(binding) {
         diagnostic(&format!(
             "the agent was launched, but its background readiness receipt failed: {error}"
         ));

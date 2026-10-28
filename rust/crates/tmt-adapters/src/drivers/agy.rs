@@ -458,6 +458,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
         command: &mut crate::runtime::RuntimeCommand,
         state_directory: &Path,
         _exact_resume: bool,
+        _environment: &[(std::ffi::OsString, std::ffi::OsString)],
     ) {
         let mut writable = false;
         let mut words = command.args.iter().peekable();
