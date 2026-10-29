@@ -188,7 +188,7 @@ pub(crate) fn machine_in(connection: &Connection) -> Result<Machine, RemoteError
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 17] = [
+const MIGRATIONS: [(&str, &str); 16] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -337,11 +337,8 @@ const MIGRATIONS: [(&str, &str); 17] = [
      CREATE TABLE squad_publications(
         client_id TEXT PRIMARY KEY REFERENCES grants(client_id), grant_revision INTEGER NOT NULL,
         desired BLOB, fingerprint BLOB, changed_ms INTEGER,
-        sent_hash BLOB, sent_ms INTEGER, sequence INTEGER NOT NULL DEFAULT 0,
+        sent_hash BLOB, sent_ms INTEGER, sent_summary BLOB, sequence INTEGER NOT NULL DEFAULT 0,
         active_id TEXT, active_payload BLOB, active_revision INTEGER, retry_ms INTEGER NOT NULL DEFAULT 0);"),
-
-    ("summary_publication_snapshot", "ALTER TABLE squad_publications ADD COLUMN sent_summary BLOB;
-     UPDATE squad_publications SET sent_summary=desired WHERE sent_hash=fingerprint;"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
