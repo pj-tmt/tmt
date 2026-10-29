@@ -484,7 +484,10 @@ fn dialogs_use_compact_content_and_the_approved_copy() {
                 }
                 "new-member-settings" => {
                     // People read the host's name; `pty` stays in commands only.
-                    assert!(text.contains("Built-in terminal (no tmux) · builtin"), "{text}");
+                    assert!(
+                        text.contains("Built-in terminal (no tmux) · builtin"),
+                        "{text}"
+                    );
                     assert!(!text.contains("pty · builtin"));
                 }
                 "new-member-form" => {

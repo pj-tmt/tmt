@@ -279,7 +279,11 @@ fn keep_is_applied_after_the_start_and_a_failure_names_the_command() {
         _ => panic!(),
     }
     let calls = std::fs::read_to_string(f.root.join("calls")).unwrap();
-    assert!(!calls[before..].contains("\"room\""), "{}", &calls[before..]);
+    assert!(
+        !calls[before..].contains("\"room\""),
+        "{}",
+        &calls[before..]
+    );
     // Temporary members are never kept.
     let temporary = f.review_on("tmux", false);
     assert!(!temporary.save && temporary.save_line().is_none());
