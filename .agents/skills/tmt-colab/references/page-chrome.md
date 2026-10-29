@@ -330,7 +330,7 @@ Enter intent selects the one primary submit, while other submits and recipient s
 remain text actions. The ready primary Send is solid; disabled Send stays outlined and muted.
 Busy, echo and page-open timing follow the shared
 [transient states](../../../../design/gui-style.md#transient-states).
-Export downloads use the shared Action inside the drawer, with its header providing the single close action.
+Export page files use public list rows with decorative type icons, real filenames and secondary Download actions whose accessible names include the filename. Requested marks and truthful preparation/download status remain with ExportPanel; the drawer header provides its single close action.
 `MessageComposer` configures its retained mention-aware combobox on the shared
 `RichInput` editing boundary and `BrowserField`. The caller owns popup ARIA and
 message policy; the shared input owns focus, caret/IME and editor history. Its

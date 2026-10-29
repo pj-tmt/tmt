@@ -73,14 +73,14 @@ for (const { width, scheme } of views) {
     await capture(page, 'work-edit', width, scheme);
   });
 
-  test(`the export drawer has one primary download at ${width} ${scheme}`, async ({ page }) => {
+  test(`the export drawer keeps downloads secondary at ${width} ${scheme}`, async ({ page }) => {
     await look(page);
     await page.goto('/');
     await run(page, 'mount', { exportAttachments: true });
     await (await pageAction(page, 'Export page')).click();
     const drawer = page.locator('.tmt-ui-drawer[data-panel=export][open]');
     await expect(drawer).toBeVisible();
-    await expect(drawer.locator('[data-variant="primary"]')).toHaveCount(1);
+    await expect(drawer.locator('[data-variant="primary"]')).toHaveCount(0);
     await expectOnePrimaryPerGroup(page, 'export drawer');
     await capture(page, 'export', width, scheme);
   });

@@ -376,7 +376,7 @@ for (const width of [1440, 390])
       await marker.click();
       await expect(page.getByTestId('comment-thread')).toBeVisible();
     });
-    test(`export actions ${width}px ${theme}: shared downloads and one close`, async ({ page }) => {
+    test(`export rows ${width}px ${theme}: named downloads and one close`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       await page.addInitScript((theme) => {
@@ -394,22 +394,40 @@ for (const width of [1440, 390])
         const action = drawer.getByRole('button', { name: `Download ${name}`, exact: true });
         await expect(action).toBeEnabled();
         await expect(action).toHaveClass(/tmt-ui-action/);
-        // The first file is the group's one primary; the rest are secondary.
-        await expect(action).toHaveAttribute(
-          'data-variant',
-          name === 'page.html' ? 'primary' : 'secondary',
-        );
+        await expect(action).toHaveText('Download');
+        await expect(action).toHaveAttribute('data-variant', 'secondary');
+        const row = drawer
+          .getByRole('list', { name: 'Page files', exact: true })
+          .getByRole('listitem')
+          .filter({ hasText: name });
+        await expect(row).toContainText(name);
+        await expect(row.locator('svg').first()).toHaveAttribute('aria-hidden', 'true');
+        await expect(row.getByRole('button')).toHaveCount(1);
         await expect(action).toHaveCSS('border-top-width', '1px');
       }
       await expect(drawer.getByRole('button', { name: /^Close/ })).toHaveCount(1);
-      const capture = process.env.COLAB_DRAWER_CAPTURE_DIR;
-      if (capture) {
-        mkdirSync(capture, { recursive: true });
-        await page.screenshot({ path: `${capture}/export-${width}-${theme}.png` });
-      }
+      await expect(drawer.getByRole('heading', { name: 'Page files', exact: true })).toBeVisible();
+      await expect(
+        drawer.getByRole('list', { name: 'Page files', exact: true }).getByRole('listitem'),
+      ).toHaveCount(4);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await test.info().attach(`export-rows-${width}-${theme}`, {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
       const pending = page.waitForEvent('download');
       await drawer.getByRole('button', { name: 'Download page.html', exact: true }).click();
       expect((await pending).suggestedFilename()).toBe('page.html');
+      await expect(drawer.getByRole('status').first()).toContainText('Some files requested');
+      await expect(
+        drawer
+          .getByRole('list', { name: 'Page files', exact: true })
+          .getByRole('listitem')
+          .first()
+          .locator('.export-download > svg'),
+      ).toHaveCount(1);
       await drawer.getByRole('button', { name: 'Close Export page', exact: true }).click();
       await expect(drawer).not.toBeVisible();
     });

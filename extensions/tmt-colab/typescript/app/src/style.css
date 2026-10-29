@@ -439,10 +439,25 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   margin-top: 0;
   font-size: 18px;
 }
-.export-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+.export-page-files h3 {
+  font-size: 13px;
+  margin: 20px 0 12px;
+}
+.export-file-list .tmt-ui-list-row[data-leading] {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-areas: 'leading title actions';
+}
+.export-file-list .tmt-ui-list-meta {
+  display: none;
+}
+.export-file-list .tmt-ui-list-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--tmt-ui-header-action-size);
+}
+.export-file-list .tmt-ui-list-leading svg {
+  width: 20px;
+  height: 20px;
 }
 .export-download {
   display: inline-flex;
