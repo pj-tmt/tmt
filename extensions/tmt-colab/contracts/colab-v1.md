@@ -3188,15 +3188,27 @@ action.
 Derived values are computed from the tasks and never stored or edited. The stage is
 `discussion` with no task, `done` when every task is done, and `in-progress` otherwise. Progress
 is the done count over the total. Who is working is the assignees of `in-progress` tasks, each
-once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser
-folds the value and validates it, and the page route draws it as a status band under the header:
-the two summary lines, the stage, progress, who works and the sign-off count, with the task list
-and a task's detail opening in place and pushing the page down. On the owner device the open task
-carries controls (state, sign-off, assign, edit, convert to Colab, remove) and the list an add-task field, each sending
-one closed action as a [browser work action](#browser-work-actions-4051); the value changes only
-when the page's own stream brings the commit back, and a refusal is shown with the serve's words.
-Every other device sees the band read-only. The band scrolls with the page, and a page with no
-summary and no task draws none. Page export includes it as `work.json`
+once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser folds and validates work, while the ordinary-page route and share reader draw a compact
+status panel below the nav, scrolling with content. Its chip shows the independent manual page state,
+never the task-derived stage. The segmented bar and count use the native progress buckets above:
+Done is theme green, In progress is review purple, To do is empty, and Unknown is neutral. Zero total
+shows `0 of 0 done`; unavailable progress shows a label without invented counts. Share readers have
+verified manual state and `progress: null`, no owner metadata writes or discovery reads.
+
+The panel reports its measured height to the existing renderer viewport owner and canvas minimum-height calculation, including after expansion or resize, so a short page does not gain a second scroll region. Expanding the panel pushes content down and shows direct sub-pages (titles/manual states only from
+existing owner-list rows, with missing values unknown), plus the bucket legend. With sub-pages,
+`Tasks N` opens the unlinked task list and detail in place. Without sub-pages, the selectable task
+list appears directly; there is no duplicate summary or task toggle. Task deep links open that detail once. Owner task
+controls send the existing closed browser work actions, with changes appearing only through the
+admitted stream. The owner state menu sends `page.state` through the expected-revision metadata
+route and captures the shown manual value independently of creator/question editors. Busy/refused
+writes do not optimistically change the chip. Optional owner progress details survive initial
+subscription. Snapshot joins the admitted details read instead of starting another. Page/work
+changes invalidate counts; the first owner-list observation establishes the child-state baseline,
+and later child-state changes re-read details while retaining the last verified bar. Each open
+page coalesces observations into at most one active details read and one trailing read per burst,
+without timers, extra child subscriptions or wider list rows. Obsolete or closed reads cannot publish.
+Other viewers retain read-only state, expansion and task details. Page export includes it as `work.json`
 (see [Plaintext page export](#plaintext-page-export-1309)). Native and browser consume the shared
 `work-v1.json` vectors.
 

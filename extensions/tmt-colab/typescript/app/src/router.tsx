@@ -452,14 +452,24 @@ function SelectionAnnotation({
         : innerHeight - 8;
       const placementHeight = expanded ? Math.min(480, edge - inset - 4) : 34;
       if (expanded && innerWidth <= 640) {
-        setPosition({
-          left: 12,
-          bottom: Math.max(8, innerHeight - edge),
-          maxHeight: Math.max(
-            0,
-            edge - Math.max(inset, notice?.getBoundingClientRect().bottom ?? inset) - 8,
-          ),
-        });
+        const noticeBox = notice?.getBoundingClientRect();
+        const below = Math.max(0, edge - Math.max(inset, noticeBox?.bottom ?? inset) - 8);
+        const above = Math.max(0, (noticeBox?.top ?? inset) - inset - 16);
+        // A failure card can fill the room below the page chrome. Preserve a usable draft
+        // above it instead of collapsing the retained window to zero height beneath it.
+        setPosition(
+          above > below
+            ? {
+                left: 12,
+                top: inset + 8,
+                maxHeight: above,
+              }
+            : {
+                left: 12,
+                bottom: Math.max(8, innerHeight - edge),
+                maxHeight: below,
+              },
+        );
         return;
       }
       if (!frame || !rectangle) {
@@ -1323,6 +1333,7 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const titleRow = useRef<HTMLDivElement>(null);
+  const [workBandSize, setWorkBandSize] = useState(0);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -1734,6 +1745,7 @@ function OpenPage({
     setState,
     toolbar,
     titleRow,
+    workBandSize,
     anchor,
     layers: {
       onEditLocks: editLockLayer.onEditLocks,
@@ -1901,7 +1913,10 @@ function OpenPage({
     />
   );
   const content = (
-    <section className="page">
+    <section
+      className="page"
+      style={{ '--colab-work-band-size': `${workBandSize}px` } as React.CSSProperties}
+    >
       <BrowserNotifications
         pageKey={notificationScope}
         events={notifications.events}
@@ -2110,7 +2125,10 @@ function OpenPage({
       >
         {pageLinkBar}
         <PageWorkBand
+          onSize={setWorkBandSize}
           work={view.work}
+          pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
+          progress={view.progress}
           binding={snapshot.binding}
           transport={transport}
           space={space}

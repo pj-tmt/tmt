@@ -329,9 +329,18 @@ for (const width of [1440, 390]) {
         .poll(async () => {
           const card = await notice.boundingBox();
           const draft = await composer.boundingBox();
-          return card && draft ? draft.y - (card.y + card.height) : -1;
+          if (!card || !draft) return false;
+          // A tall notice can leave more usable room above it on a phone. The retained
+          // draft must fit the viewport and stay clear of the notice in either placement.
+          const separate = draft.y >= card.y + card.height || draft.y + draft.height <= card.y;
+          return (
+            separate &&
+            draft.height > 0 &&
+            draft.y >= 0 &&
+            draft.y + draft.height <= (page.viewportSize()?.height ?? 0)
+          );
         })
-        .toBeGreaterThan(0);
+        .toBe(true);
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-failure.png` });
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });

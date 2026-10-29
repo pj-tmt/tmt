@@ -60,7 +60,10 @@ main {
   position: relative;
 }
 .frame-host {
-  min-height: calc(100dvh - var(--reader-bar-size) - var(--reader-note-size, 0px));
+  min-height: calc(
+    100dvh - var(--reader-bar-size) - var(--reader-note-size, 0px) -
+      var(--colab-work-band-size, 0px)
+  );
   /* Same canvas as the full app: a page without its own background is white in light and dark. */
   background: #fff;
 }

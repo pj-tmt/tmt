@@ -659,6 +659,16 @@ export const text = {
   anchorMissing: 'That passage is not on this page.',
   workBand: {
     label: 'Work on this page',
+    stateUnavailable: 'State unavailable',
+    progressUnavailable: 'Progress unavailable',
+    expandPanel: 'Expand status panel',
+    collapsePanel: 'Collapse status panel',
+    unknown: 'Unknown',
+    unknownPage: 'Unknown page',
+    subpages: 'Sub-pages',
+    tasks: 'Tasks',
+    pageState: 'Page state',
+    savingState: 'Saving state…',
     stage: {
       discussion: 'Discussion',
       'in-progress': 'In progress',

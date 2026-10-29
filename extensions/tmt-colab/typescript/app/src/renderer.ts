@@ -209,6 +209,8 @@ export async function mountRenderer(
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
+  /** Recompute viewport room after trusted content above the frame changes height. */
+  resize(): void;
   editLocks(locks: RenderEditLock[]): void;
   highlight(
     anchors: { id: string; selector: QuoteSelector; ordinal: number }[],
@@ -344,6 +346,7 @@ export async function mountRenderer(
     });
   };
   const resize = () => {
+    if (stopped) return;
     slotRounds = 0;
     // A former valid width cannot remain admitted after the viewport narrows.
     // The same ordered slot reply will reattach it with current authored bounds.
@@ -1355,6 +1358,7 @@ export async function mountRenderer(
     });
   };
   return {
+    resize,
     snapshot,
     update,
     editLocks,

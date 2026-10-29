@@ -240,3 +240,49 @@ export class ReadingDetailsQueue {
     return this.#running ?? Promise.resolve();
   }
 }
+
+/** One open page's optional progress projection. A burst keeps one read active and one latest
+ * invalidation, never a request per observation. Only the latest generation can publish. */
+export class ProgressReads {
+  #lifetime = new AbortController();
+  #generation = 0;
+  #dirty = false;
+  #running?: Promise<void>;
+  constructor(
+    private read: (signal: AbortSignal) => Promise<ReadingDetails | null>,
+    private publish: (details: ReadingDetails | null) => void,
+  ) {}
+  /** Join reads already requested by the admitted projection without invalidating them. */
+  async settled(): Promise<void> {
+    while (this.#running) await this.#running;
+  }
+  refresh(): Promise<void> {
+    if (this.#lifetime.signal.aborted) return Promise.resolve();
+    this.#generation++;
+    this.#dirty = true;
+    return this.#start();
+  }
+  #start(): Promise<void> {
+    this.#running ??= this.#drain().finally(() => {
+      this.#running = undefined;
+      if (this.#dirty && !this.#lifetime.signal.aborted) void this.#start();
+    });
+    return this.#running;
+  }
+  async #drain(): Promise<void> {
+    while (this.#dirty && !this.#lifetime.signal.aborted) {
+      this.#dirty = false;
+      const generation = this.#generation;
+      const details = await this.read(this.#lifetime.signal).catch(() => null);
+      if (!this.#lifetime.signal.aborted && generation === this.#generation) this.publish(details);
+    }
+  }
+  invalidate(): void {
+    this.#generation++;
+    this.#dirty = false;
+  }
+  close(): void {
+    this.#lifetime.abort();
+    this.#dirty = false;
+  }
+}

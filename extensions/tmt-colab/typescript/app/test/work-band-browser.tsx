@@ -1,7 +1,7 @@
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot, type Root } from 'react-dom/client';
-import { WorkBand, type WorkParent } from '../src/work-band.js';
+import { WorkBand, type WorkBandProps } from '../src/work-band.js';
 import type { Work } from '../src/work.js';
 
 const writerId = '10000000-0000-4000-8000-000000000001';
@@ -45,8 +45,51 @@ const summaryOnly: Work = {
   summary: { line1: 'Reading notes', line2: 'No tasks yet', attribution },
 };
 const empty: Work = { version: 1, next: 1, order: [], tasks: {} };
-const cases: Record<string, { work: Work; parent?: WorkParent }> = {
-  full: { work: full },
+const cases: Record<string, WorkBandProps> = {
+  full: {
+    work: full,
+    pageState: 'todo',
+    progress: { done: 1, inProgress: 3, todo: 2, unknown: 1, total: 7 },
+  },
+  zero: {
+    work: empty,
+    pageState: 'todo',
+    progress: { done: 0, inProgress: 0, todo: 0, unknown: 0, total: 0 },
+  },
+  complete: {
+    work: empty,
+    pageState: 'in-progress',
+    progress: { done: 5, inProgress: 0, todo: 0, unknown: 0, total: 5 },
+  },
+  panel: {
+    work: {
+      version: 1,
+      next: 6,
+      order: ['T-1', 'T-2', 'T-3', 'T-4', 'T-5'],
+      tasks: {
+        'T-1': { title: 'Data and commands', state: 'todo', child: CHILD },
+        'T-2': {
+          title: 'Status panel',
+          state: 'todo',
+          child: '20000000-0000-4000-8000-000000000003',
+        },
+        'T-3': {
+          title: 'Sidebar shortcuts',
+          state: 'todo',
+          child: '20000000-0000-4000-8000-000000000004',
+        },
+        'T-4': { title: 'Review the contract', state: 'done' },
+        'T-5': { title: 'Check the captures', state: 'done' },
+      },
+    },
+    pageState: 'in-progress',
+    progress: { done: 3, inProgress: 1, todo: 1, unknown: 0, total: 5 },
+    subpages: [
+      { id: CHILD, title: 'Data and commands', state: 'done' },
+      { id: '20000000-0000-4000-8000-000000000003', title: 'Status panel', state: 'in-progress' },
+      { id: '20000000-0000-4000-8000-000000000004', title: 'Sidebar shortcuts', state: 'todo' },
+    ],
+  },
   parent: {
     work: full,
     parent: { pageId: CHILD, taskId: 'T-6', title: 'Follow-up page for sizes' },
@@ -70,8 +113,7 @@ export function mount(name: keyof typeof cases = 'full', focusTask?: string) {
   root.render(
     <>
       <WorkBand
-        work={shown.work}
-        parent={shown.parent}
+        {...shown}
         focusTask={focusTask}
         pageHref={(pageId, hint) =>
           `#/pages/${pageId}${hint && 'task' in hint ? `?task=${hint.task}` : ''}`

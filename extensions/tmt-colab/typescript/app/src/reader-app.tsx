@@ -1,3 +1,4 @@
+import { WorkBand } from './work-band.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
@@ -65,6 +66,12 @@ export function ReaderApp({
    * viewport leaves room for it (`frameLead`), and so does the page's minimum height
    * (`reader-style.css`). */
   const [noteSize, setNoteSize] = useState(0);
+  const [workBandSize, setWorkBandSize] = useState(0);
+  const bandSize = useRef(workBandSize);
+  bandSize.current = workBandSize;
+  useEffect(() => {
+    renderer.current?.resize();
+  }, [workBandSize]);
   const noteHeight = () => {
     const box = noteBox.current;
     if (!box) return 0;
@@ -135,7 +142,7 @@ export function ReaderApp({
       onLink: requestPageLink,
       onEditLocks: editLockLayer.onEditLocks,
       viewportInset: () => toolbarInset(bar.current),
-      frameLead: noteHeight,
+      frameLead: () => noteHeight() + bandSize.current,
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
@@ -252,7 +259,14 @@ export function ReaderApp({
           </>
         }
       />
-      <main style={{ '--reader-note-size': `${noteSize}px` } as CSSProperties}>
+      <main
+        style={
+          {
+            '--reader-note-size': `${noteSize}px`,
+            '--colab-work-band-size': `${workBandSize}px`,
+          } as CSSProperties
+        }
+      >
         {notice}
         {state.kind === 'ready' && (
           <aside ref={noteBox} className="reader-note" aria-labelledby="reader-note-title">
@@ -272,6 +286,16 @@ export function ReaderApp({
         ) : state.kind === 'ready' ? (
           <section className="page">
             <div className="workspace">
+              <WorkBand
+                onSize={setWorkBandSize}
+                work={state.view.work ?? { version: 1, next: 1, order: [], tasks: {} }}
+                pageState={
+                  state.view.state === undefined
+                    ? (state.view.pageState ?? 'todo')
+                    : state.view.state
+                }
+                progress={null}
+              />
               <div className="canvas">
                 <div className="frame-host" ref={host} />
                 {editLockLayer.layer}
