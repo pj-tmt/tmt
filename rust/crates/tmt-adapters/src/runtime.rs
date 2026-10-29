@@ -27,6 +27,7 @@ pub mod lifecycle;
 mod prompt_tests;
 pub mod sampling;
 pub mod session_presence;
+pub mod skills;
 pub mod transcript;
 #[cfg(test)]
 mod usage_tests;

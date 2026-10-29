@@ -162,6 +162,7 @@ independent of storage access.
 | `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                               | `acknowledged`                                                                                                                                                                                                                          |
 | `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                                | `owner`, `published` targets                                                                                                                                                                                                            |
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                 | `owner`, `removed` and `kept` targets                                                                                                                                                                                                   |
+| `skills.list`            | `identityId` (canonical UUID), optional `ifStamp`                                                   | The skills that member's agent can invoke: `syntax`, `skills`, `truncated`, `rootsStamp`, `observedAtMs`; or `unchanged` (see [agent skills](#agent-skills))                                                                            |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                      |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs` | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                                                                                    |
 | `consumption.limits`     | `{}`                                                                                                | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                   |
@@ -914,6 +915,78 @@ name of the account's config root, recorded with each push; an entry pushed befo
 recorded is labelled with the provider name until its next push. An older Core answers the
 unknown operation with `API_INPUT_INVALID`, which a reader treats as unavailable and falls
 back to the per-identity readings.
+
+## Agent skills
+
+`skills.list` v1 reports the skills one member's agent can invoke, for a composer's skill
+menu (#5531). The input is `{identityId}` with an optional `ifStamp`; any other field, a
+non-canonical UUID or a stamp that is not 64 hex digits is `API_INPUT_INVALID`.
+
+```json
+{ "version": 1, "operation": "skills.list", "input": { "identityId": "<uuid>" } }
+```
+
+The result is:
+
+```json
+{
+  "syntax": { "kind": "prefix", "sigil": "/" },
+  "skills": [
+    { "name": "tmt", "description": "…", "source": { "group": "tmt" } },
+    { "name": "kit:deploy", "description": "…", "source": { "group": "plugin", "plugin": "kit" } }
+  ],
+  "truncated": false,
+  "rootsStamp": "<64 hex>",
+  "observedAtMs": 1793000000000
+}
+```
+
+- `syntax` is how the composer inserts a skill: `{kind:"prefix", sigil}` (Claude Code `/`,
+  Codex `$`) or `{kind:"unsupported"}`.
+- `name` is the exact token after the sigil. A name that is not one token (lowercase ASCII
+  letters, digits and `-`, 1–64 bytes; a plugin skill is `plugin:name` with both parts so)
+  is dropped.
+- `description` is one line of at most 200 characters, with control characters removed.
+- `source.group` is `tmt` (published by TMT), `user`, `plugin` (with `plugin`) or `project`.
+- Skills are sorted by group in that order, then by name, and capped at 256. Beyond the cap,
+  or when a directory holds more than 1024 entries, `truncated` is `true`.
+
+All skill text is untrusted display data: a reader renders it and never runs it.
+
+**Which member and which directories.** The member's remembered driver answers. An
+identity that is unknown or has no remembered driver, and a driver without skill invocation,
+answer `unsupported` with no skills; neither is an error.
+
+- The driver's provider roots come from the ambient environment of the process answering,
+  the same rule as [account limits](#account-limits). A member launched under a different
+  `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is not distinguished.
+- Project skills come from the bound pane's current directory as its host reports it. When
+  the host reports none, as the built-in host does, the project group is omitted.
+
+| Driver | Directories                                                                                                                                                                |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude | `<config>/skills`; each plugin `installPath` from `<config>/plugins/installed_plugins.json` that resolves inside `<config>/plugins`, plus `skills`; `<cwd>/.claude/skills` |
+| Codex  | `~/.agents/skills`; `$CODEX_HOME/skills`; `<cwd>/.agents/skills`                                                                                                           |
+
+`<config>` is `CLAUDE_CONFIG_DIR`, or `~/.claude` without it.
+
+**What is read.**
+
+- A skill is a child directory holding `SKILL.md`. Only `name` and `description` are read,
+  from front matter that must close within the first 64 KiB, and `name` defaults to the
+  directory name.
+- No link is followed, with one exception: a child that links into TMT's own
+  `skill-assets` is followed, and it is a `tmt` skill.
+- The plugin index is read bounded (1 MiB) and without following a link, and only its
+  `installPath` fields are used.
+
+**Caching.** Core keeps no cache. `rootsStamp` digests the walked directories and the stat
+data (size, modification time, inode) of every skill directory and `SKILL.md`. Called with
+the current stamp as `ifStamp`, the operation compares stat data only, reads no file, and
+returns `{unchanged: true, rootsStamp, observedAtMs}`. A new, removed or edited skill, or a
+changed pane directory, changes the stamp. A reader such as the Ops worker owns its cache per
+member and directory, refreshes it off its paint path, and treats an older Core's
+`API_INPUT_INVALID` as no skills.
 
 ## Dispatch readiness and input safety
 
