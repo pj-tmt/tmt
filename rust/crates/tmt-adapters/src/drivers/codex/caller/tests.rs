@@ -44,10 +44,7 @@ impl Probe {
         }
     }
 
-    fn identify(
-        &self,
-        session: Option<&str>,
-    ) -> ActionResult<RuntimeCaller, CallerObservationUnavailable> {
+    fn identify(&self, session: Option<&str>) -> ActionResult<RuntimeCaller, AncestryError> {
         CodexCaller::new(
             self,
             CallerEnvironment {
@@ -146,7 +143,7 @@ fn independent_invocation_preserves_host_verification_even_with_invalid_marker()
 fn orphaned_markers_and_unrelated_codex_processes_do_not_disable_plain_shells() {
     for session in [None, Some(SESSION), Some("invalid")] {
         let probe = Probe::new([Ok("42 1 /bin/zsh\n99 1 codex\n")]);
-        assert_eq!(probe.identify(session), ActionResult::Unsupported);
+        assert!(matches!(probe.identify(session), ActionResult::Unsupported));
         assert_eq!(probe.calls.borrow().len(), 1);
     }
 }
@@ -162,14 +159,14 @@ fn failed_or_malformed_snapshots_only_fail_closed_when_a_marker_is_present() {
         Ok("42 42 /bin/zsh"),
         Ok("42 1 /bin/zsh\n42 2 /bin/zsh"),
     ] {
-        assert_eq!(
+        assert!(matches!(
             Probe::new([output]).identify(Some(SESSION)),
-            ActionResult::Failed(CallerObservationUnavailable)
-        );
-        assert_eq!(
+            ActionResult::Failed(_)
+        ));
+        assert!(matches!(
             Probe::new([output]).identify(None),
             ActionResult::Unsupported
-        );
+        ));
     }
 }
 
@@ -208,10 +205,10 @@ fn ancestry_depth_is_bounded_in_memory_without_more_ps_spawns() {
     probe.outputs.borrow_mut().push_back(Ok((42..107)
         .map(|pid| format!("{pid} {} /bin/zsh\n", pid + 1))
         .collect()));
-    assert_eq!(
+    assert!(matches!(
         probe.identify(Some(SESSION)),
-        ActionResult::Failed(CallerObservationUnavailable)
-    );
+        ActionResult::Failed(AncestryError::Unavailable)
+    ));
     assert_eq!(probe.calls.borrow().len(), 1);
 }
 
@@ -224,7 +221,10 @@ fn missing_ps_uses_shared_fixed_path_fallback_not_permission_or_timeout_retry() 
         }),
         Ok("42 1 /bin/zsh"),
     ]);
-    assert_eq!(probe.identify(Some(SESSION)), ActionResult::Unsupported);
+    assert!(matches!(
+        probe.identify(Some(SESSION)),
+        ActionResult::Unsupported
+    ));
     let calls = probe.calls.borrow();
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0].0[2], "/bin/ps");
@@ -238,10 +238,50 @@ fn missing_ps_uses_shared_fixed_path_fallback_not_permission_or_timeout_retry() 
         },
     ] {
         let probe = Probe::new([Err(failure)]);
-        assert_eq!(
+        assert!(matches!(
             probe.identify(Some(SESSION)),
-            ActionResult::Failed(CallerObservationUnavailable)
-        );
+            ActionResult::Failed(AncestryError::Command(_))
+        ));
         assert_eq!(probe.calls.borrow().len(), 1);
     }
+}
+
+#[test]
+fn process_probe_failures_keep_their_kind_in_the_caller_result() {
+    for kind in [
+        CommandFailure::Spawn,
+        CommandFailure::Timeout,
+        CommandFailure::OutputLimit,
+        CommandFailure::Io,
+        CommandFailure::Exit {
+            code: Some(126),
+            signal: None,
+        },
+        CommandFailure::Exit {
+            code: None,
+            signal: Some(15),
+        },
+    ] {
+        let probe = Probe::new([Err(kind)]);
+        let ActionResult::Failed(AncestryError::Command(error)) = probe.identify(Some(SESSION))
+        else {
+            panic!("failed observation must not admit the marked caller: {kind:?}");
+        };
+        assert_eq!(error.kind, kind);
+        assert_eq!(probe.calls.borrow().len(), 1);
+        assert!(matches!(
+            Probe::new([Err(kind)]).identify(None),
+            ActionResult::Unsupported
+        ));
+    }
+    // Finding an independent-looking executable is not sufficient when its
+    // arguments cannot be observed; do not silently grant pane fallback.
+    let probe = Probe::new([
+        Ok("42 41 /bin/sh\n41 1 codex\n"),
+        Err(CommandFailure::Timeout),
+    ]);
+    assert!(
+        matches!(probe.identify(Some(SESSION)), ActionResult::Failed(AncestryError::Command(error))
+        if error.kind == CommandFailure::Timeout)
+    );
 }

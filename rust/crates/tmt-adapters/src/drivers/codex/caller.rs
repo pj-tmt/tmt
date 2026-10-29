@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::process::{CommandRunner, ps::query_ps};
+use crate::process::{CommandRunner, ancestry::AncestryError, ps::query_ps};
 use std::{
     ffi::OsString,
     path::Path,
@@ -36,17 +36,6 @@ pub struct CodexCaller<'a, R> {
     environment: CallerEnvironment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CallerObservationUnavailable;
-
-impl std::fmt::Display for CallerObservationUnavailable {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Could not establish runtime caller evidence.")
-    }
-}
-
-impl std::error::Error for CallerObservationUnavailable {}
-
 impl<'a, R: CommandRunner> CodexCaller<'a, R> {
     pub fn new(runner: &'a R, environment: CallerEnvironment) -> Self {
         Self {
@@ -57,33 +46,28 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
 
     /// Reused by hooks: the process is evidence of host mode, not identity.
     /// Callers still need a fresh incarnation and independent binding proof.
-    pub fn observe_host(
-        &self,
-    ) -> Result<Option<(HostAttribution, u32)>, CallerObservationUnavailable> {
+    pub fn observe_host(&self) -> Result<Option<(HostAttribution, u32)>, AncestryError> {
         self.observe_host_inner(Instant::now() + Duration::from_secs(3), false)
-            .map_err(|_| CallerObservationUnavailable)
     }
 
     /// Optional environment discovery cannot resolve runtime config overrides.
     pub(super) fn observe_direct_host(
         &self,
         deadline: Instant,
-    ) -> Result<Option<(HostAttribution, u32)>, CallerObservationUnavailable> {
+    ) -> Result<Option<(HostAttribution, u32)>, AncestryError> {
         self.observe_host_inner(deadline, true)
-            .map_err(|_| CallerObservationUnavailable)
     }
 
     fn observe_host_inner(
         &self,
         deadline: Instant,
         direct: bool,
-    ) -> Result<Option<(HostAttribution, u32)>, ()> {
+    ) -> Result<Option<(HostAttribution, u32)>, AncestryError> {
         let chain = crate::process::ancestry::command_chain(
             self.runner,
             self.environment.process_id,
             deadline,
-        )
-        .map_err(|_| ())?;
+        )?;
         let mut observed = None;
         for (pid, executable) in &chain {
             if Path::new(executable)
@@ -101,8 +85,10 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                     deadline,
                     16384,
                 )
-                .map_err(|_| ())?;
-                let args = std::str::from_utf8(&args.stdout).map_err(|_| ())?.trim();
+                .map_err(AncestryError::Command)?;
+                let args = std::str::from_utf8(&args.stdout)
+                    .map_err(|_| AncestryError::Unavailable)?
+                    .trim();
                 let tail = args
                     .strip_prefix(executable)
                     .filter(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
@@ -117,7 +103,7 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                         (Path::new(&args[..split]).file_name()? == super::NAME)
                             .then_some(&args[split..])
                     })
-                    .ok_or(())?;
+                    .ok_or(AncestryError::Unavailable)?;
                 // ps does not preserve argv boundaries. Conservatively fence a
                 // possible app-server even when global options precede it. A literal
                 // app-server word inside an exec prompt can conservatively match too.
@@ -136,7 +122,7 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                             || word.starts_with("-p")
                     })
                 {
-                    return Err(());
+                    return Err(AncestryError::Unavailable);
                 }
                 observed.get_or_insert((HostAttribution::Independent, *pid));
             }
@@ -147,14 +133,14 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
 
 impl<R: CommandRunner> Driver for CodexCaller<'_, R> {
     type Target = ();
-    type Error = CallerObservationUnavailable;
+    type Error = AncestryError;
     type Launch = ();
 
     fn identify_caller(&mut self) -> ActionResult<RuntimeCaller, Self::Error> {
         let host = match self.observe_host() {
             Ok(observation) => observation,
-            Err(_) if self.environment.thread_id.is_some() => {
-                return ActionResult::Failed(CallerObservationUnavailable);
+            Err(error) if self.environment.thread_id.is_some() => {
+                return ActionResult::Failed(error);
             }
             Err(_) => return ActionResult::Unsupported,
         };

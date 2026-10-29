@@ -21,6 +21,67 @@ pub enum AncestryError {
     Unavailable,
 }
 
+impl std::fmt::Display for AncestryError {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unavailable => {
+                output.write_str("The process ancestry was incomplete or invalid.")
+            }
+            Self::Command(error) if error.cleanup_failed() => {
+                output.write_str("The process ancestry probe could not be cleaned up.")
+            }
+            Self::Command(error) => match error.kind {
+                CommandFailure::Spawn
+                    if matches!(
+                        error.raw_os_error(),
+                        Some(nix::libc::EPERM | nix::libc::EACCES)
+                    ) =>
+                {
+                    output.write_str("The process ancestry probe was not permitted to start.")
+                }
+                CommandFailure::Spawn => {
+                    output.write_str("The process ancestry probe could not start.")
+                }
+                CommandFailure::Timeout => {
+                    output.write_str("The process ancestry probe timed out.")
+                }
+                CommandFailure::OutputLimit => {
+                    output.write_str("The process ancestry probe exceeded its output limit.")
+                }
+                CommandFailure::Io => {
+                    output.write_str("The process ancestry probe could not be read.")
+                }
+                CommandFailure::Exit {
+                    signal: Some(signal),
+                    ..
+                } => write!(
+                    output,
+                    "The process ancestry probe ended with signal {signal}."
+                ),
+                CommandFailure::Exit {
+                    code: Some(code), ..
+                } => write!(
+                    output,
+                    "The process ancestry probe exited with status {code}."
+                ),
+                CommandFailure::Exit {
+                    code: None,
+                    signal: None,
+                } => output.write_str("The process ancestry probe ended without an exit status."),
+            },
+        }
+    }
+}
+
+impl std::error::Error for AncestryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Command(error) => Some(error),
+            Self::Unavailable => None,
+        }
+    }
+}
+
 /// Executable names along one complete caller chain, from a single bounded ps
 /// snapshot. Only the rows the walk visits are read: each visited PID must have exactly
 /// one well-formed row. A malformed or repeated row of an unrelated process (one that
@@ -739,5 +800,93 @@ mod tests {
             .map(|pid| format!("{pid} {} p\n", pid + 1))
             .collect();
         assert!(matches!(walk(&deep, 2), Err(AncestryError::Unavailable)));
+    }
+
+    #[test]
+    fn observation_error_context_is_bounded_and_keeps_private_probe_evidence_out_of_display() {
+        use std::error::Error;
+        let cases = [
+            (
+                CommandFailure::Spawn,
+                "The process ancestry probe could not start.",
+            ),
+            (
+                CommandFailure::Timeout,
+                "The process ancestry probe timed out.",
+            ),
+            (
+                CommandFailure::OutputLimit,
+                "The process ancestry probe exceeded its output limit.",
+            ),
+            (
+                CommandFailure::Io,
+                "The process ancestry probe could not be read.",
+            ),
+            (
+                CommandFailure::Exit {
+                    code: Some(126),
+                    signal: None,
+                },
+                "The process ancestry probe exited with status 126.",
+            ),
+            (
+                CommandFailure::Exit {
+                    code: None,
+                    signal: Some(15),
+                },
+                "The process ancestry probe ended with signal 15.",
+            ),
+            (
+                CommandFailure::Exit {
+                    code: None,
+                    signal: None,
+                },
+                "The process ancestry probe ended without an exit status.",
+            ),
+        ];
+        for (kind, expected) in cases {
+            let mut command = CommandError::new(kind);
+            command.output = Some(CommandOutput {
+                stdout: b"private process inventory".to_vec(),
+                stderr: b"private path and environment".to_vec(),
+            });
+            let error = AncestryError::Command(command);
+            assert_eq!(error.to_string(), expected);
+            assert!(expected.len() < 128);
+            let source = error
+                .source()
+                .unwrap()
+                .downcast_ref::<CommandError>()
+                .unwrap();
+            assert_eq!(source.kind, kind);
+            assert_eq!(
+                source.output.as_ref().unwrap().stderr,
+                b"private path and environment"
+            );
+        }
+        assert_eq!(
+            AncestryError::Unavailable.to_string(),
+            "The process ancestry was incomplete or invalid."
+        );
+        assert!(AncestryError::Unavailable.source().is_none());
+    }
+
+    #[test]
+    fn kernel_permission_and_cleanup_failures_have_safe_specific_context() {
+        use std::io;
+        for code in [nix::libc::EPERM, nix::libc::EACCES] {
+            let command =
+                CommandError::io(CommandFailure::Spawn, io::Error::from_raw_os_error(code));
+            assert_eq!(
+                AncestryError::Command(command).to_string(),
+                "The process ancestry probe was not permitted to start."
+            );
+        }
+        let mut command = CommandError::new(CommandFailure::Timeout);
+        command.cleanup_error = Some(io::Error::other("private cleanup details"));
+        assert_eq!(
+            AncestryError::Command(command).to_string(),
+            "The process ancestry probe could not be cleaned up."
+        );
     }
 }
