@@ -592,3 +592,76 @@ fn several_accounts_are_read_from_the_standings_and_count_accounts_only_the_hist
     assert!(several_accounts(&single).is_empty());
     let _ = std::fs::remove_dir_all(directory);
 }
+
+#[test]
+fn account_null_overrides_retained_weekly_history_and_does_not_read_its_footer() {
+    let key = "0123456789ab";
+    let account = json!({"key":key,"label":"work"});
+    let listed = json!({"identities":[{"name":"worker","presence":"active","resume":{
+    "driver":"claude","usage":{"observedAtMs":NOW_MS},"consumption":{"rateLimits":{
+        "observedAtMs":NOW_MS,"account":account,"windows":[{"windowMinutes":10080,"usedPercent":10.0,"resetsAtMs":NOW_MS+HOUR}]
+    }}}}]});
+    let mut sampler = Sampler::new(None);
+    sampler.sample(&listed, NOW_MS, Instant::now(), &mut |_| None);
+    for reason in ["none_observed", "expired"] {
+        let accounts=Accounts::read(&json!({"observedAtMs":NOW_MS,"accounts":[{"driver":"claude","account":account,"rateLimits":null,"reason":reason}]})).unwrap();
+        let mut captures = 0;
+        let rows = sampler.sample_accounts(
+            &listed,
+            Some(&accounts),
+            NOW_MS,
+            Instant::now(),
+            &mut |_| {
+                captures += 1;
+                Some(FOOTER.into())
+            },
+        );
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].latest.is_none());
+        assert!(rows[0].burn.is_none() && rows[0].trend.is_none());
+        assert_eq!(rows[0].rates, Rates::default());
+        assert!(rows[0].notice().is_some());
+        assert_eq!(
+            captures, 0,
+            "a null account is not missing evidence to refill from a footer"
+        );
+    }
+}
+
+#[test]
+fn an_account_source_does_not_consume_another_accounts_session_reading() {
+    let mut session = codex(10.0, NOW_MS);
+    session["resume"]["consumption"]["rateLimits"]["account"] =
+        json!({"key":"abcdef012345","label":"session"});
+    let account = json!({"key":"0123456789ab","label":"account"});
+    let accounts=Accounts::read(&json!({"observedAtMs":NOW_MS,"accounts":[{"driver":"codex","account":account,
+        "rateLimits":{"provider":"codex","observedAtMs":NOW_MS-1000,"account":account,"windows":[{"windowMinutes":10080,"usedPercent":60.0,"resetsAtMs":NOW_MS+HOUR}]}}]})).unwrap();
+    let rows = Sampler::new(None).sample_accounts(
+        &listed(vec![session]),
+        Some(&accounts),
+        NOW_MS,
+        Instant::now(),
+        &mut |_| None,
+    );
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows.iter()
+            .find(|s| s.provider.account_key() == Some("0123456789ab"))
+            .unwrap()
+            .latest
+            .unwrap()
+            .weekly
+            .left,
+        40.0
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|s| s.provider.account_key() == Some("abcdef012345"))
+            .unwrap()
+            .latest
+            .unwrap()
+            .weekly
+            .left,
+        90.0
+    );
+}

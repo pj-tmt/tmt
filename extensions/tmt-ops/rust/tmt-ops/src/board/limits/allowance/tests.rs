@@ -26,6 +26,7 @@ fn history(hours: u64, start: f64, per_hour: f64, resets_at: u64) -> Vec<Reading
 fn standing(history: &[Reading]) -> Standing {
     let (burn, trend) = estimate::pace(history);
     Standing {
+        current: None,
         provider: Provider::named("claude"),
         latest: history.last().copied(),
         burn,
@@ -192,6 +193,7 @@ fn a_stale_or_unsampled_provider_has_a_row_without_numbers_or_no_row() {
     // The newest sample is older than the two hours a number is quoted for.
     let stale = standing(&old);
     let unsampled = Standing {
+        current: None,
         provider: Provider::named("muse"),
         latest: None,
         burn: None,

@@ -14,6 +14,7 @@ fn at(zone: &str) -> jiff::tz::TimeZone {
 
 fn held(zone: &str, observed_ago: u64) -> Vec<String> {
     let standings = vec![Standing {
+        current: None,
         rates: Default::default(),
         provider: Provider::named("claude"),
         latest: Some(Reading {

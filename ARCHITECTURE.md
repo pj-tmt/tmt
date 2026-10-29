@@ -414,6 +414,8 @@ own module/drawing boundaries and verification.
   Lifecycles and module rules: [Ops references](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
   The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.
+  The background HOME usage receipt prefers public `consumption.limits` by account;
+  only an unsupported operation selects legacy identity/footer readings. Paint uses held states.
   Savings and usage figures are supplier estimates, never provider history; [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns their readers, valuation and lifecycles.
   Member references resolve through the acquired global identity inventory and grant no delivery authority or paint/input I/O ([reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md)).
   Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config under owned locks; cron jobs and counters remain keyed by that UUID. Partial results
