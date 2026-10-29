@@ -10,7 +10,12 @@ import type { Reading } from './questions.js';
 import { ReadingActions, type ReadingOutcome } from './reading-actions.js';
 import { canonicalReadingThread, readingState, readingNotification } from './reading.js';
 import { AdmittedView } from './review-actions.js';
-import type { QuestionAnchor, ReadingRenderBlock, mountRenderer } from './renderer.js';
+import type {
+  AnchorPosition,
+  QuestionAnchor,
+  ReadingRenderBlock,
+  mountRenderer,
+} from './renderer.js';
 import type { PageBinding, PageSnapshot, PageView } from './transport.js';
 
 /** A presentation-only entry; neighboring question/review projections can use the same shape. */
@@ -41,7 +46,7 @@ export function useReadingLayer({
   status: PageBinding['status'];
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   hint?: string;
-  slotPositions: readonly { id: string; top: number }[];
+  slotPositions: readonly AnchorPosition[];
   readingIds: ReadonlySet<string>;
 }) {
   const detailPrefix = useId();
@@ -66,20 +71,39 @@ export function useReadingLayer({
     );
     return { reading, anchor, thread, state: readingState(reading, thread) };
   });
-  const context = useRef({ snapshot, view, binding, blocked, status, renderer, rows });
-  context.current = { snapshot, view, binding, blocked, status, renderer, rows };
+  const context = useRef({
+    snapshot,
+    view,
+    binding,
+    blocked,
+    status,
+    renderer,
+    rows,
+    slotPositions,
+  });
+  context.current = { snapshot, view, binding, blocked, status, renderer, rows, slotPositions };
   const jump = useCallback((id: string, focus = false) => {
-    if (context.current.rows.some((row) => row.reading.id === id && row.anchor)) {
+    if (
+      context.current.rows.some((row) => row.reading.id === id && row.anchor) &&
+      context.current.slotPositions.some((slot) => slot.id === id && !slot.hidden)
+    ) {
       context.current.renderer.current?.scrollReading(id);
       if (focus) focusNeedsYouTarget(targets.current.get(id));
+      return true;
     }
+    return false;
   }, []);
   const next = useCallback(
     (id: string) => {
       const rows = context.current.rows;
       const index = rows.findIndex((row) => row.reading.id === id);
       const remaining = [...rows.slice(index + 1), ...rows.slice(0, Math.max(0, index))];
-      const target = remaining.find((row) => row.state.kind === 'unread' && row.anchor);
+      const target = remaining.find(
+        (row) =>
+          row.state.kind === 'unread' &&
+          row.anchor &&
+          context.current.slotPositions.some((slot) => slot.id === row.reading.id && !slot.hidden),
+      );
       if (target) jump(target.reading.id);
     },
     [jump],
@@ -130,9 +154,10 @@ export function useReadingLayer({
     if (anchors === null) return;
     const key = `${snapshot.id}:${hint}`;
     if (followed.current === key) return;
-    followed.current = key;
-    jump(hint);
-  }, [hint, anchors, snapshot.id, jump]);
+    // A hint waits for visible placement; it never asks the frame to re-place a
+    // hidden slot, and a successful jump is consumed before its geometry reply.
+    if (jump(hint)) followed.current = key;
+  }, [hint, anchors, snapshot.id, jump, slotPositions]);
   const blocks: ReadingRenderBlock[] = rows.map(({ reading, state }) => ({
     id: reading.id,
     title: reading.title,
@@ -142,7 +167,11 @@ export function useReadingLayer({
     anchors === null
       ? []
       : rows
-          .filter((row) => row.anchor)
+          .filter(
+            (row) =>
+              row.anchor &&
+              slotPositions.some((slot) => slot.id === row.reading.id && !slot.hidden),
+          )
           .map(({ reading, state }) => ({
             id: reading.id,
             title: reading.title,
@@ -151,7 +180,7 @@ export function useReadingLayer({
   const writable = !blocked && !view.archived && !!snapshot.binding?.discussion && !!status;
   const inline = rows.map(({ reading, anchor, thread, state }) => {
     const slot = slotPositions.find((value) => value.id === reading.id);
-    const attached = !!slot && !!anchor && readingIds.has(reading.id);
+    const attached = !!slot && !slot.hidden && !!anchor && readingIds.has(reading.id);
     const outcome = outcomes.get(reading.id);
     const notification = readingNotification(thread, view.asks ?? []);
     const read = state.kind === 'read';
@@ -208,7 +237,11 @@ export function useReadingLayer({
       />
     );
     const hasNext = rows.some(
-      (row) => row.reading.id !== reading.id && row.anchor && row.state.kind === 'unread',
+      (row) =>
+        row.reading.id !== reading.id &&
+        row.anchor &&
+        row.state.kind === 'unread' &&
+        slotPositions.some((slot) => slot.id === row.reading.id && !slot.hidden),
     );
     return (
       <section
@@ -224,7 +257,7 @@ export function useReadingLayer({
         data-reading-state={state.kind}
         data-reason-expanded={(!!warning && (readOnly || expanded.has(reading.id))) || undefined}
         aria-label={text.readingSection(reading.title)}
-        style={{ top: slot?.top ?? 0 }}
+        style={{ top: slot?.top ?? 0, display: slot?.hidden ? 'none' : undefined }}
       >
         <NeedsYouBar
           tone={read ? 'done' : 'needs'}

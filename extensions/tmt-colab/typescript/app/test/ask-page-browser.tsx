@@ -2451,3 +2451,24 @@ export function setEditLockHolders(input: {
 export function editLockDirectoryReads() {
   return presentationReads;
 }
+
+/** One existing non-compact owner under nested disclosures, without changing its admitted state. */
+export function detailsSlots(options: {
+  kind: 'proposal' | 'review' | 'reading';
+  darkPage?: boolean;
+}) {
+  if (options.kind === 'proposal') proposal();
+  else if (options.kind === 'review') review({ sections: 1, darkPage: options.darkPage });
+  else reading({ count: 1, darkPage: options.darkPage });
+  if (options.kind === 'proposal')
+    current = { ...current, source: `<style>body{${pagePaint(options)}}</style>${current.source}` };
+  const tag = options.kind === 'reading' ? 'read' : options.kind;
+  const start = current.source.indexOf(`<tmt-${tag}`);
+  const end = current.source.indexOf(`</tmt-${tag}>`, start) + `</tmt-${tag}>`.length;
+  if (start < 0 || end <= start) throw new Error('The fixed slot fixture is missing its block.');
+  current = {
+    ...current,
+    source: `${current.source.slice(0, start)}<details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Section details</summary>${current.source.slice(start, end)}</details></details>${current.source.slice(end)}`,
+  };
+  emit();
+}
