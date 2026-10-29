@@ -119,7 +119,7 @@ pub(crate) struct Snapshot {
     anchors: BTreeMap<(String, u64), Vec<u8>>,
 }
 /// Authenticated bytes from one snapshot, shared by reads, edits and causal preparation.
-struct MaterializationInput {
+pub(crate) struct MaterializationInput {
     baseline: Vec<u8>,
     updates: Vec<Vec<u8>>,
     own_updates: BTreeMap<String, Vec<Vec<u8>>>,
@@ -233,18 +233,18 @@ impl Snapshot {
             .usage(true)
     }
     /// [`Self::materialize`] with the gzipped state measured into `usage`, for a reader that
-    /// reports it.
+    /// reports it, and the authenticated bytes it decoded, which an edit of this snapshot reuses.
     pub(crate) fn materialize_measured(
         &self,
         key: &Keyring,
         page: &str,
         decoder: &mut Decoder,
-    ) -> Result<View> {
+    ) -> Result<(View, MaterializationInput)> {
         let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
         let usage = input.usage(true)?;
         let mut view = input.materialize(page, decoder, None)?;
         view.usage = usage;
-        Ok(view)
+        Ok((view, input))
     }
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
         Self::capture_epoch(store, key, page, None, true)
@@ -811,19 +811,27 @@ impl Snapshot {
         page: &str,
         edit: crate::decoder::ContentEdit<'_>,
         base_sha256: Option<&[u8; 32]>,
-        known: Option<(&str, &serde_json::Value)>,
+        known: Option<&crate::page::PatchBase>,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
-        let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
-        // `known` is this snapshot's source and metadata, read by the caller at its revision.
-        // Attachment changes need the full view for their creation proofs.
+        // `known` is what the caller read at this snapshot's revision: the same authenticated
+        // bytes, source and metadata. Attachment changes need the full view for their creation
+        // proofs.
+        let opened;
+        let input = match known {
+            Some(known) => &known.input,
+            None => {
+                opened = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
+                &opened
+            }
+        };
         let decoded = match known {
             Some(_) if edit.attachments.is_none() => None,
             _ => Some(input.materialize(page, decoder, None)?),
         };
         let (base_source, base_meta) = match (&decoded, known) {
             (Some(view), _) => (view.source.as_str(), &view.meta),
-            (None, Some(known)) => known,
+            (None, Some(known)) => (known.source.as_str(), &known.meta),
             (None, None) => return Err(crate::page::Fault::Invalid.into()),
         };
         if base_meta.get("pageType").is_some() {
