@@ -987,6 +987,15 @@ for (const [width, height, theme] of [
     await input.press('Escape');
     await expect(page.getByRole('option')).toHaveCount(0);
     await expect(window).toBeVisible();
+    // Selection guidance belongs to the same dock; the window must clear it too.
+    await expect
+      .poll(async () => {
+        const shell = (await window.boundingBox())!;
+        const hint = (await page.locator('#ask-page-fixture .selection-mode-hint').boundingBox())!;
+        return shell.y + shell.height <= hint.y - 7;
+      })
+      .toBe(true);
+
     await expect(mode).toHaveAttribute('aria-pressed', 'true');
     await expect(input).toHaveText('Draft retained @');
     for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])

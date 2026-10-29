@@ -285,13 +285,10 @@ function PageFloatingActions({
         visibility:
           bottom - margin - (fab?.height ?? 0) >= 8 ? ('visible' as const) : ('hidden' as const),
       };
-      const capsule = element.current
-        ?.querySelector('.page-floating-actions')
-        ?.getBoundingClientRect();
       workspace?.style.setProperty('--colab-conversation-right', `${placed.right}px`);
       workspace?.style.setProperty(
         '--colab-conversation-bottom',
-        `${placed.bottom + (capsule?.height ?? 44) + 8}px`,
+        `${placed.bottom + (fab?.height ?? 44) + 8}px`,
       );
       setPlacement(placed);
     };
