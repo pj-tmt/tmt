@@ -433,8 +433,11 @@ A separate joined publisher under the same Service/Store/project guard samples p
 Ops only for native read peers explicitly advertising `squads.summary` through signed
 capabilities. Capability results are cached by native key and grant revision; failed
 observations back off. The existing inbox worker remains free to answer exchanges.
-The publisher coalesces for five seconds and heartbeats every five minutes; failed
-Ops reads publish unavailable. Stop joins both workers before releasing the lease.
+Public Ops samples are serialized, at least one minute apart from completion, with
+a dedicated 30-second timeout. Publication coalesces for five seconds and heartbeats
+every five minutes. A failed read keeps the last published content and observation
+time; continuing failures become unavailable only at a due heartbeat, and success
+clears the failure streak. Stop joins both workers before releasing the lease.
 The existing sender/HPKE/carrier attempt owner and project guard carry publications;
 budget refusal retains pending intent with a bounded hold, attempted IDs remain
 observation-only, and revoke/current membership fences precede effects.

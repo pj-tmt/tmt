@@ -322,6 +322,10 @@ pub const SQUAD_SUMMARY_MEMBERS: usize = 512;
 /// Unchanged summaries heartbeat every five minutes; readers derive age from observedAt.
 pub const SQUAD_SUMMARY_CAPABILITY_TTL_MS: u64 = 86_400_000;
 pub const SQUAD_SUMMARY_CAPABILITIES: usize = 64;
+/// Wait from completion before another background public Ops read.
+pub const SQUAD_SUMMARY_SAMPLE_MS: u64 = 60_000;
+/// Background roster reads have their own budget, independent of browser reads.
+pub const SQUAD_SUMMARY_READ_WAIT: Duration = Duration::from_secs(30);
 pub const SQUAD_SUMMARY_COALESCE_MS: u64 = 5_000;
 pub const SQUAD_SUMMARY_HEARTBEAT_MS: u64 = 300_000;
 /// One bounded other-machine list, before filtering the local machine.

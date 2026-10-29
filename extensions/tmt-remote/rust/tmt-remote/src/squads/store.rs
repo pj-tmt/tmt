@@ -34,7 +34,7 @@ fn prune(c: &rusqlite::Connection, now: u64) -> Result<(), RemoteError> {
         [integer(now)?],
     )
     .map_err(database)?;
-    c.execute(&format!("UPDATE squad_publications SET desired=NULL,fingerprint=NULL,changed_ms=NULL,sent_hash=NULL,sent_ms=NULL,active_id=NULL,active_payload=NULL,active_revision=NULL WHERE desired IS NOT NULL AND client_id IN ({ended})"), [integer(now)?]).map_err(database)?;
+    c.execute(&format!("UPDATE squad_publications SET desired=NULL,fingerprint=NULL,changed_ms=NULL,sent_hash=NULL,sent_ms=NULL,sent_summary=NULL,active_id=NULL,active_payload=NULL,active_revision=NULL WHERE desired IS NOT NULL AND client_id IN ({ended})"), [integer(now)?]).map_err(database)?;
     Ok(())
 }
 /// Sequence is persisted independently of clock time. Unknown fields are ignored;
@@ -185,6 +185,22 @@ impl Store {
 
         tx.commit().map_err(database)
     }
+    /// Retained published content and observation time, never pending content or delivery evidence.
+    pub(crate) fn summary_last_published(
+        &self,
+        peer: &str,
+    ) -> Result<Option<Summary>, RemoteError> {
+        let bytes: Option<Option<Vec<u8>>> = self
+            .connection
+            .query_row(
+                "SELECT sent_summary FROM squad_publications WHERE client_id=?1",
+                [peer],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(database)?;
+        bytes.flatten().map(|b| Summary::read(&b)).transpose()
+    }
     /// Restore persisted wall-clock ages onto a monotonic timeline. Future wall
     /// timestamps conservatively restart their interval instead of spinning.
     pub(crate) fn summary_schedule(
@@ -204,18 +220,23 @@ impl Store {
                 let age = |time: i64| -> Result<u64, RemoteError> {
                     Ok(wall.saturating_sub(natural(time)?))
                 };
+                let publication_age = sent.map(age).transpose()?;
                 let published = match (hash, sent) {
                     (Some(hash), Some(sent)) => {
                         Some((hash.try_into().map_err(|_| invalid())?, age(sent)?))
                     }
                     _ => None,
                 };
-                Ok(Schedule::restore(
+                let mut schedule = Schedule::restore(
                     published,
                     changed.map(age).transpose()?,
                     natural(retry)?.saturating_sub(wall),
                     mono,
-                ))
+                );
+                if let Some(age) = publication_age {
+                    schedule.restore_publication_age(age, mono);
+                }
+                Ok(schedule)
             },
         )
         .transpose()
@@ -260,9 +281,10 @@ impl Store {
     ) -> Result<(), RemoteError> {
         let (_, summary) = frame(payload)?;
         let hash = Prepared::published_fingerprint(&summary)?;
+        let bytes = summary.bytes()?;
         let (tx, _) = self.authorized_at(grant, || Ok(now))?;
         require_read(&tx, grant)?;
-        let changed = tx.execute("UPDATE squad_publications SET sent_hash=?3,sent_ms=?4,changed_ms=CASE WHEN fingerprint=?3 THEN NULL ELSE COALESCE(changed_ms,?4) END,active_id=NULL,active_payload=NULL,active_revision=NULL,retry_ms=0 WHERE client_id=?1 AND active_id=?2",params![grant.client_id,id,hash.as_slice(),integer(now)?]).map_err(database)?;
+        let changed = tx.execute("UPDATE squad_publications SET sent_hash=?3,sent_ms=?4,sent_summary=?5,changed_ms=CASE WHEN fingerprint=?3 THEN NULL ELSE COALESCE(changed_ms,?4) END,active_id=NULL,active_payload=NULL,active_revision=NULL,retry_ms=0 WHERE client_id=?1 AND active_id=?2",params![grant.client_id,id,hash.as_slice(),integer(now)?,bytes]).map_err(database)?;
         if changed != 1 {
             return Err(invalid());
         }

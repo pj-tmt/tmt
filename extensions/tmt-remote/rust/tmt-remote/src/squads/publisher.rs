@@ -77,6 +77,39 @@ pub(crate) fn supports_summary(value: &serde_json::Value) -> Result<bool, Remote
     Ok(operations.iter().any(|op| op == "squads.summary"))
 }
 
+/// One completion-based cadence shared by all recipients. The Service holds
+/// its sampling mutex through the read, so another caller cannot overlap it.
+#[derive(Default)]
+pub(crate) struct SummarySampling {
+    finished: Option<u64>,
+    generation: u64,
+    latest: Option<(u64, Summary)>,
+}
+impl SummarySampling {
+    pub fn due(&self, now: u64) -> bool {
+        self.finished
+            .is_none_or(|end| now.saturating_sub(end) >= limits::SQUAD_SUMMARY_SAMPLE_MS)
+    }
+    pub fn finished(&mut self, end: u64) {
+        self.finished = Some(end);
+    }
+    pub fn record(&mut self, summary: Summary) {
+        self.generation = self.generation.saturating_add(1);
+        self.latest = Some((self.generation, summary));
+    }
+    pub fn latest(&self) -> Option<&(u64, Summary)> {
+        self.latest.as_ref()
+    }
+}
+#[derive(Debug, Default, PartialEq, Eq)]
+enum SummaryFailure {
+    #[default]
+    None,
+    Holding,
+    Continuing,
+    Ready,
+}
+
 /// Monotonic deadlines restored from persisted ages, never backdated into a new
 /// process's zero-based clock. Restart does not reset an almost-due heartbeat.
 #[derive(Default)]
@@ -87,6 +120,8 @@ pub(crate) struct Schedule {
     next_allowed: u64,
     heartbeat_due: Option<u64>,
     blocked_until: u64,
+    sample_generation: Option<u64>,
+    failure: SummaryFailure,
 }
 impl Schedule {
     pub fn restore(
@@ -110,6 +145,50 @@ impl Schedule {
             ..Self::default()
         }
     }
+    /// Publication certainty may be lost while its last confirmed time remains
+    /// known. Failure grace must not be renewed by an uncertain newer attempt.
+    pub fn restore_publication_age(&mut self, age: u64, now: u64) {
+        self.heartbeat_due =
+            Some(now.saturating_add(limits::SQUAD_SUMMARY_HEARTBEAT_MS.saturating_sub(age)));
+    }
+    /// Only fresh failed reads establish a continuing failure. Cached failures
+    /// on five-second publication ticks are not additional observations.
+    pub fn observe_sample(
+        &mut self,
+        next: Prepared,
+        retained: Option<Prepared>,
+        generation: u64,
+        now: u64,
+    ) -> Prepared {
+        let fresh = self.sample_generation != Some(generation);
+        self.sample_generation = Some(generation);
+        let available = |p: &Prepared| Summary::read(&p.bytes).is_ok_and(|s| s.squads().is_some());
+        let chosen = if !available(&next) && retained.as_ref().is_some_and(available) {
+            match self.failure {
+                SummaryFailure::None => self.failure = SummaryFailure::Holding,
+                SummaryFailure::Holding if fresh => self.failure = SummaryFailure::Continuing,
+                _ => {}
+            }
+            if self.failure == SummaryFailure::Continuing
+                && self.heartbeat_due.is_some_and(|at| now >= at)
+            {
+                self.failure = SummaryFailure::Ready;
+            }
+            if matches!(
+                self.failure,
+                SummaryFailure::Holding | SummaryFailure::Continuing
+            ) {
+                retained.expect("available retained snapshot")
+            } else {
+                next
+            }
+        } else {
+            self.failure = SummaryFailure::None;
+            next
+        };
+        self.observe(chosen.clone(), now);
+        chosen
+    }
     pub fn observe(&mut self, next: Prepared, now: u64) {
         if self.published == Some(next.fingerprint) {
             self.changed_due = None;
@@ -125,6 +204,13 @@ impl Schedule {
     }
     pub fn due(&self, now: u64) -> Option<&Prepared> {
         let latest = self.latest.as_ref()?;
+        if matches!(
+            self.failure,
+            SummaryFailure::Holding | SummaryFailure::Continuing
+        ) && self.changed_due.is_none()
+        {
+            return None;
+        }
         let due = match self.changed_due {
             Some(changed) => changed.max(self.next_allowed),
             None => self.heartbeat_due?,
@@ -147,7 +233,6 @@ impl Schedule {
     /// Returning to the old content cannot cancel original-ID recovery or repair.
     pub fn unconfirmed(&mut self, now: u64) {
         self.published = None;
-        self.heartbeat_due = None;
         self.changed_due.get_or_insert(now);
     }
     pub fn defer_until(&mut self, until: u64) {
@@ -370,5 +455,107 @@ mod tests {
             }
         }
         assert_eq!(publications, 288);
+    }
+    #[test]
+    fn sampling_waits_a_full_minute_from_read_completion_and_reuses_the_outcome() {
+        let mut sample = SummarySampling::default();
+        assert!(sample.due(0));
+        sample.finished(19_000);
+        sample.record(summary(19_000));
+        assert!(
+            !sample.due(60_000),
+            "start time must not anchor the cadence"
+        );
+        assert!(!sample.due(78_999));
+        assert!(sample.due(79_000));
+        assert_eq!(sample.latest().unwrap().0, 1);
+        assert_eq!(sample.latest().unwrap().1.observed_at, 19_000);
+        sample.finished(99_000);
+        sample.record(summary(99_000));
+        assert!(!sample.due(158_999));
+        assert!(sample.due(159_000));
+        assert_eq!(sample.latest().unwrap().0, 2);
+    }
+    fn failure(at: u64) -> Prepared {
+        Prepared::for_peer(
+            &Summary::unavailable("Studio", at).unwrap(),
+            &authority(PermittedAgents::All),
+        )
+        .unwrap()
+    }
+    fn published_available() -> (Schedule, Prepared) {
+        let good = prepared(1);
+        let mut schedule = Schedule::default();
+        schedule.observe_sample(good.clone(), None, 1, 0);
+        schedule.published(good.fingerprint, 5_000);
+        (schedule, good)
+    }
+    #[test]
+    fn a_single_failed_read_keeps_published_content_and_its_original_observation_time() {
+        let (mut schedule, good) = published_available();
+        let retained = schedule.observe_sample(failure(65_000), Some(good.clone()), 2, 65_000);
+        assert_eq!(retained.bytes, good.bytes);
+        assert_eq!(Summary::read(&retained.bytes).unwrap().observed_at, 1);
+        assert!(schedule.due(70_000).is_none());
+        // Cached failures on publication ticks do not establish another failed read,
+        // even if the heartbeat becomes due while no new read has completed.
+        schedule.observe_sample(failure(65_000), Some(good), 2, 306_000);
+        assert!(schedule.due(311_000).is_none());
+    }
+    #[test]
+    fn persistent_failed_reads_publish_unavailable_at_heartbeat_then_recover() {
+        let (mut schedule, good) = published_available();
+        schedule.observe_sample(failure(65_000), Some(good.clone()), 2, 65_000);
+        schedule.observe_sample(failure(125_000), Some(good.clone()), 3, 125_000);
+        assert!(schedule.due(130_000).is_none());
+        // Two actual failed reads already establish the streak. A cached tick
+        // at the deadline can release it, without counting a new failed read.
+        schedule.observe_sample(failure(125_000), Some(good), 3, 305_000);
+        assert!(schedule.due(309_999).is_none());
+        let unavailable = schedule.due(310_000).unwrap().clone();
+        assert!(
+            Summary::read(&unavailable.bytes)
+                .unwrap()
+                .squads()
+                .is_none()
+        );
+        schedule.published(unavailable.fingerprint, 310_000);
+        let recovered = prepared(365_000);
+        schedule.observe_sample(recovered.clone(), Some(unavailable), 5, 365_000);
+        assert!(schedule.due(369_999).is_none());
+        assert_eq!(schedule.due(370_000).unwrap().bytes, recovered.bytes);
+    }
+    #[test]
+    fn one_success_clears_the_failure_streak_including_at_an_overdue_heartbeat() {
+        let (mut schedule, good) = published_available();
+        schedule.observe_sample(failure(65_000), Some(good.clone()), 2, 65_000);
+        schedule.observe_sample(prepared(125_000), Some(good.clone()), 3, 125_000);
+        schedule.observe_sample(failure(310_000), Some(good.clone()), 4, 310_000);
+        assert!(
+            schedule.due(315_000).is_none(),
+            "first new failure cannot flip an overdue heartbeat"
+        );
+        schedule.observe_sample(failure(370_000), Some(good), 5, 370_000);
+        assert!(
+            Summary::read(&schedule.due(375_000).unwrap().bytes)
+                .unwrap()
+                .squads()
+                .is_none()
+        );
+    }
+    #[test]
+    fn uncertain_attempts_and_restart_do_not_renew_the_failure_heartbeat() {
+        let (mut live, good) = published_available();
+        live.unconfirmed(65_000);
+        live.observe_sample(failure(65_000), Some(good.clone()), 2, 65_000);
+        live.observe_sample(failure(125_000), Some(good.clone()), 3, 125_000);
+        let due = live.observe_sample(failure(125_000), Some(good.clone()), 3, 305_000);
+        assert!(Summary::read(&due.bytes).unwrap().squads().is_none());
+        let mut restored = Schedule::restore(None, Some(0), 0, 0);
+        restored.restore_publication_age(300_000, 0);
+        restored.observe_sample(failure(0), Some(good.clone()), 1, 0);
+        assert_eq!(restored.failure, SummaryFailure::Holding);
+        let due = restored.observe_sample(failure(60_000), Some(good), 2, 60_000);
+        assert!(Summary::read(&due.bytes).unwrap().squads().is_none());
     }
 }

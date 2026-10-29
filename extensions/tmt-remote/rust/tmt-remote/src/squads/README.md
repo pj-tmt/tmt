@@ -63,8 +63,8 @@ path or conversation field enters the summary. There is no fallback to the broad
 owner-browser Ops projection, cron, private Ops/Core state or host inspection.
 
 A missing/failing Ops command, invalid JSON or changed required document shape
-produces a publishable `{version:1,machineName,observedAt,status:"unavailable"}`
-snapshot with no `squads`. It is never an empty available success and contains no
+produces an `{version:1,machineName,observedAt,status:"unavailable"}` read result
+with no `squads`; the publisher failure policy below controls its publication. It is never an empty available success and contains no
 stale facts or diagnostic free text. An explicitly empty available `squads` list
 is valid. `Summary::read` rejects incompatible versions,
 malformed identity/name/shape and duplicate JSON keys. Names are bounded text
@@ -168,20 +168,22 @@ native key and grant revision; failed checks back off from one minute to one day
 Absent support is not inferred from labels or another operation. Completed local
 capability observation rows are retired without retaining response contexts.
 
-The separate publisher samples public Ops at five-second intervals only with
-eligible, capability-confirmed native read peers. The existing inbox worker remains
+The separate publisher samples public Ops at most once a minute, measured from the
+end of the previous read, with its own 30-second timeout and no overlapping reads.
+It samples only with eligible, capability-confirmed native read peers. The existing inbox worker remains
 free to answer capability exchanges. Both workers share the Service, Store, project
 guard and stop owner; stop joins both before releasing the serve lease. The publisher
-coalesces content changes for five seconds; observation time alone
-does not publish. The unchanged heartbeat is five minutes. Missing/failed Ops reads
-publish the explicit unavailable snapshot. Pending intent and normalized verified
-cache survive restart. Unconfirmed attempted carrier IDs are observed, never
+coalesces content changes for five seconds; observation time alone does not publish. The unchanged heartbeat is five minutes. A failed read retains the
+last published available content with its original observation time. Continuing failed
+reads publish unavailable only when the heartbeat is due; cached publication ticks
+are not new failed reads, and one success clears the failure streak. With no prior
+available publication, a failed first read is explicitly unavailable. The last
+published content, pending intent and normalized verified cache survive restart. Unconfirmed attempted carrier IDs are observed, never
 created again. If original-ID recovery observes no carrier, that snapshot remains
 unconfirmed and its attempted row stays immutable. The latest desired state is held
 for five minutes, then a fresh observation may use a newer sequence and ID; it is not
 a delivery claim or replay of the absent snapshot. Existing carrier-retention expiry
-retires its active snapshot atomically;
-the retained desired state can produce a fresh observation with a newer sequence,
+retires its active snapshot atomically; the retained desired state can produce a fresh observation with a newer sequence,
 never a recreation of the expired ID. Budget/Auth failure holds pending state for at
 least the existing idle interval, in addition to the shared project's own guard and backoff.
 

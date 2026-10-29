@@ -67,7 +67,7 @@ pub struct Service {
     summary_error: Mutex<Option<String>>,
     summary_support: Mutex<BTreeMap<String, summaries::SummarySupport>>,
     summary_clock: Instant,
-    summary_sample: Mutex<Option<Instant>>,
+    summary_sample: Mutex<crate::squads::publisher::SummarySampling>,
     summary_schedules: Mutex<BTreeMap<String, crate::squads::publisher::Schedule>>,
 }
 pub struct Owner {
@@ -113,7 +113,7 @@ impl Service {
             summary_error: Mutex::new(None),
             summary_support: Mutex::new(BTreeMap::new()),
             summary_clock: Instant::now(),
-            summary_sample: Mutex::new(None),
+            summary_sample: Mutex::default(),
             summary_schedules: Mutex::new(BTreeMap::new()),
         }
     }

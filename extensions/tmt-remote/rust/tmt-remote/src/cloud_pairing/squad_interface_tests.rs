@@ -241,7 +241,6 @@ fn native_read_only_capability_gate_and_summary_cleanup_share_the_existing_chann
                 Some(Ok(true))
             );
             assert!(summaries().is_empty(), "capability lookup sends no summary");
-            *sender.summary_sample.lock().unwrap() = None;
             let reads = wire.reads.lock().unwrap().len();
             sender.publish_summaries().unwrap();
             assert_eq!(
@@ -258,7 +257,6 @@ fn native_read_only_capability_gate_and_summary_cleanup_share_the_existing_chann
                     0,
                 ),
             );
-            *sender.summary_sample.lock().unwrap() = None;
             sender.publish_summaries().unwrap();
             let names = summaries();
             assert_eq!(names.len(), 1);
@@ -314,7 +312,6 @@ fn native_read_only_capability_gate_and_summary_cleanup_share_the_existing_chann
                 .lock()
                 .unwrap()
                 .remove(&owner.machine);
-            *sender.summary_sample.lock().unwrap() = None;
             sender.publish_summaries().unwrap();
             assert_eq!(
                 sender
@@ -327,7 +324,6 @@ fn native_read_only_capability_gate_and_summary_cleanup_share_the_existing_chann
                 Some(Ok(false))
             );
             let before = wire.commits.lock().unwrap().len();
-            *sender.summary_sample.lock().unwrap() = None;
             sender.publish_summaries().unwrap();
             assert_eq!(
                 wire.commits.lock().unwrap().len(),

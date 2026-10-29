@@ -41,14 +41,6 @@ impl Service {
         let Some(reads) = &self.summary_reads else {
             return Ok(false);
         };
-        let mut last = self.summary_sample.lock().map_err(crate::store::database)?;
-        if last.is_some_and(|at| {
-            at.elapsed() < Duration::from_millis(crate::limits::SQUAD_SUMMARY_COALESCE_MS)
-        }) {
-            return Ok(false);
-        }
-        *last = Some(Instant::now());
-        drop(last);
         let now = crate::pairing::now_ms()?;
         let mut eligible = BTreeMap::new();
         {
@@ -128,8 +120,21 @@ impl Service {
                     .remote_name()
                     .unwrap_or(&self.machine)
                     .to_owned();
-            // One bounded public Ops read for all currently supported native peers.
-            Some(reads.squad_summary(&name)?)
+            // Serialize the full read, and start the minute interval only after
+            // it completes. Other publication ticks reuse its typed outcome.
+            let mut sample = self.summary_sample.lock().map_err(crate::store::database)?;
+            let mono = || {
+                self.summary_clock
+                    .elapsed()
+                    .as_millis()
+                    .min(u64::MAX as u128) as u64
+            };
+            if sample.due(mono()) {
+                let result = reads.squad_summary(&name);
+                sample.finished(mono());
+                sample.record(result?);
+            }
+            sample.latest().cloned()
         };
         let wall = crate::pairing::now_ms()?;
         let mono = self
@@ -139,12 +144,14 @@ impl Service {
             .min(u64::MAX as u128) as u64;
         let io = self.io();
         for (peer, (grant, mut record)) in ready {
-            let next = Prepared::for_peer(
-                summary.as_ref().ok_or_else(unavailable)?,
-                &grant.authority()?,
-            )?;
-            self.store()?.summary_observed(&grant, &next, wall)?;
-            let due = {
+            let (generation, observed) = summary.as_ref().ok_or_else(unavailable)?;
+            let next = Prepared::for_peer(observed, &grant.authority()?)?;
+            let retained = self
+                .store()?
+                .summary_last_published(&grant.client_id)?
+                .map(|last| Prepared::for_peer(&last, &grant.authority()?))
+                .transpose()?;
+            let (chosen, due) = {
                 let mut schedules = self
                     .summary_schedules
                     .lock()
@@ -157,9 +164,10 @@ impl Service {
                     schedules.insert(peer.clone(), restored);
                 }
                 let schedule = schedules.get_mut(&peer).ok_or_else(unavailable)?;
-                schedule.observe(next, mono);
-                schedule.due(mono).cloned()
+                let chosen = schedule.observe_sample(next, retained, *generation, mono);
+                (chosen, schedule.due(mono).cloned())
             };
+            self.store()?.summary_observed(&grant, &chosen, wall)?;
             let Some(due) = due else {
                 continue;
             };

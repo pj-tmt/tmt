@@ -382,6 +382,10 @@ fn uncertain_publication_retains_returned_content_across_restart() {
                 store
                     .summary_published(&w.grant, &pending_a.id, &pending_a.payload, w.now)
                     .unwrap();
+                assert_eq!(
+                    store.summary_last_published(PEER).unwrap(),
+                    Some(summary.clone())
+                );
                 store.summary_observed(&w.grant, &b, w.now + 1).unwrap();
                 let pending_b = store.summary_pending(&w.grant, &b, w.now + 1).unwrap();
                 store
@@ -403,6 +407,15 @@ fn uncertain_publication_retains_returned_content_across_restart() {
             };
             drop(w.store);
             w.store = Arc::new(Mutex::new(Store::open(&w.lease).unwrap()));
+            assert_eq!(
+                w.store
+                    .lock()
+                    .unwrap()
+                    .summary_last_published(PEER)
+                    .unwrap(),
+                Some(summary.clone()),
+                "pending/uncertain content must not replace the persisted last publication"
+            );
             let mut restored = w
                 .store
                 .lock()
