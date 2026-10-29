@@ -92,7 +92,7 @@ words. In the shell it joins the header slot, pushing the phone sub-bar and page
 leaving the page or Close clears it; at 480px and wider the existing header alert is unchanged.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
-The Comments action, the Chat action and the selection control are one capsule, the dock, in the page's
+The selection control, the Chat action and the Comments action are one capsule, the dock, in the page's
 corner (one border, radius and the design system's overlay shadow, a hairline between the actions), in
 that order. Chat opens the retained drawer in one press, out of the dock and back into it on close
 (`dock-motion.ts`: the dialog clipped to the dock's rectangle, no animation under reduced motion), and
@@ -294,7 +294,7 @@ page, framed or not, gets the frame's 28 px right marker lane (`--colab-lane`) f
 the renderer stands a comment's number there, centred on its line, so it never covers text and the
 first thread moves none (on a framed page 4 px after the column's end, beside its text; otherwise at
 the frame's edge); threads on lines closer than one marker share a `+n` pill that posts
-`colab.render.open-list`, and the parent opens the Comments list. The thread whose window is open is
+`colab.render.open-list`, and the parent opens Comments on its retained selection or the first matching discussion. The thread whose window is open is
 the renderer handle's `select(id | null)`, which `router.tsx` calls with the open thread and which
 posts `colab.render.select` (the frame accepts only the current request and an ID it holds); the
 frame paints that passage in `::highlight(colab-selected)` above the hover look, or on its overlay
@@ -397,7 +397,7 @@ visible, with only message history scrolling in the remaining height.
 All widths use native modal containment without body scroll locking; resizing preserves the mounted draft and editing selection. The body contains overscroll. A header or iframe backdrop press dismisses only, never clicks through.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source and Chat drawers retain drafts and admitted history, and the
-Comments panel, which unmounts when closed, gets its drafts back from the router's draft store;
+Comments panel stays mounted and hidden while closed, retaining its conversation state; page-owned drafts also survive a remount;
 closing never dispatches, abandons or retries. Source places its existing Save action before Close in the shared header. The owner and editor link share stateless editor presentation while retaining their separate draft and save/request owners. The paper editor scrolls long lines within its bordered field and resizes vertically; its lower metadata (the page's 11px sans in the secondary colour, the waiting tone while the draft differs) reports draft/base equality, never persistence, and names the format (HTML); the editor is 10px under 760px. Export closes its preparation and
 revokes download Blob URLs. Manage opens after its menu closes and initially
 focuses its non-interactive heading without an outline while metadata loads;
@@ -407,7 +407,7 @@ Close/Escape restores the trigger's focus. Safety details
 remain available from About this page, reader Page information and blocked views; visibility never
 substitutes for writer admission.
 
-The Comments region (the list and a thread's Discussion view) is a non-modal `BrowserPanel`, not a
+The Comments region (one selected Discussion or an empty filter) is a non-modal `BrowserPanel`, not a
 drawer: no scrim, focus trap or page inertness, so the page stays readable and keyboard-reachable
 beside or under it, and it shares the single panel slot with the drawers. `src/panel-mode.ts` picks
 its mode from one width pair (column from 1180 px, card from 761 px, sheet below; `e2e/panel-mode.spec.ts`
@@ -419,21 +419,32 @@ A thread's composer sits on the column's surface (the page's paper; the sheet's 
 with no rule above it, and the last turn ends the thread without one. A
 card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and a sheet (7 px insets, up to
 75dvh) float over the page and cover the dock, which hides in its place for the panel to open out of and
-close back into (a column leaves it, pressed). The panel lists and walks the open threads: `Show resolved`,
-a pressed icon toggle in its header (`use-show-resolved.ts`, kept on this device in browser storage, off
-by default, never page data), adds the resolved ones, marked resolved; the position `n / m` and the
-previous and next arrows follow the listed threads, and the dock's count is always the open ones. Resolving
-the thread being viewed with resolved threads hidden moves to the next open thread, or to the list's
-`No open threads` state. Escape
-closes the panel only from inside it (a Discussion view steps back to the list first); on the page it
-falls through to the annotation window and selection mode. `Show in the page` scrolls to the passage
-and leaves the panel open. The Discussion view's header holds the position (`n / m`, a text button named
-`All comments` that returns to the list), the previous and next thread arrows (creation order) and
-Resolve or Reopen; the router owns the first two and a slot in the header (`headerActions`), the thread
-window draws Resolve into it (`headerSlot`) so its busy fence and failure line stay with the thread. A
-resolved thread open in the view keeps a dashed `quiet` mark on its passage, the seventh field of the
-highlight request (see the contract), and a mention in its messages is the composer's soft tag. The panel mounts only while open; a thread opens at its latest message, and a
-reader at the end follows new messages while one scrolled up is held.
+close back into (a column leaves it, pressed). The dock opens a single Discussion,
+initially the first Needs-you thread or the first matching thread by number.
+`comments-listing.ts` owns the Open / Needs you / All sequence from the verified
+threads and existing attention metadata; proposals share that sequence. Deleted
+and Chat records stay excluded. `use-thread-filter.ts` keeps the filter on this
+device, accepting the previous Show-resolved preference as All when no filter is
+stored. The static position `n / m` and Previous / Next follow that sequence;
+the dock count remains the canonical pending count. A selected thread stays in
+its sequence through resolution or acknowledgement until explicit navigation.
+Resolve/Reopen never collapse or advance the Discussion. The same mounted window
+retains its draft, input node and Not-notified warning. A reserved status line
+keeps the quote, messages and composer still through a status change. The existing
+page-comment action sits above the selected conversation, leaving the reply
+composer last and pinned. An empty filter retains page-comment creation.
+Escape closes the panel from inside it; on the page it still falls through to the
+annotation window and selection mode. `Show in the page` scrolls to the passage
+and leaves the panel open. Opening the dock or changing its filter keeps the page offset; arrows and explicit
+passage navigation retain their existing reveal behavior. Colab's explicit close handler
+returns focus to the Comments action before the closing clip can keep the old
+composer temporarily focusable. The router owns the static position,
+filter and arrows, and a header slot; the thread window portals its Resolve/Reopen icon action there,
+keeping its busy fence and failure line. A resolved discussion retains the dashed
+`quiet` passage mark (the highlight request's seventh field). A mention remains
+the composer's soft tag. The panel stays mounted and hidden while closed; a
+newly selected thread opens at its latest message. A reader at the end follows
+new messages while one scrolled up is held.
 
 `agent-status-panel.tsx` presents the canonical read-only `LiveAsk` observation
 inside the Agents drawer. It reads only while opened or after explicit Recheck,
@@ -470,11 +481,11 @@ primary Action; Decline uses the bordered Action, Follow up the text Action, and
 Resolve/Reopen muted text at the right end. Follow up opens the shared composer
 inside the card below its history; Send, Escape and Cancel close it. Proposal
 cards have no anchored window or Delete thread action. Missing, duplicate or
-vanished slots and inner-scroll fallback show the admitted proposal in Comments. Resolve folds a proposal
-on the page; in Comments it uses a plain row with full muted title, author/time,
-Proposal · Resolved state and Reopen. All proposal list rows prefix their state
-with Proposal, and resolved marks match ordinary threads. Reopen restores history while retaining
-the final decision. Comments offers Proposals only alongside the mixed list. The
+vanished slots and inner-scroll fallback show the admitted proposal in Comments.
+Inline Resolve folds the card to its retained title/state/Reopen row. The selected
+proposal in Comments stays expanded through Resolve and Reopen, retaining history
+and its final decision. It shares the numbered thread sequence and filters described
+above, with ordinary resolved-thread marks. The
 single header count uses `openThreadCount` for undecided unresolved proposals plus
 unresolved ordinary annotations, excluding Chat/deleted records and decided
 proposals; filtering does not change it. No new token or surface variant is introduced.

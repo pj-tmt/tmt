@@ -516,7 +516,7 @@ test('removed markup leaves a normal annotation accessible in Comments', async (
   await run(page, 'change', '<p>The question was removed.</p>');
   await expect(page.locator('.question-group-card')).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  await expect(page.getByTestId('annotation-row')).toContainText('Which heading should we use?');
+  await expect(page.getByTestId('comment-thread')).toContainText('Which heading should we use?');
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
 

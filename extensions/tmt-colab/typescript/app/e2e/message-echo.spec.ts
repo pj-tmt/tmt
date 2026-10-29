@@ -497,7 +497,7 @@ test('anchored dialog: a failed reply survives closing the thread as the compose
   await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  await page.getByTestId('annotation-row').first().click();
+
   // The thread's composer remounts, so the row's draft comes back in it.
   const reopened = commentsRegion(page);
   const composer = reopened.getByRole('combobox', { name: 'Message', exact: true });
@@ -513,7 +513,7 @@ test('comments: a reply that fails after Comments closed mid-send still holds it
   await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
   const fixtureRoot = page.locator('#ask-page-fixture');
   await (await pageAction(fixtureRoot, 'Comments')).click();
-  await page.getByTestId('annotation-row').first().click();
+
   const panel = commentsRegion(page);
   const input = panel.getByRole('combobox', { name: 'Message', exact: true });
   await input.pressSequentially('Closed while sending.');

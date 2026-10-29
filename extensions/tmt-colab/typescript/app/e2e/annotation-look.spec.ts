@@ -4,7 +4,12 @@ import { captureDirectory } from './captures.js';
 import { readFrameStyle } from './frame-style.js';
 import { destination } from '../test/ask-fixtures.js';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
-import { pageAction, showResolvedOn } from '../test/page-actions.js';
+import {
+  pageAction,
+  showResolvedOn,
+  chooseThreadFilter,
+  selectDiscussion,
+} from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { rgb, tokens } from './tokens.js';
 
@@ -196,23 +201,13 @@ for (const width of [1440, 390])
       const comments = await pageAction(app, 'Comments');
       await comments.click();
       const panel = page.getByTestId('comments-panel');
-      // Comments reopens on the thread that was open; All comments is the list.
-      // The position in the panel's header is the way back to the list.
-      await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
       await expectCommentsEdge(commentsRegion(page), theme);
-      // With Show resolved on, the Open view lists every thread.
-      const allNumbers = async () =>
-        (await panel.locator('.annotation-row .annotation-number').allTextContents()).sort();
-      expect(await allNumbers()).toEqual(['1', '2', '3', '4', '5']);
-      await panel.locator('.annotation-row').filter({ hasText: 'old decision text' }).click();
+      await chooseThreadFilter(page, 'All');
+      await expect(commentsRegion(page).locator('.discussion-position')).toHaveText('1 / 5');
+      await selectDiscussion(page, 'old decision text');
       const resolved = panel.getByTestId('comment-thread');
-      await expect(
-        resolved.getByRole('button', { name: 'Show conversation', exact: true }),
-      ).toBeVisible();
-      await expect(resolved.locator('.conversation-history')).toBeHidden();
-      await expect(resolved.locator('.resolved-summary')).toContainText(
-        '1 message · 0 attachments',
-      );
+      await expect(resolved.locator('.conversation-history')).toBeVisible();
+      await expect(resolved.locator('.resolved-summary')).toHaveCount(0);
       await resolved.scrollIntoViewIfNeeded();
       const rejectedDrop = await resolved.evaluate((element) => {
         const dataTransfer = new DataTransfer();
@@ -223,7 +218,6 @@ for (const width of [1440, 390])
       });
       expect(rejectedDrop).toBe(true);
       await page.screenshot({ path: `${captures}/annotation-resolved-${width}-${theme}.png` });
-      await resolved.getByRole('button', { name: 'Show conversation', exact: true }).click();
       await expect(resolved.locator('.conversation-history')).toBeVisible();
       await expect(resolved.locator('.attachment-pending')).toHaveCount(0);
       await resolved.scrollIntoViewIfNeeded();
@@ -231,9 +225,7 @@ for (const width of [1440, 390])
         path: `${captures}/annotation-resolved-expanded-${width}-${theme}.png`,
       });
       await run(page, 'annotationLookDelete');
-      // The position in the panel's header is the way back to the list.
-      await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
-      expect(await allNumbers()).toEqual(['1', '2', '3', '4']);
+      await expect(commentsRegion(page).locator('.discussion-position')).toContainText('/ 4');
       await expect(markers).toHaveText(['1', '+2']);
       expect(
         await frame.locator('body').evaluate((body) => {

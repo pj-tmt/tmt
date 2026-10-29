@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
-import { pageAction, showResolvedOn } from '../test/page-actions.js';
+import { pageAction, showResolvedOn, selectDiscussion } from '../test/page-actions.js';
 import { capturePath } from './captures.js';
 import { PNG, attach, send } from '../test/attachment-page.js';
 
@@ -142,11 +142,8 @@ for (const destination of ['Chat', 'Thread'] as const) {
         if (destination === 'Chat') await open(page, 'Chat');
         else {
           await open(page, 'Comments');
-          // Comments reopens on the thread it had selected; otherwise the news is in the list.
           await expect(commentsRegion(page)).toBeVisible();
-          if (await page.getByRole('button', { name: 'All comments', exact: true }).isVisible())
-            return;
-          await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
+          await selectDiscussion(page, 'Resolved by Atlas');
         }
       };
       const body = `Retained ${destination} reply after ${removal}`;
@@ -474,7 +471,7 @@ for (const width of [1440, 390]) {
       await page.screenshot({ path: capturePath(`counts-expired-${width}-${theme}.png`) });
       await page.clock.resume();
       await open(page, 'Comments');
-      await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
+      await selectDiscussion(page, 'Resolved by Atlas');
       await expect(page.getByTestId('comment-thread').getByTestId('ask-reply')).toHaveText([
         'Thread reply 201\nSecond reply line',
         'Thread reply 203\nSecond reply line',

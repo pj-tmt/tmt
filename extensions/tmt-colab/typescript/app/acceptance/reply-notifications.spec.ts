@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, selectDiscussion } from '../test/page-actions.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
   composeChat,
@@ -132,7 +132,7 @@ test('an authenticated participant comment notifies the thread author and opens 
     const id = await original.getAttribute('data-thread-id');
     await original.getByRole('button', { name: 'Collapse thread', exact: true }).click();
     await (await pageAction(other, 'Comments')).click();
-    await other.getByTestId('annotation-row').filter({ hasText: 'Canonical quote.' }).click();
+    await selectDiscussion(other, 'Canonical quote.');
     const thread = other.getByTestId('comment-thread');
     await thread
       .getByRole('combobox', { name: 'Message', exact: true })
@@ -165,9 +165,7 @@ test('an authenticated participant comment notifies the thread author and opens 
     await (await pageAction(page, 'Comments')).click();
     const panel = commentsRegion(page);
     await expect(panel).toBeVisible();
-    const back = panel.getByRole('button', { name: 'All comments', exact: true });
-    if (await back.isVisible()) await back.click();
-    await panel.getByTestId('annotation-row').filter({ hasText: 'Canonical quote.' }).click();
+    await selectDiscussion(page, 'Canonical quote.');
     await expect(original.getByTestId('comment-entry')).toHaveCount(2);
   });
 });

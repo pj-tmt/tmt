@@ -24,7 +24,7 @@ async function openLongThread(page: Page, width: number, theme: 'light' | 'dark'
   const app = page.locator('#ask-page-fixture');
   await (await pageAction(app, 'Comments')).click();
   const panel = app.getByTestId('comments-panel');
-  await panel.locator('.annotation-row').first().click();
+
   const entries = panel.getByTestId('comment-entry');
   await expect(entries).toHaveCount(40);
   const scroller = panel.locator('xpath=ancestor::*[contains(@class,"tmt-ui-drawer-body")]');
