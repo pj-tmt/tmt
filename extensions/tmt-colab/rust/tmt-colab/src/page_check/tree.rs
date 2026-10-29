@@ -13,10 +13,142 @@ use std::{borrow::Cow, cell::Cell, cell::RefCell, collections::HashSet, rc::Rc};
 use crate::limits::PAGE_DEPTH;
 
 use html5ever::{
-    Attribute, ExpandedName, ParseOpts, QualName, local_name, ns, parse_fragment,
+    Attribute, ExpandedName, ParseOpts, QualName, TokenizerResult,
+    buffer_queue::BufferQueue,
+    local_name, ns, parse_fragment,
     tendril::{ByteTendril, StrTendril, TendrilSink},
-    tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeBuilderOpts, TreeSink},
+    tokenizer::{TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts},
+    tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeBuilder, TreeBuilderOpts, TreeSink},
 };
+
+fn fragment_options() -> ParseOpts {
+    ParseOpts {
+        tree_builder: TreeBuilderOpts {
+            scripting_enabled: false,
+            ..TreeBuilderOpts::default()
+        },
+        ..ParseOpts::default()
+    }
+}
+
+/// A tokenizer-emitted start tag, with an exact original byte range when consumption boundaries
+/// identify it. No text search repairs a missing range; callers leave that source unchanged.
+pub(crate) struct SourceTag {
+    pub name: String,
+    pub range: Option<std::ops::Range<usize>>,
+}
+
+/// The checker's fragment parser, with a transparent token observer for source-preserving copies.
+/// Ordinary checks keep their existing fast parse; only a template copy needs source positions.
+pub(crate) fn start_tags(source: &str) -> Option<Vec<SourceTag>> {
+    let deep = Rc::new(Cell::new(None));
+    let sink = Sink::new(Rc::clone(&deep));
+    let parser = parse_fragment(
+        sink,
+        fragment_options(),
+        QualName::new(None, ns!(html), local_name!("template")),
+        Vec::new(),
+        false,
+    );
+    let builder = parser.tokenizer.sink;
+    let options = TokenizerOpts {
+        initial_state: Some(builder.tokenizer_state_for_context_elem(false)),
+        ..TokenizerOpts::default()
+    };
+    let input = Rc::new(BufferQueue::default());
+    let fed = Rc::new(Cell::new(0));
+    let tokenizer = Tokenizer::new(
+        SourceTokens {
+            builder,
+            source,
+            input: Rc::clone(&input),
+            fed: Rc::clone(&fed),
+            boundary: Cell::new(0),
+            tags: RefCell::new(Vec::new()),
+        },
+        options,
+    );
+    let mut at = 0;
+    while at < source.len() {
+        let mut end = (at + 16 * 1024).min(source.len());
+        while !source.is_char_boundary(end) {
+            end -= 1;
+        }
+        fed.set(end);
+        input.push_back(StrTendril::from_slice(&source[at..end]));
+        while !matches!(tokenizer.feed(&input), TokenizerResult::Done) {}
+        if deep.get().is_some() {
+            return None;
+        }
+        at = end;
+    }
+    tokenizer.end();
+    Some(tokenizer.sink.tags.into_inner())
+}
+
+struct SourceTokens<'a> {
+    builder: TreeBuilder<Handle, Sink>,
+    source: &'a str,
+    input: Rc<BufferQueue>,
+    fed: Rc<Cell<usize>>,
+    boundary: Cell<usize>,
+    tags: RefCell<Vec<SourceTag>>,
+}
+impl TokenSink for SourceTokens<'_> {
+    type Handle = Handle;
+
+    fn process_token(&self, token: Token, line: u64) -> TokenSinkResult<Handle> {
+        if !matches!(token, Token::ParseError(_)) {
+            // BufferQueue clones share tendril bytes, not consumption. Include pending lookahead
+            // buffers: offsets are bytes of the original input, never decoded token text lengths.
+            let remaining = self.input.as_ref().clone();
+            let bytes: usize = std::iter::from_fn(|| remaining.pop_front())
+                .map(|chunk| chunk.len())
+                .sum();
+            let end = self.fed.get() - bytes;
+            let mut start = self.boundary.replace(end);
+            // The tokenizer discards the initial BOM and the LF of CRLF without emitting tokens.
+            if start == 0 && self.source.starts_with('\u{feff}') {
+                start += '\u{feff}'.len_utf8();
+            }
+            if start > 0
+                && self.source.as_bytes().get(start - 1) == Some(&b'\r')
+                && self.source.as_bytes().get(start) == Some(&b'\n')
+            {
+                start += 1;
+            }
+            if let Token::TagToken(tag) = &token
+                && tag.kind == TagKind::StartTag
+            {
+                let range = self.source.get(start..end).and_then(|raw| {
+                    let name = raw.get(1..1 + tag.name.len())?;
+                    (raw.starts_with('<')
+                        && name.eq_ignore_ascii_case(&tag.name)
+                        && raw
+                            .as_bytes()
+                            .get(1 + tag.name.len())
+                            .is_some_and(|c| c.is_ascii_whitespace() || matches!(c, b'/' | b'>'))
+                        && raw.ends_with('>'))
+                    .then_some(start..end)
+                });
+                self.tags.borrow_mut().push(SourceTag {
+                    name: tag.name.to_string(),
+                    range,
+                });
+            }
+        }
+        self.builder.process_token(token, line)
+    }
+
+    fn end(&self) {
+        self.builder.end();
+    }
+
+    fn adjusted_current_node_present_but_not_in_html_namespace(&self) -> bool {
+        self.builder
+            .adjusted_current_node_present_but_not_in_html_namespace()
+    }
+}
 
 pub(super) type Id = usize;
 
@@ -66,13 +198,7 @@ impl Tree {
     /// match anyway. The source is fed in chunks so the depth is noticed within one chunk.
     pub(super) fn parse(source: &str) -> Result<Tree, TooDeep> {
         const CHUNK: usize = 16 * 1024;
-        let options = ParseOpts {
-            tree_builder: TreeBuilderOpts {
-                scripting_enabled: false,
-                ..TreeBuilderOpts::default()
-            },
-            ..ParseOpts::default()
-        };
+        let options = fragment_options();
         let context = QualName::new(None, ns!(html), local_name!("template"));
         let deep = Rc::new(Cell::new(None));
         let sink = Sink::new(Rc::clone(&deep));
@@ -526,5 +652,41 @@ impl TreeSink for Sink {
 
     fn set_current_line(&self, line: u64) {
         self.line.set(line);
+    }
+}
+
+#[cfg(test)]
+mod source_range_tests {
+    use super::*;
+
+    #[test]
+    fn token_ranges_exclude_attribute_and_script_lookalikes() {
+        let prefix = "<div title=\"<tmt-question data-agent='attribute'>\"></div><script>let s = \"<tmt-question data-agent='script'>\";</script>";
+        let tag = "<TMT-QUESTION title=\"a > b\" data-agent='old'>";
+        let source = format!("{prefix}{tag}");
+        let tags = start_tags(&source).unwrap();
+        let questions: Vec<_> = tags
+            .iter()
+            .filter(|tag| tag.name == "tmt-question")
+            .collect();
+        assert_eq!(questions.len(), 1);
+        assert_eq!(questions[0].range, Some(prefix.len()..source.len()));
+    }
+
+    #[test]
+    fn a_reconsumed_less_than_sign_does_not_guess_a_start_range() {
+        let tags = start_tags("<<tmt-question data-agent='old'>").unwrap();
+        let question = tags.iter().find(|tag| tag.name == "tmt-question").unwrap();
+        assert!(question.range.is_none());
+    }
+
+    #[test]
+    fn chunked_parser_positions_are_original_utf8_byte_offsets() {
+        let prefix = format!("<p>{}</p>\r\n", "é".repeat(8190));
+        let tag = "<tmt-question data-agent='old'>";
+        let source = format!("{prefix}{tag}");
+        let tags = start_tags(&source).unwrap();
+        let question = tags.iter().find(|tag| tag.name == "tmt-question").unwrap();
+        assert_eq!(question.range, Some(prefix.len()..source.len()));
     }
 }

@@ -603,6 +603,7 @@ fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
             b"EXPIRED" => management::Code::Expired,
             b"CONFLICT" => management::Code::Conflict,
             b"STALE_HEAD" => management::Code::StaleHead,
+            b"TEMPLATE_CHANGED" => management::Code::TemplateChanged,
             b"CAPACITY" => management::Code::Capacity,
             b"UNAVAILABLE" => management::Code::Unavailable,
             _ => {
@@ -623,6 +624,9 @@ fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
     Ok(exchange[offset..].to_vec())
 }
 fn management_error(code: &str) -> Box<dyn std::error::Error + Send + Sync> {
+    if code == "TEMPLATE_CHANGED" {
+        return tmt_colab::template_catalog::changed();
+    }
     let (code, message) = match code {
         "INVALID" => ("COLAB_INVALID", "Management selections are invalid."),
         "DENIED" => ("COLAB_DENIED", "Management request denied."),

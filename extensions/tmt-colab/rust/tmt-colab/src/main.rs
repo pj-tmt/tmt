@@ -1417,13 +1417,19 @@ fn main() -> ExitCode {
             let code = start.map_or_else(|| error_code(error), |fault| fault.code.as_str());
             let schema = schema_fault(error);
             let next = schema.and_then(tmt_colab::store::Fault::next);
+            // Creation keeps correlation in ManagementFault; its typed refusal still owns the fix.
+            let template_refusal = error
+                .downcast_ref::<tmt_colab::template_catalog::Refusal>()
+                .or_else(|| {
+                    cli_failure
+                        .and_then(|failure| failure.source.as_deref())
+                        .and_then(|cause| {
+                            cause.downcast_ref::<tmt_colab::template_catalog::Refusal>()
+                        })
+                });
             let hint = start
                 .and_then(|fault| fault.hint.as_deref())
-                .or_else(|| {
-                    error
-                        .downcast_ref::<tmt_colab::template_catalog::Refusal>()
-                        .and_then(tmt_colab::template_catalog::Refusal::hint)
-                })
+                .or_else(|| template_refusal.and_then(tmt_colab::template_catalog::Refusal::hint))
                 .or_else(|| schema.and_then(tmt_colab::store::Fault::hint));
             if json_output {
                 let mut value = cli_failure

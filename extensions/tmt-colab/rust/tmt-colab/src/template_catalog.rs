@@ -28,6 +28,15 @@ pub fn refusal(code: &'static str, message: String, hint: Option<String>) -> Box
     Refusal::new(code, message, hint)
 }
 
+/// A create re-read a different template before preparing or committing any new page.
+pub fn changed() -> Box<Refusal> {
+    refusal(
+        "COLAB_TEMPLATE_CHANGED",
+        "The template changed while the page was being created; nothing was created.".into(),
+        Some("Retry the same page create command to use the current template.".into()),
+    )
+}
+
 impl Refusal {
     fn new(code: &'static str, message: String, hint: Option<String>) -> Box<Self> {
         Box::new(Self {

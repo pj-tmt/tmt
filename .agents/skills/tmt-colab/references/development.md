@@ -159,6 +159,12 @@ when changing fields, especially seven-field members and checkpoint `seq = index
 
 ## Focused Rust suites
 
+User-template copy regressions use `--lib templates::tests`, `--lib page_check` and
+`--test cli user_templates -- --test-threads=1`. The CLI race fixture mutates the template
+at the existing caller-observation subprocess boundary, after template resolution but before
+create reads the owner head; it covers serving/offline, human/JSON, unchanged `ls` after refusal
+and a deliberate fresh-read retry. It adds no production test hook or timing sleep.
+
 Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 
 | Area                                                | Selector                                                                                                                                                                          |

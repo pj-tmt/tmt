@@ -520,7 +520,7 @@ pub fn status(code: Code) -> u16 {
     match code {
         Code::Invalid => 400,
         Code::Denied | Code::Expired => 403,
-        Code::Conflict | Code::StaleHead => 409,
+        Code::Conflict | Code::StaleHead | Code::TemplateChanged => 409,
         Code::Capacity | Code::Unavailable => 503,
     }
 }

@@ -5466,7 +5466,9 @@ Sync rechecks live subscriptions after the callback before sending queued data.
 Success is JSON `{operationId, membershipHead:{revision, statementHash}}`, using the
 operation's committed head even after later mutations. Clients refresh and verify
 the owner log/wraps through bounded catchup; this reply is not authority. Errors are
-400 INVALID, 403 DENIED/EXPIRED, 409 CONFLICT/STALE_HEAD and 503 CAPACITY/UNAVAILABLE.
+400 INVALID, 403 DENIED/EXPIRED, 409 CONFLICT/STALE_HEAD/TEMPLATE_CHANGED and 503 CAPACITY/UNAVAILABLE.
+`TEMPLATE_CHANGED` is a pre-write user-template copy refusal; the CLI maps it to
+`COLAB_TEMPLATE_CHANGED` with a hint to retry the same create command.
 The runner implements member/link/epoch and sharing/history/retention/archive/delete
 actions. This socket composition selects loopback publication; the page-policy
 engine owns rotation, published keys and deletion. Methods other
@@ -6082,7 +6084,14 @@ the default chose it), `templateDefault` for that case, and `readFirst` (the com
 A page created from a user template starts with a copy of the template page's current source and
 layout, its question blocks naming the creator and registered for the creator (see the question
 registry above), and `meta.fromTemplate {name, revision}`; it is independent of the template from
-then on. The CLI refuses a template page that names no layout.
+then on. The CLI refuses a template page that names no layout. Copy edits use start-tag byte
+ranges observed from the admitted HTML fragment parser. Attribute, comment and script/raw-text
+lookalikes are not block tags; bytes outside mapped block attributes stay unchanged. A range that
+cannot be mapped exactly is left unchanged, and normal source/creator admission still decides
+whether the copy is valid. The owner re-reads the template before preparing or writing a new page;
+a changed mark or mismatched copied source refuses with `COLAB_TEMPLATE_CHANGED`, leaving the
+page listing and new-page registry publication unchanged. Retrying is a deliberate new create,
+not an automatic replay against a different template.
 
 The space default is one setting per space (`defaultTemplate` in `settings.json`, kept on the
 machine that creates pages; no per-project default): a user template's page ID, a compiled name, or
@@ -6112,8 +6121,8 @@ layout, summary, source: "builtIn"|"space", default, usedBy, id?, author?}]}` (`
 
 Every refusal is a `COLAB_TEMPLATE_*` code with a message and a fix printed as `error:` and
 `hint:` (JSON `error.hint`): `UNKNOWN`, `AMBIGUOUS`, `NAME_RESERVED`, `NAME_INVALID`, `NAME_TAKEN`,
-`DESCRIPTION_INVALID`, `BUILT_IN`, `UNSUPPORTED` (a dashboard), `NEEDS_LAYOUT` and `UNREADABLE`
-(question blocks that cannot be copied). The marks of all pages are read through
+`DESCRIPTION_INVALID`, `BUILT_IN`, `UNSUPPORTED` (a dashboard), `NEEDS_LAYOUT`, `UNREADABLE`
+(question blocks that cannot be copied) and `CHANGED` (the template no longer matches the copy). The marks of all pages are read through
 `template-index.json` beside the settings: the epoch and content counts of each page, the same
 derived, rebuildable, never signed or synced file `work-index.json` is, so a lookup folds only the
 pages that changed; the page's own fold is what decides. `page read` adds `template` and
