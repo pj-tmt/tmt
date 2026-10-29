@@ -61,11 +61,7 @@ for (const width of [1440, 390])
       await expect(header.locator('.remote-header-chip')).toHaveCount(0);
       // Search is the bar's own control, first at the left, before the page's actions.
       expect(await names(page)).toEqual(['More']);
-      await expect(
-        header
-          .locator('.tmt-ui-topbar-navigation')
-          .getByRole('button', { name: 'Search TMT', exact: true }),
-      ).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Search TMT', exact: true })).toBeVisible();
       await expect(header.locator('.page-connection')).toHaveText('Private · Live');
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({ path: capturePath(`header-idle-${width}-${theme}.png`) });
@@ -162,10 +158,7 @@ test.describe('the shell bar', () => {
   }
   // The ask-page fixture keeps a hidden earlier router beside the live one.
   const bar = (page: Page) => page.locator('.tmt-ui-shell-bar:visible');
-  const search = (page: Page) =>
-    bar(page)
-      .locator('.tmt-ui-topbar-navigation')
-      .getByRole('button', { name: 'Search TMT', exact: true });
+  const search = (page: Page) => page.getByRole('button', { name: 'Search TMT', exact: true });
   const common = (page: Page) => bar(page).locator('.tmt-ui-topbar-common');
   const dialog = (page: Page) => page.getByRole('dialog', { name: 'Search pages', exact: true });
   const views = [
@@ -253,27 +246,20 @@ test.describe('the shell bar', () => {
     });
   }
 
-  test('Search leads the bar, the Remote link closes it, and the page actions sit between them at 1440', async ({
-    page,
-  }) => {
+  test('Search leads the rail and Theme precedes Remote at 1440', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await mountHome(page);
     const control = search(page);
-    const remote = common(page).getByRole('link', { name: 'Remote: 3 live sessions' });
-    await expect(control).toBeVisible();
-    await expect(remote).toBeVisible();
-    const [box, remoteBox, barBox, actionsBox] = await Promise.all([
-      control.boundingBox(),
-      remote.boundingBox(),
-      bar(page).boundingBox(),
-      bar(page).locator('.tmt-ui-topbar-actions').boundingBox(),
-    ]);
-    expect(box!.x).toBeLessThan(actionsBox!.x);
-    expect(actionsBox!.x + actionsBox!.width).toBeLessThanOrEqual(remoteBox!.x);
-    expect(remoteBox!.x + remoteBox!.width).toBeLessThanOrEqual(barBox!.x + barBox!.width);
-    // Colab draws no Remote chip or Theme button of its own beside the bar's.
+    const remote = common(page).getByRole('button', { name: 'Remote: 3 live sessions' });
+    const theme = common(page).getByRole('button', { name: /^Theme:/ });
+    const home = page.locator('nav.tmt-ui-rail:visible a[data-id="home"]');
+    const [searchBox, homeBox, themeBox, remoteBox] = await Promise.all(
+      [control, home, theme, remote].map((node) => node.boundingBox()),
+    );
+    expect(searchBox!.y + searchBox!.height).toBeLessThan(homeBox!.y);
+    expect(themeBox!.x + themeBox!.width).toBeLessThanOrEqual(remoteBox!.x);
     await expect(page.locator('.remote-header-chip:visible')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /^Remote:/ })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /^Remote:/ })).toHaveCount(1);
   });
 
   test('the rail mark paints from its own paint servers while a hidden shell shares the document', async ({
@@ -304,7 +290,7 @@ test.describe('the shell bar', () => {
   test('at 390 the Remote link and Search both stay in the bar', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await mountHome(page);
-    const remote = common(page).getByRole('link', { name: 'Remote: 3 live sessions' });
+    const remote = common(page).getByRole('button', { name: 'Remote: 3 live sessions' });
     await expect(remote).toBeVisible();
     const box = (await search(page).boundingBox())!;
     expect(box.x).toBeGreaterThan(0);
@@ -327,4 +313,21 @@ test.describe('the shell bar', () => {
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(320);
     });
+});
+
+test('the busiest page status and global controls fit at 320', async ({ page }) => {
+  await open(page, 320, 'light', { shared: true, remoteOffline: true, waiting: true });
+  const bar = page.locator('.tmt-ui-topbar:visible');
+  const controls = [
+    bar.getByRole('button', { name: 'Open navigation', exact: true }),
+    bar.getByRole('button', { name: 'Search TMT', exact: true }),
+    bar.locator('.page-header-meta'),
+    bar.getByRole('button', { name: /^Theme:/ }),
+    bar.getByRole('button', { name: /^Remote:/ }),
+    bar.getByRole('button', { name: 'More', exact: true }),
+  ];
+  const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
+  for (let i = 1; i < boxes.length; i++)
+    expect(boxes[i]!.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width);
+  expect(boxes.at(-1)!.x + boxes.at(-1)!.width).toBeLessThanOrEqual(320);
 });

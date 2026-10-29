@@ -39,17 +39,23 @@ const TopBar = createContext<(() => ShellTopBar) | null>(null);
 
 export interface BrowserTopBarProps {
   actions?: ReactNode;
+  status?: ReactNode;
 }
 
 /** Route actions portal into the one native shell renderer; common controls stay root-owned. */
-export function BrowserTopBar({ actions }: BrowserTopBarProps) {
+export function BrowserTopBar({ actions, status }: BrowserTopBarProps) {
   const adopt = useContext(TopBar);
   const [slot, setSlot] = useState<ShellTopBar | null>(null);
   useLayoutEffect(() => {
     if (!adopt) throw new Error('BrowserTopBar requires a shell');
     setSlot(adopt());
   }, [adopt]);
-  return slot ? createPortal(actions, slot.actions) : null;
+  return slot ? (
+    <>
+      {createPortal(status, slot.status)}
+      {createPortal(actions, slot.actions)}
+    </>
+  ) : null;
 }
 
 const ShellBar = createContext<HTMLElement | null>(null);

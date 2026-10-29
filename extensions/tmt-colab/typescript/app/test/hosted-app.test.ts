@@ -159,7 +159,7 @@ it.each(['viewer', 'commenter', 'editor'] as const)(
     });
     expect(html).toContain(role === 'editor' ? 'Can edit' : 'Read-only');
     expect(html).not.toContain('Can comment');
-    expect(html.includes('source-toggle')).toBe(role === 'editor');
+    expect(html).toContain('aria-label="More"');
     expect(html).not.toContain('>Ask<');
     if (role === 'commenter') {
       expect(html).toContain(text.readerNote);

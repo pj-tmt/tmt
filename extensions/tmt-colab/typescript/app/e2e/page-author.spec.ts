@@ -1,5 +1,5 @@
 import { headerHeight } from './tokens.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, readerAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
@@ -21,7 +21,7 @@ async function mount(page: Page, reader = false, unknown = false) {
   ).toBeVisible();
 }
 async function info(page: Page, reader: boolean) {
-  if (reader) await page.locator('.reader-information:visible summary').click();
+  if (reader) await (await readerAction(page, 'Info')).click();
   else await (await pageAction(page, 'About this page')).click();
 }
 for (const width of [1440, 390])

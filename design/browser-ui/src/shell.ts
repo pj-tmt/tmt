@@ -384,7 +384,9 @@ export function mountShell(
   menu.className = 'tmt-ui-module-menu';
   root.prepend(open, rail);
   const bar = root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!;
-  const topBar = createShellTopBar(root, bar, open);
+  const railSearch = document.createElement('div');
+  railSearch.className = 'tmt-ui-rail-search-section';
+  const topBar = createShellTopBar(root, bar, open, railSearch);
   bar.after(menu);
   // The cluster is the bar's second layer: it sits over the bar's right end and tells the host
   // header how much room to leave (`--tmt-ui-shell-tools-width`). A React shell draws the element
@@ -572,6 +574,7 @@ export function mountShell(
     const railTop = rail.scrollTop;
     rail.replaceChildren(
       brand,
+      railSearch,
       railList(next.rail.main, undefined, onPhone ? undefined : next.menu),
       railList(next.rail.bottom, 'tmt-ui-rail-bottom', onPhone ? undefined : next.menu),
     );

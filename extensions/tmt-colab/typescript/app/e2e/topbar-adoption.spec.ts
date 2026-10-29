@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { capturePath } from './captures.js';
 
 /**
  * Colab's own shell adopts the shared top bar (#5237): Colab is the root of the common controls, so
@@ -19,7 +20,7 @@ async function mount(page: Page, mode: 'home' | 'page' = 'home') {
   await expect(page.locator('.tmt-ui-topbar')).toBeVisible();
 }
 const bar = (page: Page) => page.locator('.tmt-ui-topbar:visible');
-const search = (page: Page) => bar(page).getByRole('button', { name: 'Search TMT', exact: true });
+const search = (page: Page) => page.getByRole('button', { name: 'Search TMT', exact: true });
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Search pages', exact: true });
 const shortcut = (page: Page) =>
   page.evaluate(() => (/Mac|iPhone|iPad|iPod/.test(navigator.platform) ? 'Meta+k' : 'Control+k'));
@@ -34,7 +35,7 @@ for (const mode of ['home', 'page'] as const)
     await expect(page.getByRole('button', { name: /^Search/ })).toHaveCount(1);
     await expect(search(page)).toBeVisible();
     await expect(page.getByRole('button', { name: /^Theme/ })).toHaveCount(1);
-    await expect(page.getByRole('link', { name: /^Remote:/ })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /^Remote:/ })).toHaveCount(1);
     // None of the controls Colab used to draw beside the bar's.
     await expect(
       page.locator('.quick-switcher-control, .remote-header-chip, .remote-home-more, .theme'),
@@ -46,7 +47,7 @@ for (const mode of ['home', 'page'] as const)
         .getByRole('button', { name: /^Theme/ })
         .boundingBox(),
       bar(page)
-        .getByRole('link', { name: /^Remote:/ })
+        .getByRole('button', { name: /^Remote:/ })
         .boundingBox(),
     ]);
     expect(searchBox!.x).toBeLessThan(themeBox!.x);
@@ -114,10 +115,48 @@ for (const mode of ['home', 'page'] as const)
       const box = (await search(page).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       const remote = (await bar(page)
-        .getByRole('link', { name: /^Remote:/ })
+        .getByRole('button', { name: /^Remote:/ })
         .boundingBox())!;
       expect(remote.x + remote.width).toBeLessThanOrEqual(width);
       // No search hint on a phone: the control is its icon alone.
       await expect(search(page).locator('kbd')).toBeHidden();
     }
   });
+
+test('hosted Colab adopts the host bar and does not add another shortcut or controls', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const fixture = '/test/spa-links-browser.tsx';
+    (await import(/* @vite-ignore */ fixture)).mountHostApp('/colab/', undefined, true);
+  });
+  await expect(page.locator('.tmt-ui-topbar')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /^Theme:/ })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /^Remote:/ })).toHaveCount(1);
+  await page.getByRole('button', { name: /^Remote:/ }).click();
+  await expect(
+    page
+      .getByRole('dialog', { name: 'Remote', exact: true })
+      .getByRole('link', { name: 'Remote settings' }),
+  ).toHaveAttribute('href', /\/remote\/settings$/);
+  await page.keyboard.press('Escape');
+  await expect(
+    page.locator('.remote-home-more, .remote-header-chip, .theme, .quick-switcher-control'),
+  ).toHaveCount(0);
+  await page.keyboard.press(await shortcut(page));
+  await expect(dialog(page)).toHaveCount(0);
+});
+
+for (const width of [320, 390, 900, 901, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`Colab navigation capture ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'page');
+      await expect(bar(page).getByRole('button', { name: /^Theme:/ })).toBeVisible();
+      await expect(bar(page).getByRole('button', { name: /^Remote:/ })).toBeVisible();
+      await expect(bar(page).getByRole('button', { name: 'More', exact: true })).toBeVisible();
+      await page.screenshot({ path: capturePath(`nav-colab-${width}-${theme}.png`) });
+    });

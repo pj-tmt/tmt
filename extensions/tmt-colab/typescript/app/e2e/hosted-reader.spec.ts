@@ -1,3 +1,4 @@
+import { readerAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
@@ -170,6 +171,11 @@ for (const width of [390, 1280]) {
         ).toBeVisible();
         await expect(page.locator('iframe')).toHaveAttribute('src', `${origin}/renderer.html`);
         await expect(page.getByText('Live', { exact: true })).toBeVisible();
+        const header = page.locator('.tmt-ui-header');
+        await expect(header.getByRole('button', { name: /^Theme:/ })).toHaveCount(1);
+        await expect(header.getByRole('button', { name: 'More', exact: true })).toHaveCount(1);
+        await expect(header.getByRole('button', { name: 'Search TMT' })).toHaveCount(0);
+        await expect(header.getByRole('button', { name: /^Remote:/ })).toHaveCount(0);
         await expect(
           page.getByText('This browser is close to its daily reading allowance.', {
             exact: false,
@@ -177,13 +183,13 @@ for (const width of [390, 1280]) {
         ).toBeVisible();
         await expect(page.getByRole('button', { name: text.save, exact: true })).toHaveCount(0);
         await expect(page.getByRole('button', { name: /^(Ask|Share)$/ })).toHaveCount(0);
-        await page.getByLabel('Info', { exact: true }).click();
+        await (await readerAction(page, 'Info')).click();
         const panel = page.locator('.reader-information-panel');
         await expect(panel).toBeVisible();
         const box = (await panel.boundingBox())!;
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(width);
-        await page.getByLabel('Info', { exact: true }).click();
+        await page.getByRole('button', { name: 'Close Info', exact: true }).click();
       } else {
         await expect(page.getByTestId('hosted-entry')).toBeVisible();
         await expect(page.locator('iframe')).toHaveCount(0);
@@ -251,7 +257,7 @@ for (const width of [390, 1280]) {
               .frameLocator('iframe')
               .getByRole('heading', { name: 'Verified shared page', exact: true }),
           ).toBeVisible();
-          await page.getByTestId('source-toggle').click();
+          await (await readerAction(page, 'Source')).click();
           const area = page.locator('#source-edit');
           await expect(area).toBeVisible();
           if (state.startsWith('request-')) {
@@ -311,3 +317,23 @@ for (const width of [390, 1280]) {
     });
   }
 }
+
+for (const width of [320, 390, 900, 901, 1440])
+  for (const colorScheme of ['light', 'dark'] as const)
+    test(`reader and brand-only navigation capture ${width} ${colorScheme}`, async ({
+      page,
+      baseURL,
+    }) => {
+      const outside = await hostedFixture(page, baseURL);
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme });
+      await page.goto(`${origin}/test/hosted-browser.html?state=ready`);
+      await expect(page.getByRole('button', { name: /^Theme:/ })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'More', exact: true })).toBeVisible();
+      await page.screenshot({ path: capturePath(`nav-reader-${width}-${colorScheme}.png`) });
+      await page.goto(`${origin}/test/hosted-browser.html?state=sign-in`);
+      await expect(page.getByRole('button', { name: /^Theme:/ })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /^Remote:/ })).toHaveCount(0);
+      await page.screenshot({ path: capturePath(`nav-brand-${width}-${colorScheme}.png`) });
+      expect(outside).toEqual([]);
+    });

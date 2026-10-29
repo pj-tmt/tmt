@@ -225,7 +225,7 @@ export function ColabShell({
   const content = <ProjectMenuActionsSlot value={setActions}>{children}</ProjectMenuActionsSlot>;
   return hostSlot ? (
     <HostedShell slot={hostSlot} menu={view.menu} select={select}>
-      {content}
+      <SharedTopBar value={hostSlot.topBarReady()}>{content}</SharedTopBar>
     </HostedShell>
   ) : (
     <OwnShell view={view} select={select}>

@@ -1,11 +1,27 @@
 import { RemoteHeaderChip, RemoteMoreMenu, useRemoteHeaderAvailable } from './remote-header.js';
-import { useContext, useLayoutEffect, type ReactNode, type Ref, type RefCallback } from 'react';
-import { BrowserHeader, BrowserTopBar, useShellBar, useShellTools } from '@tmt/browser-ui/react';
+import {
+  useContext,
+  useLayoutEffect,
+  useSyncExternalStore,
+  type ReactNode,
+  type Ref,
+  type RefCallback,
+} from 'react';
+import {
+  BrowserHeader,
+  BrowserMenu,
+  BrowserTopBar,
+  useShellBar,
+  useShellTools,
+} from '@tmt/browser-ui/react';
 import { createPortal } from 'react-dom';
 import { text } from './strings.js';
 import './colab-header.css';
 import { QuickSwitcherControl } from './quick-switcher-control.js';
 import { SharedTopBar } from './shared-top-bar.js';
+import { getThemeChoice, subscribeTheme } from './theme.js';
+import { setStoredTheme, THEMES } from '@tmt/browser-ui/theme';
+import { Sun } from 'lucide-react';
 
 function assign<T>(ref: Ref<T> | undefined, value: T | null) {
   if (typeof ref === 'function') ref(value);
@@ -48,6 +64,8 @@ export function ColabHeader({
   crumb,
   headingSuffix,
   embedded = false,
+  reader = false,
+  brandOnly = false,
 }: {
   title: string;
   titleVisible?: boolean;
@@ -72,6 +90,8 @@ export function ColabHeader({
   /** The page is hosted inside another surface that already names it: only its actions and status
    * remain, in place, never in the host's header slot. */
   embedded?: boolean;
+  reader?: boolean;
+  brandOnly?: boolean;
 }) {
   const remoteAvailable = useRemoteHeaderAvailable();
   const deviceName = remote?.deviceName?.trim();
@@ -134,11 +154,12 @@ export function ColabHeader({
               )
       }
       actions={
-        shared ? undefined : (
+        shared || brandOnly ? undefined : (
           <>
-            {!clustered && <QuickSwitcherControl />}
+            {!clustered && !reader && <QuickSwitcherControl />}
+            {reader && <ReaderTheme />}
             {actions}
-            {remoteMenu && (
+            {remoteMenu && !reader && (
               <span className="remote-home-more">
                 <RemoteMoreMenu />
               </span>
@@ -164,14 +185,7 @@ export function ColabHeader({
     const row = titleVisible || headingSuffix !== undefined || caption !== undefined;
     return (
       <>
-        <BrowserTopBar
-          actions={
-            <>
-              {status}
-              {actions}
-            </>
-          }
-        />
+        <BrowserTopBar status={status} actions={actions} />
         {row && (
           <div className="colab-title-row" ref={rowRef}>
             {header}
@@ -198,5 +212,22 @@ function CrumbGroup({ children }: { children: ReactNode }) {
         /
       </span>
     </span>
+  );
+}
+
+/** Reader links have no shell, so they expose the same stored theme menu locally. */
+function ReaderTheme() {
+  const choice = useSyncExternalStore(subscribeTheme, getThemeChoice, () => 'system' as const);
+  return (
+    <BrowserMenu
+      label={`Theme: ${choice}`}
+      icon={<Sun aria-hidden />}
+      items={THEMES.map((key) => ({
+        key,
+        label: key === 'system' ? 'System' : key === 'light' ? 'Light' : 'Dark',
+        checked: choice === key,
+      }))}
+      onSelect={(key) => setStoredTheme(key)}
+    />
   );
 }

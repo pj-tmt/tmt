@@ -188,6 +188,8 @@
   "tmt-ui-rail-item",
   "tmt-ui-rail-items",
   "tmt-ui-rail-label",
+  "tmt-ui-rail-search",
+  "tmt-ui-rail-search-section",
   "tmt-ui-rail-sub",
   "tmt-ui-rail-sub-group",
   "tmt-ui-rail-sub-item",
@@ -250,6 +252,7 @@
   "tmt-ui-topbar-navigation",
   "tmt-ui-topbar-remote",
   "tmt-ui-topbar-search",
+  "tmt-ui-topbar-status",
   "tmt-ui-visually-hidden",
   "tmt-ui-wordmark"
  ],
