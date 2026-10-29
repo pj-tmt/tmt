@@ -1,11 +1,13 @@
 //! Existing-data Digest view. Acquisition, effects, scrolls and terminal diffing
 //! remain with their existing owners; this module projects already-held values.
 mod allowance;
+mod details;
 mod metrics;
 mod model;
 mod render;
 mod summary;
 pub(in crate::board) use allowance::Scroll as AllowanceScroll;
+pub(in crate::board) use details::{Basis as EstimateBasis, Tab as DetailsTab};
 pub(in crate::board) use render::open_basis;
 mod table;
 

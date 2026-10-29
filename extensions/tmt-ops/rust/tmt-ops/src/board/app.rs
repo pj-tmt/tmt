@@ -340,6 +340,8 @@ pub enum Choice {
     DigestWindow(crate::config::DigestWindow),
     DigestWindowMenu,
     DigestBasis,
+    /// A Details tab chip on the Digest tab.
+    DigestDetails(super::digest_dashboard::DetailsTab),
     /// The shared saved TOK range for Agents and Digest.
     TokRange(crate::config::TokRange),
     /// A click on an Agents column header: sort by it, or reverse it.
@@ -610,6 +612,7 @@ pub(super) enum Overlay {
     ReplyReader,
     Checklist,
     QuotaDetails,
+    EstimateBasis,
     Unread,
     Discovery,
     MemberSession,
@@ -636,6 +639,7 @@ impl Overlay {
                 Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
+                Self::EstimateBasis => "estimate-basis",
                 Self::Unread => "unread",
                 Self::Discovery => "discovery",
                 Self::MemberSession => "member-session",
@@ -744,6 +748,9 @@ pub struct App {
     pub(in crate::board) digest_rows: RefCell<super::digest_dashboard::Cache>,
     /// The Digest tab's window, kept by the view-state layer.
     pub(in crate::board) digest_window: crate::config::DigestWindow,
+    /// The Details tab shown on the Digest tab.
+    pub(in crate::board) digest_details: super::digest_dashboard::DetailsTab,
+    pub(super) estimate_basis: Option<RefCell<super::digest_dashboard::EstimateBasis>>,
     pub(in crate::board) digest_allowance: super::digest_dashboard::AllowanceScroll,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
     pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
@@ -3167,6 +3174,7 @@ impl App {
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::DigestWindowMenu => self.digest_window_menu(),
             Choice::DigestBasis => super::digest_dashboard::open_basis(self),
+            Choice::DigestDetails(tab) => self.show_digest_details(tab),
             Choice::TokRange(range) => self.select_tok_range(range),
             Choice::SortBy(header) => self.sort_by_header(header),
             Choice::ExchangeCell { sender, recipient } => {
@@ -3845,6 +3853,8 @@ impl App {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
+        } else if self.estimate_basis.is_some() {
+            Some(Overlay::EstimateBasis)
         } else if self.unread_overlay.is_some() {
             Some(Overlay::Unread)
         } else if self.switch_tool_shown() {
@@ -3914,6 +3924,7 @@ impl App {
                 }
                 Some(Effect::None)
             }
+            Overlay::EstimateBasis => self.estimate_basis_event(event),
             Overlay::Unread => self.unread_overlay_event(event),
             Overlay::MemberSession => self.member_session_event(event),
             Overlay::Notes => self.notes_event(event),
@@ -4263,6 +4274,9 @@ impl App {
         self.chip_hits.borrow_mut().clear();
         if let Some(details) = &self.quota_details {
             details.borrow_mut().invalidate();
+        }
+        if let Some(basis) = &self.estimate_basis {
+            basis.borrow_mut().invalidate();
         }
         if let Some(unread) = &self.unread_overlay {
             unread.invalidate();

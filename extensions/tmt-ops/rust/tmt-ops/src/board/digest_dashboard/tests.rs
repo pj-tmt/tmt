@@ -4,6 +4,16 @@ use crate::board::workspace::{
     OpsMember, OpsObservation, OpsTarget, observe::OpsWorkspaceSnapshot,
 };
 
+/// A member's Delivery lines with identities standing for their names.
+fn details(
+    supplied: &crate::labels::Supplied,
+    id: &str,
+    now_ms: u64,
+    zone: &jiff::tz::TimeZone,
+) -> Vec<String> {
+    model::delivery(supplied, id, now_ms, zone, str::to_owned)
+}
+
 fn supplied(held: serde_json::Value, stale: bool) -> crate::labels::Supplied {
     crate::labels::Supplied::from_document(
         "digest",
@@ -29,7 +39,7 @@ fn null_stats_keep_the_inherited_idle_setting_without_a_zero_count() {
     let supplied = supplied(serde_json::Value::Null, false);
     assert!(model::held_text(&supplied, None).contains("unavailable"));
     assert!(!model::held_text(&supplied, None).contains("0"));
-    let details = model::details(&supplied, MEMBER, 121_000, &jiff::tz::TimeZone::UTC);
+    let details = details(&supplied, MEMBER, 121_000, &jiff::tz::TimeZone::UTC);
     assert_eq!(details[0], "Digest: Auto ▾ · when idle (default)");
     assert!(!details.iter().any(|s| s.starts_with("Setting:")));
     assert!(!details.iter().any(|s| s.starts_with("Next send")));
@@ -42,7 +52,7 @@ fn known_zero_and_retained_stale_statistics_stay_distinct() {
     let stale = supplied(serde_json::json!(3), true);
     assert!(model::held_text(&stale, None).contains("3 · stale observation"));
     assert!(
-        model::details(&stale, MEMBER, 121_000, &jiff::tz::TimeZone::UTC)
+        details(&stale, MEMBER, 121_000, &jiff::tz::TimeZone::UTC)
             .iter()
             .any(|s| s.contains("Stale observation"))
     );
@@ -52,7 +62,7 @@ fn known_zero_and_retained_stale_statistics_stay_distinct() {
 fn unavailable_statistics_never_become_zero() {
     assert_eq!(model::held_text(&Default::default(), None), "unavailable");
     assert!(
-        model::details(
+        details(
             &Default::default(),
             "missing",
             121_000,
@@ -261,6 +271,7 @@ fn an_explicit_digest_member_selection_uses_the_supplied_picker() {
     assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Digest);
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.workspace_rows().len(), 2);
+    app.digest_details = super::DetailsTab::Delivery;
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Digest"));
     assert!(shown.contains("Auto ▾"));
@@ -989,6 +1000,11 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     press(&mut app, '2');
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
+    assert!(
+        super::details::impact(&app, app.selected_row())
+            .contains(&"Estimated input reduction: 18% (1/1 agents)".into())
+    );
+    app.digest_details = super::DetailsTab::Evidence;
     let shown = paint(&mut app, 200, 60);
     let pane = app.conversation.borrow().pane.unwrap();
     let cells: Vec<_> = shown.chars().collect();
@@ -1010,7 +1026,6 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
         "claude-opus-5-5: $4.00 per 1M input tokens · https://example.test/anthropic-pricing",
         "gpt-6-sol: $2.00 per 1M input tokens",
         "Quote basis: gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
-        "Estimated input reduction: 18% (1/1 agents)",
     ] {
         assert!(
             shown
@@ -1036,6 +1051,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
         let mut app = valued_board();
         app.labels = crate::labels::Supplied::from_document("digest", &document, false);
         press(&mut app, '2');
+        app.digest_details = super::DetailsTab::Evidence;
         let shown = paint(&mut app, 200, 60);
         let shown = shown.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
@@ -1055,12 +1071,14 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     let mut app = valued_board();
     app.labels = crate::labels::Supplied::from_document("digest", &older, false);
     press(&mut app, '2');
+    app.digest_details = super::DetailsTab::Evidence;
     let shown = paint(&mut app, 200, 60);
     assert!(shown.contains("Prices as of"), "{shown}");
     assert!(!shown.contains("source:"), "{shown}");
     // Without a price table or valuations the details say nothing about them.
     let mut plain = savings_board();
     press(&mut plain, '2');
+    plain.digest_details = super::DetailsTab::Evidence;
     let shown = paint(&mut plain, 200, 60);
     assert!(!shown.contains("Prices as of"), "{shown}");
     assert!(!shown.contains("Cost quote"), "{shown}");
@@ -1253,6 +1271,8 @@ fn window_choice_is_view_state_and_never_relabels_old_evidence() {
         !shown.contains("Est. ctx avoided 18.2k"),
         "old-window estimate cannot become a new-window value"
     );
+    app.digest_details = super::DetailsTab::Evidence;
+    let shown = paint(&mut app, 160, 60);
     assert!(
         shown.contains("Context evidence 1d: under 1 s · complete"),
         "the original source window remains inspectable"
@@ -1451,7 +1471,7 @@ fn observation_times_use_shared_relative_age_and_the_supplied_local_zone() {
     let status_clock = "11:40";
     let stats_clock = "11:39";
     let read = |document: &serde_json::Value, now| {
-        model::details(
+        details(
             &crate::labels::Supplied::from_document("digest", document, false),
             MEMBER,
             now,
@@ -1490,6 +1510,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
     press(&mut app, '2');
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
+    app.digest_details = super::DetailsTab::Delivery;
     crate::status::with_now_ms(1_791_600_120_000, || {
         let shown = paint(&mut app, 160, 44);
         assert!(shown.contains("Status observed: 2m ago (11:40)"), "{shown}");
@@ -1538,6 +1559,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
 }
 
 mod allowance;
+mod details;
 pub(in crate::board) mod impact;
 mod layout;
 mod table;

@@ -13,6 +13,8 @@ use std::cell::Cell;
 const OVERLAYS: usize = Overlay::PastePreview as usize + 1;
 /// A dialog can hold a form over a list over a confirmation; this many Esc presses leave them all.
 const MAX_ESC: usize = 4;
+/// One slot per peek window, indexed by its position in [`Peek`].
+const PEEKS: usize = Peek::Basis as usize + 1;
 
 /// The windows that light-dismiss.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -23,16 +25,17 @@ pub(super) enum Peek {
     Quota,
     Monitor,
     Paste,
+    Basis,
 }
 
 /// Where each peek window was last painted. Cleared at the start of every paint, so a window that
 /// has not been painted since a resize or a change never dismisses on a stale rectangle.
 #[derive(Default)]
-pub(super) struct PeekAreas(Cell<[Option<Rect>; 6]>, Cell<[Option<Rect>; OVERLAYS]>);
+pub(super) struct PeekAreas(Cell<[Option<Rect>; PEEKS]>, Cell<[Option<Rect>; OVERLAYS]>);
 
 impl PeekAreas {
     pub fn clear(&self) {
-        self.0.set([None; 6]);
+        self.0.set([None; PEEKS]);
         self.1.set([None; OVERLAYS]);
     }
 
@@ -80,6 +83,7 @@ impl App {
             Some(Overlay::CronList) => Peek::Timers,
             Some(Overlay::Help) => Peek::Help,
             Some(Overlay::QuotaDetails) => Peek::Quota,
+            Some(Overlay::EstimateBasis) => Peek::Basis,
             Some(Overlay::MonitorDetails) => Peek::Monitor,
             Some(_) => return false,
             None if self.menu.is_some() => Peek::Menu,
@@ -96,6 +100,7 @@ impl App {
             Peek::Timers => self.cron_list = None,
             Peek::Help => self.help = false,
             Peek::Quota => self.quota_details = None,
+            Peek::Basis => self.estimate_basis = None,
             Peek::Monitor => self.monitor_details = None,
             Peek::Paste => {
                 self.composer.paste_preview.get_mut().take();
@@ -119,6 +124,7 @@ impl App {
                 | Overlay::CronList
                 | Overlay::Help
                 | Overlay::QuotaDetails
+                | Overlay::EstimateBasis
                 | Overlay::MonitorDetails
         ) || !self.peek_areas.dialog_outside(overlay, event)
         {

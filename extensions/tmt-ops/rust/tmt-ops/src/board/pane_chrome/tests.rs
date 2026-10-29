@@ -51,7 +51,7 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
             let title = draw(&mut app);
             assert!(
                 title.contains(if width >= 145 {
-                    "▸ Details · Esc back"
+                    "· 1d · Esc back"
                 } else {
                     "▸ Exchanges · talk + reply · Esc back"
                 }),

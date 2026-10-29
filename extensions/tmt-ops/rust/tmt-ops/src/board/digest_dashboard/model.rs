@@ -94,11 +94,14 @@ pub(in crate::board) fn labels(
         .collect()
 }
 
-pub(in crate::board) fn details(
+/// A member's delivery as the supplier holds it now: mode and who set it, held messages and the
+/// supplier's own clocks. `name` turns an identity into its roster name.
+pub(in crate::board) fn delivery(
     supplied: &Supplied,
     id: &str,
     now_ms: u64,
     zone: &jiff::tz::TimeZone,
+    name: impl Fn(&str) -> String,
 ) -> Vec<String> {
     let mut fields = Vec::new();
     let Some((status, stale)) = supplied.digest() else {
@@ -134,6 +137,13 @@ pub(in crate::board) fn details(
             SettingSource::Member => "override",
         }
     ));
+    if let Some(by) = &member.set_by_identity_id {
+        fields.push(format!(
+            "Set by {} · {}",
+            name(by),
+            observation_time(member.set_at_ms, now_ms, zone)
+        ));
+    }
     if stale {
         fields.push("Stale observation · retained values; refresh before acting".into());
     }
@@ -145,14 +155,6 @@ pub(in crate::board) fn details(
                 n
             )))
     ));
-    fields.push(format!(
-        "Status observed: {}",
-        observation_time(Some(status.observed_at_ms), now_ms, zone)
-    ));
-    fields.push(format!(
-        "Stats observed: {}",
-        observation_time(member.stats_observed_at_ms, now_ms, zone)
-    ));
     if member.mode == crate::labels::digest::Mode::Interval {
         fields.push(format!(
             "Next send in: {}",
@@ -161,6 +163,20 @@ pub(in crate::board) fn details(
                 .map_or("unavailable".into(), human_duration)
         ));
     }
+    fields.push(format!(
+        "Status observed: {}",
+        observation_time(Some(status.observed_at_ms), now_ms, zone)
+    ));
+    fields.push(format!(
+        "Stats observed: {}",
+        observation_time(member.stats_observed_at_ms, now_ms, zone)
+    ));
+    fields
+}
+
+/// The source windows and quote basis behind a member's estimate; its amounts stay in Impact.
+pub(in crate::board) fn evidence(member: &crate::labels::digest::Member) -> Vec<String> {
+    let mut fields = Vec::new();
     if let Some(savings) = &member.savings {
         fields.push(format!(
             "Context evidence {}: {} · {}",
@@ -211,7 +227,7 @@ fn observation(at_ms: Option<u64>, now_ms: u64) -> Option<jiff::Timestamp> {
         .and_then(|at| jiff::Timestamp::from_millisecond(at).ok())
 }
 
-/// Evidence behind the Impact block; amounts belong to that block alone.
+/// The quote and ratio basis; amounts belong to Impact alone.
 fn valuation_basis(member: &crate::labels::digest::Member) -> Vec<String> {
     let mut fields = Vec::new();
     let Some(savings) = &member.savings else {

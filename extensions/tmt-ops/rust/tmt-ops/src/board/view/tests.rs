@@ -1167,6 +1167,8 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                 let mut app = workspace_board();
                 app.right_tab = crate::board::shell::RightTab::Measure;
                 app.shell.tab = tab;
+                // Supplier labels without typed statistics are Delivery facts.
+                app.digest_details = crate::board::digest_dashboard::DetailsTab::Delivery;
                 for (mode, text, held) in [
                     ("auto", "Auto", false),
                     ("auto", "Auto", true),

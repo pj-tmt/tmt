@@ -697,7 +697,7 @@ fn input_price_qualification_is_shown_once_by_the_visible_amount() {
             "width={width}: {shown}"
         );
         if width < 100 {
-            assert!(shown.contains("Observed input quote: —"));
+            assert!(shown.contains("≈ $ used — usage incomplete"));
         }
         // The columns a narrow pane drops are named once; a pane that has them says nothing.
         let hint = super::super::table::painted_width(&app).and_then(|width| {
