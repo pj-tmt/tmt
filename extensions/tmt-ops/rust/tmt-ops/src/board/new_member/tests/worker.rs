@@ -259,13 +259,27 @@ fn keep_is_applied_after_the_start_and_a_failure_names_the_command() {
     std::fs::write(f.root.join("keep-fails"), "").unwrap();
     let mut shown = review;
     shown.display.command[0] = "tmt".into();
+    shown.room = Some(crate::membership::workspace::RoomTarget {
+        id: "11111111-1111-4111-8111-111111111111".into(),
+        name: "platform".into(),
+        revision: 7,
+    });
+    let before = std::fs::read_to_string(f.root.join("calls")).unwrap().len();
     match launched(shown) {
-        Outcome::Created { message, .. } => {
+        Outcome::Created { message, room, .. } => {
             assert!(message.contains("started as temporary"), "{message}");
             assert!(message.contains("Keep it with: tmt identity create new-worker"));
+            // The squad step needs a kept identity: skipped, with its command to run after.
+            assert!(
+                message.contains("Then: tmt ops sq add --squad platform -- new-worker"),
+                "{message}"
+            );
+            assert!(room.is_none());
         }
         _ => panic!(),
     }
+    let calls = std::fs::read_to_string(f.root.join("calls")).unwrap();
+    assert!(!calls[before..].contains("\"room\""), "{}", &calls[before..]);
     // Temporary members are never kept.
     let temporary = f.review_on("tmux", false);
     assert!(!temporary.save && temporary.save_line().is_none());

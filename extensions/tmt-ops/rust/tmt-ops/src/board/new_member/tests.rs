@@ -292,6 +292,11 @@ fn the_command_passes_model_and_effort_before_the_name_and_a_new_squad_is_create
     c.draft.set(model::Slot::Tool, "claude");
     assert_eq!(c.draft.text(model::Slot::Model), "");
     assert_eq!(c.draft.text(model::Slot::Effort), "");
+    // A session that would read as an option is refused too.
+    c.draft.set(model::Slot::Session, "-L");
+    let refused = c.draft.review(c.loaded.as_ref().unwrap()).unwrap_err();
+    assert!(refused.contains("session"), "{refused}");
+    c.draft.set(model::Slot::Session, "common");
     // A model that would read as an option is refused.
     c.draft.set(model::Slot::Model, "--resume");
     assert!(c.draft.review(c.loaded.as_ref().unwrap()).is_err());
@@ -476,6 +481,11 @@ fn dialogs_use_compact_content_and_the_approved_copy() {
                     assert!(text.contains("Copy only · this host has no launch template"));
                     assert!(text.contains("Copy commands"));
                     assert!(!text.contains("Runs"));
+                }
+                "new-member-settings" => {
+                    // People read the host's name; `pty` stays in commands only.
+                    assert!(text.contains("Built-in terminal (no tmux) · builtin"), "{text}");
+                    assert!(!text.contains("pty · builtin"));
                 }
                 "new-member-form" => {
                     assert!(text.contains("Runs · e edit template"));

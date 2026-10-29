@@ -357,7 +357,7 @@ impl Controller {
                             &format!(
                                 "{} {} · {}{}",
                                 if selected { "›" } else { " " },
-                                host.name,
+                                model::host_label(&host.name),
                                 host.state,
                                 if host.argv.is_none() {
                                     " · copy only"
@@ -388,7 +388,7 @@ impl Controller {
                     frame,
                     &format!(
                         "{} · JSON argv; whole {{session}} / {{command}} slots",
-                        self.draft.fields[4]
+                        model::host_label(self.draft.text(model::Slot::Host))
                     ),
                     0,
                     Role::Muted,
