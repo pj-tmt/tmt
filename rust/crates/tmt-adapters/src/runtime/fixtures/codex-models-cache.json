@@ -1,0 +1,12 @@
+{
+  "client_version": "0.164.0",
+  "fetched_at": "2026-10-29T00:00:00Z",
+  "identity": "<redacted>",
+  "models": [
+    { "slug": "gpt-6.1-sol", "display_name": "<redacted>", "visibility": "list" },
+    { "slug": "gpt-reserve", "display_name": "<redacted>", "visibility": "hide" },
+    { "slug": "gpt-6-luna", "display_name": "<redacted>", "visibility": "list" },
+    { "slug": "gpt-6.1-sol", "display_name": "<redacted>", "visibility": "list" },
+    { "slug": "codex-auto-review", "display_name": "<redacted>", "visibility": "hide" }
+  ]
+}

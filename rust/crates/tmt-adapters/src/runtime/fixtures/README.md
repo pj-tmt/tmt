@@ -44,6 +44,12 @@ its source listed here.
   source table string `startupresumeclearcompactfork`, as does 0.164.0, which was
   checked on 2026-10-29. No fork payload was recorded, so the session ID is a
   placeholder that differs from its parent's.
+- `codex-models-cache.json`: a field subset of a real Codex 0.164.0
+  `models_cache.json`, minimized by core-ops on 2026-10-29 (#5539). It keeps the
+  top-level keys `client_version`, `fetched_at`, `identity` and `models`, and from
+  each model only `slug`, `display_name` and `visibility`. `identity` and
+  `display_name` are replaced with `<redacted>`, so the test shows they are never
+  read. A duplicate entry was added to exercise deduplication.
 
 ## Turn-end usage (#519)
 

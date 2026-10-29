@@ -457,6 +457,15 @@ pub trait RuntimeLifecycle {
         crate::runtime::skills::SkillRoots::unsupported()
     }
 
+    /// Best-effort model and effort choices for a launch (#5539): read from the
+    /// provider where it keeps a list, else a maintained fallback, possibly empty.
+    fn launch_choices(
+        &self,
+        _environment: &ProviderEnvironment,
+    ) -> crate::runtime::launch_choices::LaunchChoices {
+        crate::runtime::launch_choices::LaunchChoices::fallback(&[], &[])
+    }
+
     /// Resolve an exact remembered source for foreground-owned collection.
     fn sampling_turn(
         &self,

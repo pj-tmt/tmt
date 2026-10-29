@@ -13,6 +13,7 @@ pub mod delivery;
 mod digest;
 mod launch_permissions;
 pub mod lease;
+mod models;
 pub mod pane;
 pub mod queue;
 pub mod record;
@@ -603,6 +604,13 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
             syntax: InvocationSyntax::Prefix { sigil: '$' },
             roots,
         }
+    }
+
+    fn launch_choices(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+    ) -> crate::runtime::launch_choices::LaunchChoices {
+        models::launch_choices(&codex_home(environment))
     }
 
     fn launch_settings(

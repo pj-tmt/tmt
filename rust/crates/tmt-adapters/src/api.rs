@@ -5,6 +5,7 @@ mod changes;
 mod consumption;
 mod digest;
 mod dispatch;
+mod drivers;
 mod extensions;
 mod identities;
 mod identity_hooks;
@@ -84,6 +85,7 @@ const OPS: &[&str] = &[
     "user.identity",
     "consumption.history",
     "consumption.limits",
+    "drivers.models",
     "extensions.uses",
 ];
 
@@ -197,6 +199,8 @@ pub enum Request {
     Digest(Box<digest::Operation>),
     Capabilities,
     ConsumptionLimits,
+    /// Read-only: best-effort model and effort choices per AI tool.
+    DriverModels,
     ConversationTimeline {
         identity_id: String,
         limit: u64,
@@ -372,6 +376,11 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         {
             Request::ConsumptionLimits
         }
+        "drivers.models"
+            if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
+        {
+            Request::DriverModels
+        }
         "workspace.capture"
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
@@ -514,6 +523,9 @@ impl Session {
         if matches!(request, Request::ConsumptionLimits) {
             return consumption::limits(&paths.global_dir);
         }
+        if matches!(request, Request::DriverModels) {
+            return drivers::models();
+        }
         if matches!(request, Request::WorkspaceCapture) {
             let report =
                 crate::workspace::capture_recorded(paths).map_err(|_| Fault::unavailable())?;
@@ -570,6 +582,7 @@ impl Session {
             Request::Capabilities
             | Request::StorageRoot
             | Request::ConsumptionLimits
+            | Request::DriverModels
             | Request::WorkspaceCapture
             | Request::ExtensionUse { .. }
             | Request::SkillsInstall { .. }
@@ -785,30 +798,40 @@ mod tests {
     }
 
     #[test]
-    fn consumption_limits_is_listed_and_requires_empty_input_and_no_originator() {
-        assert!(capabilities_list().contains(&"consumption.limits".to_owned()));
-        assert!(matches!(
-            decode(r#"{"version":1,"operation":"consumption.limits","input":{}}"#),
-            Ok(Request::ConsumptionLimits)
-        ));
-        for body in [
-            r#"{"version":1,"operation":"consumption.limits","input":{"driver":"claude"}}"#,
-            r#"{"version":1,"operation":"consumption.limits","input":null}"#,
-            r#"{"version":1,"operation":"consumption.limits","input":[]}"#,
-            r#"{"version":1,"operation":"consumption.limits","identity":"Ada","input":{}}"#,
-            r#"{"version":1,"operation":"consumption.limits","originator":"anonymous","input":{}}"#,
-            r#"{"version":1,"operation":"consumption.limits","input":{},"extra":true}"#,
-        ] {
+    fn storage_free_reads_are_listed_and_require_empty_input_and_no_originator() {
+        for operation in ["consumption.limits", "drivers.models"] {
+            assert!(capabilities_list().contains(&operation.to_owned()));
+            let decoded = decode(&format!(
+                r#"{{"version":1,"operation":"{operation}","input":{{}}}}"#
+            ));
             assert!(
                 matches!(
-                    decode(body),
-                    Err(Fault {
-                        code: "API_INPUT_INVALID",
-                        ..
-                    })
+                    (operation, decoded),
+                    ("consumption.limits", Ok(Request::ConsumptionLimits))
+                        | ("drivers.models", Ok(Request::DriverModels))
                 ),
-                "{body}"
+                "{operation}"
             );
+            for body in [
+                r#""input":{"driver":"claude"}"#,
+                r#""input":null"#,
+                r#""input":[]"#,
+                r#""identity":"Ada","input":{}"#,
+                r#""originator":"anonymous","input":{}"#,
+                r#""input":{},"extra":true"#,
+            ] {
+                let body = format!(r#"{{"version":1,"operation":"{operation}",{body}}}"#);
+                assert!(
+                    matches!(
+                        decode(&body),
+                        Err(Fault {
+                            code: "API_INPUT_INVALID",
+                            ..
+                        })
+                    ),
+                    "{body}"
+                );
+            }
         }
     }
 

@@ -21,6 +21,7 @@ pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_notices;
 pub mod hook_protocol;
+pub mod launch_choices;
 pub mod launch_preset;
 pub mod lifecycle;
 #[cfg(test)]
