@@ -302,18 +302,18 @@ Digest first opens on `all`. Switching destinations remembers each selection for
 this board session; explicit named views and reload restores keep their selected UUID.
 Existing Core-owned policy controls stay in place. A squad's theme applies to Agents/Digest.
 Member conversation status, selected-squad usage and the Measure Digest table show `Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
-not billed tokens, cost or turns saved. In workspace settings (`,`), choose the shared
-Digest estimate window: 1d (default), 7d or all time. The saved preference is
-`workspace.digest_window` (`24h` or `1d`, `7d`, `lifetime`). `—` means unavailable; known zero
-is `0`. Partial sums show `(N of M)` included members. All time begins separately
-for each member when Digest started recording; the detail names those local dates.
+not billed tokens, cost or turns saved. The Digest window is 1d (default) or 7d; choose it
+with `Window 1d ▾` at the top of the Digest tab or in workspace settings (`,`). It applies to
+every estimate and, on the Digest tab, to its usage figures too; the Agents TOK range stays
+separate. The board remembers it per named view, like the pane sizes; an older
+`workspace.digest_window` in Config is accepted and ignored. `—` means unavailable; known zero
+is `0`. Partial sums show `(N of M)` included members.
 The Measure Digest table sums the agents it counts and follows with the estimate only
 when it fits whole (the short `Est. avoided` form first); it is absent while
 Digest status is unavailable.
 Click any estimate to cycle its unit on every view at once: tokens (default), percent
 (`12% of input`) and cost (`≈ $12.40 at list price`). The saved preference is
-`workspace.savings_unit` (`tokens`, `percent`, `cost`), next to the window.
-Percent has no all-time form, so all time shows tokens and the cycle skips it.
+`workspace.savings_unit` (`tokens`, `percent`, `cost`).
 Cost is an estimate at list price for uncached input, never money saved or a bill;
 the Digest tab's Details list the price table, where it came from (fetched, cached or
 built-in) and each member's quote and share.
@@ -398,19 +398,21 @@ on explicit message focus; Escape returns to rows and retains the draft.
 Retired Digest status/usage/report switches and ordering are reported without
 rewriting authored config.
 
-Digest has a range summary, an Allowance block, Agents by TOK, Exchanges and selection details.
-Allowance shows one row per provider whose weekly window the board has sampled: LEFT, NEED %/h (the
-even burn, in percent per hour, that lasts exactly until the reset; shown as `>99` above 99 and as `—`
-in the last hour before the reset), what each of five rates leaves
-at the reset if it holds (the last 3h, 6h and 1d, TOKENS, and the average since the window last reset, SINCE RESET)
-and RESETS. TOKENS is the last 3 hours of the provider's members' tokens (input + output, cache not
-counted, from the Digest usage report's hourly cells) at the points per token the last 24 hours cost.
-A rate the history does not cover, a provider whose members have no complete fresh day of
-tokens and a day without tokens are `—`; a line that empties the window first shows
-`✗ <weekday hh:mm>` in the attention colour. At 80 columns a row is one line with the worst
-projection. It is hidden when no provider has been sampled or the table would be left too short.
-A reading older than two hours is not quoted; the percent is whole-number sampling, an unsampled
-reset is assumed, and usage on other machines is not seen.
+Digest has a summary, Agents by TOK, Exchanges and selection details. The summary's first row
+shows Digest's switch, the held count, the last tick and the window; under it TOK USED,
+SAVED · estimate and ≈ LIST PRICE SAVED each carry their own `N of M agents` coverage, and a
+faint line defines Saved. A short frame folds the amounts onto one line.
+Beside them, when the frame has room and a provider's weekly window has been sampled, the
+ALLOWANCE LEFT tile has one row per provider: the percent left, the worst projection
+(`✗ runs out <weekday hh:mm>` in the attention colour, or `lasts past reset`) and when it resets.
+The projection takes the worst of five rates: the last 3h, 6h and 1d, TOKENS and the average
+since the window last reset. TOKENS is the last 3 hours of the provider's members' tokens
+(input + output, cache not counted, from the Digest usage report's hourly cells) at the points
+per token the last 24 hours cost, so it needs the 1d window. A rate the history does not cover
+leaves that line out; with none left the row shows `—`. More providers than rows scroll inside
+the tile with the wheel. A reading older than two hours is not quoted (`no recent reading`);
+the percent is whole-number sampling, an unsampled reset is assumed, and usage on other
+machines is not seen.
 The shared `workspace.tok_range` is `1h` (default), `3h`, `6h`, `1d` or `7d`;
 Workspace settings selects it, and clicking the window word of an Agents `TOK 1h`
 heading, clicking the Digest Range control or an explicit `cycle-tok-range`
@@ -1724,7 +1726,7 @@ than clipping numbers. Quota Details retain full source, reset and projection
 values. A footer-only balance does not claim an API-backed two-hour rate.
 A driver with two or more provider accounts gets one Usage row per account, such as `Claude · work`,
 with that account's tokens and quota; seats that report no account read `Claude · unknown account`,
-a row that exists only while such a session is live. A Digest allowance row of an account shows no spend.
+a row that exists only while such a session is live. A Digest allowance row of an account projects without its spend.
 One account, or none, reads as the plain driver, exactly as before. The label is display text and the
 account key is never shown.
 

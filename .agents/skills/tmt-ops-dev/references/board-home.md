@@ -264,18 +264,21 @@ Wide frames place Exchanges above details; narrower frames
 stack the table and details, with Tab exposing Exchanges. Enter on a real member
 opens its Agents Talk pane; `all` grants no recipient or Digest mutation.
 The canonical roster owns membership and action admission.
-Digest's Impact band reads the saved `workspace.digest_window`, independently of
-the TOK range, and shows context and list-price equivalent with separate member
-coverage. A money field that cannot fit whole stays in Details; it is never
-clipped into a partial amount. Details keeps impact amounts once in its Impact
-block; Estimate basis carries model/rate/price-table and window/coverage evidence
-without repeating the amounts. Basis opens the existing Details evidence section
-(and reveals hidden Details through its existing preference CAS). The window chip
-and the Actions menu use the existing window choices and CAS. Configure is deferred
-to the delivery-settings panel; no placeholder control is painted. These figures
-do not change `savings_unit` or the Agents TOK display. Missing/stale evidence,
-confirmed zero and incompatible price versions remain distinct; all time means
-collection lifetime, with no percent or extrapolation.
+`digest_dashboard::summary` paints the top of the tab: a status row (supplier switch
+text, held, tick; `Window 1d ▾` and `Estimate basis…` on the right), a rule, the TOK USED,
+SAVED · estimate and ≈ LIST PRICE SAVED tiles with separate member coverage, the allowance
+tile when it fits, and the definition line. With fewer than 17 rows or 54 columns it folds the
+amounts onto one line. The window is `App::digest_window` (1d/7d), a view-state control
+(`controls.digestWindow`), not Config: it selects the supplier window and, on this tab,
+the usage report range (`App::digest_range`), independently of the Agents TOK range. A
+choice takes effect at once with no write. A money field that cannot fit whole stays in
+Details; it is never clipped into a partial amount. Details keeps impact amounts once in
+its Impact block; Estimate basis carries model/rate/price-table and window/coverage
+evidence without repeating the amounts. Basis opens the existing Details evidence section
+(and reveals hidden Details through its existing preference CAS). Configure is deferred
+to the delivery-settings panel; no placeholder control is painted. These figures do not
+change `savings_unit`. Missing/stale evidence, confirmed zero and incompatible price
+versions remain distinct.
 
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message
@@ -392,7 +395,7 @@ Missing windows, stale balances or insufficient rate evidence remain explicit.
 The Subscriptions panel ID controls these inline cells; Usage controls the section.
 At 103/148 columns the quota track occupies 37/49 cells plus its three-cell gap.
 Smaller widths admit complete fields or leave full values in the existing Details.
-The Digest tab owns the Allowance block ([board reference](board.md)).
+The Digest summary owns the allowance tile ([board reference](board.md)).
 
 Agents quota pace uses the last two hours of the actual clock, including the
 latest admitted observation and both horizon endpoints, independent of token
