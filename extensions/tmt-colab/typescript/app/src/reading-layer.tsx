@@ -85,7 +85,7 @@ export function useReadingLayer({
   const jump = useCallback((id: string, focus = false) => {
     if (
       context.current.rows.some((row) => row.reading.id === id && row.anchor) &&
-      context.current.slotPositions.some((slot) => slot.id === id && !slot.hidden)
+      !context.current.slotPositions.some((slot) => slot.id === id && slot.hidden)
     ) {
       context.current.renderer.current?.scrollReading(id);
       if (focus) focusNeedsYouTarget(targets.current.get(id));
@@ -102,7 +102,7 @@ export function useReadingLayer({
         (row) =>
           row.state.kind === 'unread' &&
           row.anchor &&
-          context.current.slotPositions.some((slot) => slot.id === row.reading.id && !slot.hidden),
+          !context.current.slotPositions.some((slot) => slot.id === row.reading.id && slot.hidden),
       );
       if (target) jump(target.reading.id);
     },
@@ -154,8 +154,8 @@ export function useReadingLayer({
     if (anchors === null) return;
     const key = `${snapshot.id}:${hint}`;
     if (followed.current === key) return;
-    // A hint waits for visible placement; it never asks the frame to re-place a
-    // hidden slot, and a successful jump is consumed before its geometry reply.
+    // Preserve source-passage navigation before geometry arrives, but wait out
+    // explicit hidden reports without asking the frame to re-place the slot.
     if (jump(hint)) followed.current = key;
   }, [hint, anchors, snapshot.id, jump, slotPositions]);
   const blocks: ReadingRenderBlock[] = rows.map(({ reading, state }) => ({
@@ -170,7 +170,7 @@ export function useReadingLayer({
           .filter(
             (row) =>
               row.anchor &&
-              slotPositions.some((slot) => slot.id === row.reading.id && !slot.hidden),
+              !slotPositions.some((slot) => slot.id === row.reading.id && slot.hidden),
           )
           .map(({ reading, state }) => ({
             id: reading.id,
@@ -241,7 +241,7 @@ export function useReadingLayer({
         row.reading.id !== reading.id &&
         row.anchor &&
         row.state.kind === 'unread' &&
-        slotPositions.some((slot) => slot.id === row.reading.id && !slot.hidden),
+        !slotPositions.some((slot) => slot.id === row.reading.id && slot.hidden),
     );
     return (
       <section
