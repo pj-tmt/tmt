@@ -184,6 +184,7 @@ fn a_new_projection_is_built_after_the_stale_one_and_its_report_are_released() {
                 talks: Default::default(),
             },
         )),
+        savings: None,
     };
     drop(old);
     assert_eq!(
@@ -1539,6 +1540,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
 mod allowance;
 pub(in crate::board) mod impact;
 mod layout;
+mod table;
 pub(in crate::board) use layout::capture_case;
 
 #[test]

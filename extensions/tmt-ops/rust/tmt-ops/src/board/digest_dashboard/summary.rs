@@ -103,7 +103,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let definition = Line::styled(DEFINITION, look.role(Role::Muted));
     if area.height < FULL {
         super::allowance::forget(app);
-        let summary = metrics::savings(app, &ids);
+        let summary = super::savings(app);
         let tok = format!(
             "TOK used {}",
             metrics::token_text(metrics::tokens(metrics::report(app), &ids))
@@ -259,7 +259,7 @@ fn tiles(frame: &mut Frame, app: &App, area: Rect, ids: &[&str]) {
     let allowance = super::allowance::tile_width(app, area.width.saturating_sub(TILE_BESIDE * 3));
     let tile = area.width.saturating_sub(allowance) / 3;
     let reading = metrics::tokens(metrics::report(app), ids);
-    let summary = metrics::savings(app, ids);
+    let summary = super::savings(app);
     let coverage = |included: usize| format!("{included} of {} agents", summary.total);
     let usage = match reading {
         Some((_, true)) => format!("{} agents · partial", ids.len()),
