@@ -59,7 +59,8 @@ test('260 CLI changes with a browser edit in the middle read back exact in the C
 });
 
 test('a 2 MiB page keeps taking changes and reads back exact', async () => {
-  test.setTimeout(600_000);
+  // 300 patches of a 2 MiB page take 8 to 11 minutes on CI debug binaries (#5511); #5548 cuts more.
+  test.setTimeout(900_000);
   await withWorld(async (world) => {
     const colab = world.binaries.colab;
     let source = text(2 * MIB - 16 * 1024);
