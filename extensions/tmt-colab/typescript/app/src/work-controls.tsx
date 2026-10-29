@@ -533,7 +533,7 @@ export function AttachSubpage({
     (page) => page.id !== pageId && !page.archived && page.pageType !== 'shell',
   );
   useEffect(() => {
-    if (!unsettled || !retained || work.tasks[retained.task]?.child !== retained.page) return;
+    if (!retained || work.tasks[retained.task]?.child !== selectedPage) return;
     setUnsettled(false);
     setRetained(undefined);
     setSelectedPage('');
@@ -541,7 +541,7 @@ export function AttachSubpage({
     setTitle('');
     setFailure(undefined);
     setOpen(false);
-  }, [unsettled, retained, work]);
+  }, [retained, selectedPage, work]);
   const eligible = work.order.filter((id) => {
     const task = work.tasks[id];
     return task && task.child === undefined && task.externalId === undefined;

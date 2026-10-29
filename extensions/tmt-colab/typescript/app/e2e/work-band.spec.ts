@@ -640,6 +640,8 @@ test('reopening after an uncertain link keeps the task and enables retry', async
   await open.click();
   await expect(dialog).toContainText('Task T-2 is kept');
   await expect(dialog.getByRole('button', { name: 'Retry link' })).toBeEnabled();
+  await page.evaluate(() => window.__workPage!.settle!('linked'));
+  await expect(dialog).toHaveCount(0);
 });
 
 test('the attach picker does not offer shell pages', async ({ page }) => {
