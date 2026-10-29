@@ -32,11 +32,20 @@ export function PageWorkBand({
   pageId: string;
 }): ReactNode {
   const run = useWorkRun(binding);
-  const { stageOf, parent, subpages } = useLinkedPages(transport, space, pageId, band.work);
+  const { stageOf, parent, subpages, observed } = useLinkedPages(
+    transport,
+    space,
+    pageId,
+    band.work,
+  );
   const childStates = JSON.stringify(subpages.map((child) => [child.id, child.state]));
+  const previousChildStates = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (childStates !== '[]') binding?.refreshProgress?.();
-  }, [binding, childStates]);
+    if (!observed) return;
+    const previous = previousChildStates.current;
+    previousChildStates.current = childStates;
+    if (previous !== undefined && previous !== childStates) binding?.refreshProgress?.();
+  }, [binding, childStates, observed]);
   const work = band.work ?? NO_WORK;
   const stateControl = <PageStateMenu binding={binding} state={band.pageState} />;
   if (!binding?.work || !binding.canWork?.())

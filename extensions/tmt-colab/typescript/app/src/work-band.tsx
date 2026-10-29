@@ -164,7 +164,7 @@ export function WorkBand({
             </p>
           )}
           {subpages.length > 0 && <h3 className="work-items-heading">{t.subpages}</h3>}
-          {subpages.length > 0 ? (
+          {subpages.length > 0 && (
             <ul className="work-subpages" aria-label={t.subpages}>
               {subpages.map((child) => (
                 <li key={child.id}>
@@ -174,15 +174,6 @@ export function WorkBand({
                     <span>{child.title ?? t.unknownPage}</span>
                   )}
                   <span>{child.state ? t.taskState[child.state] : t.unknown}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <ul className="work-subpages" aria-label={t.tasks}>
-              {work.order.map((id) => (
-                <li key={id}>
-                  <span>{work.tasks[id]!.title}</span>
-                  <span>{t.taskState[work.tasks[id]!.state]}</span>
                 </li>
               ))}
             </ul>
@@ -198,21 +189,26 @@ export function WorkBand({
                 ))}
             </div>
           )}
-          <button
-            type="button"
-            className="work-toggle"
-            aria-expanded={tasksOpen}
-            onClick={() => setTasksOpen(!tasksOpen)}
-          >
-            {t.tasks} {tasks.order.length}
-          </button>
-          {tasksOpen && (
+          {subpages.length > 0 && (
+            <button
+              type="button"
+              className="work-toggle"
+              aria-expanded={tasksOpen}
+              onClick={() => setTasksOpen(!tasksOpen)}
+            >
+              {t.tasks} {tasks.order.length}
+            </button>
+          )}
+          {(subpages.length === 0 || tasksOpen) && (
             <div className="work-tasks">
               <WorkList
                 work={tasks}
                 states={derived.states}
                 selected={selected}
-                onSelect={(id) => setSelected(id === selected ? undefined : id)}
+                onSelect={(id) => {
+                  setTasksOpen(true);
+                  setSelected(id === selected ? undefined : id);
+                }}
               />
               {selected !== undefined && task && (
                 <TaskDetail

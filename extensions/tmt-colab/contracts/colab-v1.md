@@ -3196,13 +3196,16 @@ shows `0 of 0 done`; unavailable progress shows a label without invented counts.
 verified manual state and `progress: null`, no owner metadata writes or discovery reads.
 
 The panel reports its measured height to the existing renderer viewport owner and canvas minimum-height calculation, including after expansion or resize, so a short page does not gain a second scroll region. Expanding the panel pushes content down and shows direct sub-pages (titles/manual states only from
-existing owner-list rows, with missing values unknown), or tasks, plus the bucket legend. `Tasks N`
-opens the existing task list and detail in place. Task deep links open that detail once. Owner task
+existing owner-list rows, with missing values unknown), plus the bucket legend. With sub-pages,
+`Tasks N` opens the unlinked task list and detail in place. Without sub-pages, the selectable task
+list appears directly; there is no duplicate summary or task toggle. Task deep links open that detail once. Owner task
 controls send the existing closed browser work actions, with changes appearing only through the
 admitted stream. The owner state menu sends `page.state` through the expected-revision metadata
 route and captures the shown manual value independently of creator/question editors. Busy/refused
 writes do not optimistically change the chip. Optional owner progress details survive initial
-subscription; page/work changes and already-observed child-state changes invalidate them. Each open
+subscription. Snapshot joins the admitted details read instead of starting another. Page/work
+changes invalidate counts; the first owner-list observation establishes the child-state baseline,
+and later child-state changes re-read details while retaining the last verified bar. Each open
 page coalesces observations into at most one active details read and one trailing read per burst,
 without timers, extra child subscriptions or wider list rows. Obsolete or closed reads cannot publish.
 Other viewers retain read-only state, expansion and task details. Page export includes it as `work.json`

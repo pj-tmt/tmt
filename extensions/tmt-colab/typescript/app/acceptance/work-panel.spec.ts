@@ -89,3 +89,40 @@ test('manual state persists independently of native progress and share readers h
         }
   });
 });
+
+test('opening a page with sub-pages reads details once without an unavailable progress frame', async () => {
+  await withWorld(async (world) => {
+    const parent = createPage(world, 'Status parent', '<h1>Status parent source</h1>');
+    const child = createPage(world, 'Status child', '<h1>Status child source</h1>');
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    colab(['task', 'add', parent.pageId, '--title', 'Child work']);
+    colab(['task', 'link', parent.pageId, 'T-1', child.pageId]);
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'progress-open');
+    let reads = 0;
+    browser.context.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith(`/api/pages/${parent.pageId}/summary-details`))
+        reads++;
+    });
+    await browser.context.addInitScript(() => {
+      const frames: string[] = [];
+      Object.assign(window, { statusProgressFrames: frames });
+      new MutationObserver(() => {
+        const value = document.querySelector('.work-band .work-progress')?.textContent;
+        if (value) frames.push(value);
+      }).observe(document, { childList: true, subtree: true, characterData: true });
+    });
+    const page = await openPage(door, browser, parent);
+    const band = page.getByRole('region', { name: 'Work on this page' });
+    await expect(band.locator('.work-progress')).toHaveText('0 of 1 done');
+    await band.getByRole('button', { name: 'Expand status panel', exact: true }).click();
+    await expect(band.getByRole('link', { name: 'Status child', exact: true })).toBeVisible();
+    expect(reads).toBe(1);
+    const frames = await page.evaluate(
+      () => (window as unknown as { statusProgressFrames: string[] }).statusProgressFrames,
+    );
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames).not.toContain('Progress unavailable');
+  });
+});

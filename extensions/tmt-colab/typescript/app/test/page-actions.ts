@@ -108,5 +108,6 @@ export async function openWorkTasks(band: Locator): Promise<void> {
   const expand = band.getByRole('button', { name: 'Expand status panel' });
   if (await expand.isVisible()) await expand.click();
   const tasks = band.getByRole('button', { name: /^Tasks \d+$/ });
-  if ((await tasks.getAttribute('aria-expanded')) !== 'true') await tasks.click();
+  if ((await tasks.count()) && (await tasks.getAttribute('aria-expanded')) !== 'true')
+    await tasks.click();
 }

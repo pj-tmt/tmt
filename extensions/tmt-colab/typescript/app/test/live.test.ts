@@ -213,22 +213,20 @@ it('returns owner page progress only when the details state matches the admitted
   const pageId = '10000000-0000-4000-8000-000000000001';
   const progress = { done: 1, inProgress: 0, todo: 0, unknown: 0, total: 1 };
   let pageState = 'done';
-  vi.stubGlobal(
-    'fetch',
-    async () =>
-      new Response(
-        JSON.stringify({
-          pageId,
-          state: 'ready',
-          fingerprint: 'a'.repeat(64),
-          pageState,
-          progress,
-          summary: { comments: 0, waiting: false, needsYou: 0 },
-          readings: [],
-          needs: [],
-        }),
-      ),
-  );
+  const details = () =>
+    new Response(
+      JSON.stringify({
+        pageId,
+        state: 'ready',
+        fingerprint: 'a'.repeat(64),
+        pageState,
+        progress,
+        summary: { comments: 0, waiting: false, needsYou: 0 },
+        readings: [],
+        needs: [],
+      }),
+    );
+  vi.stubGlobal('fetch', async () => details());
   const live = new Live(
     new URL('https://example.test/colab/'),
     {
@@ -248,7 +246,8 @@ it('returns owner page progress only when the details state matches the admitted
     connections.at(-1)!.publish({ source: 'verified', title: 'Page', state: 'done' });
     await vi.waitFor(async () => expect((await live.snapshot()).progress).toEqual(progress));
     pageState = 'todo';
-    expect((await live.snapshot()).progress).toBeNull();
+    live.refreshProgress();
+    await vi.waitFor(async () => expect((await live.snapshot()).progress).toBeNull());
     const published: PageView[] = [];
     const unsubscribe = live.subscribe(
       (value) => published.push(value),
@@ -259,6 +258,21 @@ it('returns owner page progress only when the details state matches the admitted
     live.refreshProgress();
     await vi.waitFor(() => expect(published.at(-1)!.progress).toEqual(progress));
     expect(published.at(-1)!.state).toBe('done');
+    let finishRead: ((response: Response) => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      () =>
+        new Promise<Response>((resolve) => {
+          finishRead = resolve;
+        }),
+    );
+    try {
+      live.refreshProgress();
+      await vi.waitFor(() => expect(finishRead).toBeDefined());
+      expect(published.at(-1)!.progress).toEqual(progress);
+    } finally {
+      finishRead?.(details());
+    }
     unsubscribe();
   } finally {
     live.close();

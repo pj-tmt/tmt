@@ -636,7 +636,7 @@ export class Live implements PageBinding {
     // The first open does not wait for verification: the document shows, and the threads and asks
     // follow through the binding. A page already verified waits for its latest view as before.
     if (this.#discussionVerified) await this.#views;
-    await this.#progressReads.refresh();
+    await this.#progressReads.settled();
     this.signal?.throwIfAborted();
     return {
       id: this.page.pageId,
@@ -904,8 +904,6 @@ export class Live implements PageBinding {
     };
   }
   refreshProgress(): void {
-    this.#progress = null;
-    this.#publish();
     void this.#progressReads.refresh();
   }
   canMetadata(): boolean {

@@ -467,9 +467,16 @@ test('an editor reader link shows the shell notice as read-only, never a Source 
   await expect(page.getByText(text.shellPageNotice, { exact: true })).toBeVisible();
   await expect(page.locator('.chip')).toHaveText(text.readerOnly);
   await expect(page.getByTestId('source-toggle')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Work on this page' })).toHaveCount(0);
   await expect(page.locator('code')).toHaveText(
     'tmt colab dashboard read 10000000-0000-4000-8000-000000000001',
   );
   await expect(page.getByRole('button', { name: 'Copy', exact: true })).toHaveCount(0);
   await expect(page.locator('iframe')).toHaveCount(0);
+});
+
+test('owner shell pages have no manual-state or progress panel', async ({ page }) => {
+  await openShell(page);
+  await expect(page.locator('.shell-page')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Work on this page' })).toHaveCount(0);
 });

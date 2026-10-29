@@ -31,6 +31,8 @@ export function useLinkedPages(
   work: Work | undefined,
 ): {
   stageOf?: (pageId: string) => string | undefined;
+  /** Whether the existing owner list has been observed, including an empty list. */
+  observed: boolean;
   parent?: WorkParent;
   subpages: readonly { id: string; title?: string; state?: PageSummary['state'] }[];
 } {
@@ -79,5 +81,5 @@ export function useLinkedPages(
       }),
     [key, pages],
   );
-  return { stageOf, parent, subpages };
+  return { stageOf, parent, subpages, observed: pages !== undefined };
 }

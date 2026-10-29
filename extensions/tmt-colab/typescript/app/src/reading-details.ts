@@ -252,6 +252,10 @@ export class ProgressReads {
     private read: (signal: AbortSignal) => Promise<ReadingDetails | null>,
     private publish: (details: ReadingDetails | null) => void,
   ) {}
+  /** Join reads already requested by the admitted projection without invalidating them. */
+  async settled(): Promise<void> {
+    while (this.#running) await this.#running;
+  }
   refresh(): Promise<void> {
     if (this.#lifetime.signal.aborted) return Promise.resolve();
     this.#generation++;

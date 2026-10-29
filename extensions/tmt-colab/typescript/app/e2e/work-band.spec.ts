@@ -402,3 +402,14 @@ test('state revision is captured when its menu opens, before a choice is applied
   await expect(page.getByRole('button', { name: /Page state/ })).toContainText('Done');
   expect(await page.evaluate(() => window.__workPage!.metadataCaptures)).toBe(1);
 });
+
+test('a page with no sub-pages shows one directly selectable task list', async ({ page }) => {
+  await mountRoute(page, true, true);
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  await band.getByRole('button', { name: 'Expand status panel', exact: true }).click();
+  await expect(band.getByRole('button', { name: /^Tasks \d+$/ })).toHaveCount(0);
+  await expect(band.locator('.work-subpages')).toHaveCount(0);
+  await expect(band.locator('.work-row')).toHaveCount(3);
+  await band.locator('.work-row').filter({ hasText: 'Draft' }).locator('button').first().click();
+  await expect(band.locator('.work-controls')).toBeVisible();
+});

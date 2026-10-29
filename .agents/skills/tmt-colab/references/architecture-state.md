@@ -1139,12 +1139,14 @@ without remounting or introducing another scroll region. Progress never sets sta
 Missing progress is unavailable, zero is `0 of 0 done`, and unknown children stay unknown.
 `Live` retains optional owner details across subscription and coalesces invalidations through
 `ProgressReads` in `reading-details.ts`: one active read and a trailing read per burst, no polling.
+Snapshot joins the admitted read. The first owner-list observation establishes the child-state
+baseline; later changes refresh details without clearing the last verified bar.
 Only a matching published document/work projection receives those counts; close/recovery fences
 obsolete reads. Child titles/manual states come from existing owner-list rows in `useLinkedPages`
 (`work-stages.ts`), without wider rows or child subscriptions. Share readers make no owner reads.
 
-Expanded content shows direct sub-pages or tasks, the native bucket legend and `Tasks N` for
-unlinked tasks. `work-list.tsx` and `work-detail.tsx` retain task detail/actions and one-shot task
+Expanded content shows the native bucket legend and either direct sub-pages with `Tasks N` for
+unlinked tasks, or one directly selectable task list when there are no sub-pages. `work-list.tsx` and `work-detail.tsx` retain task detail/actions and one-shot task
 deep links, including a linked task's direct detail. A known parent remains a link to its task
 inside the expanded panel; unknown parents trigger no parent-page read. Attach is hidden until
 its separate picker/write flow is delivered in PR B of #4051.
