@@ -37,6 +37,7 @@ declare global {
     __reportTasks?: () => void;
   }
 }
+export const pageListSpace = 'a0000000-0000-4000-8000-000000000001';
 let root: Root | undefined;
 const id = (n: number) => `c${String(n).padStart(7, '0')}-1111-4111-8111-000000000001`;
 function page(n: number, title: string, projects: string[], changes: Partial<PageSummary> = {}) {
@@ -106,6 +107,7 @@ export async function mountPageList(
    * `'automatic'` is the owner's default until it writes a list; names are a list the owner wrote.
    */
   pinned?: 'automatic' | readonly string[],
+  withSpace = true,
 ) {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('list-fixture');
@@ -421,5 +423,7 @@ export async function mountPageList(
       };
     },
   });
-  root.render(<RouterProvider router={router} />);
+  root.render(
+    <RouterProvider router={router} context={{ space: withSpace ? pageListSpace : undefined }} />,
+  );
 }

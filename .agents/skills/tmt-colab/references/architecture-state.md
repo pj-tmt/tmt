@@ -770,11 +770,14 @@ Manual `state` is independent of task-derived `stage`; missing state does not ma
 archived is a union, while the Archived tab remains archived-only. `shortcuts.ts` validates saved
 filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
 rereading before each synchronous mutation. `use-shortcuts.ts` observes same-page events and
-browser storage events without polling. Explicit owner pins migrate once, in order, when the
-actual preference arrives; automatic suggestions do not. Records and the marker persist together,
-without changing owner pins. Corrupt/newer data and failed writes are reported and retained.
+browser storage events without polling. No store, record access or event subscription exists until
+its space is defined. The pinned-project sidebar and Pin controls remain active, so the hook does
+not trigger migration. `ShortcutStore.migrate` and its tests retain the once-only explicit-pin
+migration for the sidebar swap: automatic suggestions are excluded, records and marker persist
+together, and owner pins are unchanged. Corrupt/newer data and failed writes are reported and retained.
 `shortcut-dialogs.tsx` owns the name-only Save dialog and the Edit/Manage filter editor, matching
-preview and ordering controls. Home exposes Save/Edit and Manage; these preferences are not
+preview and ordering controls. Its labels use `BrowserField`; `page-state-menu.tsx` shares the manual
+state menu with Home, using the existing task-state labels and the central string catalog. Home exposes Save/Edit and Manage; these preferences are not
 synced or shared. The existing sidebar and Pin controls remain until their shared-menu integration.
 
 `home.tsx` renders the list from the same pages;

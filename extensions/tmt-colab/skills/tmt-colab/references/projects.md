@@ -21,7 +21,8 @@ is independent of task stage; Include archived adds archived pages, while the Ar
 archived-only. No selected project means all projects.
 
 Shortcuts are saved in this browser on this machine, per space; they are not synced or shared.
-Explicit pinned projects migrate once in their existing order; automatic recent projects do not.
-Migration leaves the owner pins unchanged. Manage can create, rename, edit, delete and reorder
+While the pinned-project sidebar and Pin controls remain available, migration is deferred. The
+sidebar integration will migrate explicit pinned projects once in their existing order, excluding
+automatic recent projects and leaving owner pins unchanged. Manage can create, rename, edit, delete and reorder
 shortcuts, with a matching-page preview. Failed storage writes keep the draft and report the error.
 The current pinned-project sidebar and Pin to sidebar controls remain available.

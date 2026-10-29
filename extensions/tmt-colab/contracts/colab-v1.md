@@ -5879,18 +5879,20 @@ all projects. Saved filters retain text, creator, sort and stage clauses; a proj
 a project condition. Missing manual state never matches a selected state.
 
 Shortcuts use one versioned browser-local record per space (`tmt-colab-shortcuts-v1:<space>`),
-with stable IDs and explicit order. They are not page metadata, management statements or sync
+with stable IDs and explicit order. Before the space is defined, there is no shortcut store,
+record read/write or shortcut event subscription, and Save/Manage are unavailable. They are not page metadata, management statements or sync
 records, and are not shared between browser profiles. Mutations synchronously reread the record,
 apply one change and persist it before reporting success; storage failures retain the draft.
 Corrupt or newer records are reported and left unchanged. Same-page changes and browser storage
 events refresh the local view without polling. Names contain 1–80 characters without control
 characters; filters retain the list's existing bounds.
 
-Once the owner's actual project-pin preference has arrived, explicit pins (`automatic:false`)
-migrate once, in order, into project-only shortcuts. Automatic recent-project suggestions do not
-migrate. The migration marker and shortcut records commit together, and failed persistence leaves
-the migration retryable. Migration does not write or remove legacy owner pins. The existing pinned
-project sidebar and Pin controls remain until the shared sidebar integration lands.
+The pinned-project sidebar and Pin controls remain active, so this stage does not trigger
+migration. The store retains a migration operation for the shared sidebar integration, which
+must invoke it together with the sidebar swap and removal of the old Pin controls. That operation
+migrates explicit pins (`automatic:false`) once, in order, into project-only shortcuts; automatic
+recent-project suggestions do not migrate. The marker and records commit together, failed
+persistence leaves migration retryable, and legacy owner pins are not written or removed.
 
 ### Pins (#4356)
 

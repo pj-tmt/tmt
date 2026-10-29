@@ -1,3 +1,4 @@
+import { PageStateMenu } from './page-state-menu.js';
 import { useShortcuts } from './use-shortcuts.js';
 import { ShortcutDialog } from './shortcut-dialogs.js';
 import type { Shortcut } from './shortcuts.js';
@@ -244,7 +245,7 @@ export function Home() {
   const router = useRouter();
   const { pages: homePages, hints: titleHints } = useHomeSpace(space);
   const port = transport.management;
-  const shortcuts = useShortcuts(spaceId, space.projectPins);
+  const shortcuts = useShortcuts(spaceId);
   const [shortcutDialog, setShortcutDialog] = useState<'save' | 'edit' | 'manage'>();
   const currentShortcut = shortcuts.items.find((item) => item.id === search.shortcut);
   function savedShortcut(item: Shortcut) {
@@ -744,26 +745,7 @@ export function Home() {
     <>
       {port && (
         <div className="page-list-state-filters">
-          <BrowserMenu
-            label={`Page state: ${search.state ?? 'Any'}`}
-            triggerText={`State: ${search.state === 'in-progress' ? 'In progress' : search.state === 'todo' ? 'To do' : search.state === 'done' ? 'Done' : 'Any'}`}
-            items={(['', 'todo', 'in-progress', 'done'] as const).map((state) => ({
-              key: state || 'any',
-              label:
-                state === 'todo'
-                  ? 'To do'
-                  : state === 'in-progress'
-                    ? 'In progress'
-                    : state === 'done'
-                      ? 'Done'
-                      : 'Any state',
-              role: 'menuitemradio' as const,
-              checked: (search.state ?? '') === state,
-            }))}
-            onSelect={(key) =>
-              setSearch({ state: key === 'any' ? undefined : (key as HomeSearch['state']) })
-            }
-          />
+          <PageStateMenu state={search.state} onChange={(state) => setSearch({ state })} />
           <label>
             <BrowserCheckbox
               checked={!!search.includeArchived}
@@ -771,7 +753,7 @@ export function Home() {
                 setSearch({ includeArchived: event.target.checked ? true : undefined })
               }
             />
-            Include archived
+            {text.shortcuts.includeArchived}
           </label>
         </div>
       )}
@@ -989,14 +971,16 @@ export function Home() {
                 type="button"
                 variant="ghost"
                 presentation="compact"
-                label={currentShortcut ? 'Edit shortcut' : 'Save as shortcut'}
+                label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+                disabled={!shortcuts.store}
                 onActivate={() => setShortcutDialog(currentShortcut ? 'edit' : 'save')}
               />
               <BrowserIconAction
                 type="button"
                 variant="text"
                 icon={<Settings />}
-                label="Manage shortcuts"
+                label={text.shortcuts.manage}
+                disabled={!shortcuts.store}
                 onActivate={() => setShortcutDialog('manage')}
               />
             </div>
@@ -1029,9 +1013,9 @@ export function Home() {
           {newPageAction}
         </span>
       </header>
-      {shortcutDialog && (
+      {shortcutDialog && shortcuts.store && (
         <ShortcutDialog
-          key={shortcutDialog}
+          key={`${spaceId}:${shortcutDialog}`}
           mode={shortcutDialog}
           initial={
             shortcutDialog === 'edit'

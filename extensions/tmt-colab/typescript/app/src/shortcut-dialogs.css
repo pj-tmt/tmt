@@ -36,11 +36,6 @@
   gap: 12px;
   min-width: 0;
 }
-.shortcut-editor fieldset {
-  min-width: 0;
-  padding: 8px 0;
-  border: 0;
-}
 .shortcut-editor label,
 .shortcut-projects label {
   display: flex;
@@ -94,4 +89,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.shortcut-state > .tmt-ui-menu {
+  width: 100%;
 }

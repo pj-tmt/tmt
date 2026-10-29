@@ -10,11 +10,11 @@ export interface ShortcutCollection {
   migrated: boolean;
   items: Shortcut[];
 }
-export function shortcutNameError(name: string): string | undefined {
+export function shortcutNameError(name: string): 'empty' | 'form' | undefined {
   return !name.trim()
-    ? 'Enter a name.'
+    ? 'empty'
     : [...name].length > 80 || /\p{Cc}/u.test(name)
-      ? 'Use up to 80 characters without control characters.'
+      ? 'form'
       : undefined;
 }
 /** Scope becomes a normal project condition; the saved route never refers to another shortcut. */

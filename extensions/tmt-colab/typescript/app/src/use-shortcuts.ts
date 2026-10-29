@@ -1,26 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ProjectPins } from './bootstrap.js';
 import { ShortcutStore } from './shortcut-store.js';
 import type { Shortcut } from './shortcuts.js';
-export function useShortcuts(space: string | undefined, pins: ProjectPins | undefined) {
-  const store = useMemo(() => new ShortcutStore(space ?? ''), [space]);
-  const [state, setState] = useState<{ store: ShortcutStore; items: Shortcut[]; error?: string }>({
+import { text } from './strings.js';
+
+export function useShortcuts(space: string | undefined) {
+  const store = useMemo(
+    () => (space === undefined ? undefined : new ShortcutStore(space)),
+    [space],
+  );
+  const [state, setState] = useState<{ store?: ShortcutStore; items: Shortcut[]; error?: string }>({
     store,
     items: [],
   });
   const refresh = useCallback(() => {
+    if (!store) return;
     try {
       setState({ store, items: store.read().items });
     } catch {
-      setState({
-        store,
-        items: [],
-        error: 'Saved shortcuts could not be read. Existing data has been kept.',
-      });
+      setState({ store, items: [], error: text.shortcuts.readFailed });
     }
   }, [store]);
-  const legacy = JSON.stringify(pins);
   useEffect(() => {
+    if (!store) return;
     const changed = (event: Event) => {
       if (event instanceof StorageEvent && event.key !== null && event.key !== store.key) return;
       if (event instanceof CustomEvent && event.detail !== store.key) return;
@@ -28,21 +29,12 @@ export function useShortcuts(space: string | undefined, pins: ProjectPins | unde
     };
     window.addEventListener('storage', changed);
     window.addEventListener('colab-shortcuts', changed);
-    try {
-      store.migrate(legacy ? (JSON.parse(legacy) as ProjectPins) : undefined);
-      refresh();
-    } catch {
-      setState({
-        store,
-        items: [],
-        error: 'Saved shortcuts could not be updated. Existing data has been kept.',
-      });
-    }
+    refresh();
     return () => {
       window.removeEventListener('storage', changed);
       window.removeEventListener('colab-shortcuts', changed);
     };
-  }, [store, legacy, refresh]);
+  }, [store, refresh]);
   return {
     store,
     items: state.store === store ? state.items : [],
