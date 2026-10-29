@@ -424,8 +424,7 @@ initially the first Needs-you thread or the first matching thread by number.
 `comments-listing.ts` owns the Open / Needs you / All sequence from the verified
 threads and existing attention metadata; proposals share that sequence. Deleted
 and Chat records stay excluded. `use-thread-filter.ts` keeps the filter on this
-device, accepting the previous Show-resolved preference as All when no filter is
-stored. The static position `n / m` and Previous / Next follow that sequence;
+device, defaulting to Open when its current key is absent or invalid. The static position `n / m` and Previous / Next follow that sequence;
 the dock count remains the canonical pending count. A selected thread stays in
 its sequence through resolution or acknowledgement until explicit navigation.
 Resolve/Reopen never collapse or advance the Discussion. The same mounted window
@@ -440,7 +439,10 @@ passage navigation retain their existing reveal behavior. Colab's explicit close
 returns focus to the Comments action before the closing clip can keep the old
 composer temporarily focusable. The router owns the static position,
 filter and arrows, and a header slot; the thread window portals its Resolve/Reopen icon action there,
-keeping its busy fence and failure line. A resolved discussion retains the dashed
+keeping its busy fence and failure line. `resolve-all-threads.tsx` portals the batch action into
+its own header slot and confirms a frozen set of open threads in the current filter. Its result
+report follows the conversation, and its busy state includes pending notification attempts.
+A resolved discussion retains the dashed
 `quiet` passage mark (the highlight request's seventh field). A mention remains
 the composer's soft tag. The panel stays mounted and hidden while closed; a
 newly selected thread opens at its latest message. A reader at the end follows

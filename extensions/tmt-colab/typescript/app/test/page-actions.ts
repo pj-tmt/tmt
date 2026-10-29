@@ -12,9 +12,9 @@ export function chatAction(host: Page | Locator) {
   return host.locator('.page-floating-actions').getByRole('button', { name: CHAT_NAME });
 }
 
-/** Exercise the retained legacy preference: it selects All when no v2 filter is stored. */
+/** The device-local All filter includes resolved discussions. */
 export async function showResolvedOn(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
+  await page.addInitScript(() => localStorage.setItem('colab.comments.filter', 'all'));
 }
 
 /** The visible bar's buttons: the shared top bar where Colab is the shell's root, the module header

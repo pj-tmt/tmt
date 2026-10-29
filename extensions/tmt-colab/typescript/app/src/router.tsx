@@ -1,4 +1,4 @@
-import { PageMenu as BrowserMenu } from './page-menu.js';
+import { PageMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
@@ -95,9 +95,16 @@ import { useReplyNotifications } from './use-reply-notifications.js';
 import { ReplyNotificationObserver } from './reply-notifications.js';
 import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
+import { ResolveAllThreads } from './resolve-all-threads.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comments-listing.js';
+import {
+  firstThread,
+  listedThreads,
+  threadKey,
+  threadNeedsYou,
+  type ThreadFilter,
+} from './comments-listing.js';
 import { useThreadFilter } from './use-thread-filter.js';
 import type { QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
@@ -1570,6 +1577,7 @@ function OpenPage({
   // The Discussion header's arrows walk the threads in the order of their numbers, the order of the
   // position it shows.
   const [resolveSlot, setResolveSlot] = useState<HTMLElement | null>(null);
+  const [resolveAllSlot, setResolveAllSlot] = useState<HTMLElement | null>(null);
   const [threadFilter, setThreadFilter] = useThreadFilter();
   const listed = useMemo(
     () =>
@@ -1924,7 +1932,7 @@ function OpenPage({
     all: text.commentsViewAll,
   };
   const threadFilterMenu = (
-    <BrowserMenu
+    <PageMenu
       label={text.commentsFilter}
       triggerText={filterLabels[threadFilter]}
       variant="crumb"
@@ -2231,34 +2239,37 @@ function OpenPage({
             ) : undefined
           }
           headerActions={
-            discussedThread && numbers.get(activeThread!) !== undefined ? (
-              <>
-                <BrowserIconAction
-                  type="button"
-                  variant="text"
-                  label={text.discussionPrevious}
-                  icon={<ChevronLeft />}
-                  disabled={!neighbour(-1)}
-                  onActivate={(event) => {
-                    if (event.isTrusted) openNeighbour(-1);
-                  }}
-                />
-                <BrowserIconAction
-                  type="button"
-                  variant="text"
-                  label={text.discussionNext}
-                  icon={<ChevronRight />}
-                  disabled={!neighbour(1)}
-                  onActivate={(event) => {
-                    if (event.isTrusted) openNeighbour(1);
-                  }}
-                />
-                {threadFilterMenu}
-                <span className="discussion-header-slot" ref={setResolveSlot} />
-              </>
-            ) : (
-              threadFilterMenu
-            )
+            <>
+              {discussedThread && numbers.get(activeThread!) !== undefined ? (
+                <>
+                  <BrowserIconAction
+                    type="button"
+                    variant="text"
+                    label={text.discussionPrevious}
+                    icon={<ChevronLeft />}
+                    disabled={!neighbour(-1)}
+                    onActivate={(event) => {
+                      if (event.isTrusted) openNeighbour(-1);
+                    }}
+                  />
+                  <BrowserIconAction
+                    type="button"
+                    variant="text"
+                    label={text.discussionNext}
+                    icon={<ChevronRight />}
+                    disabled={!neighbour(1)}
+                    onActivate={(event) => {
+                      if (event.isTrusted) openNeighbour(1);
+                    }}
+                  />
+                  {threadFilterMenu}
+                  <span className="discussion-header-slot" ref={setResolveSlot} />
+                </>
+              ) : (
+                threadFilterMenu
+              )}
+              <span className="discussion-header-slot" ref={setResolveAllSlot} />
+            </>
           }
           data-panel="comments"
           data-discussion={discussedThread || undefined}
@@ -2284,47 +2295,65 @@ function OpenPage({
             </p>
           )}
           {!discussionPending && (
-            <ThreadPanel
-              connectionPresentation={connectionPresentation}
-              archived={archived}
-              proposalStatusPending={proposalLayer.proposalStatusPending}
-              creationRecipient={creatorTarget(view)}
-              hideHeader
-              numbers={numbers}
-              renderProposal={proposalLayer.renderProposal}
-              key={`discussion:${snapshot.id}:${draftsReady}`}
-              threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
-              resolved={resolved}
-              anchorsChecked={anchorsChecked}
-              selection={selector}
-              binding={
-                liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
-              }
-              ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
-              title={view.title || snapshot.title}
-              asks={view.asks ?? []}
-              active={activeThread}
-              select={openThread}
-              close={closeComments}
-              headerSlot={resolveSlot}
-              showInPage={(ref) => {
-                // The panel stays: it is beside or over the page, not a modal that hides it.
-                renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
-              }}
-              presentations={view.threadPresentations}
-              onStatusChange={
-                statusCoordinator
-                  ? (thread, resolved) => statusCoordinator.change(thread, resolved)
-                  : undefined
-              }
-              onBusy={(busy) => {
-                statusBusy.current = busy;
-                setChangingStatus(busy);
-              }}
-              draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
-              onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
-              blocked={discussionBlocked}
-            />
+            <>
+              <ThreadPanel
+                connectionPresentation={connectionPresentation}
+                archived={archived}
+                proposalStatusPending={proposalLayer.proposalStatusPending}
+                creationRecipient={creatorTarget(view)}
+                hideHeader
+                numbers={numbers}
+                renderProposal={proposalLayer.renderProposal}
+                key={`discussion:${snapshot.id}:${draftsReady}`}
+                threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
+                resolved={resolved}
+                anchorsChecked={anchorsChecked}
+                selection={selector}
+                binding={
+                  liveError?.message === managementChanged
+                    ? undefined
+                    : snapshot.binding?.discussion
+                }
+                ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+                title={view.title || snapshot.title}
+                asks={view.asks ?? []}
+                active={activeThread}
+                select={openThread}
+                close={closeComments}
+                headerSlot={resolveSlot}
+                showInPage={(ref) => {
+                  // The panel stays: it is beside or over the page, not a modal that hides it.
+                  renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+                }}
+                presentations={view.threadPresentations}
+                onStatusChange={
+                  statusCoordinator
+                    ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+                    : undefined
+                }
+                onBusy={(busy) => {
+                  statusBusy.current = busy;
+                  setChangingStatus(busy);
+                }}
+                draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
+                onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
+                blocked={discussionBlocked}
+              />
+              <ResolveAllThreads
+                headerSlot={resolveAllSlot}
+                threads={listed.filter(
+                  (thread) =>
+                    !thread.resolved &&
+                    (threadFilter !== 'needs' || threadNeedsYou(thread, view.threadPresentations)),
+                )}
+                coordinator={
+                  (view.threadPresentations ?? []).some((value) => value.status.controllable)
+                    ? statusCoordinator
+                    : undefined
+                }
+                blocked={discussionBlocked || changingStatus}
+              />
+            </>
           )}
         </BrowserPanel>
       </div>

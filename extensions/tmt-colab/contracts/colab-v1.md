@@ -1625,6 +1625,16 @@ wait for notifications. A later explicit opposite action proceeds independently 
 remaining attempts from the superseded task; a superseded status cannot prepare another
 notification. An already adopted Ask keeps its ordinary ledger outcome.
 
+Mounted Resolve all confirms a snapshot of the current filter's open thread references
+and previous statuses. Later arrivals do not join it. Each status write rechecks current
+admission independently; a failure preserves earlier commits and the UI reports partial
+results. The coordinator freezes the directory once and assigns each machine/agent pair
+to its first successfully committed status. A no-op or failed write does not claim that
+recipient. The existing canonical thread notification and adoption/failure ledger are
+unchanged; there is no batch summary field or wire schema. Publication is reported before
+notifications settle, while the batch action remains busy until its original attempts
+settle. An explicit Reopen still proceeds independently and supersedes remaining attempts.
+
 The generic own writer prepares at most 32 records in one update; thread creation
 publishes its thread and opening message together. Preparation cannot change the
 committed projection. Only admitted encrypted appends commit; failures preserve

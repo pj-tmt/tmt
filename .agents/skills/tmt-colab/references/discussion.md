@@ -33,6 +33,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   ledger's current admission/grant checks. Loading and result re-checking never notify.
   `Live` supplies `ThreadStore` its verified thread projection only for the exact current
   own snapshot, connection and admission; otherwise the store re-reads admitted records.
+  `resolveAll` snapshots the confirmed threads and one directory, then reuses this status/notification
+  path sequentially. It assigns a recipient only after its first committed status and reports each
+  write independently; its `settled` promise keeps the batch control busy without delaying the
+  publication report or a later Reopen. `resolve-all-threads.tsx` owns the confirmation, header action
+  portal and partial-result report; the router supplies the strict current filter and cosmetic admission.
   Resolve/Reopen controls show their pending action with a busy/disabled fence. Proposal
   cards and the selected proposal share the proposal layer's pending map; confirmed projection replaces
   it, and publication failure clears it and shows the existing error.
