@@ -183,12 +183,11 @@ impl App {
     ) {
         if let Ok(completed) = &result {
             self.home_leads.acknowledged(completed);
-            if let Some(overlay) = &mut self.unread_overlay {
-                if self.view.as_ref().and_then(|view| view.me_id.as_deref())
+            if let Some(overlay) = &mut self.unread_overlay
+                && self.view.as_ref().and_then(|view| view.me_id.as_deref())
                     == Some(&completed.actor)
-                {
-                    overlay.acknowledged(completed);
-                }
+            {
+                overlay.acknowledged(completed);
             }
         }
         self.unread_observed();
