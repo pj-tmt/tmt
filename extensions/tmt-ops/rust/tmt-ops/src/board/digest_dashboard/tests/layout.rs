@@ -359,7 +359,7 @@ fn narrow_table_keeps_24_hours_and_tab_exposes_exchange_matrix_without_selection
     let shown = paint(&mut app, 80, 40);
     assert!(shown.contains("ACTIVITY · last 1d"));
     assert!(!shown.contains("SHARE"));
-    assert!(!shown.contains("≈ $ in"));
+    assert!(!shown.contains("≈ $ USED"));
     assert!(shown.contains("Details"));
     key(&mut app, KeyCode::Tab);
     let shown = paint(&mut app, 80, 40);
@@ -700,9 +700,12 @@ fn input_price_qualification_is_shown_once_by_the_visible_amount() {
             assert!(shown.contains("Observed input quote: —"));
         }
         // The columns a narrow pane drops are named once; a pane that has them says nothing.
+        let hint = super::super::table::painted_width(&app).and_then(|width| {
+            super::super::table::narrow_hint(width, app.savings_unit(), usize::MAX)
+        });
         assert_eq!(
-            shown.matches(super::super::table::NARROW_HINT).count(),
-            usize::from(!super::super::table::price_column_shown(&app)),
+            shown.matches("Widen to ").count(),
+            usize::from(hint.is_some()),
             "width={width}: {shown}"
         );
     }

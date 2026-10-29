@@ -14,11 +14,49 @@ use crate::board::{
     usage_report::Report,
     workspace::{OpsTarget, OpsTreeRow, OpsVisibility, observe::OpsWorkspaceSnapshot},
 };
-use std::{collections::HashMap, rc::Rc, sync::Arc};
+use crate::labels::digest::SavingsSummary;
+use std::{
+    collections::HashMap,
+    rc::{self, Rc},
+    sync::{self, Arc},
+};
 
 #[derive(Default)]
 pub(in crate::board) struct Cache {
     held: Option<(Key, Projection)>,
+    savings: Option<(SavingsKey, Rc<SavingsSummary>)>,
+}
+
+/// The admitted rows' saved sum is one read of one status; the projection key leaves labels out
+/// so supplier text stays live, so the sum keys on the held status itself. Weak pointers name
+/// the status and rows without keeping a replaced generation alive, and its address taken.
+struct SavingsKey {
+    status: Option<(sync::Weak<crate::labels::digest::Status>, bool)>,
+    rows: rc::Weak<[OpsTreeRow]>,
+    window: crate::config::DigestWindow,
+}
+
+impl SavingsKey {
+    fn of(app: &App, rows: &Rc<[OpsTreeRow]>) -> Self {
+        Self {
+            status: app
+                .labels
+                .digest_held()
+                .map(|(status, stale)| (Arc::downgrade(status), stale)),
+            rows: Rc::downgrade(rows),
+            window: app.digest_window(),
+        }
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        self.window == other.window
+            && rc::Weak::ptr_eq(&self.rows, &other.rows)
+            && match (&self.status, &other.status) {
+                (Some((a, stale)), Some((b, now))) => sync::Weak::ptr_eq(a, b) && stale == now,
+                (None, None) => true,
+                _ => false,
+            }
+    }
 }
 
 #[derive(Clone)]
@@ -77,6 +115,7 @@ impl Key {
 impl Cache {
     pub fn clear(&mut self) {
         self.held = None;
+        self.savings = None;
     }
 
     /// Holds the projection `build` makes for `key`. The stale one is released first: it pins
@@ -139,6 +178,25 @@ pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[
         return projected_rows(app, snapshot, Some(selected)).into();
     }
     canonical
+}
+
+/// The saved sum over the admitted rows, shared by the summary tiles, Details for `all` and the
+/// table's `all` row.
+pub(super) fn savings(app: &App) -> Rc<SavingsSummary> {
+    let Some(snapshot) = app.workspace_snapshot() else {
+        return Rc::new(metrics::savings(app, &[]));
+    };
+    let rows = projection(app, snapshot).rows;
+    let key = SavingsKey::of(app, &rows);
+    let mut cache = app.digest_rows.borrow_mut();
+    if let Some((held, summary)) = &cache.savings
+        && held.matches(&key)
+    {
+        return summary.clone();
+    }
+    let ids: Vec<_> = rows.iter().filter_map(metrics::id).collect();
+    let summary = Rc::new(metrics::savings(app, &ids));
+    cache.savings.insert((key, summary)).1.clone()
 }
 
 pub(super) fn talks(app: &App) -> Rc<Talks> {

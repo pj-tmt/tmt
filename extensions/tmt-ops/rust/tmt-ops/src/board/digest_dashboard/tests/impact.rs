@@ -166,11 +166,14 @@ fn both_units_keep_their_own_coverage_and_whole_money_moves_to_details() {
                 .iter()
                 .any(|line| line.to_string().contains("List-price equivalent:"))
         );
+        // The amounts never switch the unit; only the table's SAVED heading does.
         assert!(
             app.workspace_strip_hits
                 .borrow()
                 .iter()
-                .all(|(_, choice)| *choice != Choice::SavingsUnit)
+                .filter(|(_, choice)| *choice == Choice::SavingsUnit)
+                .all(|(area, _)| area.width == 7),
+            "{scene}"
         );
     }
 }

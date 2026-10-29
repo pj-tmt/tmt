@@ -6,7 +6,10 @@ use crate::{core::Core, runner::Cancellation};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    sync::mpsc::{self, RecvTimeoutError},
+    sync::{
+        Arc,
+        mpsc::{self, RecvTimeoutError},
+    },
     time::{Duration, Instant},
 };
 use tmt_cli_style::Role;
@@ -41,14 +44,16 @@ pub struct Supplied(Vec<(String, Snapshot)>);
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Snapshot {
     rows: Rows,
-    digest: Option<digest::Status>,
+    /// Shared so a retained snapshot keeps its identity: a derived sum is reused until a new
+    /// read replaces it.
+    digest: Option<Arc<digest::Status>>,
     stale: bool,
 }
 
 impl Snapshot {
     fn parse(source: &str, document: &Value) -> Option<Self> {
         let rows = parse(source, document)?;
-        let digest = digest::Status::from_source(source, document, &rows);
+        let digest = digest::Status::from_source(source, document, &rows).map(Arc::new);
         Some(Self {
             rows,
             digest,
@@ -100,6 +105,12 @@ impl Supplied {
     /// The Digest projection and whether it is retained after a failed read.
     /// Its timestamps remain the source's observations, never the retry time.
     pub fn digest(&self) -> Option<(&digest::Status, bool)> {
+        self.digest_held()
+            .map(|(status, stale)| (status.as_ref(), stale))
+    }
+
+    /// [`Self::digest`] with the shared status, whose pointer names one acquisition.
+    pub fn digest_held(&self) -> Option<(&Arc<digest::Status>, bool)> {
         self.0.iter().find_map(|(_, snapshot)| {
             snapshot
                 .digest

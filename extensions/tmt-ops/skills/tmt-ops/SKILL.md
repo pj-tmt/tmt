@@ -433,9 +433,12 @@ Self is blank, `·` observed none and `—` unavailable. An observed empty flow 
 `No exchanges in this range`; an empty roster says `No agents observed`.
 Enter opens the selected member's Agents conversation. D uses the existing
 Digest chooser; e toggles details, u opens the Unread overlay and w stays Snapshots.
-Hints follow configured bindings. The `≈ $ in` column requires full input-model
-attribution and held quotes: input tokens at list price; not a bill. A table narrower
-than 94 columns drops SHARE, `≈ $ in` and TALKS TO whole and says so on its last line. Avoided
+Hints follow configured bindings. `≈ $ USED` requires full input-model attribution and
+held quotes: input tokens at list price; not a bill. SAVED is Digest's estimate in the
+savings unit; clicking its `SAVED ▾` heading switches tokens, percent and cost, and while
+the unit is cost `≈ $ SAVED` (the estimate at list price) steps aside. On `all`, a sum
+that leaves agents out reads `≥`. Narrow tables drop SHARE and TALKS TO first, then the
+money columns below 94 columns, and the last line names what is left out. Avoided
 estimates remain supplier-owned and show unavailable when their window differs
 from the selected TOK range. Source windows and prices remain in details.
 Usage and traffic come from bounded background Core reads, even without Digest;
