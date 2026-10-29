@@ -837,3 +837,55 @@ it('validates and preserves the manual page state in content snapshots', () => {
   expect(sameContent(admitted, { ...page, own: {} })).toBe(false);
   expect(sameContent(admitted, { ...admitted, pageState: 'todo' })).toBe(false);
 });
+
+it('reports fixed reasons for a busy or closed decoder without copying worker errors', async () => {
+  const worker = {
+    postMessage: vi.fn(),
+    terminate: vi.fn(),
+    onerror: null as null | ((event: unknown) => void),
+    onmessage: null as null | ((event: unknown) => void),
+  };
+  const fold = new Fold(worker as unknown as Worker);
+  const pending = fold.run({ type: 'apply', updates: [] });
+  const rejected = expect(pending).rejects.toThrow('Decoder failed or exceeded its time budget');
+  await expect(fold.run({ type: 'apply', updates: [] })).rejects.toThrow(
+    'Decoder unavailable: busy',
+  );
+  worker.onerror?.({ message: 'PRIVATE_WORKER_ERROR' });
+  await rejected;
+  const failure = await fold.run({ type: 'apply', updates: [] }).catch((error: Error) => error);
+  if (!(failure instanceof Error)) throw new Error('Expected decoder rejection');
+  expect(failure.message).toBe('Decoder unavailable: worker error');
+  expect(failure.message).not.toContain('PRIVATE_WORKER_ERROR');
+});
+
+it('reports fixed closed reasons for invalid output, timeout, posting failure, and normal close', async () => {
+  for (const [kind, message] of [
+    ['invalid', 'Decoder unavailable: invalid output'],
+    ['timeout', 'Decoder unavailable: timeout'],
+    ['post', 'Decoder unavailable: post failed'],
+    ['close', 'Decoder unavailable: closed'],
+  ] as const) {
+    vi.useFakeTimers();
+    const worker = {
+      postMessage: vi.fn(() => {
+        if (kind === 'post') throw new Error('PRIVATE_POST_ERROR');
+      }),
+      terminate: vi.fn(),
+      onerror: null as null | ((event: unknown) => void),
+      onmessage: null as null | ((event: unknown) => void),
+    };
+    const fold = new Fold(worker as unknown as Worker);
+    const pending = fold.run({ type: 'apply', updates: [] });
+    const rejected = expect(pending).rejects.toThrow('Decoder failed or exceeded its time budget');
+    if (kind === 'invalid') worker.onmessage?.({ data: { id: 1, secret: 'PRIVATE_OUTPUT' } });
+    else if (kind === 'timeout') await vi.advanceTimersByTimeAsync(2000);
+    else if (kind === 'close') fold.close();
+    await rejected;
+    const error = await fold.run({ type: 'apply', updates: [] }).catch((reason: Error) => reason);
+    if (!(error instanceof Error)) throw new Error('Expected decoder rejection');
+    expect(error.message).toBe(message);
+    expect(error.message).not.toContain('PRIVATE_');
+    vi.useRealTimers();
+  }
+});
