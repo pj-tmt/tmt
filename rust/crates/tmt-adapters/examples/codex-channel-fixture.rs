@@ -270,7 +270,23 @@ fn run_hook(session: &str, event: &str, payload: Value) {
         json!({"event":event,"thread":session,"elapsedMs":started.elapsed().as_millis(),"ok":result.status.success(),"stdout":String::from_utf8_lossy(&result.stdout),"stderr":String::from_utf8_lossy(&result.stderr)}),
     );
 }
-fn wait_for_hook_flush() {}
+fn wait_for_hook_flush() {
+    // Distinguish entering the barrier from merely returning from intake. The
+    // scenario can causally detect a skipped barrier while its writer is held.
+    event("stop-waiting");
+    let wait: Value = serde_json::from_str(&env::var("MOCK_HOOK_FLUSH_WAIT").unwrap()).unwrap();
+    let result = Command::new(wait["node"].as_str().unwrap())
+        .arg(wait["script"].as_str().unwrap())
+        .arg(wait["directory"].as_str().unwrap())
+        .arg(tmt_adapters::storage::hook_queue::QUEUE_SCHEMA_VERSION.to_string())
+        .output()
+        .expect("start the private Stop acknowledgment barrier");
+    assert!(
+        result.status.success(),
+        "queued Stop acknowledgment failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
 
 fn foreground(args: &[String]) {
     let _attachment = if args.iter().any(|arg| arg == "--remote") {
