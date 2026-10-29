@@ -132,8 +132,16 @@ fn launch(core: &Core, review: &model::Review) -> Result<Outcome, SquadError> {
         65536,
     );
     // A launch may have partially succeeded despite its exit status. Observe
-    // before reporting it; never automatically launch again or close a pane.
-    let observed_until = Instant::now() + Duration::from_secs(30);
+    // before reporting it; never automatically launch again or close a pane. A
+    // command that already failed, such as a provider ending during startup, gets
+    // a short look rather than the full wait.
+    let failed = matches!(&result, Ok(done) if !done.success);
+    let observed_until = Instant::now()
+        + if failed {
+            Duration::from_secs(2)
+        } else {
+            Duration::from_secs(30)
+        };
     loop {
         let listed=core.json_within(&["ls"],observed_until.saturating_duration_since(Instant::now())).map_err(|e|unavailable(format!("Launch outcome unknown: {} Draft kept; check public state before trying again.",e.message)))?;
         let found: Vec<_> = listed["identities"]
@@ -152,6 +160,17 @@ fn launch(core: &Core, review: &model::Review) -> Result<Outcome, SquadError> {
             let id = found[0]["id"].as_str().unwrap().to_owned();
             let mut room = None;
             let mut message = format!("Created {} in Common pool.", review.name);
+            // Keep applies only now that the member started; promoting keeps its UUID.
+            let keep_failure = review.save_line().and_then(|line| {
+                core.json_with_operands(&["identity", "create"], &[&review.name])
+                    .err()
+                    .map(|error| {
+                        format!(
+                            "It started as temporary; keeping it failed: {}\nKeep it with: {line}",
+                            error.message
+                        )
+                    })
+            });
             if let Some(target) = &review.room {
                 let joined = Config::load(core).and_then(|mut config| {
                     crate::membership::workspace::apply(
@@ -189,6 +208,9 @@ fn launch(core: &Core, review: &model::Review) -> Result<Outcome, SquadError> {
                         );
                     }
                 }
+            }
+            if let Some(failure) = keep_failure {
+                message = format!("{message}\n{failure}");
             }
             return Ok(Outcome::Created { id, room, message });
         }

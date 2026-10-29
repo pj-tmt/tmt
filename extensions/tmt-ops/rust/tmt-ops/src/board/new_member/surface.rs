@@ -39,9 +39,8 @@ impl Controller {
                     "Will run · e edit template".to_owned(),
                     crate::launch::line(&review.display.command),
                 ];
-                if review.room.is_some() {
-                    text.push(review.copy().split_once('\n').unwrap().1.into());
-                }
+                // The follow-up commands, keep then squad add, one row each.
+                text.extend(review.copy().lines().skip(1).map(str::to_owned));
                 text.iter()
                     .flat_map(|line| super::super::notes::wrap(&safe(line), usize::from(width)))
                     .collect()

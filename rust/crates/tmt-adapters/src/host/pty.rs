@@ -29,12 +29,13 @@ use tmt_core::{
 };
 use tmt_driver_protocol::LaunchTemplate;
 
-/// Starts a member in the background, with no pane to open: `$1` is the name it is bound as and
-/// `$2` the command line. Nothing is interpolated. `tmt run` returns once the member's launcher
-/// is admitted and prints the host and the bound name; the member keeps running when the
-/// caller's terminal closes. An empty name or command is refused first, as for tmux's template.
-const LAUNCH_SCRIPT: &str = "[ -n \"$1\" ] && [ -n \"$2\" ] || { echo 'tmt-launch: a session and a command are required' >&2; exit 2; }; \
-exec tmt run --host pty \"$1\" sh -c \"$2\"";
+/// Runs the command line `$2`, which is itself one built-in-host launch
+/// (`tmt run --host pty NAME TOOL …`); that launch starts its own member and returns once it is
+/// admitted or ended during startup (#5536). The built-in host has no sessions: `$1` fills the
+/// grammar's required `{session}` and is ignored. Nothing is interpolated, and an empty command
+/// is refused first.
+const LAUNCH_SCRIPT: &str = "[ -n \"$2\" ] || { echo 'tmt-launch: a command is required' >&2; exit 2; }; \
+exec sh -c \"$2\"";
 
 pub fn launch_template() -> LaunchTemplate {
     let argv: Vec<String> = [
