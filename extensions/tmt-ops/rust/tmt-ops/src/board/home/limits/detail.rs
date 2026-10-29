@@ -157,6 +157,10 @@ pub(in crate::board) fn lines(app: &App, now: u64) -> Vec<String> {
                 super::age(now.saturating_sub(observed))
             ));
         }
+        if let Some(notice) = standing.notice() {
+            lines.push(notice.into());
+            continue;
+        }
         for kind in crate::board::limits::QuotaWindow::ALL {
             let value = crate::board::overview::quota::projection(
                 app,

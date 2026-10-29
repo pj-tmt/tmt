@@ -1101,6 +1101,11 @@ fn account_limits_frames(styles: &mut Styles) -> Vec<Value> {
                 });
             }
             app.set_limits(rows);
+            if state == "account-short" {
+                app.usage_chart
+                    .borrow_mut()
+                    .restore_quota_window(crate::board::limits::QuotaWindow::Short);
+            }
             if state == "account-details" {
                 app.open_quota_details();
             }
