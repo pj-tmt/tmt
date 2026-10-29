@@ -5,8 +5,7 @@ import { commentsClose, commentsRegion } from '../test/comments-region.js';
 
 // #5192/#5519: Comments follows Annotate and Chat in the dock, with the open-thread count and
 // the needs-you colour and bullet. It opens the Comments panel out of the dock's rectangle as Chat does
-// (dock-motion.ts): the panel is clipped to the dock's rectangle at one end of the motion. A column
-// leaves the dock in place, pressed; a card or a sheet covers it, so the dock hides.
+// (dock-motion.ts): the host is clipped to the dock rectangle while the dock stays visible.
 const fixture = '/test/reply-notifications-browser.ts';
 const run = (page: Page, method: string, argument?: unknown) =>
   page.evaluate(
@@ -62,9 +61,9 @@ const settled = (page: Page) =>
   });
 
 const modes = [
-  { mode: 'column', width: 1440 },
+  { mode: 'card', width: 1440 },
   { mode: 'card', width: 1000 },
-  { mode: 'sheet', width: 390 },
+  { mode: 'card', width: 390 },
 ] as const;
 for (const { mode, width } of modes)
   for (const theme of ['light', 'dark'] as const)
@@ -100,28 +99,20 @@ for (const { mode, width } of modes)
         expect(rect.x + rect.width - right).toBeCloseTo(box.x + box.width, 0);
         expect(rect.y + rect.height - bottom).toBeCloseTo(box.y + box.height, 0);
         await settled(page);
-        // A column leaves the dock in place and reachable, its Comments action pressed; a card or a
-        // sheet covers the page's corner, so the dock hides in its place for the panel to close back into.
-        await expect(page.locator('.selection-mode')).toHaveCSS(
-          'opacity',
-          mode === 'column' ? '1' : '0',
-        );
-        await expect(page.locator('.selection-mode')).toHaveCSS(
-          'pointer-events',
-          mode === 'column' ? 'auto' : 'none',
-        );
+        // The dock remains visible and reachable below the floating host.
+        await expect(page.locator('.selection-mode')).toHaveCSS('opacity', '1');
+        await expect(page.locator('.selection-mode')).toHaveCSS('pointer-events', 'auto');
         expect(await page.evaluate(() => !!document.activeElement?.closest('.tmt-ui-panel'))).toBe(
           true,
         );
-        await page.screenshot({ path: capturePath(`comments-dock-open-${mode}-${theme}.png`) });
+        await page.screenshot({ path: capturePath(`comments-dock-open-${width}-${theme}.png`) });
         // Escape from inside the panel closes it. A card and a sheet run the clip back on a panel that
         // is hidden but still rendered; a column leaves the grid at once and has no closing motion.
         await page.keyboard.press('Escape');
         await expect(panel).toHaveCount(0);
         await expect(action).toBeFocused();
         await expect(action).toHaveAttribute('aria-expanded', 'false');
-        if (mode === 'column') expect(await started(page)).toHaveLength(1);
-        else {
+        {
           await expect.poll(async () => (await started(page)).length).toBe(2);
           const closing = (await started(page))[1];
           expect(closing).toMatchObject({ panel: 'comments', fill: 'forwards', hidden: true });

@@ -372,7 +372,7 @@ test('Chat drop routing clears on close and never admits another surface', async
   });
   await expect(panel).toBeHidden();
   await (await pageAction(host, 'Chat')).click();
-  const next = host.locator('.tmt-ui-drawer[data-panel=chat][open]');
+  const next = host.locator('.page-conversation-window[data-panel=chat]:not([hidden])');
   await expect(next.getByTestId('attachment-chip')).toHaveCount(0);
   await expect(next.getByTestId('attachment-drop-overlay')).toHaveCount(0);
   await drag.dispose();

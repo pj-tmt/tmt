@@ -223,3 +223,26 @@ test('the current filter defaults to Open without reading the removed Show-resol
   );
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 2');
 });
+
+test('nested filter and batch confirmation consume Escape before the conversation', async ({
+  page,
+}) => {
+  const panel = await open(page);
+  const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+  await input.fill('Retained through nested Escape');
+  await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(panel).toBeVisible();
+  await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Resolve 2 open comments?' });
+  await expect(confirmation).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(confirmation).toBeHidden();
+  await expect(panel).toBeVisible();
+  await expect(input).toHaveText('Retained through nested Escape');
+  await expect(
+    panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }),
+  ).toBeEnabled();
+});

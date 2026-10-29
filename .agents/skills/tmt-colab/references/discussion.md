@@ -189,8 +189,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   Reaching the bottom after resizing also clears pending state, including
   when every message fits. The shared owner disconnects size observation on
   unmount and retains composer focus, draft and caret. Hiding a focused jump action
-  returns focus to the named history region. In the Comments panel the history has no
-  height bound, so its drawer body is the one scroller: the history and composer are
+  returns focus to the named history region. In the bounded Comments window the selected discussion body is the one scroller,
+  leaving the batch result outside it: the history and composer are
   not scroll containers, the composer is pinned at the bottom of that body (an ended
   composer stays in flow, since it can exceed the viewport), opening a thread reveals
   its end, and arrivals neither scroll nor show the jump action.

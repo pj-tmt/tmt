@@ -109,7 +109,7 @@ export function ResolveAllThreads({
           document.body,
         )}
       {result && (
-        <p role="status" className="annotation-hint">
+        <p role="status" className="annotation-hint resolve-all-report">
           {text.threadResolveAllResult(
             changes.filter((value) => value.changed).length,
             result.results.length - changes.length,
@@ -122,7 +122,11 @@ export function ResolveAllThreads({
           )}
         </p>
       )}
-      {error && <p role="alert">{text.commentFailed}</p>}
+      {error && (
+        <p role="alert" className="resolve-all-report">
+          {text.commentFailed}
+        </p>
+      )}
     </>
   );
 }

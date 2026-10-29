@@ -149,3 +149,9 @@ export async function selectDiscussion(page: Page, content: string | RegExp) {
     return typeof content === 'string' ? body.includes(content) : content.test(body);
   });
 }
+
+/** Resolve the popup owned by this composer, including a portalled autocomplete. */
+export async function composerSuggestions(field: Locator): Promise<Locator> {
+  await expect(field).toHaveAttribute('aria-controls', /.+/);
+  return field.page().locator(`[id=${JSON.stringify(await field.getAttribute('aria-controls'))}]`);
+}
