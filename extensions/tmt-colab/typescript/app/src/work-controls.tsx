@@ -529,7 +529,19 @@ export function AttachSubpage({
       mounted.current = false;
     };
   }, []);
-  const candidates = (pages ?? []).filter((page) => page.id !== pageId && !page.archived);
+  const candidates = (pages ?? []).filter(
+    (page) => page.id !== pageId && !page.archived && page.pageType !== 'shell',
+  );
+  useEffect(() => {
+    if (!unsettled || !retained || work.tasks[retained.task]?.child !== retained.page) return;
+    setUnsettled(false);
+    setRetained(undefined);
+    setSelectedPage('');
+    setSelectedTask('new');
+    setTitle('');
+    setFailure(undefined);
+    setOpen(false);
+  }, [unsettled, retained, work]);
   const eligible = work.order.filter((id) => {
     const task = work.tasks[id];
     return task && task.child === undefined && task.externalId === undefined;
@@ -545,9 +557,17 @@ export function AttachSubpage({
         const added = await run.runResult('task.add', { task: { title: title.trim() } }, false);
         if (!mounted.current) return;
         if (!added.value?.taskId) {
-          setFailure(added.error ? saveMessage(added.error) : 'The new task ID is unavailable.');
-          if (!(added.error instanceof SaveRefused || added.error instanceof SaveNotApplied))
-            setUnsettled(true);
+          const unknown = !(
+            added.error instanceof SaveRefused || added.error instanceof SaveNotApplied
+          );
+          setFailure(
+            added.error === undefined
+              ? label.taskIdUnavailable
+              : unknown
+                ? label.attachUnknown
+                : saveMessage(added.error),
+          );
+          if (unknown) setUnsettled(true);
           return;
         }
         task = added.value.taskId;
@@ -568,9 +588,17 @@ export function AttachSubpage({
         return;
       }
       setRetained({ task, page: selectedPage });
-      setFailure(linked.error ? saveMessage(linked.error) : 'The link outcome is unavailable.');
-      if (!(linked.error instanceof SaveRefused || linked.error instanceof SaveNotApplied))
-        setUnsettled(true);
+      const unknown = !(
+        linked.error instanceof SaveRefused || linked.error instanceof SaveNotApplied
+      );
+      setFailure(
+        linked.error === undefined
+          ? label.linkOutcomeUnavailable
+          : unknown
+            ? label.attachUnknown
+            : saveMessage(linked.error),
+      );
+      if (unknown) setUnsettled(true);
     } finally {
       attaching.current = false;
     }
@@ -580,12 +608,16 @@ export function AttachSubpage({
       <BrowserAction
         type="button"
         variant="ghost"
-        label="Attach a sub-page"
-        onActivate={() => setOpen(true)}
+        label={label.attachSubpage}
+        onActivate={() => {
+          setUnsettled(false);
+          setFailure(undefined);
+          setOpen(true);
+        }}
       />
       <BrowserDialog
         open={open}
-        title="Attach a sub-page"
+        title={label.attachSubpage}
         onDismiss={() => {
           if (!run.busy) setOpen(false);
         }}
@@ -594,14 +626,14 @@ export function AttachSubpage({
             <BrowserAction
               type="button"
               variant="secondary"
-              label="Cancel"
+              label={label.cancel}
               disabled={run.busy}
               onActivate={() => setOpen(false)}
             />
             <BrowserAction
               type="button"
               variant="primary"
-              label={retained ? 'Retry link' : 'Attach'}
+              label={retained ? label.retryLink : label.attach}
               disabled={
                 run.busy ||
                 unsettled ||
@@ -616,7 +648,7 @@ export function AttachSubpage({
         <div className="work-attach-fields">
           <BrowserField
             controlId={`${fieldId}-page`}
-            label="Page"
+            label={label.attachPage}
             renderControl={(field) => (
               <select
                 {...field}
@@ -627,7 +659,7 @@ export function AttachSubpage({
                   setFailure(undefined);
                 }}
               >
-                <option value="">Choose a page</option>
+                <option value="">{label.choosePage}</option>
                 {candidates.map((page) => (
                   <option key={page.id} value={page.id}>
                     {page.title}
@@ -636,11 +668,11 @@ export function AttachSubpage({
               </select>
             )}
           />
-          {!pages && <p>Page list unavailable.</p>}
+          {!pages && <p>{label.pageListUnavailable}</p>}
           {!retained && (
             <BrowserField
               controlId={`${fieldId}-task`}
-              label="Task"
+              label={label.attachTask}
               renderControl={(field) => (
                 <select
                   {...field}
@@ -648,7 +680,7 @@ export function AttachSubpage({
                   disabled={run.busy || unsettled}
                   onChange={(event) => setSelectedTask(event.target.value)}
                 >
-                  <option value="new">Create a new task</option>
+                  <option value="new">{label.createTask}</option>
                   {eligible.map((id) => (
                     <option key={id} value={id}>
                       {id} · {work.tasks[id].title}
@@ -660,14 +692,14 @@ export function AttachSubpage({
           )}
           {!retained && selectedTask === 'new' && (
             <TextField
-              label="Task title"
+              label={label.attachTitle}
               maxLength={120}
               value={title}
               onChange={setTitle}
               disabled={run.busy || unsettled}
             />
           )}
-          {retained && <p>Task {retained.task} is kept. Retry its link to the selected page.</p>}
+          {retained && <p>{label.keptTask(retained.task)}</p>}
           {failure && <p role="alert">{failure}</p>}
         </div>
       </BrowserDialog>

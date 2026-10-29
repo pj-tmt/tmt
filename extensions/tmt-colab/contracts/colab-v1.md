@@ -3334,8 +3334,9 @@ The expanded owner work panel offers Attach a sub-page when work is available an
 list does not identify this page as a child; unknown parentage does not claim authority, and the
 owner's link admission decides it. The picker uses the observed page list and an existing unlinked
 task or sends `task.add` then `task.link` with the returned task ID. A refused link keeps the task,
-shows the refusal and permits a retry of that same link; an unsettled outcome is not resent.
-Share readers and shell pages have no attach control.
+shows the refusal and permits a retry of that same link. An unsettled outcome is not resent
+automatically: the user is asked to check the task list before reopening, and an admitted matching
+link closes the picker as success. Share readers and shell pages have no attach control.
 
 A tenth action, `task.convert` with the body `{taskId}` and nothing else, makes the task a page of its
 own, as `tmt colab task convert` does, and is the only browser action that makes a page. Page

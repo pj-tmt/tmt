@@ -35,6 +35,8 @@ export interface WorkPageHook {
   refuse?: { code: string; message: string; childPage?: string };
   refuseLink?: boolean;
   unknownAdd?: boolean;
+  unknownLink?: boolean;
+  settle?(outcome: 'linked'): void;
   holdAdd?: boolean;
   finishAdd?(): void;
   didAdd?(): void;
@@ -128,6 +130,16 @@ export function mountWorkPage(
       publish(projection());
       window.__workPage = {
         calls: [],
+        settle: (outcome) => {
+          if (outcome === 'linked')
+            current = applyWorkAction(
+              current,
+              'task.link',
+              { taskId: 'T-2', pageId: FOLLOWED },
+              attribution,
+            );
+          publish(projection());
+        },
         finish: () => {
           current = work(true);
           publish(projection());
@@ -168,6 +180,10 @@ export function mountWorkPage(
             if (action === 'task.add' && page.unknownAdd) {
               page.unknownAdd = false;
               throw new SaveOutcomeUnknown('fixture-operation');
+            }
+            if (action === 'task.link' && page.unknownLink) {
+              page.unknownLink = false;
+              throw new SaveOutcomeUnknown('fixture-link');
             }
             if (action === 'task.link' && page.refuseLink) {
               page.refuseLink = false;
@@ -268,6 +284,7 @@ export function mountWorkPage(
       { id: 'notes', ...base, sharing: 'private' },
       { id: FOLLOWED, title: 'Legal copy', sharing: 'private' },
       { id: PARENT, title: 'Release plan', sharing: 'private' },
+      { id: MADE, title: 'Dashboard', sharing: 'private', pageType: 'shell' },
     ]);
   }
   if (scenario === 'child' || scenario === 'child-orphan') {
