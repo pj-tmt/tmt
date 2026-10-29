@@ -5872,6 +5872,31 @@ top level; the human output marks pinned projects and says when the list is auto
 is not a project is `COLAB_PROJECT_NOT_FOUND`, a place out of range `COLAB_INPUT_INVALID` and a
 21st pin `COLAB_CAPACITY`.
 
+#### Browser-local shortcuts (#5507)
+
+The page list can save its current validated filters as a named shortcut, edit that shortcut,
+and manage saved shortcuts. Manual `state` (`todo`, `in-progress`, `done`) is independent of the
+task-derived `stage` tab. `includeArchived` includes active and archived pages; `archived` retains
+its archived-only meaning and takes precedence. Projects intersect; no selected project means
+all projects. Saved filters retain text, creator, sort and stage clauses; a project scope becomes
+a project condition. Missing manual state never matches a selected state.
+
+Shortcuts use one versioned browser-local record per space (`tmt-colab-shortcuts-v1:<space>`),
+with stable IDs and explicit order. Before the space is defined, there is no shortcut store,
+record read/write or shortcut event subscription, and Save/Manage are unavailable. They are not page metadata, management statements or sync
+records, and are not shared between browser profiles. Mutations synchronously reread the record,
+apply one change and persist it before reporting success; storage failures retain the draft.
+Corrupt or newer records are reported and left unchanged. Same-page changes and browser storage
+events refresh the local view without polling. Names contain 1–80 characters without control
+characters; filters retain the list's existing bounds.
+
+The pinned-project sidebar and Pin controls remain active, so this stage does not trigger
+migration. The store retains a migration operation for the shared sidebar integration, which
+must invoke it together with the sidebar swap and removal of the old Pin controls. That operation
+migrates explicit pins (`automatic:false`) once, in order, into project-only shortcuts; automatic
+recent-project suggestions do not migrate. The marker and records commit together, failed
+persistence leaves migration retryable, and legacy owner pins are not written or removed.
+
 ### Pins (#4356)
 
 A pin puts a page at the top of the owner's page list. Like a project it is display-only owner-store

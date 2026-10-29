@@ -766,9 +766,26 @@ page lacks a summary the visible list also reads every 2 s, at most 15 times (`h
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
 
+Manual `state` is independent of task-derived `stage`; missing state does not match. Include
+archived is a union, while the Archived tab remains archived-only. `shortcuts.ts` validates saved
+filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
+rereading before each synchronous mutation. `use-shortcuts.ts` observes same-page events and
+browser storage events without polling. No store, record access or event subscription exists until
+its space is defined. The pinned-project sidebar and Pin controls remain active, so the hook does
+not trigger migration. `ShortcutStore.migrate` and its tests retain the once-only explicit-pin
+migration for the sidebar swap: automatic suggestions are excluded, records and marker persist
+together, and owner pins are unchanged. Corrupt/newer data and failed writes are reported and retained.
+`shortcut-dialogs.tsx` owns the name-only Save dialog and the Edit/Manage filter editor, matching
+preview and ordering controls. Its labels use `BrowserField`; `page-state-menu.tsx` shares the manual
+state menu with Home, using the existing task-state labels and the central string catalog. Home exposes Save/Edit and Manage; these preferences are not
+synced or shared. The existing sidebar and Pin controls remain until their shared-menu integration.
+
 `home.tsx` renders the list from the same pages;
-`manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `stage`, `archived`, `needs`, `scope`; the router merges its result
+`manage-page.tsx` holds the shared management dialog host. The React-free filter owner is
+`page-list-filter.ts`; Home, shortcut matching and dialog previews reuse its conditions and
+`projects.ts` matching. The filter lives in the route search
+(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `stage`, `archived`, `needs`, `scope`,
+`state`, `includeArchived`, `shortcut`; the router merges its result
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a draft until Enter

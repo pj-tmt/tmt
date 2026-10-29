@@ -368,7 +368,7 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   const rows = root.locator('ul.pages > li');
   await expect(root.getByRole('checkbox', { name: 'Select all matching pages' })).toBeVisible();
   await expect(rows.getByRole('checkbox')).toHaveCount(await rows.count());
-  await expect(root.getByRole('checkbox')).toHaveCount((await rows.count()) + 1);
+  await expect(root.getByRole('checkbox', { name: 'Include archived', exact: true })).toBeVisible();
   await expect(root.getByRole('checkbox', { name: 'Archived', exact: true })).toHaveCount(0);
   await expect(rows.first()).toContainText('Release notes');
   const all = page.locator('#chrome-fixture').getByRole('tab', { name: /^All, \d+\+?$/ });
