@@ -202,3 +202,94 @@ for (const [width, theme] of [
     expect(await inside()).toEqual({ overflow: false, outside: false });
   });
 }
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`details question slots ${width} ${theme}: hide, reopen and retain drafts`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const directory = `${captureDirectory()}/question-details`;
+      mkdirSync(directory, { recursive: true });
+      for (const count of [1, 2] as const) {
+        await page.goto('/');
+        await run(page, 'mount');
+        await run(page, 'detailsQuestions', { count, darkPage: theme === 'dark' });
+        const outer = frame(page).locator('#outer');
+        const inner = frame(page).locator('#inner');
+        const rows = page.locator('.question-line');
+        const slot = page.locator('.question-compact-inline').first();
+        await expect(rows).toHaveCount(count);
+        const hidden = async () => {
+          await expect(slot).toHaveCSS('display', 'none');
+          await expect(rows.first()).toBeHidden();
+          // Explicit focus attempts must fail as well as ordinary Tab navigation.
+          expect(
+            await rows.first().evaluate((node) => {
+              (node as HTMLElement).focus();
+              return document.activeElement === node;
+            }),
+          ).toBe(false);
+        };
+        await hidden();
+        const capture = async (state: string) => {
+          const name = `${state}-${count}-${width}-${theme}.png`;
+          const body = await page.screenshot({ path: `${directory}/${name}` });
+          await test.info().attach(name, { body, contentType: 'image/png' });
+        };
+        await capture('closed');
+        await outer.locator(':scope > summary').click();
+        await expect(rows.first()).toBeVisible();
+        await settled(page);
+        await rows.last().click();
+        const answer =
+          count === 1
+            ? card(page).getByLabel('Side categories', { exact: true })
+            : card(page).getByLabel('Your answer', { exact: true });
+        if (count === 1) await answer.check();
+        else await answer.fill('Keep this unsent draft');
+        await expect
+          .poll(async () => {
+            const block = await page.locator('.question-compact-block').boundingBox();
+            const before = await frame(page).locator('#host-text').boundingBox();
+            const after = await frame(page).locator('#inside-after').boundingBox();
+            return (
+              !!block &&
+              !!before &&
+              !!after &&
+              block.y >= before.y &&
+              after.y >= block.y + block.height - 1
+            );
+          })
+          .toBe(true);
+        await capture('open');
+        // Close the inner disclosure while the outer remains open, then hide both.
+        await inner.locator(':scope > summary').click();
+        await hidden();
+        await outer.locator(':scope > summary').click();
+        await outer.locator(':scope > summary').click();
+        await hidden();
+        await inner.locator(':scope > summary').click();
+        await expect(rows.last()).toBeVisible();
+        if (count === 1) await expect(answer).toBeChecked();
+        else await expect(answer).toHaveValue('Keep this unsent draft');
+        await settled(page);
+        // Programmatic open changes must also invalidate cached visible geometry.
+        await outer.evaluate((node) => {
+          (node as HTMLDetailsElement).open = false;
+        });
+        await hidden();
+        await outer.evaluate((node) => {
+          (node as HTMLDetailsElement).open = true;
+        });
+        await expect(answer).toBeVisible();
+        if (count === 1) await expect(answer).toBeChecked();
+        else await expect(answer).toHaveValue('Keep this unsent draft');
+        expect(await run(page, 'discussionProof')).toHaveLength(0);
+        expect((await run(page, 'proof')).sends).toHaveLength(0);
+      }
+    });

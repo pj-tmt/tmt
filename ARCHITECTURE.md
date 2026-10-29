@@ -591,6 +591,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
   network. Everything the frame reports is a cosmetic claim; only parent controls admit
   discussion or sends, and highlights carry only IDs, quote selectors and bounded paint ordinals, never bodies or labels.
+  Compact question slots also report closed-disclosure visibility; the parent hides mounted controls and retains drafts, without changing send authority.
   This contains author code; page self-navigation can still leak a request. Theme projection and the cosmetic port are in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.

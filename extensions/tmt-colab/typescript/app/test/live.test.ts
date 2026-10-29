@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import type { Bootstrap, PageInfo } from '../src/bootstrap.js';
 import type { LiveAskOptions } from '../src/live-ask.js';
 import {
@@ -195,6 +195,18 @@ vi.mock('../src/writer.js', () => ({
     close = vi.fn();
   },
 }));
+
+// Snapshot's optional owner metadata is unavailable unless a case supplies it. Never
+// let these connection fixtures wait on DNS/network for the example.test mount.
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new TypeError('Reading details unavailable in this unit fixture');
+    }),
+  );
+});
+afterEach(() => vi.unstubAllGlobals());
 
 it('returns owner page progress only when the details state matches the admitted page', async () => {
   connections.length = 0;

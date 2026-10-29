@@ -1975,6 +1975,18 @@ export function chipPage(options: { count?: 1 | 2; darkPage?: boolean; bare?: bo
   emit();
 }
 
+/** Nested disclosures exercise the trusted layer's cosmetic visibility without replacing its drafts. */
+export function detailsQuestions(options: { count?: 1 | 2; darkPage?: boolean } = {}) {
+  chipPage(options);
+  const start = current.source.indexOf('<div id="host-text">');
+  const end = current.source.indexOf('<p id="after-question">');
+  current = {
+    ...current,
+    source: `${current.source.slice(0, start)}<p id="before-details">Before the questions.</p><details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Question section</summary>${current.source.slice(start, end)}<p id="inside-after">After the questions.</p></details></details>${current.source.slice(end)}`,
+  };
+  emit();
+}
+
 /** A page of review sections: the parent parser, the real quote owner and the real status coordinator. */
 export function review(
   options: {

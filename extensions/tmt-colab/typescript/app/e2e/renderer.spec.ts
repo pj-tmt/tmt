@@ -1818,6 +1818,19 @@ test('chip-form slots admit only the closed chip request and response', async ({
       w.chipPort.dispatchEvent(new MessageEvent('message', { data: value }));
     const rejected = [];
     for (const bad of [
+      { ...placement, slots: [{ id: group, hidden: false }] },
+      { ...placement, slots: [{ id: group, hidden: 'true' }] },
+      { ...placement, slots: [{ id: group, hidden: true, top: 0 }] },
+      { ...placement, slots: [{ id: lone, hidden: true }] },
+      { ...placement, slots: [{ id: 'unknown', hidden: true }] },
+      {
+        ...placement,
+        slots: [
+          { id: group, hidden: true },
+          { id: group, hidden: true },
+        ],
+      },
+      { ...placement, requestId: 'stale', slots: [{ id: group, hidden: true }] },
       { ...placement, slots: [{ id: group, top: 100 }] },
       { ...placement, slots: [{ ...slot, chip: undefined }] },
       { ...placement, slots: [{ ...slot, chip: { ...slot.chip, extra: 1 } }] },
@@ -1843,6 +1856,8 @@ test('chip-form slots admit only the closed chip request and response', async ({
       emit(bad);
       rejected.push(geometry());
     }
+    emit({ ...placement, slots: [{ id: group, hidden: true }] });
+    const hidden = geometry();
     emit({ ...placement, slots: [slot] });
     return {
       refused,
@@ -1851,6 +1866,7 @@ test('chip-form slots admit only the closed chip request and response', async ({
       groups: w.questionRequest.groups,
       slots: request.slots,
       rejected,
+      hidden,
       placed: geometry(),
     };
   });
@@ -1881,6 +1897,9 @@ test('chip-form slots admit only the closed chip request and response', async ({
     },
   ]);
   expect(result.rejected).toEqual(Array(result.rejected.length).fill('[]'));
+  expect(JSON.parse(result.hidden!)).toEqual([
+    { id: '80000000-0000-4000-8000-000000000012', top: 0, hidden: true },
+  ]);
   expect(JSON.parse(result.placed!)).toEqual([
     {
       id: '80000000-0000-4000-8000-000000000012',
