@@ -171,40 +171,80 @@ fn launch(core: &Core, review: &model::Review) -> Result<Outcome, SquadError> {
                         )
                     })
             });
-            if let Some(target) = &review.room {
-                let joined = Config::load(core).and_then(|mut config| {
-                    crate::membership::workspace::apply(
-                        core,
-                        &mut config,
-                        crate::membership::workspace::Operation::Add {
-                            room: target.clone(),
-                            member: id.clone(),
-                        },
-                    )
-                });
+            let joined = match (&review.room, &review.new_squad) {
+                (Some(target), _) => Some((
+                    target.name.clone(),
+                    Config::load(core).and_then(|mut config| {
+                        crate::membership::workspace::apply(
+                            core,
+                            &mut config,
+                            crate::membership::workspace::Operation::Add {
+                                room: target.clone(),
+                                member: id.clone(),
+                            },
+                        )
+                    }),
+                )),
+                // A typed squad is created with the kept member in it.
+                (None, Some(name)) => Some((
+                    name.clone(),
+                    Config::load(core).and_then(|mut config| {
+                        crate::membership::workspace::apply(
+                            core,
+                            &mut config,
+                            crate::membership::workspace::Operation::Create {
+                                name: name.clone(),
+                                lead: None,
+                                members: vec![id.clone()],
+                            },
+                        )
+                    }),
+                )),
+                (None, None) => None,
+            };
+            if let Some((squad, joined)) = joined {
                 match joined {
                     Ok(outcome) if outcome.complete => {
-                        room = Some(target.id.clone());
-                        message = format!("Created {} in {}.", review.name, target.name);
+                        room = review.room.as_ref().map(|r| r.id.clone()).or_else(|| {
+                            outcome.document["created"]["squad"]["roomId"]
+                                .as_str()
+                                .map(str::to_owned)
+                        });
+                        message = format!("Created {} in {squad}.", review.name);
                     }
                     other => {
                         let reason = match other {
                             Err(e) => e.message,
                             Ok(_) => "Squad add was not confirmed.".into(),
                         };
-                        message = format!(
-                            "Created {} in Common pool; squad add failed: {reason}\nRepair after checking: {}",
-                            review.name,
-                            crate::launch::line(&[
-                                review.display.command[0].clone(),
+                        let tmt = review.display.command[0].clone();
+                        let repair = review
+                            .new_squad
+                            .iter()
+                            .map(|name| {
+                                crate::launch::line(&[
+                                    tmt.clone(),
+                                    "ops".into(),
+                                    "sq".into(),
+                                    "init".into(),
+                                    name.clone(),
+                                ])
+                            })
+                            .chain([crate::launch::line(&[
+                                tmt.clone(),
                                 "ops".into(),
                                 "sq".into(),
                                 "add".into(),
                                 "--squad".into(),
-                                target.name.clone(),
+                                squad.clone(),
                                 "--".into(),
-                                id.clone()
-                            ])
+                                id.clone(),
+                            ])])
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        message = format!(
+                            "Created {} in Common pool; squad add failed: {reason}\nRepair after checking: {repair}",
+                            review.name
                         );
                     }
                 }

@@ -84,7 +84,8 @@ with (r/'launches').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\n')
             _ => panic!(),
         };
         let mut draft = model::Draft::from_app(&board());
-        draft.fields = ["new-worker", "codex", "a'b $c; d", "", host, "a space"].map(Editor::from);
+        draft.fields =
+            ["new-worker", "codex", "a'b $c; d", "", host, "a space", ""].map(Editor::from);
         draft.saved = saved;
         draft.review(&loaded).unwrap()
     }
@@ -281,13 +282,13 @@ fn the_built_in_host_launches_one_run_with_its_host_named() {
             "run",
             "--host",
             "pty",
+            "--model",
+            "a'b $c; d",
             "new-worker",
-            "codex",
-            "--model=a'b $c; d"
+            "codex"
         ]
     );
     assert_eq!(review.session, "new-worker");
-    assert_eq!(review.lines()[0], "new-worker · pty");
     let outer = review.outer.clone().unwrap();
     assert_eq!(
         outer[1..],

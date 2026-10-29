@@ -383,10 +383,11 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       await page.goto('/');
-      await page.evaluate(async () => {
+      const attachmentName = `LongExportAttachment${'x'.repeat(140)}.txt`;
+      await page.evaluate(async (exportAttachmentName) => {
         const path = '/test/ask-page-browser.tsx';
-        await (await import(path)).mount({ exportAttachments: true });
-      });
+        await (await import(path)).mount({ exportAttachments: true, exportAttachmentName });
+      }, attachmentName);
       await (await pageAction(page, 'Export page')).click();
       const drawer = page.locator('.tmt-ui-drawer[data-panel=export][open]');
       await expect(drawer).toBeVisible();
@@ -407,6 +408,7 @@ for (const width of [1440, 390])
       }
       await expect(drawer.getByRole('button', { name: /^Close/ })).toHaveCount(1);
       await expect(drawer.getByRole('heading', { name: 'Page files', exact: true })).toBeVisible();
+      await expect(drawer.getByRole('region', { name: 'Page files', exact: true })).toHaveCount(0);
       await expect(
         drawer.getByRole('list', { name: 'Page files', exact: true }).getByRole('listitem'),
       ).toHaveCount(4);
@@ -414,6 +416,39 @@ for (const width of [1440, 390])
         true,
       );
       await test.info().attach(`export-rows-${width}-${theme}`, {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+      const attachments = drawer.getByRole('list', { name: 'Attachments', exact: true });
+      await attachments.scrollIntoViewIfNeeded();
+      await expect(attachments.getByRole('listitem')).toHaveCount(4);
+      for (const name of [attachmentName, 'gone.bin', 'revoked.bin', 'huge.bin']) {
+        const row = attachments.getByRole('listitem').filter({ hasText: name });
+        await expect(row.locator('.tmt-ui-list-label')).toHaveText(name);
+        await expect(row.locator('.tmt-ui-list-description')).not.toBeEmpty();
+        expect(
+          await row.evaluate((node) => {
+            const title = node.querySelector('.tmt-ui-list-title')!;
+            const description = node.querySelector('.tmt-ui-list-description')!;
+            const action = node.querySelector('button');
+            const bounds = node.getBoundingClientRect();
+            const box = title.getBoundingClientRect();
+            return (
+              title.scrollWidth <= title.clientWidth + 1 &&
+              description.scrollWidth <= description.clientWidth + 1 &&
+              box.left >= bounds.left &&
+              box.right <= bounds.right &&
+              (!action || box.right < action.getBoundingClientRect().left)
+            );
+          }),
+          name,
+        ).toBe(true);
+        await expect(row.getByRole('button')).toHaveCount(name === attachmentName ? 1 : 0);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await test.info().attach(`export-attachments-${width}-${theme}`, {
         body: await page.screenshot(),
         contentType: 'image/png',
       });

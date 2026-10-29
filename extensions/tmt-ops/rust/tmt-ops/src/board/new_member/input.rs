@@ -1,4 +1,5 @@
 //! Form input and current painted-hit admission; effects leave on the lane.
+use super::model::Slot;
 use super::*;
 impl App {
     pub(in crate::board) fn new_member_event(&mut self, event: &Event) -> Option<Effect> {
@@ -20,23 +21,24 @@ impl App {
                 .copied();
             if let Some((field, area)) = field {
                 match field {
-                    Field::Text(index) => {
-                        c.focus = index;
-                        c.draft.fields[index].place(
-                            area.width,
-                            0,
-                            usize::from(mouse.column.saturating_sub(area.x)),
-                            false,
-                        );
+                    Field::Slot(slot) => {
+                        c.at = Focus::Slot(slot);
+                        if slot.listed() {
+                            c.open_list(slot);
+                        } else {
+                            c.draft.fields[slot.index()].place(
+                                area.width,
+                                0,
+                                usize::from(mouse.column.saturating_sub(area.x)),
+                                false,
+                            );
+                        }
                     }
-                    Field::Host => {
-                        c.focus = 4;
-                        c.cycle(false);
-                    }
-                    Field::Identity(saved) => {
-                        c.focus = 6;
+                    Field::Keep(saved) => {
+                        c.at = Focus::Slot(Slot::Keep);
                         c.draft.saved = saved;
                     }
+                    Field::Choice(row) => c.choose(row),
                 }
                 c.invalidate();
                 return Some(Effect::None);
@@ -51,12 +53,14 @@ impl App {
             if !text.chars().any(char::is_control) {
                 if c.stage == Stage::Template {
                     c.template.insert(text, 16384);
+                } else if let Some(list) = &mut c.list {
+                    list.filter.insert(text, 1024);
+                    list.row = 0;
                 } else if c.stage == Stage::Form
-                    && c.focus < 6
-                    && c.focus != 4
-                    && (c.focus != 3 || c.draft.saved)
+                    && let Focus::Slot(slot) = c.at
+                    && slot.typed()
                 {
-                    c.draft.fields[c.focus].insert(text, 1024);
+                    c.draft.fields[slot.index()].insert(text, 1024);
                 }
             }
             c.invalidate();
@@ -75,7 +79,7 @@ impl App {
                             "Launch is in progress; its outcome will be reported. No retry or window close.".into()
                         });
                     }
-                    Stage::Review | Stage::Template => {
+                    Stage::Template => {
                         c.stage = if c.destination == Destination::Settings {
                             Stage::Hosts
                         } else {
@@ -85,6 +89,10 @@ impl App {
                         c.notice = None;
                         c.invalidate();
                     }
+                    Stage::Form if c.list.is_some() => {
+                        c.list = None;
+                        c.invalidate();
+                    }
                     _ => self.new_member = None,
                 }
                 return Some(Effect::None);
@@ -92,37 +100,50 @@ impl App {
             if matches!(c.stage, Stage::Launching | Stage::Saving) {
                 return Some(Effect::None);
             }
+            if c.list.is_some() {
+                let count = c.rows().len().max(1);
+                let width = c.editor_width.get();
+                let Some(list) = c.list.as_mut() else {
+                    return Some(Effect::None);
+                };
+                match key.code {
+                    KeyCode::Up | KeyCode::BackTab => list.row = (list.row + count - 1) % count,
+                    KeyCode::Down | KeyCode::Tab => list.row = (list.row + 1) % count,
+                    KeyCode::Enter => {
+                        let row = list.row;
+                        c.choose(row);
+                    }
+                    _ => {
+                        let before = list.filter.as_str().to_owned();
+                        list.filter.key(*key, width, 1024);
+                        if list.filter.as_str() != before {
+                            list.row = 0;
+                        }
+                    }
+                }
+                c.invalidate();
+                return Some(Effect::None);
+            }
             let plain = !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
             if key.code == KeyCode::Char('e')
                 && plain
-                && (c.stage == Stage::Review || c.stage == Stage::Form && c.focus == 4)
+                && c.stage == Stage::Form
+                && matches!(
+                    c.at,
+                    Focus::Slot(Slot::Host) | Focus::Cancel | Focus::Create
+                )
             {
                 c.begin_template();
                 return Some(Effect::None);
-            }
-            if key.code == KeyCode::Char('c')
-                && plain
-                && c.stage == Stage::Review
-                && let Some(review) = &c.review
-            {
-                let text = review.copy();
-                if review.outer.is_none() {
-                    c.stage = Stage::Result(review.copy_notice());
-                }
-                return Some(Effect::Act(Request::Copy {
-                    text,
-                    program: self.view.as_ref().and_then(|v| v.clipboard.clone()),
-                    feedback: CopyFeedback::Destination,
-                }));
             }
             if key.code == KeyCode::Char('r')
                 && key.modifiers == KeyModifiers::CONTROL
                 && c.stage == Stage::Template
             {
                 let mut task = c.task(Work::Save {
-                    host: c.draft.fields[4].to_string(),
+                    host: c.draft.text(Slot::Host).to_owned(),
                     argv: None,
                 });
                 task.config = c.loaded.as_ref().map(|l| Box::new(l.config.clone()));
@@ -145,11 +166,12 @@ impl App {
                 {
                     let current = available
                         .iter()
-                        .position(|h| h == c.draft.fields[4].as_str())
+                        .position(|h| h == c.draft.text(Slot::Host))
                         .unwrap_or(0);
                     let back = matches!(key.code, KeyCode::Up | KeyCode::BackTab);
-                    c.draft.fields[4] = Editor::from(
-                        available[(current + if back { available.len() - 1 } else { 1 })
+                    c.draft.set(
+                        Slot::Host,
+                        &available[(current + if back { available.len() - 1 } else { 1 })
                             % available.len()]
                         .clone(),
                     );
@@ -161,83 +183,78 @@ impl App {
                     return Some(Effect::None);
                 }
             }
-            match key.code {
-                KeyCode::Tab | KeyCode::BackTab => {
-                    let count = if c.stage == Stage::Form {
-                        9
-                    } else if c.stage == Stage::Template {
-                        3
-                    } else {
-                        2
-                    };
-                    c.focus = (c.focus
-                        + if key.code == KeyCode::Tab {
-                            1
-                        } else {
-                            count - 1
-                        })
-                        % count;
-                    if c.stage == Stage::Form && c.focus == 3 && !c.draft.saved {
-                        c.focus = if key.code == KeyCode::Tab { 4 } else { 2 };
+            if c.stage == Stage::Form {
+                match (key.code, c.at) {
+                    (KeyCode::Up | KeyCode::BackTab, _) => c.step_focus(true),
+                    (KeyCode::Down | KeyCode::Tab, _) => c.step_focus(false),
+                    (
+                        KeyCode::Left | KeyCode::Right | KeyCode::Char(' '),
+                        Focus::Slot(Slot::Keep),
+                    ) => c.draft.saved = !c.draft.saved,
+                    (KeyCode::Left | KeyCode::Right, Focus::Slot(slot)) if slot.listed() => {
+                        c.cycle(slot, key.code == KeyCode::Left);
                     }
+                    (KeyCode::Char(' '), Focus::Slot(slot)) if slot.listed() && !slot.typed() => {
+                        c.cycle(slot, false);
+                    }
+                    (KeyCode::Enter, Focus::Slot(Slot::Keep)) => c.draft.saved = !c.draft.saved,
+                    (KeyCode::Enter, Focus::Slot(slot)) if slot.listed() => c.open_list(slot),
+                    (KeyCode::Enter, Focus::Slot(_)) => c.step_focus(false),
+                    (KeyCode::Enter, Focus::Cancel) => activate = Some(0),
+                    (KeyCode::Enter, Focus::Create) => activate = Some(1),
+                    (_, Focus::Slot(slot)) if slot.typed() => {
+                        c.draft.fields[slot.index()].key(*key, c.editor_width.get(), 1024);
+                    }
+                    _ => {}
+                }
+                // A pressed button keeps the painted admission it is checked against.
+                if activate.is_none() {
                     c.invalidate();
                 }
-                KeyCode::Char(' ')
-                    if c.stage == Stage::Form && (1..=4).contains(&c.focus)
-                        || key.code == KeyCode::Char(' ')
-                            && c.stage == Stage::Form
-                            && c.focus == 6 =>
-                {
-                    c.cycle(false);
-                    c.invalidate();
-                }
-                KeyCode::Enter => {
-                    if c.stage == Stage::Form && c.focus < 7
-                        || c.stage == Stage::Template && c.focus == 0
-                    {
-                        c.focus += 1;
-                        if c.stage == Stage::Form && c.focus == 3 && !c.draft.saved {
-                            c.focus = 4;
+            } else {
+                match key.code {
+                    KeyCode::Tab | KeyCode::BackTab if c.stage == Stage::Template => {
+                        c.focus = (c.focus + if key.code == KeyCode::Tab { 1 } else { 2 }) % 3;
+                        c.invalidate();
+                    }
+                    KeyCode::Enter => {
+                        if c.stage == Stage::Template && c.focus == 0 {
+                            c.focus = 1;
+                            c.invalidate();
+                        } else {
+                            activate = Some(if c.stage == Stage::Template {
+                                c.focus - 1
+                            } else {
+                                c.focus
+                            });
+                        }
+                    }
+                    _ => {
+                        if c.stage == Stage::Template && c.focus == 0 {
+                            c.template.key(*key, c.editor_width.get(), 16384);
                         }
                         c.invalidate();
-                    } else {
-                        activate = Some(if c.stage == Stage::Form {
-                            c.focus - 7
-                        } else if c.stage == Stage::Template {
-                            c.focus.saturating_sub(1)
-                        } else {
-                            c.focus
-                        });
                     }
-                }
-                _ => {
-                    if c.stage == Stage::Template && c.focus == 0 {
-                        c.template.key(*key, c.editor_width.get(), 16384);
-                    } else if c.stage == Stage::Form
-                        && c.focus < 6
-                        && c.focus != 4
-                        && (c.focus != 3 || c.draft.saved)
-                    {
-                        c.draft.fields[c.focus].key(*key, c.editor_width.get(), 1024);
-                    }
-                    c.invalidate();
                 }
             }
         }
-        if matches!(c.stage, Stage::Review | Stage::Result(_)) && c.scroll.borrow_mut().input(event)
-        {
+        if matches!(c.stage, Stage::Result(_)) && c.scroll.borrow_mut().input(event) {
             c.readable.set(false);
         }
         if let Some(index) = activate {
             if index == 0 {
                 match c.stage {
-                    Stage::Review | Stage::Template => {
+                    Stage::Template => {
                         c.stage = if c.destination == Destination::Settings {
                             Stage::Hosts
                         } else {
                             Stage::Form
                         };
                         c.focus = 0;
+                        c.invalidate();
+                    }
+                    Stage::Form if c.list.is_some() => {
+                        c.list = None;
                         c.invalidate();
                     }
                     _ => self.new_member = None,
@@ -252,39 +269,42 @@ impl App {
                 return Some(Effect::None);
             }
             match c.stage {
+                Stage::Form if c.list.is_some() => {
+                    let row = c.list.as_ref().map_or(0, |l| l.row);
+                    c.choose(row);
+                }
                 Stage::Form => {
-                    if self.references.agents.values().any(|agent| {
-                        agent.name == c.draft.fields[0].as_str()
-                            || agent.canonical == c.draft.fields[0].as_str()
-                    }) {
+                    let name = c.draft.text(Slot::Name);
+                    if self
+                        .references
+                        .agents
+                        .values()
+                        .any(|agent| agent.name == name || agent.canonical == name)
+                    {
                         c.notice = Some("That identity already exists; choose a new name.".into());
                     } else if let Some(loaded) = &c.loaded {
                         match c.draft.review(loaded) {
+                            // No template: Create copies the commands instead.
+                            Ok(review) if review.outer.is_none() => {
+                                let text = review.copy();
+                                c.stage = Stage::Result(review.copy_notice());
+                                c.invalidate();
+                                return Some(Effect::Act(Request::Copy {
+                                    text,
+                                    program: self.view.as_ref().and_then(|v| v.clipboard.clone()),
+                                    feedback: CopyFeedback::Destination,
+                                }));
+                            }
                             Ok(review) => {
+                                let task = c.task(Work::Launch(review.clone()));
                                 c.review = Some(review);
-                                c.stage = Stage::Review;
-                                c.focus = 0;
+                                c.stage = Stage::Launching;
                                 c.notice = None;
+                                c.invalidate();
+                                return Some(Effect::NewMember(task));
                             }
                             Err(error) => c.notice = Some(error),
                         }
-                    }
-                }
-                Stage::Review => {
-                    if let Some(review) = &c.review {
-                        if review.outer.is_none() {
-                            let text = review.copy();
-                            c.stage = Stage::Result(review.copy_notice());
-                            return Some(Effect::Act(Request::Copy {
-                                text,
-                                program: self.view.as_ref().and_then(|v| v.clipboard.clone()),
-                                feedback: CopyFeedback::Destination,
-                            }));
-                        }
-                        let task = c.task(Work::Launch(review.clone()));
-                        c.stage = Stage::Launching;
-                        c.invalidate();
-                        return Some(Effect::NewMember(task));
                     }
                 }
                 Stage::Hosts => {
@@ -298,7 +318,7 @@ impl App {
                     match argv {
                         Ok(argv) => {
                             let mut task = c.task(Work::Save {
-                                host: c.draft.fields[4].to_string(),
+                                host: c.draft.text(Slot::Host).to_owned(),
                                 argv: Some(argv),
                             });
                             task.config = c.loaded.as_ref().map(|l| Box::new(l.config.clone()));
