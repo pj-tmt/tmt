@@ -30,6 +30,7 @@ pub enum Code {
     Expired,
     Conflict,
     StaleHead,
+    TemplateChanged,
     Capacity,
     Unavailable,
 }
@@ -41,6 +42,7 @@ impl Code {
             Self::Expired => "EXPIRED",
             Self::Conflict => "CONFLICT",
             Self::StaleHead => "STALE_HEAD",
+            Self::TemplateChanged => "TEMPLATE_CHANGED",
             Self::Capacity => "CAPACITY",
             Self::Unavailable => "UNAVAILABLE",
         }
@@ -95,6 +97,11 @@ impl TransitionError {
                 crate::page::Fault::Invalid => Code::Invalid,
                 _ => Code::Unavailable,
             }
+        } else if cause
+            .downcast_ref::<crate::template_catalog::Refusal>()
+            .is_some_and(|refusal| refusal.code() == "COLAB_TEMPLATE_CHANGED")
+        {
+            Code::TemplateChanged
         } else if cause.is::<tmt_colab_model::Invalid>() {
             Code::Invalid
         } else {

@@ -668,6 +668,134 @@ fn every_refusal_names_its_fix() {
 }
 
 #[test]
+fn a_copied_template_preserves_question_lookalikes_in_attributes_and_scripts() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        let source = format!(
+            "<div title=\"<tmt-question data-agent='kept'>\">Literal</div>\n<script>const literal = \"<tmt-question data-agent='kept'>\";</script>\n{TEMPLATE_SOURCE}"
+        );
+        let template = page(&pilot, "Literal template", &source);
+        save(&pilot, &template, "literal-template");
+        if serving {
+            pilot.start();
+        }
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Literal copy",
+            "--template",
+            "literal-template",
+            "--json",
+        ]);
+        assert_eq!(
+            source_of(&pilot, created["pageId"].as_str().unwrap()),
+            source
+        );
+        assert_eq!(source_of(&pilot, &template), source);
+    }
+}
+
+/// The caller snapshot happens after template resolution and before create reads the owner head.
+/// Mutate through the real native CLI at that existing process boundary, not a production hook.
+#[test]
+fn a_template_changed_between_source_read_and_create_is_named_before_any_write() {
+    for serving in [false, true] {
+        for json_output in [false, true] {
+            let mut pilot = Pilot::new(None);
+            let id = page(&pilot, "Race template", TEMPLATE_SOURCE);
+            save(&pilot, &id, "race-template");
+            if serving {
+                pilot.start();
+            }
+            let changed = TEMPLATE_SOURCE.replace("<p>Next</p>", "<p>Next changed</p>");
+            let next = pilot.root.join("changed-template.html");
+            fs::write(&next, &changed).unwrap();
+            let patch = pilot.patch_args(&id, &["--file", next.to_str().unwrap(), "--json"]);
+            let patch = std::iter::once(BINARY)
+                .chain(patch.iter().map(String::as_str))
+                .map(quote)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let core = quote(pilot.root.join("core").to_str().unwrap());
+            let gate = pilot.root.join("template-mutated");
+            let baseline = pilot.root.join("before-create-list.json");
+            let mutation = pilot.root.join("template-mutation.json");
+            let wrapper = pilot.root.join("core-template-race");
+            let script = format!(
+                r#"#!/bin/sh
+set -eu
+if [ "${{1-}}" = identity ] && [ "${{2-}}" = show ] && [ ! -f {gate} ]; then
+    : > {gate}
+    TMT_EXECUTABLE={core} {patch} > {mutation}
+    TMT_EXECUTABLE={core} {binary} ls --json > {baseline}
+fi
+exec {core} "$@"
+"#,
+                gate = quote(gate.to_str().unwrap()),
+                mutation = quote(mutation.to_str().unwrap()),
+                binary = quote(BINARY),
+                baseline = quote(baseline.to_str().unwrap()),
+            );
+            tmt_test_support::write_executable(&wrapper, script.as_bytes(), 0o700).unwrap();
+            let mut command = pilot.command();
+            command.env("TMT_EXECUTABLE", &wrapper).args([
+                "page",
+                "create",
+                "--title",
+                "Copied",
+                "--template",
+                "race-template",
+            ]);
+            if json_output {
+                command.arg("--json");
+            }
+            let output = command.output().unwrap();
+            assert!(gate.exists(), "the read/create interleave was not reached");
+            let mutation: Value = serde_json::from_slice(&fs::read(&mutation).unwrap()).unwrap();
+            assert!(mutation.get("error").is_none(), "{mutation}");
+            assert_eq!(source_of(&pilot, &id), changed);
+            assert!(!output.status.success(), "{output:?}");
+            if json_output {
+                let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+                assert_eq!(error["error"]["code"], "COLAB_TEMPLATE_CHANGED", "{error}");
+                assert_eq!(
+                    error["error"]["hint"],
+                    "Retry the same page create command to use the current template."
+                );
+            } else {
+                assert!(output.stdout.is_empty());
+                assert_eq!(
+                    String::from_utf8(output.stderr).unwrap(),
+                    "error: The template changed while the page was being created; nothing was created\nhint: Retry the same page create command to use the current template\n"
+                );
+            }
+            let before: Value = serde_json::from_slice(&fs::read(&baseline).unwrap()).unwrap();
+            assert_eq!(
+                pilot.call(&["ls", "--json"]),
+                before,
+                "refusal created a page"
+            );
+            // The named fix is a deliberate new create, using a fresh read. The original failed
+            // command has not retried itself or registered a partial page.
+            let created = pilot.call(&[
+                "page",
+                "create",
+                "--title",
+                "Copied",
+                "--template",
+                "race-template",
+                "--json",
+            ]);
+            assert_eq!(
+                source_of(&pilot, created["pageId"].as_str().unwrap()),
+                changed
+            );
+        }
+    }
+}
+
+#[test]
 fn a_space_that_does_not_exist_yet_lists_only_the_compiled_templates() {
     let pilot = Pilot::new(None);
     let listing = listed(&pilot);

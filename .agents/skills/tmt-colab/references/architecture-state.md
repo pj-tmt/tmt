@@ -133,7 +133,12 @@ features, listed in the architecture guard); `tmt-colab-model` stays dependency-
 `cli_metadata.rs` resolves stable identity selections and adapts the existing conditional
 publisher. Source admission reuses the checker's bounded question-source projection at the
 final publication owner; offline file checks remain markup-only. `templates.rs` owns the
-first-party catalog and exact-source creation admission. The verified own-record projection
+first-party catalog and exact-source creation admission. User-template copies obtain start-tag
+byte ranges from a token observer around the same `tree.rs` fragment parser; no text scan fills
+missing ranges, and ordinary checks keep their existing parse path. The copy edits only mapped
+block attributes, then validates the resulting source. `transitions/create.rs` re-reads the current
+template during preparation and returns the typed template-changed refusal before page/registry
+writes; owner management carries that code through serving and offline CLI paths. The verified own-record projection
 in `question_registry/answers.rs` derives effective answers, without commenter content writes
 or an Ask-success dependency. The [question metadata contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#question-metadata-5052)
 owns fields, bounds and CLI repairs. `page/metadata.rs` adapts the closed owner-browser commands

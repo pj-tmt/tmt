@@ -376,11 +376,11 @@ impl Engine {
         if view.meta.get("pageType").is_some()
             || marked.map(|(name, _)| name) != Some(template.name)
         {
-            return Err(OwnerFault::Invalid.into());
+            return Err(crate::template_catalog::changed());
         }
         let agent = creator.and_then(|creator| creator["agent"]["name"].as_str());
         if !crate::templates::admits_user(&view.source, source, agent) {
-            return Err(OwnerFault::Invalid.into());
+            return Err(crate::template_catalog::changed());
         }
         let mut questions = serde_json::json!([]);
         for entry in view

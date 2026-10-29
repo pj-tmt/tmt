@@ -571,7 +571,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   bounded public `identity show ... --json` observations for display and routing references,
   and `ls --json` presence snapshots for advisory edit-lock lifecycle.
   The architecture guard enforces this set, that only `tmt-colab` consumes the model and `html5ever`,
-  and that only `decoder/child.rs` imports `yrs`.
+  and that only `decoder/child.rs` imports `yrs`. User-template copies use parser-owned source ranges and refuse changed templates before page creation.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
   paired owner device, with no native bridge, ledger or migration, and the read-only Agents view

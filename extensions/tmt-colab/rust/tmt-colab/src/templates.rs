@@ -121,47 +121,34 @@ const AGENT_BLOCKS: [&str; 3] = ["tmt-question", "tmt-review", "tmt-read"];
 
 /// A user template's source for a new page: the template page's HTML with the agent of every
 /// question, review and reading block set to the creator. Block IDs stay: an ID is scoped to its
-/// page, so the copy reuses them. Only the start tags of those blocks are read, and the result is
-/// parsed again with the page checker: `None` unless every block it admits names the creator and
-/// the question IDs are the source's own, in order, so a block this scan cannot locate refuses the
-/// copy instead of registering something unverified.
+/// page, so the copy reuses them. Only parser-emitted start tags with exact source ranges are
+/// rewritten; unmapped ranges stay unchanged. The result is parsed again with the page checker:
+/// `None` unless every admitted block names the creator and the question IDs remain the source's
+/// own, in order. Unfinished tag-like text stays literal and registers no block.
 pub fn rewrite_question_agents(source: &str, creator: Option<&str>) -> Option<String> {
     let escaped = creator.map(escape_attribute);
     let before = crate::page_check::check(source).ok()?;
     let mut rewritten = String::with_capacity(source.len() + 64);
-    let mut rest = source;
-    let mut tags = 0;
-    while let Some(start) = rest.find('<') {
-        rewritten.push_str(&rest[..start]);
-        rest = &rest[start..];
-        if let Some(after) = rest.strip_prefix("<!--") {
-            let end = after.find("-->").map_or(rest.len(), |end| 4 + end + 3);
-            rewritten.push_str(&rest[..end]);
-            rest = &rest[end..];
+    let mut at = 0;
+    let tags = crate::page_check::start_tags(source)?;
+    let tags: Vec<_> = tags
+        .into_iter()
+        .filter(|tag| AGENT_BLOCKS.contains(&tag.name.as_str()))
+        .collect();
+    for tag in &tags {
+        let Some(range) = &tag.range else { continue };
+        if range.start < at {
             continue;
         }
-        let name_len = rest[1..]
-            .find(|c: char| c.is_ascii_whitespace() || matches!(c, '/' | '>'))
-            .unwrap_or(rest.len() - 1);
-        let name = &rest[1..1 + name_len];
-        if !AGENT_BLOCKS
-            .iter()
-            .any(|block| name.eq_ignore_ascii_case(block))
-        {
-            rewritten.push('<');
-            rest = &rest[1..];
+        let raw = &source[range.clone()];
+        let Some(updated) = rewrite_tag(raw, 1 + tag.name.len(), escaped.as_deref()) else {
             continue;
-        }
-        let end = tag_end(rest)?;
-        rewritten.push_str(&rewrite_tag(
-            &rest[..end],
-            1 + name_len,
-            escaped.as_deref(),
-        )?);
-        rest = &rest[end..];
-        tags += 1;
+        };
+        rewritten.push_str(&source[at..range.start]);
+        rewritten.push_str(&updated);
+        at = range.end;
     }
-    rewritten.push_str(rest);
+    rewritten.push_str(&source[at..]);
     let after = crate::page_check::check(&rewritten).ok()?;
     let ids = |report: &crate::page_check::Report| -> Vec<String> {
         report
@@ -178,7 +165,7 @@ pub fn rewrite_question_agents(source: &str, creator: Option<&str>) -> Option<St
         .chain(after.readings.iter().map(|r| &r.agent));
     let admitted = after.question_sources.len() + after.reviews.len() + after.readings.len();
     (ids(&before) == ids(&after)
-        && admitted <= tags
+        && admitted <= tags.len()
         && named
             .into_iter()
             .all(|agent| agent == creator.unwrap_or_default()))
@@ -191,21 +178,6 @@ fn escape_attribute(value: &str) -> String {
         .replace('"', "&quot;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
-}
-
-/// The byte length of the start tag at the beginning of `tag`, quotes respected; `None` when it
-/// never closes.
-fn tag_end(tag: &str) -> Option<usize> {
-    let mut quote = None;
-    for (index, c) in tag.char_indices() {
-        match (quote, c) {
-            (None, '"' | '\'') => quote = Some(c),
-            (Some(open), c) if c == open => quote = None,
-            (None, '>') => return Some(index + 1),
-            _ => {}
-        }
-    }
-    None
 }
 
 /// `tag` with its first `data-agent` attribute set to `value` (already escaped), or added after the
@@ -399,11 +371,13 @@ mod tests {
     }
 
     #[test]
-    fn a_tag_that_never_closes_is_refused() {
+    fn unfinished_tag_text_is_preserved_without_registering_a_question() {
+        let source = "<tmt-question data-id=\"x\"";
         assert_eq!(
-            rewrite_question_agents("<tmt-question data-id=\"x\"", Some("new")),
-            None
+            rewrite_question_agents(source, Some("new")).as_deref(),
+            Some(source)
         );
+        assert!(agents(source).is_empty());
     }
 
     #[test]
@@ -419,6 +393,76 @@ mod tests {
                 template.name
             );
         }
+    }
+
+    #[test]
+    fn attribute_and_raw_text_lookalikes_are_not_markup_to_rewrite() {
+        for prefix in [
+            "<div title=\"<tmt-question data-agent='kept'>\">Notes</div>\n",
+            "<script>const text = \"<tmt-question data-agent='kept'>\";</script>\n",
+            "<style>p::before { content: \"<tmt-review data-agent='kept'>\"; }</style>\n",
+            "<textarea><tmt-read data-agent='kept'></textarea>\n",
+            "<!-- <tmt-question data-agent='kept'> -->\n",
+        ] {
+            let source = format!("{prefix}{QUESTION}");
+            for creator in [Some("a & \"b\""), None] {
+                let actual = rewrite_question_agents(&source, creator).unwrap();
+                let expected_block = match creator {
+                    Some(_) => {
+                        QUESTION.replace("DATA-AGENT='old'", "DATA-AGENT=\"a &amp; &quot;b&quot;\"")
+                    }
+                    None => QUESTION.replace(" DATA-AGENT='old'", ""),
+                };
+                assert_eq!(actual, format!("{prefix}{expected_block}"));
+                assert_eq!(agents(&actual), [creator.unwrap_or_default()]);
+            }
+        }
+    }
+
+    #[test]
+    fn an_unmapped_tag_is_unchanged_and_admission_decides_the_copy() {
+        // The first '<' is emitted after the tokenizer has consumed/reconsumed the second.
+        // That boundary does not identify an exact start range; never search backwards for it.
+        let source = QUESTION.replace("<tmt-question data-id", "<<tmt-question data-id");
+        assert_eq!(
+            rewrite_question_agents(&source, Some("old")).as_deref(),
+            Some(source.as_str())
+        );
+        assert_eq!(rewrite_question_agents(&source, Some("new")), None);
+    }
+
+    #[test]
+    fn parser_positions_preserve_utf8_crlf_bom_and_chunk_boundaries() {
+        for prefix in [
+            "\u{feff}",
+            "\r\n",
+            "héllo &amp;",
+            "&amp",
+            "a<!-- before -->",
+        ] {
+            let source = format!("{prefix}{QUESTION}");
+            let expected = format!(
+                "{prefix}{}",
+                QUESTION.replace("DATA-AGENT='old'", "DATA-AGENT=\"new\"")
+            );
+            assert_eq!(
+                rewrite_question_agents(&source, Some("new")),
+                Some(expected)
+            );
+        }
+        let prefix = format!("<p>{}</p>", "é".repeat(8190));
+        let question = QUESTION.replace(
+            " data-kind=\"single\"",
+            " title=\"x > y\" data-kind=\"single\"",
+        );
+        let source = format!("{prefix}{question}");
+        assert_eq!(
+            rewrite_question_agents(&source, Some("new")),
+            Some(format!(
+                "{prefix}{}",
+                question.replace("DATA-AGENT='old'", "DATA-AGENT=\"new\"")
+            ))
+        );
     }
 
     #[test]

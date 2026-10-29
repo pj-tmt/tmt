@@ -16,6 +16,7 @@ mod question;
 mod reading;
 mod review;
 mod tree;
+pub(crate) use tree::start_tags;
 mod ui;
 
 pub use hints::{Hint, uses_design};
