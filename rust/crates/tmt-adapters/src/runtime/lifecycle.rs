@@ -446,6 +446,17 @@ pub trait RuntimeLifecycle {
         Vec::new()
     }
 
+    /// The directories this harness reads invokable skills from, and how its
+    /// composer inserts one (#5531). Roots come from the ambient environment;
+    /// `cwd` adds project skills when the host knows the pane's directory.
+    fn skill_roots(
+        &self,
+        _environment: &ProviderEnvironment,
+        _cwd: Option<&std::path::Path>,
+    ) -> crate::runtime::skills::SkillRoots {
+        crate::runtime::skills::SkillRoots::unsupported()
+    }
+
     /// Resolve an exact remembered source for foreground-owned collection.
     fn sampling_turn(
         &self,

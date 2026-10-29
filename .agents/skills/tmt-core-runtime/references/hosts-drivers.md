@@ -362,6 +362,10 @@ under the data root, and `claude/allowance.rs` returns the newer of that entry a
 storage-free `consumption.limits`, through the lifecycle slot `account_limits` (#5418).
 Consented setup installs it (see [setup and uninstall](identity-bindings.md#hooks-setup-and-uninstall));
 its own test runs under `claude plugin test`.
+The lifecycle slot `skill_roots` names the directories a harness reads invokable skills from
+and its composer sigil; `runtime/skills.rs` walks them for the read-only
+`skills.list` (#5531). The [agent skills](../../../../contracts/extension-api.md#agent-skills)
+contract owns the directories, bounds and stamp.
 
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for

@@ -10,6 +10,7 @@ mod caller_session;
 pub mod channel;
 mod digest;
 pub mod picker;
+mod skills;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
     SessionTransition,
@@ -638,6 +639,14 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         now_ms: u64,
     ) -> Vec<crate::runtime::consumption::AccountLimits> {
         allowance::accounts(environment, now_ms)
+    }
+
+    fn skill_roots(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        cwd: Option<&std::path::Path>,
+    ) -> crate::runtime::skills::SkillRoots {
+        skills::roots(&config_root(environment), cwd)
     }
 
     fn turn_observation(

@@ -1,5 +1,6 @@
 //! Versioned local process protocol. Resource owners retain admission and encoding.
 
+mod agent_skills;
 mod changes;
 mod consumption;
 mod digest;
@@ -75,6 +76,7 @@ const OPS: &[&str] = &[
     "identityHooks.ack",
     "skills.install",
     "skills.remove",
+    "skills.list",
     "references.resolve",
     "identities.status",
     "identity.meta.apply",
@@ -207,6 +209,11 @@ pub enum Request {
     },
     PaneScreen {
         identity_id: String,
+    },
+    /// Read-only: the skills one member's agent can invoke.
+    AgentSkills {
+        identity_id: String,
+        if_stamp: Option<String>,
     },
     TerminalStream {
         identity_id: String,
@@ -415,6 +422,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "identityHooks.pending" => identity_hooks::decode_pending(input)?,
         "skills.install" => skills::decode_install(input)?,
         "skills.remove" => skills::decode_remove(input)?,
+        "skills.list" => agent_skills::decode(input)?,
         "notes.read" => notes::decode(input)?,
         _ => return Err(invalid()),
     })
@@ -577,6 +585,10 @@ impl Session {
                 before,
             } => responses::recent(storage, &identity_id, limit, before),
             Request::PaneScreen { identity_id } => pane::screen(storage, &identity_id),
+            Request::AgentSkills {
+                identity_id,
+                if_stamp,
+            } => agent_skills::list(paths, storage, &identity_id, if_stamp.as_deref()),
             Request::TerminalStream { identity_id } => terminal::stream(storage, &identity_id),
             Request::ConsumptionHistory {
                 identities,
