@@ -2961,8 +2961,9 @@ shows the bounded quoted text. Comment first-line tooltips stay in parent chrome
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
 its current highlight request and opens that thread's Discussion view in the Comments panel. A `+n` marker
 posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the parent accepts the
-current render and request only and opens the Comments list (closing an open annotation
-window), with no thread ID and no thread opened. Forging either view-only
+current render and request only and opens Comments (closing an open annotation
+window). The message carries no thread ID; the parent retains its selected
+Discussion or chooses the first matching thread from its verified filter sequence. Forging either view-only
 action cannot publish, sign or send. The passage of the thread whose anchored window or Discussion view is open
 takes a selected look: the deepest tint (28 %) and a solid 2 px underline in the accent
 (`color.annotation-rule-selected`), above the hover look, and its

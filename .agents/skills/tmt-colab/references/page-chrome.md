@@ -294,7 +294,7 @@ page, framed or not, gets the frame's 28 px right marker lane (`--colab-lane`) f
 the renderer stands a comment's number there, centred on its line, so it never covers text and the
 first thread moves none (on a framed page 4 px after the column's end, beside its text; otherwise at
 the frame's edge); threads on lines closer than one marker share a `+n` pill that posts
-`colab.render.open-list`, and the parent opens the Comments list. The thread whose window is open is
+`colab.render.open-list`, and the parent opens Comments on its retained selection or the first matching discussion. The thread whose window is open is
 the renderer handle's `select(id | null)`, which `router.tsx` calls with the open thread and which
 posts `colab.render.select` (the frame accepts only the current request and an ID it holds); the
 frame paints that passage in `::highlight(colab-selected)` above the hover look, or on its overlay
@@ -397,7 +397,7 @@ visible, with only message history scrolling in the remaining height.
 All widths use native modal containment without body scroll locking; resizing preserves the mounted draft and editing selection. The body contains overscroll. A header or iframe backdrop press dismisses only, never clicks through.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source and Chat drawers retain drafts and admitted history, and the
-Comments panel, which unmounts when closed, gets its drafts back from the router's draft store;
+Comments panel stays mounted and hidden while closed, retaining its conversation state; page-owned drafts also survive a remount;
 closing never dispatches, abandons or retries. Source places its existing Save action before Close in the shared header. The owner and editor link share stateless editor presentation while retaining their separate draft and save/request owners. The paper editor scrolls long lines within its bordered field and resizes vertically; its lower metadata (the page's 11px sans in the secondary colour, the waiting tone while the draft differs) reports draft/base equality, never persistence, and names the format (HTML); the editor is 10px under 760px. Export closes its preparation and
 revokes download Blob URLs. Manage opens after its menu closes and initially
 focuses its non-interactive heading without an outline while metadata loads;
@@ -481,11 +481,11 @@ primary Action; Decline uses the bordered Action, Follow up the text Action, and
 Resolve/Reopen muted text at the right end. Follow up opens the shared composer
 inside the card below its history; Send, Escape and Cancel close it. Proposal
 cards have no anchored window or Delete thread action. Missing, duplicate or
-vanished slots and inner-scroll fallback show the admitted proposal in Comments. Resolve folds a proposal
-on the page; in Comments it uses a plain row with full muted title, author/time,
-Proposal · Resolved state and Reopen. All proposal list rows prefix their state
-with Proposal, and resolved marks match ordinary threads. Reopen restores history while retaining
-the final decision. Comments offers Proposals only alongside the mixed list. The
+vanished slots and inner-scroll fallback show the admitted proposal in Comments.
+Inline Resolve folds the card to its retained title/state/Reopen row. The selected
+proposal in Comments stays expanded through Resolve and Reopen, retaining history
+and its final decision. It shares the numbered thread sequence and filters described
+above, with ordinary resolved-thread marks. The
 single header count uses `openThreadCount` for undecided unresolved proposals plus
 unresolved ordinary annotations, excluding Chat/deleted records and decided
 proposals; filtering does not change it. No new token or surface variant is introduced.
