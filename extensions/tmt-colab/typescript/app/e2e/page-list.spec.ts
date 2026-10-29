@@ -36,35 +36,34 @@ const rows = (page: Page) => app(page).locator('.pages > li');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
-/** The shell's module menu: All pages, each project with its counts, then the project actions. On a
- * wide screen its entries nest under Colab in the rail; on a phone they are the strip under the bar. */
+/** The shell's module menu retains project management actions. */
 const moduleMenu = (page: Page) =>
   app(page).locator('.tmt-ui-rail-sub:visible, .tmt-ui-module-menu:visible');
-/** The menu's current scope row, named by its value. */
+const scopeRows = (page: Page) => app(page).locator('.page-scope-filters button');
 const scopeTrigger = (page: Page, value = 'All pages') =>
-  moduleMenu(page)
-    .locator('a[aria-current="page"]')
+  scopeRows(page)
     .filter({
-      has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${value}$`) }),
-    });
-const scopeRows = (page: Page) =>
-  moduleMenu(page).locator('a[data-id="all"], a[data-id^="project:"]');
+      has: page.locator('.page-scope-name', {
+        hasText: new RegExp(`^${value === 'All pages' ? 'All projects' : value}$`),
+      }),
+    })
+    .and(page.locator('button[aria-pressed="true"]'));
 async function fromScopeMenu(page: Page, name: string) {
   await moduleMenu(page).getByRole('link', { name, exact: true }).click();
 }
-/** Scope the list to a project (or All pages) from the module menu. */
+/** Scope the list with the project controls. */
 async function scopeTo(page: Page, name: string) {
-  await moduleMenu(page)
-    .locator('a')
+  await scopeRows(page)
     .filter({
-      has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${name}$`) }),
+      has: page.locator('.page-scope-name', {
+        hasText: new RegExp(`^${name === 'All pages' ? 'All projects' : name}$`),
+      }),
     })
     .click();
 }
 /**
  * Filter by a project the way the list offers it: a `project:` token picked from the search's
- * suggestions, then applied with Enter (the list has no project chip row; projects scope from the
- * module menu).
+ * suggestions, then applied with Enter.
  */
 async function filterProject(page: Page, name: string) {
   // Focus the editor directly: its centre can be a token's Remove button.
@@ -75,10 +74,10 @@ async function filterProject(page: Page, name: string) {
   await page.keyboard.press('Enter');
   await expect(app(page).locator(`[data-project-filter="${name}"]`)).toBeVisible();
 }
-/** A project's row in the module menu, with its count of active pages. */
+/** A project's scope control, with its count of active pages. */
 const menuProject = (page: Page, name: string) =>
   scopeRows(page).filter({
-    has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${name}$`) }),
+    has: page.locator('.page-scope-name', { hasText: new RegExp(`^${name}$`) }),
   });
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
 /** A page's project crumb links to the scoped list, which opens on All like any bare link. */
@@ -892,20 +891,17 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(moduleMenu(page).getByRole('link', { name: 'All projects…' })).toHaveCount(0);
 });
 
-test('the module menu lists All pages and each project with its counts and needs-you', async ({
-  page,
-}) => {
+test('project scope controls list each project with active counts', async ({ page }) => {
   await mount(page);
   await expect(scopeTrigger(page)).toBeVisible();
   const rows = scopeRows(page);
   await expect(rows).toHaveCount(4);
-  // Active pages shown: All 4; design 2 (Alpha waits on the viewer); ops 1; q4 plan 1 (also waits).
-  // The rail draws the counts as numbers (the needs-you one in a pill); the phone strip keeps the mark.
-  await expect(rows.nth(0)).toHaveText(/All pages\s*4\s*(?:◆ )?1/);
-  await expect(rows.nth(1)).toHaveText(/design\s*2\s*(?:◆ )?1/);
+  // Counts cover active pages, including pages shared among projects.
+  await expect(rows.nth(0)).toHaveText(/All projects\s*4/);
+  await expect(rows.nth(1)).toHaveText(/design\s*2/);
   await expect(rows.nth(2)).toHaveText(/ops\s*1\s*$/);
-  await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*(?:◆ )?1/);
-  await expect(rows.nth(0)).toHaveAttribute('aria-current', 'page');
+  await expect(rows.nth(3)).toHaveText(/q4 plan\s*1/);
+  await expect(rows.nth(0)).toHaveAttribute('aria-pressed', 'true');
   await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toBeVisible();
   await expect(moduleMenu(page).getByRole('link', { name: 'All projects…' })).toBeVisible();
 });
@@ -952,7 +948,7 @@ for (const theme of ['light', 'dark'] as const) {
       document.documentElement.dataset.theme = theme;
     }, theme);
     const row = scopeRows(page).nth(1);
-    await expect(row).toHaveText(/design\s*2\s*(?:◆ )?1/);
+    await expect(row).toHaveText(/design\s*2/);
     // A token no CSS defines leaves the declaration invalid, so the count would inherit the name's
     // colour; the count must instead be the colour the secondary token has in this theme.
     const colors = await row.evaluate((element) => {
@@ -963,8 +959,8 @@ for (const theme of ['light', 'dark'] as const) {
       const secondary = color(probe);
       probe.remove();
       return {
-        count: color(element.querySelector('.tmt-ui-shell-count')!),
-        name: color(element.querySelector('.tmt-ui-module-menu-label')!),
+        count: color(element.querySelector('.project-count')!),
+        name: color(element.querySelector('.page-scope-name')!),
         secondary,
       };
     });
@@ -972,9 +968,7 @@ for (const theme of ['light', 'dark'] as const) {
     // A rail row at rest is drawn in the secondary colour itself; the current row's name is not.
     const current = await scopeRows(page)
       .first()
-      .evaluate(
-        (element) => getComputedStyle(element.querySelector('.tmt-ui-module-menu-label')!).color,
-      );
+      .evaluate((element) => getComputedStyle(element.querySelector('.page-scope-name')!).color);
     expect(colors.count).not.toBe(current);
     await page.screenshot({ path: await capturePath(`3952-scope-menu-${theme}.png`) });
   });
@@ -1188,7 +1182,7 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   await expect(page.getByRole('option')).toHaveCount(0);
   await page.keyboard.press('Escape');
   // An empty project draws no zero beside its name.
-  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog$/);
+  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*0$/);
   const gamma = app(page).locator('[data-page-id="c0000003-1111-4111-8111-000000000001"]');
   await gamma.locator('.page-project-group').click();
   await page.getByRole('menuitemcheckbox', { name: 'backlog' }).click();
@@ -1252,8 +1246,8 @@ test('rename is one request for every page in the project, archived included, an
   ]);
   expect(await requests(page)).toEqual([]);
   await dialog.getByRole('button', { name: 'Close Manage projects' }).click();
-  // The menu caps its count at 99+.
-  await expect(menuProject(page, 'current')).toHaveText(/^current\s*99\+$/);
+  // The project control reflects all active pages.
+  await expect(menuProject(page, 'current')).toHaveText(/^current\s*130$/);
 });
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
@@ -1547,11 +1541,11 @@ for (const width of [1440, 390, 320])
           const viewport = document.documentElement.clientWidth;
           const current = [
             ...document.querySelectorAll(
-              '#list-fixture .tmt-ui-rail-sub-item[aria-current="page"], #list-fixture .tmt-ui-module-menu a[aria-current="page"]',
+              '#list-fixture .page-scope-filters button[aria-pressed="true"]',
             ),
           ].find((node) => (node as HTMLElement).offsetParent !== null)!;
           const crumb = current.getBoundingClientRect();
-          const rail = current.closest<HTMLElement>('.tmt-ui-rail');
+          const rail = current.closest<HTMLElement>('.page-scope-filters');
           const bounds = rail?.getBoundingClientRect();
           return {
             scroll: document.documentElement.scrollWidth - viewport,
@@ -1562,15 +1556,15 @@ for (const width of [1440, 390, 320])
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
-        const row = moduleMenu(page)
-          .locator('a')
-          .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: long }) });
+        const row = scopeRows(page).filter({
+          has: page.locator('.page-scope-name', { hasText: long }),
+        });
         await expect(row).toBeVisible();
         if (long.startsWith('W'))
           await page.screenshot({
             path: await capturePath(`3747-scope-long-${width}-${theme}.png`),
           });
-        // On a phone the module menu is a scrolling tab strip; a long tab ellipsizes within it.
+        // The project control remains within the viewport at phone widths.
         await row.scrollIntoViewIfNeeded();
         const box = await row.boundingBox();
         expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
@@ -1775,10 +1769,9 @@ for (const width of [1440, 390, 320])
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        // On a phone the module menu is a scrolling tab strip.
-        const entry = moduleMenu(page)
-          .locator('a')
-          .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: name }) });
+        const entry = scopeRows(page).filter({
+          has: page.locator('.page-scope-name', { hasText: name }),
+        });
         await entry.scrollIntoViewIfNeeded();
         await entry.click();
         const heading = app(page).locator('.page-list-hero h1');

@@ -23,8 +23,6 @@ import {
   projectFailureText,
 } from './project-dialogs.js';
 import { PageRowProjects } from './page-projects.js';
-import { PROJECT_PINS } from './bootstrap.js';
-import { menuProjects, withPin } from './project-pins.js';
 import { pinFailureText } from './pins.js';
 import {
   applyProjectChanges,
@@ -613,22 +611,6 @@ export function Home() {
         : { text: writing.failureText(outcome.failure), failed: true },
     );
   }
-  // The side menu's pin for the project the list is in (owner-written, one request for the list).
-  const [pinningProject, setPinningProject] = useState(false);
-  async function togglePinnedProject(name: string, pin: boolean) {
-    if (pinningProject) return;
-    const next = withPin(menuProjects(projectNames, space.projectPins).names, name, pin);
-    if (next.length > PROJECT_PINS)
-      return setStatus({ text: t.projectPinsFull(PROJECT_PINS), failed: true });
-    setPinningProject(true);
-    const outcome = await writing.manage({ action: 'pins', names: next });
-    setPinningProject(false);
-    setStatus(
-      outcome.failure === undefined
-        ? { text: pin ? t.projectPinned(name) : t.projectUnpinned(name), failed: false }
-        : { text: writing.failureText(outcome.failure), failed: true },
-    );
-  }
   const [pinning, setPinning] = useState<string>();
   async function togglePin(page: PageSummary) {
     if (pinning) return;
@@ -986,28 +968,6 @@ export function Home() {
             </div>
           )}
           {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
-          {port && scope !== undefined && space.projectPins && (
-            <span className="page-list-hero-pin">
-              <BrowserAction
-                type="button"
-                variant="ghost"
-                presentation="compact"
-                label={
-                  menuProjects(projectNames, space.projectPins).names.includes(scope)
-                    ? t.unpinFromSidebar
-                    : t.pinToSidebar
-                }
-                leadingIcon={<Pin size={14} />}
-                disabled={pinningProject}
-                onActivate={() =>
-                  void togglePinnedProject(
-                    scope,
-                    !menuProjects(projectNames, space.projectPins).names.includes(scope),
-                  )
-                }
-              />
-            </span>
-          )}
         </div>
         <span className="page-list-hero-create" inert={compact}>
           {newPageAction}
@@ -1100,7 +1060,6 @@ export function Home() {
             open={dialog?.kind === 'manage'}
             pages={space.pages}
             projects={projectCounts(space.pages, space.projects)}
-            pins={space.projectPins}
             onNewProject={() => setDialog({ kind: 'new', initial: [] })}
             writing={writing}
             onClose={() => setDialog(undefined)}

@@ -17,12 +17,12 @@ import './shortcut-dialogs.css';
 const t = text.shortcuts;
 
 export interface ShortcutDialogProps {
-  mode: 'save' | 'edit' | 'manage';
+  mode: 'save' | 'edit' | 'manage' | 'create';
   initial?: Shortcut;
   search: HomeSearch;
   store: ShortcutStore;
   items: readonly Shortcut[];
-  pages: readonly PageSummary[];
+  pages?: readonly PageSummary[];
   projects: readonly string[];
   error?: string;
   onClose(): void;
@@ -40,7 +40,13 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const manage = mode === 'manage';
-  const title = manage ? t.manage : mode === 'edit' ? t.edit : t.saveAs;
+  const title = manage
+    ? t.manage
+    : mode === 'edit'
+      ? t.edit
+      : mode === 'create'
+        ? t.create
+        : t.saveAs;
   const failure = () => setError(t.saveFailed);
   const run = (action: () => void) => {
     try {
@@ -76,7 +82,7 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
     search.archived && t.archivedOnly,
   ].filter(Boolean);
   const filterError = (search.project?.length ?? 0) > 8 ? t.projectLimit : undefined;
-  const matching = listPages(pages, search);
+  const matching = pages ? listPages(pages, search) : undefined;
   const patch = (next: Partial<HomeSearch>) => setSearch((previous) => ({ ...previous, ...next }));
   return (
     <BrowserDialog
@@ -266,11 +272,11 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
                 .join(' · ') || t.allActive}
             </p>
           )}
-          <p role="status">{t.matchingPages(matching.length)}</p>
+          <p role="status">{matching ? t.matchingPages(matching.length) : t.countUnavailable}</p>
           {mode !== 'save' && (
             <>
               <ul className="shortcut-preview" aria-label={t.matchingLabel}>
-                {matching.slice(0, 5).map((page) => (
+                {matching?.slice(0, 5).map((page) => (
                   <li key={page.id}>{page.title}</li>
                 ))}
               </ul>

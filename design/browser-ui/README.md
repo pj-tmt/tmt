@@ -177,6 +177,13 @@ with the admitted status and settings link. The root owns acquisition and freshn
 counts are rejected before replacing the projection. Theme uses the browser preference and the
 System/Light/Dark menu; System follows the device and blocked storage still applies the choice.
 
+The local `ShellMenu` is data only. A group may supply a stable ID, header and footer actions,
+row actions and a reorder handle; the route supplies separate selection, action and reorder handlers.
+The renderer dispatches only current trusted events, preserves the focused control across reorders,
+and keeps actions reachable in the phone drawer. A reorder names the row and the row before which to
+insert it (or `null` for the end). Routes own storage, count acquisition and failure presentation;
+none of these fields changes the composed discovery descriptor.
+
 The root must install common bindings before adopting the new bar. `ShellControls.topBarReady()`
 reads whether common controls are installed and the shell is live. `ShellSlot.topBarReady()`
 also returns false for a replaced route. React's `useTopBarReady()` reads the hosted slot or

@@ -77,7 +77,7 @@ export async function hostedReadiness() {
     return {
       id,
       paths: [`/ready-${id}/`],
-      rail: 'home',
+      rail: 'colab',
       quiet: true,
       load: async () => ({
         mount(slot) {
@@ -129,7 +129,18 @@ export async function hostedReadiness() {
     read(second);
     const clearedRefused = refuses(second.setTopBar, 'install common controls');
     host.setCommonControls(common);
+    const menu = (label: string) => ({
+      title: 'Test',
+      groups: [
+        { id: 'shortcuts', label, items: [], headerAction: { id: 'manage', label: 'Manage' } },
+      ],
+    });
+    second.setMenu(menu('Current'));
+    first.setMenu(menu('Stale'));
+    const menuAfterStale = root.querySelector('.tmt-ui-rail-sub')?.textContent;
     host.dispose();
+    second.setMenu(menu('Disposed'));
+    const menuAfterDispose = root.querySelector('.tmt-ui-rail-sub')?.textContent ?? null;
     const disposed = second.topBarReady();
     read(second);
     return {
@@ -142,6 +153,8 @@ export async function hostedReadiness() {
       disposalReadings,
       action,
       clearedRefused,
+      menuAfterStale,
+      menuAfterDispose,
     };
   } finally {
     flushSync(() => react.unmount());

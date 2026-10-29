@@ -45,6 +45,22 @@ export interface ShellItem {
   disabled?: boolean;
   note?: string;
 }
+export interface ShellMenuAction {
+  id: string;
+  label: string;
+  icon?: 'settings' | 'pencil' | 'trash-2' | 'plus';
+}
+export interface ShellMenuActionEvent {
+  groupId: string;
+  itemId?: string;
+  actionId: string;
+}
+export interface ShellMenuReorderEvent {
+  groupId: string;
+  itemId: string;
+  /** Insert before this row; null places it at the end. */
+  beforeId: string | null;
+}
 export interface ShellMenuItem {
   id: string;
   label: string;
@@ -56,10 +72,20 @@ export interface ShellMenuItem {
   /** Shown but not followed; `note` says why (its tooltip and description). */
   disabled?: boolean;
   note?: string;
+  actions?: ShellMenuAction[];
+}
+export interface ShellMenuGroup {
+  /** Required for groups with actions or reorder. */
+  id?: string;
+  label?: string;
+  items: ShellMenuItem[];
+  headerAction?: ShellMenuAction;
+  footerAction?: ShellMenuAction;
+  reorder?: { label: string };
 }
 export interface ShellMenu {
   title: string;
-  groups: { label?: string; items: ShellMenuItem[] }[];
+  groups: ShellMenuGroup[];
 }
 export interface ShellView {
   rail: { main: ShellItem[]; bottom: ShellItem[] };
@@ -345,6 +371,8 @@ export function mountShell(
   root: HTMLElement,
   view: ShellView,
   select?: (id: string, href: string) => boolean,
+  menuAction?: (event: ShellMenuActionEvent) => void,
+  menuReorder?: (event: ShellMenuReorderEvent) => void,
 ): ShellControls {
   const document = root.ownerDocument;
   root.classList.add('tmt-ui-shell');
@@ -506,6 +534,76 @@ export function mountShell(
     }
     return anchor;
   };
+  let disposed = false;
+  let dragging: { groupId: string; itemId: string } | undefined;
+  const currentGroup = (id: string) => latest.menu?.groups.find((group) => group.id === id);
+  const focusKey = (groupId: string, itemId: string | undefined, actionId: string) =>
+    JSON.stringify([groupId, itemId ?? null, actionId]);
+  const actionButton = (groupId: string, itemId: string | undefined, action: ShellMenuAction) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tmt-ui-rail-menu-action';
+    button.dataset.menuFocus = focusKey(groupId, itemId, action.id);
+    button.setAttribute('aria-label', action.label);
+    button.title = action.label;
+    if (action.icon) button.append(icon(document, action.icon));
+    else button.textContent = action.label;
+    button.addEventListener('click', (event) => {
+      if (!event.isTrusted || disposed) return;
+      const group = currentGroup(groupId);
+      const item =
+        itemId === undefined ? undefined : group?.items.find((value) => value.id === itemId);
+      const available =
+        itemId === undefined ? [group?.headerAction, group?.footerAction] : (item?.actions ?? []);
+      if (available.some((entry) => entry?.id === action.id))
+        menuAction?.({ groupId, ...(itemId === undefined ? {} : { itemId }), actionId: action.id });
+    });
+    return button;
+  };
+  const reorderHandle = (groupId: string, item: ShellMenuItem, label: string) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.draggable = true;
+    button.className = 'tmt-ui-rail-menu-action tmt-ui-rail-menu-handle';
+    button.dataset.menuFocus = focusKey(groupId, item.id, 'reorder');
+    button.setAttribute('aria-label', `${label}: ${item.label}`);
+    button.title = `${label}: ${item.label}`;
+    button.append(icon(document, 'grip'));
+    button.addEventListener('keydown', (event) => {
+      if (
+        !event.isTrusted ||
+        event.repeat ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        disposed
+      )
+        return;
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      const group = currentGroup(groupId);
+      const items = group?.reorder ? group.items : [];
+      const index = items.findIndex((value) => value.id === item.id);
+      const target = event.key === 'ArrowUp' ? index - 1 : index + 1;
+      if (index < 0 || target < 0 || target >= items.length) return;
+      event.preventDefault();
+      const beforeId =
+        event.key === 'ArrowUp' ? items[target]!.id : (items[target + 1]?.id ?? null);
+      menuReorder?.({ groupId, itemId: item.id, beforeId });
+    });
+    button.addEventListener('dragstart', (event) => {
+      if (!event.isTrusted || disposed || !currentGroup(groupId)?.reorder)
+        return event.preventDefault();
+      dragging = { groupId, itemId: item.id };
+      event.dataTransfer?.setData('text/plain', item.id);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    });
+    button.addEventListener('dragend', () => {
+      dragging = undefined;
+    });
+    return button;
+  };
+
   // The current module's pages, nested under its rail item.
   const nested = (menuView: ShellMenu) => {
     const list = document.createElement('ul');
@@ -513,21 +611,62 @@ export function mountShell(
     list.setAttribute('aria-label', menuView.title);
     for (const group of menuView.groups) {
       let entries = list;
-      if (group.label) {
-        const section = document.createElement('li');
+      let section: HTMLLIElement | undefined;
+      if (
+        group.label ||
+        (group.id && (group.headerAction || group.footerAction || group.reorder))
+      ) {
+        section = document.createElement('li');
         const heading = document.createElement('div');
         heading.className = 'tmt-ui-rail-sub-group';
-        heading.textContent = group.label;
+        const title = document.createElement('span');
+        title.textContent = group.label ?? '';
+        heading.append(title);
+        if (group.id && group.headerAction)
+          heading.append(actionButton(group.id, undefined, group.headerAction));
         entries = document.createElement('ul');
         entries.className = 'tmt-ui-rail-sub-items';
-        entries.setAttribute('aria-label', group.label);
+        if (group.label) entries.setAttribute('aria-label', group.label);
         section.append(heading, entries);
         list.append(section);
       }
       for (const item of group.items) {
         const row = document.createElement('li');
-        row.append(menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item));
+        if (group.id && (group.reorder || item.actions?.length)) {
+          row.className = 'tmt-ui-rail-menu-row';
+          const groupId = group.id;
+          if (group.reorder) {
+            row.append(reorderHandle(groupId, item, group.reorder.label));
+            row.addEventListener('dragover', (event) => {
+              if (event.isTrusted && dragging?.groupId === groupId) event.preventDefault();
+            });
+            row.addEventListener('drop', (event) => {
+              if (!event.isTrusted || disposed || dragging?.groupId !== groupId) return;
+              event.preventDefault();
+              const groupNow = currentGroup(groupId);
+              const items = groupNow?.reorder ? groupNow.items : [];
+              const index = items.findIndex((value) => value.id === item.id);
+              const source = dragging.itemId;
+              dragging = undefined;
+              if (index < 0 || source === item.id || !items.some((value) => value.id === source))
+                return;
+              const after = event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
+              const beforeId = after ? (items[index + 1]?.id ?? null) : item.id;
+              menuReorder?.({ groupId, itemId: source, beforeId });
+            });
+          }
+          row.append(menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item));
+          for (const action of item.actions ?? [])
+            row.append(actionButton(groupId, item.id, action));
+        } else row.append(menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item));
         entries.append(row);
+      }
+      if (section && group.id && group.footerAction) {
+        const footer = actionButton(group.id, undefined, group.footerAction);
+        footer.classList.add('tmt-ui-rail-menu-footer');
+        if (group.footerAction.icon)
+          footer.append(document.createTextNode(group.footerAction.label));
+        section.append(footer);
       }
     }
     return list;
@@ -565,6 +704,7 @@ export function mountShell(
       ? window.matchMedia('(max-width: 900px)')
       : undefined;
   const render = (next: ShellView) => {
+    if (disposed) return;
     latest = next;
     const onPhone = phone?.matches === true;
     const key = JSON.stringify([onPhone, next]);
@@ -572,12 +712,30 @@ export function mountShell(
     shown = key;
     hideTip();
     const railTop = rail.scrollTop;
+    const active = document.activeElement as HTMLElement | null;
+    const focused = active && rail.contains(active) ? active.dataset.menuFocus : undefined;
+    const nestedMenu =
+      !onPhone ||
+      next.menu?.groups.some(
+        (group) =>
+          group.id &&
+          (group.headerAction ||
+            group.footerAction ||
+            group.reorder ||
+            group.items.some((item) => item.actions?.length)),
+      )
+        ? next.menu
+        : undefined;
     rail.replaceChildren(
       brand,
       railSearch,
-      railList(next.rail.main, undefined, onPhone ? undefined : next.menu),
-      railList(next.rail.bottom, 'tmt-ui-rail-bottom', onPhone ? undefined : next.menu),
+      railList(next.rail.main, undefined, nestedMenu),
+      railList(next.rail.bottom, 'tmt-ui-rail-bottom', nestedMenu),
     );
+    if (focused)
+      [...rail.querySelectorAll<HTMLButtonElement>('button[data-menu-focus]')]
+        .find((button) => button.dataset.menuFocus === focused)
+        ?.focus({ preventScroll: true });
     // Keep the same scroll owner across refreshes; shrinking content clamps its position.
     rail.scrollTop = railTop;
     syncRailScroll();
@@ -625,6 +783,8 @@ export function mountShell(
     clearTopBar: topBar.clear,
     update: render,
     dispose() {
+      disposed = true;
+      dragging = undefined;
       topBar.dispose();
       watchTools?.disconnect();
       root.style.removeProperty('--tmt-ui-shell-tools-width');

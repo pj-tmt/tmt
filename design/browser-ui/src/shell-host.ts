@@ -8,6 +8,8 @@ import {
   type ShellAnswer,
   type ShellControls,
   type ShellMenu,
+  type ShellMenuActionEvent,
+  type ShellMenuReorderEvent,
   type ShellModule,
   type ShellTools,
   type ShellCommonControls,
@@ -38,7 +40,12 @@ export interface ShellSlot {
   /** The composed shell this page read, if any (display data only). */
   answer(): ShellAnswer | undefined;
   /** The module menu; `select` may take over a plain click on one of its items. */
-  setMenu(menu: ShellMenu | undefined, select?: (id: string, href: string) => boolean): void;
+  setMenu(
+    menu: ShellMenu | undefined,
+    select?: (id: string, href: string) => boolean,
+    action?: (event: ShellMenuActionEvent) => void,
+    reorder?: (event: ShellMenuReorderEvent) => void,
+  ): void;
   /** The document title; ` · TMT` is appended. */
   setTitle(title: string): void;
   /** Go to a TMT URL without reloading; another module's route unmounts this one. */
@@ -180,6 +187,8 @@ export function startShellHost(
   let current: { route: ShellRoute; release?: () => void; generation: number } | undefined;
   let menu: ShellMenu | undefined;
   let select: ((id: string, href: string) => boolean) | undefined;
+  let action: ((event: ShellMenuActionEvent) => void) | undefined;
+  let reorder: ((event: ShellMenuReorderEvent) => void) | undefined;
   let asked = false;
   let settled = false;
   const listeners: ((answer: ShellAnswer | undefined) => void)[] = [];
@@ -192,10 +201,16 @@ export function startShellHost(
   });
   /** The rail links to this app's routes, not to a module's own mount. */
   const view = () => ({ rail: appRail(answer, routes, place(), current?.route), menu });
-  const controls: ShellControls = mountShell(root, view(), (id, href) => {
-    if (select?.(id, href)) return true;
-    return go(href);
-  });
+  const controls: ShellControls = mountShell(
+    root,
+    view(),
+    (id, href) => {
+      if (select?.(id, href)) return true;
+      return go(href);
+    },
+    (event) => action?.(event),
+    (event) => reorder?.(event),
+  );
   const paint = () => controls.update(view());
 
   const describe = (known?: string) => {
@@ -223,10 +238,12 @@ export function startShellHost(
         : { actions: document.createElement('div'), status: document.createElement('div') },
     basePath: route.paths.at(-1)!,
     answer: () => answer,
-    setMenu(next, handler) {
-      if (current?.generation !== mine) return;
+    setMenu(next, handler, onAction, onReorder) {
+      if (current?.generation !== mine || disposed) return;
       menu = next;
       select = handler;
+      action = onAction;
+      reorder = onReorder;
       paint();
     },
     setTitle(title) {
@@ -279,6 +296,8 @@ export function startShellHost(
     current = { route, generation: mine };
     menu = undefined;
     select = undefined;
+    action = undefined;
+    reorder = undefined;
     // The bar names the module at once, as a title; the module's own header replaces it when it
     // arrives (shell.css), so the header row never waits for a module to load.
     const label = [...view().rail.main, ...view().rail.bottom].find((item) => item.current)?.label;

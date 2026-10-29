@@ -349,3 +349,67 @@ for (const width of [1440, 390])
       }
       expect(await page.evaluate(() => localStorage.getItem('tmt.shell.rail'))).toBe('collapsed');
     });
+
+for (const width of [390, 1440])
+  test(`module menu actions and keyboard reorder remain reachable at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/?frame=shell&menu-actions');
+    if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
+    const root = page.locator('.tmt-ui-rail-sub');
+    await expect(root.getByRole('button', { name: 'Manage shortcuts', exact: true })).toBeVisible();
+    await expect(root.getByRole('button', { name: 'New shortcut', exact: true })).toBeVisible();
+    const first = root.getByRole('link', { name: /First shortcut/ });
+    await first.hover();
+    await root.getByRole('button', { name: 'Edit one', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('1:shortcuts:one:edit');
+    if (width === 390) await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Replace handler' }).click();
+    if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
+    await first.hover();
+    await root.getByRole('button', { name: 'Delete one', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('2:shortcuts:one:delete');
+    const handle = root.getByRole('button', {
+      name: 'Reorder shortcut: First shortcut',
+      exact: true,
+    });
+    await handle.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(root.getByRole('link', { name: /shortcut/ })).toHaveText([
+      'Second shortcut0',
+      'First shortcut0',
+      'Third shortcut0',
+    ]);
+    await expect(
+      root.getByRole('button', { name: 'Reorder shortcut: First shortcut', exact: true }),
+    ).toBeFocused();
+  });
+
+test('menu group actions and pointer reorder dispatch bounded events', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?frame=shell&menu-actions');
+  const root = page.locator('.tmt-ui-rail-sub');
+  await root.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('1:shortcuts:-:manage');
+  await root.getByRole('button', { name: 'New shortcut', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('1:shortcuts:-:new');
+  const first = root.getByRole('link', { name: /First shortcut/ });
+  await first.hover();
+  const handle = root.getByRole('button', {
+    name: 'Reorder shortcut: First shortcut',
+    exact: true,
+  });
+  await handle.dragTo(root.getByRole('link', { name: /Third shortcut/ }), {
+    targetPosition: { x: 5, y: 2 },
+  });
+  await expect(root.getByRole('link', { name: /shortcut/ })).toHaveText([
+    'Second shortcut0',
+    'First shortcut0',
+    'Third shortcut0',
+  ]);
+  await page.evaluate(() => {
+    document.querySelector<HTMLButtonElement>('button[aria-label="Manage shortcuts"]')!.click();
+  });
+  await expect(page.getByRole('status')).toHaveText('1:shortcuts:-:new');
+});

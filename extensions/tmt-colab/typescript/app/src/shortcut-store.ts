@@ -62,14 +62,14 @@ export class ShortcutStore {
       value.items.splice(to, 0, item);
     });
   }
-  reorder(id: string, before: string) {
+  reorder(id: string, before: string | null) {
     this.#write((value) => {
       const item = value.items.find((item) => item.id === id);
       if (!item || id === before) return;
-      const target = value.items.find((item) => item.id === before);
-      if (!target) return;
+      const target = before === null ? undefined : value.items.find((item) => item.id === before);
+      if (before !== null && !target) return;
       value.items = value.items.filter((item) => item.id !== id);
-      value.items.splice(value.items.indexOf(target), 0, item);
+      value.items.splice(target ? value.items.indexOf(target) : value.items.length, 0, item);
     });
   }
   migrate(pins: ProjectPins | undefined) {

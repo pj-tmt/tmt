@@ -11,6 +11,8 @@ import {
   mountShell,
   type ShellControls,
   type ShellMenu,
+  type ShellMenuActionEvent,
+  type ShellMenuReorderEvent,
   type ShellTools,
   type ShellView,
   type ShellCommonControls,
@@ -23,6 +25,8 @@ export interface BrowserShellProps {
   view: ShellView;
   /** Take over a plain click on a rail or menu item; return true when handled. */
   select?(id: string, href: string): boolean;
+  menuAction?(event: ShellMenuActionEvent): void;
+  menuReorder?(event: ShellMenuReorderEvent): void;
   children: ReactNode;
   /** Root-owned Search opener and admitted Remote display projection. */
   commonControls?: ShellCommonControls;
@@ -69,20 +73,31 @@ const ShellToolsContext = createContext<ShellTools | null>(null);
 export const useShellTools = () => useContext(ShellToolsContext);
 
 /** React hosts inside the one TMT web shell; the rail and menu use the shared static renderer. */
-export function BrowserShell({ view, select, children, commonControls }: BrowserShellProps) {
+export function BrowserShell({
+  view,
+  select,
+  menuAction,
+  menuReorder,
+  children,
+  commonControls,
+}: BrowserShellProps) {
   const root = useRef<HTMLDivElement>(null);
   const controls = useRef<ShellControls | null>(null);
   const [bar, setBar] = useState<HTMLDivElement | null>(null);
   const [search, setSearch] = useState<HTMLDivElement | null>(null);
   const [chip, setChip] = useState<HTMLDivElement | null>(null);
   const tools = useMemo(() => (search && chip ? { search, chip } : null), [search, chip]);
-  const latest = useRef(select);
+  const latest = useRef({ select, menuAction, menuReorder });
   const common = useRef(commonControls);
   common.current = commonControls;
-  latest.current = select;
+  latest.current = { select, menuAction, menuReorder };
   useLayoutEffect(() => {
-    controls.current = mountShell(root.current!, view, (id, href) =>
-      Boolean(latest.current?.(id, href)),
+    controls.current = mountShell(
+      root.current!,
+      view,
+      (id, href) => Boolean(latest.current.select?.(id, href)),
+      (event) => latest.current.menuAction?.(event),
+      (event) => latest.current.menuReorder?.(event),
     );
     controls.current.setCommonControls(common.current);
     return () => {
@@ -128,16 +143,30 @@ export interface HostedShellProps {
   slot: ShellSlot;
   menu: ShellMenu | undefined;
   select?(id: string, href: string): boolean;
+  menuAction?(event: ShellMenuActionEvent): void;
+  menuReorder?(event: ShellMenuReorderEvent): void;
   children: ReactNode;
 }
 
 /** A React module inside the one TMT app: the host owns the rail; the module's header portals
  * into the host's slot and its menu goes to the host. */
-export function HostedShell({ slot, menu, select, children }: HostedShellProps) {
-  const latest = useRef(select);
-  latest.current = select;
+export function HostedShell({
+  slot,
+  menu,
+  select,
+  menuAction,
+  menuReorder,
+  children,
+}: HostedShellProps) {
+  const latest = useRef({ select, menuAction, menuReorder });
+  latest.current = { select, menuAction, menuReorder };
   useLayoutEffect(() => {
-    slot.setMenu(menu, (id, href) => Boolean(latest.current?.(id, href)));
+    slot.setMenu(
+      menu,
+      (id, href) => Boolean(latest.current.select?.(id, href)),
+      (event) => latest.current.menuAction?.(event),
+      (event) => latest.current.menuReorder?.(event),
+    );
   }, [slot, menu]);
   return (
     <ShellBar value={slot.bar}>

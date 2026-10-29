@@ -139,6 +139,10 @@ function ShellHeader() {
 function ShellFrame({ params }: { params: URLSearchParams }) {
   const [projects, setProjects] = useState(params.get('projects') === '20' ? 20 : 3);
   const [mounted, setMounted] = useState(true);
+  const [menuOrder, setMenuOrder] = useState(['one', 'two', 'three']);
+  const [menuLog, setMenuLog] = useState('');
+  const [handlerVersion, setHandlerVersion] = useState(1);
+  const actionsFixture = params.has('menu-actions');
   const scrollFixture = params.has('projects');
   const view = useMemo<ShellView>(() => {
     const path = params.get('page') === 'project' ? '/colab/p/release' : '/colab/pages';
@@ -161,6 +165,26 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
     const menu = params.get('menu') === 'none' ? undefined : describedMenu(colab, place);
     if (menu) menu.groups[0]!.items[0]!.total = 12;
     if (menu) menu.groups[0]!.items[0]!.count = shellCount(2);
+    if (menu && actionsFixture)
+      menu.groups.push({
+        id: 'shortcuts',
+        label: 'Shortcuts',
+        headerAction: { id: 'manage', label: 'Manage shortcuts', icon: 'settings' },
+        footerAction: { id: 'new', label: 'New shortcut', icon: 'plus' },
+        reorder: { label: 'Reorder shortcut' },
+        items: menuOrder.map((id) => ({
+          id,
+          label:
+            id === 'one' ? 'First shortcut' : id === 'two' ? 'Second shortcut' : 'Third shortcut',
+          href: `#${id}`,
+          current: false,
+          count: shellCount(0, 'plain'),
+          actions: [
+            { id: 'edit', label: `Edit ${id}`, icon: 'pencil' },
+            { id: 'delete', label: `Delete ${id}`, icon: 'trash-2' },
+          ],
+        })),
+      });
     // `counts` pins the needs-you range the rail must carry: none (Ops 0), one digit (Colab 3), two (Remote 12).
     const shown = params.has('counts')
       ? {
@@ -171,7 +195,7 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
         }
       : answer;
     return { rail: shellRail(shown, place, colab), menu };
-  }, [params, projects, scrollFixture]);
+  }, [params, projects, scrollFixture, actionsFixture, menuOrder]);
   useEffect(() => {
     const shell = document.querySelector<HTMLElement>('.tmt-ui-shell')!;
     if (params.get('drawer') === 'open')
@@ -179,9 +203,31 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
   }, [params]);
   if (!mounted) return <p>Shell disposed</p>;
   return (
-    <BrowserShell view={view} select={() => true}>
+    <BrowserShell
+      view={view}
+      select={() => true}
+      menuAction={(event) =>
+        setMenuLog(`${handlerVersion}:${event.groupId}:${event.itemId ?? '-'}:${event.actionId}`)
+      }
+      menuReorder={(event) =>
+        setMenuOrder((items) => {
+          const next = items.filter((id) => id !== event.itemId);
+          const index = event.beforeId === null ? next.length : next.indexOf(event.beforeId);
+          if (index >= 0) next.splice(index, 0, event.itemId);
+          return next;
+        })
+      }
+    >
       <ShellHeader />
       <div className="tmt-ui-page" style={scrollFixture ? { minHeight: 1600 } : undefined}>
+        {actionsFixture && (
+          <>
+            <button type="button" onClick={() => setHandlerVersion((value) => value + 1)}>
+              Replace handler
+            </button>
+            <p role="status">{menuLog}</p>
+          </>
+        )}
         {scrollFixture && (
           <>
             <button type="button" onClick={() => setProjects(projects === 20 ? 3 : 20)}>

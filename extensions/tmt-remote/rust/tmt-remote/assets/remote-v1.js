@@ -3484,6 +3484,41 @@ var shellIconNodes = {
 		rx: "2",
 		ry: "2"
 	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
+	pencil: [["path", { d: "M12 20h9" }], ["path", { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z" }]],
+	"trash-2": [["path", { d: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" }]],
+	plus: [["path", { d: "M12 5v14M5 12h14" }]],
+	grip: [
+		["circle", {
+			cx: "9",
+			cy: "5",
+			r: "1"
+		}],
+		["circle", {
+			cx: "9",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "9",
+			cy: "19",
+			r: "1"
+		}],
+		["circle", {
+			cx: "15",
+			cy: "5",
+			r: "1"
+		}],
+		["circle", {
+			cx: "15",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "15",
+			cy: "19",
+			r: "1"
+		}]
+	],
 	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]]
 };
 var moduleIcons = [
@@ -5236,7 +5271,7 @@ function count(document, value) {
 * area; on phones the module menu becomes tabs under the title bar. `select` may take over a plain click
 * on an item (an SPA route or Colab's search); it returns true when it handled the click.
 */
-function mountShell(root, view, select) {
+function mountShell(root, view, select, menuAction, menuReorder) {
 	const document = root.ownerDocument;
 	root.classList.add("tmt-ui-shell");
 	const open = document.createElement("button");
@@ -5378,27 +5413,132 @@ function mountShell(root, view, select) {
 		}
 		return anchor;
 	};
+	let disposed = false;
+	let dragging;
+	const currentGroup = (id) => latest.menu?.groups.find((group) => group.id === id);
+	const focusKey = (groupId, itemId, actionId) => JSON.stringify([
+		groupId,
+		itemId ?? null,
+		actionId
+	]);
+	const actionButton = (groupId, itemId, action) => {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "tmt-ui-rail-menu-action";
+		button.dataset.menuFocus = focusKey(groupId, itemId, action.id);
+		button.setAttribute("aria-label", action.label);
+		button.title = action.label;
+		if (action.icon) button.append(icon(document, action.icon));
+		else button.textContent = action.label;
+		button.addEventListener("click", (event) => {
+			if (!event.isTrusted || disposed) return;
+			const group = currentGroup(groupId);
+			const item = itemId === void 0 ? void 0 : group?.items.find((value) => value.id === itemId);
+			if ((itemId === void 0 ? [group?.headerAction, group?.footerAction] : item?.actions ?? []).some((entry) => entry?.id === action.id)) menuAction?.({
+				groupId,
+				...itemId === void 0 ? {} : { itemId },
+				actionId: action.id
+			});
+		});
+		return button;
+	};
+	const reorderHandle = (groupId, item, label) => {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.draggable = true;
+		button.className = "tmt-ui-rail-menu-action tmt-ui-rail-menu-handle";
+		button.dataset.menuFocus = focusKey(groupId, item.id, "reorder");
+		button.setAttribute("aria-label", `${label}: ${item.label}`);
+		button.title = `${label}: ${item.label}`;
+		button.append(icon(document, "grip"));
+		button.addEventListener("keydown", (event) => {
+			if (!event.isTrusted || event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || disposed) return;
+			if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+			const group = currentGroup(groupId);
+			const items = group?.reorder ? group.items : [];
+			const index = items.findIndex((value) => value.id === item.id);
+			const target = event.key === "ArrowUp" ? index - 1 : index + 1;
+			if (index < 0 || target < 0 || target >= items.length) return;
+			event.preventDefault();
+			const beforeId = event.key === "ArrowUp" ? items[target].id : items[target + 1]?.id ?? null;
+			menuReorder?.({
+				groupId,
+				itemId: item.id,
+				beforeId
+			});
+		});
+		button.addEventListener("dragstart", (event) => {
+			if (!event.isTrusted || disposed || !currentGroup(groupId)?.reorder) return event.preventDefault();
+			dragging = {
+				groupId,
+				itemId: item.id
+			};
+			event.dataTransfer?.setData("text/plain", item.id);
+			if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+		});
+		button.addEventListener("dragend", () => {
+			dragging = void 0;
+		});
+		return button;
+	};
 	const nested = (menuView) => {
 		const list = document.createElement("ul");
 		list.className = "tmt-ui-rail-sub";
 		list.setAttribute("aria-label", menuView.title);
 		for (const group of menuView.groups) {
 			let entries = list;
-			if (group.label) {
-				const section = document.createElement("li");
+			let section;
+			if (group.label || group.id && (group.headerAction || group.footerAction || group.reorder)) {
+				section = document.createElement("li");
 				const heading = document.createElement("div");
 				heading.className = "tmt-ui-rail-sub-group";
-				heading.textContent = group.label;
+				const title = document.createElement("span");
+				title.textContent = group.label ?? "";
+				heading.append(title);
+				if (group.id && group.headerAction) heading.append(actionButton(group.id, void 0, group.headerAction));
 				entries = document.createElement("ul");
 				entries.className = "tmt-ui-rail-sub-items";
-				entries.setAttribute("aria-label", group.label);
+				if (group.label) entries.setAttribute("aria-label", group.label);
 				section.append(heading, entries);
 				list.append(section);
 			}
 			for (const item of group.items) {
 				const row = document.createElement("li");
-				row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item));
+				if (group.id && (group.reorder || item.actions?.length)) {
+					row.className = "tmt-ui-rail-menu-row";
+					const groupId = group.id;
+					if (group.reorder) {
+						row.append(reorderHandle(groupId, item, group.reorder.label));
+						row.addEventListener("dragover", (event) => {
+							if (event.isTrusted && dragging?.groupId === groupId) event.preventDefault();
+						});
+						row.addEventListener("drop", (event) => {
+							if (!event.isTrusted || disposed || dragging?.groupId !== groupId) return;
+							event.preventDefault();
+							const groupNow = currentGroup(groupId);
+							const items = groupNow?.reorder ? groupNow.items : [];
+							const index = items.findIndex((value) => value.id === item.id);
+							const source = dragging.itemId;
+							dragging = void 0;
+							if (index < 0 || source === item.id || !items.some((value) => value.id === source)) return;
+							const beforeId = event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2 ? items[index + 1]?.id ?? null : item.id;
+							menuReorder?.({
+								groupId,
+								itemId: source,
+								beforeId
+							});
+						});
+					}
+					row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item));
+					for (const action of item.actions ?? []) row.append(actionButton(groupId, item.id, action));
+				} else row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item));
 				entries.append(row);
+			}
+			if (section && group.id && group.footerAction) {
+				const footer = actionButton(group.id, void 0, group.footerAction);
+				footer.classList.add("tmt-ui-rail-menu-footer");
+				if (group.footerAction.icon) footer.append(document.createTextNode(group.footerAction.label));
+				section.append(footer);
 			}
 		}
 		return list;
@@ -5427,6 +5567,7 @@ function mountShell(root, view, select) {
 	let latest = view;
 	const phone = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 900px)") : void 0;
 	const render = (next) => {
+		if (disposed) return;
 		latest = next;
 		const onPhone = phone?.matches === true;
 		const key = JSON.stringify([onPhone, next]);
@@ -5434,7 +5575,11 @@ function mountShell(root, view, select) {
 		shown = key;
 		hideTip();
 		const railTop = rail.scrollTop;
-		rail.replaceChildren(brand, railSearch, railList(next.rail.main, void 0, onPhone ? void 0 : next.menu), railList(next.rail.bottom, "tmt-ui-rail-bottom", onPhone ? void 0 : next.menu));
+		const active = document.activeElement;
+		const focused = active && rail.contains(active) ? active.dataset.menuFocus : void 0;
+		const nestedMenu = !onPhone || next.menu?.groups.some((group) => group.id && (group.headerAction || group.footerAction || group.reorder || group.items.some((item) => item.actions?.length))) ? next.menu : void 0;
+		rail.replaceChildren(brand, railSearch, railList(next.rail.main, void 0, nestedMenu), railList(next.rail.bottom, "tmt-ui-rail-bottom", nestedMenu));
+		if (focused) [...rail.querySelectorAll("button[data-menu-focus]")].find((button) => button.dataset.menuFocus === focused)?.focus({ preventScroll: true });
 		rail.scrollTop = railTop;
 		syncRailScroll();
 		root.dataset.menu = next.menu ? "shown" : "none";
@@ -5478,6 +5623,8 @@ function mountShell(root, view, select) {
 		clearTopBar: topBar.clear,
 		update: render,
 		dispose() {
+			disposed = true;
+			dragging = void 0;
 			topBar.dispose();
 			watchTools?.disconnect();
 			root.style.removeProperty("--tmt-ui-shell-tools-width");
@@ -5560,6 +5707,8 @@ function startShellHost(root, routes, options = {}) {
 	let current;
 	let menu;
 	let select;
+	let action;
+	let reorder;
 	let asked = false;
 	let settled = false;
 	const listeners = [];
@@ -5577,7 +5726,7 @@ function startShellHost(root, routes, options = {}) {
 	const controls = mountShell(root, view(), (id, href) => {
 		if (select?.(id, href)) return true;
 		return go(href);
-	});
+	}, (event) => action?.(event), (event) => reorder?.(event));
 	const paint = () => controls.update(view());
 	const describe = (known) => {
 		if (asked) return;
@@ -5603,10 +5752,12 @@ function startShellHost(root, routes, options = {}) {
 		},
 		basePath: route.paths.at(-1),
 		answer: () => answer,
-		setMenu(next, handler) {
-			if (current?.generation !== mine) return;
+		setMenu(next, handler, onAction, onReorder) {
+			if (current?.generation !== mine || disposed) return;
 			menu = next;
 			select = handler;
+			action = onAction;
+			reorder = onReorder;
 			paint();
 		},
 		setTitle(title) {
@@ -5659,6 +5810,8 @@ function startShellHost(root, routes, options = {}) {
 		};
 		menu = void 0;
 		select = void 0;
+		action = void 0;
+		reorder = void 0;
 		const label = [...view().rail.main, ...view().rail.bottom].find((item) => item.current)?.label;
 		const placeholder = document.createElement("header");
 		placeholder.className = "tmt-ui-header";

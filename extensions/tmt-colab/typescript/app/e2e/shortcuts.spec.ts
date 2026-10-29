@@ -5,7 +5,7 @@ async function mount(page: Page, size: 'stages' | 'work' = 'stages') {
   await page.goto('/');
   await page.evaluate(async (size) => {
     const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList(size, '/', ['design']);
+    await (await import(path)).mountPageList(size, '/', 'automatic');
   }, size);
 }
 test('Save current filters, edit the shortcut, retain drafts on failed storage and keep owner writes untouched', async ({
@@ -41,19 +41,20 @@ test('Save current filters, edit the shortcut, retain drafts on failed storage a
     ]),
   ).toEqual([[], [], []]);
 });
-test('Manage creates and reorders explicit shortcuts while sidebar is unchanged', async ({
-  page,
-}) => {
+test('Manage creates and reorders shortcuts reflected in the sidebar', async ({ page }) => {
   await mount(page);
   await page.evaluate(async () => {
     const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList('stages', '/?scope=design', ['design']);
+    await (await import(path)).mountPageList('stages', '/?scope=design', 'automatic');
   });
   await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
   const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
   await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Design');
   await save.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+  await page
+    .locator('#list-fixture main')
+    .getByRole('button', { name: 'Manage shortcuts', exact: true })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
   await expect(dialog.getByRole('button', { name: 'Design', exact: true })).toBeVisible();
   await expect(dialog.getByRole('checkbox', { name: 'design', exact: true })).toBeChecked();
@@ -69,7 +70,9 @@ test('Manage creates and reorders explicit shortcuts while sidebar is unchanged'
     .dragTo(dialog.locator('.shortcut-list > li').first());
   await expect(dialog.locator('.shortcut-list > li').first()).toContainText('Design');
   await dialog.getByRole('button', { name: 'Close Manage shortcuts', exact: true }).click();
-  await expect(page.locator('a[data-id="project:design"]').first()).toBeVisible();
+  await expect(
+    page.locator('a[data-id^="shortcut:"]').filter({ hasText: 'Design' }).first(),
+  ).toBeVisible();
 });
 
 test('saved shortcuts survive remount, propagate same-page changes and keep legacy pins untouched', async ({
@@ -81,7 +84,10 @@ test('saved shortcuts survive remount, propagate same-page changes and keep lega
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Persistent');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await mount(page);
-  await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+  await page
+    .locator('#list-fixture main')
+    .getByRole('button', { name: 'Manage shortcuts', exact: true })
+    .click();
   const manage = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
   await expect(manage.getByRole('button', { name: 'Persistent', exact: true })).toBeVisible();
   await page.evaluate(async () => {
@@ -114,7 +120,10 @@ for (const width of [390, 1440])
       await page.mouse.move(width - 1, 899);
       await page.screenshot({ path: capturePath(`shortcuts-save-${width}-${theme}.png`) });
       await save.getByRole('button', { name: 'Save', exact: true }).click();
-      await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+      await page
+        .locator('#list-fixture main')
+        .getByRole('button', { name: 'Manage shortcuts', exact: true })
+        .click();
       const manage = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
       await expect(manage.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
         'Design reviews',
@@ -129,7 +138,9 @@ for (const width of [390, 1440])
       );
       await manage.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(
-        page.getByRole('button', { name: 'Manage shortcuts', exact: true }),
+        page
+          .locator('#list-fixture main')
+          .getByRole('button', { name: 'Manage shortcuts', exact: true }),
       ).toBeFocused();
     });
   }
@@ -151,7 +162,10 @@ test('another tab receives storage updates; a separate browser profile has no sa
   browser,
 }) => {
   await mount(page);
-  await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+  await page
+    .locator('#list-fixture main')
+    .getByRole('button', { name: 'Manage shortcuts', exact: true })
+    .click();
   const peer = await page.context().newPage();
   await peer.goto('/');
   await peer.evaluate(async () => {
@@ -172,7 +186,10 @@ test('another tab receives storage updates; a separate browser profile has no sa
   try {
     const fresh = await isolated.newPage();
     await mount(fresh);
-    await fresh.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+    await fresh
+      .locator('#list-fixture main')
+      .getByRole('button', { name: 'Manage shortcuts', exact: true })
+      .click();
     await expect(fresh.getByRole('button', { name: 'From other tab', exact: true })).toHaveCount(0);
   } finally {
     await isolated.close();
@@ -247,38 +264,6 @@ test('Save uses the effective list scope when a removed project falls back to Al
   await expect(page.locator('#list-fixture .pages > li')).toHaveCount(5);
 });
 
-test('PR A leaves legacy pins unmigrated while the pinned-project sidebar remains active', async ({
-  page,
-}) => {
-  await mount(page);
-  await expect(page.locator('a[data-id="project:design"]').first()).toBeVisible();
-  const record = await page.evaluate(async () => {
-    const path = '/test/page-list-browser.tsx';
-    const { pageListSpace } = await import(path);
-    return localStorage.getItem(`tmt-colab-shortcuts-v1:${pageListSpace}`);
-  });
-  expect(record).toBeNull();
-  await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Manage shortcuts', exact: true })).toContainText(
-    'No shortcuts yet.',
-  );
-  await page
-    .getByRole('dialog', { name: 'Manage shortcuts', exact: true })
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
-  await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
-  const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
-  await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Manual view');
-  await save.getByRole('button', { name: 'Save', exact: true }).click();
-  const saved = await page.evaluate(async () => {
-    const path = '/test/page-list-browser.tsx';
-    const { pageListSpace } = await import(path);
-    return JSON.parse(localStorage.getItem(`tmt-colab-shortcuts-v1:${pageListSpace}`)!);
-  });
-  expect(saved.migrated).toBe(false);
-  expect(saved.items.map((item: { name: string }) => item.name)).toEqual(['Manual view']);
-});
-
 test('no shortcut record is read or written before the space is defined', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(async () => {
@@ -310,7 +295,10 @@ test('Manage uses shared field labels and the same page-state menu as the list',
   page,
 }) => {
   await mount(page);
-  await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+  await page
+    .locator('#list-fixture main')
+    .getByRole('button', { name: 'Manage shortcuts', exact: true })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
   const labels = dialog.locator('.tmt-ui-field-label');
   await expect(labels).toHaveText(['Name', 'Projects', 'Page state']);
@@ -322,4 +310,61 @@ test('Manage uses shared field labels and the same page-state menu as the list',
   await dialog.getByRole('button', { name: /^Page state:/ }).click();
   await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Page state: Done', exact: true })).toBeVisible();
+});
+
+test('sidebar migrates explicit pins once, opens filters and keeps legacy owner pins untouched', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('stages', '/', ['design']);
+  });
+  const rail = page.locator('#list-fixture .tmt-ui-rail-sub');
+  await expect(rail.getByText('Shortcuts', { exact: true })).toBeVisible();
+  const shortcut = rail.getByRole('link', { name: /^design/ });
+  await expect(shortcut).toBeVisible();
+  await expect(rail.getByRole('button', { name: 'Manage shortcuts', exact: true })).toBeVisible();
+  await expect(rail.getByRole('button', { name: 'New shortcut', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pin to sidebar', exact: true })).toHaveCount(0);
+  await shortcut.click();
+  await expect(page.getByRole('button', { name: 'Edit shortcut', exact: true })).toBeVisible();
+  await rail.getByRole('link', { name: /^All pages/ }).click();
+  await expect(page.getByRole('button', { name: 'Save as shortcut', exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/shortcut=/);
+  const data = await page.evaluate(() =>
+    JSON.parse(
+      localStorage.getItem('tmt-colab-shortcuts-v1:a0000000-0000-4000-8000-000000000001')!,
+    ),
+  );
+  expect(data.migrated).toBe(true);
+  expect(data.items.map((item: { name: string }) => item.name)).toEqual(['design']);
+  expect(await page.evaluate(() => window.__projectManage)).toEqual([]);
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('stages', '/', ['design']);
+  });
+  const again = await page.evaluate(() =>
+    JSON.parse(
+      localStorage.getItem('tmt-colab-shortcuts-v1:a0000000-0000-4000-8000-000000000001')!,
+    ),
+  );
+  expect(again.items).toHaveLength(1);
+});
+
+test('automatic recent projects are never migrated into sidebar shortcuts', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('stages', '/', 'automatic');
+  });
+  const rail = page.locator('#list-fixture .tmt-ui-rail-sub');
+  await expect(rail.getByText('Shortcuts', { exact: true })).toBeVisible();
+  const data = await page.evaluate(() =>
+    JSON.parse(
+      localStorage.getItem('tmt-colab-shortcuts-v1:a0000000-0000-4000-8000-000000000001')!,
+    ),
+  );
+  expect(data).toMatchObject({ migrated: true, items: [] });
+  expect(await page.evaluate(() => window.__projectManage)).toEqual([]);
 });

@@ -887,7 +887,10 @@ const home = createRoute({
   loader: async (options) => {
     const space = await loadSpaceHome(options);
     // Colab opens on the project last chosen here; a project that is gone opens All pages.
-    if ((options.location.search as HomeSearch).scope === undefined) {
+    if (
+      (options.location.search as HomeSearch).scope === undefined &&
+      !(options.location.search as HomeSearch).shortcut
+    ) {
       const remembered = readScope(options.context.space);
       if (knownScope(remembered, space.projects) !== undefined)
         throw redirect({

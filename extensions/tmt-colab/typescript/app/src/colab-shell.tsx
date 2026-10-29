@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useRouter, useRouterState } from '@tanstack/react-router';
-import { BrowserShell, HostedShell } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserDialog, BrowserShell, HostedShell } from '@tmt/browser-ui/react';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 import {
   loadShellAnswer,
@@ -19,11 +19,16 @@ import {
   shellRail,
   type ShellAnswer,
   type ShellMenu,
+  type ShellMenuActionEvent,
+  type ShellMenuReorderEvent,
   type ShellView,
 } from '@tmt/browser-ui/shell';
 import { knownScope, scopeRows, writeScope } from './project-scope.js';
 import { ProjectMenuActionsSlot, type ProjectMenuActions } from './project-menu-actions.js';
-import { menuProjects } from './project-pins.js';
+import { useShortcuts } from './use-shortcuts.js';
+import { ShortcutDialog } from './shortcut-dialogs.js';
+import { listPages } from './page-list-filter.js';
+import type { Shortcut } from './shortcuts.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { useShellRemoteStatus } from './remote-header.js';
 import { SharedTopBar } from './shared-top-bar.js';
@@ -43,8 +48,7 @@ const NO_PROJECTS: readonly string[] = [];
 
 /**
  * Colab inside the one TMT web shell. The rail comes from Remote's composed descriptions; the
- * module menu is Colab's own: All pages, then each project with its page and needs-you counts,
- * replacing the header's project dropdown, the shell pages, and Colab settings.
+ * module menu is Colab's own: All pages, local Shortcuts, dashboards and Colab settings.
  */
 export function ColabShell({
   transport,
@@ -61,6 +65,13 @@ export function ColabShell({
   // The rail this browser read last paints first, so it matches every other TMT page.
   const [answer, setAnswer] = useState<ShellAnswer | undefined>(rememberedShellAnswer);
   const [actions, setActions] = useState<ProjectMenuActions>();
+  const shortcuts = useShortcuts(space);
+  const [shortcutDialog, setShortcutDialog] = useState<{
+    mode: 'manage' | 'edit' | 'create';
+    id?: string;
+  }>();
+  const [deleteShortcut, setDeleteShortcut] = useState<string>();
+  const [shortcutError, setShortcutError] = useState<string>();
   // The menu reads nothing itself: it shows the list the routes already read (the space home, a
   // link-opened page's chip read, the quick switcher), so it never adds a list request.
   const listed = useSyncExternalStore(onRememberedPages, () => rememberedPages(transport, space));
@@ -68,6 +79,15 @@ export function ColabShell({
   const pins = useSyncExternalStore(onRememberedPages, () =>
     rememberedProjectPins(transport, space),
   );
+  useEffect(() => {
+    if (!shortcuts.store || !pins) return;
+    try {
+      shortcuts.store.migrate(pins);
+      setShortcutError(undefined);
+    } catch {
+      setShortcutError(text.shortcuts.saveFailed);
+    }
+  }, [shortcuts.store, pins]);
   useEffect(() => {
     if (hostSlot) return;
     void shellAddress().then(async (address) => {
@@ -94,21 +114,12 @@ export function ColabShell({
       href: href('/', name === undefined ? {} : { scope: name }),
       total: count,
       count: waiting ? shellCount(waiting) : undefined,
-      current: location.pathname === '/' && shownScope === name,
+      current:
+        location.pathname === '/' &&
+        shownScope === name &&
+        !(location.search as { shortcut?: string }).shortcut,
     });
-    const [all, ...projects] = rows;
-    // The menu lists the projects the owner pins, in the owner's order; the scope the list is in
-    // stays as a temporary row when it is not pinned, so the current place is always shown.
-    const byName = new Map(projects.map((row) => [row.name!, row]));
-    const menuNames = menuProjects(
-      projects.map((row) => row.name!),
-      pins,
-    );
-    const pinnedRows = menuNames.names.map((name) => byName.get(name)!);
-    const temporary =
-      shownScope !== undefined && !menuNames.names.includes(shownScope)
-        ? byName.get(shownScope)
-        : undefined;
+    const [all] = rows;
     const shells = shown.filter((page) => page.pageType === 'shell');
     const pagePath = (id: string) =>
       router.history.createHref(
@@ -118,21 +129,41 @@ export function ColabShell({
       title: text.product,
       groups: [
         { items: [item(undefined, all!.count, all!.waiting)] },
-        ...(pinnedRows.length || temporary
+        ...(shortcuts.store
           ? [
               {
-                label: menuNames.automatic ? text.pageList.recentProjects : text.pageList.projects,
-                items: [
-                  ...pinnedRows.map((row) => item(row.name, row.count, row.waiting)),
-                  ...(temporary
-                    ? [
-                        {
-                          ...item(temporary.name, temporary.count, temporary.waiting),
-                          note: text.pageList.scopeNotPinned,
-                        },
-                      ]
-                    : []),
-                ],
+                id: 'shortcuts',
+                label: text.shortcuts.sidebar,
+                headerAction: {
+                  id: 'manage',
+                  label: text.shortcuts.manage,
+                  icon: 'settings' as const,
+                },
+                footerAction: { id: 'new', label: text.shortcuts.create, icon: 'plus' as const },
+                reorder: { label: text.shortcuts.reorder },
+                items: shortcuts.items.map((shortcut) => ({
+                  id: `shortcut:${shortcut.id}`,
+                  label: shortcut.name,
+                  href: href('/', { ...shortcut.search, shortcut: shortcut.id }),
+                  current:
+                    location.pathname === '/' &&
+                    (location.search as { shortcut?: string }).shortcut === shortcut.id,
+                  ...(listed === undefined
+                    ? {}
+                    : { count: shellCount(listPages(listed, shortcut.search).length, 'plain') }),
+                  actions: [
+                    {
+                      id: 'edit',
+                      label: text.shortcuts.editRow(shortcut.name),
+                      icon: 'pencil' as const,
+                    },
+                    {
+                      id: 'delete',
+                      label: text.shortcuts.deleteRow(shortcut.name),
+                      icon: 'trash-2' as const,
+                    },
+                  ],
+                })),
               },
             ]
           : []),
@@ -195,14 +226,34 @@ export function ColabShell({
     };
     // `href` reads the router, which is stable for this shell.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answer, listed, named, pins, actions, location.pathname, scope]);
+  }, [
+    answer,
+    listed,
+    named,
+    actions,
+    location.pathname,
+    location.search,
+    scope,
+    shortcuts.store,
+    shortcuts.items,
+  ]);
   const select = (id: string) => {
     if (id === 'new-project' && actions) return (actions.newProject(), true);
     if (id === 'manage-projects' && actions) return (actions.manage(), true);
+    if (id.startsWith('shortcut:')) {
+      const item = shortcuts.items.find((shortcut) => shortcut.id === id.slice('shortcut:'.length));
+      if (item) void router.navigate({ to: '/', search: { ...item.search, shortcut: item.id } });
+      return true;
+    }
     if (id === 'colab-settings') return (void router.navigate({ to: '/settings' }), true);
     if (id.startsWith('shell:')) {
       const pageId = id.slice('shell:'.length);
       void router.navigate({ to: '/pages/$pageId', params: { pageId } });
+      return true;
+    }
+    if (id === 'all' && (location.search as { shortcut?: string }).shortcut) {
+      writeScope(space, undefined);
+      void router.navigate({ to: '/', search: {} });
       return true;
     }
     if (id === 'colab' || id === 'all' || id.startsWith('project:')) {
@@ -222,13 +273,112 @@ export function ColabShell({
     }
     return false;
   };
-  const content = <ProjectMenuActionsSlot value={setActions}>{children}</ProjectMenuActionsSlot>;
+  const menuAction = (event: ShellMenuActionEvent) => {
+    if (event.groupId !== 'shortcuts') return;
+    setShortcutError(undefined);
+    if (event.actionId === 'manage') setShortcutDialog({ mode: 'manage' });
+    else if (event.actionId === 'new') setShortcutDialog({ mode: 'create' });
+    else if (event.itemId?.startsWith('shortcut:')) {
+      const id = event.itemId.slice('shortcut:'.length);
+      if (!shortcuts.items.some((item) => item.id === id)) return;
+      if (event.actionId === 'edit') setShortcutDialog({ mode: 'edit', id });
+      else if (event.actionId === 'delete') setDeleteShortcut(id);
+    }
+  };
+  const menuReorder = (event: ShellMenuReorderEvent) => {
+    if (event.groupId !== 'shortcuts' || !shortcuts.store || !event.itemId.startsWith('shortcut:'))
+      return;
+    try {
+      shortcuts.store.reorder(
+        event.itemId.slice('shortcut:'.length),
+        event.beforeId?.slice('shortcut:'.length) ?? null,
+      );
+      setShortcutError(undefined);
+    } catch {
+      setShortcutError(text.shortcuts.saveFailed);
+    }
+  };
+  const selected = shortcuts.items.find((item) => item.id === shortcutDialog?.id);
+  const deleting = shortcuts.items.find((item) => item.id === deleteShortcut);
+  const saved = (item: Shortcut) => {
+    setShortcutDialog(undefined);
+    if (
+      location.pathname === '/' &&
+      (location.search as { shortcut?: string }).shortcut === item.id
+    )
+      void router.navigate({
+        to: '/',
+        search: { ...item.search, shortcut: item.id },
+        replace: true,
+      });
+  };
+  const content = (
+    <ProjectMenuActionsSlot value={setActions}>
+      {children}
+      {shortcutError && !deleting && <p role="alert">{shortcutError}</p>}
+      {shortcutDialog && shortcuts.store && (shortcutDialog.mode !== 'edit' || selected) && (
+        <ShortcutDialog
+          key={`${space}:${shortcutDialog.mode}:${shortcutDialog.id ?? ''}`}
+          mode={shortcutDialog.mode}
+          initial={selected ?? (shortcutDialog.mode === 'manage' ? shortcuts.items[0] : undefined)}
+          search={selected?.search ?? {}}
+          store={shortcuts.store}
+          items={shortcuts.items}
+          pages={listed}
+          projects={named ?? NO_PROJECTS}
+          error={shortcuts.error}
+          onClose={() => setShortcutDialog(undefined)}
+          onSaved={saved}
+        />
+      )}
+      {deleting && (
+        <BrowserDialog
+          open
+          title={text.shortcuts.deleteTitle(deleting.name)}
+          onDismiss={() => setDeleteShortcut(undefined)}
+          actions={
+            <>
+              <BrowserAction
+                type="button"
+                variant="secondary"
+                label={text.pageList.cancel}
+                onActivate={() => setDeleteShortcut(undefined)}
+              />
+              <BrowserAction
+                type="button"
+                variant="destructive"
+                label={text.pageList.remove}
+                onActivate={() => {
+                  try {
+                    shortcuts.store?.delete(deleting.id);
+                    setDeleteShortcut(undefined);
+                    setShortcutError(undefined);
+                  } catch {
+                    setShortcutError(text.shortcuts.saveFailed);
+                  }
+                }}
+              />
+            </>
+          }
+        >
+          <p>{text.shortcuts.deleteBody}</p>
+          {shortcutError && <p role="alert">{shortcutError}</p>}
+        </BrowserDialog>
+      )}
+    </ProjectMenuActionsSlot>
+  );
   return hostSlot ? (
-    <HostedShell slot={hostSlot} menu={view.menu} select={select}>
+    <HostedShell
+      slot={hostSlot}
+      menu={view.menu}
+      select={select}
+      menuAction={menuAction}
+      menuReorder={menuReorder}
+    >
       <SharedTopBar value={hostSlot.topBarReady()}>{content}</SharedTopBar>
     </HostedShell>
   ) : (
-    <OwnShell view={view} select={select}>
+    <OwnShell view={view} select={select} menuAction={menuAction} menuReorder={menuReorder}>
       {content}
     </OwnShell>
   );
@@ -240,10 +390,14 @@ export function ColabShell({
 function OwnShell({
   view,
   select,
+  menuAction,
+  menuReorder,
   children,
 }: {
   view: ShellView;
   select(id: string): boolean;
+  menuAction(event: ShellMenuActionEvent): void;
+  menuReorder(event: ShellMenuReorderEvent): void;
   children: ReactNode;
 }) {
   const switcher = useQuickSwitcher();
@@ -264,7 +418,13 @@ function OwnShell({
     [remote],
   );
   return (
-    <BrowserShell view={view} select={select} commonControls={commonControls}>
+    <BrowserShell
+      view={view}
+      select={select}
+      menuAction={menuAction}
+      menuReorder={menuReorder}
+      commonControls={commonControls}
+    >
       <SharedTopBar value>{children}</SharedTopBar>
     </BrowserShell>
   );

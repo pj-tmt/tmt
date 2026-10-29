@@ -35,6 +35,8 @@ for (const scenario of ['nativeReadiness', 'hostedReadiness', 'reactReadiness'] 
         disposalReadings: [false],
         action: 'Second action',
         clearedRefused: true,
+        menuAfterStale: 'CurrentManage',
+        menuAfterDispose: null,
       });
     else
       expect(result).toEqual({

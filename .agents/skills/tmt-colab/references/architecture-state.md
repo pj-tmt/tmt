@@ -636,7 +636,7 @@ is added.
 - Projects (`projects.rs`, `projects` and `page_projects` in schema 13) are display-only owner-store
   state; a project exists on its own, so one may hold no page. Schema 13 turned every earlier page
   label into a project of the same name. The two writes, `page.projects` (whole-set replacements for
-  up to 64 pages) and `project.manage` (create, rename, delete, and `pins`, the whole ordered sidebar list; the signed frame names the space scope
+  up to 64 pages) and `project.manage` (create, rename, delete, and `pins`, the legacy ordered project pin list; the signed frame names the space scope
   page `SPACE_SCOPE_PAGE`), are management requests that bypass the engine's statement path
   (`Engine::set_projects` / `manage_project` -> `Store::project_transaction`, no head change, no
   receipt, last writer wins, all-or-none per request), and `page_list()` serves them as `projects`
@@ -771,14 +771,14 @@ archived is a union, while the Archived tab remains archived-only. `shortcuts.ts
 filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
 rereading before each synchronous mutation. `use-shortcuts.ts` observes same-page events and
 browser storage events without polling. No store, record access or event subscription exists until
-its space is defined. The pinned-project sidebar and Pin controls remain active, so the hook does
-not trigger migration. `ShortcutStore.migrate` and its tests retain the once-only explicit-pin
-migration for the sidebar swap: automatic suggestions are excluded, records and marker persist
-together, and owner pins are unchanged. Corrupt/newer data and failed writes are reported and retained.
+its space is defined. Once an owner pin list has been observed, the shell calls
+`ShortcutStore.migrate` once: explicit pins become local shortcuts in order, automatic suggestions
+are excluded, records and marker persist together, and owner pins are unchanged. Corrupt/newer data
+and failed writes are reported and retained.
 `shortcut-dialogs.tsx` owns the name-only Save dialog and the Edit/Manage filter editor, matching
 preview and ordering controls. Its labels use `BrowserField`; `page-state-menu.tsx` shares the manual
 state menu with Home, using the existing task-state labels and the central string catalog. Home exposes Save/Edit and Manage; these preferences are not
-synced or shared. The existing sidebar and Pin controls remain until their shared-menu integration.
+synced or shared. The sidebar exposes the same local shortcuts.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The React-free filter owner is
@@ -890,17 +890,17 @@ on an empty search it leaves the search. The keys fire only for a trusted unmodi
 target is the page or the list's own section: never in a text field, never above a menu or dialog,
 never in a hidden list.
 
-The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `BrowserShell`) scopes
-the whole list. `scope` in the route search is the base
-filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the tab counts, the
-`project:` suggestions and the free-text and creator filters, and a `project:` token narrows inside it
-(intersection). The menu lists All pages and the projects the space pins, in the pinned order (`SpaceHome.projectPins`,
-schema 18; `menuProjects` in `project-pins.ts`), or its five most recently updated while nothing was
-chosen (labelled "Recent projects"), each with the pages shown and how many wait on the viewer. A scope
-that is not pinned shows as a temporary row. Then come `All projects…` (the manager) and `New project…`, which
-`Home` offers through `ProjectMenuActionsSlot` (`project-menu-actions.ts`) while it can manage
-projects, so the dialogs keep the list's data. The menu reads the list through `spaceHome` when the
-list opens. The default scope is device-local: `readScope`/`writeScope` keep it per space in
+The TMT web shell's module menu (`colab-shell.tsx`, rendered by `BrowserShell`) lists All pages,
+then browser-local Shortcuts, dashboards and Colab settings. A shortcut opens its saved validated
+filters; counts use the same `listPages` projection and the already-observed owner rows, and are absent
+while the list is unavailable. The group owns Manage and New, and each row offers Edit, Delete and
+keyboard/pointer reorder through the shared shell's route-owned handlers. On the first successful
+local migration after owner pins arrive, only explicit pins become shortcuts, in order; automatic
+recent projects are not migrated and no legacy owner pins are written. `All projects…` and
+`New project…` are offered by `Home` through `ProjectMenuActionsSlot` when it can manage projects.
+A `scope` route still supplies the base project filter: `inScope` (`project-scope.ts`) scopes the
+rows, tab counts and suggestions, and `project:` narrows inside it (intersection). The menu reuses
+remembered rows and performs no list or details read. The default scope is device-local: `readScope`/`writeScope` keep it per space in
 `localStorage` (a refused access means All pages), the home loader redirects an unscoped `/` to it
 with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
 a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.

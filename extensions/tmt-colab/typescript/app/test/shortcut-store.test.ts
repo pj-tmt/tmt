@@ -75,3 +75,13 @@ it('never commits unreadable filters or a migration marker after failed persiste
   ).toThrow();
   expect(store.read().items).toHaveLength(1);
 });
+
+it('moves a shortcut to the end as one durable reorder', () => {
+  const storage = memory();
+  const store = new ShortcutStore('end', storage);
+  const first = store.save({ name: 'First', search: {} });
+  const second = store.save({ name: 'Second', search: {} });
+  const third = store.save({ name: 'Third', search: {} });
+  store.reorder(first.id, null);
+  expect(store.read().items.map((item) => item.id)).toEqual([second.id, third.id, first.id]);
+});
