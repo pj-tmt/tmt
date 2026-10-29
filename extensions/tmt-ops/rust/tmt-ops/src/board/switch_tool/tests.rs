@@ -17,7 +17,7 @@ fn app() -> App {
 }
 fn loaded() -> Loaded {
     Loaded{hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}},{"host":"herdr","state":"ok","launch":null}]})).unwrap(),
-        config:crate::config::Config::read(std::env::temp_dir().join(format!("ops-switch-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),display_executable:"tmt".into()}
+        config:crate::config::Config::read(std::env::temp_dir().join(format!("ops-switch-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),choices:Default::default(),display_executable:"tmt".into()}
 }
 fn form() -> App {
     let mut app = app();

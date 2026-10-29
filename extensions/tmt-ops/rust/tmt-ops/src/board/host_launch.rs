@@ -4,11 +4,19 @@ use crate::{
     config::Config,
     core::{Core, SquadError},
 };
+use std::collections::BTreeMap;
 pub(in crate::board) struct Loaded {
     pub hosts: Vec<crate::launch::Host>,
     pub config: Config,
     pub executable: String,
     pub display_executable: String,
+    /// Each driver's models and efforts, by driver name; empty from an older Core.
+    pub choices: BTreeMap<String, LaunchChoices>,
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::board) struct LaunchChoices {
+    pub models: Vec<String>,
+    pub efforts: Vec<String>,
 }
 
 pub(in crate::board) fn unavailable(text: impl Into<String>) -> SquadError {
@@ -25,12 +33,43 @@ pub(in crate::board) fn read(core: &Core) -> Result<Loaded, SquadError> {
     Ok(Loaded {
         hosts,
         config: Config::load(core)?,
+        choices: launch_choices(core),
         executable,
         display_executable: display_executable(
             core.executable(),
             std::env::var_os("PATH").as_deref(),
         ),
     })
+}
+
+/// `drivers.models`, read once with the form. It only adds suggestions, so an older Core
+/// or a failed read leaves the observed models and free-form entry.
+fn launch_choices(core: &Core) -> BTreeMap<String, LaunchChoices> {
+    let words = |value: &serde_json::Value| -> Vec<String> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|word| word.as_str())
+            .filter(|word| !word.is_empty() && !word.chars().any(char::is_control))
+            .map(str::to_owned)
+            .collect()
+    };
+    core.api("drivers.models", serde_json::json!({}))
+        .ok()
+        .and_then(|document| document["drivers"].as_array().cloned())
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            Some((
+                row["driver"].as_str()?.to_owned(),
+                LaunchChoices {
+                    models: words(&row["models"]),
+                    efforts: words(&row["efforts"]),
+                },
+            ))
+        })
+        .collect()
 }
 
 impl Loaded {

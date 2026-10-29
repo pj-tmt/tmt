@@ -4,7 +4,9 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "new-member-loading",
     "new-member-form",
     "new-member-temporary",
-    "new-member-review",
+    "new-member-list",
+    "new-member-list-filtered",
+    "new-member-built-in",
     "new-member-copy-only",
     "new-member-copy-temporary",
     "new-member-template",
@@ -39,11 +41,12 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
     c.draft.fields[2] = Editor::from("gpt-6.1-sol");
     match scene {
         "new-member-loading"|"new-member-form"=>{},
-        "new-member-temporary"=>{c.draft.saved=false;c.focus=6;},
-        "new-member-review"=>{c.review=Some(c.draft.review(c.loaded.as_ref().unwrap()).unwrap());c.stage=Stage::Review;},
+        "new-member-temporary"=>{c.draft.saved=false;c.at=Focus::Slot(model::Slot::Keep);},
+        "new-member-list"=>{c.at=Focus::Slot(model::Slot::Model);c.open_list(model::Slot::Model);},
+        "new-member-list-filtered"=>{c.open_list(model::Slot::Model);c.list.as_mut().unwrap().filter=Editor::from("terra");},
+        "new-member-built-in"=>{c.draft.set(model::Slot::Host,model::BUILT_IN_HOST);c.draft.set(model::Slot::Effort,"high");c.at=Focus::Create;},
         "new-member-copy-only"|"new-member-copy-temporary"=>{
-            c.draft.fields[4]=Editor::from("herdr");c.draft.saved=scene!="new-member-copy-temporary";
-            c.review=Some(c.draft.review(c.loaded.as_ref().unwrap()).unwrap());c.stage=Stage::Review;
+            c.draft.fields[4]=Editor::from("herdr");c.draft.saved=scene!="new-member-copy-temporary";c.at=Focus::Create;
         },
         "new-member-template"|"new-member-template-error"=>{
             c.begin_template();
@@ -63,7 +66,7 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
 pub(in crate::board) fn metadata(app: &App) -> serde_json::Value {
     let c = app.new_member.as_ref().unwrap();
     let rect = |r: Rect| [r.x, r.y, r.width, r.height];
-    json!({"fields":c.fields.borrow().iter().map(|(index,area)|json!({"field":format!("{index:?}"),"rect":rect(*area)})).collect::<Vec<_>>(),"controls":c.controls.get().map(|r|r.map(rect)),"focus":c.focus,"readable":c.readable.get(),"stage":format!("{:?}",c.stage),"scroll":c.scroll.borrow().offset()})
+    json!({"fields":c.fields.borrow().iter().map(|(index,area)|json!({"field":format!("{index:?}"),"rect":rect(*area)})).collect::<Vec<_>>(),"controls":c.controls.get().map(|r|r.map(rect)),"focus":c.focus,"at":format!("{:?}",c.at),"list":c.list.as_ref().map(|l|json!({"slot":format!("{:?}",l.slot),"filter":l.filter.as_str(),"row":l.row})),"readable":c.readable.get(),"stage":format!("{:?}",c.stage),"scroll":c.scroll.borrow().offset()})
 }
 #[test]
 fn literal_scenes_paint_without_commands_at_the_admitted_and_short_sizes() {

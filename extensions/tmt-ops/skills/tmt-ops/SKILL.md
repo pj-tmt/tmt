@@ -622,25 +622,33 @@ Default `j` jumps through the observed tmux binding only from a tmux invoker; He
 focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
 The header names the target and effective action; custom bindings retain their
 actual argv. `j` is not tree navigation.
-New member keeps Name, AI tool, Model, Squad, Host, Session and Saved/Temporary
-visible. Tab moves fields, Space cycles published/observed choices, and text fields
-remain editable. Defaults use public observations in the selected squad, with the
-model chosen only within the selected tool. Outside a squad, with no location/session, Host starts
+New member shows Name, AI tool, Model, Effort, Host, Session, Squad and Keep
+(Saved/Temporary); Effort appears only when the tool's driver lists efforts, and
+Session only on tmux. ↑↓ (or Tab) move through the fields and the Cancel/Create
+buttons, ←→ change a listed (▾) field, and Enter opens its list: type to filter, and
+the last row takes free text (a model id, a session, or a new squad created with the
+kept member). Model and Effort lists come from Core's `drivers.models`, else from
+observed models; "(provider default)" omits the option. The built-in host shows as
+"Built-in terminal (no tmux)". Defaults use public observations in the selected squad, with the
+model chosen only within the selected tool; changing tool clears model and effort.
+Outside a squad, with no location/session, Host starts
 at the first `builtin`/`ok` published host with a launch template, and Session at
-`common`. Review shows the selected session and literal commands; Cancel is selected
-first. Display and Copy use `tmt` when PATH resolves to the board's Core executable,
+`common`. The form previews the literal commands (`tmt run [--host pty] [--model M]
+[--effort E] NAME TOOL`, then keep and squad commands); Create runs them with no
+separate review. Display and Copy use `tmt` when PATH resolves to the board's Core executable,
 otherwise its full path; execution keeps the exact executable. Temporary locks Squad to Common pool; returning to Saved restores the prior
 squad. No existing identity is reused deliberately, and Core rechecks every launch.
-A failed or uncertain launch keeps the draft; never retry before checking public
+A clean start on the built-in host closes the form, selects the member and shows
+its Terminal view. A failed or uncertain launch keeps the draft; never retry before checking public
 state. A created member whose squad add fails remains visible in Common pool with
 its repair command.
 
-`e` on Host or review opens its launch template, also available from Comma Settings
+`e` on Host or a button opens its launch template, also available from Comma Settings
 → **Launch templates…**. Edit JSON argv; `ctrl-r` resets only the host override.
 `{session}` and `{command}` occupy whole argv words; other host-script braces stay
 literal. The command slot is one shell-quoted command string consumed once by the
 host. Overrides live in `[launch.<host>].argv` and save with Config's normal conflict
-check. A host with no template stays copy-only: Copy gives the foreground launch
+check. A host with no template stays copy-only: Create becomes Copy commands and gives the foreground launch
 and, for Saved in a squad, a separately labelled add command to run after creation.
 Temporary copies only the launch line. Copy never creates an identity or membership.
 

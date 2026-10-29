@@ -89,7 +89,8 @@ are owned by the verification reference.
 `board/host_launch` shares worker-side public templates/Config reads, effective
 slot preparation and frozen-argv rechecks with `board/switch_tool`; `crate::launch`
 remains the pure validation/quoting owner. `board/tool_choices` projects suggestions
-from observed tools/models; it is not a provider registry. Input/paint never reads
+from observed tools/models; it is not a provider registry. New member also reads
+Core's `drivers.models` once on the worker load (empty on an older Core). Input/paint never reads
 Core or locks Config. New member observes a new bound UUID before joining the frozen
 room; a failed join reports/selects that Pool member with a repair command.
 

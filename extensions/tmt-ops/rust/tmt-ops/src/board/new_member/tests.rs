@@ -5,7 +5,8 @@ use crate::board::app::workspace::tests::board;
 use crate::{config::Config, core::SquadError};
 use serde_json::json;
 fn loaded() -> Loaded {
-    Loaded{hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"herdr","state":"ok","launch":null},{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}}]})).unwrap(),config:Config::read(std::env::temp_dir().join(format!("ops-new-member-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),display_executable:"tmt".into()}
+    Loaded{hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"herdr","state":"ok","launch":null},{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}},{"host":"pty","state":"builtin","launch":{"argv":["pty-host","{session}","{command}"],"placeholders":["session","command"]}}]})).unwrap(),config:Config::read(std::env::temp_dir().join(format!("ops-new-member-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),display_executable:"tmt".into(),
+    choices:[("codex".to_owned(),crate::board::host_launch::LaunchChoices{models:vec!["gpt-6.1-sol".into(),"gpt-6.1-terra".into()],efforts:vec!["low".into(),"medium".into(),"high".into()]})].into()}
 }
 #[test]
 fn pool_defaults_to_first_eligible_published_host_and_common_not_running() {
@@ -107,8 +108,8 @@ fn form() -> App {
 fn temporary_disables_squad_preserves_saved_choice_and_null_copy_has_no_add() {
     let _ui = crate::runner::forbid_commands();
     let mut app = form();
-    let original = app.new_member.as_ref().unwrap().draft.fields[3].clone();
-    app.new_member.as_mut().unwrap().focus = 6;
+    let original = app.new_member.as_ref().unwrap().draft.fields[6].clone();
+    app.new_member.as_mut().unwrap().at = Focus::Slot(model::Slot::Keep);
     key(&mut app, KeyCode::Char(' '));
     let c = app.new_member.as_mut().unwrap();
     assert!(!c.draft.saved);
@@ -125,54 +126,212 @@ fn temporary_disables_squad_preserves_saved_choice_and_null_copy_has_no_add() {
             .fields
             .borrow()
             .iter()
-            .any(|(i, _)| *i == Field::Text(3))
+            .any(|(i, _)| *i == Field::Slot(model::Slot::Squad))
     );
-    app.new_member.as_mut().unwrap().focus = 6;
+    app.new_member.as_mut().unwrap().at = Focus::Slot(model::Slot::Keep);
     key(&mut app, KeyCode::Char(' '));
-    assert_eq!(app.new_member.as_ref().unwrap().draft.fields[3], original);
+    assert_eq!(app.new_member.as_ref().unwrap().draft.fields[6], original);
 }
 #[test]
-fn form_and_review_are_admitted_at_design_sizes_and_launch_only_once() {
+fn the_form_is_admitted_at_design_sizes_and_create_launches_only_once() {
     let _ui = crate::runner::forbid_commands();
     for width in [80, 150] {
         let mut app = form();
-        app.new_member.as_mut().unwrap().focus = 8;
+        app.new_member.as_mut().unwrap().at = Focus::Create;
         let screen = paint(&app, width, 43);
         assert!(
             app.new_member.as_ref().unwrap().readable.get(),
             "{width}: {screen}"
         );
-        assert!(screen.contains("Will run"));
-        key(&mut app, KeyCode::Enter);
-        assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Review);
-        paint(&app, width, 43);
-        assert!(app.new_member.as_ref().unwrap().readable.get());
-        key(&mut app, KeyCode::Tab);
-        paint(&app, width, 43);
-        assert!(matches!(
-            key(&mut app, KeyCode::Enter),
-            Effect::NewMember(Task {
-                work: Work::Launch(_),
-                ..
-            })
-        ));
+        assert!(screen.contains("Runs"));
+        // No Review step: Create starts the launch.
+        let effect = key(&mut app, KeyCode::Enter);
+        assert!(
+            matches!(
+                effect,
+                Effect::NewMember(Task {
+                    work: Work::Launch(_),
+                    ..
+                })
+            ),
+            "{effect:?} {:?}",
+            app.new_member.as_ref().map(|c| (&c.notice, &c.stage, c.at))
+        );
+        assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Launching);
         assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     }
 }
 #[test]
-fn clipped_review_and_stale_hits_cannot_start_a_launch() {
+fn a_clipped_form_and_stale_hits_cannot_start_a_launch() {
     let _ui = crate::runner::forbid_commands();
     let mut app = form();
-    let c = app.new_member.as_mut().unwrap();
-    c.review = Some(c.draft.review(c.loaded.as_ref().unwrap()).unwrap());
-    c.stage = Stage::Review;
-    c.focus = 1;
+    app.new_member.as_mut().unwrap().at = Focus::Create;
     paint(&app, 80, 8);
     assert!(!app.new_member.as_ref().unwrap().readable.get());
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Form);
+}
+#[test]
+fn arrows_reach_every_shown_field_and_both_buttons() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = form();
+    let stops = |app: &mut App| {
+        let mut seen = vec![app.new_member.as_ref().unwrap().at];
+        loop {
+            key(app, KeyCode::Down);
+            let at = app.new_member.as_ref().unwrap().at;
+            if at == seen[0] {
+                return seen;
+            }
+            seen.push(at);
+        }
+    };
+    use model::Slot::*;
+    let slots = |slots: &[model::Slot]| {
+        slots
+            .iter()
+            .map(|s| Focus::Slot(*s))
+            .chain([Focus::Cancel, Focus::Create])
+            .collect::<Vec<_>>()
+    };
+    // tmux shows its Session; codex has efforts.
+    assert_eq!(
+        stops(&mut app),
+        slots(&[Name, Tool, Model, Effort, Host, Session, Squad, Keep])
+    );
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Create);
+    // The built-in host has no session; a tool without efforts hides Effort.
+    let c = app.new_member.as_mut().unwrap();
+    c.draft.set(Host, model::BUILT_IN_HOST);
+    c.draft.set(Tool, "claude");
+    c.at = Focus::Slot(Name);
+    assert_eq!(
+        stops(&mut app),
+        slots(&[Name, Tool, Model, Host, Squad, Keep])
+    );
+}
+#[test]
+fn a_list_filters_takes_free_form_text_and_escape_closes_it_first() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = form();
+    app.new_member.as_mut().unwrap().at = Focus::Slot(model::Slot::Model);
+    key(&mut app, KeyCode::Enter);
+    let labels = |app: &App| {
+        app.new_member
+            .as_ref()
+            .unwrap()
+            .rows()
+            .into_iter()
+            .map(|c| c.label)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        labels(&app),
+        [
+            "(provider default)",
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "Type a model id…"
+        ]
+    );
+    for c in "terra".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    assert_eq!(labels(&app), ["gpt-6.1-terra", "Use “terra”"]);
+    key(&mut app, KeyCode::Enter);
+    let c = app.new_member.as_ref().unwrap();
+    assert!(c.list.is_none());
+    assert_eq!(c.draft.text(model::Slot::Model), "gpt-6.1-terra");
+    // A model the driver does not list is typed into the free-form row.
+    key(&mut app, KeyCode::Enter);
+    for c in "my-model".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.new_member
+            .as_ref()
+            .unwrap()
+            .draft
+            .text(model::Slot::Model),
+        "my-model"
+    );
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert!(app.new_member.as_ref().unwrap().list.is_none());
+    key(&mut app, KeyCode::Esc);
+    assert!(app.new_member.is_none());
+}
+#[test]
+fn the_command_passes_model_and_effort_before_the_name_and_a_new_squad_is_created() {
+    let mut app = form();
+    let c = app.new_member.as_mut().unwrap();
+    c.draft.set(model::Slot::Effort, "high");
+    c.draft.set(model::Slot::Model, "gpt-6.1-sol");
+    c.draft.set(model::Slot::Squad, "fresh");
+    let review = c.draft.review(c.loaded.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        review.command[1..],
+        [
+            "run",
+            "--model",
+            "gpt-6.1-sol",
+            "--effort",
+            "high",
+            "new-worker",
+            "codex"
+        ]
+    );
+    assert_eq!(review.new_squad.as_deref(), Some("fresh"));
+    let copied = review.copy();
+    assert!(copied.contains("tmt ops sq init fresh"), "{copied}");
+    assert!(copied.contains("tmt ops sq add --squad fresh -- new-worker"));
+    // Another tool forgets the model and effort it cannot use.
+    c.draft.set(model::Slot::Tool, "claude");
+    assert_eq!(c.draft.text(model::Slot::Model), "");
+    assert_eq!(c.draft.text(model::Slot::Effort), "");
+    // A model that would read as an option is refused.
+    c.draft.set(model::Slot::Model, "--resume");
+    assert!(c.draft.review(c.loaded.as_ref().unwrap()).is_err());
+}
+#[test]
+fn a_clean_built_in_start_closes_the_form_onto_the_member_terminal() {
+    let mut app = form();
+    let c = app.new_member.as_mut().unwrap();
+    c.draft.set(model::Slot::Host, model::BUILT_IN_HOST);
+    let review = c.draft.review(c.loaded.as_ref().unwrap()).unwrap();
+    let task = c.task(Work::Launch(review));
+    app.right_tab = crate::board::shell::RightTab::Measure;
+    let effect = app.finished_new_member(Completed {
+        task,
+        result: Ok(Outcome::Created {
+            id: "33333333-3333-4333-8333-333333333333".into(),
+            room: None,
+            message: "Created new-worker in Common pool.".into(),
+        }),
+    });
+    assert_eq!(effect, Effect::Refresh);
+    assert!(app.new_member.is_none());
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+    assert!(app.terminal.shown());
+    // A tmux start, or one with a partial failure, stays on the result.
+    let mut app = form();
+    let c = app.new_member.as_ref().unwrap();
+    let review = c.draft.review(c.loaded.as_ref().unwrap()).unwrap();
+    let task = c.task(Work::Launch(review));
+    app.finished_new_member(Completed {
+        task,
+        result: Ok(Outcome::Created {
+            id: "33333333-3333-4333-8333-333333333333".into(),
+            room: None,
+            message: "Created new-worker in Common pool.".into(),
+        }),
+    });
     assert!(matches!(
         app.new_member.as_ref().unwrap().stage,
-        Stage::Review
+        Stage::Result(_)
     ));
 }
 #[test]
@@ -180,7 +339,7 @@ fn template_editor_returns_to_the_exact_member_draft_without_saving_on_escape() 
     let _ui = crate::runner::forbid_commands();
     let mut app = form();
     let draft = app.new_member.as_ref().unwrap().draft.fields.clone();
-    app.new_member.as_mut().unwrap().focus = 4;
+    app.new_member.as_mut().unwrap().at = Focus::Slot(model::Slot::Host);
     key(&mut app, KeyCode::Char('e'));
     assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Template);
     app.new_member_event(&Event::Paste(" invalid".into()));
@@ -247,7 +406,7 @@ fn copy_uses_the_reviewed_human_host_command() {
 fn host_selector_cycles_without_typing_over_its_published_value() {
     let _ui = crate::runner::forbid_commands();
     let mut app = form();
-    app.new_member.as_mut().unwrap().focus = 4;
+    app.new_member.as_mut().unwrap().at = Focus::Slot(model::Slot::Host);
     key(&mut app, KeyCode::Char('h'));
     assert_eq!(
         app.new_member.as_ref().unwrap().draft.fields[4].as_str(),
@@ -256,7 +415,7 @@ fn host_selector_cycles_without_typing_over_its_published_value() {
     key(&mut app, KeyCode::Char(' '));
     assert_eq!(
         app.new_member.as_ref().unwrap().draft.fields[4].as_str(),
-        "herdr"
+        "pty"
     );
     key(&mut app, KeyCode::Char('e'));
     assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Template);
@@ -314,16 +473,23 @@ fn dialogs_use_compact_content_and_the_approved_copy() {
                     }
                 }
                 "new-member-copy-only" | "new-member-copy-temporary" => {
-                    let lines = c.review.as_ref().unwrap().lines();
-                    assert_eq!(lines[0], "Copy only · herdr has no launch template.");
-                    assert!(text.contains("Run in your terminal"));
-                    assert!(!text.contains("Will run"));
-                    assert!(area.height < 20, "{scene}: {area:?}");
+                    assert!(text.contains("Copy only · this host has no launch template"));
+                    assert!(text.contains("Copy commands"));
+                    assert!(!text.contains("Runs"));
                 }
-                "new-member-review" => {
-                    assert!(text.contains("Opens with"));
+                "new-member-form" => {
+                    assert!(text.contains("Runs · e edit template"));
                     assert!(!text.contains("/tool/tmt"));
-                    assert!(area.height < 20, "{area:?}");
+                }
+                "new-member-built-in" => {
+                    assert!(text.contains("Built-in terminal (no tmux)"));
+                    assert!(!text.contains("Session"));
+                    assert!(text.contains("--effort high new-worker codex"), "{text}");
+                }
+                "new-member-list-filtered" => {
+                    assert!(text.contains("Model · type to filter"));
+                    assert!(text.contains("Use “terra”"));
+                    assert!(!text.contains("gpt-6.1-sol"));
                 }
                 "new-member-pending" => {
                     assert!(text.contains("Starting new-worker in tmux / common…"));

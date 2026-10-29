@@ -141,6 +141,11 @@ impl Tab {
         self.shown
     }
 
+    /// Asks for the terminal rather than the chat; it shows once its member has a stream.
+    pub(in crate::board) fn show(&mut self) {
+        self.shown = true;
+    }
+
     /// The tab is on for `identity`: asked for, and a stream exists to show.
     pub(in crate::board) fn showing(&self, identity: &str) -> bool {
         self.shown && self.address(identity).is_some()

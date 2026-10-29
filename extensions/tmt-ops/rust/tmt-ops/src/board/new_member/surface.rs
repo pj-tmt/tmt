@@ -11,7 +11,6 @@ fn safe(text: &str) -> String {
 impl Controller {
     fn body_lines(&self) -> Vec<String> {
         match &self.stage {
-            Stage::Review => self.review.as_ref().map(|r| r.lines()).unwrap_or_default(),
             Stage::Saving => vec![
                 "Saving launch template…".into(),
                 "Member draft kept.".into(),
@@ -20,10 +19,16 @@ impl Controller {
                 .review
                 .as_ref()
                 .map(|r| {
-                    vec![format!(
-                        "Starting {} in {} / {}…",
-                        r.name, r.host, r.session
-                    )]
+                    vec![if r.host == model::BUILT_IN_HOST {
+                        format!("Starting {} in the built-in terminal…", r.name)
+                    } else {
+                        format!(
+                            "Starting {} in {} / {}…",
+                            r.name,
+                            model::host_label(&r.host),
+                            r.session
+                        )
+                    }]
                 })
                 .unwrap_or_default(),
             Stage::Result(text) => text.lines().map(str::to_owned).collect(),
@@ -36,10 +41,15 @@ impl Controller {
             .and_then(|loaded| self.draft.review(loaded).ok())
             .map(|review| {
                 let mut text = vec![
-                    "Will run · e edit template".to_owned(),
+                    if review.outer.is_some() {
+                        "Runs · e edit template"
+                    } else {
+                        "Copy only · this host has no launch template"
+                    }
+                    .to_owned(),
                     crate::launch::line(&review.display.command),
                 ];
-                // The follow-up commands, keep then squad add, one row each.
+                // The follow-up commands, keep then squad, one row each.
                 text.extend(review.copy().lines().skip(1).map(str::to_owned));
                 text.iter()
                     .flat_map(|line| super::super::notes::wrap(&safe(line), usize::from(width)))
@@ -47,22 +57,32 @@ impl Controller {
             })
             .unwrap_or_default()
     }
+    fn temporary_hint(&self, width: u16) -> Vec<String> {
+        if self.draft.saved {
+            return vec![];
+        }
+        super::super::notes::wrap(
+            "Temporary agents stay in Common pool; choose Saved to join a squad.",
+            usize::from(width),
+        )
+    }
+    /// Form rows: the intro, one row per shown field with a gap, the Temporary hint, then the
+    /// command preview after one blank row.
+    fn form_height(&self, width: u16) -> (usize, usize) {
+        let fields = 2 * self.draft.visible(self.loaded.as_ref()).len() + 1;
+        let hint = self.temporary_hint(width).len();
+        (fields + hint, fields + hint + 1)
+    }
     fn content_height(&self, width: u16) -> usize {
         match self.stage {
+            Stage::Form if self.list.is_some() => 3 + self.rows().len(),
             Stage::Form if self.loaded.is_some() => {
+                let (rows, preview_at) = self.form_height(width);
                 let preview = self.preview_lines(width);
                 if preview.is_empty() {
-                    if self.draft.saved {
-                        15
-                    } else {
-                        15 + super::super::notes::wrap(
-                            "Temporary agents stay in Common pool; choose Saved to join a squad.",
-                            usize::from(width),
-                        )
-                        .len()
-                    }
+                    rows
                 } else {
-                    (if self.draft.saved { 16 } else { 17 }) + preview.len()
+                    preview_at + preview.len()
                 }
             }
             Stage::Form | Stage::Hosts if self.loaded.is_none() => 1,
@@ -110,7 +130,7 @@ impl Controller {
             .set_dialog(crate::board::app::Overlay::NewMember, Some(areas.outer));
         let content = areas.content;
         let mut complete = content.width >= 34;
-        let mut paint = |text: &str, row: usize, role: Role| {
+        let paint = |frame: &mut Frame, text: &str, row: usize, role: Role| {
             if row < usize::from(content.height) {
                 strip::paint_left(
                     frame.buffer_mut(),
@@ -120,168 +140,212 @@ impl Controller {
             }
         };
         match &self.stage {
-            Stage::Form => {
-                if self.loaded.is_none() {
+            Stage::Form if self.loaded.is_none() => {
+                paint(
+                    frame,
+                    if self.notice.is_some() {
+                        "Host templates unavailable. Close and reopen to retry."
+                    } else {
+                        "Loading host templates…"
+                    },
+                    0,
+                    Role::Muted,
+                );
+                complete = false;
+            }
+            Stage::Form if self.list.is_some() => {
+                let list = self.list.as_ref().unwrap();
+                paint(
+                    frame,
+                    &format!("{} · type to filter", list.slot.label()),
+                    0,
+                    Role::Muted,
+                );
+                let area = Rect::new(
+                    content.x,
+                    content.y + 1,
+                    content.width,
+                    1.min(content.height.saturating_sub(1)),
+                );
+                let layout = list.filter.layout(area.width);
+                let cursor = layout.paint(
+                    frame.buffer_mut(),
+                    area,
+                    0,
+                    list.filter.selection(),
+                    look.role(Role::Accent),
+                    look.selection(),
+                );
+                self.editor_width.set(area.width);
+                if let Some(cursor) = cursor {
+                    frame.set_cursor_position(cursor);
+                }
+                if list.filter.is_empty() && area.height > 0 {
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        area,
+                        Line::styled("filter", look.role(Role::Muted)),
+                    );
+                }
+                for (index, choice) in self.rows().iter().enumerate() {
+                    let y = 3 + index;
+                    if y >= usize::from(content.height) {
+                        complete = false;
+                        continue;
+                    }
+                    let selected = index == list.row;
                     paint(
-                        if self.notice.is_some() {
-                            "Host templates unavailable. Close and reopen to retry."
-                        } else {
-                            "Loading host templates…"
-                        },
-                        0,
+                        frame,
+                        &format!("{} {}", if selected { "›" } else { " " }, choice.label),
+                        y,
+                        if selected { Role::Accent } else { Role::Text },
+                    );
+                    self.fields.borrow_mut().push((
+                        Field::Choice(index),
+                        Rect::new(content.x, content.y + y as u16, content.width, 1),
+                    ));
+                }
+            }
+            Stage::Form => {
+                paint(
+                    frame,
+                    "Create an agent and start it on a host.",
+                    0,
+                    Role::Muted,
+                );
+                let slots = self.draft.visible(self.loaded.as_ref());
+                for (index, slot) in slots.iter().copied().enumerate() {
+                    let y = 2 + index * 2;
+                    if y >= usize::from(content.height) {
+                        complete = false;
+                        continue;
+                    }
+                    paint(frame, slot.label(), y, Role::Muted);
+                    let area = Rect::new(
+                        content.x + 12,
+                        content.y + y as u16,
+                        content.width.saturating_sub(12),
+                        1,
+                    );
+                    let focus = self.at == Focus::Slot(slot);
+                    if slot == model::Slot::Keep {
+                        if area.width >= 7 {
+                            self.fields
+                                .borrow_mut()
+                                .push((Field::Keep(true), Rect::new(area.x, area.y, 7, 1)));
+                        }
+                        if area.width >= 21 {
+                            self.fields
+                                .borrow_mut()
+                                .push((Field::Keep(false), Rect::new(area.x + 10, area.y, 11, 1)));
+                        }
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            area,
+                            Line::styled(
+                                if self.draft.saved {
+                                    "● Saved   ○ Temporary"
+                                } else {
+                                    "○ Saved   ● Temporary"
+                                },
+                                if focus {
+                                    look.selection()
+                                } else {
+                                    look.role(Role::Text)
+                                },
+                            ),
+                        );
+                        continue;
+                    }
+                    if slot == model::Slot::Squad && !self.draft.saved {
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            area,
+                            Line::styled("Common pool", look.role(Role::Muted)),
+                        );
+                        continue;
+                    }
+                    self.fields.borrow_mut().push((Field::Slot(slot), area));
+                    // A listed field keeps its last column for ▾.
+                    let text_area = if slot.listed() {
+                        Rect::new(area.x, area.y, area.width.saturating_sub(2), 1)
+                    } else {
+                        area
+                    };
+                    if slot.listed() && area.width >= 2 {
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            Rect::new(area.right() - 1, area.y, 1, 1),
+                            Line::styled("▾", look.role(Role::Muted)),
+                        );
+                    }
+                    if slot.typed() {
+                        let editor = &self.draft.fields[slot.index()];
+                        let layout = editor.layout(text_area.width);
+                        let cursor = layout.paint(
+                            frame.buffer_mut(),
+                            text_area,
+                            0,
+                            editor.selection(),
+                            look.role(if focus { Role::Accent } else { Role::Text }),
+                            look.selection(),
+                        );
+                        if focus {
+                            self.editor_width.set(text_area.width);
+                            if let Some(cursor) = cursor {
+                                frame.set_cursor_position(cursor);
+                            }
+                        }
+                        if editor.is_empty() {
+                            let placeholder = match slot {
+                                model::Slot::Name => "agent name",
+                                model::Slot::Tool => "choose or type a tool",
+                                model::Slot::Model => "(provider default)",
+                                model::Slot::Squad => "Common pool",
+                                _ => "session",
+                            };
+                            strip::paint_left(
+                                frame.buffer_mut(),
+                                text_area,
+                                Line::styled(placeholder, look.role(Role::Muted)),
+                            );
+                        }
+                    } else {
+                        let shown = self.draft.shown(slot);
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            text_area,
+                            Line::styled(
+                                shown.unwrap_or_else(|| match slot {
+                                    model::Slot::Host => "choose host".into(),
+                                    _ => "(provider default)".into(),
+                                }),
+                                if focus {
+                                    look.selection()
+                                } else {
+                                    look.role(Role::Text)
+                                },
+                            ),
+                        );
+                    }
+                }
+                let (rows, preview_at) = self.form_height(content.width);
+                for (index, line) in self.temporary_hint(content.width).iter().enumerate() {
+                    paint(
+                        frame,
+                        line,
+                        rows - self.temporary_hint(content.width).len() + index,
                         Role::Muted,
                     );
-                    complete = false;
-                } else {
-                    paint("Create an agent in a new host window.", 0, Role::Muted);
-                    for (index, label) in model::LABELS.iter().enumerate() {
-                        let y = 2 + index * 2;
-                        paint(label, y, Role::Muted);
-                    }
-                    for index in 0..7 {
-                        let y = 2 + index * 2;
-                        if y >= usize::from(content.height) {
-                            complete = false;
-                            continue;
-                        }
-                        let area = Rect::new(
-                            content.x + 12,
-                            content.y + y as u16,
-                            content.width.saturating_sub(12),
-                            1,
-                        );
-                        if index == 3 && !self.draft.saved {
-                            strip::paint_left(
-                                frame.buffer_mut(),
-                                area,
-                                Line::styled("Common pool", look.role(Role::Muted)),
-                            );
-                            continue;
-                        }
-                        if index == 4 {
-                            self.fields.borrow_mut().push((Field::Host, area));
-                            strip::paint_left(
-                                frame.buffer_mut(),
-                                area,
-                                Line::styled(
-                                    format!(
-                                        "{} ▾",
-                                        if self.draft.fields[4].is_empty() {
-                                            "choose host"
-                                        } else {
-                                            self.draft.fields[4].as_str()
-                                        }
-                                    ),
-                                    if self.focus == 4 {
-                                        look.selection()
-                                    } else {
-                                        look.role(Role::Text)
-                                    },
-                                ),
-                            );
-                            continue;
-                        }
-                        if index < 6 {
-                            self.fields.borrow_mut().push((Field::Text(index), area));
-                        } else {
-                            let first = Rect::new(area.x, area.y, 7.min(area.width), 1);
-                            if area.width >= 7 {
-                                self.fields
-                                    .borrow_mut()
-                                    .push((Field::Identity(true), first));
-                            }
-                            if area.width >= 21 {
-                                self.fields.borrow_mut().push((
-                                    Field::Identity(false),
-                                    Rect::new(area.x + 10, area.y, 11, 1),
-                                ));
-                            }
-                        }
-                        if index < 6 {
-                            let editor = &self.draft.fields[index];
-                            let layout = editor.layout(area.width);
-                            let focus = self.focus == index;
-                            let cursor = layout.paint(
-                                frame.buffer_mut(),
-                                area,
-                                0,
-                                editor.selection(),
-                                look.role(if focus { Role::Accent } else { Role::Text }),
-                                look.selection(),
-                            );
-                            if focus {
-                                self.editor_width.set(area.width);
-                                if let Some(cursor) = cursor {
-                                    frame.set_cursor_position(cursor);
-                                }
-                            }
-                            if editor.is_empty() {
-                                let placeholder = match index {
-                                    0 => "agent name",
-                                    1 => "choose or type tool",
-                                    2 => "provider default",
-                                    3 => "Common pool",
-                                    4 => "choose host",
-                                    _ => "session",
-                                };
-                                strip::paint_left(
-                                    frame.buffer_mut(),
-                                    area,
-                                    Line::styled(placeholder, look.role(Role::Muted)),
-                                );
-                            }
-                        } else {
-                            strip::paint_left(
-                                frame.buffer_mut(),
-                                area,
-                                Line::styled(
-                                    if self.draft.saved {
-                                        "● Saved   ○ Temporary"
-                                    } else {
-                                        "○ Saved   ● Temporary"
-                                    },
-                                    if self.focus == index {
-                                        look.selection()
-                                    } else {
-                                        look.role(Role::Text)
-                                    },
-                                ),
-                            );
-                        }
-                    }
-                    if !self.draft.saved {
-                        let hint =
-                            "Temporary agents stay in Common pool; choose Saved to join a squad.";
-                        for (index, line) in
-                            super::super::notes::wrap(hint, usize::from(content.width))
-                                .iter()
-                                .enumerate()
-                        {
-                            let y = 15 + index;
-                            if y < usize::from(content.height) {
-                                strip::paint_left(
-                                    frame.buffer_mut(),
-                                    Rect::new(content.x, content.y + y as u16, content.width, 1),
-                                    Line::styled(line.clone(), look.role(Role::Muted)),
-                                );
-                            }
-                        }
-                    }
-                    for (index, line) in self.preview_lines(content.width).iter().enumerate() {
-                        let y = if self.draft.saved { 16 } else { 17 } + index;
-                        if y < usize::from(content.height) {
-                            strip::paint_left(
-                                frame.buffer_mut(),
-                                Rect::new(content.x, content.y + y as u16, content.width, 1),
-                                Line::styled(line.clone(), look.role(Role::Muted)),
-                            );
-                        }
-                    }
+                }
+                for (index, line) in self.preview_lines(content.width).iter().enumerate() {
+                    paint(frame, line, preview_at + index, Role::Muted);
                 }
             }
             Stage::Hosts => {
                 if let Some(loaded) = &self.loaded {
                     paint(
+                        frame,
                         "Host templates · Enter edit · Ctrl-R in the editor resets",
                         0,
                         Role::Muted,
@@ -289,6 +353,7 @@ impl Controller {
                     for (index, host) in loaded.hosts.iter().enumerate() {
                         let selected = host.name == self.draft.fields[4].as_str();
                         paint(
+                            frame,
                             &format!(
                                 "{} {} · {}{}",
                                 if selected { "›" } else { " " },
@@ -306,6 +371,7 @@ impl Controller {
                     }
                 } else {
                     paint(
+                        frame,
                         if self.notice.is_some() {
                             "Host templates unavailable. Close and reopen to retry."
                         } else {
@@ -319,6 +385,7 @@ impl Controller {
             }
             Stage::Template => {
                 paint(
+                    frame,
                     &format!(
                         "{} · JSON argv; whole {{session}} / {{command}} slots",
                         self.draft.fields[4]
@@ -365,7 +432,7 @@ impl Controller {
                     .take(usize::from(content.height))
                     .enumerate()
                 {
-                    paint(line, row, Role::Text);
+                    paint(frame, line, row, Role::Text);
                 }
                 complete &= scroll.offset() + usize::from(content.height) >= lines.len();
                 if let Some(position) = scroll.overflow_position() {
@@ -386,23 +453,32 @@ impl Controller {
                 Line::styled(safe(notice), look.role(Role::Waiting)),
             );
         }
+        let copy_only = self
+            .loaded
+            .as_ref()
+            .and_then(|l| self.draft.review(l).ok())
+            .is_some_and(|r| r.outer.is_none());
         let (cancel, apply, focus) = match self.stage {
-            Stage::Form if unavailable => ("Cancel", "", 0),
-            Stage::Form => ("Cancel", "Review", self.focus.saturating_sub(7)),
-            Stage::Hosts if unavailable => ("Close", "", 0),
-            Stage::Hosts => ("Close", "Edit template", 1),
-            Stage::Review => (
+            Stage::Form if unavailable => ("Cancel", "", None),
+            Stage::Form if self.list.is_some() => ("Back", "Choose", Some(1)),
+            Stage::Form => (
                 "Cancel",
-                if self.review.as_ref().is_some_and(|r| r.outer.is_none()) {
-                    "Copy commands"
-                } else {
-                    "Create"
+                if copy_only { "Copy commands" } else { "Create" },
+                match self.at {
+                    Focus::Cancel => Some(0),
+                    Focus::Create => Some(1),
+                    Focus::Slot(_) => None,
                 },
-                self.focus,
             ),
-            Stage::Template => ("Cancel", "Save template", self.focus.saturating_sub(1)),
-            Stage::Launching | Stage::Saving => ("", "", 0),
-            Stage::Result(_) => ("Close", "", 0),
+            Stage::Hosts if unavailable => ("Close", "", None),
+            Stage::Hosts => ("Close", "Edit template", Some(1)),
+            Stage::Template => (
+                "Cancel",
+                "Save template",
+                Some(self.focus.saturating_sub(1)),
+            ),
+            Stage::Launching | Stage::Saving => ("", "", None),
+            Stage::Result(_) => ("Close", "", Some(0)),
         };
         complete &= body.height >= 10;
         if matches!(self.stage, Stage::Form | Stage::Hosts) {
@@ -410,10 +486,10 @@ impl Controller {
         }
         let buttons = [
             super::super::buttons::Button::secondary(cancel)
-                .focused(focus == 0 && (self.stage != Stage::Form || self.focus >= 7))
+                .focused(focus == Some(0))
                 .enabled(!cancel.is_empty()),
             super::super::buttons::Button::primary(apply)
-                .focused(focus == 1)
+                .focused(focus == Some(1))
                 .enabled(complete && !apply.is_empty()),
         ];
         let buttons = &buttons[..if apply.is_empty() {
@@ -444,9 +520,9 @@ impl Controller {
             .min(areas.footer.right());
         let hint = match self.stage {
             Stage::Form | Stage::Hosts if unavailable => "Esc close",
-            Stage::Form => "Tab next · Space choose · e template · Esc cancel",
+            Stage::Form if self.list.is_some() => "↑↓ choose · type to filter · Esc back",
+            Stage::Form => "↑↓ move · ←→ change · Enter list · e template",
             Stage::Template => "Ctrl-R reset · Esc back",
-            Stage::Review => "c copy · e template · PgDn read · Esc back",
             _ => "Esc close",
         };
         strip::paint_left(

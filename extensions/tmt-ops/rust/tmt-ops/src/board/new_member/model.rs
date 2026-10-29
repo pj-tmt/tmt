@@ -1,19 +1,102 @@
-//! Frozen form defaults and review over held public observations.
+//! Frozen form defaults, field choices and the launch plan over held public observations.
 use super::super::tool_choices::observed_model;
 use super::*;
 use crate::membership::workspace::RoomTarget;
 use std::collections::{BTreeMap, BTreeSet};
 use tmt_tui::components::Editor;
 
-pub(super) const LABELS: [&str; 7] = [
-    "Name", "AI tool", "Model", "Squad", "Host", "Session", "Identity",
-];
+/// One form field, in screen order. Every field but Keep holds text in `Draft::fields`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Slot {
+    Name,
+    Tool,
+    Model,
+    Effort,
+    Host,
+    Session,
+    Squad,
+    Keep,
+}
+impl Slot {
+    pub const ALL: [Slot; 8] = [
+        Slot::Name,
+        Slot::Tool,
+        Slot::Model,
+        Slot::Effort,
+        Slot::Host,
+        Slot::Session,
+        Slot::Squad,
+        Slot::Keep,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Slot::Name => "Name",
+            Slot::Tool => "AI tool",
+            Slot::Model => "Model",
+            Slot::Effort => "Effort",
+            Slot::Host => "Host",
+            Slot::Session => "Session",
+            Slot::Squad => "Squad",
+            Slot::Keep => "Keep",
+        }
+    }
+    /// Its text in `Draft::fields`; Keep has none.
+    pub fn index(self) -> usize {
+        self as usize
+    }
+    /// A field chosen from a list (▾).
+    pub fn listed(self) -> bool {
+        !matches!(self, Slot::Name | Slot::Keep)
+    }
+    /// A field the keyboard also types into.
+    pub fn typed(self) -> bool {
+        !matches!(self, Slot::Host | Slot::Effort | Slot::Keep)
+    }
+}
+/// One row of a field's list. `value: None` is the free-form row: it uses the filter text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Choice {
+    pub label: String,
+    pub value: Option<String>,
+}
+impl Choice {
+    fn of(value: &str) -> Self {
+        Self {
+            label: value.into(),
+            value: Some(value.into()),
+        }
+    }
+    fn named(label: &str, value: &str) -> Self {
+        Self {
+            label: label.into(),
+            value: Some(value.into()),
+        }
+    }
+    fn free(label: &str) -> Self {
+        Self {
+            label: label.into(),
+            value: None,
+        }
+    }
+}
+/// The host's name for people; `pty` itself appears only in the command.
+pub(super) fn host_label(host: &str) -> &str {
+    match host {
+        BUILT_IN_HOST => "Built-in terminal (no tmux)",
+        "herdr" => "Herdr",
+        other => other,
+    }
+}
+/// The only host whose sessions are chosen in the form.
+const SESSION_HOST: &str = "tmux";
+const PROVIDER_DEFAULT: &str = "(provider default)";
 #[derive(Clone, Debug)]
 pub(super) struct Draft {
-    pub fields: [Editor; 6],
+    pub fields: [Editor; 7],
     pub saved: bool,
     pub tools: Vec<String>,
     pub models: BTreeMap<String, Vec<String>>,
+    pub sessions: Vec<String>,
     pub rooms: Vec<RoomTarget>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +107,8 @@ pub(in crate::board) struct Review {
     pub command: Vec<String>,
     pub outer: Option<Vec<String>>,
     pub room: Option<RoomTarget>,
+    /// A squad typed in the form: created with the member once it is kept.
+    pub new_squad: Option<String>,
     /// Keep the identity: it launches temporary and is saved only once it started, so a
     /// failed launch leaves no offline identity (#5536).
     pub save: bool,
@@ -37,37 +122,38 @@ pub(super) struct Display {
     pub outer: Option<Vec<String>>,
 }
 impl Review {
+    fn tmt(&self, words: &[&str]) -> String {
+        crate::launch::line(
+            &std::iter::once(self.display.command[0].clone())
+                .chain(words.iter().map(|w| (*w).to_owned()))
+                .collect::<Vec<_>>(),
+        )
+    }
     /// The command that keeps the started identity, when Keep is saved.
     pub fn save_line(&self) -> Option<String> {
-        self.save.then(|| {
-            crate::launch::line(&[
-                self.display.command[0].clone(),
-                "identity".into(),
-                "create".into(),
-                self.name.clone(),
-            ])
-        })
+        self.save
+            .then(|| self.tmt(&["identity", "create", &self.name]))
     }
-    fn squad_line(&self) -> Option<String> {
-        self.room.as_ref().map(|room| {
-            crate::launch::line(&[
-                self.display.command[0].clone(),
-                "ops".into(),
-                "sq".into(),
-                "add".into(),
-                "--squad".into(),
-                room.name.clone(),
-                "--".into(),
-                self.name.clone(),
-            ])
-        })
+    fn squad_lines(&self) -> Vec<String> {
+        let squad = match (&self.room, &self.new_squad) {
+            (Some(room), _) => &room.name,
+            (None, Some(name)) => name,
+            (None, None) => return vec![],
+        };
+        let init = self
+            .new_squad
+            .is_some()
+            .then(|| self.tmt(&["ops", "sq", "init", squad]));
+        init.into_iter()
+            .chain([self.tmt(&["ops", "sq", "add", "--squad", squad, "--", &self.name])])
+            .collect()
     }
     pub fn copy(&self) -> String {
         std::iter::once(crate::launch::line(
             self.display.outer.as_ref().unwrap_or(&self.display.command),
         ))
         .chain(self.save_line())
-        .chain(self.squad_line())
+        .chain(self.squad_lines())
         .collect::<Vec<_>>()
         .join("\n")
     }
@@ -77,46 +163,6 @@ impl Review {
         } else {
             "Copy-only command. Nothing was created.".into()
         }
-    }
-    pub fn lines(&self) -> Vec<String> {
-        let mut text = vec![
-            if self.host == BUILT_IN_HOST {
-                format!("{} · {}", self.name, self.host)
-            } else {
-                format!("{} · {} / {}", self.name, self.host, self.session)
-            },
-            format!(
-                "Squad: {}",
-                self.room
-                    .as_ref()
-                    .map_or("Common pool", |room| room.name.as_str())
-            ),
-            if self.outer.is_some() {
-                "Will run"
-            } else {
-                "Run in your terminal"
-            }
-            .into(),
-            crate::launch::line(&self.display.command),
-        ];
-        if let Some(outer) = &self.display.outer {
-            text.push("Opens with".into());
-            text.push(crate::launch::line(outer));
-        } else {
-            text.insert(
-                0,
-                format!("Copy only · {} has no launch template.", self.host),
-            );
-        }
-        if let Some(line) = self.save_line() {
-            text.push("After it starts · keep".into());
-            text.push(line);
-        }
-        if let Some(line) = self.squad_line() {
-            text.push("After the identity exists · squad add".into());
-            text.push(line);
-        }
-        text
     }
 }
 fn mode(values: impl Iterator<Item = String>, preferred: Option<&str>) -> Option<String> {
@@ -134,6 +180,10 @@ fn mode(values: impl Iterator<Item = String>, preferred: Option<&str>) -> Option
         .into_iter()
         .find(|(_, n)| *n == count)
         .map(|(value, _)| value)
+}
+/// A word passed as one argument: nothing a shell or the option parser would read differently.
+fn plain_word(word: &str) -> bool {
+    !word.starts_with('-') && word.trim() == word && !word.chars().any(char::is_control)
 }
 impl Draft {
     pub fn from_app(app: &App) -> Self {
@@ -200,24 +250,122 @@ impl Draft {
             .and_then(|l| l["session"].as_str())
             .or_else(|| squad.map(|s| s.name.as_str()))
             .unwrap_or("common");
+        let sessions = app
+            .references
+            .agents
+            .values()
+            .map(|a| &a.parameters["location"])
+            .filter(|l| l["host"] == SESSION_HOST)
+            .filter_map(|l| l["session"].as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
         Self {
             fields: [
                 "",
                 &tool,
                 &model,
-                squad.map_or("", |s| s.name.as_str()),
+                "",
                 host,
                 session,
+                squad.map_or("", |s| s.name.as_str()),
             ]
             .map(Editor::from),
             saved: true,
             tools,
             models,
+            sessions,
             rooms,
         }
     }
+    pub fn text(&self, slot: Slot) -> &str {
+        self.fields[slot.index()].as_str()
+    }
+    /// Sets a field's text; another AI tool has other models and efforts.
+    pub fn set(&mut self, slot: Slot, value: &str) {
+        if slot == Slot::Tool && self.text(Slot::Tool) != value {
+            self.fields[Slot::Model.index()].clear();
+            self.fields[Slot::Effort.index()].clear();
+        }
+        self.fields[slot.index()] = Editor::from(value);
+    }
+    /// The efforts the chosen tool's driver offers; none hides the Effort field.
+    pub fn efforts<'a>(&self, loaded: &'a Loaded) -> &'a [String] {
+        loaded
+            .choices
+            .get(self.text(Slot::Tool))
+            .map_or(&[], |c| c.efforts.as_slice())
+    }
+    /// The fields shown, in order: Effort only with efforts, Session only on tmux.
+    pub fn visible(&self, loaded: Option<&Loaded>) -> Vec<Slot> {
+        Slot::ALL
+            .into_iter()
+            .filter(|slot| match slot {
+                Slot::Effort => loaded.is_some_and(|l| !self.efforts(l).is_empty()),
+                Slot::Session => self.text(Slot::Host) == SESSION_HOST,
+                _ => true,
+            })
+            .collect()
+    }
+    /// A field's list. Model lists come from the driver, else from what members reported.
+    pub fn choices(&self, slot: Slot, loaded: &Loaded) -> Vec<Choice> {
+        let tool = self.text(Slot::Tool);
+        match slot {
+            Slot::Tool => loaded
+                .choices
+                .keys()
+                .chain(&self.tools)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .map(|tool| Choice::of(tool))
+                .chain([Choice::free("Type a tool…")])
+                .collect(),
+            Slot::Model => {
+                let driver = loaded.choices.get(tool).map(|c| &c.models);
+                let models = driver
+                    .filter(|m| !m.is_empty())
+                    .or_else(|| self.models.get(tool));
+                std::iter::once(Choice::named(PROVIDER_DEFAULT, ""))
+                    .chain(models.into_iter().flatten().map(|m| Choice::of(m)))
+                    .chain([Choice::free("Type a model id…")])
+                    .collect()
+            }
+            Slot::Effort => std::iter::once(Choice::named(PROVIDER_DEFAULT, ""))
+                .chain(self.efforts(loaded).iter().map(|e| Choice::of(e)))
+                .collect(),
+            Slot::Host => loaded
+                .hosts
+                .iter()
+                .filter(|h| matches!(h.state.as_str(), "builtin" | "ok"))
+                .map(|h| Choice::named(host_label(&h.name), &h.name))
+                .collect(),
+            Slot::Session => self
+                .sessions
+                .iter()
+                .map(|s| Choice::of(s))
+                .chain([Choice::free("New session…")])
+                .collect(),
+            Slot::Squad => std::iter::once(Choice::named("Common pool", ""))
+                .chain(self.rooms.iter().map(|r| Choice::of(&r.name)))
+                .chain([Choice::free("New squad…")])
+                .collect(),
+            Slot::Name | Slot::Keep => vec![],
+        }
+    }
+    /// What a field shows: the human host name, or the empty value's meaning.
+    pub fn shown(&self, slot: Slot) -> Option<String> {
+        let text = self.text(slot);
+        match slot {
+            Slot::Host if !text.is_empty() => Some(host_label(text).into()),
+            Slot::Squad if !self.saved || text.is_empty() => Some("Common pool".into()),
+            _ if !text.is_empty() => Some(text.into()),
+            _ => None,
+        }
+    }
     pub fn review(&self, loaded: &Loaded) -> Result<Review, String> {
-        let [name, tool, model, squad, host, session] =
+        let [name, tool, model, effort, host, session, squad] =
             self.fields.each_ref().map(|field| field.as_str());
         if name.is_empty()
             || name.chars().count() > 64
@@ -232,20 +380,26 @@ impl Draft {
         if tool.is_empty() || tool.starts_with('-') || tool.chars().any(char::is_control) {
             return Err("Choose an AI tool executable.".into());
         }
-        if model.chars().any(char::is_control) {
-            return Err("Model cannot contain control characters.".into());
+        if !plain_word(model) {
+            return Err("A model id has no outer spaces, controls or leading '-'.".into());
         }
-        let squad = if self.saved { squad } else { "" };
-        let room = if squad.is_empty() {
-            None
+        // A hidden Effort field is never sent.
+        let effort = if self.efforts(loaded).is_empty() {
+            ""
         } else {
-            Some(
-                self.rooms
-                    .iter()
-                    .find(|r| r.name == squad)
-                    .ok_or("Choose a published squad or clear it for Common pool.")?
-                    .clone(),
-            )
+            effort
+        };
+        let squad = if self.saved { squad } else { "" };
+        let room = self.rooms.iter().find(|r| r.name == squad).cloned();
+        let new_squad = if squad.is_empty() || room.is_some() {
+            None
+        } else if plain_word(squad) && squad.chars().count() <= 64 {
+            Some(squad.to_owned())
+        } else {
+            return Err(
+                "A new squad name has 1–64 characters, no outer spaces, controls or leading '-'."
+                    .into(),
+            );
         };
         // Never `--save`: a launch that ends during startup must leave no saved identity, so
         // Keep is applied with `identity create` once the member started (#5536).
@@ -258,10 +412,12 @@ impl Draft {
         } else {
             session
         };
-        command.extend([name.into(), tool.into()]);
-        if !model.is_empty() {
-            command.push(format!("--model={model}"));
+        for (option, value) in [("--model", model), ("--effort", effort)] {
+            if !value.is_empty() {
+                command.extend([option.into(), value.into()]);
+            }
         }
+        command.extend([name.into(), tool.into()]);
         let outer = loaded
             .prepare(host, session, &command)
             .map_err(|e| e.message)?;
@@ -277,6 +433,7 @@ impl Draft {
             command,
             outer,
             room,
+            new_squad,
             save: self.saved,
             display: Box::new(Display {
                 command: display_command,

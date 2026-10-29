@@ -24,7 +24,6 @@ use tmt_tui::components::Editor;
 enum Stage {
     Form,
     Hosts,
-    Review,
     Template,
     Launching,
     Saving,
@@ -35,11 +34,26 @@ enum Destination {
     Member,
     Settings,
 }
+/// A painted hit: a field, one Keep choice, or a row of the open list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Field {
-    Text(usize),
-    Host,
-    Identity(bool),
+    Slot(model::Slot),
+    Keep(bool),
+    Choice(usize),
+}
+/// Where the form's keys go: a field, or a footer button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Focus {
+    Slot(model::Slot),
+    Cancel,
+    Create,
+}
+/// A field's open list: typing filters it, and its free-form row takes the filter text.
+#[derive(Clone, Debug)]
+struct List {
+    slot: model::Slot,
+    filter: Editor,
+    row: usize,
 }
 pub(in crate::board) struct Controller {
     owner: u64,
@@ -48,7 +62,10 @@ pub(in crate::board) struct Controller {
     loaded: Option<Loaded>,
     stage: Stage,
     review: Option<model::Review>,
+    /// The Hosts and Template stages' focus; the form uses `at`.
     focus: usize,
+    at: Focus,
+    list: Option<List>,
     template: Editor,
     notice: Option<String>,
     readable: Cell<bool>,
@@ -70,60 +87,91 @@ impl Controller {
             config: None,
         }
     }
-    fn cycle(&mut self, back: bool) {
-        let index = self.focus;
-        if index == 3 && !self.draft.saved {
-            return;
-        }
-        if index == 6 {
-            self.draft.saved = !self.draft.saved;
-            return;
-        }
-        let choices = match index {
-            1 => self.draft.tools.clone(),
-            2 => std::iter::once(String::new())
-                .chain(
-                    self.draft
-                        .models
-                        .get(self.draft.fields[1].as_str())
-                        .into_iter()
-                        .flatten()
-                        .cloned(),
-                )
-                .collect(),
-            3 => std::iter::once(String::new())
-                .chain(self.draft.rooms.iter().map(|r| r.name.clone()))
-                .collect(),
-            4 => self
-                .loaded
-                .as_ref()
-                .map(|l| {
-                    l.hosts
-                        .iter()
-                        .filter(|h| matches!(h.state.as_str(), "builtin" | "ok"))
-                        .map(|h| h.name.clone())
-                        .collect()
-                })
-                .unwrap_or_default(),
-            _ => return,
+    /// The form's stops, in order: the shown fields (Squad only for a saved member), then
+    /// the buttons.
+    fn stops(&self) -> Vec<Focus> {
+        self.draft
+            .visible(self.loaded.as_ref())
+            .into_iter()
+            .filter(|slot| *slot != model::Slot::Squad || self.draft.saved)
+            .map(Focus::Slot)
+            .chain([Focus::Cancel, Focus::Create])
+            .collect()
+    }
+    fn step_focus(&mut self, back: bool) {
+        let stops = self.stops();
+        let at = stops.iter().position(|s| *s == self.at).unwrap_or(0);
+        self.at = stops[(at + if back { stops.len() - 1 } else { 1 }) % stops.len()];
+    }
+    /// The open list's rows that match its filter.
+    fn rows(&self) -> Vec<model::Choice> {
+        let (Some(list), Some(loaded)) = (&self.list, &self.loaded) else {
+            return vec![];
         };
+        let filter = list.filter.as_str().to_lowercase();
+        self.draft
+            .choices(list.slot, loaded)
+            .into_iter()
+            .filter(|c| c.value.is_none() || c.label.to_lowercase().contains(&filter))
+            .map(|mut c| {
+                if c.value.is_none() && !filter.is_empty() {
+                    c.label = format!("Use “{}”", list.filter.as_str());
+                }
+                c
+            })
+            .collect()
+    }
+    fn open_list(&mut self, slot: model::Slot) {
+        let Some(loaded) = &self.loaded else { return };
+        let current = self.draft.text(slot);
+        let row = self
+            .draft
+            .choices(slot, loaded)
+            .iter()
+            .position(|c| c.value.as_deref() == Some(current))
+            .unwrap_or(0);
+        self.list = Some(List {
+            slot,
+            filter: Editor::default(),
+            row,
+        });
+    }
+    /// Takes the open list's row. The free-form row with no filter leaves the field to type in.
+    fn choose(&mut self, row: usize) {
+        let rows = self.rows();
+        let Some(list) = self.list.take() else { return };
+        let Some(choice) = rows.get(row) else {
+            self.list = Some(list);
+            return;
+        };
+        match &choice.value {
+            Some(value) => self.draft.set(list.slot, value),
+            None if list.filter.is_empty() => self.draft.set(list.slot, ""),
+            None => self.draft.set(list.slot, list.filter.as_str()),
+        }
+        self.at = Focus::Slot(list.slot);
+    }
+    /// ←→ on a listed field: the next or previous fixed choice.
+    fn cycle(&mut self, slot: model::Slot, back: bool) {
+        let Some(loaded) = &self.loaded else { return };
+        let choices: Vec<_> = self
+            .draft
+            .choices(slot, loaded)
+            .into_iter()
+            .filter_map(|c| c.value)
+            .collect();
         if choices.is_empty() {
             return;
         }
-        let current = choices
-            .iter()
-            .position(|v| v == self.draft.fields[index].as_str());
+        let current = choices.iter().position(|v| v == self.draft.text(slot));
         let next = current.map_or(0, |i| {
             (i + if back { choices.len() - 1 } else { 1 }) % choices.len()
         });
-        self.draft.fields[index] = Editor::from(choices[next].clone());
-        if index == 1 {
-            self.draft.fields[2].clear();
-        }
+        self.draft.set(slot, &choices[next].clone());
     }
     fn begin_template(&mut self) {
         if let Some(loaded) = &self.loaded {
-            let host = self.draft.fields[4].as_str();
+            let host = self.draft.text(model::Slot::Host);
             let argv = loaded
                 .config
                 .launch_override(host)
@@ -172,6 +220,8 @@ impl App {
             },
             review: None,
             focus: 0,
+            at: Focus::Slot(model::Slot::Name),
+            list: None,
             template: Editor::default(),
             notice: None,
             readable: Cell::new(false),
@@ -194,16 +244,18 @@ impl App {
         } else {
             None
         };
+        // A clean start on the built-in host closes the form onto the member's terminal.
+        let mut attach = None;
         if let Some(c) = &mut self.new_member
             && c.owner == completed.task.owner
         {
             match completed.result {
                 Ok(Outcome::Loaded(loaded)) => {
                     if matches!(completed.task.work, Work::Load)
-                        && c.draft.fields[4].is_empty()
+                        && c.draft.text(model::Slot::Host).is_empty()
                         && let Some(host) = loaded.hosts.iter().find(|h| h.eligible())
                     {
-                        c.draft.fields[4] = Editor::from(host.name.clone());
+                        c.draft.set(model::Slot::Host, &host.name);
                     }
                     c.loaded = Some(*loaded);
                     c.stage = if c.destination == Destination::Settings {
@@ -222,7 +274,13 @@ impl App {
                     }
                 }
                 Ok(Outcome::Created { message, .. }) => {
-                    c.stage = Stage::Result(message);
+                    if matches!(&completed.task.work, Work::Launch(review) if review.host == model::BUILT_IN_HOST)
+                        && !message.contains('\n')
+                    {
+                        attach = Some(message);
+                    } else {
+                        c.stage = Stage::Result(message);
+                    }
                 }
                 Err(error) => {
                     c.notice = Some(error.message);
@@ -242,6 +300,12 @@ impl App {
                 self.discovered_uuid = Some(identity_id.clone());
             }
             self.workspace.selected = Some(target);
+            if let Some(message) = attach {
+                self.new_member = None;
+                self.right_tab = super::shell::RightTab::Talk;
+                self.terminal.show();
+                self.say(message);
+            }
             return Effect::Refresh;
         }
         Effect::None
