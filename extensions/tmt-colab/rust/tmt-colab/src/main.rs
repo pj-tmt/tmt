@@ -849,7 +849,10 @@ fn commit_source(
     // How full the page is now. The write is done: a page that cannot be read back right after it
     // reports no usage rather than failing the command.
     receipt.usage = Store::read(layout).ok().and_then(|store| {
-        let usage = page::usage(&store, key, id, decoder);
+        let usage = match base {
+            Some(base) => page::usage_after_patch(&store, key, id, decoder, base),
+            None => page::usage(&store, key, id, decoder),
+        };
         store.close().ok()?;
         usage.ok()
     });
