@@ -1,3 +1,4 @@
+import { openWorkTasks } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -17,7 +18,7 @@ async function openWorkBand(page: Page) {
     (await import(path)).mountWorkPage(true, true);
   });
   const band = page.getByRole('region', { name: 'Work on this page' });
-  await band.getByRole('button', { name: /Show \d+ tasks/ }).click();
+  await openWorkTasks(band);
   await band.locator('.work-row', { hasText: 'T-3' }).locator('button').click();
   await expect(band.locator('.work-controls')).toBeVisible();
   await expect(band.getByRole('textbox', { name: 'New task' })).toBeVisible();

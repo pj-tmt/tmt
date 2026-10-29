@@ -1,3 +1,4 @@
+import { openWorkTasks } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
@@ -45,10 +46,9 @@ async function expand(page: Page) {
   if (await button.count()) await button.click();
 }
 async function openTasks(page: Page) {
-  await expand(page);
-  const button = page.getByRole('button', { name: /^Tasks \d+$/ });
-  if ((await button.getAttribute('aria-expanded')) === 'false') await button.click();
+  await openWorkTasks(page.getByRole('region', { name: 'Work on this page' }));
 }
+
 async function choose(page: Page, menu: RegExp, item: string) {
   await page.getByRole('button', { name: menu }).click();
   await page.getByRole('menuitemradio', { name: item, exact: true }).click();
