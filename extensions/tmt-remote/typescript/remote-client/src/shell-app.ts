@@ -166,7 +166,14 @@ function remotePage(
         return;
       }
       const lifetime = new AbortController();
-      hostRemote(slot, lifetime.signal, observedSession, (reason) => (heldBy = reason));
+      hostRemote(
+        slot,
+        lifetime.signal,
+        observedSession,
+        (reason) => (heldBy = reason),
+        (text) => publishRemoteConnection?.(text),
+        (count) => publishRemoteCount?.(count),
+      );
       let ended = false;
       const end = () => {
         if (ended) return;
@@ -174,6 +181,7 @@ function remotePage(
         routeSignal?.removeEventListener('abort', end);
         // The page's own code ends on its route's signal; nothing else in the document hears it.
         lifetime.abort();
+        clearRemoteObservation?.();
         unstyle();
         hostRemote(undefined);
         heldBy = undefined;
@@ -368,11 +376,15 @@ let answer: ShellAnswer | undefined;
 let observed = false;
 let publishSearch: (() => void) | undefined;
 let heldBy: (() => string) | undefined;
+let publishRemoteConnection: ((text: string) => void) | undefined;
+let publishRemoteCount: ((count: number | undefined) => void) | undefined;
+let clearRemoteObservation: (() => void) | undefined;
 
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next: object): void {
   if (session === next) return;
   session = next;
+  publishRemoteCount?.(undefined);
   search?.replace();
   publishSearch?.();
 }
@@ -478,15 +490,54 @@ export function shellApp(): ShellHost | undefined {
         }),
       ),
   });
-  host.setCommonControls({
-    openSearch: (opener) => {
-      status.hidden = true;
-      void search?.open(opener);
-    },
-    remote: { kind: 'unconfirmed', href: '/remote/' },
-  });
+  let connection: string | undefined;
+  let liveSessions: number | undefined;
+  let freshness: ReturnType<typeof setTimeout> | undefined;
+  const publishRemote = () =>
+    host.setCommonControls({
+      openSearch: (opener) => {
+        status.hidden = true;
+        void search?.open(opener);
+      },
+      remote:
+        liveSessions === undefined
+          ? { kind: 'unconfirmed', href: '/remote/settings', connection }
+          : { kind: 'confirmed', href: '/remote/settings', liveSessions, connection },
+    });
+  publishRemoteConnection = (text) => {
+    connection = text;
+    if (text !== 'Connected') {
+      if (freshness !== undefined) clearTimeout(freshness);
+      freshness = undefined;
+      liveSessions = undefined;
+    }
+    publishRemote();
+  };
+  publishRemoteCount = (count) => {
+    if (freshness !== undefined) clearTimeout(freshness);
+    liveSessions = count;
+    publishRemote();
+    if (count !== undefined)
+      freshness = setTimeout(() => {
+        freshness = undefined;
+        liveSessions = undefined;
+        publishRemote();
+      }, 30_000);
+  };
+  clearRemoteObservation = () => {
+    if (freshness !== undefined) clearTimeout(freshness);
+    freshness = undefined;
+    connection = undefined;
+    liveSessions = undefined;
+    publishRemote();
+  };
+  publishRemote();
   const dispose = () => {
     currentRoute?.abort();
+    clearRemoteObservation?.();
+    publishRemoteConnection = undefined;
+    publishRemoteCount = undefined;
+    clearRemoteObservation = undefined;
     search?.dispose();
     host.dispose();
     status.remove();

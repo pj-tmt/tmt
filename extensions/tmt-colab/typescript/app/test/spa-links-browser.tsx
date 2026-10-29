@@ -212,7 +212,7 @@ export function mountHostApp(url: string, crash?: 'route' | 'boundary', shared =
   if (shared)
     host.setCommonControls({
       openSearch: () => {},
-      remote: { kind: 'unconfirmed', href: '/remote/' },
+      remote: { kind: 'unconfirmed', href: '/remote/settings' },
     });
 }
 

@@ -699,6 +699,7 @@ export async function settingsPage(
     cancelConfirmation();
     // A mark already showing stays on its action until it hides.
     if (!busyMark.shown()) markOwner = owner;
+    shell?.observedLiveSessions?.(undefined);
     const pending = action();
     render();
     try {
@@ -710,7 +711,9 @@ export async function settingsPage(
   }
   /** Paint management first; only the optional section changes when its read completes. */
   async function refreshView(cursor?: string | null): Promise<void> {
+    shell?.observedLiveSessions?.(undefined);
     await page.refresh(cursor);
+    shell?.observedLiveSessions?.(page.liveSessionCount);
     render();
     if (page.access === 'live') void page.observeFirestore().then(renderService);
   }

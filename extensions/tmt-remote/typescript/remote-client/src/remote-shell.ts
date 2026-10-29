@@ -22,6 +22,9 @@ export interface RemoteShell {
   described(listener: (answer: ShellAnswer | undefined) => void): void;
   /** A verified Session replacement invalidates root-owned search state, never grants authority. */
   observedSession?(session: object): void;
+  /** Observations are display-only and expire with this route. */
+  observedConnection?(text: string): void;
+  observedLiveSessions?(count: number | undefined): void;
   /** Reuse the settings model's existing hold reason for root search navigation. */
   holdNavigation?(reason: () => string): void;
   /** Aborted when the route unmounts: page code ends its listeners, checks and sessions on it. */
@@ -41,6 +44,8 @@ export function hostRemote(
   signal?: AbortSignal,
   observedSession?: (session: object) => void,
   holdNavigation?: (reason: () => string) => void,
+  observedConnection?: (text: string) => void,
+  observedLiveSessions?: (count: number | undefined) => void,
 ): void {
   current = slot &&
     signal && {
@@ -52,6 +57,12 @@ export function hostRemote(
       described: (listener) => slot.described(listener),
       observedSession: (session) => {
         if (!signal.aborted) observedSession?.(session);
+      },
+      observedConnection: (text) => {
+        if (!signal.aborted) observedConnection?.(text);
+      },
+      observedLiveSessions: (count) => {
+        if (!signal.aborted) observedLiveSessions?.(count);
       },
       holdNavigation: (reason) => {
         if (!signal.aborted) holdNavigation?.(reason);

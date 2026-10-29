@@ -41,6 +41,24 @@ export class ManagementPage {
     private client: RemoteManagement,
     private readonly reopen: () => Promise<RemoteManagement>,
   ) {}
+  /** Only the designated owner sees the full device scope; partial pages are never totals. */
+  get liveSessionCount(): number | undefined {
+    if (
+      this.access !== 'live' ||
+      this.settings?.capabilities.settingsWrite !== true ||
+      !this.onFirstPage ||
+      this.devices?.nextCursor !== null
+    )
+      return undefined;
+    const ids = new Set<string>();
+    let count = 0;
+    for (const device of this.devices.devices) {
+      if (ids.has(device.clientId)) return undefined;
+      ids.add(device.clientId);
+      count += device.liveSessionCount;
+    }
+    return Number.isSafeInteger(count) && count >= 0 ? count : undefined;
+  }
   get writable(): boolean {
     return this.writableWhenIdle && !this.busy;
   }

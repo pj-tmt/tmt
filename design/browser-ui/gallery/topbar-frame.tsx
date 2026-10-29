@@ -199,13 +199,15 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
     const status = (event: Event) => {
       const value = (event as CustomEvent<string>).detail;
       setStatus(
-        value === 'unknown'
-          ? { kind: 'unconfirmed', href: '/settings' }
-          : {
-              kind: 'confirmed',
-              liveSessions: value === 'zero' ? 0 : 6,
-              href: '/settings',
-            },
+        value === 'connected'
+          ? { kind: 'unconfirmed', href: '/remote/', connection: 'Connected' }
+          : value === 'unknown'
+            ? { kind: 'unconfirmed', href: '/settings' }
+            : {
+                kind: 'confirmed',
+                liveSessions: value === 'zero' ? 0 : 6,
+                href: '/settings',
+              },
       );
     };
     const hide = () => setShown(false);

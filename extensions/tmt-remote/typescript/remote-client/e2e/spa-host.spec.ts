@@ -478,6 +478,46 @@ test.describe('the app in a browser', () => {
     }
   }
 
+  for (const width of [390, 1440])
+    test(`Remote list keeps page actions in content and global controls in order at ${width}`, async () => {
+      const { page } = await openApp('/remote/', async (page) => {
+        await page.setViewportSize({ width, height: 900 });
+      });
+      const bar = page.locator('.tmt-ui-topbar');
+      const content = page.locator('#remote-head');
+      await expect(content.getByRole('heading', { name: /My Remotes/ })).toBeVisible();
+      await expect(
+        content.getByRole('link', { name: 'Create a Remote', exact: true }),
+      ).toBeVisible();
+      await expect(
+        content.getByRole('button', { name: 'Join a Remote', exact: true }),
+      ).toBeVisible();
+      await expect(bar.getByRole('link', { name: 'Create a Remote' })).toHaveCount(0);
+      await expect(bar.getByRole('button', { name: 'Join a Remote' })).toHaveCount(0);
+      await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(0);
+      const theme = bar.getByRole('button', { name: /^Theme:/ });
+      const remote = bar.getByRole('button', {
+        name: 'Remote: session count unconfirmed',
+        exact: true,
+      });
+      expect((await theme.boundingBox())!.x).toBeLessThan((await remote.boundingBox())!.x);
+      if (width === 390) {
+        const menu = bar.getByRole('button', { name: 'Open navigation', exact: true });
+        const search = bar.getByRole('button', { name: 'Search TMT', exact: true });
+        expect((await menu.boundingBox())!.x).toBeLessThan((await search.boundingBox())!.x);
+      }
+      await remote.click();
+      const dialog = page.getByRole('dialog', { name: 'Remote', exact: true });
+      await expect(dialog.getByRole('link', { name: 'Remote settings' })).toHaveAttribute(
+        'href',
+        '/remote/settings',
+      );
+      await page.keyboard.press('Escape');
+      await page.goto(`${origin}/remote/create`);
+      await expect(page.locator('#remote-head')).toBeHidden();
+      await page.close();
+    });
+
   test('each Remote row is its own route and selection follows the URL', async () => {
     for (const view of REMOTE_VIEWS) {
       // A direct load, and a reload, land on the row the path names.
@@ -570,6 +610,16 @@ test.describe('the app in a browser', () => {
       for (const width of [1440, 390]) {
         const context = await browser.newContext({ colorScheme, viewport: { width, height: 900 } });
         const page = await context.newPage();
+        for (const [route, name] of [
+          ['/', 'home'],
+          ['/ops/', 'ops'],
+        ] as const) {
+          await page.goto(`${origin}${route}`, { waitUntil: 'load' });
+          await page.locator('.tmt-ui-topbar').waitFor();
+          await page.screenshot({
+            path: join(directory!, `remote-shell-${name}-${width}-${colorScheme}.png`),
+          });
+        }
         await page.goto(`${origin}/remote/`, { waitUntil: 'load' });
         await page.locator('.tmt-ui-shell-main[data-route="remote"]').waitFor();
         for (const view of REMOTE_VIEWS) {

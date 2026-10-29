@@ -86,6 +86,22 @@ for (const renderer of ['react', 'native', 'hosted'])
         expect((await controlRadii(page, '.tmt-ui-topbar')).off).toEqual([]);
       });
 
+test('the Remote dialog uses the root connection observation and exact settings href', async ({
+  page,
+}) => {
+  await page.goto('/?frame=topbar&renderer=native');
+  await observe(page, 'connected');
+  await page
+    .getByRole('button', { name: 'Remote: session count unconfirmed', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Remote', exact: true });
+  await expect(dialog).toContainText('Connected');
+  await expect(dialog.getByRole('link', { name: 'Remote settings' })).toHaveAttribute(
+    'href',
+    '/remote/',
+  );
+});
+
 for (const renderer of ['react', 'native', 'hosted']) {
   test(`${renderer}: theme uses the existing preference and System follows the device`, async ({
     page,

@@ -98,7 +98,7 @@ export async function mountedTransport(
       generation: current.registration,
       devices: (input) => readManagement(session, { timeoutMs: 20000 }).devices(input),
     };
-  }, new URL('/settings', mount).href);
+  }, new URL('/remote/settings', mount).href);
   const titles = new TitleCache(bootstrap.space, registration.deviceId);
   const drafts = new LocalDraftStore(bootstrap.space, registration.deviceId);
   let managementClient = new ManagementClient(mount, current.registration, locate);

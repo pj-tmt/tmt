@@ -83,16 +83,6 @@ export async function remoteApp(
   if (unsafeFragment) return;
   const models = [...main.querySelectorAll<HTMLElement>(':scope > [data-page]')];
   const registry = remoteRegistryPage(undefined, shell);
-  const listActions = main.querySelector<HTMLElement>('.remote-head-actions');
-  if (shell.actions && listActions) {
-    shell.actions.append(listActions);
-    // The original route h1 now names this content; do not repeat its old content subtitle.
-    main.querySelector('#remote-head .settings-title')?.remove();
-    const create = listActions.querySelector<HTMLAnchorElement>('a[data-variant="primary"]');
-    create?.setAttribute('aria-label', 'Create a Remote');
-    const label = create?.querySelector('.tmt-ui-action-label');
-    if (label) label.textContent = 'Create';
-  }
   const started = new Map<RemoteItem['page'], Promise<void>>();
   let shown: RemoteItem | undefined;
   let observed: RemoteRegistryView | undefined;
@@ -185,7 +175,6 @@ export async function remoteApp(
   shell.signal.addEventListener('abort', () => resize.disconnect(), { once: true });
   function layout(): void {
     if (!shown) return;
-    if (listActions && shell.actions) listActions.hidden = shown.id !== 'remotes';
     const localName = document.getElementById('remote-local-name-value');
     if (localName) localName.textContent = observed?.current.name ?? 'This machine';
     const renameLabel = document.querySelector('#remote-local-rename .tmt-ui-action-label');
@@ -259,6 +248,9 @@ export async function remoteApp(
   });
   const unsubscribe = registry.watch((view) => {
     observed = view;
+    const count = main.querySelector<HTMLElement>('#remote-count');
+    if (count) count.textContent = `(${view.rows.length})`;
+    shell.observedConnection?.(view.current.connection.text);
     layout();
   });
   shell.signal.addEventListener('abort', unsubscribe, { once: true });

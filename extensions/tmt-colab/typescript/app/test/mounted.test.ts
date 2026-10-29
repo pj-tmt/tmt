@@ -813,7 +813,7 @@ it('reads Remote presence with the admitted mounted Session and exposes settings
   expect(presence.snapshot()).toMatchObject({
     kind: 'confirmed',
     count: 0,
-    settingsUrl: 'https://example.test/settings',
+    settingsUrl: 'https://example.test/remote/settings',
   });
   expect(setup.register).toHaveBeenCalledTimes(1);
   mounted.close();

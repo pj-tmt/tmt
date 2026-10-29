@@ -236,7 +236,7 @@ export function ColabShell({
 
 /** Colab's own shell is the root of its common controls: Search opens the quick switcher the
  * route's host owns, and Remote shows the live-session count this page already reads, linking to the
- * rail's Remote until a count is confirmed. */
+ * Remote settings while a count is unconfirmed. */
 function OwnShell({
   view,
   select,
@@ -249,9 +249,11 @@ function OwnShell({
   const switcher = useQuickSwitcher();
   const owner = useRef(switcher);
   owner.current = switcher;
-  const remote = useShellRemoteStatus(
-    view.rail.main.find((item) => item.id === 'remote')?.href ?? '/remote/',
-  );
+  const remoteHref = view.rail.main.find((item) => item.id === 'remote')?.href ?? '/remote/';
+  const settingsHref = new URL(remoteHref, window.location.href);
+  if (settingsHref.pathname === '/remote' || settingsHref.pathname === '/remote/')
+    settingsHref.pathname = '/remote/settings';
+  const remote = useShellRemoteStatus(settingsHref.href);
   const commonControls = useMemo(
     () => ({
       openSearch(opener: HTMLButtonElement) {

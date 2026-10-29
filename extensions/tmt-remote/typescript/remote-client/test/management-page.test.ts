@@ -702,3 +702,44 @@ test('bulk preview is read-only, invalidated by refresh, and unknown removal nev
   assert.equal(f.page.writable, false);
   assert.equal(f.counts().effectCalls, 1);
 });
+
+test('live session count requires an admitted, complete, unique first page', async () => {
+  const { page, remote, writable } = fixture();
+  const device = (clientId: string, liveSessionCount: number) => ({
+    clientId,
+    name: clientId,
+    kind: 'browser' as const,
+    issuedAtMs: 1,
+    expiresAtMs: null,
+    revision: 1,
+    revoked: false,
+    talkEnabled: false,
+    thisBrowser: false,
+    liveSessionCount,
+    lastActivityAtMs: null,
+    lastUsedAtMs: null,
+  });
+  assert.equal(page.liveSessionCount, undefined);
+  await page.refresh();
+  assert.equal(page.liveSessionCount, 0);
+  remote.devices = async () => ({ devices: [device('a', 2), device('b', 1)], nextCursor: null });
+  await page.refresh();
+  assert.equal(page.liveSessionCount, 3);
+  writable(false);
+  await page.refresh();
+  assert.equal(page.liveSessionCount, undefined);
+  writable(true);
+  await page.refresh('next');
+  assert.equal(page.liveSessionCount, undefined);
+  remote.devices = async () => ({ devices: [device('a', 2)], nextCursor: 'next' });
+  await page.refresh(null);
+  assert.equal(page.liveSessionCount, undefined);
+  remote.devices = async () => ({ devices: [device('a', 2), device('a', 1)], nextCursor: null });
+  await page.refresh(null);
+  assert.equal(page.liveSessionCount, undefined);
+  remote.devices = async () => {
+    throw new Error('unavailable');
+  };
+  await page.refresh(null);
+  assert.equal(page.liveSessionCount, undefined);
+});

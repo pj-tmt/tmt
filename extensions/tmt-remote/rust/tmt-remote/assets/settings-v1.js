@@ -1844,7 +1844,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const joinHost = document.getElementById("remote-join");
 	const joinMenu = mountBrowserMenu(joinHost, {
 		label: "Join a Remote",
-		...shell?.actions ? {} : { triggerText: "Join a Remote" },
+		triggerText: "Join a Remote",
 		items: [{
 			key: "invite",
 			label: "Join with an invitation"
@@ -2880,6 +2880,18 @@ var ManagementPage = class {
 	constructor(client, reopen) {
 		this.client = client;
 		this.reopen = reopen;
+	}
+	/** Only the designated owner sees the full device scope; partial pages are never totals. */
+	get liveSessionCount() {
+		if (this.access !== "live" || this.settings?.capabilities.settingsWrite !== true || !this.onFirstPage || this.devices?.nextCursor !== null) return void 0;
+		const ids = /* @__PURE__ */ new Set();
+		let count = 0;
+		for (const device of this.devices.devices) {
+			if (ids.has(device.clientId)) return void 0;
+			ids.add(device.clientId);
+			count += device.liveSessionCount;
+		}
+		return Number.isSafeInteger(count) && count >= 0 ? count : void 0;
 	}
 	get writable() {
 		return this.writableWhenIdle && !this.busy;
@@ -4081,6 +4093,7 @@ async function settingsPage(shell, registry, initial) {
 		if (otherHold()) return;
 		cancelConfirmation();
 		if (!busyMark.shown()) markOwner = owner;
+		shell?.observedLiveSessions?.(void 0);
 		const pending = action();
 		render();
 		try {
@@ -4092,7 +4105,9 @@ async function settingsPage(shell, registry, initial) {
 	}
 	/** Paint management first; only the optional section changes when its read completes. */
 	async function refreshView(cursor) {
+		shell?.observedLiveSessions?.(void 0);
 		await page.refresh(cursor);
+		shell?.observedLiveSessions?.(page.liveSessionCount);
 		render();
 		if (page.access === "live") page.observeFirestore().then(renderService);
 	}

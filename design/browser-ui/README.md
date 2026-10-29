@@ -173,7 +173,8 @@ repeated or modified requests do nothing. The root supplies search providers and
 The right group is Theme, Remote, then page actions. Remote is `{ kind: 'confirmed', liveSessions,
 href }` or `{ kind: 'unconfirmed', href }`. It counts live sessions, never devices or pages;
 positive counts draw a badge, while zero and unconfirmed remain distinct. The button opens a modal
-with the admitted status and settings link. The root owns acquisition and freshness, and invalid
+with the admitted status and the exact settings link supplied by the root; an optional observed
+connection label is shown when available. The root owns acquisition and freshness, and invalid
 counts are rejected before replacing the projection. Theme uses the browser preference and the
 System/Light/Dark menu; System follows the device and blocked storage still applies the choice.
 

@@ -5209,6 +5209,20 @@ test('landing registry keeps two origins independent and confirms public-only ha
       );
       await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
       await expect(page.locator('#remote-list [data-role]')).toHaveText('Member');
+      // A member's device page is scoped to that member, not a Remote-wide total.
+      const remoteStatus = page.locator('.tmt-ui-topbar').getByRole('button', {
+        name: 'Remote: session count unconfirmed',
+        exact: true,
+      });
+      await expect(remoteStatus).toBeVisible();
+      await remoteStatus.click();
+      const remoteDialog = page.getByRole('dialog', { name: 'Remote', exact: true });
+      await expect(remoteDialog).toContainText('Connected');
+      await expect(remoteDialog.getByRole('link', { name: 'Remote settings' })).toHaveAttribute(
+        'href',
+        '/remote/settings',
+      );
+      await page.keyboard.press('Escape');
       await capture(
         'empty',
         'This machine remains visible without a remembered reference; its role is not guessed.',

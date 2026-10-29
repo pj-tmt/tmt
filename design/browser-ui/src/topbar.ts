@@ -6,8 +6,8 @@ import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './over
 import { setStoredTheme, THEMES, type ThemeChoice } from './theme.js';
 
 export type ShellRemoteStatus =
-  | { kind: 'confirmed'; liveSessions: number; href: string }
-  | { kind: 'unconfirmed'; href: string };
+  | { kind: 'confirmed'; liveSessions: number; href: string; connection?: string }
+  | { kind: 'unconfirmed'; href: string; connection?: string };
 
 /** Root-owned bindings and display data; the leaf performs no product reads. */
 export interface ShellCommonControls {
@@ -258,10 +258,7 @@ export function createShellTopBar(
             ? 'Remote: no live sessions'
             : `Remote: ${status.liveSessions} live ${status.liveSessions === 1 ? 'session' : 'sessions'}`;
       settings.href = status.href;
-      // Older roots name the Remote overview; the shared dialog needs its settings route.
-      if (settings.pathname === '/remote' || settings.pathname === '/remote/')
-        settings.pathname = '/remote/settings';
-      connection.textContent = label;
+      connection.textContent = status.connection ? `${status.connection} · ${label}` : label;
       remote.setAttribute('aria-label', label);
       remoteHelp.text.textContent = label;
       badge.hidden = status.kind !== 'confirmed' || status.liveSessions === 0;
