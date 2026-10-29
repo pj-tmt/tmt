@@ -275,7 +275,7 @@ impl Sender {
             .store
             .lock()
             .map_err(crate::store::database)?
-            .cloud_final_outgoing(&self.peer, &id, &payload)?;
+            .cloud_one_way_outgoing(&self.peer, &id, &payload)?;
         let stored = if let Some(old) = old.filter(|row| row.attempted) {
             old
         } else {
@@ -319,7 +319,7 @@ impl Sender {
             self.store
                 .lock()
                 .map_err(crate::store::database)?
-                .cloud_prepare_final(&self.peer, &id, &payload, &carrier, now)?
+                .cloud_prepare_one_way(&self.peer, &id, &payload, &carrier, now)?
         };
         if stored.attempted {
             return match self.provider.get(&self.peer, "inbox", &id, io).await? {
@@ -355,6 +355,113 @@ impl Sender {
             .await?
         {
             Some(doc) if doc.bytes() == stored.carrier => Ok(()),
+            Some(_) => Err(conflict()),
+            None => Err(unconfirmed()),
+        }
+    }
+    pub(crate) async fn summary_supported(
+        &self,
+        descriptor: &VerifiedDescriptor,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<bool, RemoteError> {
+        let bytes = self
+            .read_remote("capabilities", "{}", descriptor, now, io)
+            .await?;
+        let signed = SignedMessage::decode_any(&bytes, crate::limits::CLOUD_ENVELOPE_BYTES)
+            .ok_or_else(invalid)?;
+        crate::squads::publisher::supports_summary(&signed.input)
+    }
+
+    /// One-way metadata uses the existing immutable carrier store and common HPKE profile.
+    pub(crate) async fn push_summary(
+        &self,
+        pending: &crate::squads::store::Pending,
+        grant: &crate::store::Grant,
+        descriptor: &VerifiedDescriptor,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<crate::squads::publisher::Publication, RemoteError> {
+        use crate::squads::publisher::Publication;
+        crate::squads::store::frame(&pending.payload)?;
+        if grant.client_id != self.provider.machine() {
+            return Err(invalid());
+        }
+        let old = self
+            .store
+            .lock()
+            .map_err(crate::store::database)?
+            .cloud_one_way_outgoing(&self.peer, &pending.id, &pending.payload)?;
+        if let Some(old) = old.as_ref().filter(|old| old.attempted) {
+            // A previous HTTP attempt can only be observed at the original ID.
+            return match self
+                .provider
+                .observe(&self.peer, "inbox", &pending.id, io)
+                .await?
+            {
+                Some(doc) if doc.bytes() == old.carrier => Ok(Publication::Stored),
+                Some(_) => Err(conflict()),
+                None => Ok(Publication::Unobserved),
+            };
+        }
+        if pending.revision != grant.revision {
+            return Err(invalid());
+        }
+        let window = uuid_v4()?;
+        let session = uuid_v4()?;
+        let envelope = Envelope {
+            kind: "request",
+            id: &pending.id,
+            correlation_id: None,
+            machine_id: self.provider.machine(),
+            window_id: &window,
+            client_id: &self.peer,
+            session_id: &session,
+            sequence: "1",
+            timestamp_ms: now,
+            origin: "cli",
+            operation: "squads.summary",
+            payload: &pending.payload,
+        };
+        let signature = canonical::base64url(
+            &self
+                .key
+                .sign(&canonical::envelope(&envelope).map_err(|_| invalid())?),
+        );
+        let exact = json!({"version":1,"profile":"local-v1","kind":"request","id":pending.id,
+            "correlationId":null,"machineId":envelope.machine_id,"windowId":window,
+            "clientId":self.peer,"sessionId":session,"sequence":"1","timestampMs":now,
+            "origin":"cli","operation":"squads.summary","payload":canonical::base64url(&pending.payload),"signature":signature}).to_string();
+        let (carrier, _) = super::seal_native(
+            exact.as_bytes(),
+            descriptor,
+            now,
+            Peer {
+                client_id: &self.peer,
+                authentication_key: &self.key.public(),
+            },
+            |bytes| self.key.sign(bytes),
+        )?;
+        // Refresh only an unclaimed preparation after Auth/budget delay. Nothing
+        // attempted is ever resealed, retried as a create or assigned another ID.
+        let stored = self
+            .store
+            .lock()
+            .map_err(crate::store::database)?
+            .cloud_prepare_one_way(&self.peer, &pending.id, &pending.payload, &carrier, now)?;
+        let claim = Box::new(|| {
+            self.store
+                .lock()
+                .map_err(|_| crate::sealed_sync::SyncError::Unavailable)?
+                .summary_claim(grant, &self.peer, pending, &stored.carrier)
+                .map_err(|_| crate::sealed_sync::SyncError::Denied)
+        });
+        match self
+            .provider
+            .create(&self.peer, "inbox", &pending.id, &stored.carrier, claim, io)
+            .await?
+        {
+            Some(doc) if doc.bytes() == stored.carrier => Ok(Publication::Stored),
             Some(_) => Err(conflict()),
             None => Err(unconfirmed()),
         }
@@ -528,7 +635,16 @@ impl Sender {
             .lock()
             .map_err(crate::store::database)?
             .cloud_freeze_outgoing(&self.peer, &id, payload.as_bytes(), &carrier, now)?;
-        let bytes = self.exchange(&id, &carrier, opener, io).await?;
+        let exchange = self.exchange(&id, &carrier, opener, io).await;
+        if operation == "capabilities" {
+            // This generated read ID has no Core effect/recovery binding. Its
+            // response context ends here; never retain a timer-created read history.
+            self.store
+                .lock()
+                .map_err(crate::store::database)?
+                .cloud_retire_summary_probe(&self.peer, &id, &carrier)?;
+        }
+        let bytes = exchange?;
         let signed = SignedMessage::decode_any(&bytes, crate::limits::CLOUD_ENVELOPE_BYTES)
             .ok_or_else(invalid)?;
         let header = signed.envelope();

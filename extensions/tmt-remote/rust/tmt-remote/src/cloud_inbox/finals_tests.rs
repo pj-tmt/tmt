@@ -450,7 +450,7 @@ fn delayed_unclaimed_final_refreshes_context_but_only_the_claimed_bytes_can_publ
     let final_id = id(OPERATION).unwrap();
     let initial = world.now.saturating_sub(120_000);
     store
-        .cloud_prepare_final(
+        .cloud_prepare_one_way(
             MACHINE,
             &final_id,
             b"exact final",
@@ -459,7 +459,7 @@ fn delayed_unclaimed_final_refreshes_context_but_only_the_claimed_bytes_can_publ
         )
         .unwrap();
     let fresh = store
-        .cloud_prepare_final(
+        .cloud_prepare_one_way(
             MACHINE,
             &final_id,
             b"exact final",
@@ -495,7 +495,7 @@ fn delayed_unclaimed_final_refreshes_context_but_only_the_claimed_bytes_can_publ
             .unwrap()
     );
     let after_claim = store
-        .cloud_prepare_final(
+        .cloud_prepare_one_way(
             MACHINE,
             &final_id,
             b"exact final",
@@ -508,7 +508,7 @@ fn delayed_unclaimed_final_refreshes_context_but_only_the_claimed_bytes_can_publ
     assert_eq!(after_claim.created_ms, world.now);
     assert!(
         store
-            .cloud_prepare_final(
+            .cloud_prepare_one_way(
                 MACHINE,
                 &final_id,
                 b"different final",

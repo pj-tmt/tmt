@@ -1157,7 +1157,7 @@ fn last_use_migration_preserves_preexisting_grants_and_unknown_time() {
     f.store
         .connection
         .execute_batch(
-            "ALTER TABLE operations DROP COLUMN member_id; DROP TABLE member_machines; DROP TABLE members; DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DELETE FROM _migrations WHERE version>=9;",
+            "DROP TABLE squad_cache; DROP TABLE squad_publications; ALTER TABLE operations DROP COLUMN member_id; DROP TABLE member_machines; DROP TABLE members; DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DELETE FROM _migrations WHERE version>=9;",
         )
         .unwrap();
     f.store.connection = Connection::open_in_memory().unwrap();

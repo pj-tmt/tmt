@@ -464,6 +464,22 @@ fn service_with_identity(
     ports: ProjectPorts,
     identity: Arc<dyn CloudIdentityQuery>,
 ) -> (Arc<Service>, Serving) {
+    service_with_source(root, core, ports, identity, false)
+}
+fn service_with_summary_source(
+    root: &std::path::Path,
+    core: &core_fixture::Core,
+    ports: ProjectPorts,
+) -> (Arc<Service>, Serving) {
+    service_with_source(root, core, ports, Arc::new(Identity), true)
+}
+fn service_with_source(
+    root: &std::path::Path,
+    core: &core_fixture::Core,
+    ports: ProjectPorts,
+    identity: Arc<dyn CloudIdentityQuery>,
+    summary_source: bool,
+) -> (Arc<Service>, Serving) {
     let layout = Layout::open(root).unwrap();
     let lease = layout.serve_lock().unwrap();
     let mut store = Store::open(&lease).unwrap();
@@ -506,7 +522,8 @@ fn service_with_identity(
             .with_operations(operations),
     );
     let projects = Arc::new(Projects::new(layout.clone(), Some(ports)));
-    let service = Arc::new(Service::new(Owner {
+    let stop = Arc::new(AtomicBool::new(false));
+    let service = Service::new(Owner {
         layout,
         store,
         key,
@@ -515,8 +532,13 @@ fn service_with_identity(
         sessions,
         messages,
         projects,
-        stop: Arc::new(AtomicBool::new(false)),
-    }));
+        stop: stop.clone(),
+    });
+    let service = Arc::new(if summary_source {
+        service.with_summary_reads(crate::reads::Reads::new(core.root.join("tmt"), stop))
+    } else {
+        service
+    });
     link.attach(&service).unwrap();
     (service, lease)
 }

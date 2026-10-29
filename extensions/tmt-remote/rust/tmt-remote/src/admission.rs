@@ -259,6 +259,7 @@ pub(crate) enum RemoteOperation {
     RequestsSendNow,
     Result,
     Final,
+    SquadsSummary,
 }
 impl RemoteOperation {
     const NAMES: &'static [(&'static str, Self)] = &[
@@ -295,6 +296,7 @@ impl RemoteOperation {
         ("requests.sendNow", Self::RequestsSendNow),
         ("result", Self::Result),
         ("final", Self::Final),
+        ("squads.summary", Self::SquadsSummary),
     ];
     pub(crate) fn parse(name: &str) -> Option<Self> {
         Self::NAMES
@@ -335,6 +337,7 @@ impl RemoteOperation {
             Self::RequestsSendNow => OperationClass::Effect,
             Self::Result => OperationClass::Read,
             Self::Final => OperationClass::Effect,
+            Self::SquadsSummary => OperationClass::Effect,
         }
     }
     fn scope(self) -> Option<&'static str> {
@@ -370,6 +373,7 @@ impl RemoteOperation {
             Self::RequestsSendNow => Some("talk"),
             Self::Result => Some("results.read"),
             Self::Final => Some("results.read"),
+            Self::SquadsSummary => Some("agents.read"),
         }
     }
 }

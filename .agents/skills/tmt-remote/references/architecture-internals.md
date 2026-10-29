@@ -424,6 +424,30 @@ Empty idle polls retain their one-minute cadence and one-document reservation. `
 an already-attempted response by exact ID after its current grant fence, avoiding another unsent
 commit reservation; ambiguous observations preserve the same frozen uncertainty and progress rules.
 
+`squads` owns the filtered public-Ops summary, content/coalescing scheduler and verified
+cache/pending intent in the authoritative Store. Native `squads.summary` is read-only
+metadata under `agents.read`, not a Core message/final or sending grant. Per-recipient
+canonical UUID filtering removes hidden lead/member rows and hidden-only squads. Only
+normalized typed fields are cached; a signed durable sequence rejects rollback.
+A separate joined publisher under the same Service/Store/project guard samples public
+Ops only for native read peers explicitly advertising `squads.summary` through signed
+capabilities. Capability results are cached by native key and grant revision; failed
+observations back off. The existing inbox worker remains free to answer exchanges.
+Public Ops samples are serialized, at least one minute apart from completion, with
+a dedicated 30-second timeout. Publication coalesces for five seconds and heartbeats
+every five minutes. A failed read keeps the last published content and observation
+time; continuing failures become unavailable only at a due heartbeat, and success
+clears the failure streak. Stop joins both workers before releasing the lease.
+The existing sender/HPKE/carrier attempt owner and project guard carry publications;
+budget refusal retains pending intent with a bounded hold, attempted IDs remain
+observation-only, and revoke/current membership fences precede effects.
+After atomic verified cache/watermark commit, existing driver cleanup promptly deletes
+only validated summary inbox carriers. Guard refusal preserves cleanup intent and cache.
+Source compaction retains active attempts and the latest completed summary; generic
+messages/finals keep their existing recovery horizon. Sequence watermarks survive
+compaction. The cache supplies the list after restart without provider reads; absent
+cache is unavailable without an invented observation time.
+
 `cloud_inbox::finals` binds pushed finals to the original claimed outbox destination and local
 originator under the current grant fence. Core's reply receipt is private binding data, never
 envelope or audit data. `CoreClient` submits exact stdin to ordinary receipt-bound `tmt reply`;

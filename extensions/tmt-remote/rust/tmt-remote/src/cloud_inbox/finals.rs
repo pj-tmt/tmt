@@ -129,23 +129,6 @@ impl Store {
             .collect::<Result<Vec<_>, _>>()
             .map_err(database)
     }
-    pub(crate) fn cloud_final_outgoing(
-        &self,
-        peer: &str,
-        final_id: &str,
-        payload: &[u8],
-    ) -> Result<Option<super::store::Outgoing>, RemoteError> {
-        let created: Option<i64> = self.connection.query_row(
-            "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='outbox' AND id=?2",
-            [peer, final_id], |r| r.get(0),
-        ).optional().map_err(database)?;
-        created
-            .map(|created| {
-                self.cloud_outgoing(peer, final_id, payload, created as u64)
-                    .and_then(|row| row.ok_or_else(invalid))
-            })
-            .transpose()
-    }
     pub(crate) fn cloud_claim_final(
         &mut self,
         grant: &crate::store::Grant,
@@ -165,50 +148,6 @@ impl Store {
         ).map_err(database)? == 1;
         tx.commit().map_err(database)?;
         Ok(claimed)
-    }
-    /// No HTTP was invoked while attempted=0. Refresh only that preparation with
-    /// a fresh HPKE context so a long budget/Auth delay cannot publish stale headers.
-    /// The final intent is immutable, and a claimed carrier is never changed.
-    pub(crate) fn cloud_prepare_final(
-        &mut self,
-        peer: &str,
-        final_id: &str,
-        payload: &[u8],
-        carrier: &[u8],
-        now: u64,
-    ) -> Result<super::store::Outgoing, RemoteError> {
-        super::store::validate(peer, final_id, carrier, now)?;
-        let Some(old) = self.cloud_final_outgoing(peer, final_id, payload)? else {
-            return self.cloud_freeze_outgoing(peer, final_id, payload, carrier, now);
-        };
-        if old.attempted {
-            return Ok(old);
-        }
-        let tx = self
-            .connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(database)?;
-        let used: i64 = tx.query_row(
-            "SELECT COALESCE(SUM(length(carrier)+COALESCE(length(response),0)),0) FROM cloud_transport WHERE peer_id=?1 AND kind<>'checkpoint'",
-            [peer], |row| row.get(0),
-        ).map_err(database)?;
-        if used - old.carrier.len() as i64 + carrier.len() as i64 > crate::journal::FROZEN_BYTES {
-            return Err(RemoteError::new(
-                "REMOTE_CLOUD_CAPACITY",
-                "Cloud recovery storage is full.",
-            ));
-        }
-        let changed = tx.execute("UPDATE cloud_transport SET carrier=?3,created_ms=?4 WHERE peer_id=?1 AND kind='outbox' AND id=?2 AND attempted=0 AND carrier=?5 AND created_ms=?6",
-            params![peer, final_id, carrier, now as i64, old.carrier, old.created_ms as i64]).map_err(database)?;
-        if changed != 1 {
-            return Err(invalid());
-        }
-        tx.commit().map_err(database)?;
-        Ok(super::store::Outgoing {
-            attempted: false,
-            carrier: carrier.to_vec(),
-            created_ms: now,
-        })
     }
 }
 
