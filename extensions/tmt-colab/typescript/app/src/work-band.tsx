@@ -32,6 +32,7 @@ export interface WorkBandProps extends TaskDetailSlots {
   pageState?: PageState | null;
   progress?: PageProgress | null;
   stateControl?: ReactNode;
+  attachAction?: ReactNode;
   subpages?: readonly { id: string; title?: string; state?: PageState | null }[];
   /** Below the list and the open task: where a new task is made and a refusal is told. */
   listActions?: ReactNode;
@@ -54,6 +55,7 @@ export function WorkBand({
   work,
   onSize,
   listActions,
+  attachAction,
   parent,
   pageHref,
   focusTask,
@@ -189,6 +191,7 @@ export function WorkBand({
                 ))}
             </div>
           )}
+          {attachAction}
           {subpages.length > 0 && (
             <button
               type="button"

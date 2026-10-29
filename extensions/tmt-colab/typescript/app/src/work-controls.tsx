@@ -1,8 +1,16 @@
-import { BrowserAction, BrowserField, BrowserMenu } from '@tmt/browser-ui/react';
-import { useCallback, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { BrowserAction, BrowserDialog, BrowserField, BrowserMenu } from '@tmt/browser-ui/react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { SaveNotApplied, SaveRefused, saveMessage, type WorkAction } from './save.js';
 import { text } from './strings.js';
-import type { PageBinding } from './transport.js';
+import type { PageBinding, PageSummary, WorkOutcome } from './transport.js';
 import { TASK_STATES, keptByEdit, type Task, type TaskState } from './work.js';
 import { waitsForSignoff } from './work-people.js';
 
@@ -10,6 +18,11 @@ type Body = Record<string, unknown>;
 export interface WorkRun {
   /** Send one action; resolves true once the page shows it, false when it was refused. */
   run(action: WorkAction, body: Body): Promise<boolean>;
+  runResult(
+    action: WorkAction,
+    body: Body,
+    displayError?: boolean,
+  ): Promise<{ value?: WorkOutcome; error?: unknown }>;
   busy: boolean;
   /** The sentence for the last refusal, in the serve's own words where it gave them. */
   error?: string;
@@ -30,9 +43,9 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
   const current = useRef<WorkRun['stranded']>(undefined);
   current.current = stranded;
   const flying = useRef(false);
-  const run = useCallback(
-    async (action: WorkAction, body: Body) => {
-      if (!binding?.work || flying.current) return false;
+  const runResult = useCallback(
+    async (action: WorkAction, body: Body, displayError = true) => {
+      if (!binding?.work || flying.current) return { error: new Error('Work is unavailable') };
       flying.current = true;
       setBusy(true);
       // Linking the page a convert made answers the row that offered it: that row stays.
@@ -41,8 +54,8 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
       setErrorAt(undefined);
       if (!answering) setStranded(undefined);
       try {
-        await binding.work(action, body);
-        return true;
+        const value = await binding.work(action, body);
+        return { value };
       } catch (failure) {
         const page =
           failure instanceof SaveRefused || failure instanceof SaveNotApplied
@@ -51,12 +64,13 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
         if (page !== undefined && action === 'task.convert')
           setStranded({ task: String(body.taskId), page });
         if ((page !== undefined && action === 'task.convert') || answering) setErrorAt('stranded');
-        setError(
-          failure instanceof SaveNotApplied && page !== undefined
-            ? text.workBand.controls.madeNotLinked
-            : saveMessage(failure),
-        );
-        return false;
+        if (displayError)
+          setError(
+            failure instanceof SaveNotApplied && page !== undefined
+              ? text.workBand.controls.madeNotLinked
+              : saveMessage(failure),
+          );
+        return { error: failure };
       } finally {
         flying.current = false;
         setBusy(false);
@@ -64,7 +78,11 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
     },
     [binding],
   );
-  return { run, busy, error, stranded, errorAt };
+  const run = useCallback(
+    async (action: WorkAction, body: Body) => (await runResult(action, body)).value !== undefined,
+    [runResult],
+  );
+  return { run, runResult, busy, error, stranded, errorAt };
 }
 
 const label = text.workBand.controls;
@@ -480,5 +498,179 @@ export function AddTask({ work }: { work: WorkRun }): ReactNode {
         }
       />
     </form>
+  );
+}
+
+/** Attach an existing page through the owner's two existing work actions. */
+export function AttachSubpage({
+  pages,
+  pageId,
+  work,
+  run,
+}: {
+  pages?: readonly PageSummary[];
+  pageId: string;
+  work: import('./work.js').Work;
+  run: WorkRun;
+}) {
+  const fieldId = useId();
+  const [open, setOpen] = useState(false);
+  const [selectedPage, setSelectedPage] = useState('');
+  const [selectedTask, setSelectedTask] = useState('new');
+  const [title, setTitle] = useState('');
+  const [retained, setRetained] = useState<{ task: string; page: string }>();
+  const [failure, setFailure] = useState<string>();
+  const [unsettled, setUnsettled] = useState(false);
+  const mounted = useRef(false);
+  const attaching = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const candidates = (pages ?? []).filter((page) => page.id !== pageId && !page.archived);
+  const eligible = work.order.filter((id) => {
+    const task = work.tasks[id];
+    return task && task.child === undefined && task.externalId === undefined;
+  });
+  const commit = async () => {
+    if (run.busy || attaching.current || unsettled || !selectedPage) return;
+    attaching.current = true;
+    try {
+      setFailure(undefined);
+      let task = retained?.task ?? (selectedTask === 'new' ? undefined : selectedTask);
+      if (!task) {
+        if (!title.trim()) return;
+        const added = await run.runResult('task.add', { task: { title: title.trim() } }, false);
+        if (!mounted.current) return;
+        if (!added.value?.taskId) {
+          setFailure(added.error ? saveMessage(added.error) : 'The new task ID is unavailable.');
+          if (!(added.error instanceof SaveRefused || added.error instanceof SaveNotApplied))
+            setUnsettled(true);
+          return;
+        }
+        task = added.value.taskId;
+        setRetained({ task, page: selectedPage });
+      }
+      const linked = await run.runResult(
+        'task.link',
+        { taskId: task, pageId: selectedPage },
+        false,
+      );
+      if (!mounted.current) return;
+      if (linked.value) {
+        setRetained(undefined);
+        setSelectedPage('');
+        setSelectedTask('new');
+        setTitle('');
+        setOpen(false);
+        return;
+      }
+      setRetained({ task, page: selectedPage });
+      setFailure(linked.error ? saveMessage(linked.error) : 'The link outcome is unavailable.');
+      if (!(linked.error instanceof SaveRefused || linked.error instanceof SaveNotApplied))
+        setUnsettled(true);
+    } finally {
+      attaching.current = false;
+    }
+  };
+  return (
+    <>
+      <BrowserAction
+        type="button"
+        variant="ghost"
+        label="Attach a sub-page"
+        onActivate={() => setOpen(true)}
+      />
+      <BrowserDialog
+        open={open}
+        title="Attach a sub-page"
+        onDismiss={() => {
+          if (!run.busy) setOpen(false);
+        }}
+        actions={
+          <>
+            <BrowserAction
+              type="button"
+              variant="secondary"
+              label="Cancel"
+              disabled={run.busy}
+              onActivate={() => setOpen(false)}
+            />
+            <BrowserAction
+              type="button"
+              variant="primary"
+              label={retained ? 'Retry link' : 'Attach'}
+              disabled={
+                run.busy ||
+                unsettled ||
+                !selectedPage ||
+                (!retained && selectedTask === 'new' && !title.trim())
+              }
+              onActivate={() => void commit()}
+            />
+          </>
+        }
+      >
+        <div className="work-attach-fields">
+          <BrowserField
+            controlId={`${fieldId}-page`}
+            label="Page"
+            renderControl={(field) => (
+              <select
+                {...field}
+                value={selectedPage}
+                disabled={run.busy || unsettled}
+                onChange={(event) => {
+                  setSelectedPage(event.target.value);
+                  setFailure(undefined);
+                }}
+              >
+                <option value="">Choose a page</option>
+                {candidates.map((page) => (
+                  <option key={page.id} value={page.id}>
+                    {page.title}
+                  </option>
+                ))}
+              </select>
+            )}
+          />
+          {!pages && <p>Page list unavailable.</p>}
+          {!retained && (
+            <BrowserField
+              controlId={`${fieldId}-task`}
+              label="Task"
+              renderControl={(field) => (
+                <select
+                  {...field}
+                  value={selectedTask}
+                  disabled={run.busy || unsettled}
+                  onChange={(event) => setSelectedTask(event.target.value)}
+                >
+                  <option value="new">Create a new task</option>
+                  {eligible.map((id) => (
+                    <option key={id} value={id}>
+                      {id} · {work.tasks[id].title}
+                    </option>
+                  ))}
+                </select>
+              )}
+            />
+          )}
+          {!retained && selectedTask === 'new' && (
+            <TextField
+              label="Task title"
+              maxLength={120}
+              value={title}
+              onChange={setTitle}
+              disabled={run.busy || unsettled}
+            />
+          )}
+          {retained && <p>Task {retained.task} is kept. Retry its link to the selected page.</p>}
+          {failure && <p role="alert">{failure}</p>}
+        </div>
+      </BrowserDialog>
+    </>
   );
 }

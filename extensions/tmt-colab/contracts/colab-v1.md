@@ -3330,6 +3330,13 @@ applies to the revision the serve reads when it prepares, so the action's own pr
 (a task that is gone is `COLAB_INPUT_INVALID`), and the commit's fences turn a page that moved
 meanwhile into `COLAB_STALE_BASE`; nothing is written on a refusal.
 
+The expanded owner work panel offers Attach a sub-page when work is available and the observed
+list does not identify this page as a child; unknown parentage does not claim authority, and the
+owner's link admission decides it. The picker uses the observed page list and an existing unlinked
+task or sends `task.add` then `task.link` with the returned task ID. A refused link keeps the task,
+shows the refusal and permits a retry of that same link; an unsettled outcome is not resent.
+Share readers and shell pages have no attach control.
+
 A tenth action, `task.convert` with the body `{taskId}` and nothing else, makes the task a page of its
 own, as `tmt colab task convert` does, and is the only browser action that makes a page. Page
 creation is otherwise root-only, so this is a narrow authority of the owner device (`Access::Publish`,
