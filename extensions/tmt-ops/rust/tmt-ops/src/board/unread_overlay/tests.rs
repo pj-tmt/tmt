@@ -81,7 +81,11 @@ fn unavailable_answers(member: &str, reply: &str, turn: &str) -> Observation {
 }
 
 fn draw(app: &App, height: u16) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(160, height)).unwrap();
+    draw_size(app, 160, height)
+}
+
+fn draw_size(app: &App, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, app))
         .unwrap();
@@ -1094,4 +1098,178 @@ fn a_new_actor_never_inherits_an_open_overlays_caption_or_cursor() {
     assert!(app.unread.writer.offer().is_none());
     assert!(app.unread_overlay_page().is_none());
     assert!(app.unread_overlay_read().is_none());
+}
+
+#[test]
+fn unread_list_detail_uses_the_board_body_instead_of_a_fixed_modal_cap() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("first", "The full answer.")]),
+    );
+    let screen = draw_size(&app, 160, 50);
+    let outer = app
+        .peek_areas
+        .dialog(crate::board::app::Overlay::Unread)
+        .unwrap();
+    assert_eq!(
+        outer.width, 160,
+        "Unread fills the board body rather than 110 columns"
+    );
+    assert!(
+        outer.height > 32,
+        "Unread uses the available body height: {outer:?}"
+    );
+    assert!(
+        outer.y >= 3,
+        "the top bar and tabs remain outside: {outer:?}"
+    );
+    assert!(screen.contains("Agents"), "{screen}");
+    assert!(screen.contains("Digest"), "{screen}");
+}
+
+#[test]
+fn unread_list_previews_do_not_acknowledge_the_unselected_detail() {
+    let mut app = app_with_two_members();
+    install(
+        &mut app,
+        &[
+            (MEMBER, "first", 8_000_000, "final"),
+            (MEMBER, "second", 9_000_000, "final"),
+        ],
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(
+            MEMBER,
+            &[
+                ("first", "First preview.\n\nFirst selected body."),
+                ("second", "Second preview.\n\nSecond detail only."),
+            ],
+        ),
+    );
+    let screen = draw_size(&app, 160, 50);
+    app.unread_drawn();
+    assert_eq!(
+        app.unread
+            .displayed
+            .iter()
+            .map(|body| body.request.as_str())
+            .collect::<Vec<_>>(),
+        ["first"],
+        "the list preview is not painted-detail evidence"
+    );
+    assert!(
+        screen.contains("Second preview."),
+        "the other answer has a list row: {screen}"
+    );
+    assert!(
+        !screen.contains("Second detail only."),
+        "the unselected full body stays hidden: {screen}"
+    );
+    press(&mut app, KeyCode::Down);
+    let screen = draw_size(&app, 160, 50);
+    app.unread_drawn();
+    assert!(screen.contains("Second detail only."), "{screen}");
+    assert_eq!(
+        app.unread
+            .displayed
+            .iter()
+            .map(|body| body.request.as_str())
+            .collect::<Vec<_>>(),
+        ["second"]
+    );
+}
+
+#[test]
+fn narrow_unread_stays_unread_until_enter_opens_detail_and_escape_returns_to_list() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("first", "Preview only.\n\nFull narrow detail.")]),
+    );
+    let list = draw_size(&app, 80, 30);
+    app.unread_drawn();
+    assert!(
+        app.unread.displayed.is_empty(),
+        "a narrow list preview is never read evidence"
+    );
+    assert!(list.contains("Preview only."), "{list}");
+    assert!(!list.contains("Full narrow detail."), "{list}");
+    assert!(app.unread.writer.offer().is_none());
+    press(&mut app, KeyCode::Enter);
+    assert!(
+        app.unread_overlay.is_some(),
+        "narrow Enter opens detail inside the overlay"
+    );
+    let detail = draw_size(&app, 80, 30);
+    app.unread_drawn();
+    assert!(detail.contains("Full narrow detail."), "{detail}");
+    assert_eq!(app.unread.displayed.len(), 1);
+    press(&mut app, KeyCode::Esc);
+    assert!(
+        app.unread_overlay.is_some(),
+        "first Escape returns to the narrow list"
+    );
+    let list = draw_size(&app, 80, 30);
+    app.unread_drawn();
+    assert!(!list.contains("Full narrow detail."), "{list}");
+    assert!(app.unread.displayed.is_empty());
+    press(&mut app, KeyCode::Esc);
+    assert!(
+        app.unread_overlay.is_none(),
+        "second Escape closes the overlay"
+    );
+}
+
+#[test]
+fn unread_r_explicitly_marks_the_selected_revision_without_opening_its_body() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    draw_size(&app, 80, 30);
+    assert!(app.unread.writer.offer().is_none());
+    press(&mut app, KeyCode::Char('r'));
+    assert!(
+        app.unread.writer.offer().is_some(),
+        "r admits the selected exact revision even without body text"
+    );
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "admission does not claim Core success"
+    );
+}
+
+#[test]
+fn unread_a_requires_one_confirmation_and_escape_cancels_without_acknowledging() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    draw_size(&app, 80, 30);
+    press(&mut app, KeyCode::Char('a'));
+    let screen = draw_size(&app, 80, 30);
+    assert!(
+        screen.contains("Mark all read"),
+        "a asks for confirmation: {screen}"
+    );
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "confirmation alone does not acknowledge"
+    );
+    press(&mut app, KeyCode::Esc);
+    assert!(
+        app.unread_overlay.is_some(),
+        "cancel returns to the overlay"
+    );
+    assert!(app.unread.writer.offer().is_none());
+    assert_eq!(app.unread_count(MEMBER).total, 1);
 }
