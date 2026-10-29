@@ -314,10 +314,15 @@ pub const HOSTING_WEB_APP_ID_BYTES: usize = 256;
 
 /// Only the bounded machine/squad/member projection is eligible for cross-machine summary sync.
 pub const SQUAD_SUMMARY_BYTES: usize = 64 * 1024;
+/// Bounded version/sequence wrapper, including ignored future metadata fields.
+pub const SQUAD_SUMMARY_FRAME_BYTES: usize = SQUAD_SUMMARY_BYTES + 256;
 pub const SQUAD_SUMMARY_NAME_BYTES: usize = 128;
 pub const SQUAD_SUMMARY_SQUADS: usize = 64;
 pub const SQUAD_SUMMARY_MEMBERS: usize = 512;
 /// Unchanged summaries heartbeat every five minutes; readers derive age from observedAt.
+pub const SQUAD_SUMMARY_CAPABILITY_TTL_MS: u64 = 86_400_000;
+pub const SQUAD_SUMMARY_CAPABILITIES: usize = 64;
+pub const SQUAD_SUMMARY_COALESCE_MS: u64 = 5_000;
 pub const SQUAD_SUMMARY_HEARTBEAT_MS: u64 = 300_000;
 /// One bounded other-machine list, before filtering the local machine.
 pub const SQUAD_SUMMARY_MACHINES: usize = 32;

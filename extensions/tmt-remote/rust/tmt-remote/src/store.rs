@@ -188,7 +188,7 @@ pub(crate) fn machine_in(connection: &Connection) -> Result<Machine, RemoteError
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 15] = [
+const MIGRATIONS: [(&str, &str); 16] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -329,6 +329,16 @@ const MIGRATIONS: [(&str, &str); 15] = [
     ("operation_members", "ALTER TABLE operations ADD COLUMN member_id TEXT;
      UPDATE operations SET member_id=(SELECT mm.member_id FROM member_machines mm
        WHERE mm.client_id=operations.client_id AND mm.remote_id=(SELECT machine_id FROM machine WHERE singleton=1));"),
+    ("squad_summaries", "ALTER TABLE cloud_transport ADD COLUMN summary_metadata INTEGER NOT NULL DEFAULT 0 CHECK(summary_metadata IN (0,1));
+     CREATE TABLE squad_cache(
+        client_id TEXT PRIMARY KEY REFERENCES grants(client_id), public_key BLOB NOT NULL,
+        grant_revision INTEGER NOT NULL, member_id TEXT, sequence INTEGER NOT NULL,
+        summary BLOB, received_ms INTEGER NOT NULL);
+     CREATE TABLE squad_publications(
+        client_id TEXT PRIMARY KEY REFERENCES grants(client_id), grant_revision INTEGER NOT NULL,
+        desired BLOB, fingerprint BLOB, changed_ms INTEGER,
+        sent_hash BLOB, sent_ms INTEGER, sequence INTEGER NOT NULL DEFAULT 0,
+        active_id TEXT, active_payload BLOB, active_revision INTEGER, retry_ms INTEGER NOT NULL DEFAULT 0);"),
 
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {

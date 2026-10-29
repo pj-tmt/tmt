@@ -614,19 +614,25 @@ fn foreground_with_native(
                     cloud_ports,
                 ))
             });
-        let cloud = Arc::new(tmt_remote::cloud_pairing::service::Service::new(
-            tmt_remote::cloud_pairing::service::Owner {
-                layout: layout.clone(),
-                store: store.clone(),
-                key: machine_key,
-                machine: machine.id.clone(),
-                keys: cloud_keys.clone(),
-                sessions: sessions.clone(),
-                messages: messages.clone(),
-                projects: projects.clone(),
-                stop: stop.clone(),
-            },
-        ));
+        let cloud = Arc::new(
+            tmt_remote::cloud_pairing::service::Service::new(
+                tmt_remote::cloud_pairing::service::Owner {
+                    layout: layout.clone(),
+                    store: store.clone(),
+                    key: machine_key,
+                    machine: machine.id.clone(),
+                    keys: cloud_keys.clone(),
+                    sessions: sessions.clone(),
+                    messages: messages.clone(),
+                    projects: projects.clone(),
+                    stop: stop.clone(),
+                },
+            )
+            .with_summary_reads(tmt_remote::reads::Reads::new(
+                executable.clone(),
+                Arc::clone(stop),
+            )),
+        );
         member_observations.attach(&cloud)?;
         let cloud_worker = cloud.worker()?;
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?

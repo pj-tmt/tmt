@@ -39,6 +39,11 @@ pub(crate) struct QueryCheckpoint {
     pub(crate) continuation: Option<Continuation>,
 }
 
+pub(crate) struct CarrierCleanup {
+    pub peer: String,
+    pub id: String,
+    pub summary: bool,
+}
 struct InboxRow {
     digest: Vec<u8>,
     created_ms: i64,
@@ -311,7 +316,7 @@ impl Store {
         id: &str,
         now: u64,
     ) -> Result<(), RemoteError> {
-        self.connection.execute("DELETE FROM cloud_transport WHERE peer_id=?1 AND id=?2 AND kind<>'checkpoint' AND created_ms<=?3",params![peer,id,now.saturating_sub(journal::RECOVERY) as i64]).map_err(database)?;
+        self.connection.execute("DELETE FROM cloud_transport WHERE peer_id=?1 AND id=?2 AND kind<>'checkpoint' AND (created_ms<=?3 OR (kind='inbox' AND summary_metadata=1 AND response IS NOT NULL))",params![peer,id,now.saturating_sub(journal::RECOVERY) as i64]).map_err(database)?;
         Ok(())
     }
 }
@@ -408,24 +413,35 @@ impl Store {
     pub(crate) fn cloud_prune_outgoing(&mut self, now: u64) -> Result<(), RemoteError> {
         let keep = journal::RECOVERY + crate::session::CLOCK_SKEW.as_millis() as u64;
         if let Some(before) = now.checked_sub(keep) {
-            self.connection
-                .execute(
-                    "DELETE FROM cloud_transport WHERE kind='outbox' AND created_ms<?1",
-                    [before as i64],
-                )
+            let tx = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(database)?;
+            crate::squads::store::expire_outgoing(&tx, before, now)?;
+            tx.execute(
+                "DELETE FROM cloud_transport WHERE kind='outbox' AND created_ms<?1",
+                [before as i64],
+            )
+            .map_err(database)?;
+            tx.commit().map_err(database)?;
         }
         Ok(())
     }
-    pub(crate) fn cloud_expired(&self, now: u64) -> Result<Vec<(String, String)>, RemoteError> {
-        let mut statement=self.connection.prepare("SELECT peer_id,id FROM cloud_transport WHERE kind='inbox' AND created_ms<=?1 ORDER BY created_ms LIMIT ?2").map_err(database)?;
+    pub(crate) fn cloud_expired(&self, now: u64) -> Result<Vec<CarrierCleanup>, RemoteError> {
+        let mut statement=self.connection.prepare("SELECT peer_id,id,summary_metadata FROM cloud_transport WHERE kind='inbox' AND (created_ms<=?1 OR (summary_metadata=1 AND response IS NOT NULL)) ORDER BY created_ms LIMIT ?2").map_err(database)?;
         let rows = statement
             .query_map(
                 params![
                     now.saturating_sub(journal::RECOVERY) as i64,
                     journal::OPERATIONS
                 ],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| {
+                    Ok(CarrierCleanup {
+                        peer: r.get(0)?,
+                        id: r.get(1)?,
+                        summary: r.get(2)?,
+                    })
+                },
             )
             .map_err(database)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(database)
@@ -478,5 +494,93 @@ impl Store {
                 params![peer, operation_id, serde_json::to_string(binding).map_err(database)?]).map_err(database)?;
         }
         tx.commit().map_err(database)
+    }
+}
+
+impl Store {
+    pub(crate) fn cloud_one_way_outgoing(
+        &self,
+        peer: &str,
+        final_id: &str,
+        payload: &[u8],
+    ) -> Result<Option<Outgoing>, RemoteError> {
+        let created: Option<i64> = self.connection.query_row(
+            "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='outbox' AND id=?2",
+            [peer, final_id], |r| r.get(0),
+        ).optional().map_err(database)?;
+        created
+            .map(|created| {
+                self.cloud_outgoing(peer, final_id, payload, created as u64)
+                    .and_then(|row| row.ok_or_else(invalid))
+            })
+            .transpose()
+    }
+    /// No HTTP was invoked while attempted=0. Refresh only that preparation with
+    /// a fresh HPKE context so a long budget/Auth delay cannot publish stale headers.
+    /// The final intent is immutable, and a claimed carrier is never changed.
+    pub(crate) fn cloud_prepare_one_way(
+        &mut self,
+        peer: &str,
+        final_id: &str,
+        payload: &[u8],
+        carrier: &[u8],
+        now: u64,
+    ) -> Result<Outgoing, RemoteError> {
+        validate(peer, final_id, carrier, now)?;
+        let Some(old) = self.cloud_one_way_outgoing(peer, final_id, payload)? else {
+            return self.cloud_freeze_outgoing(peer, final_id, payload, carrier, now);
+        };
+        if old.attempted {
+            return Ok(old);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let used: i64 = tx.query_row(
+            "SELECT COALESCE(SUM(length(carrier)+COALESCE(length(response),0)),0) FROM cloud_transport WHERE peer_id=?1 AND kind<>'checkpoint'",
+            [peer], |row| row.get(0),
+        ).map_err(database)?;
+        if used - old.carrier.len() as i64 + carrier.len() as i64 > crate::journal::FROZEN_BYTES {
+            return Err(RemoteError::new(
+                "REMOTE_CLOUD_CAPACITY",
+                "Cloud recovery storage is full.",
+            ));
+        }
+        let changed = tx.execute("UPDATE cloud_transport SET carrier=?3,created_ms=?4 WHERE peer_id=?1 AND kind='outbox' AND id=?2 AND attempted=0 AND carrier=?5 AND created_ms=?6",
+            params![peer, final_id, carrier, now as i64, old.carrier, old.created_ms as i64]).map_err(database)?;
+        if changed != 1 {
+            return Err(invalid());
+        }
+        tx.commit().map_err(database)?;
+        Ok(Outgoing {
+            attempted: false,
+            carrier: carrier.to_vec(),
+            created_ms: now,
+        })
+    }
+}
+
+impl Store {
+    /// Completed summary history is not a message ledger. Preserve every active
+    /// snapshot and one most recent completion; generic carriers keep their horizon.
+    pub(crate) fn cloud_compact_summary_outgoing_in(
+        c: &rusqlite::Connection,
+        keep: &str,
+    ) -> Result<(), RemoteError> {
+        c.execute("DELETE FROM cloud_transport WHERE kind='outbox' AND summary_metadata=1 AND id<>?1 AND id NOT IN (SELECT active_id FROM squad_publications WHERE active_id IS NOT NULL)",[keep]).map_err(database)?;
+        Ok(())
+    }
+}
+
+impl Store {
+    pub(crate) fn cloud_retire_summary_probe(
+        &self,
+        peer: &str,
+        id: &str,
+        carrier: &[u8],
+    ) -> Result<(), RemoteError> {
+        self.connection.execute("DELETE FROM cloud_transport WHERE peer_id=?1 AND kind='outbox' AND id=?2 AND carrier=?3 AND binding IS NULL",params![peer,id,carrier]).map_err(database)?;
+        Ok(())
     }
 }

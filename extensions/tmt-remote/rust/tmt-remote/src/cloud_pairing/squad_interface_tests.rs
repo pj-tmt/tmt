@@ -179,3 +179,177 @@ fn directory_adapter_reads_original_delivery_and_final_without_dispatch_replay()
     sender.stop.store(true, Ordering::Release);
     owner.stop.store(true, Ordering::Release);
 }
+
+#[test]
+fn native_read_only_capability_gate_and_summary_cleanup_share_the_existing_channel() {
+    crate::private_test_case::private_case(
+        "cloud_pairing::service::tests::squad_interface_tests::native_read_only_capability_gate_and_summary_cleanup_share_the_existing_channel",
+        |root| {
+            let core = core_fixture::Core::new();
+            let wire = Arc::new(Wire::new());
+            let ports = Arc::new(Ports {
+                wire: wire.clone(),
+                clock: SystemClock::default(),
+            });
+            let make_ports = || ProjectPorts {
+                http: ports.clone(),
+                clock: ports.clone(),
+                jitter: ports.clone(),
+            };
+            let (owner, _owner_lease) = service(&root.join("owner"), &core, make_ports());
+            let (sender, _sender_lease) =
+                service_with_summary_source(&root.join("sender"), &core, make_ports());
+            assert!(owner.layout.directory.starts_with(&root));
+            assert!(sender.layout.directory.starts_with(&root));
+            pair_with_reciprocal_choice(&owner, &sender, false);
+            wire.route(&owner);
+            wire.route(&sender);
+            let source_grant = sender
+                .store()
+                .unwrap()
+                .grant(&owner.machine)
+                .unwrap()
+                .unwrap();
+            assert!(!source_grant.permits_scope("talk"));
+            let summaries = || {
+                wire.docs
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|(name, doc)| {
+                        if !name.contains("/inbox/") {
+                            return None;
+                        }
+                        let bytes = STANDARD
+                            .decode(doc["fields"]["carrier"]["bytesValue"].as_str()?)
+                            .ok()?;
+                        let value: Value = serde_json::from_slice(&bytes).ok()?;
+                        (value["header"]["operation"] == "squads.summary").then(|| name.clone())
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert!(summaries().is_empty());
+            sender.publish_summaries().unwrap();
+            assert_eq!(
+                sender
+                    .summary_support
+                    .lock()
+                    .unwrap()
+                    .get(&owner.machine)
+                    .unwrap()
+                    .cached(&source_grant, Instant::now()),
+                Some(Ok(true))
+            );
+            assert!(summaries().is_empty(), "capability lookup sends no summary");
+            *sender.summary_sample.lock().unwrap() = None;
+            let reads = wire.reads.lock().unwrap().len();
+            sender.publish_summaries().unwrap();
+            assert_eq!(
+                wire.reads.lock().unwrap().len(),
+                reads,
+                "positive capability is cached and content coalesces"
+            );
+            sender.summary_schedules.lock().unwrap().insert(
+                owner.machine.clone(),
+                crate::squads::publisher::Schedule::restore(
+                    None,
+                    Some(crate::limits::SQUAD_SUMMARY_COALESCE_MS),
+                    0,
+                    0,
+                ),
+            );
+            *sender.summary_sample.lock().unwrap() = None;
+            sender.publish_summaries().unwrap();
+            let names = summaries();
+            assert_eq!(names.len(), 1);
+            let id = names[0].rsplit('/').next().unwrap();
+            assert!(
+                !wire
+                    .docs
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .any(|name| name.ends_with(&format!("/responses/{id}"))),
+                "summary has no provider response write"
+            );
+            let rows = crate::squads::SummaryReader::read(owner.as_ref()).unwrap();
+            assert_eq!(rows.len(), 1);
+            assert!(
+                crate::squads::Summary::read(&rows[0].summary)
+                    .unwrap()
+                    .squads()
+                    .is_none(),
+                "failed public Ops read becomes unavailable, never fabricated rows"
+            );
+            let before = wire.commits.lock().unwrap().len();
+            owner.reconcile().unwrap();
+            assert!(!wire.docs.lock().unwrap().contains_key(&names[0]));
+            let deletes = wire.commits.lock().unwrap()[before..]
+                .iter()
+                .filter(|request| {
+                    request["writes"].as_array().is_some_and(|writes| {
+                        writes.iter().any(|write| write["delete"] == names[0])
+                    })
+                })
+                .count();
+            assert_eq!(
+                deletes, 1,
+                "summary cleanup is exactly one guarded provider delete"
+            );
+            assert_eq!(
+                crate::squads::SummaryReader::read(owner.as_ref())
+                    .unwrap()
+                    .len(),
+                1,
+                "verified cache survives provider cleanup"
+            );
+            let outbox:i64=sender.store().unwrap().connection.query_row("SELECT COUNT(*) FROM cloud_transport WHERE kind='outbox' AND summary_metadata=0",[],|r|r.get(0)).unwrap();
+            assert_eq!(
+                outbox, 0,
+                "completed capability observations do not form a second history"
+            );
+            owner.store().unwrap().connection.execute("UPDATE grants SET scopes='results.read',revision=revision+1 WHERE client_id=?1",[&sender.machine]).unwrap();
+            sender
+                .summary_support
+                .lock()
+                .unwrap()
+                .remove(&owner.machine);
+            *sender.summary_sample.lock().unwrap() = None;
+            sender.publish_summaries().unwrap();
+            assert_eq!(
+                sender
+                    .summary_support
+                    .lock()
+                    .unwrap()
+                    .get(&owner.machine)
+                    .unwrap()
+                    .cached(&source_grant, Instant::now()),
+                Some(Ok(false))
+            );
+            let before = wire.commits.lock().unwrap().len();
+            *sender.summary_sample.lock().unwrap() = None;
+            sender.publish_summaries().unwrap();
+            assert_eq!(
+                wire.commits.lock().unwrap().len(),
+                before,
+                "unsupported native peer gets no periodic metadata"
+            );
+            assert_eq!(
+                core.sends(),
+                0,
+                "capability and summary work never dispatch agent work"
+            );
+            let strong = Arc::strong_count(&sender);
+            let worker = sender.worker().unwrap();
+            assert!(worker.publisher_join.is_some());
+            drop(worker);
+            assert!(sender.stop.load(Ordering::Acquire));
+            assert_eq!(
+                Arc::strong_count(&sender),
+                strong,
+                "both joined workers release the Service before lease cleanup"
+            );
+            owner.stop.store(true, Ordering::Release);
+        },
+    );
+}

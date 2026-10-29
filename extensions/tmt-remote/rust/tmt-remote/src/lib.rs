@@ -72,6 +72,9 @@ pub mod wire;
 pub(crate) mod core_fixture;
 
 #[cfg(test)]
+#[path = "serve/private_test_case.rs"]
+pub(crate) mod private_test_case;
+#[cfg(test)]
 #[path = "serve/test_isolation.rs"]
 pub(crate) mod test_isolation;
 

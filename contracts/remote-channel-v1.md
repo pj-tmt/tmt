@@ -1547,6 +1547,7 @@ Remote narrows supported operations/authority before core calls.
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`                                                                                  | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                                                 |
 | `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional runtime/activity evidence below, without pane address/cwd/process/profile.                                                                         |
+| `squads.summary`                                                                                | Native-only one-way metadata, gated by `agents.read` and filtered by the `agents.list` canonical UUID allowlist; never a Core final, agent message or talk grant.                                                                                         |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                                           |
 | `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --capture-only --json` returns locally. Read-only; it never writes to a pane.                                                                                                                          |
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
@@ -2620,6 +2621,29 @@ Finals are one-way: the receiver retains its frozen local outcome for deduplicat
 not publish an unused response document. A final therefore adds one provider carrier write.
 The ordinary inbox driver, message admission and current grant fence also receive a final;
 the local-browser path refuses this operation.
+
+Native-only `squads.summary` is one-way metadata under `agents.read`, filtered by the
+same canonical UUID allowlist as `agents.list`; it is never a Core final, agent message
+or talk grant. Its payload is `{version:1,sequence,summary}`: the positive durable
+per-source sequence prevents an older arrival replacing newer verified cache.
+`summary` is Remote's bounded [public Ops projection](../extensions/tmt-remote/rust/tmt-remote/src/squads/README.md),
+never a Core store read. Unknown fields are ignored, and peers must tolerate the
+operation being absent. Publication requires an explicit `squads.summary` advertisement
+from the existing signed native `capabilities` operation under the current read grant;
+capability observations are cached and failures back off. Provider storage proves
+publication, not receiver delivery.
+Local browsers refuse this operation. Existing native admission, current grant/member
+and revocation fences, immutable attempt recovery, project guard and cleanup apply.
+Like finals, the receiver retains its local frozen outcome without publishing a
+provider response document; no new transport, quota allowance or talk permission is added.
+After verified summary cache and sequence-watermark commit, existing guarded cleanup
+promptly deletes only the validated summary inbox carrier; failed cleanup retains its
+row. Source compaction removes only completed summary outboxes and protects active
+attempts. Sequence watermarks survive compaction; generic messages and finals keep
+their existing retention. An absent original summary carrier remains unconfirmed;
+a later fresh observation may supersede it with a newer sequence, never by recreating
+the original ID. A separate joined publisher shares the serving Service and stop owner,
+leaving inbox reconciliation available for capability exchanges.
 
 Core supplies `reply:{requestId,receipt}` with its prepared local message. Remote retains it
 only in the private sender outbox binding, alongside the destination native machine, remote
