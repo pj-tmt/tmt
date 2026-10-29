@@ -44,7 +44,7 @@ pub struct TurnCapture<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnCaptureOutcome {
     Committed,
-    /// An ordinary Stop for this exact idle turn was already committed.
+    /// An ordinary Stop offers no new final in its exact recorded batch.
     Duplicate,
     /// The deadline, authority or activity transition does not permit a commit.
     NotApplicable,
@@ -100,16 +100,19 @@ impl Storage {
             {
                 return Ok(TurnCaptureOutcome::NotApplicable);
             }
-            let Some(next) = driver_state::after_activity(
+            let next = driver_state::after_activity(
                 remembered.state.as_ref(),
                 &remembered.provider_session,
                 capture.process,
                 &capture.activity.event,
                 capture.activity.model.as_deref(),
                 capture.now_ms,
-            ) else {
-                // No writer repeats a normal end that another observer has
-                // already committed for this exact active session/process.
+            );
+            let batch = super::super::capture_batches::current(db, &binding.identity_id)?;
+            if next.is_none() {
+                // Idle activity alone cannot distinguish a retried Stop from
+                // a later final whose prompt boundary was missed. Keep its
+                // verified text and compare complete identity under this writer.
                 let previous = remembered
                     .state
                     .as_ref()
@@ -117,14 +120,15 @@ impl Storage {
                     .filter(|activity| {
                         activity.matches(&remembered.provider_session, capture.process)
                     });
-                return Ok(
-                    if capture.activity.event.kind == EventKind::TurnEnded
-                        && previous.as_ref().is_some_and(|activity| {
-                            activity.phase
-                                == tmt_core::binding::session::activity::ActivityPhase::Idle
-                                && activity.turn == capture.activity.event.turn
-                        })
-                    {
+                let idle_end = capture.activity.event.kind == EventKind::TurnEnded
+                    && previous.as_ref().is_some_and(|activity| {
+                        activity.phase == tmt_core::binding::session::activity::ActivityPhase::Idle
+                            && activity.turn == capture.activity.event.turn
+                            && capture.now_ms >= activity.last_activity_ms
+                    });
+                if !idle_end || capture.interrupted || capture.response.is_none() || batch.is_none()
+                {
+                    return Ok(if idle_end {
                         TurnCaptureOutcome::Duplicate
                     } else if !capture.interrupted
                         && previous
@@ -134,12 +138,20 @@ impl Storage {
                         TurnCaptureOutcome::NoAdmittedStart
                     } else {
                         TurnCaptureOutcome::NotApplicable
-                    },
-                );
-            };
+                    });
+                }
+            }
+            if capture.activity.event.kind == EventKind::TurnEnded
+                && let Some(response) = capture.response.as_ref()
+                && super::same_final_in_batch(db, batch.as_deref(), response)?
+            {
+                return Ok(TurnCaptureOutcome::Duplicate);
+            }
             let driver = remembered.harness.as_str().to_owned();
             let session = remembered.provider_session.as_str().to_owned();
-            current.remembered.as_mut().unwrap().state = Some(next);
+            if let Some(next) = next {
+                current.remembered.as_mut().unwrap().state = Some(next);
+            }
             if !records.set_session_preferences(&binding.identity_id, &current)? {
                 return Ok(TurnCaptureOutcome::NotApplicable);
             }

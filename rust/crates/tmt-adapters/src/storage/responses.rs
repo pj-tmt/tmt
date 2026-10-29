@@ -33,6 +33,23 @@ pub(super) fn append(
     )
 }
 
+/// Only complete text in the recorded batch can establish equality. A kept
+/// prefix cannot prove that two truncated provider finals were identical.
+pub(super) fn same_final_in_batch(
+    connection: &Connection,
+    batch: Option<&str>,
+    response: &ResponseCapture,
+) -> Result<bool, StorageError> {
+    if response.text.truncated() {
+        return Ok(false);
+    }
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM capture_entries e JOIN recent_responses r ON r.sequence=e.response_sequence
+         WHERE e.batch_id=?1 AND e.kind='final' AND r.truncated=0 AND r.text=?2 AND r.original_bytes=?3)",
+        params![batch,response.text.text(),response.text.original_bytes() as i64], |row| row.get(0)
+    ).map_err(|error| classify(error,"Compare complete final in recorded batch"))
+}
+
 pub(super) fn append_to_batch(
     connection: &Connection,
     id: &str,

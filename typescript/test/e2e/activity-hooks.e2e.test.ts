@@ -142,7 +142,21 @@ it.each(['claude', 'codex'] as const)(
           lastActivityMs: expect.any(Number),
           providers: {},
         });
-        expect(activity(6)).toEqual(activity(4));
+        if (provider === 'codex') {
+          // A correlated prompt with the same turn ID remains a replay.
+          expect(activity(6)).toEqual(activity(4));
+        } else {
+          // Claude supplies no turn ID: a verified prompt starts a new turn
+          // even if the previous Stop was missed and activity is still working.
+          expect(activity(6)).toEqual({
+            state: 'working',
+            sinceMs: expect.any(Number),
+            lastActivityMs: expect.any(Number),
+            providers: {},
+          });
+          expect(activity(6).sinceMs).toBeGreaterThanOrEqual(activity(4).lastActivityMs);
+          expect(activity(6).lastActivityMs).toBe(activity(6).sinceMs);
+        }
         expect(activity(8).state).toBe('idle');
         expect(activity(8).lastActivityMs).toBeGreaterThanOrEqual(activity(4).lastActivityMs);
         expect(activity(10)).toEqual(activity(8));
@@ -185,6 +199,19 @@ it.each(['claude', 'codex'] as const)(
               noOp: results[27].elapsedMs,
             })
           );
+        }
+        const captures = new Database(path.join(fixture.globalDir, 'tmt.db'), {
+          readonly: true,
+          fileMustExist: true,
+        });
+        try {
+          expect(
+            captures
+              .prepare('SELECT count(*) AS n FROM capture_batches WHERE identity_id=?')
+              .get(row(results[4].stdout).id)
+          ).toEqual({ n: provider === 'claude' ? 4 : 2 });
+        } finally {
+          captures.close();
         }
         const last = provider === 'codex' ? 20 : 36;
         // The fixture runtime has exited, while its shell pane remains. A process
