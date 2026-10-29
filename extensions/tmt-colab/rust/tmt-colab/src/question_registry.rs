@@ -451,7 +451,15 @@ pub fn admit_source(
 
 pub fn admit_edit(source: &str, base_source: &str, meta: &Value) -> crate::Result<()> {
     let report = crate::page_check::check(source).map_err(|_| crate::page::Fault::Capacity)?;
-    let findings = edit_findings(&report, base_source, meta, "PAGE", None)?;
+    admit_checked(&report, base_source, meta)
+}
+/// [`admit_edit`] with the edited source's check already made by the caller.
+pub(crate) fn admit_checked(
+    report: &crate::page_check::Report,
+    base_source: &str,
+    meta: &Value,
+) -> crate::Result<()> {
+    let findings = edit_findings(report, base_source, meta, "PAGE", None)?;
     if !findings.is_empty() {
         return Err(Box::new(Refused { findings }));
     }

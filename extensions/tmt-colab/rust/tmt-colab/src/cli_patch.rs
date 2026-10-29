@@ -260,7 +260,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 }
                 Err(error) => return Err(error),
             }
-            let base = page::read(&store, &key, &id, &mut decoder)?;
+            let (base, reusable) = page::read_for_patch(&store, &key, &id, &mut decoder)?;
             let edited = match patch.apply(&base.source) {
                 Ok(edited) => edited,
                 Err(fault) => {
@@ -269,8 +269,9 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 }
             };
             // The markup check runs on the result, before the write takes its snapshot.
+            let checked = crate::cli_page_check::checked(&edited)?;
             let warnings = crate::cli_page_check::gate(
-                &edited,
+                &checked,
                 args,
                 crate::cli_page_check::Attachments::Page {
                     store: &store,
@@ -279,14 +280,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     decoder: &mut decoder,
                 },
             )?;
-            let locks = crate::cli_edit_locks::patch_locks(
-                &store,
-                &key,
-                &id,
-                &base.source,
-                &edited,
-                &mut decoder,
-            )?;
+            let locks = crate::cli_edit_locks::patch_locks(&base, &edited)?;
             if expected.is_some()
                 && locks
                     .revision
@@ -306,6 +300,8 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 expected.as_deref().or(locks.revision.as_deref()),
                 Some(crypto::digest(base.source.as_bytes())),
                 None,
+                Some(&reusable),
+                Some(&checked),
                 &mut decoder,
             ) {
                 Ok(mut receipt) => {

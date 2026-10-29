@@ -459,8 +459,42 @@ pub fn usage(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) ->
     snapshot(store, key, page, false)?.usage(key, page, decoder)
 }
 pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<Page> {
+    Ok(read_with_meta(store, key, page, decoder)?.0)
+}
+/// The authenticated bytes, source and content metadata a patch read and evaluated, at the
+/// revision it read them. A preparation that finds the page still at that revision reuses them
+/// instead of opening and decoding the page again; any other revision prepares from its own
+/// snapshot as before.
+pub struct PatchBase {
+    revision: String,
+    pub(crate) source: String,
+    pub(crate) meta: serde_json::Value,
+    pub(crate) input: crate::fold::MaterializationInput,
+}
+/// [`read`], keeping what a patch's commit can reuse from the same snapshot.
+pub fn read_for_patch(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<(Page, PatchBase)> {
+    let (read, meta, input) = read_with_meta(store, key, page, decoder)?;
+    let base = PatchBase {
+        revision: read.revision.clone(),
+        source: read.source.clone(),
+        meta,
+        input,
+    };
+    Ok((read, base))
+}
+fn read_with_meta(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<(Page, serde_json::Value, crate::fold::MaterializationInput)> {
     let s = snapshot(store, key, page, false)?;
-    let view = s.materialize_measured(key, page, decoder)?;
+    let (view, input) = s.materialize_measured(key, page, decoder)?;
     if view.meta.get("pageType").is_some() {
         return Err(Fault::Invalid.into());
     }
@@ -481,7 +515,7 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
     .into_iter()
     .filter(|lock| !lock.released)
     .collect();
-    Ok(Page {
+    let read = Page {
         local_writer: key.local_writer()?.0,
         edit_locks,
         question_states,
@@ -503,7 +537,8 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
         memory_limit: view.memory_limit,
         usage: view.usage,
-    })
+    };
+    Ok((read, view.meta, input))
 }
 /// Structured read, without inventing an HTML source. The shell value includes owner-supplied
 /// summary attribution; target access is resolved separately by each reader.
@@ -640,6 +675,10 @@ pub struct PublishOptions<'a> {
     pub base_source_sha256: Option<[u8; 32]>,
     /// The caller's own operation ID, so it can ask about the original after a lost reply.
     pub operation_id: Option<&'a str>,
+    /// What the caller already read; reused only while the page is still at its revision.
+    pub base: Option<&'a PatchBase>,
+    /// The caller's check of the source it publishes; reused only for that exact source.
+    pub checked: Option<&'a crate::page_check::Checked<'a>>,
 }
 impl<'a> From<Option<&'a str>> for PublishOptions<'a> {
     fn from(expected_revision: Option<&'a str>) -> Self {
@@ -702,11 +741,18 @@ pub fn prepare_publication_with_clock<'a>(
     let now = clock()?;
     values::time(now)?;
     let author = Author::of(key, &s, now)?;
+    // The revision is read from this snapshot, so a caller's base at the same revision is this
+    // snapshot's content; a base from any other revision is decoded afresh and fenced as before.
+    let held = crate::fold::Held {
+        base: options.base.filter(|base| base.revision == revision),
+        checked: options.checked.and_then(|checked| checked.of(edit.source)),
+    };
     let prepared = s.prepare_content_batch(
         key,
         page,
         edit,
         options.base_source_sha256.as_ref(),
+        held,
         decoder,
     )?;
     let ContentBatch::Updates(updates) = prepared.batch else {

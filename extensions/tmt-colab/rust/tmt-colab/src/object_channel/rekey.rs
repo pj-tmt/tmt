@@ -315,6 +315,8 @@ fn repair(
                     expected_revision: Some(&revision),
                     base_source_sha256: Some(crypto::digest(folded.source.as_bytes())),
                     operation_id: Some(&page::fresh_id()?),
+                    base: None,
+                    checked: None,
                 },
                 &mut view.decoder,
                 &|| Ok(crate::registration::now_ms()?),
