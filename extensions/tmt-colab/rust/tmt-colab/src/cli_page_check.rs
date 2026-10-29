@@ -289,10 +289,23 @@ fn refusal(report: &Report, bytes: usize, what: &str) -> Box<dyn std::error::Err
     })
 }
 
+/// The check of one source, refused by name when the source is over the page size cap.
+pub fn checked(source: &str) -> Result<page_check::Checked<'_>> {
+    page_check::Checked::new(source)
+        .map_err(|_| fail("COLAB_CAPACITY", "Page source is over the page size cap."))
+}
+
 /// Run the check on one source, resolving references as `attachments` says.
 pub fn inspect(source: &str, attachments: Attachments<'_>) -> Result<Report> {
-    let mut report = page_check::check(source)
-        .map_err(|_| fail("COLAB_CAPACITY", "Page source is over the page size cap."))?;
+    inspect_checked(&checked(source)?, attachments)
+}
+
+/// [`inspect`] from a check already made.
+fn inspect_checked(
+    checked: &page_check::Checked<'_>,
+    attachments: Attachments<'_>,
+) -> Result<Report> {
+    let mut report = checked.report().clone();
     let tokens: Vec<String> = report.references.iter().map(|r| r.token.clone()).collect();
     match attachments {
         Attachments::Unchecked => {}
@@ -319,9 +332,23 @@ pub fn inspect(source: &str, attachments: Attachments<'_>) -> Result<Report> {
 
 /// The check `page create` and `page patch` run before publishing: under `--strict` any finding
 /// refuses the command before anything is committed; otherwise the findings come back to be
-/// printed as warnings after the page is published.
-pub fn gate(source: &str, args: &ArgMatches, attachments: Attachments<'_>) -> Result<Vec<Finding>> {
-    gate_with_hints(source, args, attachments).map(|(findings, _)| findings)
+/// printed as warnings after the page is published. `page patch` passes the same check on to its
+/// write.
+pub fn gate(
+    checked: &page_check::Checked<'_>,
+    args: &ArgMatches,
+    attachments: Attachments<'_>,
+) -> Result<Vec<Finding>> {
+    let report = inspect_checked(checked, attachments)?;
+    refuse_strict(&report, checked.source(), args)?;
+    Ok(report.findings)
+}
+
+fn refuse_strict(report: &Report, source: &str, args: &ArgMatches) -> Result<()> {
+    if args.get_flag("strict") && !report.findings.is_empty() {
+        return Err(refusal(report, source.len(), "The page"));
+    }
+    Ok(())
 }
 
 /// [`gate`], and the hints for a command that shows them (`page create`). Hints never refuse.
@@ -331,9 +358,7 @@ pub fn gate_with_hints(
     attachments: Attachments<'_>,
 ) -> Result<(Vec<Finding>, Vec<Hint>)> {
     let report = inspect(source, attachments)?;
-    if args.get_flag("strict") && !report.findings.is_empty() {
-        return Err(refusal(&report, source.len(), "The page"));
-    }
+    refuse_strict(&report, source, args)?;
     Ok((report.findings, report.hints))
 }
 

@@ -677,6 +677,8 @@ pub struct PublishOptions<'a> {
     pub operation_id: Option<&'a str>,
     /// What the caller already read; reused only while the page is still at its revision.
     pub base: Option<&'a PatchBase>,
+    /// The caller's check of the source it publishes; reused only for that exact source.
+    pub checked: Option<&'a crate::page_check::Checked<'a>>,
 }
 impl<'a> From<Option<&'a str>> for PublishOptions<'a> {
     fn from(expected_revision: Option<&'a str>) -> Self {
@@ -748,6 +750,7 @@ pub fn prepare_publication_with_clock<'a>(
         edit,
         options.base_source_sha256.as_ref(),
         known,
+        options.checked.and_then(|checked| checked.of(edit.source)),
         decoder,
     )?;
     let ContentBatch::Updates(updates) = prepared.batch else {

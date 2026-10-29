@@ -146,7 +146,7 @@ pub struct Reference {
     line: u64,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub question_sources: Vec<QuestionBlock>,
     /// The questions the page shows.
@@ -217,6 +217,33 @@ impl Report {
 /// The source is longer than a page may be.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SourceTooLarge;
+
+/// One source and its [`check`], kept together so a later step of the same write reuses the
+/// report only for that exact source.
+pub struct Checked<'a> {
+    source: &'a str,
+    report: Report,
+}
+impl<'a> Checked<'a> {
+    /// # Errors
+    /// [`SourceTooLarge`], as [`check`].
+    pub fn new(source: &'a str) -> Result<Self, SourceTooLarge> {
+        Ok(Self {
+            source,
+            report: check(source)?,
+        })
+    }
+    pub fn source(&self) -> &'a str {
+        self.source
+    }
+    pub fn report(&self) -> &Report {
+        &self.report
+    }
+    /// The report, when it is the check of `source`.
+    pub fn of(&self, source: &str) -> Option<&Report> {
+        (self.source == source).then_some(&self.report)
+    }
+}
 
 /// Check one page source.
 ///

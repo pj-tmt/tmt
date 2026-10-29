@@ -812,11 +812,12 @@ impl Snapshot {
         edit: crate::decoder::ContentEdit<'_>,
         base_sha256: Option<&[u8; 32]>,
         known: Option<&crate::page::PatchBase>,
+        checked: Option<&crate::page_check::Report>,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
         // `known` is what the caller read at this snapshot's revision: the same authenticated
         // bytes, source and metadata. Attachment changes need the full view for their creation
-        // proofs.
+        // proofs. `checked` is the caller's check of exactly `edit.source`.
         let opened;
         let input = match known {
             Some(known) => &known.input,
@@ -841,13 +842,20 @@ impl Snapshot {
         if base_sha256.is_some_and(|d| *d != crypto::digest(base_source.as_bytes())) {
             return Err(crate::page::Fault::StaleBase.into());
         }
-        let report =
-            crate::page_check::check(edit.source).map_err(|_| crate::page::Fault::Capacity)?;
+        let fresh;
+        let report = match checked {
+            Some(report) => report,
+            None => {
+                fresh = crate::page_check::check(edit.source)
+                    .map_err(|_| crate::page::Fault::Capacity)?;
+                &fresh
+            }
+        };
         if !report.question_sources.is_empty() {
             let identities =
                 crate::core::reference_names(&crate::question_registry::identity_ids(base_meta));
             let findings = crate::question_registry::edit_findings(
-                &report,
+                report,
                 base_source,
                 base_meta,
                 page,
@@ -883,7 +891,7 @@ impl Snapshot {
             },
             &expected_base,
             edit,
-            &report,
+            report,
             None,
         )?;
         if let crate::decoder::ContentBatch::Updates(updates) = &prepared.batch {

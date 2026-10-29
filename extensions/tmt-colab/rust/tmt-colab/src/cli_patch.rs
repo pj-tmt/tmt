@@ -269,8 +269,9 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 }
             };
             // The markup check runs on the result, before the write takes its snapshot.
+            let checked = crate::cli_page_check::checked(&edited)?;
             let warnings = crate::cli_page_check::gate(
-                &edited,
+                &checked,
                 args,
                 crate::cli_page_check::Attachments::Page {
                     store: &store,
@@ -300,6 +301,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 Some(crypto::digest(base.source.as_bytes())),
                 None,
                 Some(&reusable),
+                Some(&checked),
                 &mut decoder,
             ) {
                 Ok(mut receipt) => {
