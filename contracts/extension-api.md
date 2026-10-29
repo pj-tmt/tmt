@@ -1027,7 +1027,7 @@ free-form entry and never refuses a value that is missing from the list.
   it. It takes only each entry's `slug` and `visibility`, keeping `visibility: "list"`, and
   never reads account or identity fields. The read is bounded (1 MiB) and does not follow
   symlinks. A missing, oversized, symlinked or malformed cache, or one that lists nothing,
-  gives `source: "fallback"` with no models.
+  as on a first run, gives `source: "fallback"` with TMT's maintained Codex list.
 - **Claude** keeps no readable list. Its fallback holds the aliases and full names its
   `--model` accepts.
 - **agy** reports empty lists, because TMT passes it no effort.

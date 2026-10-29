@@ -88,10 +88,16 @@ mod tests {
                 "efforts":["low","medium","high","xhigh","max","ultra"]})
         );
 
-        // Without the cache Codex falls back and still lists its efforts.
+        // Without the cache Codex falls back to its maintained lists.
         std::fs::remove_file(codex_home.join("models_cache.json")).unwrap();
         let value: Value = serde_json::from_slice(&models_in(&environment).unwrap()).unwrap();
         assert_eq!(value["drivers"][2]["source"], "fallback");
-        assert_eq!(value["drivers"][2]["models"], json!([]));
+        assert!(
+            value["drivers"][2]["models"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("gpt-6.1-sol"))
+        );
+        assert_eq!(value["drivers"][2]["efforts"], drivers[2]["efforts"]);
     }
 }

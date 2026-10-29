@@ -8,6 +8,18 @@ use std::path::Path;
 const CACHE: &str = "models_cache.json";
 /// The cache holds per-model metadata; a larger file is not one Codex wrote.
 const CACHE_LIMIT: usize = 1024 * 1024;
+/// The models Codex 0.164 lists (`visibility: "list"`), for a first run that has
+/// no cache yet. Checked 2026-10-29; the cache, once present, replaces it.
+const FALLBACK_MODELS: &[&str] = &[
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6.1-terra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+];
 /// The `model_reasoning_effort` values Codex models accept; support varies by model.
 const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max", "ultra"];
 
@@ -23,7 +35,7 @@ struct Entry {
 }
 
 pub(super) fn launch_choices(codex_home: &Path) -> LaunchChoices {
-    let mut choices = LaunchChoices::fallback(&[], EFFORTS);
+    let mut choices = LaunchChoices::fallback(FALLBACK_MODELS, EFFORTS);
     if let Some(models) = listed(codex_home) {
         choices.source = ModelSource::Provider;
         choices.models = models;
@@ -75,10 +87,11 @@ mod tests {
     }
 
     #[test]
-    fn an_unusable_cache_falls_back_to_no_models_with_efforts() {
+    fn an_unusable_cache_falls_back_to_the_maintained_lists() {
         let home = home();
         let path = home.path.join(CACHE);
-        let fallback = LaunchChoices::fallback(&[], EFFORTS);
+        let fallback = LaunchChoices::fallback(FALLBACK_MODELS, EFFORTS);
+        assert!(!fallback.models.is_empty());
         // Missing.
         assert_eq!(launch_choices(home.path.as_path()), fallback);
         for bytes in [
