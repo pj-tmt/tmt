@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, selectDiscussion } from '../test/page-actions.js';
 
 /**
  * An admitted update on a large page re-renders what changed. A reply to one thread updates that
@@ -65,7 +65,7 @@ test('a reply on a large page updates its thread and leaves the document alone',
   await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(120);
   await (await pageAction(page, 'Comments')).click();
   const drawer = commentsRegion(page);
-  await drawer.getByRole('button', { name: /^8 Comment on paragraph 7\./ }).click();
+  await selectDiscussion(page, 'Comment on paragraph 7.');
   await expect(
     drawer.getByTestId('comment-entry').getByText('Comment on paragraph 7.'),
   ).toBeVisible();
