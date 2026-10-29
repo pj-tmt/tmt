@@ -198,7 +198,11 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
             parts.push((format!("tick {at}"), Role::Muted, None));
         }
     }
-    let lead = "Digest  ";
+    // The supplier's own switch text usually names Digest already; the row names it once.
+    let named = parts
+        .iter()
+        .any(|(text, _, choice)| choice.is_some() && text.starts_with("Digest"));
+    let lead = if named { "" } else { "Digest  " };
     let mut spans = vec![Span::styled(lead, strong(app))];
     let mut used = lead.width();
     let mut first = true;
