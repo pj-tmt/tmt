@@ -2111,6 +2111,20 @@ export function releaseQuestionView() {
   emit();
 }
 
+/** One controlled renderer-placement race after pointer coordinates have been chosen. */
+export function shiftQuestionOnPointerDown() {
+  const line = document.querySelector<HTMLButtonElement>('.question-line');
+  const slot = line?.closest<HTMLElement>('[data-inline-question]');
+  if (!line || !slot) throw new Error('No inline question for the placement fixture');
+  line.addEventListener(
+    'pointerdown',
+    () => {
+      slot.style.translate = `0 ${line.getBoundingClientRect().height + 32}px`;
+    },
+    { once: true },
+  );
+}
+
 /** Admitted answer Ask state attached to the same normal annotation turn. */
 export function questionAsk(state: PageAsk['state'] | 'replied') {
   const thread = current.threads!.find((thread) => !thread.proposal)!;
