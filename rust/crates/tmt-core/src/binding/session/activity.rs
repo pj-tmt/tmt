@@ -87,7 +87,12 @@ impl Activity {
                 let continued = event.kind == EventKind::ContinuationEnded
                     && previous.phase == ActivityPhase::Idle
                     && now > previous.last_activity_ms;
+                // A provider without turn IDs supplies a new synchronous prompt,
+                // not proof that the preceding Working turn is still current.
+                let uncorrelated_prompt =
+                    event.kind == EventKind::TurnStarted && event.turn.is_none();
                 if !continued
+                    && !uncorrelated_prompt
                     && (event.kind.phase() == previous.phase
                         || (event.kind == EventKind::TurnStarted && event.turn.is_some())
                         || (previous.phase == ActivityPhase::Idle
@@ -308,7 +313,12 @@ mod tests {
         let process = ProcessIncarnation::new(12, "start").unwrap();
         let working = event(ActivityPhase::Working, None);
         let a = Activity::observe(None, &session, &process, &working, 10).unwrap();
-        assert!(Activity::observe(Some(&a), &session, &process, &working, 11).is_none());
+        let next_prompt = Activity::observe(Some(&a), &session, &process, &working, 11).unwrap();
+        assert_eq!(
+            next_prompt.since_ms, 11,
+            "an uncorrelated prompt starts even if the preceding Stop was missed"
+        );
+        assert!(Activity::observe(Some(&a), &session, &process, &working, 9).is_none());
         let idle = Activity::observe(
             Some(&a),
             &session,

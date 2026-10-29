@@ -17,7 +17,7 @@ const source = JSON.parse(
 );
 
 it.each(['claude', 'codex'] as const)(
-  '%s retains only newly admitted final turns and reads no usage data without consent',
+  '%s retains distinct finals in their recorded batches and reads no usage data without consent',
   async (provider) => {
     await withE2EFixture(
       async (fixture) => {
@@ -88,9 +88,13 @@ it.each(['claude', 'codex'] as const)(
         }
         const retained = steps.length;
         steps.push(
-          hook('Stop', 'turn-11', 'duplicate must not replace the text'),
+          hook('Stop', 'turn-11', texts[11]),
           recent,
           hook('Stop', 'turn-11', 'foreign session', '66666666-6666-4666-8666-666666666666'),
+          recent,
+          hook('Stop', 'turn-11', 'a distinct final whose prompt boundary was missed'),
+          recent,
+          hook('Stop', 'turn-11', 'a distinct final whose prompt boundary was missed'),
           recent,
           { args: ['setup', provider, '--no-usage', '--yes', '--json'] },
           hook('UserPromptSubmit', 'disabled', 'disabled capture'),
@@ -161,9 +165,22 @@ it.each(['claude', 'codex'] as const)(
         for (const index of [retained + 1, retained + 3]) {
           expect(JSON.parse(results[index].stdout)).toEqual(final);
         }
+        const missedPrompt = JSON.parse(results[retained + 5].stdout);
+        expect(missedPrompt.items[0]).toEqual({
+          ...final.items[0],
+          responseId: expect.stringMatching(/^rsp_\d+$/),
+          text: 'a distinct final whose prompt boundary was missed',
+          endedMs: expect.any(Number),
+          truncated: false,
+          originalBytes: Buffer.byteLength('a distinct final whose prompt boundary was missed'),
+        });
+        expect(missedPrompt.items[0].responseId).not.toBe(final.items[0].responseId);
+        expect(missedPrompt.items[0].inputBatchId).toBe(final.items[0].inputBatchId);
+        expect(missedPrompt.items.slice(1)).toEqual(final.items.slice(0, 9));
+        expect(JSON.parse(results[retained + 7].stdout)).toEqual(missedPrompt);
         // --no-usage keeps the turn-end hook for the agent's answers: the payload text is kept
         // (a Stop after the opt-out is captured) and no transcript or usage data is read.
-        const afterOptOut = JSON.parse(results[retained + 7].stdout);
+        const afterOptOut = JSON.parse(results[retained + 11].stdout);
         expect(afterOptOut.capture).toEqual({ enabled: true });
         expect(afterOptOut.items[0]).toMatchObject({
           text: 'disabled capture',
@@ -171,7 +188,7 @@ it.each(['claude', 'codex'] as const)(
           sessionId: session,
           originalBytes: Buffer.byteLength('disabled capture'),
         });
-        expect(afterOptOut.items.slice(1)).toEqual(final.items.slice(0, 9));
+        expect(afterOptOut.items.slice(1)).toEqual(missedPrompt.items.slice(0, 9));
         const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
         try {
           const preferences = database
@@ -182,7 +199,14 @@ it.each(['claude', 'codex'] as const)(
             database
               .prepare('SELECT count(*) AS n FROM recent_responses WHERE identity_id=?')
               .get(identityId)
-          ).toEqual({ n: 13 });
+          ).toEqual({ n: 14 });
+          expect(
+            database
+              .prepare(
+                "SELECT count(*) AS n FROM capture_entries WHERE identity_id=? AND kind='final'"
+              )
+              .get(identityId)
+          ).toEqual({ n: 14 });
         } finally {
           database.close();
         }

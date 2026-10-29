@@ -33,6 +33,23 @@ pub(super) fn append(
     )
 }
 
+/// Equality is scoped to the recorded batch, never activity or a kept prefix.
+pub(super) fn same_final_in_batch(
+    connection: &Connection,
+    batch: Option<&str>,
+    response: &ResponseCapture,
+) -> Result<bool, StorageError> {
+    let Some(digest) = response.text.digest() else {
+        return Ok(false);
+    };
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM capture_entries e JOIN recent_responses r ON r.sequence=e.response_sequence
+         WHERE e.batch_id=?1 AND e.kind='final' AND (r.content_digest=?2 OR
+           (r.content_digest IS NULL AND r.truncated=0 AND r.text=?3 AND r.original_bytes=?4)))",
+        params![batch,digest,response.text.text(),response.text.original_bytes() as i64], |row| row.get(0)
+    ).map_err(|error| classify(error,"Compare complete final in recorded batch"))
+}
+
 pub(super) fn append_to_batch(
     connection: &Connection,
     id: &str,
@@ -49,8 +66,8 @@ pub(super) fn append_to_batch(
             StorageError::new(StorageErrorCode::Corrupt, "Invalid response retention")
         })?;
     connection.execute(
-        "INSERT INTO recent_responses(identity_id,text,ended_ms,provider,truncated,session_id,expires_ms,original_bytes) VALUES(?,?,?,?,?,?,?,?)",
-        params![id,capture.text.text(),now as i64,provider,capture.text.truncated(),session,expires as i64,capture.text.original_bytes() as i64],
+        "INSERT INTO recent_responses(identity_id,text,ended_ms,provider,truncated,session_id,expires_ms,original_bytes,content_digest) VALUES(?,?,?,?,?,?,?,?,?)",
+        params![id,capture.text.text(),now as i64,provider,capture.text.truncated(),session,expires as i64,capture.text.original_bytes() as i64,capture.text.digest()],
     ).map_err(|e| classify(e,"Retain recent response"))?;
     // The row's key is the final's identity (#4993). Read before the floor insert below moves it.
     let sequence = u64::try_from(connection.last_insert_rowid())

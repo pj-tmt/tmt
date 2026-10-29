@@ -210,7 +210,7 @@ fn a_first_stop_without_an_input_batch_keeps_its_final_and_settles_activity() {
         .execute("DELETE FROM capture_batches", [])
         .unwrap();
     let first = w.event("first standalone answer", false);
-    let retry = w.event("ordinary retry", false);
+    let retry = w.event("first standalone answer", false);
     let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
     queue.enqueue(&first).unwrap();
     queue.enqueue(&retry).unwrap();
@@ -259,7 +259,7 @@ fn a_first_stop_committing_between_retry_admission_and_enqueue_still_dedupes() {
         .execute("DELETE FROM capture_batches", [])
         .unwrap();
     let first = w.event("first standalone answer", false);
-    let retry = w.event("ordinary retry", false);
+    let retry = w.event("first standalone answer", false);
     let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
     queue.enqueue(&first).unwrap();
     let first = queue.next().unwrap().unwrap();
@@ -386,6 +386,23 @@ fn a_late_final_keeps_its_input_batch_and_never_idles_a_new_prompt() {
         .unwrap();
     let newer = w.new_prompt();
     assert_ne!(old, newer);
+    let db = w.storage.connection().unwrap();
+    for request in ["new-request", "new-person-input"] {
+        db.execute("INSERT INTO request_attempts(attempt_id,request_id,route_kind,recipient_identity_id,originator_kind,originator_identity_id,wait_active,status,inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms)
+            VALUES(?1,?1,'inbox',?2,'explicit',?2,0,'sent',0,0,?3,?4,?4)", params![request,w.agent,w.now as i64,(w.now+60_000) as i64]).unwrap();
+    }
+    db.execute(
+        "INSERT INTO request_turns(request_id,started_ms) VALUES('new-request',?)",
+        [w.now as i64],
+    )
+    .unwrap();
+    db.execute("INSERT INTO request_passthrough(request_id,delivered_at_ms,state,bound_session,bound_at_ms,folded)
+        VALUES('new-person-input',?1,'bound','fixture-session',?1,1)", [w.now as i64]).unwrap();
+    let unsettled = |db: &Connection| {
+        db.query_row("SELECT json_array(t.started_ms,t.ended_ms,p.state,p.settled_at_ms,p.answer_response)
+        FROM request_turns t CROSS JOIN request_passthrough p WHERE t.request_id='new-request' AND p.request_id='new-person-input'", [], |row|row.get::<_,String>(0)).unwrap()
+    };
+    let before = unsettled(db);
     assert_eq!(
         w.storage.ingest_hook_capture(&event).unwrap(),
         CaptureResult::Committed
@@ -408,6 +425,11 @@ fn a_late_final_keeps_its_input_batch_and_never_idles_a_new_prompt() {
         )
         .unwrap();
     assert_eq!(batch, old);
+    assert_eq!(
+        unsettled(w.storage.connection().unwrap()),
+        before,
+        "an older final cannot settle the newer request or passthrough"
+    );
 }
 #[test]
 fn a_rebind_after_verified_enqueue_keeps_the_final_without_changing_new_activity() {
@@ -429,10 +451,57 @@ fn a_rebind_after_verified_enqueue_keeps_the_final_without_changing_new_activity
     assert_eq!(w.phase(), ActivityPhase::Working);
 }
 #[test]
+fn a_distinct_final_survives_a_missing_prompt_after_the_previous_stop() {
+    let mut w = World::new();
+    let first = w.event("the previous turn's final", false);
+    assert_eq!(
+        w.storage.ingest_hook_capture(&first).unwrap(),
+        CaptureResult::Committed
+    );
+    assert_eq!(w.phase(), ActivityPhase::Idle);
+    // Reproduce the owner report: no new prompt/batch was admitted, but the
+    // same verified provider process supplies a different ordinary final.
+    let second = w.event("the next turn's distinct final", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    queue.enqueue(&second).unwrap();
+    let queued = queue.next().unwrap().unwrap();
+    assert_eq!(
+        w.storage.ingest_hook_capture(&queued).unwrap(),
+        CaptureResult::Committed,
+        "a different final is not a duplicate of the previous turn"
+    );
+    queue.acknowledge(&queued).unwrap();
+    assert!(queue.next().unwrap().is_none());
+    let page = w
+        .storage
+        .recent_responses(&w.agent, 10, None, w.now + 10)
+        .unwrap();
+    let items = page["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["text"], "the next turn's distinct final");
+    assert_eq!(items[1]["text"], "the previous turn's final");
+    assert_ne!(items[0]["responseId"], items[1]["responseId"]);
+    let finals: i64 = w
+        .storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM capture_entries WHERE kind='final'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        finals, 2,
+        "each retained answer is visible in the chat timeline"
+    );
+}
+
+#[test]
 fn ordinary_stops_dedupe_in_the_batch_but_distinct_continuations_keep_their_finals() {
     let mut w = World::new();
     let first = w.event("first", false);
-    let duplicate = w.event("ordinary retry", false);
+    let duplicate = w.event("first", false);
     let continued = w.event("continued", true);
     let continued2 = w.event("continued again", true);
     assert_eq!(
@@ -708,7 +777,7 @@ fn hooks_do_not_create_a_missing_queue_and_core_provisions_before_publishing_sch
     assert!(HookQueue::open(&main, Duration::ZERO).is_err());
     assert!(!HookQueue::path(&main).exists());
     let storage = Storage::open(&main).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 84);
+    assert_eq!(storage.health().unwrap().schema_version, 85);
     let queue = HookQueue::open(&main, Duration::ZERO).unwrap();
     let mode: String = queue
         .connection
@@ -823,11 +892,11 @@ fn parallel_core_initializers_publish_one_compatible_queue_before_first_appends(
 }
 
 #[test]
-fn an_ordinary_stop_without_text_still_settles_the_batch_once() {
+fn a_later_supplied_final_is_not_lost_after_a_textless_stop() {
     for historical in [false, true] {
         let mut w = World::new();
         let first = w.event("none retained", false);
-        let second = w.event("ordinary retry must not become a new final", false);
+        let second = w.event("the later supplied final", false);
         let mut wire = serde_json::to_value(first).unwrap();
         wire["capture"]["response"] = serde_json::Value::Null;
         let first: CaptureEvent = serde_json::from_value(wire).unwrap();
@@ -840,9 +909,9 @@ fn an_ordinary_stop_without_text_still_settles_the_batch_once() {
         );
         assert_eq!(
             w.storage.ingest_hook_capture(&second).unwrap(),
-            CaptureResult::Duplicate
+            CaptureResult::Committed
         );
-        assert_eq!(w.final_count(), 0);
+        assert_eq!(w.final_count(), 1);
     }
 }
 #[test]
@@ -1370,4 +1439,129 @@ fn oversized_optional_telemetry_cannot_discard_a_supplied_final() {
         .query_row("SELECT text FROM recent_responses", [], |r| r.get(0))
         .unwrap();
     assert_eq!(text, "the supplied final wins");
+}
+
+#[test]
+fn distinct_final_digests_keep_long_answers_and_retries_in_the_recorded_batch() {
+    for delayed in [false, true] {
+        let mut w = World::new();
+        let prefix = "x".repeat(tmt_core::responses::MAX_TEXT_BYTES);
+        let first_text = format!("{prefix}A");
+        let second_text = format!("{prefix}B");
+        let first = w.event(&first_text, false);
+        let second = w.event(&second_text, false);
+        let retry = w.event(&second_text, false);
+        let recorded = current(w.storage.connection().unwrap(), &w.agent).unwrap();
+        if delayed {
+            w.new_prompt();
+        }
+        let preferences = BindingRows(w.storage.connection().unwrap())
+            .session_preferences(&w.agent)
+            .unwrap();
+        let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+        for event in [&first, &second, &retry] {
+            queue.enqueue(event).unwrap();
+        }
+        for expected in [
+            CaptureResult::Committed,
+            CaptureResult::Committed,
+            CaptureResult::Duplicate,
+        ] {
+            let decoded = queue.next().unwrap().unwrap();
+            assert_eq!(w.storage.ingest_hook_capture(&decoded).unwrap(), expected);
+            queue.acknowledge(&decoded).unwrap();
+        }
+        assert!(queue.next().unwrap().is_none());
+        // Receipt replay of either event cannot append a second row.
+        assert_eq!(
+            w.storage.ingest_hook_capture(&second).unwrap(),
+            CaptureResult::Committed
+        );
+        assert_eq!(w.final_count(), 2);
+        let db = w.storage.connection().unwrap();
+        let count: i64 = db
+            .query_row(
+                "SELECT count(DISTINCT content_digest) FROM recent_responses",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2, "same kept prefix and byte count are not equality");
+        let placed: i64 = db
+            .query_row(
+                "SELECT count(*) FROM capture_entries WHERE batch_id=? AND kind='final'",
+                [&recorded],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(placed, 2);
+        if delayed {
+            assert_eq!(
+                BindingRows(db).session_preferences(&w.agent).unwrap(),
+                preferences,
+                "old finals cannot settle newer activity"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_legacy_truncated_final_cannot_prove_a_duplicate_but_complete_text_can() {
+    for truncated in [false, true] {
+        let mut w = World::new();
+        let text = if truncated {
+            "x".repeat(tmt_core::responses::MAX_TEXT_BYTES + 1)
+        } else {
+            "complete legacy final".into()
+        };
+        let first = w.event(&text, false);
+        let mut legacy = serde_json::to_value(&first).unwrap();
+        legacy["capture"]["response"]
+            .as_object_mut()
+            .unwrap()
+            .remove("digest");
+        let legacy: CaptureEvent = serde_json::from_value(legacy).unwrap();
+        assert_eq!(
+            w.storage.ingest_hook_capture(&legacy).unwrap(),
+            CaptureResult::Committed
+        );
+        // Model an upgraded row whose full text was never available to hash.
+        w.storage
+            .connection()
+            .unwrap()
+            .execute("UPDATE recent_responses SET content_digest=NULL", [])
+            .unwrap();
+        let repeated = w.event(&text, false);
+        assert_eq!(
+            w.storage.ingest_hook_capture(&repeated).unwrap(),
+            if truncated {
+                CaptureResult::Committed
+            } else {
+                CaptureResult::Duplicate
+            }
+        );
+        assert_eq!(w.final_count(), if truncated { 2 } else { 1 });
+    }
+}
+
+#[test]
+fn identical_finals_in_different_admitted_batches_are_both_retained() {
+    let mut w = World::new();
+    let first = w.event("the same answer in two real turns", false);
+    assert_eq!(
+        w.storage.ingest_hook_capture(&first).unwrap(),
+        CaptureResult::Committed
+    );
+    let previous = current(w.storage.connection().unwrap(), &w.agent).unwrap();
+    w.new_prompt();
+    let second = w.event("the same answer in two real turns", false);
+    assert_eq!(
+        w.storage.ingest_hook_capture(&second).unwrap(),
+        CaptureResult::Committed
+    );
+    assert_eq!(w.final_count(), 2);
+    assert_ne!(
+        current(w.storage.connection().unwrap(), &w.agent).unwrap(),
+        previous
+    );
 }

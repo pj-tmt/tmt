@@ -75,6 +75,11 @@ fn a_racing_binding_or_preferences_change_wins_over_an_approval_notification() {
 }
 
 #[test]
+fn an_uncorrelated_claude_prompt_opens_a_batch_even_while_activity_is_working() {
+    assert_activity_cas("claude", "UserPromptSubmit", ActivityPhase::Working);
+}
+
+#[test]
 fn a_pending_stop_does_not_invalidate_the_next_prompt_inside_its_commit() {
     assert_activity_cas("codex", "UserPromptSubmit", ActivityPhase::Working);
 }
@@ -205,7 +210,10 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             // Force enqueue after the prompt's snapshot, before its writer.
             // Holding the finite flusher fence leaves only the shared writer
             // wrapper capable of running this older Stop during the commit.
-            let end = turn(ActivityPhase::Idle, "a");
+            let mut end = turn(ActivityPhase::Idle, "a");
+            if provider == "claude" {
+                end.event.turn = None;
+            }
             let event = tmt_adapters::storage::hook_queue::CaptureEvent::prepare(
                 &paths.database,
                 &tmt_adapters::storage::TurnCapture {
@@ -239,7 +247,7 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             None,
             None,
             prompt.then_some(tmt_adapters::storage::TurnBoundary::StartedWithoutPrompt {
-                turn: Some("b"),
+                turn: (provider == "codex").then_some("b"),
             }),
             Instant::now() + Duration::from_secs(2),
         )
@@ -252,6 +260,13 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             matches!(race, "unchanged" | "queued-stop"),
             "{race}"
         );
+        if prompt {
+            assert_eq!(
+                rows(&paths.database, "capture_batches"),
+                if applied { 1 } else { 0 },
+                "a verified prompt creates its boundary in the same CAS"
+            );
+        }
         if applied {
             let state = after
                 .preferences

@@ -290,7 +290,7 @@ fn rejected_turn_ends_distinguish_missing_starts_from_duplicates_interrupts_and_
             },
             model: None,
         };
-        let payload = br#"{"hook_event_name":"Stop","session_id":"fixture-session","last_assistant_message":"must not be captured"}"#;
+        let payload = br#"{"hook_event_name":"Stop","session_id":"fixture-session","last_assistant_message":"one kept answer"}"#;
         let lifecycle = crate::drivers::claude::ClaudeLifecycle;
         let outcome = w
             .storage
@@ -765,4 +765,40 @@ fn an_idle_checklist_joins_its_explicitly_confirmed_new_prompt_instead_of_the_pr
         page["entries"][1]["inputBatchId"],
         page["entries"][2]["inputBatchId"]
     );
+}
+
+#[test]
+fn direct_capture_retains_distinct_finals_without_a_prompt_but_dedupes_identical_text() {
+    let mut w = World::new();
+    w.end("first final", false);
+    let original = current(w.storage.connection().unwrap(), &w.agent).unwrap();
+    w.end("different final without prompt", false);
+    w.end("different final without prompt", false);
+    let page = w
+        .storage
+        .recent_responses(&w.agent, 10, None, w.now + 1)
+        .unwrap();
+    let items = page["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    let digests: i64 = w
+        .storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT count(DISTINCT content_digest) FROM recent_responses",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        digests, 2,
+        "the direct path persists complete-final identity"
+    );
+    assert_eq!(items[0]["text"], "different final without prompt");
+    assert_ne!(items[0]["responseId"], items[1]["responseId"]);
+    assert_eq!(
+        current(w.storage.connection().unwrap(), &w.agent).unwrap(),
+        original
+    );
+    assert_eq!(w.timeline(10, None)["entries"].as_array().unwrap().len(), 2);
 }

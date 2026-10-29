@@ -400,8 +400,10 @@ delivery. They install and launch nothing.
   never a timer. Codex waiting is not reported. The public
   [activity contract](../../../../contracts/extension-api.md) owns these support limits.
   `binding::session::activity` owns the transitions; SessionStart resets activity (a compaction keeps it), duplicates
-  never renew timestamps (a Stop with `stop_hook_active` is `ContinuationEnded`, the one end
-  admitted after idle, once per later instant), timestamps are accepted observation times, and `ended` needs a
+  never renew timestamps. A verified uncorrelated prompt starts a new turn even if the previous
+  activity is still Working; it is not a replay of a correlated turn ID. A Stop with
+  `stop_hook_active` is `ContinuationEnded`, admitted after idle once per later instant.
+  Timestamps are accepted observation times, and `ended` needs a
   conclusive process observation.
 - Competing executable claims resolve by descending priority, then harness ID. Explicit launches
   select supplied argv verbatim; driver-owned session settings and final foreground policy compose afterward. Bare
