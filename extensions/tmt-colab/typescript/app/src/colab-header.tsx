@@ -21,7 +21,9 @@ import { QuickSwitcherControl } from './quick-switcher-control.js';
 import { SharedTopBar } from './shared-top-bar.js';
 import { getThemeChoice, subscribeTheme } from './theme.js';
 import { setStoredTheme, THEMES } from '@tmt/browser-ui/theme';
-import { Sun } from 'lucide-react';
+import { GitBranch, Sun } from 'lucide-react';
+import type { PageProgress } from './bootstrap.js';
+import type { LinkedPages } from './work-stages.js';
 
 function assign<T>(ref: Ref<T> | undefined, value: T | null) {
   if (typeof ref === 'function') ref(value);
@@ -63,6 +65,7 @@ export function ColabHeader({
   remoteChip = true,
   crumb,
   headingSuffix,
+  hierarchy,
   embedded = false,
   reader = false,
   brandOnly = false,
@@ -87,6 +90,13 @@ export function ColabHeader({
   crumb?: ReactNode;
   /** A crumb or control after the title, supplied with its own separator. */
   headingSuffix?: ReactNode;
+  hierarchy?: {
+    linked: LinkedPages;
+    pageId: string;
+    progress?: PageProgress;
+    pageHref(pageId: string): string;
+    openPage(pageId: string): void;
+  };
   /** The page is hosted inside another surface that already names it: only its actions and status
    * remain, in place, never in the host's header slot. */
   embedded?: boolean;
@@ -124,20 +134,32 @@ export function ColabHeader({
       productLabel={bar ? (identity ?? text.product) : text.product}
       inShell={bar !== null}
       headingPrefix={
-        bar !== null ? (
-          remote !== undefined && crumb !== undefined ? (
-            <CrumbGroup>{crumb}</CrumbGroup>
-          ) : undefined
-        ) : remote === undefined ? undefined : (
+        <>
+          {bar !== null ? (
+            remote !== undefined && crumb !== undefined ? (
+              <CrumbGroup>{crumb}</CrumbGroup>
+            ) : null
+          ) : remote === undefined ? null : (
+            <>
+              <span className="colab-title-divider" aria-hidden="true">
+                /
+              </span>
+              {crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>}
+            </>
+          )}
+          {hierarchy && <HierarchyParent {...hierarchy} />}
+        </>
+      }
+      headingSuffix={
+        hierarchy?.linked.subpages.length && !hierarchy.linked.parent ? (
           <>
-            <span className="colab-title-divider" aria-hidden="true">
-              /
-            </span>
-            {crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>}
+            <HierarchyChildren {...hierarchy} />
+            {headingSuffix}
           </>
+        ) : (
+          headingSuffix
         )
       }
-      headingSuffix={headingSuffix}
       title={title}
       titleVisible={titleVisible}
       caption={caption}
@@ -200,6 +222,62 @@ export function ColabHeader({
       {tools && createPortal(<QuickSwitcherControl />, tools.search)}
       {tools && chip && createPortal(chip, tools.chip)}
     </>
+  );
+}
+
+type HierarchyProps = NonNullable<Parameters<typeof ColabHeader>[0]['hierarchy']>;
+
+function pageState(state: 'todo' | 'in-progress' | 'done' | null | undefined): string {
+  return state ? text.workBand.taskState[state] : text.workBand.stateUnavailable;
+}
+
+/** Only the already-observed owner list names a parent or sibling; no page contents are read here. */
+function HierarchyParent({ linked, pageId, progress, pageHref, openPage }: HierarchyProps) {
+  const parent = linked.parent;
+  if (!parent) return null;
+  const parentState = linked.pages?.find((page) => page.id === parent.pageId)?.state;
+  const siblings =
+    linked.pages?.filter((page) => page.summary?.parent?.page === parent.pageId) ?? [];
+  const items = [
+    { key: parent.pageId, label: text.workBand.openParent(parent.title) },
+    ...siblings.map((page) => ({
+      key: page.id,
+      label: `${page.title} · ${pageState(page.state)}${page.id === pageId ? ` · ${text.workBand.currentPage}` : ''}`,
+      ...(page.id === pageId ? { role: 'menuitemradio' as const, checked: true } : {}),
+    })),
+  ];
+  return (
+    <span className="colab-hierarchy-parent">
+      <GitBranch aria-hidden="true" />
+      <a href={pageHref(parent.pageId)} title={parent.title}>
+        {parent.title}
+      </a>
+      <BrowserMenu
+        label={text.workBand.parentProgress}
+        variant="count"
+        valueLabel={progress ? `${progress.done}/${progress.total}` : pageState(parentState)}
+        items={items}
+        onSelect={(id) => openPage(id)}
+      />
+      <span aria-hidden="true">›</span>
+    </span>
+  );
+}
+
+function HierarchyChildren({ linked, pageHref: _pageHref, openPage }: HierarchyProps) {
+  const children = linked.subpages;
+  if (children.length === 0 || linked.parent) return null;
+  return (
+    <BrowserMenu
+      label={text.workBand.subpages}
+      variant="count"
+      triggerText={text.workBand.childCount(children.length)}
+      items={children.map((child) => ({
+        key: child.id,
+        label: `${child.title ?? text.workBand.unknownPage} · ${pageState(child.state)}`,
+      }))}
+      onSelect={(id) => openPage(id)}
+    />
   );
 }
 

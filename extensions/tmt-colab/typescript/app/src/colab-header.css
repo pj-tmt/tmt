@@ -300,3 +300,29 @@ body:not(:has(.tmt-ui-shell)) {
     var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
   letter-spacing: normal;
 }
+
+/* Hierarchy stays in Colab's title row and gives long parent names room to shrink. */
+.colab-hierarchy-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 60%;
+  flex: 0 1 auto;
+}
+.colab-hierarchy-parent > a {
+  min-width: 4ch;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+.colab-hierarchy-parent > .tmt-ui-menu,
+.colab-hierarchy-parent > svg,
+.colab-hierarchy-parent > span:last-child {
+  flex: none;
+}
+.tmt-ui-heading:has(> .colab-hierarchy-parent) > .tmt-ui-title {
+  min-width: 4ch;
+}

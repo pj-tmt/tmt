@@ -1,6 +1,7 @@
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
+import { useLinkedPages, useParentProgress } from './work-stages.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -1401,6 +1402,12 @@ function OpenPage({
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  const linked = useLinkedPages(transport, space, snapshot.id, view.work);
+  const parentProgress = useParentProgress(
+    transport,
+    snapshot.id,
+    embedded || view.pageType === 'shell' ? undefined : linked.parent?.pageId,
+  );
   // The document shows before its threads and asks are verified; until they follow, nothing that
   // reads them speaks (#3894): no count, no band, no Needs you, and the discussion stays shut.
   const discussionPending = !!view.discussionPending;
@@ -1934,6 +1941,17 @@ function OpenPage({
       />
       <ColabHeader
         embedded={embedded}
+        hierarchy={
+          view.pageType === 'shell'
+            ? undefined
+            : {
+                linked,
+                pageId: snapshot.id,
+                progress: parentProgress,
+                pageHref: routing.pageHref,
+                openPage: (id) => routing.open(`/pages/${id}`),
+              }
+        }
         remoteMenu={false}
         remoteChip={false}
         headingSuffix={
@@ -2132,8 +2150,7 @@ function OpenPage({
           pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
           progress={view.progress}
           binding={snapshot.binding}
-          transport={transport}
-          space={space}
+          linked={linked}
           pageId={snapshot.id}
           focusTask={task}
           pageHref={routing.pageHref}

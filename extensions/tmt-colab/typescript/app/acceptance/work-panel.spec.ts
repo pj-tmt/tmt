@@ -161,3 +161,53 @@ test('attach keeps a new task after owner refusal and links that same task on re
     expect(tasks['T-1'].child).toBe(child.pageId);
   });
 });
+
+test('page hierarchy navigates between a parent and siblings from verified owner data', async () => {
+  await withWorld(async (world) => {
+    const parent = createPage(world, 'Hierarchy parent', '<h1>Parent source</h1>');
+    const first = createPage(world, 'Hierarchy first', '<h1>First source</h1>');
+    const second = createPage(world, 'Hierarchy second', '<h1>Second source</h1>');
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    colab(['task', 'add', parent.pageId, '--title', 'First child']);
+    colab(['task', 'add', parent.pageId, '--title', 'Second child']);
+    colab(['task', 'link', parent.pageId, 'T-1', first.pageId]);
+    colab(['task', 'link', parent.pageId, 'T-2', second.pageId]);
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'hierarchy-owner');
+    let parentReads = 0;
+    browser.context.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith(`/api/pages/${parent.pageId}/summary-details`))
+        parentReads++;
+    });
+    const page = await openPage(door, browser, first);
+    const title = page.locator('.colab-title-row header');
+    await expect(title.locator('.colab-hierarchy-parent svg')).toBeVisible();
+    await expect(title.getByRole('link', { name: 'Hierarchy parent', exact: true })).toBeVisible();
+    const progress = title.getByRole('button', { name: 'Parent progress: 0/2', exact: true });
+    await expect(progress).toBeVisible();
+    expect(parentReads).toBe(1);
+    await progress.click();
+    const siblings = page.getByRole('menu', { name: 'Parent progress' });
+    await expect(
+      siblings.getByRole('menuitemradio', { name: /Hierarchy first.*Current page/ }),
+    ).toHaveAttribute('aria-checked', 'true');
+    await siblings.getByRole('menuitem', { name: /Hierarchy second/ }).click();
+    await expect(page.locator('.colab-title-row h1')).toHaveText('Hierarchy second');
+    await page
+      .locator('.colab-title-row header')
+      .getByRole('link', { name: 'Hierarchy parent', exact: true })
+      .click();
+    await expect(page.locator('.colab-title-row h1')).toHaveText('Hierarchy parent');
+    const children = page
+      .locator('.colab-title-row header')
+      .getByRole('button', { name: 'Sub-pages', exact: true });
+    await expect(children).toContainText('2 sub-pages');
+    await children.click();
+    await page
+      .getByRole('menu', { name: 'Sub-pages' })
+      .getByRole('menuitem', { name: /Hierarchy first/ })
+      .click();
+    await expect(page.locator('.colab-title-row h1')).toHaveText('Hierarchy first');
+  });
+});

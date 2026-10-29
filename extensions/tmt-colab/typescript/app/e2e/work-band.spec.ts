@@ -30,6 +30,10 @@ async function mountRoute(
     | 'empty'
     | 'child'
     | 'child-orphan'
+    | 'child-unavailable'
+    | 'child-pending'
+    | 'child-long'
+    | 'child-strict'
     | 'attach',
 ) {
   await page.goto('/');
@@ -651,4 +655,164 @@ test('the attach picker does not offer shell pages', async ({ page }) => {
   const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
   const target = dialog.getByRole('combobox', { name: 'Page', exact: true });
   await expect(target.locator('option', { hasText: 'Dashboard' })).toHaveCount(0);
+});
+
+test('hierarchy header shows a parent, its verified progress, and sibling states', async ({
+  page,
+}) => {
+  await mountRoute(page, true, true, 'child');
+  const header = page.locator('.colab-title-row header');
+  await expect(header.getByRole('link', { name: 'Release plan', exact: true })).toBeVisible();
+  const progress = header.getByRole('button', { name: 'Parent progress: 3/5', exact: true });
+  await expect(progress).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.__parentReads))
+    .toEqual(['30000000-0000-4000-8000-000000000003']);
+  await progress.click();
+  const menu = page.getByRole('menu', { name: 'Parent progress' });
+  await expect(menu.getByRole('menuitem', { name: /Open Release plan/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /Legal copy.*Done/ })).toBeVisible();
+  await page.evaluate(() => window.__setSiblingState?.('todo'));
+  await expect(menu.getByRole('menuitem', { name: /Legal copy.*To do/ })).toBeVisible();
+  expect(await page.evaluate(() => window.__parentReads)).toHaveLength(1);
+  await page.keyboard.press('Escape');
+  await expect(progress).toBeFocused();
+});
+
+test('hierarchy header shows a child menu only when the page has linked sub-pages', async ({
+  page,
+}) => {
+  await mountRoute(page, true, true, 'linked-done');
+  const header = page.locator('.colab-title-row header');
+  const children = header.getByRole('button', { name: 'Sub-pages', exact: true });
+  await expect(children).toBeVisible();
+  await expect(children).toContainText('1 sub-page');
+  await children.click();
+  await expect(
+    page
+      .getByRole('menu', { name: 'Sub-pages' })
+      .getByRole('menuitem', { name: /Legal copy.*Done/ }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.__workPage!.finish());
+  await expect(children).toHaveCount(0);
+  await mountRoute(page, false, false);
+  await expect(
+    page.locator('.colab-title-row header').getByRole('button', { name: 'Sub-pages', exact: true }),
+  ).toHaveCount(0);
+});
+
+test('unavailable parent progress keeps its state without inventing a number', async ({ page }) => {
+  await mountRoute(page, true, true, 'child-unavailable');
+  const progress = page
+    .locator('.colab-title-row header')
+    .getByRole('button', { name: 'Parent progress: In progress', exact: true });
+  await expect(progress).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__parentReads)).toHaveLength(1);
+  await expect(progress).not.toContainText(/\d/);
+});
+
+test('parent details are cancelled on navigation and a late result is ignored', async ({
+  page,
+}) => {
+  await mountRoute(page, true, true, 'child-pending');
+  await expect(
+    page.getByRole('button', { name: 'Parent progress: In progress', exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__parentReads)).toHaveLength(1);
+  await page.evaluate(() => {
+    location.hash = '/pages/welcome';
+  });
+  await expect(page.locator('#work-page-fixture .colab-title-row h1')).toHaveText(
+    'Safe destination',
+  );
+  await expect.poll(() => page.evaluate(() => window.__parentAbort?.aborted)).toBe(true);
+  await page.evaluate(() => window.__finishParent?.());
+  await expect(page.getByRole('button', { name: 'Parent progress: 3/5', exact: true })).toHaveCount(
+    0,
+  );
+});
+
+test('hierarchy captures parent and sub-page views at phone and desktop sizes', async ({
+  page,
+}) => {
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark'] as const)
+      for (const view of ['child', 'linked-done'] as const) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await mountRoute(page, true, true, view);
+        await page.evaluate((value) => {
+          document.documentElement.dataset.theme = value;
+        }, theme);
+        const menu =
+          view === 'child'
+            ? page.getByRole('button', { name: 'Parent progress: 3/5', exact: true })
+            : page.getByRole('button', { name: 'Sub-pages', exact: true });
+        await expect(menu).toBeVisible();
+        await page.screenshot({ path: capturePath(`hierarchy-${view}-${width}-${theme}.png`) });
+        await menu.click();
+        await page.screenshot({
+          path: capturePath(`hierarchy-${view}-menu-${width}-${theme}.png`),
+        });
+        await page.keyboard.press('Escape');
+      }
+});
+
+test('long hierarchy titles stay reachable at phone width', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await mountRoute(page, true, true, 'child-long');
+  const header = page.locator('.colab-title-row header');
+  const parent = header.getByRole('link', { name: /A very long parent page title/ });
+  await expect(parent).toBeVisible();
+  await expect(parent).toHaveAttribute('title', /A very long parent page title/);
+  await expect(header.getByRole('heading', { name: /A very long child page title/ })).toBeVisible();
+  await expect(
+    header.getByRole('button', { name: 'Parent progress: 3/5', exact: true }),
+  ).toBeVisible();
+  const geometry = await page.evaluate(() => ({
+    viewport: innerWidth,
+    width: document.documentElement.scrollWidth,
+    overflowing: [...document.querySelectorAll('body *')]
+      .filter((item) => item.getBoundingClientRect().right > innerWidth + 1)
+      .map((item) => ({
+        tag: item.tagName,
+        className: item.className,
+        right: item.getBoundingClientRect().right,
+      }))
+      .slice(0, 10),
+  }));
+  expect(geometry.width, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.viewport);
+});
+
+test('strict-mode remount shares one parent details read', async ({ page }) => {
+  await mountRoute(page, true, true, 'child-strict');
+  await expect(
+    page.getByRole('button', { name: 'Parent progress: 3/5', exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => window.__parentReads)).toEqual([
+    '30000000-0000-4000-8000-000000000003',
+  ]);
+});
+
+test('transport replacement cancels the parent read without a second attempt until navigation', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/test/work-page-browser.tsx';
+    (await import(path)).mountParentProgressProbe();
+  });
+  await expect.poll(() => page.evaluate(() => window.__progressProbe?.requests.length)).toBe(1);
+  await page.evaluate(() => window.__progressProbe!.replaceTransport());
+  await expect
+    .poll(() => page.evaluate(() => window.__progressProbe!.requests[0]!.signal.aborted))
+    .toBe(true);
+  await page.evaluate(() => window.__progressProbe!.requests[0]!.resolve());
+  await expect(page.locator('#work-page-fixture').getByRole('status')).toHaveText('unavailable');
+  expect(await page.evaluate(() => window.__progressProbe!.requests.length)).toBe(1);
+  await page.evaluate(() => window.__progressProbe!.navigate());
+  await expect.poll(() => page.evaluate(() => window.__progressProbe!.requests.length)).toBe(2);
+  await page.evaluate(() => window.__progressProbe!.requests[1]!.resolve());
+  await expect(page.locator('#work-page-fixture').getByRole('status')).toHaveText('2/4');
 });

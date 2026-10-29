@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PageProgress } from './bootstrap.js';
 import { pageStage } from './list-stage.js';
 import { rememberPages, rememberedPages, watchRememberedPages } from './quick-switcher-source.js';
 import type { PageSummary, PageTransport } from './transport.js';
@@ -39,12 +40,17 @@ export function useLinkedPages(
   subpages: readonly { id: string; title?: string; state?: PageSummary['state'] }[];
 } {
   const key = followed(work);
-  const [pages, setPages] = useState<readonly PageSummary[] | undefined>(() =>
-    rememberedPages(transport, space),
-  );
+  const [seen, setSeen] = useState(() => ({
+    transport,
+    space,
+    pages: rememberedPages(transport, space),
+  }));
+  const pages = seen.transport === transport && seen.space === space ? seen.pages : undefined;
   useEffect(() => {
-    setPages(rememberedPages(transport, space));
-    return watchRememberedPages(transport, space, setPages);
+    const publish = (pages: readonly PageSummary[] | undefined) =>
+      setSeen({ transport, space, pages });
+    publish(rememberedPages(transport, space));
+    return watchRememberedPages(transport, space, publish);
   }, [transport, space]);
   useEffect(() => {
     if (key === '') return;
@@ -85,4 +91,74 @@ export function useLinkedPages(
   );
   const knownChild = pages?.find((page) => page.id === pageId)?.summary?.parent !== undefined;
   return { stageOf, parent, subpages, pages, knownChild, observed: pages !== undefined };
+}
+
+/** The header and work band consume this same observation, including the attach picker. */
+export type LinkedPages = ReturnType<typeof useLinkedPages>;
+
+/** One optional owner details read per page navigation; stale or cancelled results never render. */
+export function useParentProgress(
+  transport: PageTransport,
+  pageId: string,
+  parentId: string | undefined,
+): PageProgress | undefined {
+  const attempted = useRef({ pageId, parentId, transport, token: {}, done: false });
+  if (attempted.current.pageId !== pageId)
+    attempted.current = { pageId, parentId, transport, token: {}, done: false };
+  else if (attempted.current.parentId !== parentId || attempted.current.transport !== transport)
+    attempted.current = { ...attempted.current, parentId, transport, token: {} };
+  const token = attempted.current.token;
+  const [result, setResult] = useState<{ token: object; progress: PageProgress }>();
+  const pending = useRef<
+    | {
+        token: object;
+        abort: AbortController;
+        readers: number;
+        result: Promise<import('./reading-details.js').ReadingDetails>;
+      }
+    | undefined
+  >(undefined);
+  useEffect(() => {
+    if (!parentId || !transport.readingDetails) return;
+    let read = pending.current;
+    if (read?.token !== token) {
+      if (attempted.current.done) return;
+      attempted.current.done = true;
+      const abort = new AbortController();
+      let result: Promise<import('./reading-details.js').ReadingDetails>;
+      try {
+        result = Promise.resolve(transport.readingDetails(parentId, abort.signal));
+      } catch (error) {
+        result = Promise.reject(error);
+      }
+      read = { token, abort, readers: 0, result };
+      pending.current = read;
+    }
+    const current = read;
+    current.readers++;
+    let active = true;
+    void current.result.then(
+      (value) => {
+        if (
+          active &&
+          !current.abort.signal.aborted &&
+          value.pageId === parentId &&
+          value.state === 'ready' &&
+          value.progress
+        )
+          setResult({ token, progress: value.progress });
+      },
+      () => {},
+    );
+    return () => {
+      active = false;
+      current.readers--;
+      // StrictMode reattaches the same effect before this microtask. A real departure has no reader
+      // and cancels the request; the inactive callback cannot publish during either transition.
+      queueMicrotask(() => {
+        if (current.readers === 0) current.abort.abort();
+      });
+    };
+  }, [transport, pageId, parentId, token]);
+  return result?.token === token ? result.progress : undefined;
 }

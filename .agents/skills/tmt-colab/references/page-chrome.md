@@ -120,8 +120,8 @@ The Manage page stays a centred modal `dialog`: its Close is disabled and Escape
 Explicit theme choices are radio menu items.
 Owner page and space-home headers use one shared-height row. Inside the TMT web shell
 ([Shell](../../../../design/gui-style.md#shell)) `ColabHeader` renders into the shell's header slot
-from whichever route draws it and draws the title alone, then muted original author: no brand, mark
-or module crumb, because the rail's head carries the brand and the rail names the module (a scoped
+from whichever route draws it and draws the page title and any parent or sub-page controls, then
+muted original author: no brand, mark or module crumb, because the rail's head carries the brand and the rail names the module (a scoped
 page keeps its project crumb before the title). The display-only `local · <backendName>` identity
 (`local` when absent) is not a visible element: it is in the header's accessible name
 (`Colab · local · <backendName> · <title>`). In Colab's own shell (`SharedTopBar`, #5237) Colab is the
