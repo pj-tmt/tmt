@@ -685,11 +685,13 @@ test('export and attachment read return the same bytes as the browser, and say w
       const exportPanel = first.getByRole('region', { name: 'Export page' });
       for (const file of [notes, picture, chat]) {
         const pending = first.waitForEvent('download');
-        await exportPanel
+        const row = exportPanel
+          .getByRole('list', { name: text.exportAttachments, exact: true })
           .getByRole('listitem')
-          .filter({ hasText: file.name })
-          .getByRole('button', { name: text.attachmentDownload })
-          .click();
+          .filter({ hasText: file.name });
+        await expect(row.locator('.tmt-ui-list-label')).toHaveText(file.name);
+        await expect(row.locator('.tmt-ui-list-description')).not.toBeEmpty();
+        await row.getByRole('button', { name: text.attachmentDownload }).click();
         const saved = await pending;
         expect(saved.suggestedFilename()).toBe(file.name);
         expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));

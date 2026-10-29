@@ -485,10 +485,15 @@ test('the Export panel lists every attachment with its outcome and saves an incl
   await expect(list).toContainText(text.exportAttachmentState.missing);
   await expect(list).toContainText(text.exportAttachmentState.denied);
   await expect(list).toContainText(text.exportAttachmentState['too-large']);
+  const download = row('note.txt').getByRole('button', { name: text.attachmentDownload });
+  await download.evaluate((node: HTMLButtonElement) => node.click());
+  await expect(panel.getByRole('status')).toHaveText(text.exportReady);
+  await download.focus();
   const pending = page.waitForEvent('download');
-  await row('note.txt').getByRole('button', { name: text.attachmentDownload }).click();
+  await download.press('Enter');
   const received = await pending;
   expect(received.suggestedFilename()).toBe('note.txt');
+  await expect(row('note.txt').getByRole('button')).toHaveText(text.exportAttachmentRequested);
   expect(readFileSync((await received.path())!).toString()).toBe('exported note');
   // Requesting the other files completes the copy: the included attachment counts too.
   await expect(panel.getByRole('status')).toContainText(text.exportPartial);
