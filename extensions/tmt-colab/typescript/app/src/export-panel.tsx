@@ -98,7 +98,7 @@ export function ExportPanel({
                 ? text.exportPartial
                 : text.exportReady}
       </p>
-      <section className="export-page-files" aria-label={text.filesListLabel}>
+      <section className="export-page-files">
         <h3>{text.filesListLabel}</h3>
         <BrowserList label={text.filesListLabel} className="export-file-list">
           {pageFiles.map((name) => {
@@ -142,12 +142,12 @@ export function ExportPanel({
       {attachments.length > 0 && (
         <section className="export-attachments" aria-label={text.exportAttachments}>
           <h3>{text.exportAttachments}</h3>
-          <BrowserList label={text.exportAttachments} className="files-list">
+          <BrowserList label={text.exportAttachments}>
             {attachments.map((item) => (
               <BrowserListRow
                 key={item.attachmentId}
                 title={item.filename}
-                metadata={
+                description={
                   item.file === undefined
                     ? text.exportAttachmentState[item.reason ?? 'missing']
                     : text.attachmentSize(item.plaintextBytes)

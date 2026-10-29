@@ -459,6 +459,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   width: 20px;
   height: 20px;
 }
+.export-attachments {
+  overflow-wrap: anywhere;
+}
 .export-download {
   display: inline-flex;
   align-items: center;

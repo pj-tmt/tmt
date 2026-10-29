@@ -264,6 +264,8 @@ export async function mount(
     attachments?: boolean;
     /** An Export panel with one included attachment and one of each outcome that includes none. */
     exportAttachments?: boolean;
+    /** A real exported attachment label for filename containment and download checks. */
+    exportAttachmentName?: string;
     /** An admitted reply already present in the initial loader snapshot. */
     pastReplies?: boolean;
     /** Restore saved question history before the first loader/binding view. */
@@ -940,7 +942,7 @@ export async function mount(
         [
           {
             attachmentId: id(40),
-            filename: 'note.txt',
+            filename: options.exportAttachmentName ?? 'note.txt',
             plaintextBytes: 13,
             state: 'included',
             file,
