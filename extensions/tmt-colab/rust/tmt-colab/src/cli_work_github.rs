@@ -245,12 +245,22 @@ fn candidates(root: &Path, page: Option<&String>) -> Result<Vec<Candidate>> {
     let key = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
-    let pages = match page {
-        Some(operand) => vec![resolve_page(&store, &key, operand)?],
-        None => tmt_colab::inspection::active_page_ids(&store, &key)?,
+    let (pages, live) = match page {
+        Some(operand) => (vec![resolve_page(&store, &key, operand)?], None),
+        None => {
+            let catalog = tmt_colab::inspection::catalog(&store, &key)?;
+            (
+                tmt_colab::inspection::catalog_active_page_ids(&catalog),
+                Some(tmt_colab::inspection::catalog_page_ids(&catalog)),
+            )
+        }
     };
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let found = work_index::scan(&layout, &store, &key, &mut decoder, &pages);
+    let found = if let Some(live) = live.as_deref() {
+        work_index::scan_with_live(&layout, &store, &key, &mut decoder, &pages, Some(live))
+    } else {
+        work_index::scan(&layout, &store, &key, &mut decoder, &pages)
+    };
     let mut out = Vec::new();
     let result = found.and_then(|found| {
         for page_id in &pages {

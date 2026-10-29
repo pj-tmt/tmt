@@ -142,7 +142,14 @@ pub fn admit_conversion(
     task: &str,
 ) -> crate::Result<()> {
     let pages = inspection::all_page_ids(space.store, space.key)?;
-    let found = work_index::scan(space.layout, space.store, space.key, decoder, &pages)?;
+    let found = work_index::scan_with_live(
+        space.layout,
+        space.store,
+        space.key,
+        decoder,
+        &pages,
+        Some(&pages),
+    )?;
     if let Some(why) = Graph(&found).conversion_refusal(page) {
         return Err(link_refusal(&why, page, task, ""));
     }
@@ -176,8 +183,17 @@ pub fn admit(
             .iter()
             .any(|task| !wip::held(page, before).contains(task))
     {
-        let pages = inspection::active_page_ids(space.store, space.key)?;
-        let found = work_index::scan(space.layout, space.store, space.key, decoder, &pages)?;
+        let catalog = inspection::catalog(space.store, space.key)?;
+        let pages = inspection::catalog_active_page_ids(&catalog);
+        let live = inspection::catalog_page_ids(&catalog);
+        let found = work_index::scan_with_live(
+            space.layout,
+            space.store,
+            space.key,
+            decoder,
+            &pages,
+            Some(&live),
+        )?;
         let elsewhere = work_index::held_elsewhere(&found, page);
         let limits = crate::settings::read_or_default(space.root);
         if let Some(over) = wip::admit(page, before, &after, &elsewhere, limits.wip()) {
@@ -190,7 +206,14 @@ pub fn admit(
             body["pageId"].as_str().unwrap_or_default(),
         );
         let pages = inspection::all_page_ids(space.store, space.key)?;
-        let found = work_index::scan(space.layout, space.store, space.key, decoder, &pages)?;
+        let found = work_index::scan_with_live(
+            space.layout,
+            space.store,
+            space.key,
+            decoder,
+            &pages,
+            Some(&pages),
+        )?;
         if let Some(why) = Graph(&found).refusal(page, task, child) {
             return Err(link_refusal(&why, page, task, child));
         }
