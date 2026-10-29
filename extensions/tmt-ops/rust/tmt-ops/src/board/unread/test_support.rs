@@ -1,7 +1,7 @@
 //! Private Core API fixture for unread acknowledgment and migration tests.
 use crate::{config::Config, core::Core};
 use std::{fs, path::PathBuf};
-pub(super) struct Fixture(pub PathBuf);
+pub(in crate::board) struct Fixture(pub PathBuf);
 impl Fixture {
     pub fn new() -> Self {
         let path = std::env::temp_dir().join(format!(

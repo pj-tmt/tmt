@@ -276,10 +276,17 @@ the composer info line) and the `unread` action (`u`) open the Unread overlay
 (`board/unread_overlay`): the scope's unread answers, grouped by agent, oldest first,
 read per agent on the selected lane while it is open (`SelectedRead::UnreadBodies`,
 keyed by overlay session; a failed read is asked again only after scrolling away and
-back). It feeds the answers painted in its viewport to the same writer; nothing else
-acknowledges. Catalog action `mark-read` and the member menu still explicitly
+back). It feeds readable body rows and terminal unavailable-caption rows painted in its
+viewport to the same revision-bound writer. Loading and failed-read captions grant
+no evidence; a newer revision cannot inherit an earlier draw. After the scope's held
+entries settle, `SelectedRead::UnreadPage` follows one `requests.list` answers cursor
+on that same lane, fenced by actor and overlay session. Entries append below the retained
+blocks; HOME head-page refreshes do not reset this continuation. Reading metadata never
+acknowledges it, and a failed continuation waits for reopening rather than looping.
+Catalog action `mark-read` and the member menu still explicitly
 acknowledge the selected conversation's unread answers without showing them or
-focusing the composer. `● 0 unread` is not a target. Counts use one bounded summary page;
+focusing the composer. `● 0 unread` is not a target. Counts use one bounded summary page,
+plus older unread metadata already retained by the open overlay (without duplicates);
 explicit Mark read and a visible older body resolve further metadata in bounded public
 pages, yielding between lane steps, without a history cache or per-item show calls.
 Paint and hover do no I/O. Shutdown joins the lane before draining admitted writes and

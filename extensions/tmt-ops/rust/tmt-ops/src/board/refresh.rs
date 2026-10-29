@@ -69,6 +69,7 @@ pub(super) enum SelectedRead {
     PaneOutput(super::recent_responses::AnswerRead),
     /// One agent's answers for the open Unread overlay.
     UnreadBodies(u64, super::recent_responses::AnswerRead),
+    UnreadPage(u64, super::unread_overlay::PageRead),
     /// The shown live screen of one agent, and which read of it this is.
     PaneScreen(super::conversation::ConversationKey, u64),
     /// Where one member's terminal stream is, asked of core once.
@@ -156,6 +157,15 @@ impl Worker {
                             SelectedRead::UnreadBodies(session, read) => {
                                 super::BoardEvent::UnreadBodies {
                                     observation: read.read(&reader, &cancellation),
+                                    session,
+                                    read,
+                                    revision,
+                                    cancellation: cancellation.clone(),
+                                }
+                            }
+                            SelectedRead::UnreadPage(session, read) => {
+                                super::BoardEvent::UnreadPage {
+                                    result: read.read(&reader),
                                     session,
                                     read,
                                     revision,
