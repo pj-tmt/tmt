@@ -233,20 +233,69 @@ fn an_ascii_terminal_gets_an_ascii_marker_and_rule() {
 }
 
 #[test]
-fn no_reading_no_width_or_no_height_shows_no_tile() {
-    for (limits, width, height) in [
-        (Vec::new(), 120, 40),
-        (vec![claude()], 80, 40),
-        (vec![claude()], 120, 12),
-    ] {
+fn no_reading_or_no_height_shows_no_allowance() {
+    for (limits, height) in [(Vec::new(), 40), (vec![claude()], 12)] {
         let mut app = digest(limits);
-        let rows = rows(&buffer(&mut app, width, height));
+        let rows = rows(&buffer(&mut app, 120, height));
         assert!(
             !rows.iter().any(|row| row.contains("ALLOWANCE")),
-            "{width}x{height}: {}",
+            "{height}: {}",
             rows.join("\n")
         );
     }
+}
+
+#[test]
+fn a_narrow_frame_stacks_the_allowance_under_the_amounts() {
+    let steady = standing(
+        "openai",
+        55.0,
+        100,
+        60_000,
+        Rates::measured(Some(0.3), Some(0.3), None, Some(0.3)),
+    );
+    for (width, height) in [(80, 40), (60, 36)] {
+        let mut app = digest(vec![claude(), steady.clone()]);
+        let rows = rows(&buffer(&mut app, width, height));
+        let heading = rows
+            .iter()
+            .position(|row| row.contains("ALLOWANCE LEFT  2 providers"))
+            .unwrap_or_else(|| panic!("{width}: {}", rows.join("\n")));
+        let amounts = rows
+            .iter()
+            .position(|row| row.contains("TOK USED"))
+            .unwrap();
+        assert_eq!(
+            heading,
+            amounts + 3,
+            "{width}: right under the coverage lines"
+        );
+        assert!(!rows[heading].contains('│'), "no tile rule when stacked");
+        assert_eq!(
+            words(&rows[heading + 1]),
+            [
+                "Claude", "26%", "✗", "runs", "out", "Su", "04:40", "resets", "Su", "18:40"
+            ],
+            "{width}"
+        );
+        assert_eq!(
+            words(&rows[heading + 2])[..5],
+            ["Openai", "55%", "lasts", "past", "reset"]
+        );
+        assert!(
+            rows[heading + 3].starts_with("○ Saved = context"),
+            "{width}"
+        );
+    }
+    // Rows the table cannot spare are clipped and scroll inside the stacked block.
+    let mut app = digest(vec![claude(), steady]);
+    let rows = rows(&buffer(&mut app, 80, 22));
+    let heading = rows
+        .iter()
+        .position(|row| row.contains("ALLOWANCE LEFT"))
+        .unwrap();
+    assert!(rows[heading + 1].starts_with("  Claude"), "{rows:?}");
+    assert!(rows[heading + 2].starts_with("○ Saved"), "{rows:?}");
 }
 
 /// A claude window at 20 % left, 40 h to the reset, that lost 0.5 points an hour over the last

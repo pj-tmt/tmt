@@ -87,9 +87,9 @@
   its `(N of M)` agrees with the line's agent counts; the held scene is keyed by
   the Digest window and appends the shared `savings_caption` only when it fits whole.
   The Digest window (`App::digest_window`) changes only that supplier's argv (`--window 7d`);
-  other sources keep their argv. The reader starts at 1d; the session loop publishes a
-  restored or chosen window once, coalesces wakes and discards an old-window result
-  completed after a change.
+  other sources keep their argv. Startup takes a pending view hint's window before the
+  reader spawns, so the first read already uses it; the session loop publishes a later
+  change once, coalesces wakes and discards an old-window result completed after it.
   Paint never computes savings from provider state or reconstructs a source window. Unsupported or
   malformed typed fields leave that projection unavailable without discarding valid
   generic labels. Null counts/timestamps remain null, and source observations are

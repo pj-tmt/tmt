@@ -12,7 +12,7 @@ use tmt_tui::components::strip;
 /// Summary and content share the same placement owner as focus and pointer input.
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let _rows = app.workspace_frame_rows();
-    let band_height = super::summary::height(area.width, area.height);
+    let band_height = super::summary::height(app, area.width, area.height);
     super::summary::paint(
         frame,
         app,

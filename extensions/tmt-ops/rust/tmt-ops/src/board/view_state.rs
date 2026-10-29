@@ -510,6 +510,11 @@ impl Session {
         }
     }
 
+    /// The Digest window a pending hint restores, so the first supplier read already uses it.
+    pub fn digest_window(&self) -> Option<crate::config::DigestWindow> {
+        Some(self.hint.as_ref()?.controls.as_ref()?.digest_window)
+    }
+
     pub fn explicit_startup(&mut self) {
         self.explicit_startup = true;
     }

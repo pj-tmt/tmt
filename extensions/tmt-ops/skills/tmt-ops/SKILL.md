@@ -402,8 +402,8 @@ Digest has a summary, Agents by TOK, Exchanges and selection details. The summar
 shows Digest's switch, the held count, the last tick and the window; under it TOK USED,
 SAVED · estimate and ≈ LIST PRICE SAVED each carry their own `N of M agents` coverage, and a
 faint line defines Saved. A short frame folds the amounts onto one line.
-Beside them, when the frame has room and a provider's weekly window has been sampled, the
-ALLOWANCE LEFT tile has one row per provider: the percent left, the worst projection
+Once a provider's weekly window has been sampled, ALLOWANCE LEFT sits beside the amounts, or
+under them on a narrower frame, with one row per provider: the percent left, the worst projection
 (`✗ runs out <weekday hh:mm>` in the attention colour, or `lasts past reset`) and when it resets.
 The projection takes the worst of five rates: the last 3h, 6h and 1d, TOKENS and the average
 since the window last reset. TOKENS is the last 3 hours of the provider's members' tokens

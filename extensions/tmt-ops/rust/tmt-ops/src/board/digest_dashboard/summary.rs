@@ -22,6 +22,8 @@ use unicode_width::UnicodeWidthStr;
 
 /// Status, rule, four tile rows and the definition.
 const FULL: u16 = 7;
+/// Rows the amount tiles fill: label, value and coverage.
+const AMOUNT_ROWS: u16 = 3;
 /// Status, one line of amounts and the definition, when tiles do not fit.
 const COMPACT: u16 = 3;
 /// Rows the table below keeps before the summary gives up its tiles.
@@ -33,12 +35,19 @@ pub(super) const DEFINITION: &str = "○ Saved = context the agents did not have
 const SCOPE: &str = "applies to this whole tab";
 const BASIS: &str = "Estimate basis…";
 
-/// The rows the summary takes from `available`.
-pub(super) fn height(width: u16, available: u16) -> u16 {
-    if available >= FULL + BODY_MINIMUM && width >= TILE_MINIMUM * 3 {
-        FULL
+/// The rows the summary takes from `available`. Allowance that cannot sit beside the amounts
+/// stacks under them, clipped to what the table below can spare.
+pub(super) fn height(app: &App, width: u16, available: u16) -> u16 {
+    if available < FULL + BODY_MINIMUM || width < TILE_MINIMUM * 3 {
+        return COMPACT.min(available);
+    }
+    let stacked = super::allowance::stacked_rows(app, width - TILE_MINIMUM * 3)
+        .min(available - FULL - BODY_MINIMUM + 1);
+    // A heading alone shows nothing; it needs at least one provider row.
+    if stacked >= 2 {
+        FULL - 1 + stacked
     } else {
-        COMPACT.min(available)
+        FULL
     }
 }
 
@@ -91,6 +100,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     };
     let definition = Line::styled(DEFINITION, look.role(Role::Muted));
     if area.height < FULL {
+        super::allowance::forget(app);
         let summary = metrics::savings(app, &ids);
         let tok = format!(
             "TOK used {}",
@@ -116,7 +126,16 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         Rect::new(area.x, area.y + 2, area.width, TILE_ROWS),
         &ids,
     );
-    paint_row(frame, FULL - 1, definition);
+    if area.height > FULL {
+        let top = 2 + AMOUNT_ROWS;
+        super::allowance::paint_rows(
+            frame,
+            app,
+            Rect::new(area.x, area.y + top, area.width, area.height - top - 1),
+            false,
+        );
+    }
+    paint_row(frame, area.height - 1, definition);
 }
 
 /// Supplier state and health on the left, the tab-wide window and the basis on the right.
@@ -202,7 +221,7 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
     let named = parts
         .iter()
         .any(|(text, _, choice)| choice.is_some() && text.starts_with("Digest"));
-    let lead = if named { "" } else { "Digest  " };
+    let lead = if named { "" } else { "Digest: " };
     let mut spans = vec![Span::styled(lead, strong(app))];
     let mut used = lead.width();
     let mut first = true;
@@ -276,10 +295,11 @@ fn tiles(frame: &mut Frame, app: &App, area: Rect, ids: &[&str]) {
         }
     }
     if allowance > 0 {
-        super::allowance::paint_tile(
+        super::allowance::paint_rows(
             frame,
             app,
             Rect::new(area.right() - allowance, area.y, allowance, area.height),
+            true,
         );
     }
 }

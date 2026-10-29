@@ -124,19 +124,45 @@ impl Scroll {
     }
 }
 
+/// Providers with a sampled weekly window: the rows the allowance shows, without projecting.
+fn sampled(app: &App) -> usize {
+    app.limits.as_deref().map_or(0, |standings| {
+        standings
+            .iter()
+            .filter(|standing| standing.latest.is_some())
+            .count()
+    })
+}
+
+/// A frame that paints no allowance leaves no wheel target behind.
+pub(super) fn forget(app: &App) {
+    app.digest_allowance.area.set(Rect::default());
+}
+
 /// The width the tile takes from `spare` columns: none without a sampled provider or room.
 pub(super) fn tile_width(app: &App, spare: u16) -> u16 {
-    if spare < TILE_MINIMUM || rows(app, crate::status::now_ms()).is_empty() {
-        app.digest_allowance.area.set(Rect::default());
+    if spare < TILE_MINIMUM || sampled(app) == 0 {
+        forget(app);
         0
     } else {
         spare.min(TILE_MAXIMUM)
     }
 }
 
-/// A rule, the heading and one row per provider: what is left, when it runs out or that it
-/// lasts, and when it resets. More providers than rows scroll inside the tile.
-pub(super) fn paint_tile(frame: &mut Frame, app: &App, area: Rect) {
+/// The heading and provider rows wanted under the amounts when the tile has no room beside
+/// them (`spare` columns); none when it fits beside or nothing is sampled.
+pub(super) fn stacked_rows(app: &App, spare: u16) -> u16 {
+    match sampled(app) {
+        0 => 0,
+        _ if spare >= TILE_MINIMUM => 0,
+        rows => u16::try_from(rows + 1).unwrap_or(u16::MAX),
+    }
+}
+
+/// The heading and one row per provider: what is left, when it runs out or that it lasts,
+/// and when it resets. Beside the amounts a rule sets the tile off; stacked under them the
+/// rows align with the amounts. More providers than rows scroll inside the area.
+pub(super) fn paint_rows(frame: &mut Frame, app: &App, area: Rect, beside: bool) {
     let now = crate::status::now_ms();
     let look = app.look();
     let rows = rows(app, now);
@@ -155,7 +181,7 @@ pub(super) fn paint_tile(frame: &mut Frame, app: &App, area: Rect) {
         area.width.saturating_sub(4),
         area.height,
     );
-    for y in area.y..area.bottom() {
+    for y in (area.y..area.bottom()).filter(|_| beside) {
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(area.x, y, 1, 1),

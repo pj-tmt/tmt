@@ -267,7 +267,8 @@ The canonical roster owns membership and action admission.
 `digest_dashboard::summary` paints the top of the tab: a status row (supplier switch
 text, held, tick; `Window 1d ▾` and `Estimate basis…` on the right), a rule, the TOK USED,
 SAVED · estimate and ≈ LIST PRICE SAVED tiles with separate member coverage, the allowance
-tile when it fits, and the definition line. With fewer than 17 rows or 54 columns it folds the
+(a tile beside the amounts, or rows stacked under them, clipped to what the table keeps)
+and the definition line. With fewer than 17 rows or 54 columns it folds the
 amounts onto one line. The window is `App::digest_window` (1d/7d), a view-state control
 (`controls.digestWindow`), not Config: it selects the supplier window and, on this tab,
 the usage report range (`App::digest_range`), independently of the Agents TOK range. A
