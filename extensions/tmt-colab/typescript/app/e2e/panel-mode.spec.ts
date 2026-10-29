@@ -23,14 +23,14 @@ async function open(page: Page, width: number, height = 900) {
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
 }
 
-// The mode follows the viewport at both sides of each width panel-mode.ts names.
+// The conversation stays a floating card on both sides of the former layout breakpoints.
 for (const [width, mode] of [
-  [1600, 'column'],
-  [1180, 'column'],
+  [1600, 'card'],
+  [1180, 'card'],
   [1179, 'card'],
   [761, 'card'],
-  [760, 'sheet'],
-  [390, 'sheet'],
+  [760, 'card'],
+  [390, 'card'],
 ] as const)
   test(`the Comments panel is a ${mode} at ${width}px`, async ({ page }) => {
     await open(page, width);
@@ -38,25 +38,24 @@ for (const [width, mode] of [
     const panel = commentsRegion(page);
     await expect(panel).toBeVisible();
     await expect(panel).toHaveAttribute('data-mode', mode);
-    // A column is a track of the page grid; a card and a sheet float over the page.
-    await expect(panel).toHaveCSS('position', mode === 'column' ? 'sticky' : 'fixed');
+    // Conversation opening never adds a page-grid track.
+    await expect(panel).toHaveCSS('position', 'fixed');
     const workspace = panel.locator('xpath=..');
-    if (mode === 'column') await expect(workspace).toHaveAttribute('data-panel-column', '');
-    else await expect(workspace).not.toHaveAttribute('data-panel-column', /.*/);
+    await expect(workspace).not.toHaveAttribute('data-panel-column', /.*/);
   });
 
-// Resizing across a width moves the open panel to the other mode without closing it.
-test('the open Comments panel changes mode as the viewport crosses a width', async ({ page }) => {
+// Resizing retains the same floating host without closing it.
+test('the open conversation stays floating while the viewport resizes', async ({ page }) => {
   await open(page, 1440);
   await (await pageAction(page, 'Comments')).click();
   const panel = commentsRegion(page);
-  await expect(panel).toHaveAttribute('data-mode', 'column');
+  await expect(panel).toHaveAttribute('data-mode', 'card');
   await page.setViewportSize({ width: 1000, height: 900 });
   await expect(panel).toHaveAttribute('data-mode', 'card');
   await page.setViewportSize({ width: 600, height: 900 });
-  await expect(panel).toHaveAttribute('data-mode', 'sheet');
+  await expect(panel).toHaveAttribute('data-mode', 'card');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(panel).toHaveAttribute('data-mode', 'column');
+  await expect(panel).toHaveAttribute('data-mode', 'card');
 });
 
 for (const width of [1440, 1024, 390])
@@ -94,17 +93,16 @@ for (const width of [1440, 390])
     await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Discussion');
   });
 
-// Escape on the page leaves the panel open; Escape inside it steps back, then closes it.
-test('Escape on the page leaves the Comments panel open; inside it, it closes it', async ({
-  page,
-}) => {
+// Escape closes the same conversation from either focus location.
+test('Escape closes Comments from the page and from its header', async ({ page }) => {
   await open(page, 1440);
   await (await pageAction(page, 'Comments')).click();
   const panel = commentsRegion(page);
   await expect(panel).toBeVisible();
   await page.locator('body').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('Escape');
-  await expect(panel).toBeVisible();
+  await expect(panel).toBeHidden();
+  await (await pageAction(page, 'Comments')).click();
   await panel.getByRole('heading', { level: 2 }).focus();
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
@@ -142,7 +140,9 @@ test('an unsent reply survives closing and reopening the Comments panel', async 
 });
 
 // A sheet over a short viewport (the on-screen keyboard) never covers the field being typed in.
-test('a focused reply field stays on screen in a sheet over a short viewport', async ({ page }) => {
+test('a focused reply field stays on screen in a floating window over a short viewport', async ({
+  page,
+}) => {
   await open(page, 390, 420);
   await (await pageAction(page, 'Comments')).click();
   const panel = commentsRegion(page);
@@ -156,3 +156,79 @@ test('a focused reply field stays on screen in a sheet over a short viewport', a
   expect(sheet!.y + sheet!.height).toBeLessThanOrEqual(420);
   await expect(input).toBeInViewport({ ratio: 1 });
 });
+
+for (const width of [390, 1440])
+  test(`Chat and Comments share one floating window above the visible dock at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await open(page, width);
+    await run(
+      page,
+      'change',
+      '<main style="height:2000px"><button id="page-control">Page control</button><p id="selected">Exact selected text</p><p id="selectable">Unmarked selectable text.</p></main>',
+    );
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    const before = await page.locator('#ask-page-fixture iframe').boundingBox();
+    await (await pageAction(page, 'Comments')).click();
+    const window = page.locator('#ask-page-fixture .page-conversation-window');
+    await expect(window).toBeVisible();
+    const close = window.getByRole('button', { name: 'Close Discussion', exact: true });
+    await expect
+      .poll(() =>
+        close.evaluate((button) => {
+          const box = button.getBoundingClientRect();
+          return button.contains(
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+          );
+        }),
+      )
+      .toBe(true);
+
+    await expect(window).toHaveCSS('position', 'fixed');
+    const original = await window.elementHandle();
+    const commentsBox = await window.boundingBox();
+    await page.screenshot({ path: testInfo.outputPath('comments.png') });
+    expect((await page.locator('#ask-page-fixture iframe').boundingBox())!.width).toBe(
+      before!.width,
+    );
+    const dock = page.locator('#ask-page-fixture .page-floating-actions');
+    await expect(dock).toBeVisible();
+    const dockBox = await dock.boundingBox();
+    expect(commentsBox!.y + commentsBox!.height).toBeLessThanOrEqual(dockBox!.y - 7);
+    expect(await page.locator('dialog:modal').count()).toBe(0);
+    const commentInput = window.getByRole('combobox', { name: 'Message', exact: true });
+    await commentInput.fill('Keep the comment draft');
+    await frame.locator('#page-control').click();
+    await expect(frame.locator('#page-control')).toBeFocused();
+    await frame.locator('#selectable').dblclick({ position: { x: 10, y: 10 } });
+    expect(await frame.locator('body').evaluate(() => getSelection()?.toString())).toBeTruthy();
+    await dock.getByRole('button', { name: /^Chat/ }).click();
+    await expect(window.getByTestId('chat-panel')).toBeVisible();
+    expect(await window.evaluate((node, original) => node === original, original)).toBe(true);
+    expect(await window.boundingBox()).toEqual(commentsBox);
+    const chatInput = window.getByRole('combobox', { name: 'Message', exact: true });
+    await chatInput.fill('Keep the Chat draft');
+    const selectionControl = page.locator('#ask-page-fixture [data-testid="selection-ask"]');
+    await expect(selectionControl).toBeVisible();
+    const controlBox = (await selectionControl.boundingBox())!;
+    const hostBox = (await window.boundingBox())!;
+    expect(
+      controlBox.x >= hostBox.x + hostBox.width ||
+        controlBox.x + controlBox.width <= hostBox.x ||
+        controlBox.y >= hostBox.y + hostBox.height ||
+        controlBox.y + controlBox.height <= hostBox.y,
+    ).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('chat.png') });
+    await dock.getByRole('button', { name: /^Comments/ }).click();
+    await expect(commentInput).toHaveText('Keep the comment draft');
+    expect(await window.boundingBox()).toEqual(commentsBox);
+    await frame.locator('#page-control').press('Escape');
+    await expect(window).toBeHidden();
+    await expect(dock.getByRole('button', { name: /^Comments/ })).toBeFocused();
+    await dock.getByRole('button', { name: /^Chat/ }).click();
+    await expect(chatInput).toHaveText('Keep the Chat draft');
+    await page.locator('body').click({ position: { x: 1, y: 1 } });
+    await page.keyboard.press('Escape');
+    await expect(window).toBeHidden();
+    await expect(dock.getByRole('button', { name: /^Chat/ })).toBeFocused();
+  });

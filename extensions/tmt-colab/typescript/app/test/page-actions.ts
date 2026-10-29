@@ -12,9 +12,9 @@ export function chatAction(host: Page | Locator) {
   return host.locator('.page-floating-actions').getByRole('button', { name: CHAT_NAME });
 }
 
-/** Exercise the retained legacy preference: it selects All when no v2 filter is stored. */
+/** The device-local All filter includes resolved discussions. */
 export async function showResolvedOn(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
+  await page.addInitScript(() => localStorage.setItem('colab.comments.filter', 'all'));
 }
 
 /** The visible bar's buttons: the shared top bar where Colab is the shell's root, the module header
@@ -148,4 +148,10 @@ export async function selectDiscussion(page: Page, content: string | RegExp) {
     const body = await commentsRegion(page).locator('.comments-panel').innerText();
     return typeof content === 'string' ? body.includes(content) : content.test(body);
   });
+}
+
+/** Resolve the popup owned by this composer, including a portalled autocomplete. */
+export async function composerSuggestions(field: Locator): Promise<Locator> {
+  await expect(field).toHaveAttribute('aria-controls', /.+/);
+  return field.page().locator(`[id=${JSON.stringify(await field.getAttribute('aria-controls'))}]`);
 }

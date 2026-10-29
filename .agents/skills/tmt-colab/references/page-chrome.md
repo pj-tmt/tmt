@@ -386,18 +386,15 @@ subscription, publication admission or reply association. Comments remains the
 explicit full-history/details view.
 
 `BrowserDrawer` renders in place and native modality promotes it above the header/frame. Desktop panels float on
-the right on an opaque square surface with a 1 px border on every edge. Chat,
+the right on an opaque square surface with a 1 px border on every edge.
 Source, Agents, Files and Export leave 8 px below the header and at the
 right and bottom edges (4 px through 480 px), plus top/right/bottom safe-area insets. All widths use native modal containment;
 menus use a transparent catching backdrop and consume Escape before their drawer. Neither changes renderer
 width or content layout; the header and page edge remain visible.
-Panel bodies scroll independently except
-Chat: its bounded flex body keeps the shared header and non-shrinking composer
-visible, with only message history scrolling in the remaining height.
+Panel bodies scroll independently.
 All widths use native modal containment without body scroll locking; resizing preserves the mounted draft and editing selection. The body contains overscroll. A header or iframe backdrop press dismisses only, never clicks through.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
-unmount. Chat initializes on first opening; closed Source and Chat drawers retain drafts and admitted history, and the
-Comments panel stays mounted and hidden while closed, retaining its conversation state; page-owned drafts also survive a remount;
+unmount. Chat initializes on first opening; closed Source and conversation panes retain drafts and admitted history; page-owned drafts also survive a remount;
 closing never dispatches, abandons or retries. Source places its existing Save action before Close in the shared header. The owner and editor link share stateless editor presentation while retaining their separate draft and save/request owners. The paper editor scrolls long lines within its bordered field and resizes vertically; its lower metadata (the page's 11px sans in the secondary colour, the waiting tone while the draft differs) reports draft/base equality, never persistence, and names the format (HTML); the editor is 10px under 760px. Export closes its preparation and
 revokes download Blob URLs. Manage opens after its menu closes and initially
 focuses its non-interactive heading without an outline while metadata loads;
@@ -407,25 +404,23 @@ Close/Escape restores the trigger's focus. Safety details
 remain available from About this page, reader Page information and blocked views; visibility never
 substitutes for writer admission.
 
-The Comments region (one selected Discussion or an empty filter) is a non-modal `BrowserPanel`, not a
-drawer: no scrim, focus trap or page inertness, so the page stays readable and keyboard-reachable
-beside or under it, and it shares the single panel slot with the drawers. `src/panel-mode.ts` picks
-its mode from one width pair (column from 1180 px, card from 761 px, sheet below; `e2e/panel-mode.spec.ts`
-holds the mode on both sides of each). A column is a track of the page grid:
-the page narrows by the panel width (286 px, 310 px from 1600 px), the gap (23 px, 28 px) and a 24 px
-right margin, and the panel sticks 20 px under the header with its own scroll. The page's own edge is
-the one edge between them: the column draws no rule, and its content starts one gap from that edge.
-A thread's composer sits on the column's surface (the page's paper; the sheet's in a card or sheet)
-with no rule above it, and the last turn ends the thread without one. A
-card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and a sheet (7 px insets, up to
-75dvh) float over the page and cover the dock, which hides in its place for the panel to open out of and
-close back into (a column leaves it, pressed). The dock opens a single Discussion,
+Chat and Comments (one selected Discussion or an empty filter) share one retained
+non-modal `BrowserPanel` card at every width: no scrim, focus trap or page inertness.
+The authored page remains interactive and never narrows. `panel-layout.css` clamps
+the 330 px window to the available viewport height above the visible dock;
+`PageFloatingActions` publishes its measured placement through workspace CSS variables.
+The router retains both panes while switching views and through closing motion.
+The selected discussion body scrolls independently of the batch result. If the
+viewport cannot fit the header and composer, the whole surface scrolls to keep
+those controls reachable.
+`dock-motion.ts` scopes the clip to this page's host and animates only opening and
+closing, not view switches. The selection-mode control avoids the visible window.
+The window shares the single panel slot with the drawers. The dock opens a single Discussion,
 initially the first Needs-you thread or the first matching thread by number.
 `comments-listing.ts` owns the Open / Needs you / All sequence from the verified
 threads and existing attention metadata; proposals share that sequence. Deleted
 and Chat records stay excluded. `use-thread-filter.ts` keeps the filter on this
-device, accepting the previous Show-resolved preference as All when no filter is
-stored. The static position `n / m` and Previous / Next follow that sequence;
+device, defaulting to Open when its current key is absent or invalid. The static position `n / m` and Previous / Next follow that sequence;
 the dock count remains the canonical pending count. A selected thread stays in
 its sequence through resolution or acknowledgement until explicit navigation.
 Resolve/Reopen never collapse or advance the Discussion. The same mounted window
@@ -433,14 +428,18 @@ retains its draft, input node and Not-notified warning. A reserved status line
 keeps the quote, messages and composer still through a status change. The existing
 page-comment action sits above the selected conversation, leaving the reply
 composer last and pinned. An empty filter retains page-comment creation.
-Escape closes the panel from inside it; on the page it still falls through to the
-annotation window and selection mode. `Show in the page` scrolls to the passage
+Unmodified Escape closes the conversation from its composer or the page, including during
+a pending send, without cancelling that send. Nested menus and autocomplete consume it first.
+With no conversation open it falls through to the annotation window and selection mode. `Show in the page` scrolls to the passage
 and leaves the panel open. Opening the dock or changing its filter keeps the page offset; arrows and explicit
 passage navigation retain their existing reveal behavior. Colab's explicit close handler
 returns focus to the Comments action before the closing clip can keep the old
 composer temporarily focusable. The router owns the static position,
 filter and arrows, and a header slot; the thread window portals its Resolve/Reopen icon action there,
-keeping its busy fence and failure line. A resolved discussion retains the dashed
+keeping its busy fence and failure line. `resolve-all-threads.tsx` portals the batch action into
+its own header slot and confirms a frozen set of open threads in the current filter. Its result
+report follows the conversation, and its busy state includes pending notification attempts.
+A resolved discussion retains the dashed
 `quiet` passage mark (the highlight request's seventh field). A mention remains
 the composer's soft tag. The panel stays mounted and hidden while closed; a
 newly selected thread opens at its latest message. A reader at the end follows
@@ -506,7 +505,7 @@ verified them. Until then `PageView.discussionPending` is set and those three fi
 never empty, so nothing unverified reads as verified: the router shows no comment count (the
 dock's Comments action carries no number), no `Needs you` entry (not `✓ Nothing waits`),
 no inline question, review, reading or proposal layer, and no thread highlights. The Comments panel and the
-Chat drawer show one quiet `Loading comments…` status instead of a list or composer. The document
+Chat pane show one quiet `Loading comments…` status instead of a list or composer. The document
 frame does not move when verification arrives; the layers and the count then appear. `ThreadStore`
 reports unavailable until verified, so no write can start from a pending view. `e2e/progressive-open.spec.ts`
 holds the verification back through the fixture's `discussionPending` option.
@@ -518,7 +517,7 @@ the binding's first current view after loading, including a cached snapshot;
 initial and unavailable reads never replay history. The shared leaf owns FIFO budgets,
 hover/focus pause, hidden-document suspension and once-only polite display.
 ConversationWindow reports visible/following state and reveals stable record keys.
-Chat activation opens its existing Drawer, while Thread activation reuses the
+Chat activation opens its existing window, while Thread activation reuses the
 canonical quote/anchored-window path. Visible-at-end destinations suppress arrivals.
 PageMenu and native Manage/attachment owners report actual visibility to the page.
 An open anchored Thread window also holds the queue so toasts cannot cover its

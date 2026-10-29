@@ -12,7 +12,7 @@ const run = (page: Page, method: string, argument?: unknown) =>
   );
 const dock = (page: Page) => page.locator('.page-floating-actions');
 const chat = (page: Page) => dock(page).getByRole('button', { name: /^Chat(?: · Unread)?$/ });
-const drawer = (page: Page) => page.locator('.tmt-ui-drawer[data-panel="chat"]');
+const drawer = (page: Page) => page.locator('#ask-page-fixture .page-conversation-window');
 /** Records each call that starts the dock's motion, as it is made: a motion of 180ms is over before a
  * test can look for it, so the test reads what was started, not what is still running. */
 const record = () => {
@@ -22,12 +22,14 @@ const record = () => {
   Element.prototype.animate = function (this: Element, frames, options) {
     const timing = options as KeyframeAnimationOptions | undefined;
     if (timing?.id === 'dock-motion') {
-      const dialog = this as HTMLDialogElement;
+      const dialog = this as HTMLElement;
       started.push({
         clip: (frames as { clipPath: string[] }).clipPath,
         duration: timing.duration,
         fill: timing.fill,
-        open: dialog.open,
+        open: !dialog.hidden,
+        panel: dialog.getAttribute('data-panel'),
+        title: dialog.querySelector('h2')?.textContent,
         rendered: dialog.getBoundingClientRect().width > 0,
       });
     }
@@ -53,7 +55,9 @@ async function mount(page: Page) {
 /** The dock's own motion has run to its end (the leaf's transitions on the dialog come and go with it). */
 const settled = (page: Page) =>
   page.evaluate(async () => {
-    const dialog = document.querySelector<HTMLElement>('.tmt-ui-drawer[data-panel="chat"]')!;
+    const dialog = document.querySelector<HTMLElement>(
+      '#ask-page-fixture .page-conversation-window',
+    )!;
     await Promise.all(
       dialog
         .getAnimations()
@@ -110,7 +114,7 @@ for (const width of [1440, 390])
         const box = (await dock(page).boundingBox())!;
         // Opening: the dialog is clipped to the dock's rectangle first and ends on its own.
         await chat(page).click();
-        await expect(drawer(page)).toHaveJSProperty('open', true);
+        await expect(drawer(page)).toHaveJSProperty('hidden', false);
         const [opening] = await started(page);
         expect(opening).toMatchObject({ open: true, rendered: true, fill: 'backwards' });
         expect(opening.duration).toBeGreaterThan(0);
@@ -128,21 +132,31 @@ for (const width of [1440, 390])
         expect(dialog.y + dialog.height - bottom).toBeCloseTo(box.y + box.height, 0);
         await settled(page);
         await expect(page.getByTestId('chat-panel')).toBeVisible();
-        // The dock has become the panel: unseen and out of reach, in its place.
-        await expect(page.locator('.selection-mode')).toHaveCSS('opacity', '0');
-        await expect(page.locator('.selection-mode')).toHaveCSS('pointer-events', 'none');
-        expect(await page.evaluate(() => !!document.activeElement?.closest('.tmt-ui-drawer'))).toBe(
-          true,
+        await expect(drawer(page).locator(':scope > .tmt-ui-drawer-body')).toHaveCSS(
+          'padding',
+          '0px',
         );
+        // The dock remains visible and usable below the non-modal host.
+        await expect(page.locator('.selection-mode')).toHaveCSS('opacity', '1');
+        await expect(page.locator('.selection-mode')).toHaveCSS('pointer-events', 'auto');
+        expect(
+          await page.evaluate(() => !!document.activeElement?.closest('.page-conversation-window')),
+        ).toBe(true);
         await page.screenshot({ path: capturePath(`dock-open-${width}-${theme}.png`) });
         // Closing: Escape runs the same clip back, on a dialog that is closed but still rendered.
         await page.keyboard.press('Escape');
         await expect.poll(async () => (await started(page)).length).toBe(2);
         const closing = (await started(page))[1];
-        expect(closing).toMatchObject({ open: false, rendered: true, fill: 'forwards' });
+        expect(closing).toMatchObject({
+          open: false,
+          rendered: true,
+          fill: 'forwards',
+          panel: 'chat',
+          title: 'Chat',
+        });
         expect(closing.clip).toEqual([opening.clip[1], opening.clip[0]]);
         await settled(page);
-        await expect(drawer(page)).toHaveJSProperty('open', false);
+        await expect(drawer(page)).toHaveJSProperty('hidden', true);
         await expect(chat(page)).toBeFocused();
         await expect(page.locator('.selection-mode')).toHaveCSS('opacity', '1');
         // Opening again starts a fresh motion and the dialog opens as before.
@@ -151,7 +165,7 @@ for (const width of [1440, 390])
         await expect.poll(async () => (await started(page)).length).toBe(3);
         await settled(page);
         await page.keyboard.press('Escape');
-        await expect(drawer(page)).toHaveJSProperty('open', false);
+        await expect(drawer(page)).toHaveJSProperty('hidden', true);
         await settled(page);
         await expect(chat(page)).toBeFocused();
       });
@@ -164,7 +178,7 @@ for (const width of [1440, 390])
         expect(await started(page)).toEqual([]);
         await page.keyboard.press('Escape');
         expect(await started(page)).toEqual([]);
-        await expect(drawer(page)).toHaveJSProperty('open', false);
+        await expect(drawer(page)).toHaveJSProperty('hidden', true);
         await expect(chat(page)).toBeFocused();
       });
     });

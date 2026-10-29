@@ -1,12 +1,8 @@
-import { useLayoutEffect, useRef } from 'react';
-import type { PanelMode } from './panel-mode.js';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 
-/** The panels that open out of the dock, and the element each one is. */
-const PANELS = {
-  chat: '.tmt-ui-drawer[data-panel="chat"]',
-  comments: '.tmt-ui-panel[data-panel="comments"]',
-} as const;
-export type DockPanel = keyof typeof PANELS;
+/** One retained host for both conversations. */
+const PANEL = '.page-conversation-window';
+export type DockPanel = 'chat' | 'comments';
 /** The animation's name, for the tests and for cancelling a closing motion that is still held. */
 export const MOTION = 'dock-motion';
 /** The capsule that holds the page's floating actions (#4919). */
@@ -27,32 +23,23 @@ function clip(inset: [number, number, number, number], radius: number) {
 }
 
 /**
- * A panel opens out of the dock and closes back into it (#4919, #5192): the panel is the same element,
- * clipped to the dock's rectangle at one end of the motion and to its own at the other. Chat's drawer
- * and the Comments panel switch their own slide off in style.css; each one's leaving transition keeps
- * the closed element rendered for the motion's length, so the same clip runs in reverse on it. The
- * length and easing are the leaf's motion tokens, which are 0ms under reduced motion: then there is no
- * animation at all.
- *
- * A Comments column is a track of the page grid and leaves it the moment it closes, so it only opens
- * with the motion. The leaf owns the panel and its focus; this only paints, and a page with no dock or
- * no animation support opens and closes as before.
+ * The one conversation host opens out of the dock and closes back into it. Switching
+ * Chat/Comments keeps the same open host and geometry, so it starts no motion. The leaf
+ * owns focus; this hook paints only. Reduced motion makes the token duration zero.
  */
-export function useDockMotion(open: DockPanel | null, mode: PanelMode) {
+export function useDockMotion(open: DockPanel | null, scope: RefObject<HTMLElement | null>) {
   const previous = useRef<DockPanel | null>(open);
   useLayoutEffect(() => {
     const was = previous.current;
     previous.current = open;
-    if (was === open) return;
-    if (was) run(was, false, mode);
-    if (open) run(open, true, mode);
-  }, [open, mode]);
+    if (was === open || (was && open)) return;
+    run(open !== null, scope.current);
+  }, [open, scope]);
 }
 
-function run(panel: DockPanel, open: boolean, mode: PanelMode) {
-  if (!open && panel === 'comments' && mode === 'column') return;
-  const element = document.querySelector<HTMLElement>(PANELS[panel]);
-  const dock = document.querySelector<HTMLElement>(DOCK);
+function run(open: boolean, scope: HTMLElement | null) {
+  const element = scope?.querySelector<HTMLElement>(PANEL);
+  const dock = scope?.querySelector<HTMLElement>(DOCK);
   if (!element || !dock || typeof element.animate !== 'function') return;
   const style = getComputedStyle(element);
   const duration = milliseconds(style.getPropertyValue('--tmt-ui-motion-base'));

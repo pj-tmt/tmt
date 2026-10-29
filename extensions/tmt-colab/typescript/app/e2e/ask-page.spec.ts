@@ -1,6 +1,6 @@
 import { headerHeight } from './tokens.js';
 import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
-import { pageAction, chatAction } from '../test/page-actions.js';
+import { pageAction, chatAction, composerSuggestions } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 import { text } from '../src/strings.js';
@@ -205,16 +205,16 @@ test('read refusals show ephemeral copy without changing the admitted operation 
   });
 });
 
-test('mobile modal Chat keeps the shared autocomplete visible and clickable in its top layer', async ({
+test('mobile non-modal Chat keeps the shared autocomplete visible and clickable in its popover', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
-  const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
-  expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
+  const drawer = page.locator('.page-conversation-window[data-panel=chat]:not([hidden])');
+  expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(false);
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
-  const option = drawer.getByRole('option').first();
+  const option = (await composerSuggestions(input)).getByRole('option').first();
   await expect(option).toBeInViewport();
   await expect
     .poll(() =>
@@ -232,24 +232,26 @@ test('mobile modal Chat keeps the shared autocomplete visible and clickable in i
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
 
-test('mobile Chat preserves an open autocomplete inside its dialog across keyboard close and reopen', async ({
+test('mobile Chat preserves an open autocomplete inside its window across keyboard close and reopen', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
-  const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
+  const drawer = page.locator('.page-conversation-window[data-panel=chat]:not([hidden])');
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
-  await expect(drawer.getByRole('option')).toHaveCount(5);
+  await expect((await composerSuggestions(input)).getByRole('option')).toHaveCount(5);
   const close = drawer.getByRole('button', { name: 'Close Chat' });
   await close.focus();
   await close.press('Enter');
-  await expect(page.locator('.tmt-ui-drawer[data-panel=chat][open]')).toHaveCount(0);
+  await expect(
+    page.locator('.page-conversation-window[data-panel=chat]:not([hidden])'),
+  ).toHaveCount(0);
   const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
   await toggle.focus();
   await toggle.press('Enter');
   await expect(input).toHaveText('@', { useInnerText: true });
-  const option = drawer.getByRole('option').first();
+  const option = (await composerSuggestions(input)).getByRole('option').first();
   await expect(option).toBeInViewport();
   await expect
     .poll(() =>
@@ -272,7 +274,7 @@ for (const selected of [false, true]) {
   }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await mount(page);
-    const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
+    const drawer = page.locator('.page-conversation-window[data-panel=chat]:not([hidden])');
     const input = drawer.getByRole('combobox', { name: 'Message', exact: true });
     const draft = 'Before draft after';
     await input.fill(draft);
@@ -313,8 +315,8 @@ for (const selected of [false, true]) {
       await page.evaluate((width) => {
         document.documentElement.dataset.theme = width === 390 ? 'dark' : 'light';
       }, width);
-      // The same modal owner stays mounted across the geometry change.
-      await expect.poll(() => drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
+      // The same non-modal host stays mounted across the geometry change.
+      await expect.poll(() => drawer.evaluate((node) => node.matches(':modal'))).toBe(false);
       await expect(input).toBeFocused();
       await expect(input).toHaveAttribute('id', editorId!);
       await expect(input).toHaveText(draft, { useInnerText: true });
@@ -335,7 +337,7 @@ for (const selected of [false, true]) {
       selection.addRange(range);
     });
     await input.pressSequentially(' @');
-    await drawer.getByRole('option').first().click();
+    await (await composerSuggestions(input)).getByRole('option').first().click();
     await input.press('Enter');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
     expect((await run(page, 'proof')).sends[0].message).toContain(
@@ -985,6 +987,15 @@ for (const [width, height, theme] of [
     await input.press('Escape');
     await expect(page.getByRole('option')).toHaveCount(0);
     await expect(window).toBeVisible();
+    // Selection guidance belongs to the same dock; the window must clear it too.
+    await expect
+      .poll(async () => {
+        const shell = (await window.boundingBox())!;
+        const hint = (await page.locator('#ask-page-fixture .selection-mode-hint').boundingBox())!;
+        return shell.y + shell.height <= hint.y - 7;
+      })
+      .toBe(true);
+
     await expect(mode).toHaveAttribute('aria-pressed', 'true');
     await expect(input).toHaveText('Draft retained @');
     for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
@@ -1034,7 +1045,7 @@ for (const [width, height, theme] of [
 }
 
 for (const width of [1440, 390]) {
-  test(`Escape closes Chat after suggestions, keeps its draft and fences a busy send ${width}`, async ({
+  test(`Escape closes Chat after suggestions, keeps its draft and lets a busy send finish ${width}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -1066,14 +1077,15 @@ for (const width of [1440, 390]) {
     ).toBeDisabled();
     await page.getByRole('button', { name: 'Close Chat', exact: true }).focus();
     await page.keyboard.press('Escape');
-    await expect(chat).toBeVisible();
+    await expect(chat).toBeHidden();
+    await expect(chatAction(page)).toBeFocused();
     expect((await run(page, 'proof')).sends).toEqual([]);
     await run(page, 'resumePrepare');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   });
 }
 
-test('Escape does not close the Discussion view during its explicit send', async ({ page }) => {
+test('Escape closes Discussion while its explicit send finishes', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mount');
   await run(page, 'conversation', {
@@ -1094,7 +1106,7 @@ test('Escape does not close the Discussion view during its explicit send', async
   ).toBeDisabled();
   await commentsClose(page, 'discussion').focus();
   await page.keyboard.press('Escape');
-  await expect(window).toBeVisible();
+  await expect(window).toBeHidden();
   expect((await run(page, 'proof')).sends).toEqual([]);
   await run(page, 'resumePrepare');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
@@ -1208,13 +1220,27 @@ for (const [width, theme] of [
     ]) {
       // Comments is a non-modal panel now: layout.spec.ts holds its geometry by mode.
       await (await pageAction(page, action!)).click();
-      const drawer = page.locator(`.tmt-ui-drawer[data-panel=${panel}][open]`);
+      const drawer = page.locator(
+        panel === 'chat'
+          ? '.page-conversation-window[data-panel=chat]:not([hidden])'
+          : `.tmt-ui-drawer[data-panel=${panel}][open]`,
+      );
       await expect(drawer).toBeVisible();
       const box = (await drawer.boundingBox())!;
       const gap = width <= 480 ? 4 : 8;
-      expect(box.x + box.width).toBe(width - gap);
-      expect(box.y).toBe(headerHeight(width) + gap);
-      expect(box.y + box.height).toBe(900 - gap);
+      if (panel === 'chat') {
+        const dock = (await page
+          .locator('#ask-page-fixture .page-floating-actions')
+          .boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        expect(box.y).toBeGreaterThanOrEqual(headerHeight(width));
+        expect(box.y + box.height).toBeLessThanOrEqual(dock.y);
+      } else {
+        expect(box.x + box.width).toBe(width - gap);
+        expect(box.y).toBe(headerHeight(width) + gap);
+        expect(box.y + box.height).toBe(900 - gap);
+      }
       await expect(drawer).toHaveCSS('border-right-width', '1px');
       expect((await frame.boundingBox())?.width).toBe(before?.width);
       await page.screenshot({ path: capturePath(`2722-gutter-${panel}-${width}-${theme}.png`) });

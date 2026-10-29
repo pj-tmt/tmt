@@ -1,5 +1,6 @@
 /** The dock's motion hook alone, on stand-in panels, to prove when it plays (#5192). */
 import { flushSync } from 'react-dom';
+import { useRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MOTION, useDockMotion, type DockPanel } from '../src/dock-motion.js';
 
@@ -8,7 +9,8 @@ const started: (string | null)[] = [];
 const animate = Element.prototype.animate;
 
 function Harness({ open }: { open: DockPanel | null }) {
-  useDockMotion(open, 'card');
+  const scope = useRef(document.getElementById('dock-motion-fixture'));
+  useDockMotion(open, scope);
   return null;
 }
 
@@ -26,7 +28,7 @@ export function mount(open: DockPanel | null) {
   host.id = 'dock-motion-fixture';
   host.innerHTML = `
     <div class="page-floating-actions" style="position:fixed;right:16px;bottom:16px;width:96px;height:44px"></div>
-    <div class="tmt-ui-drawer" data-panel="chat" style="position:fixed;top:0;right:0;width:320px;height:400px;--tmt-ui-motion-base:180ms;--tmt-ui-motion-ease-out:ease-out;--tmt-ui-motion-ease-in:ease-in"></div>`;
+    <div class="page-conversation-window" data-panel="chat" style="position:fixed;top:0;right:0;width:320px;height:400px;--tmt-ui-motion-base:180ms;--tmt-ui-motion-ease-out:ease-out;--tmt-ui-motion-ease-in:ease-in"></div>`;
   document.body.append(host);
   const mountPoint = document.createElement('div');
   host.append(mountPoint);

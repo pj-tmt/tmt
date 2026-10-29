@@ -16,6 +16,8 @@ export interface ChatActivation {
  */
 export function usePagePanels(pageId: string, binding: unknown) {
   const [panel, setPanel] = useState<PageHeaderAction | null>(null);
+  // Closing keeps the last pane intact through the host's exit motion.
+  const [conversation, setConversation] = useState<'chat' | 'comments'>('comments');
   const [chatOpened, setChatOpened] = useState(false);
   const [chatActivation, setChatActivation] = useState<ChatActivation>();
   const [activeThread, setActiveThread] = useState<string | null>(null);
@@ -27,6 +29,7 @@ export function usePagePanels(pageId: string, binding: unknown) {
     setActiveThread(null);
     setPanel(null);
     setChatOpened(false);
+    setConversation('comments');
     setChatActivation(undefined);
   }, [pageId]);
 
@@ -34,10 +37,12 @@ export function usePagePanels(pageId: string, binding: unknown) {
     () => ({
       /** The header opens a panel, or closes it when it is the one open. */
       toggle(value: PageHeaderAction) {
+        if (value === 'chat' || value === 'comments') setConversation(value);
         if (value === 'chat') setChatOpened(true);
         setPanel((previous) => (previous === value ? null : value));
       },
       show(value: PageHeaderAction) {
+        if (value === 'chat' || value === 'comments') setConversation(value);
         setPanel(value);
       },
       close() {
@@ -54,11 +59,13 @@ export function usePagePanels(pageId: string, binding: unknown) {
       },
       /** Comments, with this thread selected. */
       showThread(id: string) {
+        setConversation('comments');
         setActiveThread(id);
         setPanel('comments');
       },
       /** Chat, with `activation` for its composer (none: it opens without taking focus). */
       openChat(activation?: ChatActivation) {
+        setConversation('chat');
         setChatOpened(true);
         setPanel('chat');
         setChatActivation(activation);
@@ -71,5 +78,5 @@ export function usePagePanels(pageId: string, binding: unknown) {
     }),
     [],
   );
-  return { panel, chatOpened, chatActivation, activeThread, ...actions };
+  return { panel, conversation, chatOpened, chatActivation, activeThread, ...actions };
 }

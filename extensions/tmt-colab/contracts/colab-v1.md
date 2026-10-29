@@ -1625,6 +1625,16 @@ wait for notifications. A later explicit opposite action proceeds independently 
 remaining attempts from the superseded task; a superseded status cannot prepare another
 notification. An already adopted Ask keeps its ordinary ledger outcome.
 
+Mounted Resolve all confirms a snapshot of the current filter's open thread references
+and previous statuses. Later arrivals do not join it. Each status write rechecks current
+admission independently; a failure preserves earlier commits and the UI reports partial
+results. The coordinator freezes the directory once and assigns each machine/agent pair
+to its first successfully committed status. A no-op or failed write does not claim that
+recipient. The existing canonical thread notification and adoption/failure ledger are
+unchanged; there is no batch summary field or wire schema. Publication is reported before
+notifications settle, while the batch action remains busy until its original attempts
+settle. An explicit Reopen still proceeds independently and supersedes remaining attempts.
+
 The generic own writer prepares at most 32 records in one update; thread creation
 publishes its thread and opening message together. Preparation cannot change the
 committed projection. Only admitted encrypted appends commit; failures preserve
@@ -3997,16 +4007,20 @@ advance to another thread, even under Open. The header action changes to Reopen;
 unknown or ambiguous recipients remain visible as Not notified. Agent replies join
 verified Ask records to comment IDs and remain attributed to their agent. Overlay
 geometry does not reflow page content.
-Shared Chat, Source, Agents, Files and Export drawers leave an 8 px
-header/right/bottom gutter (4 px through 480 px), with top/right/bottom safe-area insets, an opaque
-square surface and a 1 px border. The header remains visible behind the scrim. All drawers use the shared leaf
-Drawer with native modal focus containment at every width. The first header or
-author-frame backdrop press dismisses only, without click-through; a second press
-acts. The shared Close button retains draft/attempt owners; Chat keeps its audience
-caption. Action and Manage radio menus use the shared top-layer Menu; autocomplete
-remains a listbox. A nested menu consumes Escape before its drawer. Comments is the one
-exception: a non-modal panel (a column beside the page, a card or a sheet by width) with no scrim,
-trap or inert page, sharing the single panel slot with the drawers.
+Source, Agents, Files and Export drawers leave an 8 px header/right/bottom gutter
+(4 px through 480 px), with safe-area insets, an opaque square surface and a 1 px
+border. They use the shared modal Drawer; a backdrop press dismisses without
+click-through. A nested menu consumes Escape before its drawer.
+Chat and Comments share one retained non-modal floating BrowserPanel at every
+width. It stays above the visible dock, never changes the authored page's width,
+and has no scrim, focus trap or inert page. Switching views retains both
+conversations, composers and drafts in the same host without another open motion.
+Outside presses interact with the page without dismissing it. Close or unmodified
+Escape dismisses the conversation, including while a send is pending; the admitted
+send continues unchanged. Nested menus and autocomplete consume Escape first.
+Chat returns focus to its opener; Comments returns it to its dock action.
+Action and Manage radio menus use the shared top-layer Menu; autocomplete remains
+a listbox. The conversation shares the single panel slot with the modal drawers.
 A trusted non-editing `@` key opens the existing Chat under the same admission as
 the dock's Chat action: a mounted, unarchived page and no other menu or
 dialog. An anchored annotation does not block it. Only a mounted editable composer
@@ -4056,7 +4070,7 @@ Proposal destinations use admitted proposal threads. Neither body labels nor
 proposer display metadata can establish participation or choose a destination.
 
 A destination already visible and following the history end suppresses its
-arrival. Trusted activation opens the existing Chat Drawer and reveals the exact
+arrival. Trusted activation opens the existing Chat window and reveals the exact
 reply, or scrolls the canonical Thread quote and opens its Discussion view in Comments with
 the existing unresolved-anchor fallback. It never sends or creates a conversation.
 Actual Drawer/Menu/Manage/attachment owners, an open anchored Thread window and
@@ -4082,26 +4096,22 @@ authority.
 
 ### Page Chat (#1645)
 
-The Chat action in the page's dock opens the retained Chat drawer without resizing or reflowing the
-page. The dock is one capsule at the page's lower corner that holds, left to right, the selection-mode, Chat and
-Comments actions, divided by hairlines; the Comments and Chat actions hide while selection mode or
-an annotation window is open. The page header holds no Comments or Chat control: the dock is where
-both are. The Comments action shows the page's open-thread count beside its icon (its slot is held while
-the threads are verified, so no false 0) and, while any thread has news the viewer has not seen, the count
-takes the needs-you colour and a bullet, and the action's name says so (`Comments (2) · New`); it presses
-open the Comments panel and has no keyboard shortcut. The drawer opens out of the dock's rectangle and
-closes back into it: the same dialog, clipped to the dock at one end of the motion (180 ms, the leaf's
-`--tmt-ui-motion-base` and easings); under reduced motion there is no animation. The Comments panel opens
-out of the dock the same way, with one motion for both: in a column (from 1180 px) the dock stays in
-place and reachable with its Comments action pressed, and the panel opens with the motion and leaves
-the page grid at once when it closes; as a card or a sheet the panel covers the dock's corner, so the
-dock stays in its place, unseen and out of reach, and the clip runs back into it on close. A panel that is
-already open when the page mounts (a restored panel or route) is there at once, without the motion. While Chat is
-open the dock stays in its place, unseen and out of reach, and the drawer covers it. Close/Escape or a
-backdrop press returns focus to the Chat action; closing the Comments panel returns it to the Comments
-action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape
-dismisses; at wide widths a press on the backdrop, anywhere outside the drawer, dismisses.
-Messages scroll inside it; one shared plaintext message input remains at the bottom.
+The Chat action in the page's dock opens the retained conversation window without
+resizing or reflowing the page. The dock is one capsule at the page's lower corner:
+selection-mode, Chat and Comments, divided by hairlines. Chat and Comments hide
+while selection mode or an annotation window is open. The header holds neither.
+Comments shows the canonical open-thread count (its slot is held while verifying)
+and the needs-you colour and bullet for unseen news (`Comments (2) · New`).
+Both views use the same 330 px window, clamped to the viewport and available height
+above the visible dock. Opening and closing clip it to the dock rectangle for
+180 ms using the leaf's base motion and easings; reduced motion disables this.
+A restored open window has no entrance motion. Switching Chat and Comments keeps
+the same window rectangle and mounted panes without replaying the animation.
+Close and Escape restore opener focus without sending or cancelling pending work.
+The selected discussion body scrolls with its composer pinned at the bottom; the
+batch result stays visible outside that scroller. Chat scrolls its message history
+with its composer at the bottom. A window too short for the header and composer
+scrolls as a whole so its controls remain reachable.
 Chat uses the same shared history owner and scroll policy as inline annotation
 conversations: it opens at the bottom and follows new record identities within
 24px of the bottom. Above that threshold, arrivals preserve the reading position
@@ -4142,7 +4152,7 @@ agent-role and time byline followed by plain reply text. Pending, held and faile
 outcomes appear as a quiet mark-plus-word line in the requester turn; delivery state
 and recheck/abandon controls disappear when a reply exists, including an empty reply.
 A turn in Chat or in a thread leads with the shared avatar, then the name and the muted time.
-Chat uses the shared Drawer header with `Chat`, a `○ Everyone with access` caption and
+Chat uses the shared panel header with `Chat`, a `○ Everyone with access` caption and
 a `Close Chat` action; a Chat turn's identity row places the time at the right, and its text is a
 filled bubble under the name, indented past the avatar, the same whoever wrote it.
 Spacing separates turns, while local-day headings derive only from admitted
