@@ -33,13 +33,13 @@ Current browser comes first, then recent activity; details omit zero-session row
 changing the confirmed count.
 Counts describe live Sessions, not tabs, and closing a tab may take about a minute to appear.
 The read time and this limit stay visible in the tooltip. A successful complete read supplies
-the same-origin `/settings` link. Hosted/detached adapters and missing Sessions show no chip.
+the same-origin `/remote/settings` link. Hosted/detached adapters and missing Sessions show no chip.
 `remote-presence.ts` owns the finite snapshot and replacement/close fences. Replacement
 starts one read after any stale read settles; close prevents that successor. `mounted.ts`
 uses its already-admitted Session without reopening. `remote-header.tsx` owns only presentation
 and the three refresh triggers. In Colab's own shell the shared top bar draws the Remote link:
 `useShellRemoteStatus` projects the snapshot (a confirmed count as the badge, linking to the
-settings link; unconfirmed or no source as the glyph alone, linking to the rail's Remote), so the
+settings link; unconfirmed or no source as the glyph alone, linking to Remote settings), so the
 chip's device-details tooltip and More's Remote entry are not drawn there. The hosted mount, which has
 no common controls yet (#5239, #5227), keeps the space home's Tooltip chip and, through 640px, a
 Remote submenu in More; its page header keeps no chip. Either mount shows `△ Remote offline` (a mark
