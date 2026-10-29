@@ -1,7 +1,7 @@
 {
   "schema": "tmt-digest-pricing-v1",
-  "version": "2026-10-14",
-  "asOf": "2026-10-14",
+  "version": "2026-10-28",
+  "asOf": "2026-10-28",
   "basis": "standard-base-input",
   "models": [
     {
@@ -23,6 +23,71 @@
       "modelId": "gpt-6.1-sol",
       "usdMicrosPerMillionInputTokens": 2000000,
       "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+    },
+    {
+      "modelId": "gemini-3-flash-preview",
+      "usdMicrosPerMillionInputTokens": 500000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-3.1-flash-lite",
+      "usdMicrosPerMillionInputTokens": 250000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-3.1-pro-preview",
+      "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-3.5-flash-lite",
+      "usdMicrosPerMillionInputTokens": 300000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-3.6-flash",
+      "usdMicrosPerMillionInputTokens": 750000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-3.8-flash",
+      "usdMicrosPerMillionInputTokens": 750000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-4-argon",
+      "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-3.8-flash-low",
+      "usdMicrosPerMillionInputTokens": 750000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-3.8-flash-medium",
+      "usdMicrosPerMillionInputTokens": 750000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-3.8-flash-high",
+      "usdMicrosPerMillionInputTokens": 750000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-4-argon-low",
+      "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-4-argon-medium",
+      "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-4-argon-high",
+      "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
     }
   ]
 }

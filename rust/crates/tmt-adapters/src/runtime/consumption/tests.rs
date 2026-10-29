@@ -1709,3 +1709,82 @@ fn the_observed_model_goes_before_consumption_extras_and_v4_round_trips() {
     }
     assert!(kept && evicted_before_extras);
 }
+
+#[test]
+fn agy_response_models_override_hook_fallback_and_invalid_explicit_models_stay_unknown() {
+    let response = json!({"step_index":1,"type":"PLANNER_RESPONSE","source":"MODEL","status":"DONE","input_tokens":8,"output_tokens":2});
+    for (model, expected) in [
+        (None, Some("gemini-4-argon-high")),
+        (Some(json!("gemini-3.8-flash")), Some("gemini-3.8-flash")),
+        (Some(json!("auto")), None),
+        (Some(json!("Auto")), None),
+        (Some(json!(null)), None),
+        (Some(json!("invalid model")), None),
+    ] {
+        let mut entry = response.clone();
+        if let Some(model) = model {
+            entry["model"] = model;
+        }
+        let message =
+            super::agy_message_with_model(&entry.to_string(), Some("gemini-4-argon-high"))
+                .unwrap()
+                .unwrap();
+        assert_eq!(message.model.as_deref(), expected);
+        assert_eq!((message.counts.input, message.counts.output), (8, 2));
+    }
+    assert!(
+        super::agy_message(&response.to_string())
+            .unwrap()
+            .unwrap()
+            .model
+            .is_none()
+    );
+}
+
+#[test]
+fn a_clipped_foreign_only_initial_tail_cannot_prove_a_complete_zero_baseline() {
+    let root = TestDirectory::new();
+    let path = root.path.join("clipped.jsonl");
+    fs::write(
+        &path,
+        "{\"type\":\"USER_INPUT\"}\n".repeat(transcript::TAIL_LIMIT as usize / 20 + 1),
+    )
+    .unwrap();
+    assert!(
+        super::agy(
+            &root.path,
+            &path,
+            None,
+            NOW,
+            Instant::now() + std::time::Duration::from_secs(2)
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn the_current_agy_hook_does_not_attribute_historical_baseline_responses() {
+    let root = TestDirectory::new();
+    let path = root.path.join("history.jsonl");
+    let response = |index| json!({"step_index":index,"type":"PLANNER_RESPONSE","source":"MODEL","status":"DONE","input_tokens":8,"output_tokens":2});
+    fs::write(&path, format!("{}\n", response(1))).unwrap();
+    let read = |previous, at| {
+        super::agy_with_model(
+            &root.path,
+            &path,
+            previous,
+            Some("gemini-4-argon"),
+            at,
+            Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .unwrap()
+    };
+    let baseline = read(None, NOW);
+    assert!(baseline.value.model_id.is_none());
+    assert!(baseline.value.delta_by_model.as_ref().unwrap().is_empty());
+    assert_eq!(baseline.value.input_tokens, 0);
+    append(&path, &format!("{}\n", response(2)));
+    let next = read(Some(&baseline), NOW + 1);
+    assert_eq!(next.value.input_tokens, 8);
+    assert_eq!(next.value.model_id.as_deref(), Some("gemini-4-argon"));
+}

@@ -229,12 +229,18 @@ fn concrete_model(value: Option<&serde_json::Value>) -> Option<String> {
     // known family labels and punctuation, preserving already concrete slugs.
     let family = raw.split_once(' ')?.0;
     if !(family.eq_ignore_ascii_case("Gemini") || family.eq_ignore_ascii_case("Claude"))
-        || !raw.bytes().all(|byte| byte.is_ascii_alphanumeric() || b" ._()-".contains(&byte))
+        || !raw
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b" ._()-".contains(&byte))
     {
         return None;
     }
-    let model = raw.split([' ', '(', ')']).filter(|word| !word.is_empty())
-        .map(str::to_ascii_lowercase).collect::<Vec<_>>().join("-");
+    let model = raw
+        .split([' ', '(', ')'])
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>()
+        .join("-");
     crate::runtime::driver_state::valid_model(&model).then_some(model)
 }
 
@@ -808,17 +814,14 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
             usage.and_then(|tokens| crate::runtime::driver_state::Usage::new(tokens, None, now_ms));
         let previous_consumption =
             previous.and_then(crate::runtime::driver_state::state_consumption);
-        // A remembered resume model is not completion evidence. Only a hook
-        // observation made during this admitted session's current turn can fill
-        // an omitted response model; later/older observations grant nothing.
-        let observed_model = previous.and_then(|state| {
-            let activity = crate::runtime::driver_state::state_activity(state)?;
-            let observed = crate::runtime::driver_state::state_observed_model(state)?;
-            (activity.session == turn.session
-                && observed.observed_at_ms >= activity.since_ms
-                && observed.observed_at_ms <= now_ms)
-                .then_some(observed.model)
-        });
+        // Use only a model an admitted hook actually reported. Starts without a
+        // report clear this observation even when they keep a remembered resume
+        // model. Stop may already have made activity idle before this follow-up;
+        // its phase timestamp is not the model observation's lifetime.
+        let observed_model = previous
+            .and_then(crate::runtime::driver_state::state_observed_model)
+            .filter(|observed| observed.observed_at_ms <= now_ms)
+            .map(|observed| observed.model);
         let consumption = crate::runtime::consumption::agy_with_model(
             &root,
             path,
@@ -1088,5 +1091,140 @@ mod tests {
         };
         assert_eq!(cmd.executable, "agy");
         assert_eq!(cmd.args, ["--conversation", SESSION]);
+    }
+
+    #[test]
+    fn display_models_are_normalized_without_treating_auto_or_arbitrary_text_as_a_model() {
+        for (label, expected) in [
+            ("Gemini 4 Argon (High)", "gemini-4-argon-high"),
+            ("Gemini 3.8 Flash (Medium)", "gemini-3.8-flash-medium"),
+            ("gemini-3.8-flash-low", "gemini-3.8-flash-low"),
+            ("Claude Opus 5.5", "claude-opus-5.5"),
+        ] {
+            assert_eq!(
+                concrete_model(Some(&json!(label))).as_deref(),
+                Some(expected)
+            );
+        }
+        for label in [
+            "",
+            "Auto",
+            "auto",
+            "a made up model",
+            "Gemini 4; command",
+            "Gemini 🦊",
+        ] {
+            assert_eq!(concrete_model(Some(&json!(label))), None);
+        }
+    }
+
+    #[test]
+    fn first_resumed_turn_counts_tokens_and_uses_only_admitted_hook_model_evidence() {
+        use crate::runtime::{driver_state, lifecycle::LifecycleObservation};
+        use crate::{skill_installation::ProviderEnvironment, test_support::TestDirectory};
+        use std::{
+            fs,
+            io::Write,
+            time::{Duration, Instant},
+        };
+        let home = TestDirectory::new();
+        let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+        let path = brain_root(&environment).join(transcript_relative_path(SESSION));
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "{\"step_index\":0,\"type\":\"USER_INPUT\"}\n").unwrap();
+        let deadline = || Instant::now() + Duration::from_secs(2);
+        let now = 1_790_000_000_000;
+        let hook =
+            json!({"conversationId":SESSION,"invocationNum":1,"modelName":"Gemini 4 Argon (High)"})
+                .to_string();
+        let event = decode_hook(hook.as_bytes()).unwrap();
+        assert_eq!(event.transition, SessionTransition::Resumed);
+        let started = event.driver_state(None, now).unwrap();
+        assert_eq!(
+            driver_state::state_model(&started).as_deref(),
+            Some("gemini-4-argon-high")
+        );
+        let activity = AgyLifecycle.decode_activity(hook.as_bytes()).unwrap();
+        let session = ProviderSessionId::new(SESSION).unwrap();
+        let process = ProcessIncarnation::new(42, "first-turn").unwrap();
+        let active = AgyLifecycle
+            .activity_state(&activity, &session, &process, Some(&started), now)
+            .unwrap();
+        let turn = crate::runtime::lifecycle::TurnEnd {
+            session: session.clone(),
+            transcript: Some(path.clone()),
+            final_text: None,
+            interrupted: false,
+        };
+        let baseline = AgyLifecycle
+            .turn_state(&turn, &environment, Some(&active), now, deadline())
+            .unwrap();
+        let counts = driver_state::state_consumption(&baseline).unwrap();
+        assert_eq!(counts.value.input_tokens, 0);
+        let response = json!({"step_index":1,"type":"PLANNER_RESPONSE","source":"MODEL","status":"DONE","input_tokens":1200,"cache_read_tokens":300,"output_tokens":45});
+        writeln!(
+            fs::OpenOptions::new().append(true).open(&path).unwrap(),
+            "{response}"
+        )
+        .unwrap();
+        // The finite Stop worker applies idle before its usage follow-up reads.
+        let stop = AgyLifecycle.decode_activity(json!({"conversationId":SESSION,"terminationReason":"NO_TOOL_CALL","fullyIdle":true}).to_string().as_bytes()).unwrap();
+        let idle = AgyLifecycle
+            .activity_state(&stop, &session, &process, Some(&baseline), now + 1)
+            .unwrap();
+        let read = |previous, at| {
+            AgyLifecycle
+                .turn_state(&turn, &environment, Some(previous), at, deadline())
+                .unwrap()
+        };
+        let completed = read(&idle, now + 2);
+        let value = driver_state::state_consumption(&completed).unwrap().value;
+        assert_eq!(
+            (
+                value.input_tokens,
+                value.cached_input_tokens,
+                value.output_tokens
+            ),
+            (1500, 300, 45)
+        );
+        assert_eq!(value.model_id.as_deref(), Some("gemini-4-argon-high"));
+        let attributed = value.delta_by_model.as_ref().unwrap();
+        assert_eq!(attributed.len(), 1);
+        assert_eq!(attributed[0].model_id, "gemini-4-argon-high");
+        assert_eq!(
+            (
+                attributed[0].input_tokens,
+                attributed[0].cached_input_tokens,
+                attributed[0].output_tokens
+            ),
+            (1500, 300, 45)
+        );
+        assert_eq!(
+            read(&completed, now + 3),
+            completed,
+            "replay must not count or rewrite the same reading"
+        );
+        // A new start with no concrete report keeps only the resume setting,
+        // which cannot attribute the response. Future observations cannot either.
+        let unknown = driver_state::after_start(None, None, Some(&idle), now + 1).unwrap();
+        let unknown =
+            driver_state::after_observation(None, Some(counts.clone()), Some(&unknown)).unwrap();
+        assert!(
+            driver_state::state_consumption(&read(&unknown, now + 2))
+                .unwrap()
+                .value
+                .model_id
+                .is_none()
+        );
+        let future =
+            driver_state::after_start(Some("gemini-3.8-flash"), None, None, now + 10).unwrap();
+        let future = driver_state::after_observation(None, Some(counts), Some(&future)).unwrap();
+        assert!(
+            driver_state::state_consumption(&read(&future, now + 2))
+                .unwrap()
+                .value
+                .model_id
+                .is_none()
+        );
     }
 }

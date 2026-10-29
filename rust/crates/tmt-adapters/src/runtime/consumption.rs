@@ -438,8 +438,11 @@ fn agy_message_with_model(line: &str, observed_model: Option<&str>) -> Result<Op
         // explicit invalid/auto model is uncertainty, never fallback authority.
         model: match entry.get("model") {
             Some(value) => attribution::model(value),
-            None => observed_model.filter(|model| attribution::valid_model(model)).map(str::to_owned),
-        }.filter(|model| !model.eq_ignore_ascii_case("auto")),
+            None => observed_model
+                .filter(|model| attribution::valid_model(model))
+                .map(str::to_owned),
+        }
+        .filter(|model| !model.eq_ignore_ascii_case("auto")),
     }))
 }
 
@@ -478,9 +481,18 @@ pub fn agy_with_model(
     now: u64,
     deadline: Instant,
 ) -> Option<State> {
-    appended_until(root, path, previous, now, |line| agy_message_with_model(line, observed_model), false, || {
-        Instant::now() >= deadline
-    })
+    // A new cursor absorbs historical responses; the current hook cannot
+    // supply a missing model for one of those older requests.
+    let observed_model = previous.and(observed_model);
+    appended_until(
+        root,
+        path,
+        previous,
+        now,
+        |line| agy_message_with_model(line, observed_model),
+        false,
+        || Instant::now() >= deadline,
+    )
 }
 
 fn claude_until(
@@ -544,13 +556,28 @@ fn appended_until(
         // Invalid evidence is not a foreign record and cannot prove zero usage.
         let tail = transcript::read_tail(&mut file, end)?;
         let text = std::str::from_utf8(&tail).ok()?;
-        let complete = if boundary { text } else { text.rsplit_once('\n').map_or("", |(lines, _)| lines) };
+        let complete = if boundary {
+            text
+        } else {
+            text.rsplit_once('\n').map_or("", |(lines, _)| lines)
+        };
         let mut latest = None;
         for line in complete.lines().filter(|line| !line.trim().is_empty()) {
-            if expired() { return None; }
-            if let Some(message) = parse(line).ok()? { latest = Some(message); }
+            if expired() {
+                return None;
+            }
+            if let Some(message) = parse(line).ok()? {
+                latest = Some(message);
+            }
         }
-        if expired() { return None; }
+        if expired() {
+            return None;
+        }
+        // A clipped tail with no assistant cannot prove the whole initial
+        // source was foreign-only; keep that observation unavailable.
+        if latest.is_none() && end > transcript::TAIL_LIMIT {
+            return None;
+        }
         let mut next = baseline(false);
         next.value.complete = boundary;
         if tracks_cache_write {

@@ -166,8 +166,8 @@ fn price(resolved: &Resolved, model: &str) -> u64 {
 #[test]
 fn the_embedded_file_is_the_documented_table() {
     let document = Resolved::built_in().document();
-    assert_eq!(document["version"], "2026-10-14");
-    assert_eq!(document["asOf"], "2026-10-14");
+    assert_eq!(document["version"], "2026-10-28");
+    assert_eq!(document["asOf"], "2026-10-28");
     assert_eq!(document["basis"], "standard-base-input");
     assert_eq!(document["origin"], "built-in");
     assert!(document.get("fetchedAtMs").is_none());
@@ -183,7 +183,20 @@ fn the_embedded_file_is_the_documented_table() {
             "claude-opus-5-5",
             "claude-sonnet-5-5",
             "gpt-6-sol",
-            "gpt-6.1-sol"
+            "gpt-6.1-sol",
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-pro-preview",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash",
+            "gemini-4-argon",
+            "gemini-3.8-flash-low",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-high",
+            "gemini-4-argon-low",
+            "gemini-4-argon-medium",
+            "gemini-4-argon-high"
         ]
     );
     // The file on disk is what the build embeds; the release asset is checked against it.
@@ -287,7 +300,7 @@ fn every_malformed_file_is_dropped() {
         ("not UTF-8", [text.as_bytes(), b"\xff"].concat()),
         (
             "duplicate key",
-            text.replacen("\"version\"", "\"version\": \"2026-10-14\", \"version\"", 1)
+            text.replacen("\"version\"", "\"version\": \"2026-10-28\", \"version\"", 1)
                 .into_bytes(),
         ),
         (
@@ -339,7 +352,7 @@ fn quotes_use_the_table_in_hand() {
     assert_eq!(quote["usdMicrosPerMillionInputTokens"], 5_000_000);
     assert_eq!(quote["usdMicros"], 5_000);
     let old = built_in().quote("claude-opus-5-5", 7, 1_000).unwrap();
-    assert_eq!(old["pricingVersion"], "2026-10-14");
+    assert_eq!(old["pricingVersion"], "2026-10-28");
     assert_eq!(old["usdMicros"], 4_000);
     assert!(fetched.quote("unknown-model", 7, 1).is_none());
 }
@@ -498,8 +511,8 @@ fn a_fetched_file_cannot_change_the_prices_of_a_known_version() {
 fn a_fetched_file_older_than_the_cached_one_is_dropped() {
     // Newer than the built-in table, older than the cache: valid, but it would roll back.
     let mut between = newer();
-    between["version"] = json!("2026-10-20");
-    between["asOf"] = json!("2026-10-20");
+    between["version"] = json!("2026-10-29");
+    between["asOf"] = json!("2026-10-29");
     between["models"][0]["usdMicrosPerMillionInputTokens"] = json!(4_500_000);
     let server = Server::answering(Answer::Body(bytes(&between)));
 
@@ -510,7 +523,7 @@ fn a_fetched_file_older_than_the_cached_one_is_dropped() {
         "fetched",
         "alone it is usable"
     );
-    assert_eq!(resolved.document()["version"], "2026-10-20");
+    assert_eq!(resolved.document()["version"], "2026-10-29");
 
     let temp = Temp::new();
     cache::write(&temp.0, &state(&newer(), NOW - 60_000)).unwrap();
@@ -689,4 +702,40 @@ fn the_cache_is_private_and_untrusted_on_read() {
     // A bad cache is replaced by the next valid write.
     fresh();
     assert!(cache::read(&temp.0).is_some());
+}
+
+#[test]
+fn exact_gemini_rows_have_the_verified_base_rate_and_unlisted_aliases_stay_unknown() {
+    for (model, rate) in [
+        ("gemini-3-flash-preview", 500_000),
+        ("gemini-3.1-flash-lite", 250_000),
+        ("gemini-3.1-pro-preview", 2_000_000),
+        ("gemini-3.5-flash-lite", 300_000),
+        ("gemini-3.6-flash", 750_000),
+        ("gemini-3.8-flash", 750_000),
+        ("gemini-4-argon", 2_000_000),
+        ("gemini-3.8-flash-low", 750_000),
+        ("gemini-3.8-flash-medium", 750_000),
+        ("gemini-3.8-flash-high", 750_000),
+        ("gemini-4-argon-low", 2_000_000),
+        ("gemini-4-argon-medium", 2_000_000),
+        ("gemini-4-argon-high", 2_000_000),
+    ] {
+        let quote = built_in().quote(model, 1000, 1_000_000).unwrap();
+        assert_eq!(quote["usdMicros"], rate, "{model}");
+        assert_eq!(quote["usdMicrosPerMillionInputTokens"], rate, "{model}");
+        assert_eq!(built_in().quote(model, 1000, 0).unwrap()["usdMicros"], 0);
+    }
+    for unknown in [
+        "gemini-3.7-flash",
+        "gemini-3.5-flash",
+        "gemini-3-pro",
+        "gemini-4-argon-turbo",
+    ] {
+        assert!(built_in().quote(unknown, 1000, 1).is_none(), "{unknown}");
+        assert!(
+            built_in().quote(unknown, 1000, 0).is_none(),
+            "unknown is not zero"
+        );
+    }
 }
