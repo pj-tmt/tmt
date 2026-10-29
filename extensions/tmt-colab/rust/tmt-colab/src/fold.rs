@@ -118,6 +118,15 @@ pub(crate) struct Snapshot {
     /// The update each retained owner fold binds, by covered stream and sequence.
     anchors: BTreeMap<(String, u64), Vec<u8>>,
 }
+/// What the caller of a content preparation already holds.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Held<'a> {
+    /// What the caller read at the snapshot's revision: the same authenticated bytes, source and
+    /// metadata.
+    pub base: Option<&'a crate::page::PatchBase>,
+    /// The caller's check of exactly the edit's source.
+    pub checked: Option<&'a crate::page_check::Report>,
+}
 /// Authenticated bytes from one snapshot, shared by reads, edits and causal preparation.
 pub(crate) struct MaterializationInput {
     baseline: Vec<u8>,
@@ -805,19 +814,21 @@ impl Snapshot {
     pub(crate) fn genesis_hash(&self) -> Result<[u8; 32]> {
         Ok(self.states.first().ok_or(OwnerFault::Invalid)?.head.hash)
     }
+    /// The content preparation of `edit`, reusing what `held` names instead of reading it again.
     pub(crate) fn prepare_content_batch(
         &self,
         key: &Keyring,
         page: &str,
         edit: crate::decoder::ContentEdit<'_>,
         base_sha256: Option<&[u8; 32]>,
-        known: Option<&crate::page::PatchBase>,
-        checked: Option<&crate::page_check::Report>,
+        held: Held<'_>,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
-        // `known` is what the caller read at this snapshot's revision: the same authenticated
-        // bytes, source and metadata. Attachment changes need the full view for their creation
-        // proofs. `checked` is the caller's check of exactly `edit.source`.
+        let Held {
+            base: known,
+            checked,
+        } = held;
+        // Attachment changes need the full view for their creation proofs.
         let opened;
         let input = match known {
             Some(known) => &known.input,

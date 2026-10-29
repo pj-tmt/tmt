@@ -743,14 +743,16 @@ pub fn prepare_publication_with_clock<'a>(
     let author = Author::of(key, &s, now)?;
     // The revision is read from this snapshot, so a caller's base at the same revision is this
     // snapshot's content; a base from any other revision is decoded afresh and fenced as before.
-    let known = options.base.filter(|base| base.revision == revision);
+    let held = crate::fold::Held {
+        base: options.base.filter(|base| base.revision == revision),
+        checked: options.checked.and_then(|checked| checked.of(edit.source)),
+    };
     let prepared = s.prepare_content_batch(
         key,
         page,
         edit,
         options.base_source_sha256.as_ref(),
-        known,
-        options.checked.and_then(|checked| checked.of(edit.source)),
+        held,
         decoder,
     )?;
     let ContentBatch::Updates(updates) = prepared.batch else {
