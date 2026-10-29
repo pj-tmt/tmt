@@ -16,6 +16,18 @@ pub(in crate::grammar) fn run() -> Command {
     ))
     .arg(option("save"))
     .arg(
+        Arg::new("model")
+            .long("model")
+            .conflicts_with("resume")
+            .help("Start a known agent with this model; put this option before the name"),
+    )
+    .arg(
+        Arg::new("effort")
+            .long("effort")
+            .conflicts_with("resume")
+            .help("Start a known agent with this reasoning effort; put this option before the name"),
+    )
+    .arg(
         Arg::new("resume")
             .long("resume")
             .action(ArgAction::SetTrue)

@@ -358,6 +358,8 @@ mod tests {
                 command: vec!["claude".into()],
                 resume: false,
                 save: false,
+                model: None,
+                effort: None,
                 channel: crate::invocation::ChannelMode::Default,
             },
             Invocation::Learn {

@@ -314,10 +314,21 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             command,
             resume,
             save,
+            model,
+            effort,
             channel,
         } => {
             let resume = resume.then(run_command::Resume::default);
-            return run_command::execute(&name, &command, resume, save, channel, host.as_deref());
+            let options = tmt_adapters::runtime::launch_preset::LaunchSettings { model, effort };
+            return run_command::execute(
+                &name,
+                &command,
+                resume,
+                save,
+                &options,
+                channel,
+                host.as_deref(),
+            );
         }
         Invocation::ChannelServer {
             harness,

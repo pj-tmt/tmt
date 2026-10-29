@@ -167,6 +167,7 @@ pub fn execute(
     command: &[OsString],
     resume: Option<Resume<'_>>,
     save: bool,
+    options: &tmt_adapters::runtime::launch_preset::LaunchSettings,
     channel: crate::invocation::ChannelMode,
     host: Option<&str>,
 ) -> io::Result<u8> {
@@ -177,7 +178,7 @@ pub fn execute(
             resume,
             save,
             channel,
-            options: &Default::default(),
+            options,
         },
         host,
     ) {
@@ -250,6 +251,7 @@ fn run_observed(
     .map_err(Failure::from)?
     .settings;
     channel::require_enabled(request.channel, settings.experimental_channel)?;
+    run::new_launch_settings_admitted(&request)?;
     let environment = CallerEnvironment::current();
     let host = crate::caller_context::host(&environment)?;
     let explicit = selected_host.and_then(tmt_core::host::HostKind::parse);
@@ -343,6 +345,48 @@ mod tests {
     use tmt_core::binding::session::{
         HarnessId, ProviderSessionId, RememberedSession, RuntimeMode,
     };
+
+    /// --model/--effort need a driver that applies them, checked before any launch (#5564).
+    #[test]
+    fn launch_settings_need_a_driver_that_applies_them() {
+        use tmt_adapters::runtime::launch_preset::LaunchSettings;
+        let both = LaunchSettings {
+            model: Some("opus".into()),
+            effort: Some("high".into()),
+        };
+        let effort = LaunchSettings {
+            model: None,
+            effort: Some("high".into()),
+        };
+        let check = |name: &str, command: &[&str], options: &LaunchSettings| {
+            let command: Vec<OsString> = command.iter().map(OsString::from).collect();
+            run::new_launch_settings_admitted(&RunRequest {
+                name,
+                options,
+                command: &command,
+                resume: None,
+                save: false,
+                channel: crate::invocation::ChannelMode::Default,
+            })
+            .map_err(|failure| failure.code)
+        };
+        assert_eq!(check("w", &["claude", "--verbose"], &both), Ok(()));
+        assert_eq!(check("w", &["codex"], &both), Ok(()));
+        // A bare agent name is the command itself.
+        assert_eq!(check("claude", &[], &both), Ok(()));
+        // No settings, no check.
+        assert_eq!(check("w", &["/bin/sh"], &LaunchSettings::default()), Ok(()));
+        // An unclaimed command, or a driver that takes no effort, is refused.
+        for (name, command, options) in
+            [("w", &["/bin/sh"][..], &both), ("w", &["agy"][..], &effort)]
+        {
+            assert_eq!(
+                check(name, command, options),
+                Err("RESUME_SETTINGS_INVALID".to_owned()),
+                "{command:?}"
+            );
+        }
+    }
 
     #[derive(Default)]
     struct RecordingObserver {

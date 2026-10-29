@@ -41,8 +41,17 @@ fn arguments(request: RunRequest<'_>) -> Vec<OsString> {
         if let Some(effort) = &request.options.effort {
             argv.extend(["--effort".into(), effort.into()]);
         }
-    } else if request.save {
-        argv.push("--save".into());
+    } else {
+        if request.save {
+            argv.push("--save".into());
+        }
+        // The member's own run applies them after the re-entry (#5564).
+        if let Some(model) = &request.options.model {
+            argv.extend(["--model".into(), model.into()]);
+        }
+        if let Some(effort) = &request.options.effort {
+            argv.extend(["--effort".into(), effort.into()]);
+        }
     }
     argv.extend(["--".into(), request.name.into()]);
     argv.extend_from_slice(request.command);
