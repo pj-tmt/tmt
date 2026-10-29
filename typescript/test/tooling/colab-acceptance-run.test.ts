@@ -119,12 +119,13 @@ describe('acceptance process owner', () => {
 
   it('uses the job timestamp rather than granting a fresh budget after setup', () => {
     const source = `import { acceptanceDeadline } from ${JSON.stringify(helper)};
-      console.log(JSON.stringify([acceptanceDeadline(1000, 1), acceptanceDeadline(1000, 2)]));`;
+      const refused = (shard) => { try { acceptanceDeadline(1000, shard); return false; } catch { return true; } };
+      console.log(JSON.stringify([[1, 2, 3].map((shard) => acceptanceDeadline(1000, shard)), refused(0), refused(4)]));`;
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
       encoding: 'utf8',
     });
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual([2_560_000, 2_740_000]);
+    expect(JSON.parse(result.stdout)).toEqual([[2_560_000, 2_740_000, 2_740_000], true, true]);
   });
 
   it('publishes an incomplete verdict through the workflow CLI paths when no JSON flushed', () => {

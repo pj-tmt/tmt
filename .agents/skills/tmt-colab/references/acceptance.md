@@ -44,7 +44,7 @@ before execution. Keep that directory unchanged throughout both acceptance runs.
 
 Run it twice for lifecycle acceptance; it remains a recorded manual gate on the PR head.
 The separate advisory `colab-browser.yml` acceptance job runs once weekly, manually,
-or for a PR carrying `colab-acceptance`, as two shards of whole spec files balanced by
+or for a PR carrying `colab-acceptance`, as three shards of whole spec files balanced by
 measured time (`typescript/scripts/colab-acceptance-shards.mjs`); each shard uses one
 app/native build and one Playwright worker. PR runs test the default merge ref and record
 both the PR head and tested merge SHA in each shard's `tested-head.txt`. It retains exact build hashes, test outcomes and bounded assertion locations/timeouts
@@ -52,10 +52,10 @@ without private error values, traces or profiles. An unexpected outcome also pri
 bounded summary even if the list reporter's detailed failure is absent from the job log;
 selection and concurrency are owned by the [CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
 The acceptance job records its start timestamp before checkout. The ordinary suite is interrupted
-at +1,560 seconds on shard 1 or +1,740 seconds on shard 2, including setup/build time. The runner
+at +1,560 seconds on shard 1 or +1,740 seconds on shards 2 and 3, including setup/build time. The runner
 owns a new process group: SIGINT allows up to 30 seconds for final JSON and cleanup, then SIGKILL
 bounds that group only. Deadline and job-signal interruption remain nonzero even if the child
-exits zero. Shard 1 reserves a further 180 seconds for the hosted-reader proof; both shards reserve
+exits zero. Shard 1 reserves a further 180 seconds for the hosted-reader proof; every shard reserves
 30 seconds for public reporting/upload before the unchanged 30-minute job ceiling. A forced group
 kill does not reach harness-detached browser/tmux groups and is not proof of clean world teardown;
 the hosted runner's job lifetime bounds those groups. These are CI budgets, not spec timeouts.
