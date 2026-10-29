@@ -1460,7 +1460,7 @@ fn state_index(
     ids: &[String],
 ) -> Result<tmt_colab::work_index::Found> {
     let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
-    tmt_colab::work_index::scan(layout, store, key, &mut decoder, ids)
+    tmt_colab::work_index::scan_with_live(layout, store, key, &mut decoder, ids, Some(ids))
 }
 
 fn attach_state_progress(page: &mut Value, graph: &tmt_colab::work_links::Graph<'_>) {

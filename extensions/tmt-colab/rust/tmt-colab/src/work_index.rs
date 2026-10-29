@@ -134,8 +134,7 @@ pub fn cached(layout: &Layout, store: &Store, key: &Keyring, pages: &[String]) -
 }
 
 /// The work of each given page: `None` for a page with no work, a shell or a page that cannot be
-/// read now. Folds only the pages whose fingerprint changed since the last scan, and keeps the file
-/// to the given pages.
+/// read now. Folds only changed pages and retains current live neighbors in the bounded cache.
 pub fn scan(
     layout: &Layout,
     store: &Store,
@@ -143,8 +142,20 @@ pub fn scan(
     decoder: &mut Decoder,
     pages: &[String],
 ) -> Result<Found> {
-    // Unreadable now: say nothing and ask again next time.
-    page_index::scan(layout, store, key, pages, |id| {
+    let live = crate::inspection::all_page_ids(store, key).ok();
+    scan_with_live(layout, store, key, decoder, pages, live.as_deref())
+}
+
+/// Scan with a live-page catalog the caller already read; `None` leaves the cache untouched.
+pub fn scan_with_live(
+    layout: &Layout,
+    store: &Store,
+    key: &Keyring,
+    decoder: &mut Decoder,
+    pages: &[String],
+    live: Option<&[String]>,
+) -> Result<Found> {
+    page_index::scan(layout, store, key, pages, live, |id| {
         fold(store, key, id, decoder)
     })
 }

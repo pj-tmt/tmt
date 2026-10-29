@@ -3307,8 +3307,11 @@ through a derived file keyed by the page's own progress (`work-index.json` besid
 epoch and the content counts, not the membership head, so another page's creation or sharing
 refolds nothing; a page whose tasks follow pages also keeps each task's state, assignee, sign-off
 flag and `child`, which is what resolution and `task.link` read), which holds nothing the pages do not
-and may be deleted; a revocation alone can
-leave an entry stale until the page's next write. Two commands racing on different pages may
+and may be deleted. Scans retain current entries for other verified live pages and prune stale or
+deleted entries; when the 1 MiB bound is exceeded, requested entries take priority and the largest
+unrequested entries are evicted first (ties by page ID). If requested entries alone exceed the bound,
+the result is returned without replacing the file. If the live catalog cannot be read, the result is
+returned without changing the file. A revocation alone can leave an entry stale until the page's next write. Two commands racing on different pages may
 both be admitted: the limit is a working agreement, not a lock.
 
 #### Browser work actions (#4051)

@@ -102,7 +102,7 @@ pub fn catalog(
     decoder: &mut Decoder,
 ) -> Result<Catalog> {
     let pages = inspection::all_page_ids(store, key)?;
-    let marks = template_index::scan(layout, store, key, decoder, &pages)?;
+    let marks = template_index::scan_with_live(layout, store, key, decoder, &pages, Some(&pages))?;
     Ok(Catalog::from_marks(pages, marks))
 }
 

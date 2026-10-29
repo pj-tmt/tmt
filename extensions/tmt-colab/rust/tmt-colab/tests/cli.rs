@@ -13870,11 +13870,18 @@ fn show_reuses_one_work_index_including_archived_pages() {
     let archived = titled_page(&pilot, "Archived cache");
     let deleted = titled_page(&pilot, "Deleted cache");
     pilot.call(&["archive", &archived, "--json"]);
-    pilot.call(&["delete", &deleted, "--yes", "--json"]);
     pilot.call(&["show", &active, "--json"]);
     let cache = pilot.root.join("selected/colab/work-index.json");
+    let warm: Value = serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap();
+    assert!(warm["pages"][&deleted]["fingerprint"].is_string());
+    pilot.call(&["delete", &deleted, "--yes", "--json"]);
+    pilot.call(&["show", &active, "--json"]);
     let before = fs::read(&cache).unwrap();
     let parsed: Value = serde_json::from_slice(&before).unwrap();
+    assert!(
+        parsed["pages"].get(&deleted).is_none(),
+        "deleted page must be pruned"
+    );
     assert!(
         parsed["pages"][&archived]["fingerprint"].is_string(),
         "archived page must remain indexed"
