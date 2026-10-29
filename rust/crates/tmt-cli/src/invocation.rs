@@ -76,6 +76,9 @@ pub enum Invocation {
         command: Vec<std::ffi::OsString>,
         resume: bool,
         save: bool,
+        /// A known agent's model and effort, applied by its driver (#5564).
+        model: Option<String>,
+        effort: Option<String>,
         /// Channel policy selected by the launcher grammar.
         channel: ChannelMode,
     },

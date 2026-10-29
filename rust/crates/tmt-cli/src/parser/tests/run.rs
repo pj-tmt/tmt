@@ -27,6 +27,8 @@ fn run_identity_starts_an_opaque_command_tail() {
                 command,
                 resume: false,
                 save: false,
+                model: None,
+                effort: None,
                 channel: ChannelMode::Default,
             },
             mode: OutputMode::default(),
@@ -47,6 +49,8 @@ fn run_identity_starts_an_opaque_command_tail() {
                 .to_vec(),
             resume: false,
             save: false,
+            model: None,
+            effort: None,
             channel: ChannelMode::Default,
         }
     );
@@ -58,6 +62,8 @@ fn run_identity_starts_an_opaque_command_tail() {
             command: vec![],
             resume: true,
             save: false,
+            model: None,
+            effort: None,
             channel: ChannelMode::Default,
         }
     );
@@ -80,6 +86,8 @@ fn run_save_belongs_only_before_the_identity() {
                 command: vec!["claude".into(), "-s".into()],
                 resume: false,
                 save: true,
+                model: None,
+                effort: None,
                 channel: ChannelMode::Default,
             }
         );
@@ -91,6 +99,8 @@ fn run_save_belongs_only_before_the_identity() {
                 command: vec![],
                 resume: true,
                 save: true,
+                model: None,
+                effort: None,
                 channel: ChannelMode::Default,
             }
         );
@@ -107,6 +117,8 @@ fn run_channel_is_an_option_before_the_identity_and_combines_with_exact_resume()
             command: vec!["claude".into(), "--channel".into()],
             resume: false,
             save: false,
+            model: None,
+            effort: None,
             channel: ChannelMode::Required,
         },
         "an option after the identity belongs to the command"
@@ -140,6 +152,8 @@ fn a_known_agent_tail_preserves_provider_flags_without_a_name() {
             command: ["--model", "opus", "--help"].map(OsString::from).to_vec(),
             resume: false,
             save: true,
+            model: None,
+            effort: None,
             channel: ChannelMode::Default
         }
     );
@@ -359,4 +373,40 @@ fn resume_new_starts_fresh_and_refuses_every_other_session_choice() {
             "{words:?}"
         );
     }
+}
+
+/// A known agent's model and effort go before the name; after it they stay the
+/// command's own flags (#5564).
+#[test]
+fn run_takes_model_and_effort_before_the_name() {
+    let parsed = parse(&args(&[
+        "run",
+        "--model",
+        "opus",
+        "--effort",
+        "high",
+        "--save",
+        "w",
+        "claude",
+        "--verbose",
+    ]))
+    .unwrap();
+    assert!(
+        matches!(&parsed.invocation, Invocation::Run { model, effort, command, save: true, .. }
+            if model.as_deref() == Some("opus") && effort.as_deref() == Some("high")
+                && command == &args(&["claude", "--verbose"])),
+        "{parsed:?}"
+    );
+    let parsed = parse(&args(&["run", "w", "claude", "--model", "x"])).unwrap();
+    assert!(
+        matches!(&parsed.invocation, Invocation::Run { model: None, effort: None, command, .. }
+            if command == &args(&["claude", "--model", "x"])),
+        "{parsed:?}"
+    );
+    assert_eq!(
+        parse(&args(&["run", "--resume", "--model", "x", "w"]))
+            .unwrap_err()
+            .code,
+        "USAGE_ERROR"
+    );
 }

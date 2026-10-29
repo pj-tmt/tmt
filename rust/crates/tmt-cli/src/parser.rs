@@ -348,6 +348,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 command,
                 resume,
                 save: flag(m, "save"),
+                model: text(m, "model"),
+                effort: text(m, "effort"),
                 channel: channel_mode(m),
             }
         }

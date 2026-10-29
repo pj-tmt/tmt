@@ -26,6 +26,7 @@ use tmt_adapters::{
     runtime::{
         RuntimeRegistry, StateReconciliation,
         channel::{ChannelPlan, PaneAddress},
+        launch_preset::LaunchSettings,
         lifecycle::{NoLifecycle, RuntimeLifecycle},
     },
     setup::start_hook_installed,
@@ -61,6 +62,48 @@ fn selected_identity(
     storage
         .find_identity(&normalize_name(request.name))
         .map_err(storage_failure)
+}
+
+fn settings_refused() -> Failure {
+    Failure::new(
+        "RESUME_SETTINGS_INVALID",
+        "--model and --effort need a known agent whose driver can apply them; pass other flags after the command instead. No agent was launched.",
+        1,
+    )
+}
+
+/// Refuses --model/--effort for a command no driver claims, or one whose driver
+/// cannot apply them, before any host or member is started (#5564).
+pub(super) fn new_launch_settings_admitted(request: &RunRequest<'_>) -> Result<(), Failure> {
+    if request.resume.is_some() || *request.options == LaunchSettings::default() {
+        return Ok(());
+    }
+    let registry = RuntimeRegistry::first_party();
+    let Some(executable) = request.command.first() else {
+        // A bare agent name is the command itself.
+        return settings_check(&registry, request.name.as_ref(), request.options);
+    };
+    settings_check(&registry, executable, request.options)
+}
+
+fn settings_check(
+    registry: &RuntimeRegistry,
+    executable: &std::ffi::OsStr,
+    options: &LaunchSettings,
+) -> Result<(), Failure> {
+    let mut command = tmt_adapters::runtime::RuntimeCommand {
+        executable: executable.to_owned(),
+        args: Vec::new(),
+    };
+    let admitted = registry
+        .claim(&command.executable)
+        .and_then(|harness| registry.lifecycle(&harness))
+        .is_some_and(|lifecycle| lifecycle.resume_settings(&mut command, options));
+    if admitted {
+        Ok(())
+    } else {
+        Err(settings_refused())
+    }
 }
 
 #[allow(clippy::too_many_arguments)] // Native owner observation is invocation-local and injectable.
@@ -311,6 +354,14 @@ pub(super) fn run_bound(
         if let Some(preset) = replay {
             launch.command.executable = preset.executable.clone().into();
         }
+    }
+    // A new launch of a known agent applies its chosen model and effort through the
+    // driver; provider arguments after the agent stay verbatim (#5564).
+    if resume.is_none()
+        && *options != LaunchSettings::default()
+        && (claim.is_none() || !lifecycle.resume_settings(&mut launch.command, options))
+    {
+        return Err(settings_refused());
     }
     let before_handoff = launch.command.clone();
     if handing_off && !lifecycle.initial_message(&mut launch.command, "TMT driver-switch handoff") {

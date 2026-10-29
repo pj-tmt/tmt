@@ -814,6 +814,11 @@ TMT options, including `-s`/`--save` and `--resume`, go before the name; every
 argument after it belongs to the command, without requiring a `--` separator.
 The executable itself cannot start with `-`; misplaced TMT flags such as
 `tmt run Alice -s` fail before binding. Flags after the executable stay verbatim.
+For a known agent, `--model <model>` and `--effort <effort>` before the name choose
+its model and reasoning effort; its driver turns them into the provider's own flags,
+the way resume applies them. A command no driver claims, or a driver that cannot apply
+the value (agy takes no effort), is refused with `RESUME_SETTINGS_INVALID` before
+anything starts.
 This launches a real program and needs user authorization just like running it
 directly. Do not invoke it to replace an already running agent in this pane.
 
