@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import type { PageView } from '../src/transport.js';
-import { SaveRefused } from '../src/save.js';
+import { SaveOutcomeUnknown, SaveRefused } from '../src/save.js';
 import { localTransport, type PageBinding } from '../src/transport.js';
 import { rememberPages } from '../src/quick-switcher-source.js';
 import type { Work } from '../src/work.js';
@@ -33,6 +33,13 @@ export interface WorkPageHook {
   calls: { action: string; body: unknown }[];
   /** The next action is refused with this code and message, and nothing changes. */
   refuse?: { code: string; message: string; childPage?: string };
+  refuseLink?: boolean;
+  unknownAdd?: boolean;
+  unknownLink?: boolean;
+  settle?(outcome: 'linked'): void;
+  holdAdd?: boolean;
+  finishAdd?(): void;
+  didAdd?(): void;
 }
 declare global {
   interface Window {
@@ -61,7 +68,8 @@ export function mountWorkPage(
     | 'external'
     | 'empty'
     | 'child'
-    | 'child-orphan',
+    | 'child-orphan'
+    | 'attach',
 ) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -122,6 +130,16 @@ export function mountWorkPage(
       publish(projection());
       window.__workPage = {
         calls: [],
+        settle: (outcome) => {
+          if (outcome === 'linked')
+            current = applyWorkAction(
+              current,
+              'task.link',
+              { taskId: 'T-2', pageId: FOLLOWED },
+              attribution,
+            );
+          publish(projection());
+        },
         finish: () => {
           current = work(true);
           publish(projection());
@@ -155,6 +173,22 @@ export function mountWorkPage(
             const page = window.__workPage!;
             page.calls.push({ action, body });
             await new Promise((resolve) => setTimeout(resolve, 50));
+            if (action === 'task.add' && page.holdAdd)
+              await new Promise<void>((resolve) => {
+                page.finishAdd = resolve;
+              });
+            if (action === 'task.add' && page.unknownAdd) {
+              page.unknownAdd = false;
+              throw new SaveOutcomeUnknown('fixture-operation');
+            }
+            if (action === 'task.link' && page.unknownLink) {
+              page.unknownLink = false;
+              throw new SaveOutcomeUnknown('fixture-link');
+            }
+            if (action === 'task.link' && page.refuseLink) {
+              page.refuseLink = false;
+              throw new SaveRefused('COLAB_LINK_REFUSED', 'The page already has a parent.');
+            }
             if (page.refuse) {
               const { code, message, childPage } = page.refuse;
               page.refuse = undefined;
@@ -174,6 +208,7 @@ export function mountWorkPage(
             }
             current = applyWorkAction(current, action, body, attribution);
             publishNow?.(projection());
+            if (action === 'task.add') page.didAdd?.();
             return action === 'task.add' ? { taskId: `T-${current.next - 1}` } : {};
           },
         }
@@ -244,6 +279,14 @@ export function mountWorkPage(
     },
     backendName: 'Studio Mac',
   };
+  if (scenario === 'attach') {
+    rememberPages(routed, undefined, [
+      { id: 'notes', ...base, sharing: 'private' },
+      { id: FOLLOWED, title: 'Legal copy', sharing: 'private' },
+      { id: PARENT, title: 'Release plan', sharing: 'private' },
+      { id: MADE, title: 'Dashboard', sharing: 'private', pageType: 'shell' },
+    ]);
+  }
   if (scenario === 'child' || scenario === 'child-orphan') {
     // Arriving from the list: the list this page was opened from names its parent task.
     const parent = { page: PARENT, task: 'T-3', title: 'Draft the copy' };

@@ -126,3 +126,38 @@ test('opening a page with sub-pages reads details once without an unavailable pr
     expect(frames).not.toContain('Progress unavailable');
   });
 });
+
+test('attach keeps a new task after owner refusal and links that same task on retry', async () => {
+  await withWorld(async (world) => {
+    const parent = createPage(world, 'Attach target', '<h1>Parent</h1>');
+    const other = createPage(world, 'Other parent', '<h1>Other</h1>');
+    const child = createPage(world, 'Existing child', '<h1>Child</h1>');
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    colab(['task', 'add', other.pageId, '--title', 'Existing parent task']);
+    colab(['task', 'link', other.pageId, 'T-1', child.pageId]);
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'attach-owner');
+    const page = await openPage(door, browser, parent);
+    const band = page.getByRole('region', { name: 'Work on this page' });
+    await band.getByRole('button', { name: 'Expand status panel' }).click();
+    await band.getByRole('button', { name: 'Attach a sub-page' }).click();
+    const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+    const choices = dialog.getByRole('combobox', { name: 'Page', exact: true });
+    await expect(choices.locator('option', { hasText: 'Existing child' })).toHaveCount(1);
+    await choices.selectOption({ label: 'Existing child' });
+    await dialog.getByLabel('Task title').fill('Follow existing child');
+    await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toBeVisible();
+    await expect(dialog).toContainText('Task T-1 is kept');
+    let tasks = colab(['task', 'ls', parent.pageId]).work.tasks;
+    expect(tasks['T-1'].title).toBe('Follow existing child');
+    expect(tasks['T-1'].child).toBeUndefined();
+    colab(['task', 'unlink', other.pageId, 'T-1']);
+    await dialog.getByRole('button', { name: 'Retry link' }).click();
+    await expect(dialog).toHaveCount(0);
+    tasks = colab(['task', 'ls', parent.pageId]).work.tasks;
+    expect(Object.keys(tasks)).toEqual(['T-1']);
+    expect(tasks['T-1'].child).toBe(child.pageId);
+  });
+});
