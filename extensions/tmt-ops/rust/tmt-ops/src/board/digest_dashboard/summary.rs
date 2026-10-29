@@ -31,6 +31,8 @@ const BODY_MINIMUM: u16 = 10;
 const TILE_ROWS: u16 = 4;
 /// Narrowest amount tile; below three of them the amounts take the one-line form.
 const TILE_MINIMUM: u16 = 18;
+/// Narrowest amount tile beside the allowance tile, so neither clips its values.
+const TILE_BESIDE: u16 = 20;
 pub(super) const DEFINITION: &str = "○ Saved = context the agents did not have to reread because messages were delivered together · at list price · not a bill";
 const SCOPE: &str = "applies to this whole tab";
 const BASIS: &str = "Estimate basis…";
@@ -41,7 +43,7 @@ pub(super) fn height(app: &App, width: u16, available: u16) -> u16 {
     if available < FULL + BODY_MINIMUM || width < TILE_MINIMUM * 3 {
         return COMPACT.min(available);
     }
-    let stacked = super::allowance::stacked_rows(app, width - TILE_MINIMUM * 3)
+    let stacked = super::allowance::stacked_rows(app, width.saturating_sub(TILE_BESIDE * 3))
         .min(available - FULL - BODY_MINIMUM + 1);
     // A heading alone shows nothing; it needs at least one provider row.
     if stacked >= 2 {
@@ -254,7 +256,7 @@ fn strong(app: &App) -> Style {
 /// Three amount tiles, then the allowance tile when providers are sampled and it fits.
 fn tiles(frame: &mut Frame, app: &App, area: Rect, ids: &[&str]) {
     let look = app.look();
-    let allowance = super::allowance::tile_width(app, area.width.saturating_sub(TILE_MINIMUM * 3));
+    let allowance = super::allowance::tile_width(app, area.width.saturating_sub(TILE_BESIDE * 3));
     let tile = area.width.saturating_sub(allowance) / 3;
     let reading = metrics::tokens(metrics::report(app), ids);
     let summary = metrics::savings(app, ids);

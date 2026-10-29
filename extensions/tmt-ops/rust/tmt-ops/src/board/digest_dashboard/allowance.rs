@@ -17,8 +17,9 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-/// The summary's allowance tile: narrowest and widest, beside the amount tiles.
-const TILE_MINIMUM: u16 = 44;
+/// The summary's allowance tile: narrowest (a whole row, rule and margins) and widest, beside
+/// the amount tiles.
+const TILE_MINIMUM: u16 = 54;
 const TILE_MAXIMUM: u16 = 68;
 const SOURCE: usize = 8;
 const LEFT: usize = 5;
