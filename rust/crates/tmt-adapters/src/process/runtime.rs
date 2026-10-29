@@ -16,8 +16,9 @@ pub enum ProcessObservation {
     /// Present but stopped: refuse a second foreground launch, without treating
     /// the suspended process as a deliverable runtime.
     Stopped(ProcessIncarnation),
-    /// Only an owned, unreaped child's probe retains this identity. Ordinary
-    /// runtime observation maps zombies to Gone, and this never permits input.
+    /// A zombie, or a process that is exiting (ps flag E). Only an owned,
+    /// unreaped child's probe retains this identity. Ordinary runtime
+    /// observation maps both to Gone, and this never permits input.
     UnreapedZombie(ProcessIncarnation),
     Gone,
     Unknown,
@@ -269,8 +270,9 @@ pub fn observe_start<R: CommandRunner>(
 
 /// The incarnations of several processes, with one batched ps fallback, for an
 /// external host's verification (#570): its server and its scoped pane
-/// shells. A pid that is gone, a zombie or not parsed is absent, and a failed
-/// call leaves every pid absent; an absent pid is unknown, never evidence.
+/// shells. A pid that is gone, a zombie, exiting or not parsed is absent, and
+/// a failed call leaves every pid absent; an absent pid is unknown, never
+/// evidence.
 /// Only a fallback child that could not be cleaned up fails.
 pub fn observe_starts<R: CommandRunner>(
     runner: &R,
@@ -368,6 +370,13 @@ pub(super) fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObserv
     }
     if matches!(fields[5].as_bytes().first(), Some(b'X' | b'x')) {
         return ProcessObservation::Gone;
+    }
+    // BSD ps flag E: the process is trying to exit. Darwin's native read
+    // fails then, and ps shows the state as `?E` until it is a zombie.
+    if fields[5].bytes().skip(1).any(|flag| flag == b'E') {
+        return ProcessIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
+            .map(ProcessObservation::UnreapedZombie)
+            .unwrap_or(ProcessObservation::Unknown);
     }
     if matches!(fields[5].as_bytes().first(), Some(b'T' | b't')) {
         return ProcessIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
@@ -532,6 +541,53 @@ mod tests {
                 RuntimeLiveness::Unknown
             );
         }
+    }
+
+    #[test]
+    fn an_exiting_process_has_ended_with_its_exact_start() {
+        // Darwin ps, captured while an owned child was in exit (#4875). The
+        // native read had failed, and `kill -0` still found the pid.
+        let exiting: &[u8] = b"Wed Oct 28 06:13:42 2026     ?E   \n";
+        let key = ProcessIncarnation::new(42, "ps-v1:Wed Oct 28 06:13:42 2026").unwrap();
+        for bytes in [exiting, b"Wed Oct 28 06:13:42 2026 SE\n"] {
+            assert_eq!(
+                parse_process_observation(42, bytes),
+                ProcessObservation::UnreapedZombie(key.clone()),
+                "{}",
+                String::from_utf8_lossy(bytes)
+            );
+        }
+        // Without the exit flag, an unknown state is still no evidence.
+        for bytes in [
+            b"Wed Oct 28 06:13:42 2026 ?\n".as_slice(),
+            b"Wed Oct 28 06:13:42 2026 ?+\n",
+            b"Wed Oct 28 06:13:42 2026 E\n",
+        ] {
+            assert_eq!(
+                parse_process_observation(42, bytes),
+                ProcessObservation::Unknown,
+                "{}",
+                String::from_utf8_lossy(bytes)
+            );
+        }
+        struct Exiting;
+        impl CommandRunner for Exiting {
+            fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                Ok(CommandOutput {
+                    stdout: b"Wed Oct 28 06:13:42 2026     ?E   \n".to_vec(),
+                    stderr: vec![],
+                })
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(1);
+        // Ordinary observation: ended. An owned child keeps its exact start.
+        assert_eq!(
+            observe_runtime_process(&Exiting, 42, deadline).unwrap(),
+            ProcessObservation::Gone
+        );
+        let owned = observe_process(&Exiting, 42, deadline).unwrap();
+        assert_eq!(owned, ProcessObservation::UnreapedZombie(key.clone()));
+        assert_eq!(owned.matches(&key), RuntimeLiveness::Gone);
     }
 
     #[test]
