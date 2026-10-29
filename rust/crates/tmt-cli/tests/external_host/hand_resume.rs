@@ -153,6 +153,38 @@ fn a_live_or_stopped_old_session_refuses_and_a_later_verified_start_clears_the_r
     }
 }
 
+/// A Codex fork in the process already named by its parent thread is refused
+/// with a bounded reason, and the parent stays remembered (#5492).
+#[test]
+fn a_codex_fork_cannot_replace_the_named_parent_session() {
+    register();
+    let fixture = Fixture::new("hand-resume-codex-fork");
+    bind(&fixture, fixture.approve());
+    let mut provider = SteppedProvider::start(&fixture, "codex", "parent-provider");
+    let process = live_provider(&provider);
+    let output = provider.hook(event("codex", "parent-session"));
+    assert_eq!((output.0, output.2.as_str()), (0, ""), "{output:?}");
+    let before = stored(&fixture);
+    let mut fork = event("codex", "fork-session");
+    fork["source"] = "fork".into();
+    let output = provider.hook(fork);
+    assert_eq!(output.0, 0);
+    assert!(output.1.is_empty(), "{output:?}");
+    let after = stored(&fixture);
+    assert_eq!(after.preferences, before.preferences);
+    let session = after.entry.binding.unwrap().session;
+    let key = session.key.unwrap();
+    assert_eq!(key.incarnation, process.incarnation);
+    assert_eq!(key.provider_session.unwrap().as_str(), "parent-session");
+    let refusal = session.start_refusal.unwrap();
+    assert_eq!(refusal.session.as_str(), "fork-session");
+    assert_eq!(refusal.reason.as_str(), "admission_refused");
+    assert_eq!(
+        worker(&fixture.json(&["ls", "--json"]))["session"]["unbound"],
+        true
+    );
+}
+
 #[test]
 fn a_nested_start_has_a_reason_and_cannot_replace_the_main_provider_record() {
     register();

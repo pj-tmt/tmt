@@ -74,6 +74,8 @@ pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
                 "resume" => SessionTransition::Resumed,
                 "clear" => SessionTransition::Cleared,
                 "compact" => SessionTransition::Compacted,
+                // Codex 0.165: a new thread forked from another (#5492).
+                "fork" => SessionTransition::Forked,
                 _ => return None,
             },
         ),
@@ -1652,5 +1654,94 @@ mod tests {
             .propose(&ended, &server, RuntimeLiveness::Alive, true)
             .unwrap();
         assert_eq!(resumed.state, RuntimeState::Running);
+    }
+
+    #[test]
+    fn a_fork_start_decodes_as_forked_and_unknown_sources_still_refuse() {
+        let fork = decode_hook(
+            include_bytes!("../runtime/fixtures/codex-session-start-fork.json").as_slice(),
+        )
+        .unwrap();
+        assert!(fork.starting);
+        assert_eq!(fork.transition, SessionTransition::Forked);
+        assert_eq!(
+            fork.session.as_str(),
+            "0199a213-81c0-7800-8aa1-bbab2a035a54"
+        );
+        for source in ["future-source", "Fork", ""] {
+            assert!(
+                decode_hook(
+                    json!({"hook_event_name":"SessionStart", "source":source, "session_id":"a"})
+                        .to_string()
+                        .as_bytes()
+                )
+                .is_none(),
+                "{source}"
+            );
+        }
+    }
+
+    /// The Codex fork admission policy (#5492): a fork names an unnamed launch,
+    /// never replaces a named key, and shared mode keeps its exact-thread rule.
+    #[test]
+    fn a_fork_names_only_an_unnamed_launch_and_never_replaces_a_named_key() {
+        let process = ProcessIncarnation::new(20, "embedded-launch").unwrap();
+        let owner = ProcessIncarnation::new(19, "embedded-owner").unwrap();
+        let launched = BindingSessionState::default()
+            .admit_launched(
+                ObservedSessionKey {
+                    incarnation: process.clone(),
+                    provider_session: None,
+                },
+                owner.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        let fork = start("fork", "fork-thread");
+
+        // An unnamed launch, such as Fork chosen before the resumed parent started.
+        let forked = fork
+            .propose(&launched, &process, RuntimeLiveness::Alive, false)
+            .unwrap();
+        assert_eq!(
+            forked,
+            BindingSessionState {
+                start_refusal: None,
+                last_transition: Some(SessionTransition::Forked),
+                state: RuntimeState::Running,
+                key: Some(ObservedSessionKey {
+                    incarnation: process.clone(),
+                    provider_session: Some(fork.session.clone()),
+                }),
+                launch_owner: Some(owner),
+            }
+        );
+
+        // A launch already named by its parent keeps the parent; a resume
+        // would replace it, which is why a fork is not decoded as one.
+        let parent = start("resume", "parent-thread")
+            .propose(&launched, &process, RuntimeLiveness::Alive, false)
+            .unwrap();
+        assert!(
+            fork.propose(&parent, &process, RuntimeLiveness::Alive, false)
+                .is_none()
+        );
+        assert!(
+            start("resume", "fork-thread")
+                .propose(&parent, &process, RuntimeLiveness::Alive, false)
+                .is_some()
+        );
+
+        // Shared mode admits only the stored exact thread.
+        let server = ProcessIncarnation::new(30, "server").unwrap();
+        for previous in [RuntimeLiveness::Gone, RuntimeLiveness::Alive] {
+            assert!(fork.propose(&parent, &server, previous, true).is_none());
+        }
+        assert!(
+            fork.propose(&forked, &server, RuntimeLiveness::Gone, true)
+                .is_some()
+        );
     }
 }
