@@ -4,6 +4,7 @@ use crate::output::Failure;
 use tmt_adapters::{
     drivers::Registry,
     host::{CallerEnvironment, Host, HostError},
+    process::ancestry::AncestryError,
 };
 use tmt_core::driver::{ActionResult, caller::RuntimeCaller};
 
@@ -62,12 +63,12 @@ pub fn require_independent_host_for(name: Option<&str>) -> Result<(), Failure> {
 }
 
 #[cfg(test)]
-fn allow_host<E>(result: ActionResult<RuntimeCaller, E>) -> Result<(), Failure> {
+fn allow_host(result: ActionResult<RuntimeCaller, AncestryError>) -> Result<(), Failure> {
     allow_host_for(result, None)
 }
 
-fn allow_host_for<E>(
-    result: ActionResult<RuntimeCaller, E>,
+fn allow_host_for(
+    result: ActionResult<RuntimeCaller, AncestryError>,
     name: Option<&str>,
 ) -> Result<(), Failure> {
     match result {
@@ -83,7 +84,12 @@ fn allow_host_for<E>(
                 },
             )
         }
-        ActionResult::Failed(_) => Err(ambiguous()),
+        ActionResult::Failed(error) => {
+            let mut failure = ambiguous();
+            failure.message.push(' ');
+            failure.message.push_str(&error.to_string());
+            Err(failure.caused_by(error))
+        }
     }
 }
 
@@ -153,7 +159,7 @@ mod tests {
             session: None,
             host: HostAttribution::Ambiguous,
         };
-        let failure = allow_host::<()>(ActionResult::Completed(caller)).unwrap_err();
+        let failure = allow_host(ActionResult::Completed(caller)).unwrap_err();
         let document = failure.document();
         assert_eq!(document["error"]["code"], "CALLER_IDENTITY_AMBIGUOUS");
         assert_eq!(document["error"]["reason"], "codex-shared-server");
@@ -173,8 +179,8 @@ mod tests {
             session: None,
             host: HostAttribution::Ambiguous,
         };
-        let failure = allow_host_for::<()>(ActionResult::Completed(caller()), Some("My 'Agent'"))
-            .unwrap_err();
+        let failure =
+            allow_host_for(ActionResult::Completed(caller()), Some("My 'Agent'")).unwrap_err();
         assert_eq!(
             failure.document()["error"]["fix"],
             "tmt run 'My '\\''Agent'\\''' codex"
@@ -183,7 +189,7 @@ mod tests {
             host: HostAttribution::Independent,
             ..caller()
         };
-        assert!(allow_host::<()>(ActionResult::Completed(independent)).is_ok());
+        assert!(allow_host(ActionResult::Completed(independent)).is_ok());
     }
 
     #[test]
@@ -193,7 +199,7 @@ mod tests {
             session: Some(ProviderSessionId::new("known-conversation").unwrap()),
             host: HostAttribution::Ambiguous,
         };
-        let other = allow_host::<()>(ActionResult::Completed(caller)).unwrap_err();
+        let other = allow_host(ActionResult::Completed(caller)).unwrap_err();
         assert!(!other.has_runtime_refusal());
         assert!(
             other.document()["error"]["suggestion"]
@@ -201,8 +207,36 @@ mod tests {
                 .unwrap()
                 .contains("--identity")
         );
-        assert!(allow_host(ActionResult::Failed("unavailable")).is_err());
-        assert!(allow_host::<()>(ActionResult::Unsupported).is_ok());
+        assert!(allow_host(ActionResult::Failed(AncestryError::Unavailable)).is_err());
+        assert!(allow_host(ActionResult::Unsupported).is_ok());
+    }
+
+    #[test]
+    fn a_failed_process_observation_explains_why_the_caller_remains_unverified() {
+        let failure = allow_host(ActionResult::Failed(
+            tmt_adapters::process::ancestry::AncestryError::Unavailable,
+        ))
+        .unwrap_err();
+        assert_eq!(failure.status, 1);
+        let document = failure.document();
+        assert_eq!(document["error"]["code"], "CALLER_IDENTITY_AMBIGUOUS");
+        assert!(
+            failure.message.contains("process ancestry"),
+            "the process observation limitation must not be lost: {document}"
+        );
+        assert!(document["error"].get("reason").is_none());
+        assert!(document["error"].get("fix").is_none());
+        let source = std::error::Error::source(&failure).unwrap();
+        assert!(matches!(
+            source.downcast_ref::<AncestryError>(),
+            Some(AncestryError::Unavailable)
+        ));
+        assert!(
+            failure
+                .suggestion_text()
+                .unwrap()
+                .contains("inherited host pane was not used")
+        );
     }
 
     #[test]

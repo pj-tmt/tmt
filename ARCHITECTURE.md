@@ -290,7 +290,7 @@ sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
 
 The CLI acquires caller-host evidence only for caller-scoped operations; explicit senders
-and stored bindings retain their own authority.
+and stored bindings retain their own authority. Caller-process observation failures retain typed adapter causes through the driver registry to bounded CLI context.
 The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
 `tmt-adapters::host::Host`; extensions never do (they read `tmt ls --json` and
 `tmt whoami`), and the architecture guard rejects extension code that names the host

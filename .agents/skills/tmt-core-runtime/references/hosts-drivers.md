@@ -381,6 +381,11 @@ contract owns the shape and sources.
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for
   setup, detection, skill targets, launch, runtime registration and caller recognition.
+  Failed caller process observations retain `AncestryError`/`CommandError` through
+  the registry and CLI. Their public context names only the failed observation;
+  argv, process output, environment and private paths stay out of the message.
+  The caller remains unverified, with no inherited-pane fallback. These failures
+  do not establish a shared server or a storage sandbox refusal.
   A test requires one adapter module per descriptor. `locate`
   resolves everything against one captured `ProviderEnvironment`; Claude resolves a nonempty
   `CLAUDE_CONFIG_DIR` against the captured working directory, otherwise `~/.claude`, and

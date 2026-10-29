@@ -12,7 +12,7 @@ pub mod muse;
 pub mod opencode;
 pub mod pi;
 
-use crate::process::{CommandFailure, CommandRequest, CommandRunner};
+use crate::process::{CommandFailure, CommandRequest, CommandRunner, ancestry::AncestryError};
 use crate::{
     runtime::{RuntimeCommand, RuntimeError, lifecycle::RuntimeLifecycle},
     skill_installation::ProviderEnvironment,
@@ -64,7 +64,7 @@ pub struct Runtime {
     /// A channel to hand messages to a running agent without terminal paste,
     /// when the provider has a supported one.
     pub channel: Option<fn() -> Box<dyn crate::runtime::channel::RuntimeChannel>>,
-    pub identify_caller: Option<fn() -> ActionResult<RuntimeCaller, ()>>,
+    pub identify_caller: Option<fn() -> ActionResult<RuntimeCaller, AncestryError>>,
     /// A provider hint suppresses questions even when it cannot prove identity.
     pub caller_marked: fn() -> bool,
 }
@@ -253,7 +253,7 @@ impl Registry {
     }
 
     /// The first runtime that recognizes this invocation's caller.
-    pub fn identify_caller(&self) -> ActionResult<RuntimeCaller, ()> {
+    pub fn identify_caller(&self) -> ActionResult<RuntimeCaller, AncestryError> {
         self.iter()
             .filter_map(|driver| driver.runtime.as_ref()?.identify_caller)
             .fold(ActionResult::Unsupported, |found, identify| {

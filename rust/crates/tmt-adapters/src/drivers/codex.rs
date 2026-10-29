@@ -302,19 +302,16 @@ fn locate(environment: &crate::skill_installation::ProviderEnvironment) -> super
     }
 }
 
-fn identify_caller() -> tmt_core::driver::ActionResult<tmt_core::driver::caller::RuntimeCaller, ()>
-{
-    use tmt_core::driver::{ActionResult, Driver};
-    match caller::CodexCaller::new(
+fn identify_caller() -> tmt_core::driver::ActionResult<
+    tmt_core::driver::caller::RuntimeCaller,
+    crate::process::ancestry::AncestryError,
+> {
+    use tmt_core::driver::Driver;
+    caller::CodexCaller::new(
         &crate::process::UnixCommandRunner,
         caller::CallerEnvironment::current(),
     )
     .identify_caller()
-    {
-        ActionResult::Completed(found) => ActionResult::Completed(found),
-        ActionResult::Unsupported => ActionResult::Unsupported,
-        ActionResult::Failed(_) => ActionResult::Failed(()),
-    }
 }
 
 struct CodexRuntime;

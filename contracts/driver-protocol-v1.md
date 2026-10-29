@@ -639,6 +639,13 @@ or `codex-sandbox`) and the copyable `fix` command `tmt run <name> codex`, using
 requested caller name when known. Human output renders the driver's why, consequence
 and `fix:` instruction. The agent must stop and tell the user to restart; it must
 not silently send anonymously or suggest an identity or escalation workaround.
+
+Failed caller-process observation keeps `CALLER_IDENTITY_AMBIGUOUS` (exit 1),
+with bounded plain-English context in the human and JSON message. The context names
+only the failed observation and its safe failure category, without argv,
+environment, process output or additional paths. The caller stays unverified;
+no inherited pane or stored session key substitutes for the missing proof.
+Observation failure does not add either refusal reason or a new recovery command.
 Other runtimes and storage failures retain their own existing errors.
 
 | Operation | Deadline | Answer bound |
