@@ -1,3 +1,4 @@
+import { readerAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { chromium, expect, test, type Page, type APIResponse } from '@playwright/test';
 import { Envelope, decodeHeader } from '@tmt/colab-client';
@@ -445,7 +446,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
     expect(mutation[0].update.name).toContain('/members/');
     phase = 'edit';
     boundaries.beforeEdit = await budget();
-    await page.getByTestId('source-toggle').click();
+    await (await readerAction(page, 'Source')).click();
     const source = page.locator('#source-edit');
     await expect(source).toBeVisible();
     await source.fill('<main><h1>Hosted editor requested version</h1></main>');
@@ -539,7 +540,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
     const heading = (holder: Page) => holder.frameLocator('iframe').locator('h1');
     const request = async (holder: Page, words: string) => {
       const area = holder.locator('#source-edit');
-      if (!(await area.isVisible())) await holder.getByTestId('source-toggle').click();
+      if (!(await area.isVisible())) await (await readerAction(holder, 'Source')).click();
       await area.fill(`<main><h1>${words}</h1></main>`);
       await holder.getByRole('button', { name: text.save, exact: true }).click();
     };
@@ -682,7 +683,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       '--json',
     ]);
     await secondPage.getByRole('button', { name: 'Close Source', exact: true }).click();
-    await secondPage.getByLabel('Info', { exact: true }).click();
+    await (await readerAction(secondPage, 'Info')).click();
     const metadataPanel = secondPage.locator('.reader-information-panel');
     await expect(metadataPanel).toContainText('Hosted registered question', { timeout: 60000 });
     const metadataStatus = metadataPanel.getByTestId('reader-metadata-status');
@@ -693,12 +694,8 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       const dialog = secondPage.getByRole('dialog', { name: 'Change creator', exact: true });
       if (await dialog.isVisible())
         await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-      if (
-        !(await secondPage
-          .locator('.reader-information')
-          .evaluate((node) => (node as HTMLDetailsElement).open))
-      )
-        await secondPage.getByLabel('Info', { exact: true }).click();
+      if (!(await secondPage.getByRole('dialog', { name: 'Info', exact: true }).isVisible()))
+        await (await readerAction(secondPage, 'Info')).click();
     };
     await metadataPanel.getByRole('button', { name: 'Change creator…', exact: true }).click();
     const creatorDialog = secondPage.getByRole('dialog', { name: 'Change creator', exact: true });

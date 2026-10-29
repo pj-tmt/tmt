@@ -1,3 +1,4 @@
+import { readerAction } from '../test/page-actions.js';
 import { createPrivateKey, createPublicKey, randomBytes, randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import {
@@ -156,13 +157,13 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     });
     const frameWidth = (await element.boundingBox())?.width;
     const pageHeight = await reader.page.evaluate(() => document.documentElement.scrollHeight);
-    await reader.page.getByLabel('Info', { exact: true }).click();
+    await (await readerAction(reader.page, 'Info')).click();
     await expect(reader.page.getByText('You are reading a shared page.')).toBeVisible();
     expect((await element.boundingBox())?.width).toBe(frameWidth);
     expect(await reader.page.evaluate(() => document.documentElement.scrollHeight)).toBe(
       pageHeight,
     );
-    await reader.page.getByLabel('Info', { exact: true }).click();
+    await reader.page.getByRole('button', { name: 'Close Info', exact: true }).click();
     await frame.getByRole('link', { name: 'Jump to reader anchor' }).click();
     await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
     expect(
@@ -519,7 +520,7 @@ test('editor link: the reader offers the Source drawer, its edit request changes
     const frame = editor.page.frameLocator('iframe');
     await expect(frame.locator('#text')).toHaveText('First text', { timeout: 30_000 });
     await expect(editor.page.locator('.chip')).toHaveText('Can edit');
-    await editor.page.getByTestId('source-toggle').click();
+    await (await readerAction(editor.page, 'Source')).click();
     const area = editor.page.locator('#source-edit');
     await expect(area).toHaveValue(/First text/);
     await area.fill((await area.inputValue()).replace('First text', 'Edited through a link'));
@@ -546,7 +547,9 @@ test('editor link: the reader offers the Source drawer, its edit request changes
       { timeout: 30_000 },
     );
     await expect(viewer.page.locator('.chip')).toHaveText('Read-only');
-    await expect(viewer.page.getByTestId('source-toggle')).toHaveCount(0);
+    await viewer.page.getByRole('button', { name: 'More', exact: true }).click();
+    await expect(viewer.page.getByRole('menuitem', { name: 'Source', exact: true })).toHaveCount(0);
+    await viewer.page.keyboard.press('Escape');
     // A commenter link reads the edit too and has no Source drawer.
     const commenterLink = colab(world, [
       'share',
@@ -567,7 +570,11 @@ test('editor link: the reader offers the Source drawer, its edit request changes
       'Edited through a link',
       { timeout: 30_000 },
     );
-    await expect(commenter.page.getByTestId('source-toggle')).toHaveCount(0);
+    await commenter.page.getByRole('button', { name: 'More', exact: true }).click();
+    await expect(commenter.page.getByRole('menuitem', { name: 'Source', exact: true })).toHaveCount(
+      0,
+    );
+    await commenter.page.keyboard.press('Escape');
   });
 });
 
@@ -626,7 +633,7 @@ test('two sessions of one editor link race for its stream: the loser is told, se
       await expect(holder.page.frameLocator('iframe').locator('#a')).toHaveText('Alpha', {
         timeout: 30_000,
       });
-      await holder.page.getByTestId('source-toggle').click();
+      await (await readerAction(holder.page, 'Source')).click();
       await expect(holder.page.locator('#source-edit')).toHaveValue(source);
     }
     hold.on = true;
@@ -866,10 +873,10 @@ test('editor metadata: owner applies creator and handled/reopen requests, refuse
       '--yes',
     ]);
     const editor = await openReaderLink(world, door, added.readerPath as string, 'metadata-editor');
-    const info = editor.page.getByLabel('Info', { exact: true });
+    const info = () => readerAction(editor.page, 'Info').then((item) => item.click());
     const panel = editor.page.locator('.reader-information-panel');
     await expect(editor.page.locator('.status')).toContainText('Live');
-    await info.click();
+    await info();
     const status = panel.getByTestId('reader-metadata-status');
     const settled = async (applied: boolean) => {
       await expect(status).toContainText(applied ? 'Change applied' : 'Not applied', {
@@ -878,12 +885,8 @@ test('editor metadata: owner applies creator and handled/reopen requests, refuse
       const dialog = editor.page.getByRole('dialog', { name: 'Change creator', exact: true });
       if (await dialog.isVisible())
         await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-      if (
-        !(await editor.page
-          .locator('.reader-information')
-          .evaluate((node) => (node as HTMLDetailsElement).open))
-      )
-        await info.click();
+      if (!(await editor.page.getByRole('dialog', { name: 'Info', exact: true }).isVisible()))
+        await info();
     };
     const changeCreator = async (selector: string, beforeSend?: () => void) => {
       await panel.getByRole('button', { name: 'Change creator…', exact: true }).click();
@@ -925,7 +928,7 @@ test('editor metadata: owner applies creator and handled/reopen requests, refuse
         link.readerPath as string,
         `metadata-${role}`,
       );
-      await reader.page.getByLabel('Info', { exact: true }).click();
+      await (await readerAction(reader.page, 'Info')).click();
       await expect(
         reader.page.locator('.reader-information-panel').getByRole('button'),
       ).toHaveCount(0);

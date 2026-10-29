@@ -334,7 +334,9 @@ test('a reader link lists files read-only and only when the page has files', asy
       .locator('#reader-files-fixture')
       .getByRole('heading', { name: 'Release notes', exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Files(?: \d+)?$/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: /^Files(?: \d+)?$/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await mountReader(page, true);
   const toggle = await pageAction(page, 'Files');
   await expect(toggle).toHaveText(`${text.files} 3`);

@@ -1,24 +1,11 @@
-.reader-information {
-  position: relative;
-  flex: none;
-  margin-left: auto;
-  font-size: 11px;
+.reader-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-header-padding-inline);
 }
 .reader-information-panel {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  z-index: 1;
-  width: min(360px, calc(100vw - 24px));
-  max-height: calc(100dvh - var(--reader-bar-size) - 24px);
-  overflow: auto;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-  padding: 16px 18px;
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--tmt-ui-color-text);
   font: 12px/1.6 var(--tmt-ui-font-body);
-  box-shadow: var(--tmt-ui-shadow-overlay);
 }
 .reader-information-panel h3 {
   margin: 0 0 8px;

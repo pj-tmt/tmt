@@ -1,4 +1,4 @@
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, readerAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { pairBrowser, startDoor, openReaderLink } from './harness/browser.js';
@@ -82,7 +82,7 @@ test('original author survives later publishing and owner reload and reads to a 
     );
     const reader = await openReaderLink(world, door, link.readerPath, 'author-reader');
     await expect(reader.page.locator('.tmt-ui-caption')).toHaveText(`By ${creator.name}`);
-    await reader.page.locator('.reader-information summary').click();
+    await (await readerAction(reader.page, 'Info')).click();
     await expect(reader.page.locator('.page-attribution')).toContainText(
       `Latest publisher${publisher.name}`,
     );

@@ -22,13 +22,14 @@ export async function showResolvedOn(page: Page) {
  * where a host's shell mounts Colab (the hosted mount keeps its own header). */
 const BAR_BUTTONS = '.tmt-ui-topbar:visible button:visible, .tmt-ui-header:visible button:visible';
 
-/** Resolve page actions: Comments and Chat are the dock's, page tools (including Agent status) are in
- * the top bar's More menu, and readers keep their direct Files control. */
+/** Resolve page actions: Comments and Chat are in the dock; page tools are in More. */
 export async function pageAction(host: Page | Locator, name: string): Promise<Locator> {
   const directName =
     name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name === 'Agents' ? 'Agent status' : name;
   const page = 'page' in host ? host.page() : host;
-  const header = host.locator('.page-header-actions:visible');
+  const header = host
+    .locator('.page-header-actions:visible, .tmt-ui-header:visible:has(+ main .reader-status-row)')
+    .first();
   // Every action starts from nothing open: a modal drawer is dismissed from its covered header, and
   // the non-modal Comments panel (which leaves the header live) through its own Close.
   const drawer = page.locator('.tmt-ui-drawer[open]');
@@ -54,11 +55,6 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
       .getByRole('button', { name: /^Theme:/ })
       .click();
     return page.getByRole('menuitemradio', { name: name.slice('Theme: '.length), exact: true });
-  }
-  if (name === 'Files') {
-    const direct = host.getByRole('button', { name: directName, exact: true });
-    await header.or(direct).first().waitFor();
-    if (await direct.isVisible()) return direct;
   }
   if (name === 'Chat' || name === 'Comments') {
     const action = name === 'Chat' ? chatAction(host) : commentsAction(host);
@@ -110,4 +106,10 @@ export async function openWorkTasks(band: Locator): Promise<void> {
   const tasks = band.getByRole('button', { name: /^Tasks \d+$/ });
   if ((await tasks.count()) && (await tasks.getAttribute('aria-expanded')) !== 'true')
     await tasks.click();
+}
+
+/** Open a shared reader's More menu and select a page action. */
+export async function readerAction(page: Page, name: string) {
+  await page.locator('.tmt-ui-header').getByRole('button', { name: 'More', exact: true }).click();
+  return page.getByRole('menuitem', { name, exact: true });
 }
