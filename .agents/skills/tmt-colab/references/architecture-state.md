@@ -1133,7 +1133,9 @@ new links; unrelated components remain usable. `page/save::SaveResult` and the s
 Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and canvas, even
 without work. The share reader uses the same read-only presentation; dashboards do not draw it.
 The compact line shows verified manual `pageState`, native `PageProgress` buckets and an expand
-control. It scrolls with content; expansion pushes the canvas down. Progress never sets state.
+control. It scrolls with content; expansion pushes the canvas down. Its measured height participates
+in renderer viewport room and canvas minimum height; expanding/collapsing resizes the existing frame
+without remounting or introducing another scroll region. Progress never sets state.
 Missing progress is unavailable, zero is `0 of 0 done`, and unknown children stay unknown.
 `Live` retains optional owner details across subscription and coalesces invalidations through
 `ProgressReads` in `reading-details.ts`: one active read and a trailing read per burst, no polling.

@@ -1,6 +1,14 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { PageHint } from './reading-link.js';
 import { text } from './strings.js';
 import { derivedWork, type Work } from './work.js';
@@ -20,6 +28,7 @@ export interface WorkParent {
 }
 export interface WorkBandProps extends TaskDetailSlots {
   work: Work;
+  onSize?(height: number): void;
   pageState?: PageState | null;
   progress?: PageProgress | null;
   stateControl?: ReactNode;
@@ -43,6 +52,7 @@ export interface WorkBandProps extends TaskDetailSlots {
  */
 export function WorkBand({
   work,
+  onSize,
   listActions,
   parent,
   pageHref,
@@ -63,6 +73,16 @@ export function WorkBand({
   const [tasksOpen, setTasksOpen] = useState(false);
   const [selected, setSelected] = useState<string>();
   const listId = useId();
+  const section = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = section.current;
+    if (!element || !onSize) return;
+    const measure = () => onSize(element.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onSize]);
   const focused = useRef<string | undefined>(undefined);
   const detail = useRef<HTMLDivElement>(null);
   // A link to one task opens the list with it selected, once the page has that task (its work
@@ -90,7 +110,7 @@ export function WorkBand({
       ] as const)
     : [];
   return (
-    <section className="work-band" aria-label={t.label}>
+    <section ref={section} className="work-band" aria-label={t.label}>
       <div className="work-head">
         {stateControl ?? (
           <span className={`work-page-state ${ui.countChip}`} data-state={pageState ?? 'unknown'}>

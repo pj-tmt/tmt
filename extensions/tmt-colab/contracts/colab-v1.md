@@ -3195,7 +3195,7 @@ Done is theme green, In progress is review purple, To do is empty, and Unknown i
 shows `0 of 0 done`; unavailable progress shows a label without invented counts. Share readers have
 verified manual state and `progress: null`, no owner metadata writes or discovery reads.
 
-Expanding the panel pushes content down and shows direct sub-pages (titles/manual states only from
+The panel reports its measured height to the existing renderer viewport owner and canvas minimum-height calculation, including after expansion or resize, so a short page does not gain a second scroll region. Expanding the panel pushes content down and shows direct sub-pages (titles/manual states only from
 existing owner-list rows, with missing values unknown), or tasks, plus the bucket legend. `Tasks N`
 opens the existing task list and detail in place. Task deep links open that detail once. Owner task
 controls send the existing closed browser work actions, with changes appearing only through the

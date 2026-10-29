@@ -66,6 +66,12 @@ export function ReaderApp({
    * viewport leaves room for it (`frameLead`), and so does the page's minimum height
    * (`reader-style.css`). */
   const [noteSize, setNoteSize] = useState(0);
+  const [workBandSize, setWorkBandSize] = useState(0);
+  const bandSize = useRef(workBandSize);
+  bandSize.current = workBandSize;
+  useEffect(() => {
+    renderer.current?.resize();
+  }, [workBandSize]);
   const noteHeight = () => {
     const box = noteBox.current;
     if (!box) return 0;
@@ -136,7 +142,7 @@ export function ReaderApp({
       onLink: requestPageLink,
       onEditLocks: editLockLayer.onEditLocks,
       viewportInset: () => toolbarInset(bar.current),
-      frameLead: noteHeight,
+      frameLead: () => noteHeight() + bandSize.current,
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
@@ -253,7 +259,14 @@ export function ReaderApp({
           </>
         }
       />
-      <main style={{ '--reader-note-size': `${noteSize}px` } as CSSProperties}>
+      <main
+        style={
+          {
+            '--reader-note-size': `${noteSize}px`,
+            '--colab-work-band-size': `${workBandSize}px`,
+          } as CSSProperties
+        }
+      >
         {notice}
         {state.kind === 'ready' && (
           <aside ref={noteBox} className="reader-note" aria-labelledby="reader-note-title">
@@ -274,6 +287,7 @@ export function ReaderApp({
           <section className="page">
             <div className="workspace">
               <WorkBand
+                onSize={setWorkBandSize}
                 work={state.view.work ?? { version: 1, next: 1, order: [], tasks: {} }}
                 pageState={
                   state.view.state === undefined

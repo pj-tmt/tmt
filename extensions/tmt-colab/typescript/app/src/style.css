@@ -294,7 +294,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .frame-host {
   min-height: calc(
-    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-title-row-size, 0px)
+    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) -
+      var(--colab-title-row-size, 0px) - var(--colab-work-band-size, 0px)
   );
   /* Browser page canvas stays white; theme tokens belong to the surrounding chrome. */
   background: #fff;
