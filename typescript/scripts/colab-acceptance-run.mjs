@@ -2,11 +2,18 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { ACCEPTANCE_SHARDS } from './colab-acceptance-shards.mjs';
 
-/** Absolute cutoff includes setup; the remaining job budget belongs to grace, proof and evidence. */
+/** Absolute cutoff includes setup; the remaining job budget belongs to grace, proof and evidence (shard 1 runs the proof). */
 export function acceptanceDeadline(startedAtSeconds, shard) {
-  if (!Number.isSafeInteger(startedAtSeconds) || startedAtSeconds <= 0 || ![1, 2].includes(shard))
-    throw new Error('Acceptance requires a positive start timestamp and shard 1 or 2.');
+  if (
+    !Number.isSafeInteger(startedAtSeconds) ||
+    startedAtSeconds <= 0 ||
+    !Number.isInteger(shard) ||
+    shard < 1 ||
+    shard > ACCEPTANCE_SHARDS
+  )
+    throw new Error('Acceptance requires a positive start timestamp and an existing shard.');
   return startedAtSeconds * 1000 + (shard === 1 ? 1560 : 1740) * 1000;
 }
 

@@ -371,7 +371,7 @@ jobs:
           node scripts/colab-native-spec-report.mjs "$RUNNER_TEMP/colab-served-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
 
   colab-acceptance:
-    name: Colab real-binary acceptance (Chromium, shard ${{ matrix.shard }}/2)
+    name: Colab real-binary acceptance (Chromium, shard ${{ matrix.shard }}/3)
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.action != 'unlabeled' &&
@@ -383,14 +383,14 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # The one-worker suite (~100 specs, 22 to 30+ minutes as one job, #2827) runs as two shards of
-    # whole spec files balanced by measured time (typescript/scripts/colab-acceptance-shards.mjs;
+    # The one-worker suite (~100 specs, about 48 minutes of specs, #2827, #5511) runs as three shards
+    # of whole spec files balanced by measured time (typescript/scripts/colab-acceptance-shards.mjs;
     # Playwright's own --shard put the heavy page-* specs in one shard), each with its own real
-    # binaries and world; neither cancels the other.
+    # binaries and world; none cancels another.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     permissions:
       contents: read
     env:
@@ -467,10 +467,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"
+          shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 3)"
           read -r -a files <<< "$shard_files"
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "Shard ${{ matrix.shard }} of 2 has no spec files; refusing to run the whole suite." >&2
+            echo "Shard ${{ matrix.shard }} of 3 has no spec files; refusing to run the whole suite." >&2
             exit 1
           fi
           node scripts/colab-acceptance-run.mjs ${{ matrix.shard }} pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,./acceptance/harness/soak-reporter.ts,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"

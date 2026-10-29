@@ -204,7 +204,7 @@ three days. The wrapper copies only those logs before removing its private world
 
 Real-binary acceptance runs weekly/manually or on `colab-acceptance` PRs. Only adding
 that exact label triggers acceptance; removing it never does. Label edits skip
-selector/interop; job concurrency prevents cancelling in-flight checks. Two shards
+selector/interop; job concurrency prevents cancelling in-flight checks. Three shards
 use `fail-fast: false`, separate concurrency/artifacts and whole-file duration
 weights (`colab-acceptance-shards.mjs`, `acceptance/shard-weights.json`), exactly once
 per file. Each tests the default merge ref and records head/merge SHAs in

@@ -33,7 +33,7 @@ describe('Colab acceptance shards', () => {
       acceptanceShardFiles(index + 1, ACCEPTANCE_SHARDS)
     );
     expect(sorted(filters.flat())).toEqual(files.map((file) => `acceptance/${file}`));
-    expect(ACCEPTANCE_SHARDS).toBe(2);
+    expect(ACCEPTANCE_SHARDS).toBe(3);
   });
 
   it('finds every spec file Playwright would run, with none hidden in a subdirectory', () => {
@@ -60,10 +60,11 @@ describe('Colab acceptance shards', () => {
       const seconds = splitAcceptanceFiles(files, count, weights).map((shard) => shard.seconds);
       expect(Math.max(...seconds) / Math.min(...seconds), `count ${count}`).toBeLessThan(bound);
     }
-    // The heaviest spec (a 2 MiB page) bounds what any shard count can reach.
+    // The heaviest spec (a 2 MiB page) bounds what any shard count can reach. The split CI runs
+    // leaves each shard well inside its spec deadline (1,560 seconds from job start on shard 1).
     const heaviest = Math.max(...Object.values<number>(weights.files));
-    const [first, second] = splitAcceptanceFiles(files, 2, weights);
-    expect(Math.max(first.seconds, second.seconds)).toBeLessThan(1200);
+    const split = splitAcceptanceFiles(files, ACCEPTANCE_SHARDS, weights);
+    expect(Math.max(...split.map((shard) => shard.seconds))).toBeLessThan(1200);
     expect(heaviest).toBeGreaterThan(400);
   });
 
@@ -86,7 +87,7 @@ describe('Colab acceptance shards', () => {
       /positive/
     );
     expect(() => splitAcceptanceFiles(files, 0, weights)).toThrow(/positive integer/);
-    expect(() => acceptanceShardFiles(3, 2)).toThrow(/between 1 and/);
+    expect(() => acceptanceShardFiles(4, 3)).toThrow(/between 1 and/);
   });
 
   it('is what the workflow runs, and its command line carries no unquoted path', () => {
@@ -98,7 +99,7 @@ describe('Colab acceptance shards', () => {
     // list is refused: with no filters Playwright would run the whole suite in every shard.
     expect(workflow).toContain('set -euo pipefail\n');
     expect(workflow).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 3)"'
     );
     expect(workflow).toContain('read -r -a files <<< "$shard_files"');
     expect(workflow).toContain('if [ "${#files[@]}" -eq 0 ]; then');

@@ -3797,12 +3797,12 @@ describe('required CI gate', () => {
     expect(acceptance).toContain(
       'test:acceptance --workers=1 --reporter=list,./acceptance/harness/soak-reporter.ts,json'
     );
-    // Two shards run the one single-worker suite (#2827): each builds its own binaries and world,
-    // keeps its own concurrency group and evidence, and neither cancels the other.
+    // Three shards run the one single-worker suite (#2827): each builds its own binaries and world,
+    // keeps its own concurrency group and evidence, and none cancels another.
     expect(acceptance).toContain('fail-fast: false');
-    expect(acceptance).toContain('shard: [1, 2]');
+    expect(acceptance).toContain('shard: [1, 2, 3]');
     expect(acceptance).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 3)"'
     );
     expect(acceptance).toContain('if [ "${#files[@]}" -eq 0 ]; then');
     expect(acceptance).toContain('"${files[@]}"');
