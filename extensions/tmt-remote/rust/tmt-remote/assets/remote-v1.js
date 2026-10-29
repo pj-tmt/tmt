@@ -4823,7 +4823,7 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 		search.append(searchMark);
 		const sidebarSearch = document.createElement("button");
 		sidebarSearch.type = "button";
-		sidebarSearch.className = "tmt-ui-rail-item tmt-ui-rail-search";
+		sidebarSearch.className = "tmt-ui-rail-search";
 		sidebarSearch.setAttribute("aria-label", "Search TMT");
 		sidebarSearch.setAttribute("aria-haspopup", "dialog");
 		sidebarSearch.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
@@ -4914,11 +4914,11 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 		close.textContent = "Close";
 		footer.append(close);
 		dialog.append(dialogHeader, body, footer);
-		header.append(dialog);
 		let origin = null;
 		const dismiss = () => {
 			if (!dialog.open) return;
 			dialog.close();
+			dialog.remove();
 			restoreOverlayFocus(origin, () => remote);
 		};
 		remote.onclick = (event) => {
@@ -4926,6 +4926,7 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 			themeMenu.close();
 			remoteHelp.binding.dismiss();
 			origin = document.activeElement;
+			header.append(dialog);
 			dialog.showModal();
 			close.focus();
 		};
