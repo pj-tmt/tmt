@@ -115,8 +115,13 @@ export interface PageBinding {
   work?(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome>;
   /** Metadata writes belong only to the authenticated owner device, independently of Work. */
   canMetadata?(): boolean;
+  /** Invalidate optional owner progress after an already-observed child state changes. */
+  refreshProgress?(): void;
   /** Freeze the verified revision when opening an editor, never silently retarget a stale choice. */
-  metadataRevision?(shown: Pick<PageView, 'creator' | 'questions'>): Promise<string>;
+  metadataRevision?(
+    shown: Pick<PageView, 'creator' | 'questions' | 'pageState'>,
+    scope?: 'page-state',
+  ): Promise<string>;
   metadata?(
     action: MetadataAction,
     body: Record<string, unknown>,

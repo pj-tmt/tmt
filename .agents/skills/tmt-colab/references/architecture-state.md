@@ -1130,31 +1130,32 @@ new links; unrelated components remain usable. `page/save::SaveResult` and the s
 
 ## The work band
 
-An ordinary page whose view carries `work` (`PageSnapshot.work`, then every live projection), or
-whose list row names a parent, draws `WorkBand` (`work-band.tsx`) in the page route between the link bar and the canvas, so it scrolls
-with the page and pushes it down when the list opens. The band itself is read-only: `derivedWork`
-gives the stage, progress, workers and sign-off count; `work-list.tsx` lists the tasks and
-`work-detail.tsx` shows one, with an `actions` slot, a `listActions` slot and an optional `parent`
-breadcrumb for a page that follows a task (#4118), `Parent page › T-n · task title` with the title from the owner list row's `summary.parent.title` (absent from an older owner). Where this device may change the work
-(`PageBinding.canWork`, the owner device's alone), `PageWorkBand` (`work-band-live.tsx`) fills the
-slots from `work-controls.tsx`: state (with a reason for blocked), sign-off and send back, assign,
-edit title and detail, convert to Colab (`task.convert`: the serve makes a page from the task and links it;
-refused for a task that follows a page or has an external ID; a page made but not linked is named, with
-"Link to that page" and "Open the page"), remove after a second click, and add a task by title. Each control sends one
-closed action through `PageBinding.work`, which `Live` runs as a `work` frame (`Connection.work`,
-answered by `workresult`; a lost reply is settled by one `savestatus`, never resent). Nothing is
-applied locally: one action is in flight at a time, and the list changes when the page's own stream
-brings the commit back. A refusal (`COLAB_WIP_LIMIT`, `COLAB_STALE_BASE`, …) is told in the serve's
-words and changes nothing. A dashboard never draws it. The browser
-takes a followed page's stage, and this page's parent, from the owner list's summaries
-(`useLinkedPages`, `work-stages.ts`: the list the viewer last loaded, followed as other views refresh
-it, plus one fresh read only when some task follows a page); a page the list does not name, or whose
-summary has not arrived, leaves its task showing its own stored state, as the page list does. The
-parent is the page's own row `summary.parent` and the parent row's title, drawn above the summary as
-`<parent title> › T-n` linking to the parent page; a parent the list does not name draws nothing, and
-nothing reads the parent page. A page without work draws the band only for that line. A band with a
-summary and no task offers the owner the add-task field directly.
-`work-people.tsx` is the one place an assignee is drawn (`AgentChip` for an agent).
+Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and canvas, even
+without work. The share reader uses the same read-only presentation; dashboards do not draw it.
+The compact line shows verified manual `pageState`, native `PageProgress` buckets and an expand
+control. It scrolls with content; expansion pushes the canvas down. Progress never sets state.
+Missing progress is unavailable, zero is `0 of 0 done`, and unknown children stay unknown.
+`Live` retains optional owner details across subscription and coalesces invalidations through
+`ProgressReads` in `reading-details.ts`: one active read and a trailing read per burst, no polling.
+Only a matching published document/work projection receives those counts; close/recovery fences
+obsolete reads. Child titles/manual states come from existing owner-list rows in `useLinkedPages`
+(`work-stages.ts`), without wider rows or child subscriptions. Share readers make no owner reads.
+
+Expanded content shows direct sub-pages or tasks, the native bucket legend and `Tasks N` for
+unlinked tasks. `work-list.tsx` and `work-detail.tsx` retain task detail/actions and one-shot task
+deep links, including a linked task's direct detail. A known parent remains a link to its task
+inside the expanded panel; unknown parents trigger no parent-page read. Attach is hidden until
+its separate picker/write flow is delivered in PR B of #4051.
+
+`PageWorkBand` (`work-band-live.tsx`) fills owner-only task action slots from `work-controls.tsx`
+and the manual state menu from `PageBinding.metadata('page.state', ...)`. State revision capture
+uses an explicit page-state scope; creator/question editors retain their existing comparison.
+The chip moves only on the admitted stream, with busy/refusal feedback at the control. Task
+controls retain state/reason, sign-off/send-back, assign, edit, convert, remove and add actions
+through `PageBinding.work`. A convert-made page whose link was refused remains named with Link
+and Open actions. A lost owner-write reply is settled through `savestatus`, never resent. Other
+viewers retain expansion and task details without owner controls. `work-people.tsx` remains the
+assignee presentation owner (`AgentChip` for agents).
 
 ## Short owner-page links
 

@@ -1,4 +1,4 @@
-import { readReadingDetails } from './reading-details.js';
+import { ProgressReads, readReadingDetails } from './reading-details.js';
 import { readEditLocks } from './edit-locks.js';
 import { canonical } from './closed.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
@@ -68,6 +68,10 @@ export class Live implements PageBinding {
   readonly discussion: ThreadStore;
   readonly status: ThreadStatusCoordinator;
   readonly files: DocumentFiles;
+  #progressReads: ProgressReads;
+  #progressKey?: string;
+  #progressSource?: string;
+  #progress: PageView['progress'] = null;
   #remote: RemoteClient | null = null;
   #seen?: { deviceId: string; value: ThreadStatusSeen };
   #observation: AbortController | null = null;
@@ -101,6 +105,20 @@ export class Live implements PageBinding {
     remote: RemoteClient | null = null,
     private sessionOwner?: LiveSessionOwner,
   ) {
+    this.#progressReads = new ProgressReads(
+      (signal) => readReadingDetails(this.mount, this.page.pageId, signal),
+      (detail) => {
+        if (this.#closed || this.#error) return;
+        const progress =
+          detail?.state === 'ready' && detail.pageState === this.#admitted.state
+            ? (detail.progress ?? null)
+            : null;
+        if (canonical(progress) !== canonical(this.#progress)) {
+          this.#progress = progress;
+          this.#publish();
+        }
+      },
+    );
     this.#remote = remote;
     this.#current = this.#startOpen();
     this.#writer = new Writer(
@@ -272,8 +290,15 @@ export class Live implements PageBinding {
     this.ask = facade;
   }
   /** Each listener receives its own detached copy, so none can change what another sees. */
+  #view(): PageView {
+    const current =
+      this.#projection.source === this.#progressSource &&
+      canonical({ work: this.#projection.work, state: this.#projection.state }) ===
+        this.#progressKey;
+    return structuredClone({ ...this.#projection, progress: current ? this.#progress : null });
+  }
   #publish() {
-    this.#listeners.forEach((listener) => listener.publish(structuredClone(this.#projection)));
+    this.#listeners.forEach((listener) => listener.publish(this.#view()));
   }
   #abort = () => this.close();
   #visibility = () => {
@@ -329,6 +354,7 @@ export class Live implements PageBinding {
     );
   }
   #startOpen(replaceSession = false) {
+    this.#progressKey = undefined;
     const open: LiveOpen = {
       replaceSession,
       pending: true,
@@ -383,6 +409,13 @@ export class Live implements PageBinding {
         (value) => {
           if (!this.#owns(open)) return;
           this.#admitted = structuredClone(value);
+          const progressKey = canonical({ work: value.work, state: value.state });
+          if (progressKey !== this.#progressKey || value.source !== this.#progressSource) {
+            this.#progressKey = progressKey;
+            this.#progressSource = value.source;
+            this.#progress = null;
+            void this.#progressReads.refresh();
+          }
           this.#showDocument(value);
           this.#pendingView = { value: this.#admitted, admission: a, open };
           if (!this.#processingViews) {
@@ -504,6 +537,9 @@ export class Live implements PageBinding {
   #failed(error: Error) {
     const open = this.#opening;
     if (!open || !this.#owns(open)) return;
+    this.#progress = null;
+    this.#progressReads.invalidate();
+    this.#publish();
     // Mounted WebSocket close does not carry Remote's signed reason. Read once
     // against the old session before deciding whether to reopen or show eviction.
     const remote = open.remote;
@@ -568,6 +604,7 @@ export class Live implements PageBinding {
     } else this.#block(error);
   }
   #block(error: Error) {
+    this.#progress = null;
     const failure = error;
     // Connection's single socket.onerror/onclose handler owns this opaque
     // message; keep its normalization here while the sync socket owner evolves.
@@ -599,25 +636,12 @@ export class Live implements PageBinding {
     // The first open does not wait for verification: the document shows, and the threads and asks
     // follow through the binding. A page already verified waits for its latest view as before.
     if (this.#discussionVerified) await this.#views;
-    // This optional owner-only projection can be pending or unavailable; never invent counts.
-    const observed = this.#projection;
-    const detail = await readReadingDetails(
-      this.mount,
-      this.page.pageId,
-      this.signal ?? new AbortController().signal,
-    ).catch(() => null);
+    await this.#progressReads.refresh();
     this.signal?.throwIfAborted();
-    const progress =
-      observed === this.#projection &&
-      detail?.state === 'ready' &&
-      detail.pageState === observed.state
-        ? (detail.progress ?? null)
-        : null;
     return {
       id: this.page.pageId,
       sharing: this.page.sharing,
-      ...structuredClone(this.#projection),
-      progress,
+      ...this.#view(),
       title: this.#projection.title || text.unknownPageTitle,
       binding: this,
     };
@@ -627,7 +651,7 @@ export class Live implements PageBinding {
     this.#listeners.add(listener);
     if (this.#error) failed(this.#error);
     else {
-      publish(structuredClone(this.#projection));
+      publish(this.#view());
       this.#observe();
     }
     return () => {
@@ -879,18 +903,30 @@ export class Live implements PageBinding {
       ...(result.childPage === undefined ? {} : { childPage: result.childPage }),
     };
   }
+  refreshProgress(): void {
+    this.#progress = null;
+    this.#publish();
+    void this.#progressReads.refresh();
+  }
   canMetadata(): boolean {
     return this.canWork();
   }
-  async metadataRevision(shown: Pick<PageView, 'creator' | 'questions'>): Promise<string> {
+  async metadataRevision(
+    shown: Pick<PageView, 'creator' | 'questions' | 'pageState'>,
+    scope?: 'page-state',
+  ): Promise<string> {
     const connection = await this.#settled();
     // Capture through the same serialized owner as Export: a newly admitted revision cannot
     // silently turn an old visible choice into an edit of newer metadata.
     return connection.run(async () => {
       if (!this.canMetadata() || connection !== this.#connection)
         throw new Error('Page metadata editing unavailable');
-      const metadata = (value: Pick<PageView, 'creator' | 'questions'>) =>
-        canonical({ creator: value.creator, questions: value.questions });
+      const metadata = (value: Pick<PageView, 'creator' | 'questions' | 'pageState'>) =>
+        canonical(
+          scope === 'page-state'
+            ? { pageState: value.pageState ?? 'todo' }
+            : { creator: value.creator, questions: value.questions },
+        );
       if (metadata(shown) !== metadata(this.#admitted))
         throw new SaveRefused(
           'COLAB_STALE_BASE',
@@ -1027,6 +1063,7 @@ export class Live implements PageBinding {
   close() {
     if (this.#closed) return;
     this.#closed = true;
+    this.#progressReads.close();
     this.#opening = null;
     this.#observation?.abort();
     if (typeof document !== 'undefined')

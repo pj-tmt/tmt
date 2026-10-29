@@ -249,6 +249,17 @@ it('returns owner page progress only when the details state matches the admitted
     await vi.waitFor(async () => expect((await live.snapshot()).progress).toEqual(progress));
     pageState = 'todo';
     expect((await live.snapshot()).progress).toBeNull();
+    const published: PageView[] = [];
+    const unsubscribe = live.subscribe(
+      (value) => published.push(value),
+      () => {},
+    );
+    expect(published.at(-1)!.progress).toBeNull();
+    pageState = 'done';
+    live.refreshProgress();
+    await vi.waitFor(() => expect(published.at(-1)!.progress).toEqual(progress));
+    expect(published.at(-1)!.state).toBe('done');
+    unsubscribe();
   } finally {
     live.close();
     vi.unstubAllGlobals();
@@ -2518,7 +2529,7 @@ it('metadata revision capture refuses unseen choices and a lost reply is recover
     { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
   );
   try {
-    const shown = await live.snapshot();
+    const shown = { ...(await live.snapshot()), pageState: 'todo' as const };
     expect(await live.metadataRevision(shown)).toBe('v1:revision');
     const connection = connections.at(-1)!;
     connection.publish({ source: 'verified', title: 'Page', questions: [] });
@@ -2598,5 +2609,93 @@ it('discussion reuses only the current own projection and re-reads while a newer
     live.close();
     reads.mockRestore();
     vi.unstubAllGlobals();
+  }
+});
+
+it('page state revision capture compares the shown manual value without changing other metadata fences', async () => {
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      projectPins: { names: [], automatic: true },
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  try {
+    await live.snapshot();
+    expect(await live.metadataRevision({ pageState: 'todo' }, 'page-state')).toBe('v1:revision');
+    connections
+      .at(-1)!
+      .publish({ source: 'verified', title: 'Page', pageState: 'done', state: 'done' });
+    await expect(live.metadataRevision({ pageState: 'todo' }, 'page-state')).rejects.toMatchObject({
+      code: 'COLAB_STALE_BASE',
+    });
+    expect(await live.metadataRevision({ pageState: 'done' }, 'page-state')).toBe('v1:revision');
+  } finally {
+    live.close();
+  }
+});
+
+it('a burst of admitted page observations coalesces details reads and rejects the old result', async () => {
+  connections.length = 0;
+  const pageId = '10000000-0000-4000-8000-000000000001';
+  const pending: ((response: Response) => void)[] = [];
+  const fetch = vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve)));
+  vi.stubGlobal('fetch', fetch);
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      projectPins: { names: [], automatic: true },
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId, epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  const published: PageView[] = [];
+  const unsubscribe = live.subscribe(
+    (value) => published.push(value),
+    () => {},
+  );
+  const detail = () =>
+    new Response(
+      JSON.stringify({
+        pageId,
+        state: 'ready',
+        fingerprint: 'a'.repeat(64),
+        pageState: 'done',
+        progress: { done: 1, inProgress: 0, todo: 0, unknown: 0, total: 1 },
+        summary: { comments: 0, waiting: false, needsYou: 0 },
+        readings: [],
+        needs: [],
+      }),
+    );
+  try {
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    for (let n = 0; n < 100; n++)
+      connections
+        .at(-1)!
+        .publish({ source: `view ${n}`, title: 'Page', state: 'done', pageState: 'done' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    pending[0]!(detail());
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(published.every((value) => value.progress == null)).toBe(true);
+    pending[1]!(detail());
+    await vi.waitFor(() => expect(published.at(-1)!.progress?.done).toBe(1));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(published.at(-1)!.source).toBe('view 99');
+  } finally {
+    unsubscribe();
+    live.close();
   }
 });

@@ -6,8 +6,7 @@ declare global {
     __workPage?: import('../test/work-page-browser.js').WorkPageHook;
   }
 }
-
-async function mountBand(page: Page, name: string, focusTask?: string) {
+async function mountBand(page: Page, name = 'full', focusTask?: string) {
   await page.goto('/');
   await page.evaluate(
     async ({ name, focusTask }) => {
@@ -18,170 +17,6 @@ async function mountBand(page: Page, name: string, focusTask?: string) {
   );
   return page.locator('#work-band-fixture');
 }
-
-test('the band shows the summary, progress, who works and sign-off, with the list closed', async ({
-  page,
-}) => {
-  const host = await mountBand(page, 'full');
-  const band = host.getByRole('region', { name: 'Work on this page' });
-  await expect(band.locator('.work-line1')).toHaveText('Building the export');
-  await expect(band.locator('.work-line2')).toHaveText('Two tasks left before review');
-  await expect(band.locator('.work-stage')).toHaveText('In progress');
-  await expect(band.locator('.work-progress')).toHaveText('1 of 7 done');
-  await expect(band.locator('.work-working .agent-chip-name')).toHaveText('Atlas');
-  await expect(band.locator('.work-signoff')).toHaveText('1 waiting for sign-off');
-  await expect(band.getByRole('button', { name: 'Show 7 tasks' })).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  );
-  await expect(band.locator('.work-list')).toHaveCount(0);
-});
-
-test('opening the list pushes the page down in place; the band does not stick', async ({
-  page,
-}) => {
-  const host = await mountBand(page, 'full');
-  const after = host.locator('[data-after]');
-  const closed = (await after.boundingBox())!.y;
-  await host.getByRole('button', { name: 'Show 7 tasks' }).click();
-  await expect(host.locator('.work-row')).toHaveCount(7);
-  expect((await after.boundingBox())!.y).toBeGreaterThan(closed + 100);
-  await expect(host.getByRole('button', { name: 'Hide tasks' })).toHaveAttribute(
-    'aria-expanded',
-    'true',
-  );
-  expect(await host.locator('.work-band').evaluate((n) => getComputedStyle(n).position)).toBe(
-    'static',
-  );
-  await host.getByRole('button', { name: 'Hide tasks' }).click();
-  await expect(host.locator('.work-list')).toHaveCount(0);
-  expect((await after.boundingBox())!.y).toBe(closed);
-});
-
-test('a task opens its detail in the list and closes again, with the action slot beside it', async ({
-  page,
-}) => {
-  const host = await mountBand(page, 'full');
-  await host.getByRole('button', { name: 'Show 7 tasks' }).click();
-  const row = host.locator('.work-row[data-state=in-progress]');
-  await expect(row).toContainText('Wire the export to the page menu');
-  await row.getByRole('button').click();
-  const detail = host.getByRole('region', { name: 'Task T-2' });
-  await expect(detail).toContainText('Keep the menu entry');
-  await expect(detail.locator('.work-acceptance li')).toHaveText([
-    'Test: export.spec',
-    'pnpm check → passed',
-    'Confirmed by Ben',
-  ]);
-  await expect(detail.getByRole('button', { name: 'Edit T-2' })).toBeVisible();
-  await detail.getByRole('button', { name: 'Close' }).click();
-  await expect(detail).toHaveCount(0);
-});
-
-test('state and assignee sit in fixed columns; the selected task is marked without link colour', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  const host = await mountBand(page, 'full');
-  await host.getByRole('button', { name: 'Show 7 tasks' }).click();
-  const columns = await host.locator('.work-row').evaluateAll((rows) =>
-    rows.map((row) => {
-      const x = (selector: string) => row.querySelector(selector)!.getBoundingClientRect();
-      return { state: x('.work-state').left, assignee: x('.work-assignee').left };
-    }),
-  );
-  expect(new Set(columns.map((row) => row.state)).size).toBe(1);
-  expect(new Set(columns.map((row) => row.assignee)).size).toBe(1);
-  // The sign-off mark sits on the task that waits for it, and only there.
-  await expect(host.locator('.work-row .work-signoff-mark')).toHaveCount(1);
-  await expect(host.locator('.work-row[data-state=in-review] .work-signoff-mark')).toHaveText(
-    '◆ sign-off',
-  );
-  const row = host.locator('.work-row', { hasText: 'Review the file format' });
-  const button = row.getByRole('button');
-  const plain = await button.evaluate((node) => ({
-    background: getComputedStyle(node).backgroundColor,
-  }));
-  await button.click();
-  const selected = await button.evaluate((node) => {
-    const style = getComputedStyle(node);
-    const text = getComputedStyle(node.querySelector('.work-title')!);
-    return { background: style.backgroundColor, weight: style.fontWeight, color: text.color };
-  });
-  expect(selected.background).not.toBe(plain.background);
-  expect(selected.weight).toBe('500');
-  const body = await host.evaluate((node) => getComputedStyle(node).color);
-  expect(selected.color).toBe(body);
-});
-
-test('blocked, sign-off, follow-up page and tracker id each show where they belong', async ({
-  page,
-}) => {
-  const host = await mountBand(page, 'full');
-  await host.getByRole('button', { name: 'Show 7 tasks' }).click();
-  await host.locator('.work-row[data-state=blocked] button').click();
-  await expect(host.locator('.work-detail-state')).toHaveText('Blocked · Waiting on licence');
-  await host.locator('.work-row[data-state=in-review] button').click();
-  await expect(host.locator('.work-detail-state')).toHaveText('In review · ◆ sign-off');
-  await host
-    .locator('.work-row', { hasText: 'Follow-up page for sizes' })
-    .locator('button')
-    .click();
-  await expect(host.locator('.work-follows a')).toHaveAttribute('href', /#\/pages\/2000/);
-  await host.locator('.work-row', { hasText: 'Tracked elsewhere' }).locator('button').click();
-  await expect(host.locator('.work-external')).toHaveText('Tracked as GH-123');
-});
-
-test('a page that follows a task shows the way back above its summary', async ({ page }) => {
-  const host = await mountBand(page, 'parent');
-  const link = host.locator('.work-parent a');
-  await expect(link).toHaveText('Follow-up page for sizes › T-6');
-  await expect(link).toHaveAttribute('href', /#\/pages\/2000/);
-});
-
-test('the way back names the parent task itself, so the parent page opens at it (#4263)', async ({
-  page,
-}) => {
-  const host = await mountBand(page, 'parent');
-  await expect(host.locator('.work-parent a')).toHaveAttribute(
-    'href',
-    '#/pages/20000000-0000-4000-8000-000000000002?task=T-6',
-  );
-});
-
-test('a page opened at one of its tasks shows the list with that task open, once', async ({
-  page,
-}) => {
-  const host = await mountBand(page, 'full', 'T-2');
-  await expect(host.locator('.work-row')).toHaveCount(7);
-  await expect(host.locator('.work-detail-state')).toHaveText('In progress');
-  await expect(host.locator('.work-row[data-selected="true"]')).toContainText('Wire the export');
-  // The task is scrolled into view, and a later toggle by the reader is never undone.
-  await expect(host.getByRole('button', { name: 'Hide tasks' })).toBeInViewport();
-  await host.getByRole('button', { name: 'Hide tasks' }).click();
-  await expect(host.locator('.work-list')).toHaveCount(0);
-  await expect(host.locator('.work-detail-state')).toHaveCount(0);
-});
-
-test('a task the page does not have opens the page and nothing else', async ({ page }) => {
-  for (const task of ['T-99', 'T-0', 'bad']) {
-    const host = await mountBand(page, 'full', task);
-    await expect(host.locator('.work-list')).toHaveCount(0);
-    await expect(host.locator('.work-detail-state')).toHaveCount(0);
-    await expect(host.getByRole('alert')).toHaveCount(0);
-    await expect(host.getByRole('button', { name: 'Show 7 tasks' })).toBeVisible();
-  }
-});
-
-test('a summary alone shows two lines; no summary and no tasks shows nothing', async ({ page }) => {
-  let host = await mountBand(page, 'summary-only');
-  await expect(host.locator('.work-line1')).toHaveText('Reading notes');
-  await expect(host.locator('.work-toggle')).toHaveCount(0);
-  await expect(host.locator('.work-facts')).toHaveCount(0);
-  host = await mountBand(page, 'empty');
-  await expect(host.locator('.work-band')).toHaveCount(0);
-});
-
 async function mountRoute(
   page: Page,
   withWork: boolean,
@@ -205,123 +40,176 @@ async function mountRoute(
   );
   await expect(page.locator('.page-header-actions:visible')).toBeVisible();
 }
-
-test('a child page names its parent page and task in the band header, with or without work', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 800 });
-  await mountRoute(page, true, false, 'child');
-  const band = page.getByRole('region', { name: 'Work on this page' });
-  const link = band.locator('.work-parent a');
-  await expect(link).toHaveText('Release plan › T-3 · Draft the copy');
-  await expect(link).toHaveAttribute('href', /#\/pages\/30000000-0000-4000-8000-000000000003/);
-  // The header line sits above the summary and adds no row to the actions.
-  const parent = (await band.locator('.work-parent').boundingBox())!;
-  const line = (await band.locator('.work-line1').boundingBox())!;
-  expect(parent.y + parent.height).toBeLessThanOrEqual(line.y);
-  expect(await band.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-  // A page that never had work still shows where it belongs, and nothing else.
-  await mountRoute(page, false, false, 'child');
-  const bare = page.getByRole('region', { name: 'Work on this page' });
-  await expect(bare.locator('.work-parent a')).toHaveText('Release plan › T-3 · Draft the copy');
-  await expect(bare.locator('.work-head')).toHaveCount(0);
-  await expect(bare.getByRole('button')).toHaveCount(0);
-});
-
-test('the child page crumb opens the parent page at that task (#4263)', async ({ page }) => {
-  await mountRoute(page, true, false, 'child');
-  const link = page.locator('.work-parent a');
-  await expect(link).toHaveAttribute(
-    'href',
-    /#\/pages\/30000000-0000-4000-8000-000000000003\?task=T-3$/,
-  );
-  await link.click();
-  await expect(page.locator('.work-parent')).toHaveCount(0);
-  const band = page.getByRole('region', { name: 'Work on this page' });
-  await expect(band.getByRole('button', { name: 'Hide tasks' })).toBeVisible();
-  await expect(band.locator('.work-detail-state')).toHaveText('In review · ◆ sign-off');
-  // The address keeps the task, so reload and Back reopen the same view.
-  expect(page.url()).toMatch(/#\/pages\/30000000-0000-4000-8000-000000000003\?task=T-3$/);
-});
-
-test('work with no summary, no task and no parent draws no band, for a viewer and for the owner', async ({
-  page,
-}) => {
-  await mountRoute(page, true, false, 'empty');
-  await expect(page.locator('.work-band')).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Work on this page' })).toHaveCount(0);
-  await mountRoute(page, true, true, 'empty');
-  await expect(page.locator('.work-band')).toHaveCount(0);
-});
-
-test('a parent the owner list does not name shows no breadcrumb', async ({ page }) => {
-  await mountRoute(page, true, false, 'child-orphan');
-  await expect(page.getByRole('region', { name: 'Work on this page' })).toBeVisible();
-  await expect(page.locator('.work-parent')).toHaveCount(0);
-  await mountRoute(page, false, false, 'child-orphan');
-  await expect(page.getByRole('region', { name: 'Work on this page' })).toHaveCount(0);
-});
-
-test('the page route draws the band under the header and follows live work', async ({ page }) => {
-  await mountRoute(page, true);
-  const band = page.getByRole('region', { name: 'Work on this page' });
-  await expect(band.locator('.work-line1')).toHaveText('Release notes');
-  await expect(band.locator('.work-progress')).toHaveText('0 of 2 done');
-  const before = (await band.boundingBox())!;
-  const header = (await page.locator('.page-header-actions:visible').boundingBox())!;
-  expect(before.y).toBeGreaterThanOrEqual(header.y);
-  await page.evaluate(() => window.__workPage!.finish());
-  await expect(band.locator('.work-progress')).toHaveText('1 of 2 done');
-});
-
-test('a page that never had work draws no band', async ({ page }) => {
-  await mountRoute(page, false);
-  await expect(page.locator('.work-band')).toHaveCount(0);
-});
-
-for (const [width, height] of [
-  [1440, 900],
-  [390, 844],
-] as const) {
-  for (const scheme of ['light', 'dark'] as const) {
-    test(`look at ${width} in ${scheme}`, async ({ page }) => {
-      await page.setViewportSize({ width, height });
-      await page.emulateMedia({ colorScheme: scheme });
-      const host = await mountBand(page, 'full');
-      await host.getByRole('button', { name: 'Show 7 tasks' }).click();
-      await host.locator('.work-row[data-state=in-progress] button').click();
-      expect(
-        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-      ).toBe(true);
-      await page.screenshot({ path: capturePath(`work-band-${width}-${scheme}.png`) });
-    });
-  }
+async function expand(page: Page) {
+  const button = page.getByRole('button', { name: 'Expand status panel' });
+  if (await button.count()) await button.click();
 }
-
-/** Choose an item of a browser-ui menu by its trigger's name and the item's. */
+async function openTasks(page: Page) {
+  await expand(page);
+  const button = page.getByRole('button', { name: /^Tasks \d+$/ });
+  if ((await button.getAttribute('aria-expanded')) === 'false') await button.click();
+}
 async function choose(page: Page, menu: RegExp, item: string) {
   await page.getByRole('button', { name: menu }).click();
-  await page.getByRole('menuitemradio', { name: item }).click();
+  await page.getByRole('menuitemradio', { name: item, exact: true }).click();
 }
 async function openTask(page: Page, id: string) {
   await mountRoute(page, true, true);
+  await openTasks(page);
   const band = page.getByRole('region', { name: 'Work on this page' });
-  await band.getByRole('button', { name: /Show \d+ tasks/ }).click();
   await band.locator('.work-row', { hasText: id }).locator('button').click();
   return band;
 }
 const calls = (page: Page) => page.evaluate(() => window.__workPage!.calls);
 
-test('a device that cannot change work sees no controls', async ({ page }) => {
-  await mountRoute(page, true, false);
-  const band = page.getByRole('region', { name: 'Work on this page' });
-  await band.getByRole('button', { name: 'Show 2 tasks' }).click();
-  await band.locator('.work-row button').first().click();
-  await expect(band.locator('.work-detail')).toBeVisible();
-  await expect(band.locator('.work-controls')).toHaveCount(0);
-  await expect(band.locator('.work-add')).toHaveCount(0);
+test('collapsed panel uses manual state and native progress, including unknown', async ({
+  page,
+}) => {
+  const host = await mountBand(page);
+  await expect(host.locator('.work-page-state')).toHaveText('To do');
+  await expect(host.locator('.work-progress')).toHaveText('1 of 7 done');
+  await expect(host.getByRole('img')).toHaveAttribute(
+    'aria-label',
+    'Done 1, In progress 3, To do 2, Unknown 1',
+  );
+  await expect(host.getByRole('button', { name: 'Expand status panel' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await expect(host.locator('.work-list')).toHaveCount(0);
+  await expect(host.getByText('Attach a sub-page')).toHaveCount(0);
 });
 
+test('an ordinary page without work still has a manual-state panel and unavailable progress', async ({
+  page,
+}) => {
+  const host = await mountBand(page, 'empty');
+  const band = host.getByRole('region', { name: 'Work on this page' });
+  await expect(band).toBeVisible();
+  await expect(band).toContainText('State unavailable');
+  await expect(band).toContainText('Progress unavailable');
+  await expect(band.getByRole('img')).toHaveCount(0);
+  await expect(band.getByRole('button', { name: 'Expand status panel' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+});
+
+test('empty progress is zero and complete progress never changes manual state', async ({
+  page,
+}) => {
+  let host = await mountBand(page, 'zero');
+  await expect(host.locator('.work-progress')).toHaveText('0 of 0 done');
+  await expect(host.locator('.work-segments span')).toHaveCount(0);
+  host = await mountBand(page, 'complete');
+  await expect(host.locator('.work-progress')).toHaveText('5 of 5 done');
+  await expect(host.locator('.work-page-state')).toHaveText('In progress');
+});
+
+test('expansion pushes content down, shows direct states and legend, and keeps tasks reachable', async ({
+  page,
+}) => {
+  const host = await mountBand(page, 'panel');
+  const before = (await host.locator('[data-after]').boundingBox())!.y;
+  await expand(page);
+  await expect(host.getByRole('list', { name: 'Sub-pages' }).locator('li')).toHaveCount(3);
+  await expect(host.locator('.work-legend')).toHaveText('Done 3In progress 1To do 1');
+  expect((await host.locator('[data-after]').boundingBox())!.y).toBeGreaterThan(before);
+  expect(await host.locator('.work-band').evaluate((node) => getComputedStyle(node).position)).toBe(
+    'static',
+  );
+  await openTasks(page);
+  await expect(host.locator('.work-row')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Collapse status panel' }).click();
+  expect((await host.locator('[data-after]').boundingBox())!.y).toBe(before);
+});
+
+test('task deep links open once and preserve detail, acceptance, assignee and controls', async ({
+  page,
+}) => {
+  const host = await mountBand(page, 'full', 'T-2');
+  await expect(host.locator('.work-detail')).toContainText('Keep the menu entry');
+  await expect(host.locator('.work-acceptance li')).toHaveText([
+    'Test: export.spec',
+    'pnpm check → passed',
+    'Confirmed by Ben',
+  ]);
+  await expect(host.getByRole('button', { name: 'Edit T-2' })).toBeVisible();
+  await page.getByRole('button', { name: 'Tasks 6' }).click();
+  await expect(host.locator('.work-list')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Tasks 6' }).click();
+  await expect(host.locator('.work-row[data-selected=true]')).toContainText('Wire the export');
+});
+
+test('missing child list rows stay unknown, known rows use manual state', async ({ page }) => {
+  await mountRoute(page, true, false, 'linked-done');
+  await expand(page);
+  await expect(page.getByRole('list', { name: 'Sub-pages' })).toHaveText('Legal copyDone');
+  await mountRoute(page, true, false, 'linked-missing');
+  await expand(page);
+  await expect(page.getByRole('list', { name: 'Sub-pages' })).toHaveText('Unknown pageUnknown');
+});
+
+test('owner manual state uses metadata, persists through stream, and reports refusal', async ({
+  page,
+}) => {
+  await mountRoute(page, true, true);
+  await page.evaluate(() => {
+    window.__workPage!.holdMetadata = true;
+  });
+  await choose(page, /Page state/, 'Done');
+  await expect(page.getByRole('button', { name: /Page state/ })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /Page state/ })).toContainText('To do');
+  await expect(
+    page.getByRole('status', { name: '' }).filter({ hasText: 'Saving state…' }),
+  ).toBeVisible();
+  await page.evaluate(() => {
+    window.__workPage!.holdMetadata = false;
+    window.__workPage!.finishMetadata!();
+  });
+  await expect(page.getByRole('button', { name: /Page state/ })).toContainText('Done');
+  await expect(page.locator('#work-page-fixture .work-progress')).toHaveText('0 of 3 done');
+  expect(await calls(page)).toEqual([{ action: 'page.state', body: { state: 'done' } }]);
+  await page.evaluate(() => {
+    window.__workPage!.refuse = { code: 'COLAB_STALE_BASE', message: 'Read the state again.' };
+  });
+  await choose(page, /Page state/, 'To do');
+  await expect(page.getByRole('alert')).toHaveText('Read the state again.');
+  await expect(page.getByRole('button', { name: /Page state/ })).toContainText('Done');
+});
+
+test('viewers retain panel and task details without owner controls', async ({ page }) => {
+  await mountRoute(page, false);
+  await expect(page.locator('#work-page-fixture .work-band')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Page state/ })).toHaveCount(0);
+  await mountRoute(page, true, false);
+  await openTasks(page);
+  await page.locator('.work-row button').first().click();
+  await expect(page.locator('.work-detail')).toBeVisible();
+  await expect(page.locator('.work-controls')).toHaveCount(0);
+});
+
+for (const width of [390, 1440])
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`status panel at ${width} ${scheme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: scheme });
+      const host = await mountBand(page, 'panel');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({ path: capturePath(`status-panel-collapsed-${width}-${scheme}.png`) });
+      await page.getByRole('button', { name: 'Expand status panel' }).focus();
+      await page.keyboard.press('Enter');
+      await expect(host.getByRole('button', { name: 'Collapse status panel' })).toBeFocused();
+      await expect(host.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
+      await page.screenshot({ path: capturePath(`status-panel-expanded-${width}-${scheme}.png`) });
+      await mountBand(page, 'empty');
+      await page.screenshot({
+        path: capturePath(`status-panel-unavailable-${width}-${scheme}.png`),
+      });
+    });
+  }
 test('a state change is sent as one action and shows once the page brings it back', async ({
   page,
 }) => {
@@ -354,9 +242,9 @@ test('blocking asks for a reason and sends it with the state', async ({ page }) 
 
 test('sign-off closes a flagged task; sending it back reopens it', async ({ page }) => {
   const band = await openTask(page, 'T-3');
-  await expect(band.locator('.work-signoff')).toHaveText('1 waiting for sign-off');
+  await expect(band.locator('.work-detail-state')).toContainText('sign-off');
   await band.getByRole('button', { name: 'Sign off' }).click();
-  await expect(band.locator('.work-signoff')).toHaveCount(0);
+  await expect(band.locator('.work-detail-state')).not.toContainText('sign-off');
   await expect(band.locator('.work-row', { hasText: 'T-3' }).locator('.work-state')).toHaveText(
     'Done',
   );
@@ -427,115 +315,6 @@ test('removing needs a second click, and adding names no ID', async ({ page }) =
   expect((await calls(page))[1].body).toEqual({ task: { title: 'Publish' } });
 });
 
-for (const [width, height] of [
-  [1440, 900],
-  [390, 844],
-] as const) {
-  for (const scheme of ['light', 'dark'] as const) {
-    test(`the owner's controls at ${width} in ${scheme}`, async ({ page }) => {
-      await page.setViewportSize({ width, height });
-      await page.emulateMedia({ colorScheme: scheme });
-      const band = await openTask(page, 'T-3');
-      await page.evaluate(() => {
-        window.__workPage!.refuse = {
-          code: 'COLAB_WIP_LIMIT',
-          message: 'Atlas would hold T-1, T-2 (limit 1)',
-        };
-      });
-      await band.getByLabel('Name').fill('Atlas');
-      await band.getByRole('button', { name: 'Assign', exact: true }).click();
-      await expect(band.getByRole('alert')).toBeVisible();
-      expect(
-        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-      ).toBe(true);
-      await band.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: capturePath(`work-controls-${width}-${scheme}.png`) });
-    });
-  }
-}
-
-test("a task that follows a page shows that page's stage from the owner list", async ({ page }) => {
-  await mountRoute(page, true, false, 'linked-done');
-  const band = page.getByRole('region', { name: 'Work on this page' });
-  // T-1 is in progress by itself; T-2 follows a page the list says is done.
-  await expect(band.locator('.work-progress')).toHaveText('1 of 2 done');
-  await band.getByRole('button', { name: 'Show 2 tasks' }).click();
-  await expect(band.locator('.work-row', { hasText: 'T-2' }).locator('.work-state')).toHaveText(
-    'Done',
-  );
-});
-
-test('a task that follows a page the list does not name keeps its own state', async ({ page }) => {
-  await mountRoute(page, true, false, 'linked-missing');
-  const band = page.getByRole('region', { name: 'Work on this page' });
-  await expect(band.locator('.work-progress')).toHaveText('0 of 2 done');
-  await band.getByRole('button', { name: 'Show 2 tasks' }).click();
-  await expect(band.locator('.work-row', { hasText: 'T-2' }).locator('.work-state')).toHaveText(
-    'To do',
-  );
-});
-
-test('the owner adds the first task from a band that has a summary and no task', async ({
-  page,
-}) => {
-  await mountRoute(page, true, true, 'summary-only');
-  const band = page.getByRole('region', { name: 'Work on this page' });
-  await expect(band.locator('.work-line2')).toHaveText('Nothing planned yet');
-  await expect(band.locator('.work-toggle')).toHaveCount(0);
-  await band.getByLabel('New task').fill('Draft the notes');
-  await band.getByRole('button', { name: 'Add task' }).click();
-  await expect(band.locator('.work-progress')).toHaveText('0 of 1 done');
-  expect((await calls(page))[0]).toEqual({
-    action: 'task.add',
-    body: { task: { title: 'Draft the notes' } },
-  });
-});
-
-test('another device sees a summary with no task and no way to add one', async ({ page }) => {
-  await mountRoute(page, true, false, 'summary-only');
-  const band = page.getByRole('region', { name: 'Work on this page' });
-  await expect(band.locator('.work-line2')).toHaveText('Nothing planned yet');
-  await expect(band.getByLabel('New task')).toHaveCount(0);
-});
-
-for (const [width, height] of [
-  [1440, 900],
-  [390, 844],
-] as const) {
-  for (const scheme of ['light', 'dark'] as const) {
-    test(`the owner's empty band, a followed page and a child page at ${width} in ${scheme}`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height });
-      await page.emulateMedia({ colorScheme: scheme });
-      await mountRoute(page, true, true, 'summary-only');
-      const band = page.getByRole('region', { name: 'Work on this page' });
-      await expect(band.getByLabel('New task')).toBeVisible();
-      await page.screenshot({ path: capturePath(`work-first-task-${width}-${scheme}.png`) });
-      await mountRoute(page, true, false, 'linked-done');
-      await page
-        .getByRole('region', { name: 'Work on this page' })
-        .getByRole('button', { name: 'Show 2 tasks' })
-        .click();
-      await page.screenshot({ path: capturePath(`work-followed-${width}-${scheme}.png`) });
-      await mountRoute(page, true, false, 'child');
-      await expect(page.locator('.work-parent a')).toHaveText(
-        'Release plan › T-3 · Draft the copy',
-      );
-      await page.screenshot({ path: capturePath(`work-child-${width}-${scheme}.png`) });
-      // The crumb opens the parent page at that task (#4263).
-      await page.locator('.work-parent a').click();
-      await expect(page.locator('.work-detail-state')).toBeVisible();
-      await page.screenshot({ path: capturePath(`work-parent-task-${width}-${scheme}.png`) });
-      await mountRoute(page, false, false, 'child');
-      await expect(page.locator('.work-parent a')).toHaveText(
-        'Release plan › T-3 · Draft the copy',
-      );
-      await page.screenshot({ path: capturePath(`work-child-bare-${width}-${scheme}.png`) });
-    });
-  }
-}
-
 const MADE_PAGE = '20000000-0000-4000-8000-000000000009';
 async function openOwnerTask(
   page: Page,
@@ -543,8 +322,15 @@ async function openOwnerTask(
   scenario?: 'linked-done' | 'linked-missing' | 'external',
 ) {
   await mountRoute(page, true, true, scenario);
+  if (scenario === 'linked-done') {
+    await page.evaluate((id) => {
+      location.hash = `/pages/notes?task=${id}`;
+    }, id);
+    await expect(page.locator('#work-page-fixture .work-detail')).toBeVisible();
+    return page.getByRole('region', { name: 'Work on this page' });
+  }
   const band = page.getByRole('region', { name: 'Work on this page' });
-  await band.getByRole('button', { name: /Show \d+ tasks/ }).click();
+  await openTasks(page);
   await band.locator('.work-row', { hasText: id }).locator('button').click();
   return band;
 }
@@ -606,29 +392,13 @@ test('a page made but not linked is named, and can be linked or opened', async (
   expect((await calls(page))[2].body).toEqual({ taskId: 'T-2', pageId: MADE_PAGE });
 });
 
-for (const [width, height] of [
-  [1440, 900],
-  [390, 844],
-] as const) {
-  for (const scheme of ['light', 'dark'] as const) {
-    test(`Convert to Colab and a page made but not linked at ${width} in ${scheme}`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height });
-      await page.emulateMedia({ colorScheme: scheme });
-      const band = await openOwnerTask(page, 'T-2');
-      await page.screenshot({ path: capturePath(`work-convert-${width}-${scheme}.png`) });
-      await page.evaluate((childPage) => {
-        window.__workPage!.refuse = {
-          code: 'COLAB_LINK_REFUSED',
-          message: 'That page already follows another task.',
-          childPage,
-        };
-      }, MADE_PAGE);
-      await band.getByRole('button', { name: 'Convert to Colab' }).click();
-      await expect(band.locator('.work-stranded').getByRole('alert')).toBeVisible();
-      await page.mouse.move(0, 0);
-      await page.screenshot({ path: capturePath(`work-convert-stranded-${width}-${scheme}.png`) });
-    });
-  }
-}
+test('state revision is captured when its menu opens, before a choice is applied', async ({
+  page,
+}) => {
+  await mountRoute(page, true, true);
+  await page.getByRole('button', { name: /Page state/ }).click();
+  expect(await page.evaluate(() => window.__workPage!.metadataCaptures)).toBe(1);
+  await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Page state/ })).toContainText('Done');
+  expect(await page.evaluate(() => window.__workPage!.metadataCaptures)).toBe(1);
+});

@@ -26,6 +26,9 @@ const work = (done: boolean, owner = false): Work => ({
 
 export interface WorkPageHook {
   finish(): void;
+  metadataCaptures?: number;
+  holdMetadata?: boolean;
+  finishMetadata?(): void;
   /** The actions the owner controls sent, in order. */
   calls: { action: string; body: unknown }[];
   /** The next action is refused with this code and message, and nothing changes. */
@@ -90,19 +93,63 @@ export function mountWorkPage(
       ...current,
       tasks: { ...current.tasks, 'T-2': { ...current.tasks['T-2'], child: FOLLOWED } },
     };
+  let manualState: 'todo' | 'in-progress' | 'done' = 'todo';
+  const projection = (): PageView => {
+    const values = Object.values(current.tasks);
+    const done = values.filter((task) =>
+      task.child ? scenario === 'linked-done' : task.state === 'done',
+    ).length;
+    const unknown = values.filter((task) => task.child && scenario !== 'linked-done').length;
+    const todo = values.filter((task) => !task.child && task.state === 'todo').length;
+    return {
+      ...base,
+      state: manualState,
+      pageState: manualState,
+      ...(withWork ? { work: current } : {}),
+      progress: {
+        done,
+        todo,
+        unknown,
+        inProgress: values.length - done - todo - unknown,
+        total: values.length,
+      },
+    };
+  };
   let publishNow: ((value: PageView) => void) | undefined;
   const binding: PageBinding = {
     subscribe(publish) {
       publishNow = publish;
-      publish({ ...base, ...(withWork ? { work: current } : {}) });
+      publish(projection());
       window.__workPage = {
         calls: [],
-        finish: () => publish({ ...base, work: work(true) }),
+        finish: () => {
+          current = work(true);
+          publish(projection());
+        },
       };
       return () => {};
     },
     ...(owner
       ? {
+          canMetadata: () => true,
+          metadataRevision: async () => {
+            window.__workPage!.metadataCaptures = (window.__workPage!.metadataCaptures ?? 0) + 1;
+            return `v1:${'a'.repeat(64)}`;
+          },
+          metadata: async (action, body) => {
+            window.__workPage!.calls.push({ action, body });
+            if (window.__workPage!.refuse) {
+              const refusal = window.__workPage!.refuse;
+              window.__workPage!.refuse = undefined;
+              throw new SaveRefused(refusal.code, refusal.message);
+            }
+            if (window.__workPage!.holdMetadata)
+              await new Promise<void>((resolve) => {
+                window.__workPage!.finishMetadata = resolve;
+              });
+            manualState = body.state as typeof manualState;
+            publishNow?.(projection());
+          },
           canWork: () => true,
           async work(action, body) {
             const page = window.__workPage!;
@@ -122,11 +169,11 @@ export function mountWorkPage(
                 { taskId: (body as { taskId: string }).taskId, pageId: childPage },
                 attribution,
               );
-              publishNow?.({ ...base, work: current });
+              publishNow?.(projection());
               return { childPage };
             }
             current = applyWorkAction(current, action, body, attribution);
-            publishNow?.({ ...base, work: current });
+            publishNow?.(projection());
             return action === 'task.add' ? { taskId: `T-${current.next - 1}` } : {};
           },
         }
@@ -182,6 +229,7 @@ export function mountWorkPage(
               {
                 id: FOLLOWED,
                 title: 'Legal copy',
+                state: 'done' as const,
                 sharing: 'private' as const,
                 summary: {
                   comments: 0,

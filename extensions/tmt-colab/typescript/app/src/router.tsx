@@ -2111,6 +2111,8 @@ function OpenPage({
         {pageLinkBar}
         <PageWorkBand
           work={view.work}
+          pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
+          progress={view.progress}
           binding={snapshot.binding}
           transport={transport}
           space={space}

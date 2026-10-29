@@ -1,3 +1,4 @@
+import { WorkBand } from './work-band.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
@@ -272,6 +273,15 @@ export function ReaderApp({
         ) : state.kind === 'ready' ? (
           <section className="page">
             <div className="workspace">
+              <WorkBand
+                work={state.view.work ?? { version: 1, next: 1, order: [], tasks: {} }}
+                pageState={
+                  state.view.state === undefined
+                    ? (state.view.pageState ?? 'todo')
+                    : state.view.state
+                }
+                progress={null}
+              />
               <div className="canvas">
                 <div className="frame-host" ref={host} />
                 {editLockLayer.layer}
