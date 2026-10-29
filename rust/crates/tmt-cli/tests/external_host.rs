@@ -1554,12 +1554,25 @@ fn a_refused_or_unconfirmed_agent_name_keeps_the_binding_and_says_which() {
         ),
     ] {
         let fixture = naming(&format!("bind-{answer}"), &[answer, answer]);
+        // The pane is a shell of its own, not this test process: a provider
+        // stand-in of a parallel test would be beneath that shared pane and
+        // add a session warning (#4661).
+        let mut pane = SteppedProvider::start_in(&fixture, "sh", "pane", "f1", true);
+        pane.provider_pid();
+        let shell = live_process(u64::from(pane.child.id()));
+        for file in ["pid", "shell"] {
+            fs::write(
+                fixture.root.join("driver").join(file),
+                pane.child.id().to_string(),
+            )
+            .unwrap();
+        }
         fixture.approve();
-        let output = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
-        assert!(output.status.success(), "{answer}: {output:?}");
+        let output = pane.command(&[], &["name", "worker", "--save", "--json"]);
+        assert_eq!(output.0, 0, "{answer}: {output:?}");
         // One JSON document on stdout, and nothing on stderr.
-        let bound: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert!(output.stderr.is_empty(), "{answer}: {output:?}");
+        let bound: Value = serde_json::from_str(&output.1).unwrap();
+        assert!(output.2.is_empty(), "{answer}: {output:?}");
         assert_eq!(bound["name"], "worker", "{answer}: {bound:#}");
         match warning {
             None => {
@@ -1586,26 +1599,20 @@ fn a_refused_or_unconfirmed_agent_name_keeps_the_binding_and_says_which() {
         assert_eq!(row["presence"], "active", "{answer}: {row:#}");
         assert!(!fixture.root.join("driver/agentname").exists(), "{answer}");
 
-        let human = fixture.tmt_in(Some("f1"), &["name", "worker", "--save"]);
-        assert!(human.status.success(), "{answer}: {human:?}");
-        let stderr = String::from_utf8_lossy(&human.stderr);
+        let human = pane.command(&[], &["name", "worker", "--save"]);
+        assert_eq!(human.0, 0, "{answer}: {human:?}");
+        let stderr = &human.2;
         assert!(stderr.contains(said), "{answer}: {stderr}");
         assert!(stderr.contains("The binding stays"), "{answer}: {stderr}");
-        // Session completion reports independently of agent naming. A native
-        // provider can be visible beneath this fixture's shared pane ancestor.
-        let session_warning = usize::from(
-            stderr.contains("The pane is bound, but the provider session was not recorded:"),
-        );
-        assert_eq!(
-            stderr.matches("warning:").count(),
-            1 + session_warning,
-            "{answer}: {stderr}"
-        );
+        assert_eq!(stderr.matches("warning:").count(), 1, "{answer}: {stderr}");
         assert_eq!(
             stderr.contains("was not set"),
             warning.is_none(),
             "{answer}"
         );
+        // The pane shell and its group end before the fixture is deleted.
+        drop(pane);
+        assert_eq!(shell.seen(), Seen::Ended, "{answer}");
     }
 }
 
