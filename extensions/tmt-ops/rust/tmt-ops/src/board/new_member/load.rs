@@ -165,13 +165,20 @@ fn launch(core: &Core, review: &model::Review) -> Result<Outcome, SquadError> {
                 core.json_with_operands(&["identity", "create"], &[&review.name])
                     .err()
                     .map(|error| {
+                        // The squad step needs a kept identity, so it waits for the keep.
+                        let then = review
+                            .squad_lines()
+                            .iter()
+                            .map(|squad| format!("\nThen: {squad}"))
+                            .collect::<String>();
                         format!(
-                            "It started as temporary; keeping it failed: {}\nKeep it with: {line}",
+                            "It started as temporary; keeping it failed: {}\nKeep it with: {line}{then}",
                             error.message
                         )
                     })
             });
             let joined = match (&review.room, &review.new_squad) {
+                _ if keep_failure.is_some() => None,
                 (Some(target), _) => Some((
                     target.name.clone(),
                     Config::load(core).and_then(|mut config| {
