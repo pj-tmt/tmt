@@ -668,6 +668,12 @@ ledger. Missing (or null) new fields mean unknown, never a measured zero:
 - `consumption.modelId` is the model on the last accepted completed request or
   turn, not the starting-hook `resume.model` used to relaunch a conversation.
   Claude reads `message.model`; Codex reads the preceding `turn_context.model`.
+  Agy reads `PLANNER_RESPONSE.model`, or, when that field is omitted, the concrete
+  model reported by an admitted hook in the current state. An explicit invalid
+  or `auto` model stays unknown. The hook observation is separate from the kept
+  resume setting: a start with no model clears it; Stop becoming idle does not.
+  This fallback attributes only appended responses, never absorbed initial history.
+  Supported Agy display labels normalize to concrete slugs, including effort suffixes.
   A new Codex turn marker requires its own matching or subsequent context;
   an older turn's model is never carried into a turn with missing evidence.
   Missing/changed provider shapes, a missing bounded turn context or a model

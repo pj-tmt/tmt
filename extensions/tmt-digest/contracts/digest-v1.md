@@ -387,9 +387,21 @@ basis, origin, fetchedAtMs?, models:[{modelId, usdMicrosPerMillionInputTokens,
 source}]}`, acquired with the same status call. It names the one table every quote of
 that document used ([Pricing file](#pricing-file)). `basis` is `standard-base-input`;
 `source` is the official source URL and `asOf` is the verification date. Version
-`2026-10-14` includes only canonical `claude-opus-5-5`, `claude-sonnet-5-5`,
-`gpt-6-sol`, and `gpt-6.1-sol`. There are no aliases or fallback rates. This fixed
-assumption excludes cached input, cache writes, fast/regional/long-context
+`2026-10-28` keeps the canonical Claude Opus/Sonnet 5.5 and GPT-6/6.1 Sol rows,
+and adds these exact Gemini IDs from Google's paid Standard text-input pricing:
+`gemini-3-flash-preview` ($0.50/M), `gemini-3.1-flash-lite` ($0.25/M),
+`gemini-3.1-pro-preview` ($2/M base tier, prompts <=200k),
+`gemini-3.5-flash-lite` ($0.30/M), `gemini-3.6-flash` and `gemini-3.8-flash`
+($0.75/M introductory through 2026-12-31), and `gemini-4-argon` ($2/M introductory
+through 2026-11-30). Agy's normalized `gemini-3.8-flash-{low,medium,high}` and
+`gemini-4-argon-{low,medium,high}` labels have explicit rows at their family's
+base input rate; effort is not a separate provider input-price tier. Other
+aliases and unverified slugs remain unpriced. The [provider page](https://ai.google.dev/gemini-api/docs/pricing)
+announces $1.50/M for those Flash models starting 2027-01-01 and $4/M for Argon
+starting 2026-12-01. Those later rates require new verified immutable versions;
+there is no clock-based rate switch in this table.
+
+The fixed assumption excludes cached input, cache writes, fast/regional/long-context
 modifiers, negotiated discounts, subscription allowances and historical price
 reconstruction. Updating rates requires a new verified file `version`.
 
@@ -442,8 +454,8 @@ status `pricing` object plus `schema`:
 ```json
 {
   "schema": "tmt-digest-pricing-v1",
-  "version": "2026-10-14",
-  "asOf": "2026-10-14",
+  "version": "2026-10-28",
+  "asOf": "2026-10-28",
   "basis": "standard-base-input",
   "models": [
     {

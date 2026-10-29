@@ -289,6 +289,8 @@ native-first process-incarnation acquisition. `process::interactive` owns direct
 sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
 
+Driver-owned consumption attribution uses completed-record evidence; Agy may fill an omitted model from its admitted hook observation, never a kept resume setting ([consumption rules](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
+
 The CLI acquires caller-host evidence only for caller-scoped operations; explicit senders
 and stored bindings retain their own authority. Caller-process observation failures retain typed adapter causes through the driver registry to bounded CLI context.
 The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through

@@ -141,10 +141,6 @@ fn unreadable_transcripts_write_nothing() {
         let malformed = |line: &str| vec![format!("{line}\n")];
         for lines in [
             malformed("not json"),
-            malformed(r#"{"type":"summary","summary":"foreign format"}"#),
-            malformed(&edited(driver.line, |value| {
-                value["type"] = json!("something-new")
-            })),
             // A final line larger than the whole read window.
             vec![
                 driver.line.into(),
@@ -160,6 +156,47 @@ fn unreadable_transcripts_write_nothing() {
         let outside = home.path.join("elsewhere.jsonl");
         fs::write(&outside, driver.line).unwrap();
         assert_eq!(read(&driver, &home.path, Some(&outside), None), None);
+    }
+}
+
+#[test]
+fn foreign_only_initial_sources_do_not_invent_usage_but_claude_keeps_a_zero_cursor() {
+    let drivers = drivers();
+    let home = TestDirectory::new();
+    for foreign in [
+        r#"{"type":"summary","summary":"foreign format"}"#.to_owned(),
+        edited(drivers[0].line, |value| {
+            value["type"] = json!("something-new")
+        }),
+    ] {
+        let state = turn(&drivers[0], &home.path, &[format!("{foreign}\n")], None).unwrap();
+        assert!(
+            drivers[0].lifecycle.state_usage(&state).is_none(),
+            "foreign records report no usage"
+        );
+        let counter = drivers[0].lifecycle.state_consumption(&state).unwrap();
+        assert_eq!(
+            (
+                counter.input_tokens,
+                counter.cached_input_tokens,
+                counter.output_tokens
+            ),
+            (0, 0, 0)
+        );
+        assert!(counter.complete && !counter.gap);
+        assert!(counter.delta_by_model.as_ref().unwrap().is_empty());
+    }
+    // Codex's cumulative format still requires an actual token_count baseline.
+    for foreign in [
+        r#"{"type":"summary","summary":"foreign format"}"#.to_owned(),
+        edited(drivers[1].line, |value| {
+            value["type"] = json!("something-new")
+        }),
+    ] {
+        assert_eq!(
+            turn(&drivers[1], &home.path, &[format!("{foreign}\n")], None),
+            None
+        );
     }
 }
 
