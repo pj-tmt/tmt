@@ -224,6 +224,7 @@
 }
 .tmt-ui-shell-open:focus-visible,
 .tmt-ui-rail-item:focus-visible,
+.tmt-ui-rail-search:focus-visible,
 .tmt-ui-module-menu-item:focus-visible,
 .tmt-ui-rail-sub-item:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
@@ -264,6 +265,7 @@
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-rail-item,
+.tmt-ui-rail-search,
 .tmt-ui-module-menu-item,
 .tmt-ui-rail-sub-item {
   position: relative;
@@ -273,7 +275,8 @@
   text-decoration: none;
   white-space: nowrap;
 }
-.tmt-ui-rail-item {
+.tmt-ui-rail-item,
+.tmt-ui-rail-search {
   gap: var(--tmt-ui-rail-item-gap);
   min-height: var(--tmt-ui-rail-item-height);
   box-sizing: border-box;
@@ -282,6 +285,7 @@
 }
 /* Hover lightly tints the row; the current module is a soft mint pill with a mint edge. */
 .tmt-ui-rail-item:hover,
+.tmt-ui-rail-search:hover,
 .tmt-ui-module-menu-item:hover,
 .tmt-ui-rail-sub-item:hover {
   color: var(--tmt-ui-color-selected-text);

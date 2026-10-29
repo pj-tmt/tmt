@@ -95,7 +95,6 @@ async function metrics(page: Page) {
         lineHeight: value.lineHeight,
       };
     };
-    const font = (selector: string) => read(header.querySelector(selector)!);
     // The shell bar draws the page title alone, so the brand parts exist only in standalone headers.
     const brandFont = (selector: string) => {
       const node = header.querySelector(selector);
@@ -115,7 +114,7 @@ async function metrics(page: Page) {
       mark: brandFont('.tmt-ui-mark'),
       wordmark: brandFont('.tmt-ui-wordmark'),
       title: brandFont('.tmt-ui-title'),
-      actions: font('.tmt-ui-actions'),
+      actions: brandFont('.tmt-ui-actions'),
     };
   });
 }
@@ -170,6 +169,7 @@ for (const width of [1440, 390, 320])
       // screens keep the standalone fixed header. Each kind shares one chrome.
       const references = new Map<boolean, unknown>();
       let cardReference: unknown;
+      let actionReference: unknown;
       for (const screen of [...screens, 'rust-private', 'rust-owner'] as const) {
         await test.step(screen, async () => {
           if (screen === 'rust-private' || screen === 'rust-owner') {
@@ -207,7 +207,14 @@ for (const width of [1440, 390, 320])
           );
           const measure = () => (shelled ? barMetrics(page) : metrics(page));
           const current = await measure();
-          const { title, ...frame } = current as Awaited<ReturnType<typeof metrics>>;
+          const { title, actions, ...frame } = current as Awaited<ReturnType<typeof metrics>>;
+          if (actions) {
+            actionReference ??= actions;
+            expect(actions, `${screen} actions`).toEqual(actionReference);
+          } else if (!shelled) {
+            expect(screen.startsWith('reader-')).toBe(true);
+            await expect(page.locator('.tmt-ui-header:visible .tmt-ui-actions')).toHaveCount(0);
+          }
           if (!references.has(shelled)) references.set(shelled, frame);
           expect(frame, screen).toEqual({
             ...(references.get(shelled) as object),
