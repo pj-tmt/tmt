@@ -88,7 +88,9 @@ for (const { width, height } of views) {
   test(`the last control at the page end is clear of the floating actions at ${width}`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width, height });
+    // The direct task list can fit a desktop's 900 px viewport. Keep this case about
+    // reaching the last controls by scrolling, independently of that compact layout.
+    await page.setViewportSize({ width, height: 480 });
     await openWorkBand(page);
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await expect.poll(() => page.evaluate(() => Math.round(scrollY))).toBeGreaterThan(0);
