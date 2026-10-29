@@ -203,14 +203,14 @@ state only, no squad data or durable preference policy.
   membership and timer totals remain distinct from observed zero. The
   [workspace surface](board-home.md#shell-geometry-and-input) owns its layout.
 
-- `digest_dashboard::allowance` paints the Allowance block under the range summary from
-  `limits::allowance` (pure: rates per span from the sampled weekly history, NEED %/h, the
-  outcome of each rate at the reset); `Standing::rates` is computed when sampled, projections
-  at paint from the clock, so no timer or read runs. The TOKENS line sums the Digest usage
+- `digest_dashboard::allowance` paints the summary's allowance tile from `limits::allowance`
+  (pure: rates per span from the sampled weekly history and the outcome of each rate at the
+  reset; a row shows the worst); `Standing::rates` is computed when sampled, projections at
+  paint from the clock, so no timer or read runs. The TOKENS line sums the Digest usage
   report's hourly seat cells per provider (`Rate::current_driver_of` names a seat's driver;
   incomplete or stale series leave the provider out) and calibrates on `Rates` hours24, so it
-  adds no read or demand. It takes rows off the table only when the
-  table keeps its minimum height.
+  adds no read or demand. `allowance::Scroll` records the painted area and hidden rows; the
+  wheel over the tile moves its offset, clamped at paint.
 - `digest_dashboard` owns a fixed range summary, TOK-ranked UUID table with a
   read-only `DigestAll` aggregate, and selection details. The same row projection
   owns paint and input order. Its session cache retains canonical admitted/ranked
@@ -336,7 +336,7 @@ if its boundary disappears. Drag ratios remain live previews until mouse-up;
 Esc discards the preview. Hover changes separator
 strokes only. Double-click identity belongs to a boundary, independently of row
 clicks. Hidden panels and space below usable minimums publish no drag target.
-`view_state::Controls` carries ratios through the existing named-layer writer and
+`view_state::Controls` carries ratios (and the Digest window, `digestWindow`) through the existing named-layer writer and
 exec snapshot. Defaults keep exact original geometry; temporary resize clamps do
 not replace retained ratios. Effective bindings supply optional resize actions;
 no raw key interception or default binding is added.

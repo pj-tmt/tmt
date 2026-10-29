@@ -14,7 +14,7 @@ pub(in crate::board) mod pace;
 mod store;
 
 pub(in crate::board) use accounts::{Accounts, Current};
-pub use allowance::{Line, NEED_CAP, Need, Outcome, Rates, Row, Spent, Weekly, rows};
+pub use allowance::{Outcome, Rates, Row, Spent, rows};
 pub use estimate::{Figures, Left, Outlook, Trend, outlook};
 use serde_json::Value;
 use std::{

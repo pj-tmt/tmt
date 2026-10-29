@@ -669,6 +669,8 @@ fn session(
     // The event that ended a wheel burst; it is the next turn's first event.
     let mut deferred: Option<BoardEvent> = None;
     let mut wanted: Option<usage_report::Request> = None;
+    // The labels reader was started with the window the app opens with.
+    let mut labels_published = app.digest_window();
     let mut history_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
@@ -770,6 +772,11 @@ fn session(
         dirty |= next_spinner != spinner || next_marks != marks;
         spinner = next_spinner;
         marks = next_marks;
+        // A window chosen, or restored by a later view, wakes the reader once.
+        if app.digest_window() != labels_published {
+            labels_published = app.digest_window();
+            labels_window(labels_published);
+        }
         // The reader runs only while the panel is on screen, for its window.
         let want = app.usage_report_want();
         if want != wanted {
@@ -924,11 +931,7 @@ fn session(
                                 revision += 1;
                                 app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
-                            let previous_window = app.digest_window();
                             app.apply(*snapshot);
-                            if app.digest_window() != previous_window {
-                                labels_window(app.digest_window());
-                            }
                             dirty = true;
                             Effect::None
                         } else {
@@ -1677,18 +1680,7 @@ pub fn run(
         state.explicit_startup();
     }
     let squad = Some(ALL.to_owned());
-    // The labels read in the background; nothing waits for it, and a source that
-    // does not answer simply never shows. Dropping it ends the thread.
-    let labels = crate::labels::Reader::spawn(
-        &core,
-        config.label_sources()?,
-        crate::labels::Timing::default(),
-        config.workspace_preferences()?.digest_window,
-        {
-            let events = events.clone();
-            move |supplied| events.send(BoardEvent::Labels(supplied)).is_ok()
-        },
-    );
+    let label_sources = config.label_sources()?;
     // The Usage report reads in the background and only while its panel shows.
     let usage_reader = usage_report::Reader::spawn(&core, usage_report::Timing::default(), {
         let events = events.clone();
@@ -1759,12 +1751,32 @@ pub fn run(
     app.view_layer = layer;
     app.reload = reload::Watch::start(now_ms);
     app.notes.enable();
+    // A restored Digest window is the app's from the start; an exec resume carries its own.
+    if let Some(window) = view_state
+        .as_ref()
+        .and_then(view_state::Session::digest_window)
+    {
+        app.digest_window = window;
+    }
     if let Some(resume) = resume {
         app.carry(resume);
         if app.notice.is_none() {
             app.set_notice(Some(reload::reloaded()), false);
         }
     }
+    // The labels read in the background; nothing waits for it, and a source that
+    // does not answer simply never shows. Dropping it ends the thread. The first read
+    // already uses the window the app opens with.
+    let labels = crate::labels::Reader::spawn(
+        &core,
+        label_sources,
+        crate::labels::Timing::default(),
+        app.digest_window(),
+        {
+            let events = events.clone();
+            move |supplied| events.send(BoardEvent::Labels(supplied)).is_ok()
+        },
+    );
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
     let lane = lane::Lane::spawn(
         core.clone(),
@@ -2846,44 +2858,19 @@ print(json.dumps(out))
         }
     }
 
-    #[test]
-    fn a_published_digest_window_wakes_the_existing_reader_once_and_cancelled_views_do_not() {
-        use crate::config::DigestWindow;
-        let mut app = app::workspace::tests::board();
-        let make = |window| {
-            let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
-            snapshot.view = Ok(app::workspace::tests::board().view.take().unwrap());
-            snapshot
-                .view
-                .as_mut()
-                .unwrap()
-                .home
-                .as_mut()
-                .unwrap()
-                .workspace
-                .preferences
-                .digest_window = window;
-            snapshot
-        };
-        let (events, input) = channel();
-        events
-            .send(snapshot_event(make(DigestWindow::Week)))
-            .unwrap();
-        events
-            .send(snapshot_event(make(DigestWindow::Week)))
-            .unwrap();
-        let cancelled = crate::runner::Cancellation::default();
-        cancelled.cancel();
-        events
-            .send(BoardEvent::Snapshot {
-                cancellation: cancelled,
-                snapshot: Box::new(make(DigestWindow::AllTime)),
-            })
-            .unwrap();
-        events.send(BoardEvent::InputClosed).unwrap();
+    /// The windows the session publishes to the labels reader over `events`.
+    fn published_windows(
+        app: &mut App,
+        events: impl IntoIterator<Item = BoardEvent>,
+    ) -> Vec<crate::config::DigestWindow> {
+        let (sender, input) = channel();
+        for event in events {
+            sender.send(event).unwrap();
+        }
+        sender.send(BoardEvent::InputClosed).unwrap();
         let windows = std::cell::RefCell::new(Vec::new());
         super::session(
-            &mut app,
+            app,
             &AtomicUsize::new(0),
             &input,
             |_, _, _, _| {},
@@ -2899,7 +2886,38 @@ print(json.dumps(out))
             |_| {},
         )
         .unwrap();
-        assert_eq!(*windows.borrow(), [DigestWindow::Week]);
+        windows.into_inner()
+    }
+
+    fn window_snapshot() -> BoardEvent {
+        let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
+        snapshot.view = Ok(app::workspace::tests::board().view.take().unwrap());
+        snapshot_event(snapshot)
+    }
+
+    #[test]
+    fn a_restored_digest_window_is_read_from_the_first_request() {
+        use crate::config::DigestWindow;
+        // Startup gives the restored window to the app and the reader alike, so the loop
+        // never asks for 1d first and 7d after.
+        let mut app = app::workspace::tests::board();
+        app.digest_window = DigestWindow::Week;
+        assert_eq!(
+            published_windows(&mut app, [window_snapshot(), window_snapshot()]),
+            []
+        );
+        assert_eq!(app.digest_window(), DigestWindow::Week);
+    }
+
+    #[test]
+    fn a_chosen_digest_window_wakes_the_existing_reader_once() {
+        use crate::config::DigestWindow;
+        let mut app = app::workspace::tests::board();
+        // Workspace settings: three layouts, then the Digest windows 1d and 7d.
+        let mut events = vec![window_snapshot(), key(KeyCode::Char(','))];
+        events.extend(std::iter::repeat_with(|| key(KeyCode::Down)).take(4));
+        events.extend([key(KeyCode::Enter), window_snapshot()]);
+        assert_eq!(published_windows(&mut app, events), [DigestWindow::Week]);
         assert_eq!(app.digest_window(), DigestWindow::Week);
     }
 

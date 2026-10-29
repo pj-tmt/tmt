@@ -81,6 +81,8 @@ function validChipRect(rect: unknown): rect is ChipRect {
 export interface AnchorPosition {
   id: string;
   top: number;
+  /** A requested compact block inside a closed disclosure; no geometry is admitted. */
+  hidden?: true;
   beforeTop?: number;
   descriptionHeight?: number;
   left?: number;
@@ -759,11 +761,14 @@ export async function mountRenderer(
         const requested = slotHeights.find((item) => item.id === slot?.id);
         const answer = requested?.before !== undefined;
         const chip = requested?.chip !== undefined;
-        const keys = chip
-          ? ['id', 'top', 'chip', 'left', 'width']
-          : answer
-            ? ['id', 'top', 'beforeTop', 'descriptionHeight', 'left', 'width']
-            : ['id', 'top'];
+        const hidden = chip && slot?.hidden === true;
+        const keys = hidden
+          ? ['id', 'hidden']
+          : chip
+            ? ['id', 'top', 'chip', 'left', 'width']
+            : answer
+              ? ['id', 'top', 'beforeTop', 'descriptionHeight', 'left', 'width']
+              : ['id', 'top'];
         if (
           !slot ||
           typeof slot !== 'object' ||
@@ -773,38 +778,45 @@ export async function mountRenderer(
           typeof slot.id !== 'string' ||
           !admitted.has(slot.id) ||
           seen.has(slot.id) ||
-          typeof slot.top !== 'number' ||
-          !Number.isFinite(slot.top) ||
-          slot.top < 0 ||
-          slot.top > MAX_RENDER_HEIGHT ||
-          (chip &&
-            (!questionGroups.some((group) => group.id === slot.id && group.form === 'chip') ||
-              !validChipRect(slot.chip))) ||
-          ((answer || chip) &&
-            (!questionGroups.some((group) => group.id === slot.id) ||
-              (answer &&
-                (typeof slot.beforeTop !== 'number' ||
-                  !Number.isFinite(slot.beforeTop) ||
-                  slot.beforeTop < 0 ||
-                  slot.beforeTop > slot.top ||
-                  typeof slot.descriptionHeight !== 'number' ||
-                  !Number.isFinite(slot.descriptionHeight) ||
-                  slot.descriptionHeight < 0 ||
-                  slot.descriptionHeight > 2000)) ||
-              typeof slot.left !== 'number' ||
-              !Number.isFinite(slot.left) ||
-              slot.left < 0 ||
-              slot.left > MAX_RENDER_HEIGHT ||
-              typeof slot.width !== 'number' ||
-              !Number.isFinite(slot.width) ||
-              slot.width <= 0 ||
-              slot.width > MAX_RENDER_HEIGHT ||
-              slot.left + slot.width > frame.clientWidth ||
-              frame.getBoundingClientRect().left + slot.left < 0 ||
-              frame.getBoundingClientRect().left + slot.left + slot.width > innerWidth))
+          (hidden &&
+            !questionGroups.some((group) => group.id === slot.id && group.form === 'chip')) ||
+          (!hidden &&
+            (typeof slot.top !== 'number' ||
+              !Number.isFinite(slot.top) ||
+              slot.top < 0 ||
+              slot.top > MAX_RENDER_HEIGHT ||
+              (chip &&
+                (!questionGroups.some((group) => group.id === slot.id && group.form === 'chip') ||
+                  !validChipRect(slot.chip))) ||
+              ((answer || chip) &&
+                (!questionGroups.some((group) => group.id === slot.id) ||
+                  (answer &&
+                    (typeof slot.beforeTop !== 'number' ||
+                      !Number.isFinite(slot.beforeTop) ||
+                      slot.beforeTop < 0 ||
+                      slot.beforeTop > slot.top ||
+                      typeof slot.descriptionHeight !== 'number' ||
+                      !Number.isFinite(slot.descriptionHeight) ||
+                      slot.descriptionHeight < 0 ||
+                      slot.descriptionHeight > 2000)) ||
+                  typeof slot.left !== 'number' ||
+                  !Number.isFinite(slot.left) ||
+                  slot.left < 0 ||
+                  slot.left > MAX_RENDER_HEIGHT ||
+                  typeof slot.width !== 'number' ||
+                  !Number.isFinite(slot.width) ||
+                  slot.width <= 0 ||
+                  slot.width > MAX_RENDER_HEIGHT ||
+                  slot.left + slot.width > frame.clientWidth ||
+                  frame.getBoundingClientRect().left + slot.left < 0 ||
+                  frame.getBoundingClientRect().left + slot.left + slot.width > innerWidth))))
         )
           return;
         seen.add(slot.id);
+        if (hidden) {
+          next.push({ id: slot.id, top: 0, hidden: true });
+          continue;
+        }
         next.push({
           id: slot.id,
           top: slot.top,
@@ -838,6 +850,11 @@ export async function mountRenderer(
       }
       const serialized = JSON.stringify(next);
       if (serialized === slotPositions) return;
+      // Disclosure visibility is a new placement trigger, even after geometry converged.
+      if (
+        next.some((slot) => slot.hidden !== lastSlots.find((last) => last.id === slot.id)?.hidden)
+      )
+        slotRounds = 0;
       if (slotRounds >= 3) {
         lastSlots = lastSlots.filter((slot) => seen.has(slot.id));
         options.onSlots?.(lastSlots);

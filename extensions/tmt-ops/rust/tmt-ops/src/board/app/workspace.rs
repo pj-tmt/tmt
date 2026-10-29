@@ -169,10 +169,11 @@ impl App {
     }
 
     pub(in crate::board) fn digest_window(&self) -> crate::config::DigestWindow {
-        self.workspace_snapshot()
-            .map_or(crate::config::DigestWindow::default(), |snapshot| {
-                snapshot.preferences.digest_window
-            })
+        self.digest_window
+    }
+    /// The usage range the Digest tab reads: its own window, not the Agents range.
+    pub(in crate::board) fn digest_range(&self) -> crate::config::TokRange {
+        self.digest_window.range()
     }
     /// Usage and traffic are independent of the optional Digest extension. The
     /// acquired roster supplies identities; no second roster read is scheduled.
@@ -181,43 +182,44 @@ impl App {
     ) -> Option<super::super::usage_report::Request> {
         let snapshot = self.workspace_snapshot()?;
         // The Measure pane's exchange matrix reads the same report at every range.
+        let range = if self.shell.tab == OpsTab::Digest {
+            self.digest_range()
+        } else {
+            self.tok_range()
+        };
         (self.shell.tab == OpsTab::Digest
             || self.tok_range() != crate::config::TokRange::Hour
             || (self.shell.tab == OpsTab::Agents
                 && (self.tok_money() || self.right_tab == super::super::shell::RightTab::Measure)))
             .then(|| {
                 super::super::usage_report::Request::new(
-                    self.tok_range(),
+                    range,
                     std::sync::Arc::clone(&snapshot.identity_ids),
                 )
             })
     }
     pub(in crate::board) fn digest_window_menu(&mut self) -> Effect {
-        let entries = [
-            crate::config::DigestWindow::Day,
-            crate::config::DigestWindow::Week,
-            crate::config::DigestWindow::AllTime,
-        ]
-        .into_iter()
-        .map(|window| MenuEntry {
-            key: String::new(),
-            label: format!(
-                "{}{}",
-                window.label(),
-                if self.digest_window() == window {
-                    " (current)"
-                } else {
-                    ""
-                }
-            ),
-            choice: Choice::DigestWindow(window),
-        })
-        .collect();
+        let entries = crate::config::DigestWindow::ALL
+            .into_iter()
+            .map(|window| MenuEntry {
+                key: String::new(),
+                label: format!(
+                    "{}{}",
+                    window.label(),
+                    if self.digest_window() == window {
+                        " (current)"
+                    } else {
+                        ""
+                    }
+                ),
+                choice: Choice::DigestWindow(window),
+            })
+            .collect();
         self.menu = Some(Menu {
             row_send: None,
             link: None,
             prefill: String::new(),
-            title: "Digest estimate window".into(),
+            title: "Digest window".into(),
             entries,
             selected: 0,
             anchor: None,
@@ -225,25 +227,20 @@ impl App {
         });
         Effect::None
     }
+    /// View state only: the board loop hands the new window to the labels reader, and the
+    /// Digest tab's usage demand follows it on the next turn.
     pub(in crate::board) fn select_digest_window(
         &mut self,
         window: crate::config::DigestWindow,
     ) -> Effect {
-        let Some(snapshot) = self.workspace_snapshot() else {
-            return self.say("The workspace has not loaded.");
-        };
-        let mut next = snapshot.preferences.clone();
-        next.digest_window = window;
-        self.workspace_save(next)
+        self.digest_window = window;
+        Effect::None
     }
-    /// The unit on screen: the saved choice, except where its window cannot
-    /// show it (lifetime has no percent).
     pub(in crate::board) fn savings_unit(&self) -> crate::config::SavingsUnit {
         self.workspace_snapshot()
             .map_or(crate::config::SavingsUnit::default(), |snapshot| {
                 snapshot.preferences.savings_unit
             })
-            .shown(self.digest_window())
     }
     /// One click or key on any savings figure moves every surface to the next
     /// unit; the choice is the shared preference, never a view-local state.
@@ -252,7 +249,7 @@ impl App {
             return self.say("The workspace has not loaded.");
         };
         let mut next = snapshot.preferences.clone();
-        next.savings_unit = self.savings_unit().next(self.digest_window());
+        next.savings_unit = self.savings_unit().next();
         self.workspace_save(next)
     }
     /// Whether the TOK figures show list-price money instead of tokens: the shared
@@ -356,18 +353,6 @@ impl App {
             summary,
             self.digest_window(),
             self.savings_unit(),
-            width,
-        )
-    }
-    pub(in crate::board) fn digest_savings_start(
-        &self,
-        summary: &crate::labels::digest::SavingsSummary,
-        width: usize,
-    ) -> Option<String> {
-        crate::board::savings::savings_start(
-            summary,
-            self.digest_window(),
-            self.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
             width,
         )
     }
@@ -1589,17 +1574,13 @@ impl App {
             choice: Choice::WorkspaceLayout(layout),
         })
         .collect();
-        for window in [
-            crate::config::DigestWindow::Day,
-            crate::config::DigestWindow::Week,
-            crate::config::DigestWindow::AllTime,
-        ] {
+        for window in crate::config::DigestWindow::ALL {
             entries.push(MenuEntry {
                 key: String::new(),
                 label: format!(
-                    "Digest estimate window: {}{}",
+                    "Digest window: {}{}",
                     window.label(),
-                    if snapshot.preferences.digest_window == window {
+                    if self.digest_window == window {
                         " (current)"
                     } else {
                         ""

@@ -1,10 +1,11 @@
 //! Existing-data Digest view. Acquisition, effects, scrolls and terminal diffing
 //! remain with their existing owners; this module projects already-held values.
 mod allowance;
-mod band;
 mod metrics;
 mod model;
 mod render;
+mod summary;
+pub(in crate::board) use allowance::Scroll as AllowanceScroll;
 pub(in crate::board) use render::open_basis;
 mod table;
 
@@ -94,8 +95,8 @@ fn projection(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Projection {
     let key = Key {
         query: app.workspace.query.clone(),
         visibility: app.workspace.visibility.clone(),
-        range: app.tok_range(),
-        report: app.usage_report.retained_report(app.tok_range()),
+        range: app.digest_range(),
+        report: app.usage_report.retained_report(app.digest_range()),
     };
     let mut cache = app.digest_rows.borrow_mut();
     if let Some((old, held)) = &cache.held
@@ -193,7 +194,7 @@ fn projected_rows(
         },
         |_| true,
     );
-    let report = match app.usage_report.view_for(app.tok_range()) {
+    let report = match app.usage_report.view_for(app.digest_range()) {
         View::Report(report) => Some(report),
         _ => None,
     };

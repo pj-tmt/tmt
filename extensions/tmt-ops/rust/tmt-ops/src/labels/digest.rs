@@ -60,7 +60,7 @@ pub struct Cost {
 }
 
 /// The share of observed input that the estimate would have avoided, over whole
-/// closed minutes of the 24h or 7d window; never available for lifetime.
+/// closed minutes of the 1d or 7d window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Percent {
     pub basis_points: u16,
@@ -350,7 +350,7 @@ impl Savings {
         let percent = value
             .get("percent")
             .filter(|_| complete)
-            .and_then(|percent| Percent::parse(percent, window));
+            .and_then(Percent::parse);
         Some(Self {
             method,
             window,
@@ -383,11 +383,7 @@ impl Cost {
 }
 
 impl Percent {
-    fn parse(value: &Value, window: DigestWindow) -> Option<Self> {
-        // Lifetime has no percent; a supplier that sends one is not trusted.
-        if window == DigestWindow::AllTime {
-            return None;
-        }
+    fn parse(value: &Value) -> Option<Self> {
         let avoided = number(value.get("estimatedInputTokensAvoided")?)?;
         let observed = number(value.get("observedInputTokens")?)?;
         let from_ms = number(value.get("fromMs")?)?;

@@ -123,6 +123,8 @@ pub fn prepare(
             expected_revision: None,
             base_source_sha256: Some(save.base_sha256),
             operation_id: Some(&save.operation_id),
+            base: None,
+            checked: None,
         },
         &mut source.decoder,
         clock,

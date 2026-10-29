@@ -13,6 +13,7 @@ pub mod delivery;
 mod digest;
 mod launch_permissions;
 pub mod lease;
+mod models;
 pub mod pane;
 pub mod queue;
 pub mod record;
@@ -572,6 +573,44 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
 
     fn storage_refusal(&self) -> Option<crate::runtime::lifecycle::RuntimeRefusal> {
         sandbox_refusal(std::env::var_os("CODEX_SANDBOX").as_deref())
+    }
+
+    /// Codex reads the shared `~/.agents/skills`, its own `$CODEX_HOME/skills`
+    /// and the project's `.agents/skills`; a skill is invoked as `$name`.
+    fn skill_roots(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        cwd: Option<&std::path::Path>,
+    ) -> crate::runtime::skills::SkillRoots {
+        use crate::runtime::skills::{InvocationSyntax, SkillRoot, SkillRoots, SkillSource};
+        let mut roots = vec![SkillRoot {
+            path: environment.universal_skills(),
+            source: SkillSource::User,
+        }];
+        let own = codex_home(environment).join("skills");
+        if own != environment.universal_skills() {
+            roots.push(SkillRoot {
+                path: own,
+                source: SkillSource::User,
+            });
+        }
+        if let Some(cwd) = cwd {
+            roots.push(SkillRoot {
+                path: cwd.join(".agents/skills"),
+                source: SkillSource::Project,
+            });
+        }
+        SkillRoots {
+            syntax: InvocationSyntax::Prefix { sigil: '$' },
+            roots,
+        }
+    }
+
+    fn launch_choices(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+    ) -> crate::runtime::launch_choices::LaunchChoices {
+        models::launch_choices(&codex_home(environment))
     }
 
     fn launch_settings(

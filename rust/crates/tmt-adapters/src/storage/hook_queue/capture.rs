@@ -435,15 +435,21 @@ impl CaptureEvent {
             .as_ref()
             .and_then(driver_state::state_activity)
             .filter(|a| a.matches(&remembered.provider_session, capture.process));
+        let mut batch = capture_batches::current(&tx, &binding.identity_id)?;
         let admitted = if next.is_some() {
             CaptureResult::Committed
         } else if capture.activity.event.kind == EventKind::TurnEnded
             && previous.as_ref().is_some_and(|a| {
                 a.phase == tmt_core::binding::session::activity::ActivityPhase::Idle
                     && a.turn == capture.activity.event.turn
+                    && capture.now_ms >= a.last_activity_ms
             })
         {
-            CaptureResult::Duplicate
+            if capture.response.is_some() && !capture.interrupted && batch.is_some() {
+                CaptureResult::Committed
+            } else {
+                CaptureResult::Duplicate
+            }
         } else if !capture.interrupted
             && previous
                 .as_ref()
@@ -453,7 +459,6 @@ impl CaptureEvent {
         } else {
             CaptureResult::NotApplicable
         };
-        let mut batch = capture_batches::current(&tx, &binding.identity_id)?;
         let provisional = batch.is_none() && admitted == CaptureResult::Committed;
         if provisional {
             batch = Some(uuid::Uuid::new_v4().to_string());
@@ -801,14 +806,19 @@ fn commit(db: &Connection, c: &PendingCapture) -> Result<CaptureResult, StorageE
     if c.admitted != CaptureResult::Committed {
         return Ok(c.admitted);
     }
-    let duplicate: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM capture_entries WHERE batch_id=?1 AND kind='final') OR EXISTS(SELECT 1 FROM hook_capture_receipts WHERE batch_id=?1 AND outcome='committed')",
-            [&c.batch],
-            |r| r.get(0),
-        )
-        .map_err(|e| classify(e, "Check ordinary Stop duplicate in captured batch"))?;
-    if !c.continuation && duplicate {
+    let response = c
+        .response
+        .as_ref()
+        .map(|response| {
+            response
+                .decode()
+                .map(|text| responses::ResponseCapture { text })
+        })
+        .transpose()?;
+    if !c.continuation
+        && let Some(response) = response.as_ref()
+        && responses::same_final_in_batch(db, c.batch.as_deref(), response)?
+    {
         return Ok(CaptureResult::Duplicate);
     }
     if same_turn {
@@ -848,11 +858,6 @@ fn commit(db: &Connection, c: &PendingCapture) -> Result<CaptureResult, StorageE
             }
         }
     }
-    let response = c
-        .response
-        .as_ref()
-        .map(|r| r.decode().map(|text| responses::ResponseCapture { text }))
-        .transpose()?;
     let retained = response
         .as_ref()
         .map(|response| {

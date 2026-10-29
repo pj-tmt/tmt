@@ -21,12 +21,14 @@ pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_notices;
 pub mod hook_protocol;
+pub mod launch_choices;
 pub mod launch_preset;
 pub mod lifecycle;
 #[cfg(test)]
 mod prompt_tests;
 pub mod sampling;
 pub mod session_presence;
+pub mod skills;
 pub mod transcript;
 #[cfg(test)]
 mod usage_tests;

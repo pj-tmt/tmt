@@ -158,16 +158,14 @@ is independent of these chart controls and is reloaded through Config on restart
 `workspace.overview_reverse` reverses its initial direction; optional
 `workspace.agent_pins` retains up to 1,024 canonical identity UUIDs. Pinned agents
 precede the regular flat Agents order and appear in the Agents Pinned tree.
-`workspace.digest_window` selects 24h (default, shown and also accepted as 1d), 7d or lifetime (shown as all time)
-for every Digest estimate surface, through the same format-preserving Config CAS;
-`workspace.savings_unit` (`tokens` default, `percent`, `cost`) is the sibling key on the
-same write. `SavingsUnit::shown` reads percent as tokens for lifetime, and `next` skips
-it there. The `savings-unit` action ships without a default key so that no frozen
+`workspace.digest_window` is accepted with any value and ignored, and never written: the
+Digest window is view state ([board reference](board.md)), and Config seeds nothing from it.
+`workspace.savings_unit` (`tokens` default, `percent`, `cost`) selects the estimate unit
+through the same format-preserving Config CAS; `SavingsUnit::next` cycles all three. The `savings-unit` action ships without a default key so that no frozen
 binding table moves; a click on a painted estimate (`Choice::SavingsUnit`) and the Actions
 menu reach it, and the footer hint appears only while a frame painted a unit-switchable
-estimate. Digest's fixed Impact band instead shows context and cost together,
-without changing this preference; its window chip saves `digest_window` independently
-of the TOK range.
+estimate. The Digest summary instead shows context and cost together, without changing
+this preference.
 The Agents TOK figures read the same preference (`App::tok_money`: unit `cost`); a click on a
 painted figure (`Choice::TokMoney`) or on the unit word of the column heading (`Choice::TokUnit`) writes tokens or cost through the same CAS and skips percent.
 Money comes from the shared usage report through `usage_report::valuation` (the Digest table
@@ -252,7 +250,7 @@ membership target; unsupported legacy actions are reported rather than remapped.
 
 ## Settings inspection and editing
 
-The comma menu offers workspace layout, Digest estimate windows, Bindings (with j presets),
+The comma menu offers workspace layout, the Digest window, Bindings (with j presets),
 Theme, Token window and Actions. It does not expose the former general
 configuration-inspection overlay. Bindings reuses the Settings list, editor and
 Config CAS writer for every admitted event, including unassigned keys; j presets

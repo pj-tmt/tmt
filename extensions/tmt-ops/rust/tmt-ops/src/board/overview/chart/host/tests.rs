@@ -663,8 +663,8 @@ fn shortest_digest_body_keeps_its_last_member_row_instead_of_a_chart_summary() {
         app.shell.tab = OpsTab::Digest;
         let shortest = text(&paint(&mut app, 60, 8));
         assert!(!app.usage_chart.borrow().visible);
-        assert!(shortest.contains("Usage") && shortest.contains("Impact"));
-        assert!(shortest.contains("Gross context reread estimate"));
+        assert!(shortest.contains("Window") && shortest.contains("TOK used"));
+        assert!(shortest.contains("○ Saved = context"));
         assert!(!app.hits.borrow().iter().any(|hit| hit.row().is_some()));
         // The reserved band takes two more rows than the old summary; the first
         // admitted member row still wins over an optional chart at the new minimum.

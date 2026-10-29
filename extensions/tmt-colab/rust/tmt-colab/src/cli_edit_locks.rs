@@ -375,32 +375,26 @@ fn is_agent() -> bool {
 
 /// Capture before committing the source, so a later lock never becomes this patch's cleanup.
 /// Agent patches fence the checked own state as well as source; retries recheck both.
+/// The locks come from the same read as the patched source, so one snapshot answers both.
 pub struct PatchLocks {
     pub revision: Option<String>,
     pub release: Vec<String>,
 }
-pub fn patch_locks(
-    store: &Store,
-    key: &Keyring,
-    page: &str,
-    old: &str,
-    new: &str,
-    decoder: &mut Decoder,
-) -> Result<PatchLocks> {
-    let view = edit_locks::read(store, key, page, decoder)?;
+pub fn patch_locks(base: &page::Page, new: &str) -> Result<PatchLocks> {
+    let (page, old) = (base.page_id.as_str(), base.source.as_str());
     let agent = is_agent();
     let mut captured = PatchLocks {
-        revision: agent.then_some(view.revision),
+        revision: agent.then(|| base.revision.clone()),
         release: vec![],
     };
-    if !view.locks.iter().any(|lock| !lock.released) {
+    if base.edit_locks.is_empty() {
         return Ok(captured);
     }
     let holder = core::caller_snapshot().and_then(|caller| caller.agent_id);
-    let overlaps = view
-        .locks
+    let overlaps = base
+        .edit_locks
         .iter()
-        .filter(|lock| !lock.released && tmt_colab::edit_lock::overlaps(&lock.target, old, new))
+        .filter(|lock| tmt_colab::edit_lock::overlaps(&lock.target, old, new))
         .collect::<Vec<_>>();
     if agent {
         let foreign = overlaps
@@ -415,7 +409,7 @@ pub fn patch_locks(
         let presence = core::lock_presence(&ids).ok();
         for lock in foreign {
             let keeps = presence.as_ref().is_none_or(|observed| {
-                tmt_colab::edit_lock::holder_state(lock, &view.writer, observed).keeps_lock()
+                tmt_colab::edit_lock::holder_state(lock, &base.local_writer, observed).keeps_lock()
             });
             if keeps {
                 let target = match &lock.target {
@@ -432,10 +426,10 @@ pub fn patch_locks(
             }
         }
     }
-    captured.release = view
-        .locks
+    captured.release = base
+        .edit_locks
         .iter()
-        .filter(|lock| !lock.released && holder.as_deref() == Some(lock.holder.id.as_str()))
+        .filter(|lock| holder.as_deref() == Some(lock.holder.id.as_str()))
         .filter(|lock| agent || tmt_colab::edit_lock::overlaps(&lock.target, old, new))
         .map(|lock| lock.lock_id.clone())
         .collect();

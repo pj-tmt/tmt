@@ -688,13 +688,13 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
                 .collect();
             let text = lines.join("\n");
             assert!(
-                text.contains("Held now: 3"),
-                "the scoped summary must actually paint"
+                text.contains("3 held"),
+                "the scoped summary must actually paint: {text}"
             );
-            assert!(text.contains("Usage 1h"));
+            assert!(text.contains("Window   1d ▾"), "{text}");
             assert!(
-                text.contains("TOK —"),
-                "TOK demand follows the shared range"
+                text.contains("TOK USED") || text.contains("TOK used —"),
+                "TOK follows the Digest window: {text}"
             );
             assert!(text.contains("Scope:"));
             captures.push(serde_json::json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":"Digest","mode":"scoped","lines":lines,
@@ -710,7 +710,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     assert_eq!(app.workspace_rows()[0].target, OpsTarget::DigestAll);
     assert_eq!(super::held_text(&app), "0");
     assert!(
-        paint(&mut app, 100, 36).contains("Held now: 0"),
+        paint(&mut app, 100, 36).contains("0 held"),
         "empty scoped search retains only the read-only aggregate"
     );
     app.search.clear();
@@ -914,7 +914,7 @@ fn click_estimate(app: &mut crate::board::app::App) -> crate::board::app::Effect
 
 #[test]
 fn a_click_or_the_key_moves_agents_surfaces_to_the_next_unit() {
-    use crate::{board::workspace::OpsTarget, config::DigestWindow};
+    use crate::board::workspace::OpsTarget;
     let _no_commands = crate::runner::forbid_commands();
     for surface in ["member", "squad"] {
         let mut app = valued_board();
@@ -978,21 +978,6 @@ fn a_click_or_the_key_moves_agents_surfaces_to_the_next_unit() {
                 "Est. ctx avoided 18.2k"
             })
         );
-        // Lifetime has no percent: a saved percent reads as tokens and the
-        // next step skips to cost.
-        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-        workspace.preferences.digest_window = DigestWindow::AllTime;
-        workspace.preferences.savings_unit = crate::config::SavingsUnit::Percent;
-        assert_eq!(app.savings_unit(), crate::config::SavingsUnit::Tokens);
-        let effect = press(&mut app, '$');
-        let crate::board::app::Effect::Act(crate::board::app::Request::WorkspacePreferences {
-            next,
-            ..
-        }) = effect
-        else {
-            panic!("expected a preference write");
-        };
-        assert_eq!(next.savings_unit, crate::config::SavingsUnit::Cost);
     }
 }
 
@@ -1198,15 +1183,7 @@ fn overview_keeps_the_scoped_estimate_model_without_the_retired_digest_line() {
     assert_eq!(first.auto + first.timed + first.off + first.unknown_mode, 1);
     assert_eq!(first.savings.tokens, Some(18_200));
     assert!(!paint(&mut app, 160, 44).contains("Est. ctx avoided"));
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .preferences
-        .digest_window = DigestWindow::Week;
+    app.digest_window = DigestWindow::Week;
     let week = summary(&app);
     assert_eq!(week.window, DigestWindow::Week);
     assert_eq!(week.savings.tokens, None);
@@ -1238,33 +1215,16 @@ fn member_savings_remain_visible_at_each_supported_width() {
 }
 
 #[test]
-fn digest_shared_range_does_not_relabel_a_supplier_lifetime_estimate() {
-    let mut app = savings_board();
-    let mut document = savings_document();
-    document["members"][0]["savings"]["window"] = serde_json::json!("lifetime");
-    app.labels = crate::labels::Supplied::from_document("digest", &document, false);
-    press(&mut app, '2');
-    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
-    select_worker(&mut app);
-    let shown = paint(&mut app, 160, 44);
-    assert!(shown.contains("Est. ctx avoided —"), "{shown}");
-    assert!(
-        shown.contains("Context evidence all time: under 1 s · complete"),
-        "{shown}"
-    );
-}
-
-#[test]
-fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
+fn window_choice_is_view_state_and_never_relabels_old_evidence() {
     use crate::{
-        board::app::{Choice, Effect, Request},
+        board::app::{Choice, Effect},
         config::DigestWindow,
     };
     let mut app = savings_board();
     let selected = app.workspace.selected.clone();
     app.workspace_settings();
     let menu = app.menu.as_ref().unwrap();
-    for window in [DigestWindow::Day, DigestWindow::Week, DigestWindow::AllTime] {
+    for window in DigestWindow::ALL {
         assert!(
             menu.entries
                 .iter()
@@ -1272,39 +1232,18 @@ fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
         );
     }
     app.menu = None;
-    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
-        app.choose(Choice::DigestWindow(DigestWindow::Week))
-    else {
-        panic!("window choice must use the existing Config CAS");
-    };
-    assert_eq!(expected.digest_window, DigestWindow::Day);
-    assert_eq!(next.digest_window, DigestWindow::Week);
+    let preferences = app.workspace_snapshot().unwrap().preferences.clone();
     assert_eq!(
-        app.digest_window(),
-        DigestWindow::Day,
-        "pending writes are not reported as saved"
+        app.choose(Choice::DigestWindow(DigestWindow::Week)),
+        Effect::None,
+        "the window is the tab's own view state, never a Config write"
     );
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .preferences = next;
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .preferences
-        .tok_range = crate::config::TokRange::Week;
+    assert_eq!(app.digest_window(), DigestWindow::Week);
+    assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
     press(&mut app, '2');
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
-    let shown = paint(&mut app, 160, 36);
+    let shown = paint(&mut app, 160, 60);
     assert!(
         shown.contains("Est. ctx avoided — (0/1 agents · partial)"),
         "{shown}"
@@ -1346,12 +1285,10 @@ fn capture_savings_packet() {
     use serde_json::json;
     let output = std::env::var("TMT_SAVINGS_CAPTURE").expect("task-owned packet path");
     let _no_commands = crate::runner::forbid_commands();
-    let starts = ["2026-10-01T15:00:00Z", "2026-10-08T15:00:00Z"]
-        .map(|value| value.parse::<jiff::Timestamp>().unwrap().as_millisecond() as u64);
     let mut captures = Vec::new();
     const SECOND: &str = "44444444-4444-4444-8444-444444444444";
     for scene in ["member", "squad", "digest"] {
-        for window in [DigestWindow::Day, DigestWindow::Week, DigestWindow::AllTime] {
+        for window in DigestWindow::ALL {
             for coverage in ["known", "zero", "partial", "unavailable"] {
                 for width in [60, 80, 100, 160] {
                     for (base, depth) in [
@@ -1367,9 +1304,9 @@ fn capture_savings_packet() {
                         };
                         let mut app = capture_case("agents", look);
                         app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
+                        app.digest_window = window;
                         let workspace =
                             &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-                        workspace.preferences.digest_window = window;
                         workspace.roster.members.insert(
                             SECOND.into(),
                             OpsMember {
@@ -1409,7 +1346,6 @@ fn capture_savings_packet() {
                             let from = match window {
                                 DigestWindow::Day => through - 86_400_000,
                                 DigestWindow::Week => through - 604_800_000,
-                                DigestWindow::AllTime => starts[index],
                             };
                             let tokens = match coverage {
                                 "zero" => json!(0),
@@ -1801,7 +1737,7 @@ fn the_stopped_tick_notice_is_the_only_waiting_part_of_the_summary_and_outlives_
 #[test]
 fn impact_window_is_saved_window_at_every_tok_range() {
     use crate::config::{DigestWindow, TokRange};
-    for window in [DigestWindow::Day, DigestWindow::Week, DigestWindow::AllTime] {
+    for window in DigestWindow::ALL {
         for range in TokRange::ALL {
             let mut app = savings_board();
             let mut doc = savings_document();
@@ -1816,8 +1752,8 @@ fn impact_window_is_saved_window_at_every_tok_range() {
                 .unwrap()
                 .workspace
                 .preferences;
-            preferences.digest_window = window;
             preferences.tok_range = range;
+            app.digest_window = window;
             let summary = super::metrics::savings(&app, &[MEMBER]);
             assert_eq!(summary.tokens, Some(18200), "{window:?} / {range:?}");
         }
@@ -1825,7 +1761,7 @@ fn impact_window_is_saved_window_at_every_tok_range() {
 }
 
 #[test]
-fn impact_has_reserved_rows_and_context_at_narrow_width() {
+fn the_summary_keeps_its_tiles_and_definition_at_each_width() {
     let mut app = savings_board();
     press(&mut app, '2');
     let selected = app.workspace.selected.clone();
@@ -1836,17 +1772,17 @@ fn impact_has_reserved_rows_and_context_at_narrow_width() {
             .chunks(usize::from(width))
             .map(|line| line.iter().collect())
             .collect();
-        let usage = lines
+        let status = lines
             .iter()
-            .position(|line| line.contains("Usage 1d"))
+            .position(|line| line.contains("Window   1d ▾"))
             .expect(&shown);
-        assert!(lines[usage + 1].contains("Impact"), "{shown}");
-        assert!(lines[usage + 1].contains("18.2k"), "{shown}");
+        assert!(lines[status + 2].contains("TOK USED"), "{shown}");
+        assert!(lines[status + 2].contains("SAVED · estimate"), "{shown}");
+        assert!(lines[status + 3].contains("18.2k"), "{shown}");
         assert!(
-            lines[usage + 2].contains("Gross context reread estimate"),
+            lines[status + 6].starts_with("○ Saved = context"),
             "{shown}"
         );
-        assert!(lines[usage + 2].contains("not billed savings."), "{shown}");
         assert_eq!(app.workspace.selected, selected);
     }
 }

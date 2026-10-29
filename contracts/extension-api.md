@@ -37,7 +37,7 @@ mutation. Clean EOF closes storage and exits 0 even if individual requests faile
 The API resource connection opens lazily once and is reused. The one exception is
 `workspace.capture`: its owner retains a bounded, zero-busy-timeout read-only
 identity snapshot, preserving its no-create and current-schema admission behavior.
-Constant capabilities, `storage.root` and `consumption.limits`
+Constant capabilities, `storage.root`, `consumption.limits` and `drivers.models`
 create no storage. Every operation still validates its own input and current
 identity/role/retirement state; delivery settings reload per request. No database
 transaction spans frames. Lifecycle observations drain and deliver after each
@@ -130,8 +130,8 @@ Clients must tolerate additive response fields. Public `tmt api` storage opens,
 including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
 OS-denied or read-only data directory. The message names that directory; no API
 operation was performed. Other storage-open failures retain `API_UNAVAILABLE`
-or the resource's existing code. `capabilities`, `storage.root` and `consumption.limits` remain
-independent of storage access.
+or the resource's existing code. `capabilities`, `storage.root`, `consumption.limits` and `drivers.models`
+remain independent of storage access.
 
 | Operation                | Input                                                                                               | Result                                                                                                                                                                                                                                  |
 | ------------------------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -162,9 +162,11 @@ independent of storage access.
 | `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                               | `acknowledged`                                                                                                                                                                                                                          |
 | `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                                | `owner`, `published` targets                                                                                                                                                                                                            |
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                 | `owner`, `removed` and `kept` targets                                                                                                                                                                                                   |
+| `skills.list`            | `identityId` (canonical UUID), optional `ifStamp`                                                   | The skills that member's agent can invoke: `syntax`, `skills`, `truncated`, `rootsStamp`, `observedAtMs`; or `unchanged` (see [agent skills](#agent-skills))                                                                            |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                      |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs` | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                                                                                    |
 | `consumption.limits`     | `{}`                                                                                                | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                   |
+| `drivers.models`         | `{}`                                                                                                | `drivers`: one entry per AI tool TMT launches, with `source`, `models` and `efforts`, all best effort (see [launch choices](#launch-choices))                                                                                           |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                                                                                                 |
 | `user.identity`          | `{}`                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                                                                                               |
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                                                                                  |
@@ -257,13 +259,17 @@ Core's SQLite store retains each capture for 7 days after its turn ended, and at
 most the newest 1,000 captures per identity; the writer prunes the oldest first, in
 the capture's transaction, and records the newest answer it pruned for `coverage`.
 These numbers belong to the conversation and do not follow `exchange.retentionDays`. Capture
-occurs only when the existing Stop admission commits a turn end, in that same
-CAS transaction; a duplicate Stop treated as a no-op captures nothing. A Stop
+occurs under the verified Stop authority in its capture transaction. A different final is
+retained even if its prompt boundary was missed and activity already reads idle;
+this does not reopen activity or settle a newer batch's inputs. An ordinary Stop
+deduplicates only the same event ID or exact text in its recorded batch when neither final
+was truncated. If either was truncated, equality is unprovable and the final is kept;
+a different event ID can therefore retain an identical long retry. A Stop
 reported by Claude or Codex while the provider continues because a Stop hook blocked an earlier one
 (`stop_hook_active`, for example a Digest checklist) ends that continuation: it is
-admitted after the earlier end, and its text is captured. Text is
-not deduplicated: two distinct committed turns with identical text are retained
-separately. Antigravity's main-turn final is retained before Digest continues it;
+admitted after the earlier end, and its text is captured. Two distinct committed
+turns with separate input batches retain identical text separately; distinct
+continuations also retain their finals. Antigravity's main-turn final is retained before Digest continues it;
 the subsequent Digest-continued final is not yet captured without a new admitted
 turn start. [#5166](https://github.com/tmt-ninja/tmt/issues/5166) tracks its provider
 lifecycle evidence and capture support. The transaction appends the capture and removes overflow and expired
@@ -349,7 +355,7 @@ compatible. [Shared vectors](recent-responses-v1.json) pin bounds, ordering, exp
 - Every input has its original `requestId`, a `sender` object (unknown attribution is `{}`, never guessed), and `delivery: "delivered" | "uncertain"`. A merely held/claimed, unhanded Digest item has no input entry. An uncertain handoff is explicitly uncertain, not confirmed input. Input text comes from the existing retained request body; `availability` is `retained | unavailable`. Available text is capped at 16,384 UTF-8 bytes on a scalar boundary with `truncated` and `originalBytes`; unavailable text omits those three fields and gets a display caption. No second stored copy of a request body is introduced.
 - `responses` contains the canonical recent-final items referenced by this page. Final entries have `availability: "retained" | "unavailable"`. An unavailable final has no body, and gets a coverage caption. Every retained final participates in this stream, including replies unassociated with a person's input. The existing `responses.recent` operation and numeric cursor keep their meanings; its items additionally gain optional `inputBatchId`.
 - Explicit `tmt reply` has `kind: "reply"`, `requestId`, `availability`, and the same bounded `text/truncated/originalBytes` body fields. It is deduped by requestId, independently of any separately emitted provider final. No content comparison is performed. The original request relationship remains authoritative; no provider-final answer is substituted for a submitted reply.
-- `failure` exists only for a capture failure Core actually recorded for that batch, not inferred from absence. Codes are bounded `worker_error | budget_timeout | storage_error`; the UI caption is the agreed `✗ reply not captured · see the agent's pane`. A total storage failure may prevent even this projection; the API then reports unavailable through its existing error path. Core initialization provisions a separate SQLite hook queue; hooks never create it or change its journal mode. With a compatible queue, Stop first durably appends there and only append failure creates this caption. An otherwise compatible Core store with a missing or incompatible queue keeps the existing bounded direct-capture path and its diagnostics. A finite detached flusher commits capture plus an event-id receipt atomically, then acknowledges the queue entry. Replaying the same event id is a no-op; distinct continuations keep their finals. The final belongs to the input batch verified at enqueue, even after a newer prompt or rebind; delayed ingestion leaves newer activity and turn state untouched. Ordinary Stop duplicates dedupe in that batch. For a turn already active before this rule, a Stop with no existing batch records a provisional id that ingestion creates; queued Stops for that turn share it. A retired identity or a missing previously recorded batch refuses with a durable ingestion failure receipt. Timeline reads never drain the queue.
+- `failure` exists only for a capture failure Core actually recorded for that batch, not inferred from absence. Codes are bounded `worker_error | budget_timeout | storage_error`; the UI caption is the agreed `✗ reply not captured · see the agent's pane`. A total storage failure may prevent even this projection; the API then reports unavailable through its existing error path. Core initialization provisions a separate SQLite hook queue; hooks never create it or change its journal mode. With a compatible queue, Stop first durably appends there and only append failure creates this caption. An otherwise compatible Core store with a missing or incompatible queue keeps the existing bounded direct-capture path and its diagnostics. A finite detached flusher commits capture plus an event-id receipt atomically, then acknowledges the queue entry. Replaying the same event id is a no-op; distinct continuations keep their finals. The final belongs to the input batch verified at enqueue, even after a newer prompt or rebind; delayed ingestion leaves newer activity and turn state untouched. Ordinary Stops dedupe only the same event ID or exact text in that recorded batch when neither final was truncated. A different final is retained there even if its prompt boundary was missed; if either side was truncated, equality is unprovable and the final is kept. For a turn already active before this rule, a Stop with no existing batch records a provisional id that ingestion creates; queued Stops for that turn share it. A retired identity or a missing previously recorded batch refuses with a durable ingestion failure receipt. Timeline reads never drain the queue.
 - `coverage`/`capture` retain their existing explicit incomplete-history and capture-off meanings. The page contains at most 50 entries and at most 50 referenced final bodies; every inline body has the 16 KiB projection cap. Stored links follow existing request/response retention and scrubbing. No past timeline is manufactured from timestamps for legacy data; legacy finals remain readable as unbatched finals.
 - Captured-send projections also gain optional `inputBatchId`; the existing `answer.responseId`, first-answer copy, and recent-final `requestId` are unchanged. The first final remains the initial input's answer. For example, committed order can be a person's input, its final, another sender's Digest input, then a continued final.
 
@@ -915,6 +921,125 @@ recorded is labelled with the provider name until its next push. An older Core a
 unknown operation with `API_INPUT_INVALID`, which a reader treats as unavailable and falls
 back to the per-identity readings.
 
+## Agent skills
+
+`skills.list` v1 reports the skills one member's agent can invoke, for a composer's skill
+menu (#5531). The input is `{identityId}` with an optional `ifStamp`; any other field, a
+non-canonical UUID or a stamp that is not 64 hex digits is `API_INPUT_INVALID`.
+
+```json
+{ "version": 1, "operation": "skills.list", "input": { "identityId": "<uuid>" } }
+```
+
+The result is:
+
+```json
+{
+  "syntax": { "kind": "prefix", "sigil": "/" },
+  "skills": [
+    { "name": "tmt", "description": "…", "source": { "group": "tmt" } },
+    { "name": "kit:deploy", "description": "…", "source": { "group": "plugin", "plugin": "kit" } }
+  ],
+  "truncated": false,
+  "rootsStamp": "<64 hex>",
+  "observedAtMs": 1793000000000
+}
+```
+
+- `syntax` is how the composer inserts a skill: `{kind:"prefix", sigil}` (Claude Code `/`,
+  Codex `$`) or `{kind:"unsupported"}`.
+- `name` is the exact token after the sigil. A name that is not one token (lowercase ASCII
+  letters, digits and `-`, 1–64 bytes; a plugin skill is `plugin:name` with both parts so)
+  is dropped.
+- `description` is one line of at most 200 characters, with control characters removed.
+- `source.group` is `tmt` (published by TMT), `user`, `plugin` (with `plugin`) or `project`.
+- Skills are sorted by group in that order, then by name, and capped at 256. Beyond the cap,
+  or when a directory holds more than 1024 entries, `truncated` is `true`.
+
+All skill text is untrusted display data: a reader renders it and never runs it.
+
+**Which member and which directories.** The member's remembered driver answers. An
+identity that is unknown or has no remembered driver, and a driver without skill invocation,
+answer `unsupported` with no skills; neither is an error.
+
+- The driver's provider roots come from the ambient environment of the process answering,
+  the same rule as [account limits](#account-limits). A member launched under a different
+  `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is not distinguished.
+- Project skills come from the bound pane's current directory as its host reports it. When
+  the host reports none, as the built-in host does, the project group is omitted.
+
+| Driver | Directories                                                                                                                                                                |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude | `<config>/skills`; each plugin `installPath` from `<config>/plugins/installed_plugins.json` that resolves inside `<config>/plugins`, plus `skills`; `<cwd>/.claude/skills` |
+| Codex  | `~/.agents/skills`; `$CODEX_HOME/skills`; `<cwd>/.agents/skills`                                                                                                           |
+
+`<config>` is `CLAUDE_CONFIG_DIR`, or `~/.claude` without it.
+
+**What is read.**
+
+- A skill is a child directory holding `SKILL.md`. Only `name` and `description` are read,
+  from front matter that must close within the first 64 KiB, and `name` defaults to the
+  directory name.
+- No link is followed, with one exception: a child that links into TMT's own
+  `skill-assets` is followed, and it is a `tmt` skill.
+- The plugin index is read bounded (1 MiB) and without following a link, and only its
+  `installPath` fields are used.
+
+**Caching.** Core keeps no cache. `rootsStamp` digests the walked directories and the stat
+data (size, modification time, inode) of every skill directory and `SKILL.md`. Called with
+the current stamp as `ifStamp`, the operation compares stat data only, reads no file, and
+returns `{unchanged: true, rootsStamp, observedAtMs}`. A new, removed or edited skill, or a
+changed pane directory, changes the stamp. A reader such as the Ops worker owns its cache per
+member and directory, refreshes it off its paint path, and treats an older Core's
+`API_INPUT_INVALID` as no skills.
+
+## Launch choices
+
+`drivers.models` v1 is a storage-free read of the model and effort values a launch UI can
+offer for each AI tool TMT launches (#5539). The input is `{}`; any other input, an
+originator or an extra field is `API_INPUT_INVALID`. It opens no database and starts no
+provider process.
+
+```json
+{ "version": 1, "operation": "drivers.models", "input": {} }
+```
+
+The result is `{drivers}`, sorted by `driver`, with one entry for each driver that has a
+runtime:
+
+```json
+{
+  "driver": "codex",
+  "source": "provider",
+  "models": ["gpt-6.1-sol", "gpt-6-luna"],
+  "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"]
+}
+```
+
+- `models` are raw ids exactly as the tool's own `--model` accepts them, never TMT display
+  names, in the provider's order without duplicates.
+- `efforts` are the values of the tool's own effort setting (`--effort`, or Codex
+  `model_reasoning_effort`). They are a separate choice from the model, and an empty list
+  means TMT passes no effort for that tool.
+- `source` is `provider` when `models` was read from the tool's own files, else `fallback`
+  for TMT's maintained list.
+
+Every list is best effort and may be empty. Support can vary by model, so a launch UI keeps
+free-form entry and never refuses a value that is missing from the list.
+
+- **Codex:** reads `models_cache.json` under the ambient `CODEX_HOME`, or `~/.codex` without
+  it. It takes only each entry's `slug` and `visibility`, keeping `visibility: "list"`, and
+  never reads account or identity fields. The read is bounded (1 MiB) and does not follow
+  symlinks. A missing, oversized, symlinked or malformed cache, or one that lists nothing,
+  as on a first run, gives `source: "fallback"` with TMT's maintained Codex list.
+- **Claude** keeps no readable list. Its fallback holds the aliases and full names its
+  `--model` accepts.
+- **agy** reports empty lists, because TMT passes it no effort.
+
+Each driver supplies its own entry through the lifecycle slot `launch_choices`, whose default
+is an empty fallback. An older Core answers the unknown operation with `API_INPUT_INVALID`, and
+a reader then offers free-form entry only.
+
 ## Dispatch readiness and input safety
 
 This section describes shipped local dispatch behavior and its limits. It does not
@@ -1413,7 +1538,8 @@ A tool completion cannot reopen an idle turn. A Stop that a Digest checklist blo
 turn here, and the provider's continuation shows no activity of its own: the Digest idle
 opportunity treats the seat as working until that continuation's own Stop, the next prompt or the
 end of that provider run, without changing the recorded state. Duplicate phases do not renew
-timestamps. These events record the last admitted observation, not a count of
+timestamps, except that a verified uncorrelated prompt admits a new turn even if the
+preceding activity is still working. These events record the last admitted observation, not a count of
 parallel pending approvals, and never decide or answer a permission request.
 Claude reports waiting; Codex does not report it in this contract. Consumers show
 waiting only when `state` says `waiting`; no per-session capability is exposed.

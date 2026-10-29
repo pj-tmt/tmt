@@ -272,7 +272,7 @@ have one Core owner each; the [storage and requests reference](.agents/skills/tm
 maps their modules and Stop queue; ordinary writers only notify its finite worker after commit. A [passthrough](contracts/request-response-v1.md#passthrough) is
 a person's typed text, not a request; it settles that agent's oldest open request
 and earns its turn's final. CLI and API share admission. Capture admits the full runtime registry before Digest;
-[batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals, granting no runtime authority.
+[batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals; distinct finals survive a missed prompt boundary, granting no runtime authority.
 Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
@@ -593,6 +593,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
   network. Everything the frame reports is a cosmetic claim; only parent controls admit
   discussion or sends, and highlights carry only IDs, quote selectors and bounded paint ordinals, never bodies or labels.
+  Compact question slots also report closed-disclosure visibility; the parent hides mounted controls and retains drafts, without changing send authority.
   This contains author code; page self-navigation can still leak a request. Theme projection and the cosmetic port are in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.

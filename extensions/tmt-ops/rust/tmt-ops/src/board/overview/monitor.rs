@@ -191,7 +191,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         query: app.workspace.query.clone(),
         pins: snapshot.preferences.agent_pins.clone(),
         hidden: snapshot.preferences.hidden.clone(),
-        digest_window: snapshot.preferences.digest_window,
+        digest_window: app.digest_window(),
         savings_unit: snapshot.preferences.savings_unit,
         visibility: app.workspace.visibility.clone(),
         activity_stale: app.activity_stale(std::time::Instant::now()),
@@ -275,6 +275,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
             &app.labels,
             &key.visibility,
             key.activity_stale,
+            key.digest_window,
         ),
     });
     cache.held = Some((key, Rc::clone(&scene)));

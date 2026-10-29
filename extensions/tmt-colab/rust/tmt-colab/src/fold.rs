@@ -118,8 +118,17 @@ pub(crate) struct Snapshot {
     /// The update each retained owner fold binds, by covered stream and sequence.
     anchors: BTreeMap<(String, u64), Vec<u8>>,
 }
+/// What the caller of a content preparation already holds.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Held<'a> {
+    /// What the caller read at the snapshot's revision: the same authenticated bytes, source and
+    /// metadata.
+    pub base: Option<&'a crate::page::PatchBase>,
+    /// The caller's check of exactly the edit's source.
+    pub checked: Option<&'a crate::page_check::Report>,
+}
 /// Authenticated bytes from one snapshot, shared by reads, edits and causal preparation.
-struct MaterializationInput {
+pub(crate) struct MaterializationInput {
     baseline: Vec<u8>,
     updates: Vec<Vec<u8>>,
     own_updates: BTreeMap<String, Vec<Vec<u8>>>,
@@ -233,18 +242,18 @@ impl Snapshot {
             .usage(true)
     }
     /// [`Self::materialize`] with the gzipped state measured into `usage`, for a reader that
-    /// reports it.
+    /// reports it, and the authenticated bytes it decoded, which an edit of this snapshot reuses.
     pub(crate) fn materialize_measured(
         &self,
         key: &Keyring,
         page: &str,
         decoder: &mut Decoder,
-    ) -> Result<View> {
+    ) -> Result<(View, MaterializationInput)> {
         let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
         let usage = input.usage(true)?;
         let mut view = input.materialize(page, decoder, None)?;
         view.usage = usage;
-        Ok(view)
+        Ok((view, input))
     }
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
         Self::capture_epoch(store, key, page, None, true)
@@ -805,32 +814,61 @@ impl Snapshot {
     pub(crate) fn genesis_hash(&self) -> Result<[u8; 32]> {
         Ok(self.states.first().ok_or(OwnerFault::Invalid)?.head.hash)
     }
+    /// The content preparation of `edit`, reusing what `held` names instead of reading it again.
     pub(crate) fn prepare_content_batch(
         &self,
         key: &Keyring,
         page: &str,
         edit: crate::decoder::ContentEdit<'_>,
         base_sha256: Option<&[u8; 32]>,
+        held: Held<'_>,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
-        let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
-        let base = input.materialize(page, decoder, None)?;
-        if base.meta.get("pageType").is_some() {
+        let Held {
+            base: known,
+            checked,
+        } = held;
+        // Attachment changes need the full view for their creation proofs.
+        let opened;
+        let input = match known {
+            Some(known) => &known.input,
+            None => {
+                opened = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
+                &opened
+            }
+        };
+        let decoded = match known {
+            Some(_) if edit.attachments.is_none() => None,
+            _ => Some(input.materialize(page, decoder, None)?),
+        };
+        let (base_source, base_meta) = match (&decoded, known) {
+            (Some(view), _) => (view.source.as_str(), &view.meta),
+            (None, Some(known)) => (known.source.as_str(), &known.meta),
+            (None, None) => return Err(crate::page::Fault::Invalid.into()),
+        };
+        if base_meta.get("pageType").is_some() {
             return Err(crate::page::Fault::Invalid.into());
         }
         // A caller that edited from a source it saw refuses to overwrite a different one.
-        if base_sha256.is_some_and(|d| *d != crypto::digest(base.source.as_bytes())) {
+        if base_sha256.is_some_and(|d| *d != crypto::digest(base_source.as_bytes())) {
             return Err(crate::page::Fault::StaleBase.into());
         }
-        let report =
-            crate::page_check::check(edit.source).map_err(|_| crate::page::Fault::Capacity)?;
+        let fresh;
+        let report = match checked {
+            Some(report) => report,
+            None => {
+                fresh = crate::page_check::check(edit.source)
+                    .map_err(|_| crate::page::Fault::Capacity)?;
+                &fresh
+            }
+        };
         if !report.question_sources.is_empty() {
             let identities =
-                crate::core::reference_names(&crate::question_registry::identity_ids(&base.meta));
+                crate::core::reference_names(&crate::question_registry::identity_ids(base_meta));
             let findings = crate::question_registry::edit_findings(
-                &report,
-                &base.source,
-                &base.meta,
+                report,
+                base_source,
+                base_meta,
                 page,
                 identities.as_ref(),
             )?;
@@ -848,12 +886,15 @@ impl Snapshot {
                 {
                     return Err(crate::page::Fault::Invalid.into());
                 }
-                crate::attachments::creation_proof(&base, descriptor)?;
+                crate::attachments::creation_proof(
+                    decoded.as_ref().ok_or(crate::page::Fault::Invalid)?,
+                    descriptor,
+                )?;
             }
         }
-        let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
+        let expected_base = serde_json::json!({"html":base_source,"meta":base_meta});
         let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let prepared = decoder.prepare_content_batch(
+        let prepared = decoder.prepare_checked_content_batch(
             UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &input.baseline,
@@ -861,6 +902,7 @@ impl Snapshot {
             },
             &expected_base,
             edit,
+            report,
             None,
         )?;
         if let crate::decoder::ContentBatch::Updates(updates) = &prepared.batch {

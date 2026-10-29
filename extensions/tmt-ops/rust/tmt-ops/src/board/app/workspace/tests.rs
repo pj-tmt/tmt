@@ -2577,7 +2577,12 @@ pub(in crate::board) fn install_hourly_tokens(
             history: None,
         },
     );
-    let range = app.tok_range();
+    // The report the shown tab reads: the Digest tab has its own window.
+    let range = if app.shell.tab == crate::board::shell::OpsTab::Digest {
+        app.digest_range()
+    } else {
+        app.tok_range()
+    };
     let from_ms = now_ms - ends_ago_ms - 24 * HOUR;
     let seat = |id: &str, cells: [u64; 24]| Seat {
         who: Who {

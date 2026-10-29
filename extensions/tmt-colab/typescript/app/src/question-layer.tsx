@@ -306,6 +306,7 @@ export function useQuestionLayer({
                         className="proposal-inline question-inline question-compact-inline"
                         data-detached={!position?.chip || undefined}
                         style={{
+                          display: position?.hidden ? 'none' : undefined,
                           top: position?.top ?? 0,
                           left: position?.left ?? 0,
                           width: position?.width ?? '100%',

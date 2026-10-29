@@ -59,18 +59,26 @@ test('260 CLI changes with a browser edit in the middle read back exact in the C
 });
 
 test('a 2 MiB page keeps taking changes and reads back exact', async () => {
-  test.setTimeout(600_000);
+  // 300 patches of a 2 MiB page take 8 to 11 minutes on CI debug binaries (#5511); #5548 cuts more.
+  test.setTimeout(900_000);
   await withWorld(async (world) => {
     const colab = world.binaries.colab;
     let source = text(2 * MIB - 16 * 1024);
     const created = createPage(world, 'Big and busy', source);
+    const readSource = () =>
+      (
+        JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+          source: string;
+        }
+      ).source;
+    expect(readSource() === source).toBe(true);
+    // Each patch is anchored on the source this case holds: every patch's range fence proves the
+    // page still has it, so only the first and last reads go through the CLI.
     for (let i = 0; i < 300; i++) {
+      const held = source;
       source = source.slice(0, -4) + `<i>${i}</i>` + source.slice(-4);
-      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), source);
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json'], held), source);
     }
-    const read = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
-      source: string;
-    };
-    expect(read.source === source).toBe(true);
+    expect(readSource() === source).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
-//! The Allowance block of the Digest tab: weekly windows, the even burn and what
-//! each projection line leaves at the reset. Fixed clock, UTC, no I/O.
+//! The allowance tile of the Digest summary: one row per provider with what is left, the
+//! worst projection and the reset, scrolling inside the tile. Fixed clock, UTC, no I/O.
 use super::*;
 use crate::board::{
     app::App,
@@ -82,69 +82,79 @@ fn words(row: &str) -> Vec<&str> {
     row.split_whitespace().collect()
 }
 
-fn row_of<'a>(rows: &'a [String], source: &str) -> &'a str {
+/// The tile's words on the row whose provider is `source`: what follows the tile's rule.
+fn row_of(rows: &[String], source: &str) -> Vec<String> {
     rows.iter()
-        .find(|row| words(row).first() == Some(&source))
+        .filter_map(|row| row.rsplit_once(['│', '|']).map(|(_, tile)| words(tile)))
+        .find(|tile| tile.first() == Some(&source))
+        .map(|tile| tile.into_iter().map(str::to_owned).collect())
         .unwrap_or_else(|| panic!("no {source} row in\n{}", rows.join("\n")))
 }
 
 #[test]
-fn a_wide_row_shows_left_need_every_line_and_the_reset() {
+fn a_row_shows_left_the_worst_projection_and_the_reset() {
     let mut app = digest(vec![claude()]);
     let rows = rows(&buffer(&mut app, 120, 40));
     assert!(
-        rows.iter().any(
-            |row| row.contains("Allowance · weekly windows · left at reset if this rate holds")
-        ),
+        rows.iter()
+            .any(|row| row.contains("ALLOWANCE LEFT  1 provider")),
         "{}",
         rows.join("\n")
     );
-    let header = rows.iter().find(|row| row.contains("NEED %/h")).unwrap();
+    // 1.0 pt/h over the last 3 h empties it first, at Su 04:40; it resets Su 18:40.
     assert_eq!(
-        words(header),
+        row_of(&rows, "Claude"),
         [
-            "SOURCE", "LEFT", "NEED", "%/h", "3h", "6h", "1d", "TOKENS", "SINCE", "RESET", "RESETS"
+            "Claude", "26%", "✗", "runs", "out", "Su", "04:40", "resets", "Su", "18:40"
         ]
     );
-    assert_eq!(
-        words(row_of(&rows, "Claude")),
-        [
-            "Claude", "26%", "0.65", "✗", "Su", "04:40", "6%", "18%", "—", "26%", "Su", "18:40"
-        ]
+    assert!(
+        !rows.iter().any(|row| row.contains("NEED")),
+        "no NEED column"
     );
-    assert!(!rows.iter().any(|row| row.contains("5h")), "no 5h rows");
 }
 
 #[test]
-fn only_a_line_that_runs_out_takes_the_attention_colour() {
-    let mut app = digest(vec![claude()]);
+fn only_a_window_that_runs_out_takes_the_attention_colour() {
+    let steady = standing(
+        "openai",
+        55.0,
+        100,
+        60_000,
+        Rates::measured(Some(0.3), Some(0.3), None, Some(0.3)),
+    );
+    let mut app = digest(vec![claude(), steady]);
     let view = app.view.as_mut().unwrap();
     view.look = crate::look::Look::default();
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let buffer = buffer(&mut app, 120, 40);
     let rows = rows(&buffer);
-    let y = rows
-        .iter()
-        .position(|row| words(row).first() == Some(&"Claude"))
-        .unwrap();
-    let width = usize::from(buffer.area.width);
     let waiting = app
         .look()
         .role(tmt_cli_style::Role::Waiting)
         .fg
         .expect("the pinned colour assertion needs an attention foreground");
-    let mut coloured = Vec::new();
-    for x in 0..width {
-        let cell = &buffer[(x as u16, y as u16)];
-        if cell.fg == waiting && cell.symbol() != " " {
-            coloured.push(cell.symbol().to_owned());
-        }
-    }
-    assert_eq!(coloured.concat(), "✗Su04:40", "{rows:?}");
+    let coloured = |source: &str| {
+        let y = rows
+            .iter()
+            .position(|row| {
+                row.rsplit_once('│')
+                    .is_some_and(|(_, tile)| words(tile).first() == Some(&source))
+            })
+            .unwrap();
+        (0..buffer.area.width)
+            .map(|x| &buffer[(x, y as u16)])
+            .filter(|cell| cell.fg == waiting && cell.symbol() != " ")
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+    assert_eq!(coloured("Claude"), "✗runsoutSu04:40", "{rows:?}");
+    assert_eq!(row_of(&rows, "Openai")[2..5], ["lasts", "past", "reset"]);
+    assert_eq!(coloured("Openai"), "", "{rows:?}");
 }
 
 #[test]
-fn missing_data_is_a_dash_and_a_stale_reading_is_not_quoted() {
+fn a_stale_reading_is_not_quoted_and_an_unsampled_provider_has_no_row() {
     let stale = standing("muse", 81.0, 100, 3 * HOUR, Rates::default());
     let unsampled = Standing {
         current: None,
@@ -157,21 +167,88 @@ fn missing_data_is_a_dash_and_a_stale_reading_is_not_quoted() {
     let fresh_without_rates = standing("openai", 55.0, 100, 60_000, Rates::default());
     let mut app = digest(vec![claude(), stale, unsampled, fresh_without_rates]);
     let rows = rows(&buffer(&mut app, 120, 40));
-    assert_eq!(words(row_of(&rows, "Muse")), ["Muse", "—", "—"]);
     assert_eq!(
-        words(row_of(&rows, "Openai")),
-        [
-            "Openai", "55%", "0.55", "—", "—", "—", "—", "—", "We", "06:40"
-        ]
+        row_of(&rows, "Muse"),
+        ["Muse", "—", "no", "recent", "reading"]
+    );
+    assert_eq!(
+        row_of(&rows, "Openai"),
+        ["Openai", "55%", "—", "resets", "We", "06:40"]
     );
     assert!(
-        !rows.iter().any(|row| words(row).first() == Some(&"Codex")),
-        "a provider never sampled has no row"
+        rows.iter()
+            .any(|row| row.contains("ALLOWANCE LEFT  3 providers")),
+        "a provider never sampled has no row: {rows:?}"
     );
 }
 
 #[test]
-fn a_narrow_row_is_one_line_with_the_worst_projection() {
+fn more_providers_than_rows_scroll_inside_the_tile() {
+    let providers = ["claude", "codex", "gemini", "muse", "openai"]
+        .map(|name| standing(name, 50.0, 100, 60_000, Rates::default()));
+    let mut app = digest(providers.to_vec());
+    let shown = rows(&buffer(&mut app, 120, 40));
+    // Four tile rows: the heading and three providers, with the track on the right edge.
+    assert!(
+        shown
+            .iter()
+            .any(|row| row.contains("ALLOWANCE LEFT  5 providers"))
+    );
+    assert!(
+        shown.iter().any(|row| row.trim_end().ends_with('▲')),
+        "{shown:?}"
+    );
+    assert!(
+        shown.iter().any(|row| row.trim_end().ends_with('▼')),
+        "{shown:?}"
+    );
+    row_of(&shown, "Claude");
+    assert!(!shown.iter().any(|row| row.contains("Openai")));
+    let y = shown
+        .iter()
+        .position(|row| row.contains("ALLOWANCE LEFT"))
+        .unwrap();
+    let x = shown[y].chars().position(|cell| cell == '│').unwrap();
+    let inside = ratatui::layout::Position::new(x as u16 + 2, y as u16 + 1);
+    for _ in 0..5 {
+        assert!(app.digest_allowance.wheel(inside, true));
+    }
+    let scrolled = rows(&buffer(&mut app, 120, 40));
+    row_of(&scrolled, "Openai");
+    assert!(
+        !scrolled.iter().any(|row| row.contains("Claude ")),
+        "clamped to the last page: {scrolled:?}"
+    );
+    let outside = ratatui::layout::Position::new(0, 0);
+    assert!(!app.digest_allowance.wheel(outside, false));
+}
+
+#[test]
+fn an_ascii_terminal_gets_an_ascii_marker_and_rule() {
+    let mut app = digest(vec![claude()]);
+    app.cron_glyphs = GlyphSet::Ascii;
+    let rows = rows(&buffer(&mut app, 120, 40));
+    assert_eq!(
+        row_of(&rows, "Claude")[2..7],
+        ["x", "runs", "out", "Su", "04:40"]
+    );
+}
+
+#[test]
+fn no_reading_or_no_height_shows_no_allowance() {
+    for (limits, height) in [(Vec::new(), 40), (vec![claude()], 12)] {
+        let mut app = digest(limits);
+        let rows = rows(&buffer(&mut app, 120, height));
+        assert!(
+            !rows.iter().any(|row| row.contains("ALLOWANCE")),
+            "{height}: {}",
+            rows.join("\n")
+        );
+    }
+}
+
+#[test]
+fn a_narrow_frame_stacks_the_allowance_under_the_amounts() {
     let steady = standing(
         "openai",
         55.0,
@@ -179,51 +256,48 @@ fn a_narrow_row_is_one_line_with_the_worst_projection() {
         60_000,
         Rates::measured(Some(0.3), Some(0.3), None, Some(0.3)),
     );
-    let mut app = digest(vec![claude(), steady]);
-    let rows = rows(&buffer(&mut app, 80, 40));
-    assert!(
-        rows.iter()
-            .any(|row| row.contains("Allowance · left at reset, worst window")),
-        "{}",
-        rows.join("\n")
-    );
-    assert_eq!(
-        words(row_of(&rows, "Claude")),
-        ["Claude", "26%", "need", "0.65%/h", "✗", "Su", "04:40"]
-    );
-    assert_eq!(
-        words(row_of(&rows, "Openai")),
-        ["Openai", "55%", "need", "0.55%/h", "lasts", "·", "25%"]
-    );
-    assert!(
-        !rows.iter().any(|row| row.contains("NEED %/h")),
-        "no column header"
-    );
-}
-
-#[test]
-fn an_ascii_terminal_gets_an_ascii_marker() {
-    let mut app = digest(vec![claude()]);
-    app.cron_glyphs = GlyphSet::Ascii;
-    let rows = rows(&buffer(&mut app, 120, 40));
-    assert_eq!(words(row_of(&rows, "Claude"))[3..6], ["x", "Su", "04:40"]);
-}
-
-#[test]
-fn no_reading_or_no_room_shows_no_block_and_leaves_the_table_whole() {
-    let mut none = digest(Vec::new());
-    assert!(
-        !rows(&buffer(&mut none, 120, 40))
+    for (width, height) in [(80, 40), (60, 36)] {
+        let mut app = digest(vec![claude(), steady.clone()]);
+        let rows = rows(&buffer(&mut app, width, height));
+        let heading = rows
             .iter()
-            .any(|row| row.contains("Allowance"))
-    );
-    let mut short = digest(vec![claude()]);
-    let rows = rows(&buffer(&mut short, 120, 12));
-    assert!(
-        !rows.iter().any(|row| row.contains("Allowance")),
-        "{}",
-        rows.join("\n")
-    );
+            .position(|row| row.contains("ALLOWANCE LEFT  2 providers"))
+            .unwrap_or_else(|| panic!("{width}: {}", rows.join("\n")));
+        let amounts = rows
+            .iter()
+            .position(|row| row.contains("TOK USED"))
+            .unwrap();
+        assert_eq!(
+            heading,
+            amounts + 3,
+            "{width}: right under the coverage lines"
+        );
+        assert!(!rows[heading].contains('│'), "no tile rule when stacked");
+        assert_eq!(
+            words(&rows[heading + 1]),
+            [
+                "Claude", "26%", "✗", "runs", "out", "Su", "04:40", "resets", "Su", "18:40"
+            ],
+            "{width}"
+        );
+        assert_eq!(
+            words(&rows[heading + 2])[..5],
+            ["Openai", "55%", "lasts", "past", "reset"]
+        );
+        assert!(
+            rows[heading + 3].starts_with("○ Saved = context"),
+            "{width}"
+        );
+    }
+    // Rows the table cannot spare are clipped and scroll inside the stacked block.
+    let mut app = digest(vec![claude(), steady]);
+    let rows = rows(&buffer(&mut app, 80, 22));
+    let heading = rows
+        .iter()
+        .position(|row| row.contains("ALLOWANCE LEFT"))
+        .unwrap();
+    assert!(rows[heading + 1].starts_with("  Claude"), "{rows:?}");
+    assert!(rows[heading + 2].starts_with("○ Saved"), "{rows:?}");
 }
 
 /// A claude window at 20 % left, 40 h to the reset, that lost 0.5 points an hour over the last
@@ -246,49 +320,34 @@ fn claude_with_tokens(cells: [u64; 24], complete: [bool; 24], ends_ago_ms: u64) 
     app
 }
 
-fn claude_row(app: &mut App, width: u16) -> Vec<String> {
-    let rows = rows(&buffer(app, width, 40));
-    words(row_of(&rows, "Claude"))
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
+fn claude_row(app: &mut App) -> Vec<String> {
+    row_of(&rows(&buffer(app, 120, 40)), "Claude")
 }
 
-/// The wide row of the claude window above (20 % left, 40 h to the reset, 0.5 points an hour on
-/// every sampled line, so each empties it at Su 18:40) with `tokens` in the TOKENS cell.
-fn wide_row_with(tokens: [&str; 3]) -> Vec<String> {
-    let mut row = vec!["Claude", "20%", "0.50"];
-    for _ in 0..3 {
-        row.extend(["✗", "Su", "18:40"]);
-    }
-    row.extend(tokens);
-    row.extend(["✗", "Su", "18:40", "Su", "18:40"]);
-    row.into_iter().map(str::to_owned).collect()
-}
-
-/// The same row with a dash where the tokens cell would be.
-fn dash_row() -> Vec<String> {
-    let mut row = wide_row_with(["✗", "Su", "01:10"]);
-    row.splice(12..15, ["—".to_owned()]);
-    row
+/// The claude row above (20 % left, 40 h to the reset, 0.5 points an hour on every sampled line,
+/// so each empties it at Su 18:40) when the worst projection runs out at `at`.
+fn row_running_out(at: &str) -> Vec<String> {
+    let (day, time) = at.split_once(' ').unwrap();
+    [
+        "Claude", "20%", "✗", "runs", "out", day, time, "resets", "Su", "18:40",
+    ]
+    .map(str::to_owned)
+    .to_vec()
 }
 
 #[test]
-fn the_tokens_cell_projects_the_last_three_hours_at_the_cost_of_the_last_day() {
+fn the_tokens_line_projects_the_last_three_hours_at_the_cost_of_the_last_day() {
     // 12 points (0.5 an hour for 24 h) over 27 000 tokens, of which 6 000 in the last three
     // cells: 2 000 tokens an hour at 12 / 27 000 points a token is 0.89 points an hour, which
     // empties the 20 % in 22.5 h, at Su 01:10.
     let mut cells = [1_000u64; 24];
     cells[21..].copy_from_slice(&[1_000, 2_000, 3_000]);
     let mut app = claude_with_tokens(cells, [true; 24], 0);
-    assert_eq!(
-        claude_row(&mut app, 120),
-        wide_row_with(["✗", "Su", "01:10"])
-    );
+    assert_eq!(claude_row(&mut app), row_running_out("Su 01:10"));
 }
 
 #[test]
-fn the_tokens_cell_is_a_dash_without_a_usable_report_or_complete_cells() {
+fn the_tokens_line_is_unknown_without_a_usable_report_or_complete_cells() {
     // No report yet.
     let mut app = digest(vec![standing(
         "claude",
@@ -297,7 +356,7 @@ fn the_tokens_cell_is_a_dash_without_a_usable_report_or_complete_cells() {
         10 * 60_000,
         Rates::measured(Some(0.5), Some(0.5), Some(0.5), Some(0.5)),
     )]);
-    assert_eq!(claude_row(&mut app, 120), dash_row());
+    assert_eq!(claude_row(&mut app), row_running_out("Su 18:40"));
     let mut incomplete = [true; 24];
     incomplete[5] = false;
     for (label, complete, ends_ago) in [
@@ -305,48 +364,6 @@ fn the_tokens_cell_is_a_dash_without_a_usable_report_or_complete_cells() {
         ("a stale series", [true; 24], 3 * HOUR),
     ] {
         let mut app = claude_with_tokens([1_000; 24], complete, ends_ago);
-        assert_eq!(claude_row(&mut app, 120), dash_row(), "{label}");
-    }
-}
-
-fn resetting_in(ms: u64, left: f64) -> Standing {
-    let mut standing = standing("claude", left, 0, 10 * 60_000, Rates::default());
-    standing.latest.as_mut().unwrap().weekly.resets_at_ms = NOW + ms;
-    standing
-}
-
-#[test]
-fn need_is_hidden_a_minute_before_the_reset_and_capped_just_outside_the_last_hour() {
-    for (width, shown_hidden, shown_capped) in [
-        (
-            120,
-            vec!["Claude", "30%", "—"],
-            vec!["Claude", "100%", ">99"],
-        ),
-        (
-            80,
-            vec!["Claude", "30%", "—"],
-            vec!["Claude", "100%", "need", ">99%/h"],
-        ),
-    ] {
-        let mut app = digest(vec![resetting_in(60_000, 30.0)]);
-        let hidden = rows(&buffer(&mut app, width, 40));
-        let row = words(row_of(&hidden, "Claude"));
-        assert!(
-            shown_hidden.iter().all(|word| row.contains(word)),
-            "{width}: {row:?}"
-        );
-        assert!(
-            !row.iter()
-                .any(|word| word.contains('%') && word.contains('/')),
-            "{width}: no figure in the last hour: {row:?}"
-        );
-        let mut app = digest(vec![resetting_in(HOUR, 100.0)]);
-        let capped = rows(&buffer(&mut app, width, 40));
-        let row = words(row_of(&capped, "Claude"));
-        assert!(
-            shown_capped.iter().all(|word| row.contains(word)),
-            "{width}: {row:?}"
-        );
+        assert_eq!(claude_row(&mut app), row_running_out("Su 18:40"), "{label}");
     }
 }

@@ -989,6 +989,15 @@
             );
             return { left: box.left + (box.width - width) / 2, width };
           };
+          // A closed disclosure hides its body, but its first summary remains rendered.
+          function hiddenByClosedDetails(target) {
+            for (let parent = target.parentElement; parent; parent = parent.parentElement) {
+              if (parent.localName !== 'details' || parent.open) continue;
+              const summary = [...parent.children].find((child) => child.localName === 'summary');
+              if (!summary?.contains(target)) return true;
+            }
+            return false;
+          }
           function resolveSlots() {
             if (stopped || !slotRequestId) return;
             const positions = [];
@@ -1020,6 +1029,10 @@
                   chipSpacers.delete(slot.id);
                   spacers.get(slot.id)?.remove();
                   spacers.delete(slot.id);
+                  continue;
+                }
+                if (hiddenByClosedDetails(target)) {
+                  positions.push({ id: slot.id, hidden: true });
                   continue;
                 }
                 let marker = chipSpacers.get(slot.id);
@@ -2222,7 +2235,7 @@
                 childList: true,
                 characterData: true,
                 attributes: true,
-                attributeFilter: ['hidden', 'data-id', 'style', 'class'],
+                attributeFilter: ['hidden', 'open', 'data-id', 'style', 'class'],
               });
               rememberSource(document.body, sourceState);
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');

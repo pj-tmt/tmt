@@ -10,6 +10,7 @@ mod caller_session;
 pub mod channel;
 mod digest;
 pub mod picker;
+mod skills;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
     SessionTransition,
@@ -638,6 +639,35 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         now_ms: u64,
     ) -> Vec<crate::runtime::consumption::AccountLimits> {
         allowance::accounts(environment, now_ms)
+    }
+
+    fn skill_roots(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        cwd: Option<&std::path::Path>,
+    ) -> crate::runtime::skills::SkillRoots {
+        skills::roots(&config_root(environment), cwd)
+    }
+
+    /// Claude Code keeps no readable model list. These are the aliases and full
+    /// names its `--model` accepts, and its `--effort` levels (Claude Code `--help`).
+    fn launch_choices(
+        &self,
+        _environment: &crate::skill_installation::ProviderEnvironment,
+    ) -> crate::runtime::launch_choices::LaunchChoices {
+        crate::runtime::launch_choices::LaunchChoices::fallback(
+            &[
+                "fable",
+                "opus",
+                "sonnet",
+                "haiku",
+                "claude-fable-5-1",
+                "claude-opus-5-5",
+                "claude-sonnet-5-5",
+                "claude-haiku-5-5",
+            ],
+            &["low", "medium", "high", "xhigh", "max"],
+        )
     }
 
     fn turn_observation(
