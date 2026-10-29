@@ -290,3 +290,12 @@
 .work-legend [data-state='unknown']::before {
   background: var(--c-muted);
 }
+
+.work-attach-fields {
+  display: grid;
+  gap: 12px;
+}
+.work-attach-fields select {
+  width: 100%;
+  font: inherit;
+}

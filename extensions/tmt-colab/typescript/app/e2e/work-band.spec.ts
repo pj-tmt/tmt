@@ -29,7 +29,8 @@ async function mountRoute(
     | 'external'
     | 'empty'
     | 'child'
-    | 'child-orphan',
+    | 'child-orphan'
+    | 'attach',
 ) {
   await page.goto('/');
   await page.evaluate(
@@ -412,4 +413,242 @@ test('a page with no sub-pages shows one directly selectable task list', async (
   await expect(band.locator('.work-row')).toHaveCount(3);
   await band.locator('.work-row').filter({ hasText: 'Draft' }).locator('button').first().click();
   await expect(band.locator('.work-controls')).toBeVisible();
+});
+
+test('attach is available to owner pages and hidden for observed children and readers', async ({
+  page,
+}) => {
+  await mountRoute(page, true, true);
+  await expand(page);
+  await expect(page.getByRole('button', { name: 'Attach a sub-page' })).toBeVisible();
+
+  await mountRoute(page, true, true, 'child-orphan');
+  await expand(page);
+  await expect(page.getByRole('button', { name: 'Attach a sub-page' })).toHaveCount(0);
+
+  await mountRoute(page, true, false);
+  await expand(page);
+  await expect(page.getByRole('button', { name: 'Attach a sub-page' })).toHaveCount(0);
+});
+
+test('attach keeps a created task after refusal and retries that task', async ({ page }) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  await page.getByRole('button', { name: 'Attach a sub-page' }).click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  await dialog
+    .getByRole('combobox', { name: 'Page', exact: true })
+    .selectOption({ label: 'Legal copy' });
+  await dialog.getByLabel('Task title').fill('Follow legal copy');
+  await page.evaluate(() => {
+    window.__workPage!.refuseLink = true;
+  });
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('The page already has a parent.');
+  await expect(dialog).toContainText('Task T-4 is kept');
+  await dialog.getByRole('button', { name: 'Retry link' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await calls(page)).toEqual([
+    { action: 'task.add', body: { task: { title: 'Follow legal copy' } } },
+    {
+      action: 'task.link',
+      body: { taskId: 'T-4', pageId: '20000000-0000-4000-8000-000000000002' },
+    },
+    {
+      action: 'task.link',
+      body: { taskId: 'T-4', pageId: '20000000-0000-4000-8000-000000000002' },
+    },
+  ]);
+});
+
+test('an uncertain task creation cannot be sent twice', async ({ page }) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  await page.getByRole('button', { name: 'Attach a sub-page' }).click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  await dialog
+    .getByRole('combobox', { name: 'Page', exact: true })
+    .selectOption({ label: 'Legal copy' });
+  await dialog.getByLabel('Task title').fill('Follow legal copy');
+  await page.evaluate(() => {
+    window.__workPage!.unknownAdd = true;
+  });
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Attach', exact: true })).toBeDisabled();
+  expect((await calls(page)).map((entry) => entry.action)).toEqual(['task.add']);
+});
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`attach picker capture ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mountRoute(page, true, true, 'attach');
+      await expand(page);
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`attach-panel-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: 'Attach a sub-page' }).click();
+      const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+      await dialog
+        .getByRole('combobox', { name: 'Page', exact: true })
+        .selectOption({ label: 'Legal copy' });
+      await dialog.getByLabel('Task title').fill('Follow legal copy');
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`attach-picker-${width}-${theme}.png`) });
+      await page.evaluate(() => {
+        window.__workPage!.refuseLink = true;
+      });
+      await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+      await expect(dialog.getByRole('alert')).toBeVisible();
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`attach-refused-${width}-${theme}.png`) });
+    });
+
+test('attach can link an existing unlinked task without creating another', async ({ page }) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  await page.getByRole('button', { name: 'Attach a sub-page' }).click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  await dialog
+    .getByRole('combobox', { name: 'Page', exact: true })
+    .selectOption({ label: 'Legal copy' });
+  await dialog.getByRole('combobox', { name: 'Task', exact: true }).selectOption('T-2');
+  await expect(dialog.getByLabel('Task title')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await calls(page)).toEqual([
+    {
+      action: 'task.link',
+      body: { taskId: 'T-2', pageId: '20000000-0000-4000-8000-000000000002' },
+    },
+  ]);
+});
+
+test('leaving the page while adding a task does not start a link on the old page', async ({
+  page,
+}) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  await page.getByRole('button', { name: 'Attach a sub-page' }).click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  await dialog
+    .getByRole('combobox', { name: 'Page', exact: true })
+    .selectOption({ label: 'Legal copy' });
+  await dialog.getByLabel('Task title').fill('Follow legal copy');
+  await page.evaluate(() => {
+    window.__workPage!.holdAdd = true;
+  });
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => !!window.__workPage?.finishAdd)).toBe(true);
+  const oldCalls = await page.evaluate(async () => {
+    const old = window.__workPage!;
+    const path = '/test/work-page-browser.tsx';
+    (await import(path)).mountWorkPage(true, true);
+    const added = new Promise<void>((resolve) => {
+      old.didAdd = resolve;
+    });
+    old.finishAdd!();
+    await added;
+    await Promise.resolve();
+    await Promise.resolve();
+    return old.calls;
+  });
+  expect(oldCalls.map((entry) => entry.action)).toEqual(['task.add']);
+});
+
+test('after a refusal another page can use the same retained task', async ({ page }) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  await page.getByRole('button', { name: 'Attach a sub-page' }).click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  const target = dialog.getByRole('combobox', { name: 'Page', exact: true });
+  await target.selectOption({ label: 'Legal copy' });
+  await dialog.getByLabel('Task title').fill('Follow a page');
+  await page.evaluate(() => {
+    window.__workPage!.refuseLink = true;
+  });
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await target.selectOption({ label: 'Release plan' });
+  await dialog.getByRole('button', { name: 'Retry link' }).click();
+  await expect(dialog).toHaveCount(0);
+  const sent = await calls(page);
+  expect(sent.filter((entry) => entry.action === 'task.add')).toHaveLength(1);
+  expect(sent.at(-1)).toEqual({
+    action: 'task.link',
+    body: { taskId: 'T-4', pageId: '30000000-0000-4000-8000-000000000003' },
+  });
+});
+
+test('reopening after uncertain task creation restores the form', async ({ page }) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  const open = page.getByRole('button', { name: 'Attach a sub-page' });
+  await open.click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  await dialog
+    .getByRole('combobox', { name: 'Page', exact: true })
+    .selectOption({ label: 'Legal copy' });
+  await dialog.getByLabel('Task title').fill('Follow legal copy');
+  await page.evaluate(() => {
+    window.__workPage!.unknownAdd = true;
+  });
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'The result is unknown. Check the task list before trying again.',
+  );
+  await expect(dialog.getByRole('button', { name: 'Attach', exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await open.click();
+  await expect(dialog.getByRole('button', { name: 'Attach', exact: true })).toBeEnabled();
+});
+
+test('uncertain linking resolves success from admitted work', async ({ page }) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  await page.getByRole('button', { name: 'Attach a sub-page' }).click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  await dialog
+    .getByRole('combobox', { name: 'Page', exact: true })
+    .selectOption({ label: 'Legal copy' });
+  await dialog.getByRole('combobox', { name: 'Task', exact: true }).selectOption('T-2');
+  await page.evaluate(() => {
+    window.__workPage!.unknownLink = true;
+  });
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Retry link' })).toBeDisabled();
+  await page.evaluate(() => window.__workPage!.settle!('linked'));
+  await expect(dialog).toHaveCount(0);
+});
+
+test('reopening after an uncertain link keeps the task and enables retry', async ({ page }) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  const open = page.getByRole('button', { name: 'Attach a sub-page' });
+  await open.click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  await dialog
+    .getByRole('combobox', { name: 'Page', exact: true })
+    .selectOption({ label: 'Legal copy' });
+  await dialog.getByRole('combobox', { name: 'Task', exact: true }).selectOption('T-2');
+  await page.evaluate(() => {
+    window.__workPage!.unknownLink = true;
+  });
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await open.click();
+  await expect(dialog).toContainText('Task T-2 is kept');
+  await expect(dialog.getByRole('button', { name: 'Retry link' })).toBeEnabled();
+  await page.evaluate(() => window.__workPage!.settle!('linked'));
+  await expect(dialog).toHaveCount(0);
+});
+
+test('the attach picker does not offer shell pages', async ({ page }) => {
+  await mountRoute(page, true, true, 'attach');
+  await expand(page);
+  await page.getByRole('button', { name: 'Attach a sub-page' }).click();
+  const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
+  const target = dialog.getByRole('combobox', { name: 'Page', exact: true });
+  await expect(target.locator('option', { hasText: 'Dashboard' })).toHaveCount(0);
 });

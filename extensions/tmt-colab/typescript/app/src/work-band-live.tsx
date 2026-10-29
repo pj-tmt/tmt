@@ -5,7 +5,7 @@ import { SaveRefused, saveMessage } from './save.js';
 import type { PageState } from './bootstrap.js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { WorkBand, type WorkBandProps } from './work-band.js';
-import { AddTask, TaskControls, useWorkRun } from './work-controls.js';
+import { AddTask, AttachSubpage, TaskControls, useWorkRun } from './work-controls.js';
 import type { PageBinding, PageTransport } from './transport.js';
 import { useLinkedPages } from './work-stages.js';
 import type { Work } from './work.js';
@@ -32,7 +32,7 @@ export function PageWorkBand({
   pageId: string;
 }): ReactNode {
   const run = useWorkRun(binding);
-  const { stageOf, parent, subpages, observed } = useLinkedPages(
+  const { stageOf, parent, subpages, observed, pages, knownChild } = useLinkedPages(
     transport,
     space,
     pageId,
@@ -64,6 +64,11 @@ export function PageWorkBand({
       {...band}
       work={work}
       stateControl={stateControl}
+      attachAction={
+        !knownChild ? (
+          <AttachSubpage pages={pages} pageId={pageId} work={work} run={run} />
+        ) : undefined
+      }
       subpages={subpages}
       parent={parent}
       stageOf={stageOf}
