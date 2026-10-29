@@ -37,7 +37,7 @@ mutation. Clean EOF closes storage and exits 0 even if individual requests faile
 The API resource connection opens lazily once and is reused. The one exception is
 `workspace.capture`: its owner retains a bounded, zero-busy-timeout read-only
 identity snapshot, preserving its no-create and current-schema admission behavior.
-Constant capabilities, `storage.root` and `consumption.limits`
+Constant capabilities, `storage.root`, `consumption.limits` and `drivers.models`
 create no storage. Every operation still validates its own input and current
 identity/role/retirement state; delivery settings reload per request. No database
 transaction spans frames. Lifecycle observations drain and deliver after each
@@ -130,8 +130,8 @@ Clients must tolerate additive response fields. Public `tmt api` storage opens,
 including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
 OS-denied or read-only data directory. The message names that directory; no API
 operation was performed. Other storage-open failures retain `API_UNAVAILABLE`
-or the resource's existing code. `capabilities`, `storage.root` and `consumption.limits` remain
-independent of storage access.
+or the resource's existing code. `capabilities`, `storage.root`, `consumption.limits` and `drivers.models`
+remain independent of storage access.
 
 | Operation                | Input                                                                                               | Result                                                                                                                                                                                                                                  |
 | ------------------------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -166,6 +166,7 @@ independent of storage access.
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                      |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs` | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                                                                                    |
 | `consumption.limits`     | `{}`                                                                                                | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                   |
+| `drivers.models`         | `{}`                                                                                                | `drivers`: one entry per AI tool TMT launches, with `source`, `models` and `efforts`, all best effort (see [launch choices](#launch-choices))                                                                                           |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                                                                                                 |
 | `user.identity`          | `{}`                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                                                                                               |
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                                                                                  |
@@ -991,6 +992,53 @@ returns `{unchanged: true, rootsStamp, observedAtMs}`. A new, removed or edited 
 changed pane directory, changes the stamp. A reader such as the Ops worker owns its cache per
 member and directory, refreshes it off its paint path, and treats an older Core's
 `API_INPUT_INVALID` as no skills.
+
+## Launch choices
+
+`drivers.models` v1 is a storage-free read of the model and effort values a launch UI can
+offer for each AI tool TMT launches (#5539). The input is `{}`; any other input, an
+originator or an extra field is `API_INPUT_INVALID`. It opens no database and starts no
+provider process.
+
+```json
+{ "version": 1, "operation": "drivers.models", "input": {} }
+```
+
+The result is `{drivers}`, sorted by `driver`, with one entry for each driver that has a
+runtime:
+
+```json
+{
+  "driver": "codex",
+  "source": "provider",
+  "models": ["gpt-6.1-sol", "gpt-6-luna"],
+  "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"]
+}
+```
+
+- `models` are raw ids exactly as the tool's own `--model` accepts them, never TMT display
+  names, in the provider's order without duplicates.
+- `efforts` are the values of the tool's own effort setting (`--effort`, or Codex
+  `model_reasoning_effort`). They are a separate choice from the model, and an empty list
+  means TMT passes no effort for that tool.
+- `source` is `provider` when `models` was read from the tool's own files, else `fallback`
+  for TMT's maintained list.
+
+Every list is best effort and may be empty. Support can vary by model, so a launch UI keeps
+free-form entry and never refuses a value that is missing from the list.
+
+- **Codex:** reads `models_cache.json` under the ambient `CODEX_HOME`, or `~/.codex` without
+  it. It takes only each entry's `slug` and `visibility`, keeping `visibility: "list"`, and
+  never reads account or identity fields. The read is bounded (1 MiB) and does not follow
+  symlinks. A missing, oversized, symlinked or malformed cache, or one that lists nothing,
+  as on a first run, gives `source: "fallback"` with TMT's maintained Codex list.
+- **Claude** keeps no readable list. Its fallback holds the aliases and full names its
+  `--model` accepts.
+- **agy** reports empty lists, because TMT passes it no effort.
+
+Each driver supplies its own entry through the lifecycle slot `launch_choices`, whose default
+is an empty fallback. An older Core answers the unknown operation with `API_INPUT_INVALID`, and
+a reader then offers free-form entry only.
 
 ## Dispatch readiness and input safety
 

@@ -366,6 +366,10 @@ The lifecycle slot `skill_roots` names the directories a harness reads invokable
 and its composer sigil; `runtime/skills.rs` walks them for the read-only
 `skills.list` (#5531). The [agent skills](../../../../contracts/extension-api.md#agent-skills)
 contract owns the directories, bounds and stamp.
+The lifecycle slot `launch_choices` gives each driver's best-effort model and effort list for
+the storage-free `drivers.models` (#5539). Codex reads its own `models_cache.json`, else a
+maintained fallback, as Claude always does; the [launch choices](../../../../contracts/extension-api.md#launch-choices)
+contract owns the shape and sources.
 
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for
