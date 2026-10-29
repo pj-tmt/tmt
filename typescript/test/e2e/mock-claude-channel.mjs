@@ -20,7 +20,11 @@
 //   MOCK_STALL_FIRST_CHANNEL_MS  block the mock once, right after it logs its first channel
 //                          notice, as if it were descheduled under CI load
 //   MOCK_TURN_TRANSCRIPT   private telemetry fixture; prompt follows SessionStart,
-//                          then `<log>.stop-turn` explicitly releases one Stop
+//                          then `<log>.stop-turn` explicitly releases one Stop. The
+//                          mock logs `stop-hook-exited` when the hook exits and
+//                          `turn-recorded` only after the queued Stop is applied
+//   TMT_TEST_HOOK_QUEUE_SCHEMA  the queue schema, set by the Rust fixture parent;
+//                          required by that Stop only
 // Digest steps (`<log>.digest-step`, MOCK_LAUNCH_HOOKS=1) emit one installed-hook Stop:
 //   message / continuationMessage  the Stop's and the continuation Stop's last_assistant_message
 //   transcript                     the Stop's transcript_path
@@ -61,6 +65,40 @@ function execPeer(args, callback) {
   peerCompletions.add(closed);
   void closed.then(() => peerCompletions.delete(closed));
   return child;
+}
+
+// Stop only queues its capture; a finite flusher applies it after the hook exits
+// (#5417). The queue acknowledgment follows the capture and its usage follow-up.
+function waitForQueuedStop() {
+  const schema = process.env.TMT_TEST_HOOK_QUEUE_SCHEMA;
+  const directory = process.env.TMT_HOME;
+  if (!schema || !directory)
+    return Promise.reject(new Error('A turn Stop needs TMT_TEST_HOOK_QUEUE_SCHEMA and TMT_HOME.'));
+  const helper = new URL('../support/wait-hook-flush.mjs', import.meta.url).pathname;
+  return new Promise((resolve, reject) => {
+    execFile(process.execPath, [helper, directory, schema], (error, _stdout, stderr) => {
+      if (!error) return resolve();
+      let pending;
+      try {
+        const queue = new Database(`${directory}/hook-writes.db`, {
+          readonly: true,
+          fileMustExist: true,
+        });
+        try {
+          pending = queue.prepare('SELECT count(*) AS n FROM hook_writes').get().n;
+        } finally {
+          queue.close();
+        }
+      } catch (cause) {
+        pending = `unavailable: ${cause.message}`;
+      }
+      reject(
+        new Error(
+          `The queued Stop was not acknowledged (pending ${pending}): ${String(stderr).slice(-2000)}`
+        )
+      );
+    });
+  });
 }
 
 function emitHook(payload, event) {
@@ -414,11 +452,14 @@ const control = setInterval(() => {
         transcript_path: process.env.MOCK_TURN_TRANSCRIPT,
         ...(process.env.MOCK_LAUNCH_HOOKS === '1' ? { stop_hook_active: false } : {}),
       },
-      'turn-recorded'
-    ).catch((error) => {
-      log({ event: 'hook-error', message: error.message });
-      process.exitCode = 1;
-    });
+      'stop-hook-exited'
+    )
+      .then(waitForQueuedStop)
+      .then(() => log({ event: 'turn-recorded' }))
+      .catch((error) => {
+        log({ event: 'hook-error', message: error.message });
+        process.exitCode = 1;
+      });
   }
   if (fs.existsSync(`${logPath}.quit`)) {
     clearInterval(control);
