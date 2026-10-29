@@ -1,12 +1,12 @@
 import { capturePath } from './captures.js';
 import { expect, test, type Page } from '@playwright/test';
 test.use({ actionTimeout: 5000 });
-async function mount(page: Page) {
+async function mount(page: Page, size: 'stages' | 'work' = 'stages') {
   await page.goto('/');
-  await page.evaluate(async () => {
+  await page.evaluate(async (size) => {
     const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList('stages', '/', ['design']);
-  });
+    await (await import(path)).mountPageList(size, '/', ['design']);
+  }, size);
 }
 test('Save current filters, edit the shortcut, retain drafts on failed storage and keep owner writes untouched', async ({
   page,
@@ -164,4 +164,70 @@ test('another tab receives storage updates; a separate browser profile has no sa
   } finally {
     await isolated.close();
   }
+});
+
+test('sticky chrome never transfers shortcut focus into New page', async ({ page }) => {
+  await mount(page, 'work');
+  const home = page.locator('#list-fixture [data-page-list]');
+  const save = home.getByRole('button', { name: 'Save as shortcut', exact: true });
+  await save.focus();
+  await home.evaluate((node) => {
+    node.scrollTop = 520;
+  });
+  await expect(home).toHaveAttribute('data-compact', '');
+  await expect(save).toBeFocused();
+  await home.evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  await expect(home).not.toHaveAttribute('data-compact');
+  await expect(save).toBeFocused();
+});
+
+test('an external deletion does not remount an active Edit draft', async ({ page }) => {
+  await mount(page);
+  await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
+  let dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
+  await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Original');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit shortcut', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'Edit shortcut', exact: true });
+  await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Unsaved draft');
+  const peer = await page.context().newPage();
+  try {
+    await peer.goto('/');
+    await peer.evaluate(async () => {
+      const path = '/src/shortcut-store.ts';
+      const { ShortcutStore } = await import(path);
+      const store = new ShortcutStore('');
+      const item = store.read().items.find((item: { name: string }) => item.name === 'Original');
+      if (!item) throw new Error('Saved shortcut missing');
+      store.delete(item.id);
+    });
+    await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
+      'Unsaved draft',
+    );
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('could not');
+    await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
+      'Unsaved draft',
+    );
+  } finally {
+    await peer.close();
+  }
+});
+
+test('Save uses the effective list scope when a removed project falls back to All pages', async ({
+  page,
+}) => {
+  await mount(page);
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('stages', '/?scope=gone', ['design']);
+  });
+  await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
+  await expect(dialog.getByRole('status')).toHaveText('5 matching pages');
+  await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Current view');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('#list-fixture .pages > li')).toHaveCount(5);
 });

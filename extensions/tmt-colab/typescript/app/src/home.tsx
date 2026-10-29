@@ -349,10 +349,10 @@ export function Home() {
       const next = boundary.getBoundingClientRect().bottom <= root.getBoundingClientRect().top;
       const active = document.activeElement;
       if (active instanceof HTMLElement && root.contains(active)) {
-        if (next && active.closest('.page-list-hero'))
+        if (next && active.closest('.page-list-hero-create'))
           compactFocus.current = '.page-list-compact-create button';
         else if (!next && active.closest('.page-list-compact-create'))
-          compactFocus.current = '.page-list-hero .tmt-ui-action';
+          compactFocus.current = '.page-list-hero-create button';
         else if (
           next &&
           (active.closest('.page-list-sort') ||
@@ -1031,7 +1031,7 @@ export function Home() {
       </header>
       {shortcutDialog && (
         <ShortcutDialog
-          key={`${shortcutDialog}:${currentShortcut?.id ?? ''}`}
+          key={shortcutDialog}
           mode={shortcutDialog}
           initial={
             shortcutDialog === 'edit'
@@ -1040,7 +1040,7 @@ export function Home() {
                 ? shortcuts.items[0]
                 : undefined
           }
-          search={shortcutDialog === 'manage' ? {} : search}
+          search={shortcutDialog === 'manage' ? {} : { ...search, scope }}
           store={shortcuts.store}
           items={shortcuts.items}
           pages={homePages}
@@ -1067,7 +1067,7 @@ export function Home() {
         onClose={() => setNewPage(false)}
         focusFallback={() =>
           section.current?.querySelector<HTMLElement>(
-            compact ? '.page-list-compact-create button' : '.page-list-hero .tmt-ui-action',
+            compact ? '.page-list-compact-create button' : '.page-list-hero-create button',
           ) ?? null
         }
       />
