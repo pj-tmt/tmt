@@ -1,4 +1,6 @@
 //! One Remote-owned list/send/delivery interface; backends never grant agent authority.
+pub(crate) mod publisher;
+pub(crate) mod store;
 mod summary;
 pub use summary::{Member, MemberPresence, Squad, SquadObservation, State, Summary};
 
@@ -17,7 +19,8 @@ pub struct Record {
     pub remote: String,
     pub summary: Vec<u8>,
 }
-/// Supplies verified retained Firestore summaries; this boundary does not own caching or storage.
+/// Supplies retained verified bytes, or an empty row for a paired machine with no
+/// verified snapshot. Storage failure remains an error; this trait adds no authority.
 pub trait SummaryReader {
     fn read(&self) -> Result<Vec<Record>, RemoteError>;
 }

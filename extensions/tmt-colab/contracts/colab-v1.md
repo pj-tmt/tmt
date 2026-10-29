@@ -1473,11 +1473,13 @@ blocks retain a 1px inert marker in that placeholder and render at the bounded
 after spacer's top using the authored column's horizontal bounds; the placeholder never carries the
 whole expanded block's height. Split logical groups request one physical entry
 per question ID, while structural wrappers use their group ID. These remain
-cosmetic entries under the same page-wide slot bound. A requested compact slot inside the body of any closed
+cosmetic entries under the same page-wide slot bound. A uniquely matched requested slot of any kind inside the body of any closed
 `details` ancestor reports exactly `{id,hidden:true}` instead of geometry; content in that ancestor's
 first `summary` remains visible. Changes to `open` recompute placement. The parent keeps the controls
-mounted with `display:none` while hidden, preserving drafts and measurement requests without allowing
-focus or Send, and restores current bounded placement when the disclosure opens.
+mounted with `display:none` while hidden, preserving drafts and each slot kind's measurement request
+without allowing focus or Send. Hidden slots do not count as visible inline destinations for
+notifications or navigation and do not trigger measurement re-requests. Opening the disclosure restores
+current bounded placement without changing record or publication admission.
 The iframe inserts the after spacer
 beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]`,
 `tmt-questions[data-id]` or `tmt-review[data-id]`. A group uses its parent-selected active question for placement.

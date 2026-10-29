@@ -7,8 +7,9 @@ pairing flow or delivery ledger. Core's prepared-message v1 contract is unchange
 
 `rust/tmt-remote/src/squads` owns the types, projection and interface. `reads` owns
 the bounded public Ops invocation. `cloud_inbox` and `cloud_pairing::service` own
-carrier and original-operation observations. This module starts no publisher or public
-command; consumers provide verified retained summaries.
+carrier and original-operation observations. A joined publisher under the serving
+Service publishes filtered summaries; this module retains verified cache in the existing private
+Store and adds no public command.
 
 ## Summary bytes
 
@@ -62,8 +63,8 @@ path or conversation field enters the summary. There is no fallback to the broad
 owner-browser Ops projection, cron, private Ops/Core state or host inspection.
 
 A missing/failing Ops command, invalid JSON or changed required document shape
-produces a publishable `{version:1,machineName,observedAt,status:"unavailable"}`
-snapshot with no `squads`. It is never an empty available success and contains no
+produces an `{version:1,machineName,observedAt,status:"unavailable"}` read result
+with no `squads`; the publisher failure policy below controls its publication. It is never an empty available success and contains no
 stale facts or diagnostic free text. An explicitly empty available `squads` list
 is valid. `Summary::read` rejects incompatible versions,
 malformed identity/name/shape and duplicate JSON keys. Names are bounded text
@@ -145,5 +146,58 @@ Tests exercise strict field exclusion (including free-text activity), renamed
 members, null leads, unknown fields/values, malformed/changed Ops shapes and
 missing/failing commands. Carrier adapter tests use existing isolated service and
 public-Core fixtures to verify original-ID observations, current receipt/final
-states and no additional dispatch. Publisher lifecycle, quota measurements and
-two-machine public CLI acceptance are outside this interface qualification.
+states and no additional dispatch. Private Store and fake ordinary-user provider
+tests cover filtering, coalescing, heartbeat, budget holds, immutable publication
+recovery, cache restart, out-of-order/tampered input and revocation. Each storage
+fixture asserts its private `TMT_HOME`. No test uses a real account or provider;
+two-machine public CLI acceptance belongs to the separate integration consumer.
+
+## Publisher and retained cache
+
+The native-only `squads.summary` operation uses the existing signed HPKE inbox,
+current grant/member fences and transport attempt store. It needs `agents.read`,
+not sending permission. Each recipient gets only its allowed agent UUIDs, including
+lead filtering; a hidden-only squad is omitted. Unknown fields are discarded before
+cache persistence. A signed per-peer sequence prevents older arrivals replacing
+newer cache entries, independently of `observedAt`.
+
+Before publishing, the Service uses the existing signed `capabilities` operation.
+Only a native peer advertising `squads.summary` under its current `agents.read` grant
+receives metadata. Capability observations are cached for one day, scoped to the
+native key and grant revision; failed checks back off from one minute to one day.
+Absent support is not inferred from labels or another operation. Completed local
+capability observation rows are retired without retaining response contexts.
+
+The separate publisher samples public Ops at most once a minute, measured from the
+end of the previous read, with its own 30-second timeout and no overlapping reads.
+It samples only with eligible, capability-confirmed native read peers. The existing inbox worker remains
+free to answer capability exchanges. Both workers share the Service, Store, project
+guard and stop owner; stop joins both before releasing the serve lease. The publisher
+coalesces content changes for five seconds; observation time alone does not publish. The unchanged heartbeat is five minutes. A failed read retains the
+last published available content with its original observation time. Continuing failed
+reads publish unavailable only when the heartbeat is due; cached publication ticks
+are not new failed reads, and one success clears the failure streak. With no prior
+available publication, a failed first read is explicitly unavailable. The last
+published content, pending intent and normalized verified cache survive restart. Unconfirmed attempted carrier IDs are observed, never
+created again. If original-ID recovery observes no carrier, that snapshot remains
+unconfirmed and its attempted row stays immutable. The latest desired state is held
+for five minutes, then a fresh observation may use a newer sequence and ID; it is not
+a delivery claim or replay of the absent snapshot. Existing carrier-retention expiry
+retires its active snapshot atomically; the retained desired state can produce a fresh observation with a newer sequence,
+never a recreation of the expired ID. Budget/Auth failure holds pending state for at
+least the existing idle interval, in addition to the shared project's own guard and backoff.
+
+After verified cache and sequence-watermark commit, the existing driver promptly
+deletes a validated summary's inbox document through the project guard. It writes
+no provider response and does not delete a nonexistent response document. A failed
+or budget-refused delete retains the cleanup row and verified cache. The source
+compacts completed summary outboxes while preserving the latest completion and
+every active attempt. Generic messages and finals retain their existing 30-day
+recovery horizon. Sequence watermarks survive summary carrier compaction. A paired
+machine without cached bytes is unavailable, with no fabricated observation time.
+
+A quiet directed peer costs 288 heartbeat creates plus 288 inbox cleanup deletes,
+about 576 writes per day, before capability exchanges, descriptor reads,
+post-create observations, inbox scans, Rules lookups and checkpoints. Fanout
+multiplies that work. All traffic shares the existing guard, not a new free-plan
+allowance. Provider storage proves publication, never receiver delivery.

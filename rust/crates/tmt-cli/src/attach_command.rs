@@ -81,17 +81,41 @@ pub(crate) fn prepare_observed(observed: PaneIdentity) -> Result<Prepared, Failu
 }
 
 fn prepare(target: &str) -> Result<Prepared, Failure> {
+    prepare_target(target, None)
+}
+
+/// A launch receipt pins the binding, not its mutable display name.
+pub(crate) fn prepare_launched(identity: &str, binding: &str) -> Result<Prepared, Failure> {
+    prepare_target(identity, Some(binding))
+}
+
+fn prepare_target(target: &str, expected_binding: Option<&str>) -> Result<Prepared, Failure> {
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
             &paths.global_dir,
-            "No pane input occurred; retrying the identical command is safe.",
+            if expected_binding.is_some() {
+                "The member started. No pane input occurred; inspect it before attaching again, and do not repeat the launch."
+            } else {
+                "No pane input occurred; retrying the identical command is safe."
+            },
             "IDENTITY_ERROR",
             "Could not open identity storage.",
         )
     })?;
-    let result = target::resolve_identity_target(&mut storage, target).and_then(prepare_observed);
+    let result = target::resolve_identity_target(&mut storage, target).and_then(|observed| {
+        if let Some(expected) = expected_binding
+            && observed.binding.as_ref().is_none_or(|binding| binding.id != expected)
+        {
+            return Err(Failure::new(
+                "IDENTITY_CHANGED",
+                "The launched member changed bindings before attachment. No pane input occurred; inspect it before attaching again.",
+                5,
+            ));
+        }
+        prepare_observed(observed)
+    });
     after_cleanup(result, || storage.close())
 }
 

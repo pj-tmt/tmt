@@ -190,6 +190,9 @@ export function useQuestionLayer({
     (id: string) => {
       const group = groups.find((value) => value.id === id || value.questions.includes(id));
       if (!group) return false;
+      const target = group.questions.includes(id) ? id : selected(group);
+      const position = slots.find((slot) => slot.id === (group.split ? target : group.id));
+      if (position?.hidden) return false;
       setActive((previous) => ({
         ...previous,
         [group.id]: group.questions.includes(id) ? id : (previous[group.id] ?? group.questions[0]),
@@ -198,7 +201,7 @@ export function useQuestionLayer({
       setOpen(group.id, true);
       return true;
     },
-    [groups, setOpen],
+    [groups, selected, slots, setOpen],
   );
   const rows = groups.map((group) => {
     const members = group.questions.map((id) => questions.find((question) => question.id === id)!);

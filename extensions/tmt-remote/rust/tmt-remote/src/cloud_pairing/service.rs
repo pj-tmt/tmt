@@ -2,6 +2,7 @@
 //! pairing policy and provider reconciliation, never Core preparation or state.
 mod ceremony;
 mod join;
+mod summaries;
 
 mod member_observations;
 mod owner_confirmations;
@@ -62,6 +63,12 @@ pub struct Service {
     last_error: Mutex<Option<String>>,
     published: Mutex<BTreeMap<String, Vec<u8>>>,
     cleanup: Mutex<BTreeMap<String, Instant>>,
+    summary_reads: Option<Arc<crate::reads::Reads>>,
+    summary_error: Mutex<Option<String>>,
+    summary_support: Mutex<BTreeMap<String, summaries::SummarySupport>>,
+    summary_clock: Instant,
+    summary_sample: Mutex<crate::squads::publisher::SummarySampling>,
+    summary_schedules: Mutex<BTreeMap<String, crate::squads::publisher::Schedule>>,
 }
 pub struct Owner {
     pub layout: Layout,
@@ -102,7 +109,17 @@ impl Service {
             last_error: Mutex::new(None),
             published: Mutex::new(BTreeMap::new()),
             cleanup: Mutex::new(BTreeMap::new()),
+            summary_reads: None,
+            summary_error: Mutex::new(None),
+            summary_support: Mutex::new(BTreeMap::new()),
+            summary_clock: Instant::now(),
+            summary_sample: Mutex::default(),
+            summary_schedules: Mutex::new(BTreeMap::new()),
         }
+    }
+    pub fn with_summary_reads(mut self, reads: crate::reads::Reads) -> Self {
+        self.summary_reads = Some(Arc::new(reads));
+        self
     }
     fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, RemoteError> {
         self.store.lock().map_err(crate::store::database)
@@ -124,8 +141,18 @@ impl Service {
         }
     }
     pub fn status(&self) -> Result<Value, RemoteError> {
+        let native = self
+            .last_error
+            .lock()
+            .map_err(crate::store::database)?
+            .clone();
+        let summary = self
+            .summary_error
+            .lock()
+            .map_err(crate::store::database)?
+            .clone();
         Ok(
-            json!({"cleanupPending":!self.store()?.cloud_route_changes()?.is_empty(),"error":self.last_error.lock().map_err(crate::store::database)?.clone()}),
+            json!({"cleanupPending":!self.store()?.cloud_route_changes()?.is_empty(),"error":native.or(summary)}),
         )
     }
     pub fn request_reconcile(&self) {
@@ -1015,17 +1042,58 @@ impl Service {
                     *pending = false;
                 }
             })?;
-        Ok(Worker {
+        let mut worker = Worker {
             stop,
             wake: self.wake.clone(),
             join: Some(join),
-        })
+            publisher_join: None,
+            publisher_wake: Arc::new((Mutex::new(()), Condvar::new())),
+        };
+        if self.summary_reads.is_some() {
+            let service = self.clone();
+            let stop = worker.stop.clone();
+            let wake = worker.publisher_wake.clone();
+            worker.publisher_join = Some(
+                thread::Builder::new()
+                    .name("remote-summary-publisher".into())
+                    .spawn(move || {
+                        while !stop.load(Ordering::Acquire) {
+                            let outcome = service.publish_summaries();
+                            match outcome {
+                                Ok(true) => {
+                                    if let Ok(mut status) = service.summary_error.lock() {
+                                        *status = None;
+                                    }
+                                }
+                                Err(error) => {
+                                    if let Ok(mut status) = service.summary_error.lock() {
+                                        *status = Some(error.code);
+                                    }
+                                }
+                                Ok(false) => {}
+                            }
+                            let guard = wake.0.lock().unwrap_or_else(|e| e.into_inner());
+                            let _guard = wake
+                                .1
+                                .wait_timeout_while(
+                                    guard,
+                                    Duration::from_millis(crate::limits::SQUAD_SUMMARY_COALESCE_MS),
+                                    |_| !stop.load(Ordering::Acquire),
+                                )
+                                .unwrap_or_else(|e| e.into_inner());
+                        }
+                    })?,
+            );
+        }
+        Ok(worker)
     }
 }
 pub struct Worker {
     stop: Arc<AtomicBool>,
     wake: Arc<(Mutex<bool>, Condvar)>,
     join: Option<JoinHandle<()>>,
+    publisher_join: Option<JoinHandle<()>>,
+    publisher_wake: Arc<(Mutex<()>, Condvar)>,
 }
 impl Drop for Worker {
     fn drop(&mut self) {
@@ -1033,7 +1101,17 @@ impl Drop for Worker {
         self.stop.store(true, Ordering::Release);
         self.wake.1.notify_all();
         drop(guard);
+        let guard = self
+            .publisher_wake
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        self.publisher_wake.1.notify_all();
+        drop(guard);
         if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+        if let Some(join) = self.publisher_join.take() {
             let _ = join.join();
         }
     }

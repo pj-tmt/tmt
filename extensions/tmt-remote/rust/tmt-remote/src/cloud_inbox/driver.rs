@@ -52,11 +52,19 @@ impl InboxDriver {
         let expired = self
             .sessions
             .with_operation_store(|s| s.cloud_expired(now))?;
-        for (peer, id) in expired {
-            self.provider.delete(&peer, "inbox", &id, io).await?;
-            self.provider.delete(&peer, "responses", &id, io).await?;
+        for cleanup in expired {
+            self.provider
+                .delete(&cleanup.peer, "inbox", &cleanup.id, io)
+                .await?;
+            // Validated summaries never publish a provider response. Avoid an
+            // unused second delete/write; generic messages/finals are unchanged.
+            if !cleanup.summary {
+                self.provider
+                    .delete(&cleanup.peer, "responses", &cleanup.id, io)
+                    .await?;
+            }
             self.sessions
-                .with_operation_store(|s| s.cloud_forget(&peer, &id, now))?;
+                .with_operation_store(|s| s.cloud_forget(&cleanup.peer, &cleanup.id, now))?;
         }
         let (from, mut cursor, mut snapshot) = self.sessions.with_operation_store(|store| {
             if let Some(checkpoint) = store.cloud_query_checkpoint()? {
@@ -103,7 +111,7 @@ impl InboxDriver {
                 let delivery = async {
                     if let Some(frozen) = self.receiver.receive(&document, now)? {
                         if !frozen.response_required() {
-                            // Keep the one-way final's local frozen outcome;
+                            // Keep one-way metadata/finals' local frozen outcome;
                             // its sender does not need a provider response.
                             return Ok(());
                         }

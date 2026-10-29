@@ -44,6 +44,14 @@ fn peer(
     (Connection::handshake(client).unwrap(), job)
 }
 
+fn empty_snapshot(peer: &mut UnixStream, decoder: &mut Decoder) {
+    assert_eq!(receive(peer, decoder), ClientMessage::Snapshot);
+    peer.write_all(&ServerMessage::SnapshotStart.encode())
+        .unwrap();
+    peer.write_all(&ServerMessage::SnapshotEnd(Size::new(80, 24).unwrap()).encode())
+        .unwrap();
+}
+
 #[test]
 fn detach_consumes_only_its_control_byte_and_discards_trailing_input() {
     let (mut connection, server) = peer(|mut peer, mut decoder| {
@@ -51,6 +59,8 @@ fn detach_consumes_only_its_control_byte_and_discards_trailing_input() {
             receive(&mut peer, &mut decoder),
             ClientMessage::Resize(Size::new(80, 24).unwrap())
         );
+        // Input may detach before the screen reply; this peer must not race a write.
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
         assert_eq!(
             receive(&mut peer, &mut decoder),
             ClientMessage::Input(b"\x03before".to_vec())
@@ -83,7 +93,6 @@ fn detach_consumes_only_its_control_byte_and_discards_trailing_input() {
     );
     drop(connection);
     server.join().unwrap();
-    assert!(output.is_empty());
 }
 
 #[test]
@@ -94,6 +103,7 @@ fn output_passes_through_exactly_and_resize_notifications_only_update_state() {
             receive(&mut peer, &mut decoder),
             ClientMessage::Resize(_)
         ));
+        empty_snapshot(&mut peer, &mut decoder);
         peer.write_all(&ServerMessage::Output(bytes.to_vec()).encode())
             .unwrap();
         peer.write_all(&ServerMessage::Resized(Size::new(97, 41).unwrap()).encode())
@@ -118,7 +128,7 @@ fn output_passes_through_exactly_and_resize_notifications_only_update_state() {
         .unwrap(),
         AttachEnd::Exited(Exit::Code(7))
     );
-    assert_eq!(output, bytes);
+    assert_eq!(output, [CLEAR_SCREEN, bytes].concat());
     assert_eq!(connection.size(), Size::new(97, 41).unwrap());
     server.join().unwrap();
 }
@@ -131,6 +141,7 @@ fn sole_use_follows_this_clients_resize_and_eviction_is_reported() {
             ClientMessage::Resize(Size::new(120, 30).unwrap())
         );
         assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::TakeSole);
+        empty_snapshot(&mut peer, &mut decoder);
         peer.write_all(&ServerMessage::Evicted(Eviction::TakenOver).encode())
             .unwrap();
     });
@@ -158,6 +169,7 @@ fn a_lost_supervisor_is_not_a_program_exit() {
             receive(&mut peer, &mut decoder),
             ClientMessage::Resize(_)
         ));
+        empty_snapshot(&mut peer, &mut decoder);
     });
     let (input, _typed) = UnixStream::pair().unwrap();
     let mut signals = AttachSignals::install().unwrap();
@@ -181,6 +193,8 @@ fn input_eof_detaches_instead_of_stopping_the_member() {
             receive(&mut peer, &mut decoder),
             ClientMessage::Resize(_)
         ));
+        // Input may detach before the screen reply; this peer must not race a write.
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
         assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Detach);
     });
     let (input, typed) = UnixStream::pair().unwrap();
@@ -199,4 +213,135 @@ fn input_eof_detaches_instead_of_stopping_the_member() {
         AttachEnd::Detached
     );
     server.join().unwrap();
+}
+
+#[test]
+fn initial_screen_supersedes_old_output_and_streams_multiple_chunks_before_live() {
+    let first = vec![b'A'; 16 * 1024];
+    let second = b"\x1b[32mcurrent-tail\x1b[0m".to_vec();
+    let expected = [
+        CLEAR_SCREEN,
+        first.as_slice(),
+        second.as_slice(),
+        b"live-once",
+    ]
+    .concat();
+    let (mut connection, server) = peer(move |mut peer, mut decoder| {
+        assert!(matches!(
+            receive(&mut peer, &mut decoder),
+            ClientMessage::Resize(_)
+        ));
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
+        for message in [
+            ServerMessage::Output(b"superseded-old-output".to_vec()),
+            ServerMessage::SnapshotStart,
+            ServerMessage::SnapshotData(first),
+            ServerMessage::SnapshotData(second),
+            ServerMessage::SnapshotEnd(Size::new(80, 24).unwrap()),
+            ServerMessage::Output(b"live-once".to_vec()),
+            ServerMessage::Exited(Exit::Code(0)),
+        ] {
+            peer.write_all(&message.encode()).unwrap();
+        }
+    });
+    let (input, _typed) = UnixStream::pair().unwrap();
+    let mut output = Vec::new();
+    let mut signals = AttachSignals::install().unwrap();
+    assert_eq!(
+        attach(
+            &mut connection,
+            &input,
+            &mut output,
+            &mut signals,
+            false,
+            || Size::new(80, 24).map_err(io::Error::other)
+        )
+        .unwrap(),
+        AttachEnd::Exited(Exit::Code(0))
+    );
+    assert_eq!(output, expected);
+    server.join().unwrap();
+}
+
+#[test]
+fn an_initial_screen_over_the_safety_bound_clears_and_continues_live() {
+    let (mut connection, server) = peer(|mut peer, mut decoder| {
+        assert!(matches!(
+            receive(&mut peer, &mut decoder),
+            ClientMessage::Resize(_)
+        ));
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
+        peer.write_all(&ServerMessage::SnapshotStart.encode())
+            .unwrap();
+        let frame = ServerMessage::SnapshotData(vec![b'A'; 16 * 1024]).encode();
+        for _ in 0..64 {
+            peer.write_all(&frame).unwrap();
+        }
+        for message in [
+            ServerMessage::SnapshotData(b"discard-overflow".to_vec()),
+            ServerMessage::SnapshotData(b"discard-rest".to_vec()),
+            ServerMessage::SnapshotEnd(Size::new(80, 24).unwrap()),
+            ServerMessage::Output(b"live-after-bound".to_vec()),
+            ServerMessage::Exited(Exit::Code(0)),
+        ] {
+            peer.write_all(&message.encode()).unwrap();
+        }
+    });
+    let (input, _typed) = UnixStream::pair().unwrap();
+    let mut output = Vec::new();
+    let mut signals = AttachSignals::install().unwrap();
+    assert_eq!(
+        attach(
+            &mut connection,
+            &input,
+            &mut output,
+            &mut signals,
+            false,
+            || Size::new(80, 24).map_err(io::Error::other)
+        )
+        .unwrap(),
+        AttachEnd::Exited(Exit::Code(0))
+    );
+    assert_eq!(
+        output,
+        [
+            CLEAR_SCREEN,
+            &vec![b'A'; 1024 * 1024],
+            CLEAR_SCREEN,
+            b"live-after-bound"
+        ]
+        .concat()
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn out_of_order_snapshot_frames_are_not_painted_as_live_bytes() {
+    for message in [
+        ServerMessage::SnapshotData(b"unframed".to_vec()),
+        ServerMessage::SnapshotEnd(Size::new(80, 24).unwrap()),
+    ] {
+        let (mut connection, server) = peer(move |mut peer, mut decoder| {
+            assert!(matches!(
+                receive(&mut peer, &mut decoder),
+                ClientMessage::Resize(_)
+            ));
+            assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
+            peer.write_all(&message.encode()).unwrap();
+        });
+        let (input, _typed) = UnixStream::pair().unwrap();
+        let mut output = Vec::new();
+        let mut signals = AttachSignals::install().unwrap();
+        let result = attach(
+            &mut connection,
+            &input,
+            &mut output,
+            &mut signals,
+            false,
+            || Size::new(80, 24).map_err(io::Error::other),
+        );
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(output.is_empty());
+        server.join().unwrap();
+    }
 }

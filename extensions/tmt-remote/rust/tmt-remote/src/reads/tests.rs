@@ -581,7 +581,12 @@ fn squad_summary_uses_only_the_public_roster_and_reports_missing_failed_or_chang
  {
     let fake = Fake::new();
     fake.answer(LS, &board().to_string());
-    let summary = fake.reads().squad_summary("Studio").unwrap();
+    // The background roster budget is independent of the browser's wait.
+    let summary = fake
+        .reads()
+        .with_wait(Duration::ZERO)
+        .squad_summary("Studio")
+        .unwrap();
     assert_eq!(summary.squads().unwrap()[0].squad, "tmt-core");
     assert_eq!(fake.calls(), [LS]);
     fake.set(LS, "exit", "2");

@@ -109,6 +109,28 @@ pub(super) fn start(request: RunRequest<'_>, paths: &ConfigPaths) -> Result<u8, 
         HostKind::pty().as_str(),
         started.pane
     ));
+    // Resume keeps its existing return-after-confirmation contract. Only a new
+    // interactive run takes over the caller's terminal; the managed launcher
+    // inside the member PTY continues to own the provider's lifetime.
+    if request.resume.is_none()
+        && tmt_cli_style::Interaction::detect(false).view() == tmt_cli_style::Mode::Interactive
+    {
+        let prepared =
+            crate::attach_command::prepare_launched(&started.identity_id, &started.binding_id)?;
+        return crate::attach_command::execute_prepared(
+            prepared,
+            false,
+            crate::invocation::OutputMode::default(),
+        )
+        .map_err(|error| {
+            Failure::new(
+                "ATTACH_FAILED",
+                "The member started, but attachment output failed. The member was not stopped; inspect it before attaching again.",
+                1,
+            )
+            .caused_by(error)
+        });
+    }
     Ok(0)
 }
 

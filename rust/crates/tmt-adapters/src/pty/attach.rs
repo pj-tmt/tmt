@@ -1,6 +1,6 @@
 //! A finite interactive relay. The CLI owns terminal modes; this owner waits on
 //! input, the existing supervisor connection and invocation-owned signal wakes.
-//! No input thread, output replay, terminal-window resize or member signal exists.
+//! No input thread, scrollback replay, terminal-window resize or member signal exists.
 
 use super::{
     Connection,
@@ -94,6 +94,61 @@ impl Drop for AttachSignals {
     }
 }
 
+const MAX_INITIAL_SCREEN: usize = 1024 * 1024;
+const CLEAR_SCREEN: &[u8] = b"\x1b[0m\x1b[2J\x1b[H";
+
+/// The supervisor orders the requested screen between prior and later Output.
+/// Keep only a byte count, never an aggregate screen buffer.
+enum InitialScreen {
+    Waiting,
+    Painting(usize),
+    Discarding,
+    Live,
+}
+
+impl InitialScreen {
+    fn frame(&mut self, message: &ServerMessage, output: &mut impl Write) -> io::Result<bool> {
+        match message {
+            ServerMessage::SnapshotStart if !matches!(self, Self::Live) => {
+                output.write_all(CLEAR_SCREEN)?;
+                *self = Self::Painting(0);
+            }
+            ServerMessage::SnapshotData(bytes) => match self {
+                Self::Painting(written) if bytes.len() <= MAX_INITIAL_SCREEN - *written => {
+                    output.write_all(bytes)?;
+                    *written += bytes.len();
+                }
+                Self::Painting(_) => {
+                    // A pathological screen must not fail attachment or leave a
+                    // misleading partial view. Drain the rest, then follow live.
+                    output.write_all(CLEAR_SCREEN)?;
+                    *self = Self::Discarding;
+                }
+                Self::Discarding => {}
+                _ => return Err(invalid_screen()),
+            },
+            ServerMessage::SnapshotEnd(_) => match self {
+                Self::Painting(_) | Self::Discarding => *self = Self::Live,
+                _ => return Err(invalid_screen()),
+            },
+            ServerMessage::Output(bytes) => match self {
+                Self::Waiting => {} // The requested screen supersedes these bytes.
+                Self::Live => output.write_all(bytes)?,
+                _ => return Err(invalid_screen()),
+            },
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+}
+
+fn invalid_screen() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "unexpected initial-screen frame",
+    )
+}
+
 /// Runs until detach, exit, eviction, signal or transport failure. Raw output is
 /// written without parsing or styling. Only the detach byte is consumed locally.
 /// `size` reads the current local terminal and clamps it before any Resize frame.
@@ -109,6 +164,8 @@ pub fn attach(
     if detach_others {
         connection.send(&ClientMessage::TakeSole)?;
     }
+    connection.send(&ClientMessage::Snapshot)?;
+    let mut screen = InitialScreen::Waiting;
     loop {
         let signal = signals.stopped.load(Ordering::SeqCst);
         if signal != 0 {
@@ -121,8 +178,13 @@ pub fn attach(
         // signal. If decoded frames remain, poll without blocking this round.
         let mut saturated = true;
         for _ in 0..64 {
-            match connection.receive_available()? {
-                Some(ServerMessage::Output(bytes)) => output.write_all(&bytes)?,
+            let message = connection.receive_available()?;
+            if let Some(message) = &message
+                && screen.frame(message, output)?
+            {
+                continue;
+            }
+            match message {
                 Some(ServerMessage::Resized(_)) => {}
                 Some(ServerMessage::Exited(exit)) => {
                     output.flush()?;

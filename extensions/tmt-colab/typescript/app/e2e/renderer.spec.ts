@@ -3481,3 +3481,77 @@ for (const admitted of [false, true])
     await expect.poll(() => page.locator('#probe').getAttribute('data-slots')).toContain(id);
     expect(JSON.parse((await page.locator('#probe').getAttribute('data-slots'))!)).toHaveLength(1);
   });
+
+test('all slot kinds including before-answer hide under closed and nested details', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const id = (n: number) => `80000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const question = id(91),
+    group = id(92),
+    review = id(93),
+    proposal = id(94),
+    reading = id(95);
+  await mount(
+    page,
+    `<details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Section details</summary><tmt-questions data-id="${group}"><p data-title>Questions</p><tmt-question data-id="${question}" data-kind="short"><p data-question>Which heading?</p></tmt-question></tmt-questions><tmt-review data-id="${review}"><h2 data-title>Review</h2><p>Review body</p></tmt-review><tmt-proposal data-id="${proposal}"></tmt-proposal><tmt-read data-id="${reading}"><h2 data-title>Read</h2><p>Reading body</p></tmt-read></details></details>`,
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(
+    ({ question, group, review, proposal, reading }) => {
+      const w = window as unknown as {
+        probe: {
+          handle: Pick<
+            Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>>,
+            'questions' | 'slots'
+          >;
+        };
+      };
+      w.probe.handle.questions(
+        [{ id: question, title: 'Which heading?' }],
+        [],
+        [{ id: group, title: 'Questions', questions: [question], active: question }],
+        [{ id: review, title: 'Review', closed: false }],
+        [{ id: reading, title: 'Read', closed: false }],
+      );
+      w.probe.handle.slots([
+        { id: group, height: 40, before: 12 },
+        { id: review, height: 40 },
+        { id: proposal, height: 40 },
+        { id: reading, height: 40 },
+      ]);
+    },
+    { question, group, review, proposal, reading },
+  );
+  const slots = () =>
+    page
+      .locator('#probe')
+      .evaluate((node) => JSON.parse((node as HTMLElement).dataset.slots ?? '[]'));
+  const hidden = [group, review, proposal, reading].map((id) => ({ id, top: 0, hidden: true }));
+  await expect.poll(slots).toEqual(hidden);
+  const frame = page.frameLocator('#probe iframe');
+  await frame.locator('#outer > summary').click();
+  await expect
+    .poll(async () => {
+      const values = await slots();
+      return (
+        values.length === 4 &&
+        values.every((s: { top: number; hidden?: boolean }) => !s.hidden && s.top > 0) &&
+        values[0].beforeTop !== undefined &&
+        values[0].width > 0
+      );
+    })
+    .toBe(true);
+  await frame.locator('#inner > summary').click();
+  await expect.poll(slots).toEqual(hidden);
+  await frame.locator('#outer > summary').click();
+  await frame.locator('#outer > summary').click();
+  await expect.poll(slots).toEqual(hidden);
+  await frame.locator('#inner > summary').click();
+  await expect
+    .poll(async () => {
+      const current = await slots();
+      return current.length === 4 && current.every((s: { hidden?: boolean }) => !s.hidden);
+    })
+    .toBe(true);
+});

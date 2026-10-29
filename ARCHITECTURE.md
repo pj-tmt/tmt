@@ -304,7 +304,7 @@ host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` a
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
 fullwidth `！` in typed text and the ESC of a bracketed-paste marker to `␛`. The built-in host uses this seam in process.
 `tmt-adapters::pty` owns per-member supervisors, crash residue cleanup under nonblocking
-flocks, current screens, bounded startup output and live attach; CLI restores terminal modes.
+flocks, current screens, bounded startup output and live attach with a streamed initial screen; CLI restores terminal modes and attaches interactive new built-in launches after confirmation.
 [Terminal stream v1](contracts/terminal-stream-v1.md) and the
 [host reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#built-in-host) own snapshots and lifecycle.
 
@@ -535,9 +535,9 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`.
 
 Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
-Core distrusts Remote. Other extensions: public CLI/SDK/`tmt-extension-objects`, never Remote state files.
-Remote owns member/channel authority, People, local effect fences, invites, join UI and summary/send/delivery (`ops squad ls --json`); UI grants none.
-Firestore: only Auth/Rules; read-only auto-pair; no companions/skills or shipped emulation.
+Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`, never Remote state files.
+Remote: member/channel authority, People, local effect fences, invites, join UI, summary cache/publish/send/delivery (`ops squad ls --json`); UI grants none.
+Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped emulation.
 
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,
 with scope/allowlist/hold and UUID/name checks and same-ID Core dispatch/recovery.
@@ -593,7 +593,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
   network. Everything the frame reports is a cosmetic claim; only parent controls admit
   discussion or sends, and highlights carry only IDs, quote selectors and bounded paint ordinals, never bodies or labels.
-  Compact question slots also report closed-disclosure visibility; the parent hides mounted controls and retains drafts, without changing send authority.
+  All inline slot kinds report closed-disclosure visibility; the parent hides mounted controls and retains drafts and stable measurement requests, without changing send authority.
   This contains author code; page self-navigation can still leak a request. Theme projection and the cosmetic port are in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.

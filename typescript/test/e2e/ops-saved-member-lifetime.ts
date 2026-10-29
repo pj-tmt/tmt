@@ -22,7 +22,7 @@ export function savedMemberLifetime(fixture: E2EFixture, shim: string) {
     `#!/bin/sh
 case "$1 $2 $3" in
   'ops ui ') record=${word(boardFile)} ;;
-  'run --save new-worker') record=${word(launcherFile)} ;;
+  'run new-worker '*) record=${word(launcherFile)} ;;
   *) record= ;;
 esac
 if [ -n "$record" ]; then

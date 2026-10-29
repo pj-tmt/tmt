@@ -302,15 +302,17 @@ stream through the public `terminal.stream` API rather than deriving socket path
   (`Supervisor::snapshot`, in the same single thread that orders output) answers with
   `SnapshotStart`, chunked `SnapshotData` (`vt100` `state_formatted` plus `ESC[?1049h` on the
   alternate screen) and `SnapshotEnd(size)`, queued behind the client's other frames. A client
-  that asks with 256 KiB unread is evicted `TooSlow`. `tmt attach` never asks for one.
+  that asks with 256 KiB unread is evicted `TooSlow`. `tmt attach` requests one after its initial resize.
 - **Interactive attach.** `tmt attach <name-or-UUID> [-d]` resolves the existing
   binding and admits one connection through `Host`, checking the supervisor/pane
   incarnations and marker before terminal input. SQLite closes before the relay.
   The CLI owns crossterm raw mode, alternate-screen entry and restoration;
   `pty::attach` polls that input, the admitted socket and invocation-owned signal
   notifications without a surviving input thread. Live program output passes
-  unchanged; there is no replay, redraw nudge or initial-screen frame, so entry
-  may stay blank until the program draws. Ctrl-\ detaches without stopping the
+  unchanged. Attach streams the initial snapshot in bounded chunks before following
+  live output, superseding earlier queued bytes without scrollback or a redraw nudge.
+  It keeps only a byte count; a snapshot over 1 MiB clears the partial paint, discards
+  its remaining chunks and continues live without failing attachment. Ctrl-\ detaches without stopping the
   member; Ctrl-C goes to the program. EOF detaches; TERM/HUP/external INT restore
   the terminal without signalling the member. SIGKILL cannot restore a terminal.
   `-d` uses the existing `TakeSole` frame. Eviction, exit and transport failure
@@ -330,6 +332,11 @@ stream through the public `terminal.stream` API rather than deriving socket path
   or continued liveness; first-run sign-in need not emit hooks. Startup receipt controls
   are ephemeral and grant no session authority. An uncertain launch
   names the pane for inspection and never resends or stops a possibly running member.
+  A confirmed new `run` enters the existing attach owner when stdin/stdout support
+  an interactive view. The receipt pins its identity and binding before terminal
+  input; name changes cannot redirect it. Pipes and dumb terminals return after
+  confirmation; resume keeps its existing behavior. Attachment refusal or loss
+  never relaunches or stops the member. Ctrl-\ leaves it running as with `attach`.
 - **Evidence and markers.** Core observes the supervisor and pane process incarnations
   and verifies their direct parent/child relationship. Publication requires the matching
   pane PID; removal compares the binding key. Errors stay Unknown; only native process

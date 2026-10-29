@@ -4,7 +4,7 @@ import { AskAgainAction } from './ask-again.js';
 import { ReviewCard } from './components/review-card.js';
 import { focusNeedsYouTarget, type NeedsYouCandidate } from './needs-you.js';
 import type { Question, Review } from './questions.js';
-import type { ReviewAnchor, ReviewRenderBlock } from './renderer.js';
+import type { AnchorPosition, ReviewAnchor, ReviewRenderBlock } from './renderer.js';
 import { AdmittedView, ReviewActions, type ReviewOutcome } from './review-actions.js';
 import { canonicalReviewThread, repliedComments, reviewState, sectionAnswered } from './reviews.js';
 import { text } from './strings.js';
@@ -32,7 +32,7 @@ export function useReviewLayer({
   binding: RefObject<PageBinding | undefined>;
   discussionBlocked: boolean;
   statusCoordinator: PageBinding['status'];
-  slotPositions: readonly { id: string; top: number }[];
+  slotPositions: readonly AnchorPosition[];
   /** The threads the question layer associates with a question. */
   questionThreads: RefObject<(questionId: string) => readonly ThreadView[]>;
 }) {
@@ -139,7 +139,7 @@ export function useReviewLayer({
 
   const writable = !view.archived && !!snapshot.binding?.discussion;
   const navigation: NeedsYouCandidate[] = rows.flatMap(({ review, anchor, state }) =>
-    !anchor || !slotPositions.some((slot) => slot.id === review.id)
+    !anchor || !slotPositions.some((slot) => slot.id === review.id && !slot.hidden)
       ? []
       : [
           {
@@ -179,8 +179,8 @@ export function useReviewLayer({
               data-inline-review={review.id}
               data-inline-slot={review.id}
               className="proposal-inline review-inline"
-              data-detached={!slot || !anchor || undefined}
-              style={{ top: slot?.top ?? 0 }}
+              data-detached={!slot || slot.hidden || !anchor || undefined}
+              style={{ top: slot?.top ?? 0, display: slot?.hidden ? 'none' : undefined }}
             >
               <ReviewCard
                 review={review}

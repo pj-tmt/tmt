@@ -368,6 +368,9 @@ impl Operations {
     }
     pub(crate) fn append(&self, permit: &MessagePermit) -> Result<Vec<u8>, RemoteError> {
         let operation = permit.message.envelope().operation;
+        if operation == "squads.summary" {
+            return crate::squads::store::receive(permit);
+        }
         if operation == "final" {
             if !self.retry_safe.load(Ordering::Acquire) {
                 return Err(RemoteError::new(
@@ -416,6 +419,9 @@ impl Operations {
                 "requests.show",
                 "result",
             ];
+            if permit.cloud() && permit.grant.permits_scope("agents.read") {
+                supported.push("squads.summary");
+            }
             if permit.owner_browser() && permit.grant.permits_scope("talk") {
                 supported.push("requests.sendNow");
             }

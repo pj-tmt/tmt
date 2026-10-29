@@ -1012,11 +1012,34 @@
                   ? ordinary
                   : document.querySelectorAll(`tmt-read[data-id="${slot.id}"]`);
               const group = questionGroups.find((group) => group.id === slot.id);
+              const active =
+                group && document.querySelector(`tmt-question[data-id="${group.active}"]`);
+              const reading =
+                !ordinary.length && readingBlocks.some((block) => block.id === slot.id);
+              const title =
+                reading && matches.length === 1
+                  ? [...matches[0].children].find((child) => child.hasAttribute('data-title'))
+                  : undefined;
+              const target =
+                group?.form === 'chip' ? matches[0] : group ? active : reading ? title : matches[0];
+              // Every requested slot shares the same disclosure visibility owner. Hidden
+              // entries retain their request; only visible entries carry measured geometry.
+              if (
+                !innerScroll &&
+                matches.length === 1 &&
+                target &&
+                (group?.form === 'chip'
+                  ? slot.chip && !target.closest('[hidden]')
+                  : !vanished.has(slot.id)) &&
+                hiddenByClosedDetails(target)
+              ) {
+                positions.push({ id: slot.id, hidden: true });
+                continue;
+              }
               if (group?.form === 'chip') {
                 // Keep each compact block's spacer beside its own authored target.
                 // Sharing a containing block's trailing edge with a review or another
                 // question would make their adjacency checks displace each other.
-                const target = matches[0];
                 const chip = slot.chip;
                 if (
                   innerScroll ||
@@ -1029,10 +1052,6 @@
                   chipSpacers.delete(slot.id);
                   spacers.get(slot.id)?.remove();
                   spacers.delete(slot.id);
-                  continue;
-                }
-                if (hiddenByClosedDetails(target)) {
-                  positions.push({ id: slot.id, hidden: true });
                   continue;
                 }
                 let marker = chipSpacers.get(slot.id);
@@ -1126,15 +1145,6 @@
                   });
                 continue;
               }
-              const active =
-                group && document.querySelector(`tmt-question[data-id="${group.active}"]`);
-              const reading =
-                !ordinary.length && readingBlocks.some((block) => block.id === slot.id);
-              const title =
-                reading && matches.length === 1
-                  ? [...matches[0].children].find((child) => child.hasAttribute('data-title'))
-                  : undefined;
-              const target = group ? active : reading ? title : matches[0];
               let before = beforeSpacers.get(slot.id);
               let spacer = spacers.get(slot.id);
               if (

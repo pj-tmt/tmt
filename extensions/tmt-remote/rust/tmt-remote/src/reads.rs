@@ -114,9 +114,9 @@ struct Slot {
     running: bool,
     fresh: Option<(Instant, Arc<Vec<u8>>)>,
 }
-/// Demand-driven and serve-local: no worker, no timer and no persisted cache. One request at
-/// a time reads per key; the rest wait for its answer, and a finished answer (ok or not)
-/// serves every request in the next `READ_FRESH`.
+/// Browser slots are demand-driven and serve-local: one request at a time per key,
+/// with a finished answer shared for `READ_FRESH`. Background summaries bypass
+/// those slots; the publisher owns their cadence and separate read deadline.
 pub struct Reads {
     executable: PathBuf,
     stop: Arc<AtomicBool>,
@@ -150,7 +150,7 @@ impl Reads {
     ) -> Result<crate::squads::Summary, crate::error::RemoteError> {
         let board = self.json(
             &["ops", "squad", "ls", "--json"],
-            Instant::now() + self.wait,
+            Instant::now() + limits::SQUAD_SUMMARY_READ_WAIT,
         );
         let observed_at = now_ms();
         match board.and_then(|value| {

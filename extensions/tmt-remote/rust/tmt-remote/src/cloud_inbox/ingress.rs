@@ -75,8 +75,12 @@ impl Receiver {
         // This is our locally sealed response, whose operation was derived from
         // the verified envelope. Frozen replay keeps that exact owner-produced
         // result; an unverified carrier never supplies this decision.
-        let response_required = crate::wire::strict_json(&bytes)
-            .is_none_or(|carrier| carrier["header"]["operation"] != "final");
+        let response_required = crate::wire::strict_json(&bytes).is_none_or(|carrier| {
+            !matches!(
+                carrier["header"]["operation"].as_str(),
+                Some("final" | "squads.summary")
+            )
+        });
         Reply {
             bytes,
             grant,

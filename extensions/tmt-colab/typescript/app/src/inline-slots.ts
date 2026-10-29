@@ -75,10 +75,19 @@ export function useInlineSlots({
       frame = undefined;
       const heights = admitted.map((node): InlineSlot => {
         const id = node.dataset.inlineSlot!;
+        const gap = [...node.querySelectorAll<HTMLElement>('.question-description-space')].find(
+          (gap) => !gap.closest('[hidden]'),
+        );
         // display:none keeps the mounted draft but has no measurable box. Retain its
         // request so the frame can report the same slot visible when details reopens.
         if (node.style.display === 'none')
-          return measured.get(id) ?? { id, height: 0, chip: { width: 1, height: 1 } };
+          return (
+            measured.get(id) ?? {
+              id,
+              height: 0,
+              ...(chips.has(id) ? { chip: { width: 1, height: 1 } } : gap ? { before: 0 } : {}),
+            }
+          );
         const box = node.getBoundingClientRect();
         const chip = chips.get(node.dataset.inlineSlot!)?.getBoundingClientRect();
         if (chip)
@@ -87,9 +96,6 @@ export function useInlineSlots({
             height: Math.min(2000, Math.ceil(box.height)),
             chip: { width: Math.ceil(chip.width), height: Math.ceil(chip.height) },
           };
-        const gap = [...node.querySelectorAll<HTMLElement>('.question-description-space')].find(
-          (gap) => !gap.closest('[hidden]'),
-        );
         if (!gap)
           return { id: node.dataset.inlineSlot!, height: Math.min(2000, Math.ceil(box.height)) };
         const description = gap.getBoundingClientRect();

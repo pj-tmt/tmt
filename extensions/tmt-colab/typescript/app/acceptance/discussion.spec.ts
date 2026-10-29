@@ -1281,3 +1281,81 @@ test('served question controls follow closed details and retain an unsent draft'
     );
   });
 });
+
+test('served non-compact slots hide through nested details without losing drafts or publishing', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('details-slots-agent', { gated: true });
+    const browser = await pairBrowser(world, 'details-slots-reader', { talk: true });
+    const created = createPage(world, 'Slots in details', '<h1>Release review</h1>', agent.pane);
+    const proposal = JSON.parse(
+      run(
+        world,
+        world.binaries.colab,
+        [
+          'proposal',
+          'add',
+          created.pageId,
+          '--title',
+          'Review this proposal',
+          '--body',
+          'Keep the release notes clear.',
+          '--json',
+        ],
+        undefined,
+        agent.pane,
+      ),
+    );
+    const source = `<h1>Release review</h1><details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Section details</summary><tmt-review data-id="10000000-0000-4000-8000-000000000097" data-agent="${agent.name}"><h2 data-title>Review section</h2><p>Review the release notes.</p></tmt-review><tmt-proposal data-id="${proposal.proposalId}"></tmt-proposal><tmt-read data-id="10000000-0000-4000-8000-000000000098" data-agent="${agent.name}" data-why="Read before release"><h2 data-title>Release reading</h2><p>Read these release notes.</p></tmt-read></details></details><p>After the decisions.</p>`;
+    run(
+      world,
+      world.binaries.colab,
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
+      source,
+      agent.pane,
+    );
+    const page = await openPage(door, browser, created);
+    const outer = page.frameLocator('iframe').locator('#outer'),
+      inner = page.frameLocator('iframe').locator('#inner');
+    const slots = page.locator('[data-inline-review],[data-inline-proposal],[data-inline-reading]');
+    await expect(slots).toHaveCount(3);
+    for (const slot of await slots.all()) await expect(slot).toHaveCSS('display', 'none');
+    await outer.locator(':scope > summary').click();
+    for (const slot of await slots.all()) await expect(slot).toBeVisible();
+    const review = page.locator('[data-inline-review]'),
+      proposalCard = page.locator('[data-inline-proposal]');
+    await review.getByRole('button', { name: 'Add a note', exact: true }).click();
+    await review.getByLabel('Note (optional)', { exact: true }).fill('An unsent review');
+    await proposalCard.getByRole('button', { name: 'Follow up', exact: true }).click();
+    await proposalCard.getByRole('combobox').fill('An unsent proposal');
+    await inner.locator(':scope > summary').click();
+    for (const slot of await slots.all()) {
+      await expect(slot).toHaveCSS('display', 'none');
+      expect(
+        await slot
+          .locator('button')
+          .first()
+          .evaluate((node) => {
+            (node as HTMLElement).focus();
+            return document.activeElement === node;
+          }),
+      ).toBe(false);
+    }
+    await outer.locator(':scope > summary').click();
+    await outer.locator(':scope > summary').click();
+    for (const slot of await slots.all()) await expect(slot).toHaveCSS('display', 'none');
+    await inner.locator(':scope > summary').click();
+    await expect(review.getByLabel('Note (optional)', { exact: true })).toHaveValue(
+      'An unsent review',
+    );
+    await expect(proposalCard.getByRole('combobox')).toHaveText('An unsent proposal');
+    const after = JSON.parse(
+      run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
+    );
+    expect(after.source).toBe(source);
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+  });
+});

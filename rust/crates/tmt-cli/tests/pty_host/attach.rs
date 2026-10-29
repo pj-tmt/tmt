@@ -84,16 +84,38 @@ impl World {
     }
 
     fn outer_with(&mut self, label: &str, command: &str, cols: u16) -> Connection {
+        self.outer_command(label, &format!("{command} -- alpha"), cols, false)
+    }
+
+    fn outer_command(
+        &mut self,
+        label: &str,
+        command: &str,
+        cols: u16,
+        outside_host: bool,
+    ) -> Connection {
         let directory = self.root.join("outer");
         let before = self.root.join(format!("{label}.before"));
         let after = self.root.join(format!("{label}.after"));
         let status = self.root.join(format!("{label}.status"));
         let pid = self.root.join(format!("{label}.attach-pid"));
         let script = format!(
-            "{stty} cols {cols}; {stty} -g > {before}; read ready; exec 3<&0; {cli} {command} -- alpha <&3 3<&- & attached=$!; printf '%s' \"$attached\" > {pid}; wait \"$attached\"; result=$?; {stty} -g > {after}; printf '%s' \"$result\" > {status}; printf 'OUTER-DONE\\n'; read end",
+            "{stty} cols {cols}; {stty} -g > {before}; read ready; {outside} exec 3<&0; {cli} {command} <&3 3<&- & attached=$!; printf '%s' \"$attached\" > {pid}; wait \"$attached\"; result=$?; {stty} -g > {after}; printf '%s' \"$result\" > {status}; printf 'OUTER-DONE\\n'; read end",
             stty = stty(),
             cli = quote(env!("CARGO_BIN_EXE_tmt")),
             command = command,
+            // The outer PTY supplies a real terminal, but the run scenario must
+            // exercise an ordinary terminal outside any TMT host locator.
+            outside = if outside_host {
+                let home = support::state_dir(&self.root);
+                assert!(home.starts_with(&self.root));
+                format!(
+                    "unset TMT_PTY_PANE TMT_PTY_SOCKET; export TMT_HOME={};",
+                    quote(home.to_str().unwrap())
+                )
+            } else {
+                String::new()
+            },
             cols = cols,
             before = quote(before.to_str().unwrap()),
             after = quote(after.to_str().unwrap()),
@@ -389,5 +411,129 @@ fn focus_uses_attach_and_supervisor_loss_restores_without_claiming_program_exit(
     assert!(text.contains("does not prove the agent ended"), "{text}");
     assert!(!text.contains("resume with:"));
     world.restored("pty_focus", 1);
+    assert!(world.clean());
+}
+
+#[test]
+fn interactive_run_attaches_then_detaches_without_stopping_the_new_member() {
+    let mut world = World::new();
+    let program = format!(
+        "printf '%s' \"$$\" > {}; {} -echo; printf 'RUN-INITIAL\\n'; while IFS= read -r line; do case \"$line\" in exit) exit 7;; *) printf 'RUN-REPLY:%s\\n' \"$line\";; esac; done",
+        quote(world.root.join("alpha.pid").to_str().unwrap()),
+        stty(),
+    );
+    let command = format!("run --save -- alpha /bin/sh -c {}", quote(&program));
+    let mut outer = world.outer_command("pty_run", &command, 80, true);
+    world.remember();
+    world.remember_programs();
+    let initial = fs::read(world.root.join("pty_run.entry")).unwrap();
+    if !initial
+        .windows(b"RUN-INITIAL".len())
+        .any(|bytes| bytes == b"RUN-INITIAL")
+    {
+        output_until(&mut outer, b"RUN-INITIAL");
+    }
+    outer.input(b"new-member-input\r").unwrap();
+    output_until(&mut outer, b"RUN-REPLY:new-member-input");
+    outer.input(b"\x1c").unwrap();
+    output_until(&mut outer, b"OUTER-DONE");
+    world.restored("pty_run", 0);
+    let list = world.json(&["ls", "alpha", "--json"]);
+    assert_eq!(list["identity"]["name"], "alpha", "{list}");
+    assert_eq!(list["presence"], "active", "{list}");
+    let original_pane = list["pane"]["id"].clone();
+    let mut again = world.outer("pty_run_again", false);
+    again.input(b"same-member-input\r").unwrap();
+    output_until(&mut again, b"RUN-REPLY:same-member-input");
+    let list = world.json(&["ls", "alpha", "--json"]);
+    assert_eq!(list["pane"]["id"], original_pane);
+    again.input(b"exit\r").unwrap();
+    output_until(&mut again, b"OUTER-DONE");
+    world.restored("pty_run_again", 7);
+    assert!(world.clean());
+}
+
+#[test]
+fn interactive_run_reports_the_attached_program_exit_and_restores_the_terminal() {
+    let mut world = World::new();
+    let program = format!(
+        "{} -echo; read line; printf 'RUN-EXIT:%s\\n' \"$line\"; exit 9",
+        stty(),
+    );
+    let command = format!("run --save -- alpha /bin/sh -c {}", quote(&program));
+    let mut outer = world.outer_command("pty_run_exit", &command, 80, true);
+    world.remember();
+    world.remember_programs();
+    outer.input(b"owned-exit\r").unwrap();
+    let output = output_until(&mut outer, b"OUTER-DONE");
+    let text = String::from_utf8_lossy(&output);
+    assert!(text.contains("RUN-EXIT:owned-exit"), "{text}");
+    assert!(text.contains("resume with:"), "{text}");
+    world.restored("pty_run_exit", 9);
+    assert!(world.clean());
+}
+
+#[test]
+fn attaching_paints_a_quiet_current_screen_without_replaying_erased_output() {
+    let mut world = World::new();
+    let program = format!(
+        "printf '%s' \"$$\" > {}; {} -echo; printf 'ERASED-HISTORY\\r\\n\\033[2J\\033[H\\033[32mQUIET-CURRENT\\033[0m\\033[?2004h'; while IFS= read -r line; do printf 'LATER-ONCE:%s\\n' \"$line\"; done",
+        quote(world.root.join("alpha.pid").to_str().unwrap()),
+        stty(),
+    );
+    let started = world.run(&["run", "--save", "alpha", "/bin/sh", "-c", &program]);
+    assert!(started.status.success(), "{started:?}");
+    let listed = world.json(&["ls", "alpha", "--json"]);
+    let pane = listed["pane"]["id"].as_str().unwrap();
+    let directory = support::state_dir(&world.root).join("pty");
+    // Read-only screen acquisition proves all initial output was consumed by
+    // the supervisor before the attacher connects. The program now waits for
+    // input, so no live byte or redraw can satisfy the initial-screen assertion.
+    wait_for("quiet current screen", || {
+        let mut observer = Connection::connect(&directory, pane).unwrap();
+        matches!(observer.control(Control::Capture, WAIT).unwrap(),
+            ControlReply::Screen(screen) if screen.contains("QUIET-CURRENT") && !screen.contains("ERASED-HISTORY"))
+    });
+    let mut outer = world.outer("pty_quiet", false);
+    let mut initial = fs::read(world.root.join("pty_quiet.entry")).unwrap();
+    if !initial
+        .windows(b"QUIET-CURRENT".len())
+        .any(|bytes| bytes == b"QUIET-CURRENT")
+    {
+        initial.extend(output_until(&mut outer, b"QUIET-CURRENT"));
+    }
+    assert!(
+        !initial
+            .windows(b"ERASED-HISTORY".len())
+            .any(|bytes| bytes == b"ERASED-HISTORY")
+    );
+    // The existing snapshot codec owns ANSI formatting. Verify its color and
+    // input-mode bytes reached the actual outer terminal unchanged.
+    let mode = b"\x1b[?2004h";
+    if !initial.windows(mode.len()).any(|bytes| bytes == mode) {
+        initial.extend(output_until(&mut outer, mode));
+    }
+    let text = String::from_utf8_lossy(&initial);
+    assert!(
+        text.contains("\x1b[32m") || text.contains(";32m"),
+        "{text:?}"
+    );
+    outer.input(b"causal-input\r").unwrap();
+    let mut later = output_until(&mut outer, b"LATER-ONCE:causal-input");
+    // A second causal response fences the first complete live update, so an
+    // extra copy cannot hide just beyond the first matching read.
+    outer.input(b"completion-fence\r").unwrap();
+    later.extend(output_until(&mut outer, b"LATER-ONCE:completion-fence"));
+    assert_eq!(
+        later
+            .windows(b"LATER-ONCE:causal-input".len())
+            .filter(|bytes| *bytes == b"LATER-ONCE:causal-input")
+            .count(),
+        1
+    );
+    outer.input(b"\x1c").unwrap();
+    output_until(&mut outer, b"OUTER-DONE");
+    world.restored("pty_quiet", 0);
+    assert_eq!(world.json(&["ls", "alpha", "--json"])["presence"], "active");
     assert!(world.clean());
 }
