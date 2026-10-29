@@ -10,6 +10,7 @@ vi.mock('react', async (original) => ({
   useRef: (value: unknown) => hooks.refs[hooks.index++] ?? { current: value },
   useSyncExternalStore: () => ({ open: true, present: true }),
   useLayoutEffect: () => undefined,
+  useImperativeHandle: () => undefined,
   useEffect: () => undefined,
 }));
 

@@ -1,10 +1,12 @@
 import {
   useEffect,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useSyncExternalStore,
   type ReactNode,
+  type Ref,
   type MouseEvent,
 } from 'react';
 import { ChevronDown, Ellipsis } from 'lucide-react';
@@ -23,6 +25,8 @@ export interface BrowserMenuItem<Key extends string = string> extends MenuEntry<
 }
 export interface BrowserMenuProps<Key extends string = string> {
   label: string;
+  /** The actual trigger, for a host that restores focus after a menu action. */
+  triggerRef?: Ref<HTMLButtonElement>;
   items: readonly BrowserMenuItem<Key>[];
   onSelect(key: Key, event: MouseEvent<HTMLButtonElement>): void;
   disabled?: boolean;
@@ -53,6 +57,7 @@ export interface BrowserMenuProps<Key extends string = string> {
 /** Only transient visibility/focus live here; selected values and commands remain host-owned. */
 export function BrowserMenu<Key extends string>({
   label,
+  triggerRef,
   items,
   onSelect,
   disabled = false,
@@ -69,6 +74,7 @@ export function BrowserMenu<Key extends string>({
 }: BrowserMenuProps<Key>) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
+  useImperativeHandle(triggerRef, () => trigger.current!);
   const dialog = useRef<HTMLDialogElement>(null);
   const entries = useRef<(HTMLButtonElement | null)[]>([]);
   const latest = useRef({ items, disabled, description, onSelect, onOpenChange });

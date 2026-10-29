@@ -3,7 +3,7 @@ import { bindIconActionTooltip } from './icon-action-tooltip.js';
 import { mountBrowserMenu } from './menu-host.js';
 import { browserUiClasses as c, countText } from './static.js';
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
-import { setStoredTheme, THEMES, type ThemeChoice } from './theme.js';
+import { setStoredTheme, THEMES, THEME_LABELS, type ThemeChoice } from './theme.js';
 
 export type ShellRemoteStatus =
   | { kind: 'confirmed'; liveSessions: number; href: string; connection?: string }
@@ -136,7 +136,7 @@ export function createShellTopBar(
       icon: createIcon('sun', document),
       items: THEMES.map((key) => ({
         key,
-        label: key === 'system' ? 'System' : key === 'light' ? 'Light' : 'Dark',
+        label: THEME_LABELS[key],
         checked: choice() === key,
       })),
       onSelect: (key: ThemeChoice) => setStoredTheme(key, document.documentElement),

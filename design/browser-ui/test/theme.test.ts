@@ -4,6 +4,7 @@ import {
   setStoredTheme,
   storedTheme,
   themeStorageKey,
+  THEME_LABELS,
   type ThemeRoot,
   type ThemeStore,
 } from '../src/theme.js';
@@ -70,4 +71,8 @@ it('still applies the choice to this page when storage is blocked', () => {
   expect(storedTheme(blocked)).toBe('system');
   setStoredTheme('light', page.node, blocked);
   expect(page.theme()).toBe('light');
+});
+
+it('supplies the same human-readable labels for every theme choice', () => {
+  expect(THEME_LABELS).toEqual({ system: 'System', light: 'Light', dark: 'Dark' });
 });

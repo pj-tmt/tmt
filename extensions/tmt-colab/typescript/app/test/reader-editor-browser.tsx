@@ -1,6 +1,8 @@
 /** The shared-page reader of an editor link over a scripted edit request. Never imported by
  * production. */
 import { createRoot, type Root } from 'react-dom/client';
+import { useRef, useState } from 'react';
+import { BrowserMenu } from '@tmt/browser-ui/react';
 import { ReaderApp } from '../src/reader-app.js';
 import { OwnAppendRefused } from '../src/own-publication.js';
 import { EditTooLarge } from '../src/save.js';
@@ -95,4 +97,39 @@ export async function mount(role: 'viewer' | 'editor', metadata = false) {
       }
     />,
   );
+}
+
+/** Exercise the shared trigger ref through an icon-to-field replacement. */
+export function mountMenuReference() {
+  document.getElementById('root')!.style.display = 'none';
+  let host = document.getElementById('reader-editor-fixture');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'reader-editor-fixture';
+    document.body.append(host);
+  }
+  root?.unmount();
+  root = createRoot(host);
+  function Probe() {
+    const trigger = useRef<HTMLButtonElement>(null);
+    const [field, setField] = useState(false);
+    return (
+      <>
+        <BrowserMenu
+          label="Ref menu"
+          triggerRef={trigger}
+          valueLabel={field ? 'Current' : undefined}
+          items={[{ key: 'one', label: 'One' }]}
+          onSelect={() => {}}
+        />
+        <button type="button" onClick={() => trigger.current?.focus()}>
+          Focus trigger
+        </button>
+        <button type="button" onClick={() => setField(true)}>
+          Replace trigger
+        </button>
+      </>
+    );
+  }
+  root.render(<Probe />);
 }

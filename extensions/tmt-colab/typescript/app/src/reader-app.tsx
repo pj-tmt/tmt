@@ -50,8 +50,8 @@ export function ReaderApp({
   metadata?: ReaderMetadata;
 }) {
   const [information, setInformation] = useState(false);
-  const moreButton = () =>
-    document.querySelector<HTMLButtonElement>('.tmt-ui-header button[aria-label="More"]');
+  const moreTrigger = useRef<HTMLButtonElement>(null);
+  const moreButton = () => moreTrigger.current;
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const shell = state.kind === 'ready' && state.view.pageType === 'shell';
@@ -185,6 +185,7 @@ export function ReaderApp({
         }
         actions={
           <BrowserMenu
+            triggerRef={moreTrigger}
             label={text.more}
             items={[
               ...(state.kind === 'ready' && edit && !shell
@@ -332,6 +333,7 @@ export function ReaderApp({
           edit={edit}
           open={sourceOpen && !shell}
           onDismiss={() => setSourceOpen(false)}
+          focusFallback={moreButton}
         />
       )}
       {state.kind === 'ready' && (

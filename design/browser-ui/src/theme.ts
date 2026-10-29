@@ -6,6 +6,12 @@
  */
 export const THEMES = ['system', 'light', 'dark'] as const;
 export type ThemeChoice = (typeof THEMES)[number];
+/** Labels shared by the shell and standalone reader theme menus. */
+export const THEME_LABELS: Readonly<Record<ThemeChoice, string>> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark',
+};
 
 export const themeStorageKey = 'tmt-ui-theme';
 

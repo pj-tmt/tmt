@@ -370,3 +370,49 @@ for (const role of ['viewer', 'editor'] as const)
       expect(await saves(page)).toEqual([]);
     });
   }
+
+test('reader Info and Source return focus to their actual More trigger', async ({ page }) => {
+  await mount(page, 'editor');
+  const trigger = page.getByRole('button', { name: 'More', exact: true });
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'Info', exact: true }).click();
+  const info = page.getByRole('dialog', { name: 'Info', exact: true });
+  await expect(info).toBeVisible();
+  await page.locator('.tmt-ui-header button[aria-label="More"]').evaluate((button) => {
+    button.setAttribute('aria-label', 'Reader options');
+  });
+  await info.getByRole('button', { name: 'Close Info' }).click();
+  const renamed = page.getByRole('button', { name: 'Reader options', exact: true });
+  await expect(renamed).toBeFocused();
+  await renamed.click();
+  await page.getByRole('menuitem', { name: 'Source', exact: true }).click();
+  const source = page.locator('.tmt-ui-drawer[data-panel="source"]');
+  await expect(source).toBeVisible();
+  await source.getByRole('button', { name: 'Close Source' }).click();
+  await expect(renamed).toBeFocused();
+});
+
+test('reader theme choices stay aligned with the shared theme menu', async ({ page }) => {
+  await mount(page, 'viewer');
+  await page.getByRole('button', { name: /^Theme:/ }).click();
+  await expect(page.getByRole('menuitemradio').locator('span:first-child')).toHaveText([
+    'System',
+    'Light',
+    'Dark',
+  ]);
+  await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.getByRole('button', { name: /^Theme:/ }).click();
+  await page.getByRole('menuitemradio', { name: 'System', exact: true }).click();
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+});
+
+test('shared menu ref tracks the trigger when its presentation changes', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async (fixture) => (await import(fixture)).mountMenuReference(), fixture);
+  await page.getByRole('button', { name: 'Focus trigger' }).click();
+  await expect(page.getByRole('button', { name: 'Ref menu', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Replace trigger' }).click();
+  await page.getByRole('button', { name: 'Focus trigger' }).click();
+  await expect(page.getByRole('button', { name: 'Ref menu: Current', exact: true })).toBeFocused();
+});

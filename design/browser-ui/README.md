@@ -23,7 +23,7 @@ and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
 
 `@tmt/browser-ui/shell-host` exports the app router and route slots, `@tmt/browser-ui/theme` the
-stored theme choice and `@tmt/browser-ui/search` the [search-provider registry](#search-providers).
+stored theme choice and shared `THEME_LABELS`, and `@tmt/browser-ui/search` the [search-provider registry](#search-providers).
 Products import the leaf only through these entries, never by a path into
 `design/browser-ui`; the test-only `@tmt/browser-ui/test-fixtures/*` (files under
 `test/fixtures/`, imported with their extension) and `@tmt/browser-ui/gallery/frames` serve
@@ -651,7 +651,8 @@ even if the close notification synchronously changes the host.
 
 One internal controller owns open/present state, typeahead, popup replacement and
 exactly-once visibility for both renderers. `BrowserMenu` retains its React API,
-JSX and original SyntheticEvent callbacks. The shared icon-tooltip binding is
+JSX and original SyntheticEvent callbacks. Its optional `triggerRef` gives the host the current
+button for focus restoration after an action opens another surface. The shared icon-tooltip binding is
 internal; IconAction's public API, busy fence, activation and presentation are
 unchanged. The gallery's `?frame=menu-host` exercises actual React/native parity,
 updates, replacement and drawer nesting in both themes.

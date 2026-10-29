@@ -4743,6 +4743,12 @@ var THEMES = [
 	"light",
 	"dark"
 ];
+/** Labels shared by the shell and standalone reader theme menus. */
+var THEME_LABELS$1 = {
+	system: "System",
+	light: "Light",
+	dark: "Dark"
+};
 var themeStorageKey = "tmt-ui-theme";
 function browserStore() {
 	try {
@@ -4886,7 +4892,7 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 			icon: createIcon("sun", document),
 			items: THEMES.map((key) => ({
 				key,
-				label: key === "system" ? "System" : key === "light" ? "Light" : "Dark",
+				label: THEME_LABELS$1[key],
 				checked: choice() === key
 			})),
 			onSelect: (key) => setStoredTheme(key, document.documentElement)

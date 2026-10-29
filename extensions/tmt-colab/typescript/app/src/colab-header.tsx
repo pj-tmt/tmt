@@ -20,7 +20,7 @@ import './colab-header.css';
 import { QuickSwitcherControl } from './quick-switcher-control.js';
 import { SharedTopBar } from './shared-top-bar.js';
 import { getThemeChoice, subscribeTheme } from './theme.js';
-import { setStoredTheme, THEMES } from '@tmt/browser-ui/theme';
+import { setStoredTheme, THEMES, THEME_LABELS } from '@tmt/browser-ui/theme';
 import { Sun } from 'lucide-react';
 
 function assign<T>(ref: Ref<T> | undefined, value: T | null) {
@@ -224,7 +224,7 @@ function ReaderTheme() {
       icon={<Sun aria-hidden />}
       items={THEMES.map((key) => ({
         key,
-        label: key === 'system' ? 'System' : key === 'light' ? 'Light' : 'Dark',
+        label: THEME_LABELS[key],
         checked: choice === key,
       }))}
       onSelect={(key) => setStoredTheme(key)}

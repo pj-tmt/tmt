@@ -55,12 +55,14 @@ export function ReaderSource({
   edit,
   open,
   onDismiss,
+  focusFallback,
 }: {
   /** The text of the page as the reader last admitted it. */
   source: string;
   edit: ReaderEdit;
   open: boolean;
   onDismiss: () => void;
+  focusFallback?(): HTMLElement | null;
 }) {
   const dirty = useRef(false),
     base = useRef(source);
@@ -129,9 +131,7 @@ export function ReaderSource({
   );
   return (
     <BrowserDrawer
-      focusFallback={() =>
-        document.querySelector<HTMLButtonElement>('.tmt-ui-header button[aria-label="More"]')
-      }
+      focusFallback={focusFallback}
       open={open}
       title={text.source}
       panel="source"
