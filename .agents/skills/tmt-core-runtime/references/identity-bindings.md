@@ -340,6 +340,15 @@ delivery. They install and launch nothing.
   Running after provider end (including legacy Ended) only for an exact live process
   under the verified pane and an exact live launch owner when recorded, without
   rewriting storage; shared servers outside that ancestry remain unverified.
+- <a id="codex-session-start-sources"></a>Codex SessionStart sources (as of Codex 0.165):
+  `startup`, `resume`, `clear`, `compact` and `fork` decode to started, resumed, cleared,
+  compacted and forked. Any other source decodes to nothing and records
+  `refused:lifecycle:SessionStart`. A fork is a new thread, never a resume. It is admitted like
+  a fresh start, so it names an unnamed `tmt run` launch and keeps the launch owner: a plain
+  `codex resume P` records no expected thread, and choosing Fork before P starts binds the fork.
+  Once the process holds a named thread, a fork is refused with `admission_refused`; the
+  remembered thread stays, and the binding reads `unbound`. A resume would instead replace that
+  thread in place. Shared mode keeps its exact stored-thread rule.
 - Adopting a new provider session through SessionStart completes only the existing binding, using host-neutral
   pane/process evidence, the recorded driver (or none), and a conclusively ended old
   session or process. Nested, shared, pane-process and unknown evidence refuse.

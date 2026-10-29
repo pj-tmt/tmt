@@ -336,7 +336,9 @@ unconfirmed record grants no locator authority. The hook still owns session and
 reported model persistence; admission never invents remembered history or model.
 Ordinary shared hooks and prompt/turn hooks keep their exact remembered-session
 lookup. A guard confines the locator to this driver and binding selection to
-the shared `verified_caller` owner.
+the shared `verified_caller` owner. The SessionStart sources Codex reports, and
+how a fork of the pinned thread is refused, are owned by
+[Codex SessionStart sources](../.agents/skills/tmt-core-runtime/references/identity-bindings.md#codex-session-start-sources).
 
 The provider record persists the claimed identity and pane address before spawn:
 host/server UUID, socket path, server PID/start, pane ID and pane PID. The launcher

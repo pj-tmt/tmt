@@ -38,6 +38,12 @@ its source listed here.
   `hook_event_name` and `model` ("Codex-specific extension. Active model slug")
   appear together with SessionStart's `source` and `permission_mode`. The IDs and
   values are placeholders, because the documentation gives no example payload.
+- `codex-session-start-fork.json`: the same assembled payload with `source`
+  `fork`, for a thread forked from another (#5492). The same hooks documentation
+  names `fork` as a SessionStart source. The Codex 0.165.0 binary contains the
+  source table string `startupresumeclearcompactfork`, as does 0.164.0, which was
+  checked on 2026-10-29. No fork payload was recorded, so the session ID is a
+  placeholder that differs from its parent's.
 
 ## Turn-end usage (#519)
 

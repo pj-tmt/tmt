@@ -1164,7 +1164,7 @@ mod tests {
                 "codex",
                 &codex::CodexLifecycle,
                 include_str!("runtime/fixtures/codex-session-start.json"),
-                &["startup", "resume", "clear", "compact"][..],
+                &["startup", "resume", "clear", "compact", "fork"][..],
             ),
         ] {
             let mut payload: serde_json::Value = serde_json::from_str(fixture).unwrap();
