@@ -83,7 +83,11 @@ screen without waiting for the program to draw and without any redraw nudge.
   applies the bytes, and then applies every `Output` that follows on top. Frames received
   before `SnapshotStart` are superseded by the snapshot, and a second `SnapshotStart`
   discards a snapshot not yet complete. `Resized` that follows the end reports later
-  changes.
+  changes. The CLI terminal relay instead paints each bounded chunk as it arrives,
+  without an aggregate buffer, and follows live output only after the end. If an
+  initial snapshot exceeds its 1 MiB safety bound, it clears the partial paint,
+  discards the rest of that snapshot and continues live; the member is not stopped
+  and attachment does not fail because of screen size.
 - Nothing is lost or repeated between the snapshot and live output: the supervisor
   formats the screen in the same step that orders output, so the screen holds every
   byte queued before the request and none queued after it.
