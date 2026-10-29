@@ -2748,6 +2748,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             const NOW: u64 = 1_791_600_000_000;
             const HOUR: u64 = 3_600_000;
             let sampled = |driver: &str, left: f64, resets_in: u64, rates: Rates| Standing {
+                current: None,
                 provider: Provider::named(driver),
                 latest: Some(Reading {
                     observed_at_ms: NOW - 600_000,

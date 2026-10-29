@@ -602,9 +602,9 @@ impl HistoryJob {
     }
 }
 
-/// The HOME usage receipt: one listing feeds both the token meters and the
-/// provider limits. Codex's limits ride on the listing; Claude's come from its
-/// panes, read without side effects (a Core without the flag: no reading).
+/// The background HOME receipt: the listing feeds token meters and session-only
+/// limits; public account evidence owns its keys. An unsupported account method
+/// keeps the legacy session/footer path, while a failed read retains the held snapshot.
 fn home_usage(
     reader: &Core,
     limits: &mut super::limits::Sampler,
@@ -614,13 +614,24 @@ fn home_usage(
         .json(&["ls"])
         .ok()
         .filter(|listed| listed["identities"].is_array());
-    let limits = listed.as_ref().map(|listed| {
-        limits.sample(
-            listed,
-            crate::status::now_ms(),
-            Instant::now(),
-            &mut |name| capture_footer(reader, name),
-        )
+    let accounts = limits.account_read(reader);
+    let limits = accounts.ok().and_then(|accounts| {
+        if listed.is_none() && accounts.is_none() {
+            return None;
+        }
+        let empty = serde_json::json!({"identities":[]});
+        let listed = listed.as_ref().unwrap_or(&empty);
+        let now = crate::status::now_ms();
+        Some(match accounts.as_ref() {
+            Some(accounts) => {
+                limits.sample_accounts(listed, Some(accounts), now, Instant::now(), &mut |name| {
+                    capture_footer(reader, name)
+                })
+            }
+            None => limits.sample(listed, now, Instant::now(), &mut |name| {
+                capture_footer(reader, name)
+            }),
+        })
     });
     super::BoardEvent::HomeUsage {
         cancellation,
@@ -1639,6 +1650,7 @@ printf '%s\n' '{{}}'
 printf '%s\n' "$*" >> '{calls}'
 if [ "$1" = ls ]; then printf '%s\n' '{listing}'; exit 0; fi
 if [ "$1" = check ]; then {check}; fi
+if [ "$1" = api ]; then printf '%s\n' '{{"error":{{"code":"API_INPUT_INVALID","message":"unknown operation"}}}}'; exit 1; fi
 printf '%s\n' '{{}}'
 "###,
                 calls = calls.display(),
@@ -1654,6 +1666,185 @@ printf '%s\n' '{{}}'
             panic!("home usage event")
         };
         (input.is_ok(), limits.unwrap_or_default())
+    }
+
+    fn account_core(
+        dir: &std::path::Path,
+        listed: Value,
+        reply: Value,
+    ) -> (Core, std::path::PathBuf) {
+        let fake = dir.join("tmt");
+        let calls = dir.join("api-calls");
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                r###"#!/bin/sh
+if [ "$1" = ls ]; then printf '%s\n' '{listed}'; exit 0; fi
+if [ "$1" = api ]; then
+  IFS= read -r request
+  printf '%s\n' "$request" >> '{calls}'
+  printf '%s\n' '{reply}'
+  exit {code}
+fi
+printf '%s\n' '{{}}'
+"###,
+                listed = listed,
+                reply = reply,
+                calls = calls.display(),
+                code = if reply.get("error").is_some() { 1 } else { 0 }
+            ),
+        );
+        (Core::at(fake), calls)
+    }
+
+    fn account_listing(now: u64) -> Value {
+        json!({"identities":[{"name":"worker", "resume":{"driver":"claude", "consumption":{"rateLimits":{
+            "observedAtMs":now, "account":{"key":"0123456789ab", "label":"session"},
+            "windows":[{"windowMinutes":10080,"usedPercent":10.0,"resetsAtMs":now+86_400_000}]
+        }}}}]})
+    }
+
+    #[test]
+    fn home_account_limits_override_newer_session_evidence_for_the_same_account() {
+        let dir = crate::test_support::Scratch::new("account-precedence");
+        let now = crate::status::now_ms();
+        let account = json!({"key":"0123456789ab","label":"account"});
+        let reply = json!({"observedAtMs":now,"accounts":[{"driver":"claude","account":account,
+            "rateLimits":{"provider":"claude","observedAtMs":now-1000,"account":account,"windows":[
+                {"windowMinutes":10080,"usedPercent":60.0,"resetsAtMs":now+86_400_000}]} }]});
+        let (core, _) = account_core(&dir, account_listing(now), reply);
+        let (_, rows) = sampled(home_usage(
+            &core,
+            &mut crate::board::limits::Sampler::new(None),
+            crate::runner::Cancellation::default(),
+        ));
+        let row = rows
+            .iter()
+            .find(|row| row.provider.account_key() == Some("0123456789ab"))
+            .expect("account row");
+        assert_eq!(
+            row.latest.unwrap().weekly.left,
+            40.0,
+            "the account source owns the current balance even when the session is newer"
+        );
+        assert_eq!(row.provider.account_label(), Some("account"));
+    }
+
+    #[test]
+    fn home_account_limits_keep_null_accounts_without_any_listed_session() {
+        for reason in ["none_observed", "expired"] {
+            let dir = crate::test_support::Scratch::new("account-null");
+            let now = crate::status::now_ms();
+            let reply = json!({"observedAtMs":now,"accounts":[{"driver":"claude","account":{"key":"0123456789ab","label":"work"},"rateLimits":null,"reason":reason}]});
+            let (core, _) = account_core(&dir, json!({"identities":[]}), reply);
+            let (_, rows) = sampled(home_usage(
+                &core,
+                &mut crate::board::limits::Sampler::new(None),
+                crate::runner::Cancellation::default(),
+            ));
+            assert_eq!(
+                rows.len(),
+                1,
+                "known {reason} accounts stay visible without a session"
+            );
+            assert!(
+                rows[0].latest.is_none(),
+                "null never manufactures a numerical reading"
+            );
+            let expected = if reason == "none_observed" {
+                "Waiting"
+            } else {
+                "Stale"
+            };
+            assert!(rows[0].notice().unwrap().contains(expected));
+        }
+    }
+
+    #[test]
+    fn home_account_limits_unsupported_is_read_once_and_keeps_legacy_balances() {
+        let dir = crate::test_support::Scratch::new("account-old-core");
+        let now = crate::status::now_ms();
+        let (core, calls) = account_core(
+            &dir,
+            account_listing(now),
+            json!({"error":{"code":"API_INPUT_INVALID","message":"unknown operation"}}),
+        );
+        let mut sampler = crate::board::limits::Sampler::new(None);
+        for _ in 0..2 {
+            let (_, rows) = sampled(home_usage(
+                &core,
+                &mut sampler,
+                crate::runner::Cancellation::default(),
+            ));
+            assert_eq!(rows[0].latest.unwrap().weekly.left, 90.0);
+        }
+        let calls = std::fs::read_to_string(calls).unwrap_or_default();
+        assert_eq!(
+            calls.lines().count(),
+            1,
+            "only the explicit unsupported reply disables future account reads"
+        );
+        let request: Value = serde_json::from_str(calls.trim()).unwrap();
+        assert_eq!(
+            request,
+            json!({"version":1,"operation":"consumption.limits","input":{}})
+        );
+    }
+
+    #[test]
+    fn home_account_limits_short_only_and_operational_failures_keep_their_meaning() {
+        let now = crate::status::now_ms();
+        let dir = crate::test_support::Scratch::new("account-short");
+        let account = json!({"key":"0123456789ab","label":"work"});
+        let reply = json!({"observedAtMs":now,"accounts":[{"driver":"claude","account":account,
+            "rateLimits":{"provider":"claude","observedAtMs":now,"account":account,"windows":[
+                {"windowMinutes":300,"usedPercent":8.0,"resetsAtMs":now+3_600_000}]} }]});
+        let (core, _) = account_core(&dir, json!({"identities":[]}), reply);
+        let (_, rows) = sampled(home_usage(
+            &core,
+            &mut crate::board::limits::Sampler::new(None),
+            crate::runner::Cancellation::default(),
+        ));
+        assert_eq!(
+            rows[0]
+                .window(crate::board::limits::QuotaWindow::Short, now)
+                .unwrap()
+                .left,
+            92.0
+        );
+        assert!(
+            rows[0]
+                .window(crate::board::limits::QuotaWindow::Weekly, now)
+                .is_none()
+        );
+        assert!(
+            rows[0].latest.is_none(),
+            "a short-only report never creates a weekly history sample"
+        );
+
+        let dir = crate::test_support::Scratch::new("account-failed");
+        let (core, calls) = account_core(
+            &dir,
+            account_listing(now),
+            json!({"error":{"code":"API_UNAVAILABLE","message":"temporarily unavailable"}}),
+        );
+        let mut sampler = crate::board::limits::Sampler::new(None);
+        for _ in 0..2 {
+            let super::super::BoardEvent::HomeUsage { limits, .. } =
+                home_usage(&core, &mut sampler, crate::runner::Cancellation::default())
+            else {
+                panic!("home usage")
+            };
+            assert!(
+                limits.is_none(),
+                "an operational error cannot silently publish legacy balances"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(calls).unwrap().lines().count(),
+            2,
+            "failure retries rather than latching unsupported"
+        );
     }
 
     #[test]
@@ -1691,6 +1882,7 @@ printf '%s\n' '{{}}'
             calls,
             [
                 "ls --json",
+                "api",
                 "check builder --capture-only --lines 12 --json"
             ],
             "one listing and one side-effect-free capture; never a plain check"

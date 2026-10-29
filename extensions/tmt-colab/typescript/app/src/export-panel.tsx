@@ -1,6 +1,6 @@
 import { BrowserAction, BrowserList, BrowserListRow } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { Check } from 'lucide-react';
+import { Check, FileCode, FileJson, FileText } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   DISCLOSURE,
@@ -98,22 +98,41 @@ export function ExportPanel({
                 ? text.exportPartial
                 : text.exportReady}
       </p>
-      <div className="export-actions">
-        {pageFiles.map((name) => (
-          <div key={name} className="export-download">
-            <BrowserAction
-              type="button"
-              variant={name === pageFiles[0] ? 'primary' : 'secondary'}
-              label={text.exportDownload(name)}
-              disabled={blocked || state !== 'ready'}
-              onActivate={(event) => {
-                if (event.isTrusted) download(name);
-              }}
-            />
-            {requested.includes(name) && <Check aria-hidden />}
-          </div>
-        ))}
-      </div>
+      <section className="export-page-files" aria-label={text.filesListLabel}>
+        <h3>{text.filesListLabel}</h3>
+        <BrowserList label={text.filesListLabel} className="export-file-list">
+          {pageFiles.map((name) => {
+            const Icon = name.endsWith('.html')
+              ? FileCode
+              : name.endsWith('.json')
+                ? FileJson
+                : FileText;
+            return (
+              <BrowserListRow
+                key={name}
+                title={name}
+                leading={<Icon aria-hidden />}
+                state={null}
+                actions={
+                  <div className="export-download">
+                    <BrowserAction
+                      type="button"
+                      variant="secondary"
+                      label={text.exportDownload(name)}
+                      visibleLabel={text.attachmentDownload}
+                      disabled={blocked || state !== 'ready'}
+                      onActivate={(event) => {
+                        if (event.isTrusted) download(name);
+                      }}
+                    />
+                    {requested.includes(name) && <Check aria-hidden />}
+                  </div>
+                }
+              />
+            );
+          })}
+        </BrowserList>
+      </section>
       {standalone?.included && <p>{text.exportStandaloneNote}</p>}
       {standalone?.included === false && (
         <p role="status">

@@ -72,12 +72,34 @@ fn held_lines(
     let mut lines = Vec::new();
     for standing in standings {
         lines.push(standing.provider.label());
-        if let Some(latest) = standing.latest {
+        if let Some(observed) = standing.observed_at_ms() {
             lines.push(format!(
                 "Observed: {} · {} ago",
-                stamp(zone, latest.observed_at_ms, now),
-                super::age(now.saturating_sub(latest.observed_at_ms))
+                stamp(zone, observed, now),
+                super::age(now.saturating_sub(observed))
             ));
+        }
+        if standing.current.is_some() && !matches!(standing.outlook(now), Outlook::Known(_)) {
+            if let Some(notice) = standing.notice() {
+                lines.push(notice.into());
+                continue;
+            }
+            let mut any = false;
+            for kind in crate::board::limits::QuotaWindow::ALL {
+                if let Some(value) = standing.window(kind, now) {
+                    lines.push(format!(
+                        "{}: {} remaining · reset {}",
+                        kind.key(),
+                        super::percent(value.left),
+                        super::reset(value.resets_at_ms.saturating_sub(now))
+                    ));
+                    any = true;
+                }
+            }
+            if !any {
+                lines.push("Quota unavailable or stale; no remaining balance is inferred".into());
+            }
+            continue;
         }
         match standing.outlook(now) {
             Outlook::Known(figures) => {
@@ -128,12 +150,16 @@ pub(in crate::board) fn lines(app: &App, now: u64) -> Vec<String> {
     let mut lines = vec!["Quota pace: last 2h; trend compared with the preceding 2h. Source timestamps determine elapsed time.".into()];
     for standing in standings {
         lines.push(standing.provider.label());
-        if let Some(latest) = standing.latest {
+        if let Some(observed) = standing.observed_at_ms() {
             lines.push(format!(
                 "Held source observed: {} · {} ago",
-                stamp(&zone, latest.observed_at_ms, now),
-                super::age(now.saturating_sub(latest.observed_at_ms))
+                stamp(&zone, observed, now),
+                super::age(now.saturating_sub(observed))
             ));
+        }
+        if let Some(notice) = standing.notice() {
+            lines.push(notice.into());
+            continue;
         }
         for kind in crate::board::limits::QuotaWindow::ALL {
             let value = crate::board::overview::quota::projection(
@@ -144,8 +170,11 @@ pub(in crate::board) fn lines(app: &App, now: u64) -> Vec<String> {
             );
             let Some(balance) = value.balance else {
                 lines.push(format!(
-                    "{}: quota unavailable or stale; no balance or rate inferred",
-                    kind.key()
+                    "{}: {}",
+                    kind.key(),
+                    value
+                        .notice
+                        .unwrap_or("quota unavailable or stale; no balance or rate inferred")
                 ));
                 continue;
             };

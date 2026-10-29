@@ -164,6 +164,7 @@ pub(in crate::board) fn mixed(app: &mut App) {
     use crate::board::limits::{Provider, Reading, Standing, Window};
     app.limits = Some(vec![
         Standing {
+            current: None,
             rates: Default::default(),
             provider: Provider::named("claude"),
             latest: Some(Reading {
@@ -181,6 +182,7 @@ pub(in crate::board) fn mixed(app: &mut App) {
             trend: None,
         },
         Standing {
+            current: None,
             rates: Default::default(),
             provider: Provider::named("codex"),
             latest: Some(Reading {

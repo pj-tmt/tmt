@@ -259,10 +259,35 @@ fn run_hook(session: &str, event: &str, payload: Value) {
         .write_all(payload.to_string().as_bytes())
         .unwrap();
     let result = hook.wait_with_output().unwrap();
+    if event == "stop-hook" {
+        // Intake success only admits the durable queue entry. Keep that signal
+        // separate from completion so a held main writer cannot make the
+        // activity assertion race the finite flusher's commit.
+        log(json!({"event":"stop-queued","thread":session,"ok":result.status.success()}));
+        wait_for_hook_flush();
+    }
     log(
         json!({"event":event,"thread":session,"elapsedMs":started.elapsed().as_millis(),"ok":result.status.success(),"stdout":String::from_utf8_lossy(&result.stdout),"stderr":String::from_utf8_lossy(&result.stderr)}),
     );
 }
+fn wait_for_hook_flush() {
+    // Distinguish entering the barrier from merely returning from intake. The
+    // scenario can causally detect a skipped barrier while its writer is held.
+    event("stop-waiting");
+    let wait: Value = serde_json::from_str(&env::var("MOCK_HOOK_FLUSH_WAIT").unwrap()).unwrap();
+    let result = Command::new(wait["node"].as_str().unwrap())
+        .arg(wait["script"].as_str().unwrap())
+        .arg(wait["directory"].as_str().unwrap())
+        .arg(tmt_adapters::storage::hook_queue::QUEUE_SCHEMA_VERSION.to_string())
+        .output()
+        .expect("start the private Stop acknowledgment barrier");
+    assert!(
+        result.status.success(),
+        "queued Stop acknowledgment failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
 fn foreground(args: &[String]) {
     let _attachment = if args.iter().any(|arg| arg == "--remote") {
         let resume = args.first().is_some_and(|arg| arg == "resume");

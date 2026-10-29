@@ -425,20 +425,22 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   member's model is not repeated. No readings means no usage row, including
   warmup; measured zero admits it without a share denominator. Narrow widths,
   disabled sampling and search with no shown sampling squads keep their height.
-- Provider limits: `board::limits` owns the quota data and calculations;
-  `home::limits` owns one admitted cell-fill strip reused by Agents and Digest. A provider is a driver ID from the listing; no Ops
-  code spells a driver (the #440 guard). The HOME usage receipt's one `ls` also
-  carries each session's `resume.consumption.rateLimits` when Core has them
-  (percent used, so the board shows percent left). For a provider whose
-  sessions report usage but no limits (Claude today), the windows exist only in
-  a pane's statusline footer: at most once a minute per provider, and only when
-  a listed active session has newer usage than the last reading or attempt, the
-  worker reads up to three panes with `tmt check <name> --capture-only --lines
-12 --json` and parses the exact `5h P% (reset)  7d P% (reset)` form
-  (otherwise no reading). Never a plain `check`: it may hand a retained Digest
-  checklist to an idle pane, and a Core without the flag leaves those providers
-  unread. A reading is dated by its source's own time (the limits' own
-  observation; a session's usage observation for a footer), never by the read.
+- Provider limits: `board::limits` owns typed account evidence and sampled history;
+  `home::limits` and the shared quota projections paint held data. The existing
+  HOME usage receipt reads `consumption.limits` on its background API lane alongside
+  `ls`; account entries take precedence by driver and account key, including
+  short-only reports. Session-only accounts remain available through `ls`.
+  Only `API_INPUT_INVALID` latches the operation unsupported for this board lifetime
+  and selects the legacy session/footer path. Other errors or malformed replies
+  leave the prior held snapshot to age; the next receipt retries. Null accounts stay
+  visible: `none_observed` is Waiting for the first session since setup, `expired`
+  is Stale with no current window. Neither supplies a balance, rate or fabricated
+  observation age, and retained history cannot override it.
+  For drivers with no reported windows or account entry, the existing footer reader
+  tries at most three active panes once a minute after new session usage, using
+  `tmt check <name> --capture-only --lines 12 --json`; it never sends input.
+  A reading is dated by its source timestamp, never the read time. Paint/input
+  perform no acquisition and `ops limits --json` keeps its existing shape.
   Samples persist in `$XDG_CACHE_HOME/tmt-ops/limits/samples.json` (10-minute buckets, 8
   days, saved at most every 5 minutes), a disposable cache; `tmt ops limits --json` reads it
   without writing (the Remote owner browser read serves that document). The burn is the

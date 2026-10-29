@@ -117,6 +117,15 @@ function start(
     MOCK_CHANNEL_LOG: log,
     MOCK_AUTOREPLY: '1',
     MOCK_PEER: JSON.stringify(f.executables.peer),
+    ...(extra.MOCK_ACTIVITY_HOOKS
+      ? {
+          MOCK_HOOK_FLUSH_WAIT: JSON.stringify({
+            node: process.execPath,
+            script: path.resolve('test/support/wait-hook-flush.mjs'),
+            directory: f.globalDir,
+          }),
+        }
+      : {}),
     ...extra,
   };
   const command = [
@@ -263,8 +272,46 @@ async function assertTurnActivity(
   expect(working.runtime_state).toBe('running');
   expect(working.runtime_pid).toBe(foreground.pid);
   expect(working.runtime_start_identity).toBe(foreground.start);
-  fs.writeFileSync(`${s.log}.finish-turn`, '');
-  await f.waitFor(() => events(s, 'stop-hook').length === 1, 10000, 'verified main-thread Stop');
+  const deadline = Date.now() + 10000;
+  const writer = new Database(path.join(f.globalDir, 'tmt.db'));
+  try {
+    writer.exec('BEGIN IMMEDIATE');
+    fs.writeFileSync(`${s.log}.finish-turn`, '');
+    await f.waitFor(
+      () => events(s, 'stop-queued').length === 1,
+      Math.max(0, deadline - Date.now()),
+      'Stop intake completed while the private main writer is held'
+    );
+    expect(events(s, 'stop-queued')[0].ok).toBe(true);
+    const queue = new Database(path.join(f.globalDir, 'hook-writes.db'), {
+      readonly: true,
+      fileMustExist: true,
+    });
+    try {
+      const pending = queue.prepare('SELECT count(*) AS n FROM hook_writes').get() as { n: number };
+      expect(pending.n).toBeGreaterThan(0);
+    } finally {
+      queue.close();
+    }
+    expect(JSON.parse(snapshot().driver_state).activity.state).toBe('working');
+    await f.waitFor(
+      () => events(s, 'stop-waiting').length === 1 || events(s, 'stop-hook').length === 1,
+      Math.max(0, deadline - Date.now()),
+      'the fixture entered its acknowledgment barrier or published completion'
+    );
+    // Queued is not applied: this must fail if the fixture's acknowledgment
+    // barrier is removed, even on an otherwise unloaded host.
+    expect(events(s, 'stop-hook')).toHaveLength(0);
+    expect(events(s, 'stop-waiting')).toHaveLength(1);
+  } finally {
+    if (writer.inTransaction) writer.exec('ROLLBACK');
+    writer.close();
+  }
+  await f.waitFor(
+    () => events(s, 'stop-hook').length === 1,
+    Math.max(0, deadline - Date.now()),
+    'verified main-thread Stop acknowledged after the private writer was released'
+  );
   const stop = events(s, 'stop-hook')[0];
   expect(stop.ok).toBe(true);
   expect(stop.stdout).toBe('');

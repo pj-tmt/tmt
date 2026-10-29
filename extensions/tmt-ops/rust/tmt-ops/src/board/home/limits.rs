@@ -133,8 +133,27 @@ pub(in crate::board) fn rate_text(figures: &Figures) -> String {
 }
 
 fn meter(standing: &Standing, now_ms: u64, width: u16) -> Vec<Value> {
+    if let Some(notice) = standing.notice() {
+        let full = format!("{}  {notice}", standing.provider.label());
+        let text = if full.width() <= usize::from(width) {
+            full
+        } else {
+            format!(
+                "{}  {}",
+                standing.provider.label(),
+                notice.split(" · ").next().unwrap_or(notice)
+            )
+        };
+        return vec![piece(
+            "missing",
+            fit(&text, usize::from(width)).trim_end().into(),
+            Role::Muted,
+        )];
+    }
     match standing.outlook(now_ms) {
-        Outlook::Known(figures) => window_parts(standing, &figures, "7d", figures.weekly, width),
+        Outlook::Known(figures) => {
+            window_parts(standing, Some(&figures), "7d", figures.weekly, width)
+        }
         Outlook::Unknown { age_ms } => {
             let words = age_ms.map_or_else(
                 || "no reading yet".into(),
@@ -162,6 +181,30 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
     };
     let mut result = Vec::new();
     for (index, standing) in standings.iter().enumerate() {
+        if standing.current.is_some() {
+            let figures = match standing.outlook(now_ms) {
+                Outlook::Known(figures) => Some(figures),
+                _ => None,
+            };
+            let mut any = false;
+            for kind in crate::board::limits::QuotaWindow::ALL {
+                if let Some(value) = standing.window(kind, now_ms) {
+                    let left = crate::board::limits::Left {
+                        percent: value.left,
+                        resets_in_ms: value.resets_at_ms.saturating_sub(now_ms),
+                    };
+                    result.push(json!({"id":format!("provider{index}-{}",kind.key()),
+                        "pieces":window_parts(standing, figures.as_ref(), kind.key(), left, width)}));
+                    any = true;
+                }
+            }
+            if !any {
+                result.push(
+                    json!({"id":format!("provider{index}"), "pieces":meter(standing,now_ms,width)}),
+                );
+            }
+            continue;
+        }
         let Outlook::Known(figures) = standing.outlook(now_ms) else {
             result.push(
                 json!({"id":format!("provider{index}"), "pieces":meter(standing, now_ms, width)}),
@@ -172,7 +215,7 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
             std::iter::once(("7d", figures.weekly)).chain(figures.short.map(|left| ("5h", left)))
         {
             result.push(json!({"id":format!("provider{index}-{window}"),
-                "pieces":window_parts(standing, &figures, window, left, width)}));
+                "pieces":window_parts(standing, Some(&figures), window, left, width)}));
         }
     }
     Value::Array(result)
@@ -180,7 +223,7 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
 
 fn window_parts(
     standing: &Standing,
-    figures: &Figures,
+    figures: Option<&Figures>,
     window: &str,
     left: crate::board::limits::Left,
     width: u16,
@@ -188,7 +231,7 @@ fn window_parts(
     let weekly = window == "7d";
     let mut extra = format!(" reset {}", reset(left.resets_in_ms));
     let mut pace_visible = false;
-    if weekly {
+    if weekly && let Some(figures) = figures {
         let pace = format!(" · pace {}", rate_text(figures));
         if extra.width() + pace.width() + 18 <= usize::from(width) {
             extra.push_str(&pace);
@@ -200,7 +243,7 @@ fn window_parts(
         pace_visible = false;
     }
     let warning = if weekly {
-        warning(figures)
+        figures.map_or_else(String::new, warning)
     } else {
         String::new()
     };
@@ -209,17 +252,19 @@ fn window_parts(
     } else {
         String::new()
     };
-    let trend = if pace_visible
-        && figures
-            .burn
-            .is_some_and(|rate| rate.is_finite() && rate > 0.0)
-        && !warning.is_empty()
-    {
-        figures.trend.map(|trend| match trend {
-            Trend::Up => (" ↗", Role::Waiting),
-            Trend::Same => (" →", Role::Muted),
-            Trend::Down => (" ↘", Role::Working),
-        })
+    let trend = if pace_visible && !warning.is_empty() {
+        figures
+            .filter(|figures| {
+                figures
+                    .burn
+                    .is_some_and(|rate| rate.is_finite() && rate > 0.0)
+            })
+            .and_then(|figures| figures.trend)
+            .map(|trend| match trend {
+                Trend::Up => (" ↗", Role::Waiting),
+                Trend::Same => (" →", Role::Muted),
+                Trend::Down => (" ↘", Role::Working),
+            })
     } else {
         None
     };
@@ -237,7 +282,7 @@ fn window_parts(
         left.percent,
         cells,
         if weekly {
-            state(figures)
+            figures.map_or_else(|| remaining_role(left.percent), state)
         } else {
             remaining_role(left.percent)
         },
@@ -246,7 +291,7 @@ fn window_parts(
         pieces.push(piece(
             "warning",
             warning,
-            if figures.empties_soon() {
+            if figures.is_some_and(Figures::empties_soon) {
                 Role::Blocked
             } else {
                 Role::Waiting

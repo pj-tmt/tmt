@@ -277,6 +277,7 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
     app.apply(snapshot);
     app.set_limits(vec![
         Standing {
+            current: None,
             rates: Default::default(),
             provider: Provider::named("claude"),
             latest: Some(Reading {
@@ -294,6 +295,7 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
             trend: Some(Trend::Up),
         },
         Standing {
+            current: None,
             rates: Default::default(),
             provider: Provider::named("codex"),
             latest: Some(Reading {
@@ -1039,6 +1041,80 @@ fn unread_overlay_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+fn account_limits_frames(styles: &mut Styles) -> Vec<Value> {
+    use crate::board::limits::{
+        Current, Provider, Standing,
+        observation::{Account, Report},
+    };
+    scene_group(
+        styles,
+        &[
+            "account-known",
+            "account-waiting",
+            "account-expired",
+            "account-short",
+            "account-multi",
+            "account-details",
+        ],
+        |_| grid(&[160, 120, 100, 80], &[40, 8]),
+        |state, look, _, _| {
+            let mut app = metered(look);
+            let account = Account {
+                key: "0123456789ab".into(),
+                label: "work".into(),
+            };
+            let mut windows =
+                vec![json!({"windowMinutes":300,"usedPercent":8.0,"resetsAtMs":NOW+3_600_000})];
+            if state != "account-short" {
+                windows.push(
+                    json!({"windowMinutes":10080,"usedPercent":60.0,"resetsAtMs":NOW+86_400_000}),
+                );
+            }
+            let report=Report::read(&json!({"observedAtMs":NOW-60_000,"account":{"key":account.key,"label":account.label},"windows":windows})).unwrap();
+            let current = match state {
+                "account-waiting" | "account-details" => Current::Waiting,
+                "account-expired" => Current::Expired,
+                _ => Current::Reported(report),
+            };
+            let mut rows = vec![Standing {
+                provider: Provider::named("claude").with_account(&account),
+                current: Some(current),
+                latest: None,
+                burn: None,
+                trend: None,
+                rates: Default::default(),
+            }];
+            if state == "account-multi" || state == "account-details" {
+                rows[0].provider = rows[0].provider.clone().showing_account(true);
+                rows.push(Standing {
+                    provider: Provider::named("claude")
+                        .with_account(&Account {
+                            key: "abcdef012345".into(),
+                            label: "home".into(),
+                        })
+                        .showing_account(true),
+                    current: Some(Current::Expired),
+                    latest: None,
+                    burn: None,
+                    trend: None,
+                    rates: Default::default(),
+                });
+            }
+            app.set_limits(rows);
+            if state == "account-short" {
+                app.usage_chart
+                    .borrow_mut()
+                    .restore_quota_window(crate::board::limits::QuotaWindow::Short);
+            }
+            if state == "account-details" {
+                app.open_quota_details();
+            }
+            app
+        },
+        |_, _| {},
+    )
+}
+
 const NOW: u64 = 1_791_600_000_000;
 
 fn captures() -> Value {
@@ -1089,6 +1165,7 @@ fn captures() -> Value {
         frames.extend(settings_keys_frames(&mut styles));
         frames.extend(quota_details_frames(&mut styles));
         frames.extend(unread_overlay_frames(&mut styles));
+        frames.extend(account_limits_frames(&mut styles));
         let styles = styles
             .0
             .into_iter()

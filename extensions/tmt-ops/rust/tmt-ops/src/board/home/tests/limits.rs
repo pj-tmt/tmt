@@ -40,6 +40,7 @@ fn app(usage_enabled: bool) -> App {
 
 fn standings() -> Vec<Standing> {
     vec![Standing {
+        current: None,
         rates: Default::default(),
         provider: Provider::named("codex"),
         latest: Some(Reading {

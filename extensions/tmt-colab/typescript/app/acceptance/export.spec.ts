@@ -22,10 +22,15 @@ async function browserExport(page: Page): Promise<Record<string, Buffer>> {
   await (await pageAction(page, 'Export page')).click();
   const panel = page.getByRole('region', { name: 'Export page' });
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
+  const list = panel.getByRole('list', { name: 'Page files', exact: true });
+  await expect(list.getByRole('listitem')).toHaveCount(FILES.length);
   const files: Record<string, Buffer> = {};
   for (const name of FILES) {
+    const row = list.getByRole('listitem').filter({ hasText: name });
+    const action = row.getByRole('button', { name: `Download ${name}`, exact: true });
+    await expect(action).toHaveText('Download');
     const pending = page.waitForEvent('download');
-    await panel.getByRole('button', { name: new RegExp(`Download ${name}`) }).click();
+    await action.click();
     const received = await pending;
     expect(received.suggestedFilename()).toBe(name);
     expect(await received.failure()).toBeNull();
