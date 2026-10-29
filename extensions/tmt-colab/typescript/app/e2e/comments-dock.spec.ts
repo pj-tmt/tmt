@@ -3,7 +3,7 @@ import { capturePath } from './captures.js';
 import { commentsAction } from '../test/page-actions.js';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
 
-// #5192: Comments is the dock's first action (Comments · Chat · Select), with the open-thread count and
+// #5192/#5519: Comments follows Annotate and Chat in the dock, with the open-thread count and
 // the needs-you colour and bullet. It opens the Comments panel out of the dock's rectangle as Chat does
 // (dock-motion.ts): the panel is clipped to the dock's rectangle at one end of the motion. A column
 // leaves the dock in place, pressed; a card or a sheet covers it, so the dock hides.
@@ -133,7 +133,7 @@ for (const { mode, width } of modes)
         // The close button does the same, and the dock's action opens it again.
         await action.click();
         await expect(commentsRegion(page)).toBeVisible();
-        await commentsClose(page, 'list').click();
+        await commentsClose(page, 'discussion').click();
         await expect(commentsRegion(page)).toHaveCount(0);
         await expect(action).toBeFocused();
       });
@@ -206,7 +206,7 @@ for (const width of [320, 390, 1440])
     const boxes = await actions.evaluateAll((nodes) =>
       nodes.map((node) => node.getBoundingClientRect().toJSON()),
     );
-    // One row: the same top and height, left to right in the order Comments, Chat, Select.
+    // One row: the same top and height, left to right in the order Annotate, Chat, Comments.
     for (const box of boxes) {
       expect(box.top).toBe(boxes[0].top);
       expect(box.height).toBe(44);
@@ -217,9 +217,9 @@ for (const width of [320, 390, 1440])
     expect(capsule.x).toBeGreaterThanOrEqual(0);
     expect(capsule.x + capsule.width).toBeLessThanOrEqual(width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-    await expect(actions.nth(0)).toHaveAccessibleName(/^Comments/);
+    await expect(actions.nth(0)).toHaveAccessibleName('Selection mode');
     await expect(actions.nth(1)).toHaveAccessibleName(/^Chat/);
-    await expect(actions.nth(2)).toHaveAccessibleName('Selection mode');
+    await expect(actions.nth(2)).toHaveAccessibleName(/^Comments/);
     await page.screenshot({
       path: capturePath(`comments-dock-closed-${width}.png`),
       clip: { x: Math.max(0, width - 360), y: 560, width: Math.min(360, width), height: 140 },

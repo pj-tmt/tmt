@@ -1538,23 +1538,23 @@ pair; Send remains explicit. Send, Escape and Cancel close that composer without
 opening an anchored thread window. The card retains any unrecorded delivery
 failure for explicit recovery after the composer closes; signed Ask outcomes own
 recovery once admitted. Proposals expose no Delete thread action.
-Resolve folds the proposal to one line with its title, retained decision/resolved
+Inline Resolve folds the proposal to one line with its title, retained decision/resolved
 mark and Reopen action; body, author and conversation history return on Reopen.
-In Comments, resolved proposals use the same plain row as other threads: full
-muted title, author/time, Proposal · Resolved state and Reopen. Proposal rows
-prefix their Open/Approved/Declined/Resolved state with Proposal; annotations do
-not. Resolved cards and rows use the ordinary resolved-thread mark, never the
-Open mark. Opening the resolved row discloses retained history without
-reopening the proposal or changing the pending count. This explicit opening
-acknowledges a locally unseen resolution; rendering or filtering does not.
-Comments mixes proposals with ordinary annotations in one list with the views
-Open, Needs you and, only when the page has a proposal, Proposals (a rule closes the
-view strip and every row). Open leaves resolved threads out until the panel's Show resolved toggle is on;
-there is no Resolved view. Row titles stay at 14px (the compact body token); quoted passages
-and metadata use the caption size. The
-open thread stays listed in every view. Needs you holds undecided proposals and
-threads with news the person has not seen. Changing the view never changes status, sends a request or changes the header
-count. The one header pending count is computed by `openThreadCount`: unresolved
+In Comments the selected proposal stays expanded through Resolve and Reopen, with
+its retained decision and history. Reopen never changes its decision. Resolved
+cards use the ordinary resolved-thread mark, never the Open mark.
+Comments opens one discussion directly, mixing proposals and ordinary annotations
+in the same numbered sequence. There is no list, tab strip or back-to-list action.
+The header filter offers Open, Needs you and All. Open excludes resolved threads;
+Needs you holds unresolved undecided proposals and unresolved threads with unseen
+news; All includes resolved threads. Deleted and Chat threads stay excluded. The
+first selection prefers the first Needs-you thread, then the first matching thread
+by number. The selected thread remains in the sequence after resolution or
+acknowledgement until explicit navigation. Position text is static; Previous and
+Next choose another thread. Choosing a filter starts a matching discussion and
+never changes status or sends a request. Passive rendering and reload never
+acknowledge an agent resolution; explicitly opening its discussion does.
+The one header pending count is computed by `openThreadCount`: unresolved
 proposals without a final decision plus unresolved ordinary annotations. Approved
 or declined proposals are not pending even before resolution; proposal-linked
 threads contribute once, and Chat/deleted threads never contribute. Reopening an
@@ -2961,8 +2961,9 @@ shows the bounded quoted text. Comment first-line tooltips stay in parent chrome
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
 its current highlight request and opens that thread's Discussion view in the Comments panel. A `+n` marker
 posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the parent accepts the
-current render and request only and opens the Comments list (closing an open annotation
-window), with no thread ID and no thread opened. Forging either view-only
+current render and request only and opens Comments (closing an open annotation
+window). The message carries no thread ID; the parent retains its selected
+Discussion or chooses the first matching thread from its verified filter sequence. Forging either view-only
 action cannot publish, sign or send. The passage of the thread whose anchored window or Discussion view is open
 takes a selected look: the deepest tint (28 %) and a solid 2 px underline in the accent
 (`color.annotation-rule-selected`), above the hover look, and its
@@ -3980,14 +3981,22 @@ returns a batch Ask for every question thread holding one of its comments; its r
 notification and captured earlier conversation belong to the canonical thread alone. `Change
 answer` is a new comment and an ordinary single-comment Ask; the batch is untouched.
 
-The Comments overlay lists every annotation and page-level thread, with a quote
-snippet, participants, display time and open/resolved status. Selecting a row scrolls
-the window to its anchor and opens that thread's Discussion view in the overlay, in place
-of the list (the panel reads Discussion with the thread's position, `n / N`, and `All
-comments` returns to the list); the selected thread stays selected while Comments is closed
-and reopened. A margin marker, and a Thread notification, open the same thread's Discussion view in that panel; the anchored window exists only for a new selection and the first thread it creates. Page-owned per-thread drafts also
-survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
-remain attributed to their agent. Overlay geometry does not reflow page content.
+The Comments overlay opens one annotation, page-level thread or proposal directly.
+Its Open / Needs you / All filter and Previous / Next arrows use the authenticated
+thread projection, existing creation-order numbers and attention metadata; opening
+performs no additional discussion read. Position (`n / N`) is text, not navigation.
+The selected thread stays selected while Comments is closed and reopened. A margin
+marker and a Thread notification select the same Discussion view; a route fragment
+restores that selection without acknowledging new status. An anchored window exists
+only for a new selection and the first thread it creates. Page-owned drafts survive
+switching threads and closing the panel. Existing page-comment creation remains
+available above the selected conversation and in an empty view.
+In Discussion, Resolve and Reopen retain the conversation, quote, messages, composer
+and unsent draft in the same mounted window. Resolving does not collapse it or
+advance to another thread, even under Open. The header action changes to Reopen;
+unknown or ambiguous recipients remain visible as Not notified. Agent replies join
+verified Ask records to comment IDs and remain attributed to their agent. Overlay
+geometry does not reflow page content.
 Shared Chat, Source, Agents, Files and Export drawers leave an 8 px
 header/right/bottom gutter (4 px through 480 px), with top/right/bottom safe-area insets, an opaque
 square surface and a 1 px border. The header remains visible behind the scrim. All drawers use the shared leaf
@@ -4074,8 +4083,8 @@ authority.
 ### Page Chat (#1645)
 
 The Chat action in the page's dock opens the retained Chat drawer without resizing or reflowing the
-page. The dock is one capsule at the page's lower corner that holds, left to right, the Comments, Chat and
-selection-mode actions, divided by hairlines; the Comments and Chat actions hide while selection mode or
+page. The dock is one capsule at the page's lower corner that holds, left to right, the selection-mode, Chat and
+Comments actions, divided by hairlines; the Comments and Chat actions hide while selection mode or
 an annotation window is open. The page header holds no Comments or Chat control: the dock is where
 both are. The Comments action shows the page's open-thread count beside its icon (its slot is held while
 the threads are verified, so no false 0) and, while any thread has news the viewer has not seen, the count

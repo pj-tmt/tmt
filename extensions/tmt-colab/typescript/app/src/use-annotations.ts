@@ -11,7 +11,6 @@ import type { PageBinding, PageSnapshot, PageTransport } from './transport.js';
 interface AnnotationPanels {
   clear(): void;
   showThread(id: string): void;
-  setActiveThread(id: string | null): void;
 }
 
 /**
@@ -179,19 +178,15 @@ export function useAnnotations({
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
   }, [annotation, environment]);
-  function openThread(ref: DiscussionRef | null) {
+  function openThread(ref: DiscussionRef, { revealInPage = true } = {}) {
     if (annotationBusy.current || statusBusy.current) return;
-    if (!ref) {
-      panelsRef.current.setActiveThread(null);
-      return;
-    }
     const id = `${ref.writer}:${ref.id}`;
     if (annotationRef.current) closeRef.current(false);
     setAnnotation(undefined);
     binding.current?.markThreadStatusSeen?.(ref);
     panelsRef.current.showThread(id);
     environmentRef.current.threadFragment()?.write(ref.id);
-    renderer.current?.scrollAnchor(id);
+    if (revealInPage) renderer.current?.scrollAnchor(id);
   }
   function continueAnnotation(ref: DiscussionRef) {
     keepDraft(JSON.stringify(annotationRef.current?.selector), null);

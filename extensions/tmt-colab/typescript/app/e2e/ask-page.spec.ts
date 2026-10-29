@@ -1003,12 +1003,8 @@ for (const [width, height, theme] of [
         .toBe(true);
       await page.screenshot({ path: capturePath(`2719-composer-${width}-${height}-${theme}.png`) });
     }
-    // Escape in the composer steps back to the comment list; the next one closes the drawer.
+    // With no list rung, Escape closes the Discussion and retains selection mode.
     await input.press('Escape');
-    await expect(page.getByTestId('comment-thread')).toHaveCount(0);
-    await expect(window).toBeVisible();
-    await expect(mode).toHaveAttribute('aria-pressed', 'true');
-    await page.keyboard.press('Escape');
     await expect(window).toHaveCount(0);
     await expect(mode).toHaveAttribute('aria-pressed', 'true');
     await page.keyboard.press('Escape');
@@ -1018,7 +1014,6 @@ for (const [width, height, theme] of [
     await expect(input).toHaveText('Draft retained @');
     expect((await run(page, 'proof')).sends).toEqual([]);
     expect((await run(page, 'proof')).actions).toEqual([]);
-    await input.press('Escape');
     await expect(page.getByRole('option')).toHaveCount(0);
     await commentsClose(page, 'discussion').click();
     await expect(window).toHaveCount(0);

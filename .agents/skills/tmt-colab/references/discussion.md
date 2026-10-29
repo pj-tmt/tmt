@@ -34,7 +34,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   `Live` supplies `ThreadStore` its verified thread projection only for the exact current
   own snapshot, connection and admission; otherwise the store re-reads admitted records.
   Resolve/Reopen controls show their pending action with a busy/disabled fence. Proposal
-  cards and list rows share the proposal layer's pending map; confirmed projection replaces
+  cards and the selected proposal share the proposal layer's pending map; confirmed projection replaces
   it, and publication failure clears it and shows the existing error.
   `thread-status-notification.ts` re-admits the committed action/recipient and captured
   discussion before Ask freezing, then projects held/refused/failure/uncertain outcomes
@@ -219,7 +219,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   with primary reserved for the form's default submit and other actions text. The
   host header gives its status title flexible space before fixed right-aligned
   actions, including the muted attachment label on the same row. It retains plain-text
-  parent controls, one all-annotations list, expanded conversation and explicit
+  parent controls, a filtered single-thread Discussion, expanded conversation and explicit
   reattach confirmation. Row action menus choose below/above placement when it
   fits, otherwise clamp inside their scroll container so the stationary window
   header cannot cover Edit/Delete. `annotation-input.tsx` owns parent draft/mention/send
@@ -243,11 +243,12 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   admitted that way), collapses the anchored layout only after a resolve that left
   nothing to tell, and lists mentions that could not become recipients as
   `Not notified`. Only the parent's trusted open paths call
-  `markThreadStatusSeen`; rendering, panel opening, close and reload never do.
-  A resolved thread leaves the renderer's anchor set, so its margin marker is
-  hidden until Reopen, while Comments keeps its row (`Resolved`, or
-  `Resolved by <agent>` with an unseen `New` mark) and the Comments toggle shows
-  the open count.
+  `markThreadStatusSeen`; passive rendering, close and route restoration never do.
+  Opening the dock explicitly selects a discussion and acknowledges its winning
+  agent status. A resolved thread leaves the renderer's anchor set, hiding its
+  marker until Reopen. Comments retains the expanded selected discussion and its
+  Not-notified warning even in Open; only explicit navigation changes selection.
+  The dock retains the canonical pending count and unseen New mark.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
   input options portal into its dialog ancestor (otherwise the body) and use the
   browser popover layer with viewport bounds, so mobile modal sheets retain visible,

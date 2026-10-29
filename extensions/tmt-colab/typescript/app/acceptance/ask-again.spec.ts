@@ -1,4 +1,4 @@
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, selectThread } from '../test/page-actions.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -192,7 +192,7 @@ for (const surface of ['chat', 'thread'])
       else {
         const toggle = await pageAction(page, 'Comments');
         await toggle.click();
-        await page.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+        await selectThread(page, threadId);
       }
       const restored =
         surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');

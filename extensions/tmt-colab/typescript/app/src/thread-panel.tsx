@@ -1,3 +1,4 @@
+import { threadNeedsYou } from './comments-listing.js';
 import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreatorTarget } from './creator-default.js';
@@ -6,8 +7,6 @@ import { createPortal } from 'react-dom';
 import {
   BrowserAction,
   BrowserIconAction,
-  BrowserTabs,
-  type BrowserTab,
   BusyMark,
   busyMarkDelayMs,
   busyMarkHoldMs,
@@ -24,13 +23,12 @@ import { threadNotificationDestination } from './reply-notification-context.js';
 import { MarkdownText } from './components/markdown-text.js';
 import { EchoAttachments, MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './ask-panel.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { text } from './strings.js';
 import {
   echoLanded,
@@ -469,16 +467,6 @@ export function CommentExchange({
   );
 }
 
-/** The thread's title: a proposal's title, else the first line of its first comment. */
-export function threadTitle(thread: ThreadView) {
-  if (thread.deleted) return text.threadDeleted;
-  if (thread.proposal) return thread.proposal.title;
-  const first =
-    thread.comments.find((value) => !value.deleted && value.ref.writer === thread.ref.writer) ??
-    thread.comments.find((value) => !value.deleted);
-  return first?.body.split('\n')[0] || text.pageComments;
-}
-
 export type ThreadWindowProps = {
   number?: number;
   creationRecipient?: CreatorTarget;
@@ -507,8 +495,8 @@ export type ThreadWindowProps = {
   /** The parent owns recipient freezing and notification; the window only asks. */
   onStatusChange?(resolved: boolean): Promise<ThreadStatusOutcome>;
   /**
-   * The status a change shows before its record lands. A parent that also renders the thread's
-   * row owns it, so the row and the window agree; without one the window keeps its own.
+   * The status a change shows before its record lands. A parent sharing the thread across
+   * presentations owns it; otherwise the window keeps its own.
    */
   pendingResolved?: boolean;
   onPendingResolved?(pending: boolean | undefined): void;
@@ -561,8 +549,8 @@ export function ThreadWindow({
   useEffect(() => {
     if (pendingResolved === thread?.resolved) setPendingResolved(undefined);
   }, [pendingResolved, thread?.resolved, setPendingResolved]);
-  const collapsed = !!thread && !!shownResolved && !showResolved;
   const discussion = layout === 'discussion';
+  const collapsed = !discussion && !!thread && !!shownResolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
   // A resolved thread leaves the page's marker set, so its attachment is not
@@ -635,31 +623,25 @@ export function ThreadWindow({
     status?.controllable &&
     !thread.deleted
       ? createPortal(
-          // A secondary text action, `✓ Resolve` / `↺ Reopen`, as the spec and the mock draw it.
-          <button
+          <BrowserIconAction
             type="button"
-            className={`${ui.action} discussion-resolve`}
-            data-variant="secondary"
-            title={thread.resolved ? text.threadReopen : text.threadResolve}
-            disabled={blocked}
-            aria-disabled={busy || undefined}
-            aria-busy={busy || undefined}
-            onClick={(event) => {
-              if (busy) event.preventDefault();
-              else if (event.isTrusted) changeStatus(!thread.resolved);
-            }}
-          >
-            {thread.resolved ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
-            <span className={ui.actionLabel}>
-              {pendingResolved !== undefined
+            variant="text"
+            label={
+              pendingResolved !== undefined
                 ? pendingResolved
                   ? text.threadResolving
                   : text.threadReopening
                 : thread.resolved
                   ? text.threadReopen
-                  : text.threadResolve}
-            </span>
-          </button>,
+                  : text.threadResolve
+            }
+            disabled={blocked}
+            busy={busy}
+            icon={thread.resolved ? <RotateCcw /> : <Check />}
+            onActivate={(event) => {
+              if (event.isTrusted) changeStatus(!thread.resolved);
+            }}
+          />,
           headerSlot,
         )
       : null;
@@ -801,8 +783,14 @@ export function ThreadWindow({
                       <q>{anchor.exact}</q>
                     </div>
                   ))}
-                {tracked && !attached && (
-                  <span className="comment-status">{text.commentDetached}</span>
+                {anchor && (
+                  <span
+                    className="comment-status"
+                    style={{ visibility: tracked && !attached ? 'visible' : 'hidden' }}
+                    aria-hidden={!tracked || attached}
+                  >
+                    {text.commentDetached}
+                  </span>
                 )}
               </>
             )}
@@ -939,14 +927,11 @@ export function ThreadWindow({
   );
 }
 
-type CommentsView = 'open' | 'needs' | 'proposals';
-
 export function ThreadPanel({
   numbers: suppliedNumbers,
   creationRecipient,
   hideHeader = false,
   threads,
-  showResolved = false,
   resolved,
   anchorsChecked,
   selection,
@@ -959,13 +944,13 @@ export function ThreadPanel({
   archived = false,
   active,
   select,
+  close,
   draft,
   onDraft,
   presentations,
   onStatusChange,
   onBusy,
   renderProposal,
-  reopenProposal,
   proposalStatusPending,
   showInPage,
   headerSlot,
@@ -973,8 +958,6 @@ export function ThreadPanel({
   creationRecipient?: CreatorTarget;
   hideHeader?: boolean;
   threads: readonly ThreadView[];
-  /** The Open view also lists resolved threads, marked as resolved. */
-  showResolved?: boolean;
   numbers?: ReadonlyMap<string, number>;
   resolved: readonly string[];
   anchorsChecked: boolean;
@@ -987,14 +970,14 @@ export function ThreadPanel({
   connectionPresentation?: ComposerConnectionPresentation;
   archived?: boolean;
   active: string | null;
-  select(ref: DiscussionRef | null): void;
+  select(ref: DiscussionRef): void;
+  close(): void;
   draft?(ref: DiscussionRef): ComposerEdit | undefined;
   onDraft?(ref: DiscussionRef, edit: ComposerEdit): void;
   presentations?: readonly ThreadPresentation[];
   onStatusChange?(thread: ThreadView, resolved: boolean): Promise<ThreadStatusOutcome>;
   onBusy?(busy: boolean): void;
   renderProposal?(thread: ThreadView): ReactNode;
-  reopenProposal?(thread: ThreadView): void;
   proposalStatusPending?: ReadonlyMap<string, boolean>;
   /** The Discussion view's anchor. */
   showInPage?(ref: DiscussionRef): void;
@@ -1003,68 +986,57 @@ export function ThreadPanel({
 }) {
   const numbers = suppliedNumbers ?? threadNumbers(threads);
   const [compose, setCompose] = useState(false);
-  const [view, setView] = useState<CommentsView>('open');
   const [pending, setPending] = useState<Record<string, boolean>>({});
-  const scope = useId();
-  const hasProposals =
-    !!renderProposal && threads.some((thread) => thread.proposal && !thread.deleted);
-  const shownView = view === 'proposals' && !hasProposals ? 'open' : view;
-  const rows = threads.map((thread) => {
+  const discussed = threads.find(
+    (thread) => !thread.deleted && `${thread.ref.writer}:${thread.threadId}` === active,
+  );
+  const pageComment = (
+    <>
+      {!archived && (
+        <BrowserAction
+          type="button"
+          variant="text"
+          label={`+ ${text.commentPage}`}
+          disabled={!binding || blocked || compose}
+          onActivate={(event) => {
+            if (event.isTrusted) setCompose(true);
+          }}
+        />
+      )}
+      {compose && binding && (
+        <Composer
+          label={text.commentPost}
+          submit={async (body) => {
+            const context = await binding.create(body, null);
+            setCompose(false);
+            select(context.thread);
+          }}
+          cancel={() => setCompose(false)}
+          blocked={blocked}
+          archived={archived}
+        />
+      )}
+    </>
+  );
+  if (discussed) {
+    const thread = discussed;
     const id = `${thread.ref.writer}:${thread.threadId}`;
     const status = presentationOf(presentations, thread.ref)?.status;
-    // A status change shows in the row in the same frame as in its window.
-    const shownResolved = pending[id] ?? thread.resolved;
-    // Waiting for the person: a proposal with no decision, or news they have not seen.
-    const needsYou =
-      !shownResolved &&
-      !thread.deleted &&
-      ((!!thread.proposal && (!thread.decision || thread.decision.deleted)) || !!status?.unseen);
-    return { thread, id, status, shownResolved, needsYou };
-  });
-  const matches = (row: (typeof rows)[number]) =>
-    shownView === 'open'
-      ? showResolved || !row.thread.resolved
-      : shownView === 'needs'
-        ? row.needsYou
-        : !!row.thread.proposal;
-  const visibleRows = rows.filter(matches);
-  const discussed = active ? rows.find((row) => row.id === active) : undefined;
-  // Leaving the Discussion view removes the control that held focus; the thread's row takes it, so
-  // the next Escape still reaches the drawer instead of the page behind it.
-  const listRoot = useRef<HTMLElement>(null);
-  const discussedBefore = useRef<string | null>(null);
-  useEffect(() => {
-    const left = discussedBefore.current;
-    discussedBefore.current = discussed ? discussed.id : null;
-    if (!left || discussed) return;
-    const threadId = left.slice(left.lastIndexOf(':') + 1);
-    listRoot.current
-      ?.querySelector<HTMLElement>(`.annotation-row[data-thread-id="${CSS.escape(threadId)}"]`)
-      ?.focus();
-  }, [discussed]);
-  const tab = (id: CommentsView, label: string): BrowserTab => ({
-    id,
-    tabId: `${scope}-tab-${id}`,
-    panelId: `${scope}-panel-${id}`,
-    label,
-  });
-  const tabs = [
-    tab('open', text.commentsViewOpen),
-    tab('needs', text.needsYouWord),
-    ...(hasProposals ? [tab('proposals', text.commentsViewProposals)] : []),
-  ];
-  if (discussed) {
-    const { thread, id, status, shownResolved, needsYou } = discussed;
+    const pendingResolved = thread.proposal ? proposalStatusPending?.get(id) : pending[id];
+    const shownResolved = pendingResolved ?? thread.resolved;
+    const needsYou = threadNeedsYou({ ...thread, resolved: shownResolved }, presentations);
     return (
       <aside
         className="comments-panel"
         aria-label={text.discussion}
         data-testid="comments-panel"
         data-view="discussion"
+        data-thread-id={thread.threadId}
       >
-        {/* One quiet line, and only when it says something: waiting for you, or resolved. */}
-        {(shownResolved || needsYou) && (
-          <div className="discussion-status">
+        {pageComment}
+        {/* The reserved state line keeps the quote and composer still through Resolve. */}
+        <div className="discussion-status">
+          {(shownResolved || needsYou) && (
             <span
               className="discussion-state"
               data-state={shownResolved ? 'resolved' : 'needs'}
@@ -1072,18 +1044,19 @@ export function ThreadPanel({
             >
               {shownResolved ? <Check aria-hidden /> : <span aria-hidden="true">◆</span>}
               {shownResolved
-                ? pending[id] !== undefined
+                ? pendingResolved !== undefined
                   ? text.threadResolving
                   : resolvedLabel(status)
                 : text.needsYouWord}
             </span>
-          </div>
-        )}
+          )}
+        </div>
         {thread.proposal ? (
           renderProposal?.(thread)
         ) : (
           <ConversationPresentation value="discussion">
             <ThreadWindow
+              key={id}
               layout="discussion"
               connectionPresentation={connectionPresentation}
               archived={archived}
@@ -1097,7 +1070,7 @@ export function ThreadPanel({
               ask={ask}
               asks={asks}
               title={title}
-              close={() => select(null)}
+              close={close}
               blocked={blocked}
               initialEdit={draft?.(thread.ref)}
               onDraft={(edit) => onDraft?.(thread.ref, edit)}
@@ -1120,167 +1093,14 @@ export function ThreadPanel({
     );
   }
   return (
-    <aside
-      ref={listRoot}
-      className="comments-panel"
-      aria-label={text.comments}
-      data-testid="comments-panel"
-    >
-      {!hideHeader && (
-        <header>
-          <h2>{text.comments}</h2>
-          <span>{threads.filter((value) => !value.deleted).length}</span>
-        </header>
-      )}
-      <BrowserTabs
-        label={text.commentsViews}
-        variant="flat"
-        wrap
-        tabs={tabs}
-        selected={shownView}
-        onSelect={(id) => setView(id as CommentsView)}
-      >
-        {(current) =>
-          current.id !== shownView ? null : (
-            <>
-              {!archived && (
-                <div className="comments-add">
-                  <BrowserAction
-                    type="button"
-                    variant="text"
-                    label={`+ ${text.commentPage}`}
-                    disabled={!binding || blocked || compose}
-                    onActivate={(event) => {
-                      if (event.isTrusted) setCompose(true);
-                    }}
-                  />
-                </div>
-              )}
-              {compose && binding && (
-                <Composer
-                  label={text.commentPost}
-                  submit={async (body) => {
-                    const context = await binding.create(body, null);
-                    select(context.thread);
-                  }}
-                  cancel={() => setCompose(false)}
-                  blocked={blocked}
-                  archived={archived}
-                />
-              )}
-              {!visibleRows.length && (
-                <div className="comments-empty" data-testid="comments-empty">
-                  <Check aria-hidden />
-                  <h3>
-                    {!threads.length
-                      ? text.commentsEmptyNone
-                      : shownView === 'open'
-                        ? text.commentsNoOpen
-                        : text.commentsEmptyTitle}
-                  </h3>
-                  <p>
-                    {!threads.length
-                      ? text.commentsEmptyNoneHint
-                      : shownView === 'open' && rows.some((row) => row.shownResolved)
-                        ? text.commentsNoOpenHidden
-                        : text.commentsEmptyCaughtUp}
-                  </p>
-                </div>
-              )}
-              <div className="annotation-list">
-                {visibleRows.map(({ thread, id, status, shownResolved, needsYou }) => {
-                  const isPending = pending[id] !== undefined;
-                  const count = thread.comments.filter((value) => !value.deleted).length;
-                  const first =
-                    thread.comments.find(
-                      (value) => !value.deleted && value.ref.writer === thread.ref.writer,
-                    ) ?? thread.comments.find((value) => !value.deleted);
-                  const rowTitle = threadTitle(thread);
-                  const quote = thread.proposal
-                    ? `${text.proposalOpen} · ${thread.proposal.proposer.label}`
-                    : thread.anchor?.exact;
-                  const state = [
-                    ...(isPending
-                      ? [pending[id] ? text.threadResolving : text.threadReopening]
-                      : shownResolved
-                        ? [resolvedLabel(status)]
-                        : thread.proposal && thread.decision && !thread.decision.deleted
-                          ? [
-                              thread.decision.decision === 'approved'
-                                ? text.proposalApproved
-                                : text.proposalDeclined,
-                            ]
-                          : []),
-                    ...(needsYou ? [text.needsYouWord] : []),
-                    ...(shownResolved && status?.unseen ? [text.threadUnseen] : []),
-                    ...(thread.anchor && !shownResolved && !resolved.includes(id)
-                      ? [text.commentDetached]
-                      : []),
-                  ];
-                  return (
-                    <section
-                      className="annotation-list-item"
-                      data-resolved={shownResolved || undefined}
-                      key={id}
-                    >
-                      <div className="annotation-row-controls">
-                        <button
-                          className="annotation-row"
-                          data-testid="annotation-row"
-                          data-thread-id={thread.threadId}
-                          data-resolved={shownResolved || undefined}
-                          title={Array.from(first?.body.split('\n')[0] ?? '')
-                            .slice(0, 32)
-                            .join('')}
-                          onClick={(event) => {
-                            if (event.isTrusted) select(thread.ref);
-                          }}
-                        >
-                          {numbers.get(id) !== undefined && (
-                            <span className="annotation-number">{numbers.get(id)}</span>
-                          )}
-                          <span className="annotation-row-text">
-                            <strong>{rowTitle}</strong>
-                            {quote && <span className="annotation-row-quote">{quote}</span>}
-                            <small
-                              data-testid="thread-row-status"
-                              data-unseen={status?.unseen || undefined}
-                            >
-                              {[...(count ? [text.commentCount(count)] : []), ...state].join(' · ')}
-                            </small>
-                          </span>
-                        </button>
-                        {!archived &&
-                          thread.proposal &&
-                          thread.resolved &&
-                          status?.controllable &&
-                          reopenProposal && (
-                            <span className="proposal-row-reopen">
-                              <BrowserAction
-                                type="button"
-                                variant="text"
-                                label={
-                                  proposalStatusPending?.has(id)
-                                    ? text.threadReopening
-                                    : text.threadReopen
-                                }
-                                busy={proposalStatusPending?.has(id)}
-                                disabled={blocked || proposalStatusPending?.has(id)}
-                                onActivate={(event) => {
-                                  if (event.isTrusted) reopenProposal(thread);
-                                }}
-                              />
-                            </span>
-                          )}
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
-            </>
-          )
-        }
-      </BrowserTabs>
+    <aside className="comments-panel" aria-label={text.comments} data-testid="comments-panel">
+      {!hideHeader && <h2>{text.comments}</h2>}
+      <div className="comments-empty" data-testid="comments-empty">
+        <Check aria-hidden />
+        <h3>{threads.length ? text.commentsEmptyTitle : text.commentsEmptyNone}</h3>
+        <p>{threads.length ? text.commentsEmptyCaughtUp : text.commentsEmptyNoneHint}</p>
+      </div>
+      {pageComment}
     </aside>
   );
 }

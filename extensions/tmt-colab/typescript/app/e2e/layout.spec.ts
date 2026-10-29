@@ -169,7 +169,7 @@ for (const width of [1440, 390])
         expect(box.y + box.height).toBe(900 - gap);
       }
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
-      await commentsClose(page, 'list').click();
+      await commentsClose(page, 'empty').click();
       await expect(comments).not.toBeVisible();
       await expect(commentsAction(page)).toBeFocused();
       await (await pageAction(page, 'Chat')).click();
@@ -371,7 +371,7 @@ for (const width of [1440, 390])
         await page.screenshot({ path: `${capture}/comments-${width}-${theme}.png` });
       }
       expect(await page.evaluate(() => window.scrollY)).toBe(scroll);
-      await commentsClose(page, 'list').click();
+      await commentsClose(page, 'discussion').click();
       await expect(panel).not.toBeVisible();
       await expect.poll(frameAt).toBe(true);
       expect((await frame.boundingBox())?.width).toBe(before?.width);
