@@ -46,7 +46,7 @@ for (const source of ['React', 'Native'] as const)
           expect((await focusFrames(page, '.tmt-ui-menu-surface[open]')).clipped).toEqual([]);
           await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS('padding', '4px');
           await expect(delta).toHaveCSS('border-radius', '6px');
-          await expect(delta).toHaveCSS('height', '42px');
+          await expect(delta).toHaveCSS('height', '32px');
           expect(frames.doubled).toEqual([]);
           expect(await textAtSurfaceEdge(page, '.tmt-ui-menu-surface[open]')).toEqual([]);
           expect((await controlRadii(page, '.tmt-ui-menu-surface[open]')).off).toEqual([]);
@@ -262,3 +262,62 @@ for (const source of ['React', 'Native'] as const)
     await expect(page.getByRole('button', { name: next, exact: true })).toBeFocused();
     await expect(page.getByTestId('selection')).toHaveText('none');
   });
+
+for (const source of ['React', 'Native'] as const)
+  for (const width of [320, 390, 1440])
+    for (const theme of ['light', 'dark'] as const)
+      test(`${source} ${width} ${theme}: grouped metadata stays passive and fits the compact menu`, async ({
+        page,
+      }, testInfo) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+        await page.goto(`/?frame=menu-host&decorated=true&theme=${theme}`);
+        await page.getByRole('button', { name: `${source} menu`, exact: true }).click();
+        const menu = page.getByRole('menu', { name: `${source} menu`, exact: true });
+        await expect(menu.locator('.tmt-ui-menu-heading')).toHaveText(['Share', 'Content']);
+        await expect(menu.locator('.tmt-ui-menu-heading').last()).toHaveAttribute(
+          'data-separated',
+          'true',
+        );
+        const alpha = menu.getByRole('menuitemradio', { name: /^Alpha/ });
+        await expect(alpha).toBeFocused();
+        await expect(alpha.locator('.tmt-ui-menu-secondary')).toHaveText('Private · Live');
+        await expect(alpha.locator('.tmt-ui-menu-meta')).toHaveText('0');
+        const geometry = await menu.evaluate((node) => {
+          const surface = node.closest('dialog')!;
+          const rows = [...node.querySelectorAll<HTMLButtonElement>('button')];
+          const icon = rows[0]!.querySelector('.tmt-ui-menu-icon svg')!;
+          const meta = rows[2]!.querySelector('.tmt-ui-menu-meta')!;
+          return {
+            width: surface.getBoundingClientRect().width,
+            heights: rows.map((row) => row.getBoundingClientRect().height),
+            icon: [icon.getBoundingClientRect().width, icon.getBoundingClientRect().height],
+            overflow: surface.scrollWidth > surface.clientWidth,
+            truncated: meta.scrollWidth > meta.clientWidth,
+            passive: [...node.querySelectorAll('.tmt-ui-menu-heading, .tmt-ui-menu-icon')].every(
+              (element) => !element.hasAttribute('tabindex') && !element.hasAttribute('role'),
+            ),
+          };
+        });
+        expect(geometry.width).toBeCloseTo(260, 0);
+        expect(geometry.heights.slice(0, 3)).toEqual([32, 32, 32]);
+        expect(geometry.icon).toEqual([16, 16]);
+        expect(geometry.overflow).toBe(false);
+        expect(geometry.truncated).toBe(true);
+        expect(geometry.passive).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath('menu.png') });
+        await page.keyboard.press('ArrowDown');
+        const gamma = menu.getByRole('menuitemradio', { name: /^Gamma/ });
+        await expect(gamma).toBeFocused();
+        await request(page, 'Reverse items');
+        await expect(gamma).toBeFocused();
+        await expect(gamma.locator('.tmt-ui-menu-meta')).toHaveText(
+          'A very long creator display name that must truncate',
+        );
+        await page.keyboard.press('d');
+        await expect(menu.getByRole('menuitemradio', { name: 'Delta', exact: true })).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(page.getByTestId('selection')).toHaveText(
+          `${source.toLowerCase()} A delta original=true`,
+        );
+      });

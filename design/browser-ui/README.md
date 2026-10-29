@@ -534,6 +534,14 @@ draft and request lifetimes, including failure and retry behavior.
 
 ## Drawer and Menu
 
+Menu surfaces are 260px wide, clamped to the viewport, with 32px minimum rows.
+Keyed items can supply a passive `heading`, decorative 16px `icon`, `secondary`
+text and right-aligned muted `meta`. Long metadata truncates visually while its
+full text remains accessible. A row's `separated` rule precedes its heading when
+present, otherwise its button. Headings and icons add no keyboard stops; arrows
+and typeahead continue to use the original keyed items and labels. Hosts own
+all labels, values, permissions and commands.
+
 Value-menu triggers use a centered ChevronDown icon in the shared icon box. A menu without a value
 can pass `triggerText` for a text trigger (the text and a chevron, accessible name `label`) in place
 of the icon action: a command that opens a choice rather than a field that holds one. A host
@@ -639,7 +647,8 @@ Options provide `label`, keyed `items` and `onSelect(key, originalMouseEvent)`;
 optional `triggerText` replaces the default Ellipsis icon trigger, `icon` supplies
 a decorative node, and `description`, `disabled` and `onOpenChange` retain the
 menu contracts above. There are no extra sizes or visual variants. Items may
-supply checked roles, a separator, a disabled reason and passive `content` nodes.
+supply checked roles, a separator, a disabled reason and passive `content` nodes,
+plus the same `heading`, `icon`, `secondary` and `meta` presentation as React.
 Keys must be unique. Strings render as text; supplied nodes belong to this
 presentation until update/disposal and must contain no second interactive owner.
 

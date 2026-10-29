@@ -9,6 +9,8 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { flushSync } from 'react-dom';
+import { FileText } from 'lucide-react';
+import { createIcon } from '../src/glyph.js';
 import { BrowserAction, BrowserDrawer, BrowserMenu, type BrowserMenuItem } from '../src/react.js';
 import {
   mountBrowserMenu,
@@ -86,14 +88,34 @@ export function MenuHostFrame({ params }: { params: URLSearchParams }) {
       { key: 'gamma', label: 'Gamma', checked: selected === 'gamma' },
       { key: 'delta', label: 'Delta', checked: selected === 'delta', separated: true },
     ].filter((item) => !removeAlpha || item.key !== 'alpha');
+    if (params.get('decorated') === 'true')
+      for (const row of rows) {
+        if (row.key === 'alpha')
+          Object.assign(row, {
+            heading: 'Share',
+            icon: <FileText />,
+            secondary: 'Private · Live',
+            meta: '0',
+          });
+        if (row.key === 'gamma')
+          Object.assign(row, {
+            heading: 'Content',
+            separated: true,
+            icon: <FileText />,
+            meta: 'A very long creator display name that must truncate',
+          });
+      }
     return reverse ? rows.reverse() : rows;
-  }, [selected, removeAlpha, reverse]);
+  }, [selected, removeAlpha, reverse, params]);
   const nativeVisibility = useCallback((open: boolean) => visibility('native', open), [visibility]);
   const reactVisibility = useCallback((open: boolean) => visibility('react', open), [visibility]);
   const nativeOptions = useMemo<BrowserMenuHostOptions>(
     () => ({
       label: 'Native menu',
-      items: items.map(({ content: _content, ...item }) => item),
+      items: items.map(({ content: _content, icon, ...item }) => ({
+        ...item,
+        ...(icon ? { icon: createIcon('file-text') } : {}),
+      })),
       description: 'Choose a fixture value',
       triggerText: params.get('kind') === 'text' ? 'Choose' : undefined,
       onSelect: receive,
@@ -178,7 +200,16 @@ export function MenuHostFrame({ params }: { params: URLSearchParams }) {
         panel="menu-fixture"
         onDismiss={() => setDrawer(false)}
       >
-        <NativeMenu options={{ ...nativeOptions, label: 'Drawer native menu' }} />
+        <NativeMenu
+          options={{
+            ...nativeOptions,
+            label: 'Drawer native menu',
+            items: nativeOptions.items.map((item) => ({
+              ...item,
+              ...(item.icon ? { icon: item.icon.cloneNode(true) } : {}),
+            })),
+          }}
+        />
       </BrowserDrawer>
     </main>
   );

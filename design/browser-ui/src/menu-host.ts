@@ -6,6 +6,13 @@ import { browserUiClasses as c } from './static.js';
 export interface BrowserMenuHostItem<Key extends string = string> extends MenuEntry<Key> {
   /** Passive presentation, never a second interactive control. */
   content?: Node;
+  /** Passive group label above this row; never a keyboard stop. */
+  heading?: string;
+  /** Decorative leading mark; hosts retain the icon's meaning. */
+  icon?: Node;
+  secondary?: string;
+  /** Right-aligned metadata; its full text remains accessible when truncated. */
+  meta?: string;
   disabledReason?: string;
   checked?: boolean;
   role?: 'menuitem' | 'menuitemradio' | 'menuitemcheckbox';
@@ -74,6 +81,11 @@ export function mountBrowserMenu<Key extends string>(
       button: HTMLButtonElement;
       label: HTMLSpanElement;
       check: HTMLSpanElement;
+      heading: HTMLDivElement;
+      icon: HTMLSpanElement;
+      primary: HTMLSpanElement;
+      secondary: HTMLSpanElement;
+      meta: HTMLSpanElement;
       reason: HTMLSpanElement;
     }
   >();
@@ -145,17 +157,43 @@ export function mountBrowserMenu<Key extends string>(
           button,
           label: document.createElement('span'),
           check: document.createElement('span'),
+          heading: document.createElement('div'),
+          icon: document.createElement('span'),
+          primary: document.createElement('span'),
+          secondary: document.createElement('span'),
+          meta: document.createElement('span'),
           reason: document.createElement('span'),
         };
         row.check.setAttribute('aria-hidden', 'true');
         row.check.textContent = '✓';
         row.reason.className = 'tmt-ui-menu-reason';
+        row.heading.className = 'tmt-ui-menu-heading';
+        row.icon.className = 'tmt-ui-menu-icon';
+        row.icon.setAttribute('aria-hidden', 'true');
+        row.label.className = 'tmt-ui-menu-label';
+        row.secondary.className = 'tmt-ui-menu-secondary';
+        row.meta.className = 'tmt-ui-menu-meta';
         row.root.append(button);
         rows.set(item.key, row);
       }
       removed.delete(item.key);
-      display(row.label, item.content ?? item.label);
-      row.button.replaceChildren(row.label, ...(item.checked ? [row.check] : []));
+      row.heading.textContent = item.heading ?? '';
+      if (item.separated) row.heading.dataset.separated = 'true';
+      else delete row.heading.dataset.separated;
+      if (item.heading) row.root.insertBefore(row.heading, row.button);
+      else row.heading.remove();
+      if (item.icon) display(row.icon, item.icon);
+      else row.icon.replaceChildren();
+      display(row.primary, item.content ?? item.label);
+      row.secondary.textContent = item.secondary ?? '';
+      row.label.replaceChildren(row.primary, ...(item.secondary ? [row.secondary] : []));
+      row.meta.textContent = item.meta ?? '';
+      row.button.replaceChildren(
+        ...(item.icon ? [row.icon] : []),
+        row.label,
+        ...(item.meta !== undefined ? [row.meta] : []),
+        ...(item.checked ? [row.check] : []),
+      );
       row.button.disabled = item.disabled === true;
       row.button.setAttribute(
         'role',
@@ -163,7 +201,7 @@ export function mountBrowserMenu<Key extends string>(
       );
       if (item.checked === undefined) row.button.removeAttribute('aria-checked');
       else row.button.setAttribute('aria-checked', String(item.checked));
-      if (item.separated) row.button.dataset.separated = 'true';
+      if (item.separated && !item.heading) row.button.dataset.separated = 'true';
       else delete row.button.dataset.separated;
       if (item.disabledReason) {
         row.reason.id = `${id}-reason-${index}`;

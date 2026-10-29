@@ -15,6 +15,13 @@ import type { BrowserCountTone } from './static.js';
 
 export interface BrowserMenuItem<Key extends string = string> extends MenuEntry<Key> {
   content?: ReactNode;
+  /** Passive group label above this row; never a keyboard stop. */
+  heading?: string;
+  /** Decorative leading mark; hosts retain the icon's meaning. */
+  icon?: ReactNode;
+  secondary?: string;
+  /** Right-aligned metadata; its full text remains accessible when truncated. */
+  meta?: string;
   disabledReason?: string;
   checked?: boolean;
   role?: 'menuitem' | 'menuitemradio' | 'menuitemcheckbox';
@@ -195,10 +202,18 @@ export function BrowserMenu<Key extends string>({
             )}
             {items.map((item, index) => (
               <div key={item.key}>
+                {item.heading && (
+                  <div
+                    className="tmt-ui-menu-heading"
+                    data-separated={item.separated ? 'true' : undefined}
+                  >
+                    {item.heading}
+                  </div>
+                )}
                 <button
                   type="button"
                   className="tmt-ui-menu-item"
-                  {...(item.separated ? { 'data-separated': 'true' } : {})}
+                  {...(item.separated && !item.heading ? { 'data-separated': 'true' } : {})}
                   role={item.role ?? (item.checked === undefined ? 'menuitem' : 'menuitemradio')}
                   aria-checked={item.checked}
                   aria-describedby={item.disabledReason ? `${id}-reason-${index}` : undefined}
@@ -210,7 +225,18 @@ export function BrowserMenu<Key extends string>({
                   onFocus={() => controller.focused(item.key)}
                   onClick={(event) => controller.select(item.key, event)}
                 >
-                  <span>{item.content ?? item.label}</span>
+                  {item.icon && (
+                    <span className="tmt-ui-menu-icon" aria-hidden="true">
+                      {item.icon}
+                    </span>
+                  )}
+                  <span className="tmt-ui-menu-label">
+                    <span>{item.content ?? item.label}</span>
+                    {item.secondary && (
+                      <span className="tmt-ui-menu-secondary">{item.secondary}</span>
+                    )}
+                  </span>
+                  {item.meta !== undefined && <span className="tmt-ui-menu-meta">{item.meta}</span>}
                   {item.checked && <span aria-hidden="true">✓</span>}
                 </button>
                 {item.disabledReason && (

@@ -83,8 +83,8 @@
   margin: 0;
   /* Keep the first and last focus frames inside the rounded popup. */
   padding: var(--tmt-ui-space-xs);
-  min-width: 160px;
-  width: max-content;
+  box-sizing: border-box;
+  width: 260px;
   max-width: calc(100vw - 16px);
   overflow: auto;
   overscroll-behavior: contain;
@@ -131,22 +131,64 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: var(--tmt-ui-space-l);
+  gap: var(--tmt-ui-space-s);
   width: 100%;
-  /* 10px block padding keeps the existing row height; the inline side is a token. */
-  padding: 10px var(--tmt-ui-space-m);
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 6px var(--tmt-ui-space-m);
   border: 0;
   border-radius: var(--tmt-ui-radius-s);
   background: transparent;
   color: inherit;
   font: inherit;
+  line-height: 20px;
   text-align: left;
   cursor: pointer;
 }
+.tmt-ui-menu-heading {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m) var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+.tmt-ui-menu-heading[data-separated] {
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-menu-icon {
+  display: flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+}
+.tmt-ui-menu-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+.tmt-ui-menu-label {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.tmt-ui-menu-item:has(.tmt-ui-menu-secondary) {
+  padding-block: 2px;
+  line-height: 16px;
+}
+.tmt-ui-menu-secondary {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 11px;
+  line-height: 12px;
+}
+.tmt-ui-menu-meta {
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+  color: var(--tmt-ui-color-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tmt-ui-menu-item[data-separated] {
   position: relative;
-  /* Preserve the separator's existing row footprint without bending its rule around the control. */
-  padding-top: calc(10px + var(--tmt-ui-rule-width));
 }
 .tmt-ui-menu-item[data-separated]::before {
   content: '';
