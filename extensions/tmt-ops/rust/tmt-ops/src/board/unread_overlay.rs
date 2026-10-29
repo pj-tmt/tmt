@@ -1,6 +1,7 @@
 //! The Unread overlay: the unread answers of a scope, grouped by agent, shown in full and
 //! acknowledged as they are painted. It owns no acknowledgment path: the blocks it paints in
-//! its viewport go through the same `unread.writer` the conversation feeds.
+//! its viewport go through the same `unread.writer` the conversation feeds. Terminal
+//! unavailable captions grant exact-revision evidence too; loading and failed reads do not.
 use super::{
     app::{App, Effect, Overlay as OverlayId},
     exchange_view,
@@ -31,6 +32,41 @@ pub(super) enum UnreadScope {
     Group(Vec<String>),
 }
 
+/// One bounded continuation on the existing selected lane, fenced by overlay session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) struct PageRead {
+    pub actor: String,
+    pub before: serde_json::Value,
+}
+
+impl PageRead {
+    pub fn read(&self, core: &crate::core::Core) -> Result<Page, String> {
+        let document = core
+            .api(
+                "requests.list",
+                serde_json::json!({
+                    "originatorId":self.actor,"view":"answers","limit":super::unread::ANSWERS_LIMIT,
+                    "before":self.before
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        let page = Page::read(&self.actor, &document)
+            .ok_or("Unread continuation returned malformed answer metadata")?;
+        if let Some(next) = &page.next_before {
+            let key = |cursor: &serde_json::Value| {
+                (
+                    cursor["answeredAtMs"].as_u64().unwrap_or(0),
+                    cursor["requestId"].as_str().unwrap_or("").to_owned(),
+                )
+            };
+            if key(next) >= key(&self.before) {
+                return Err("Unread continuation did not advance".into());
+            }
+        }
+        Ok(page)
+    }
+}
+
 /// A painted unread count that opens the overlay when pressed: the target it belongs to, or
 /// everyone for the header strip's count.
 #[derive(Debug)]
@@ -59,7 +95,7 @@ enum Text<'a> {
 struct Block {
     item: usize,
     rows: Range<usize>,
-    /// The rows of the answer text; empty while there is no text to read.
+    /// Read evidence: body rows or a terminal unavailable caption, never loading/failure.
     body: Range<usize>,
 }
 
@@ -76,6 +112,8 @@ struct Built {
 pub(in crate::board) struct Overlay {
     /// Which opening this is; a read started for an earlier one is dropped.
     session: u64,
+    /// Frozen originator for this opening; changing viewer cannot inherit its evidence.
+    actor: Option<String>,
     /// The members of the scope in the list's order.
     members: Vec<String>,
     /// Every answer shown since the overlay opened, kept after it is acknowledged so a read
@@ -101,12 +139,17 @@ pub(in crate::board) struct Overlay {
     top: Cell<Option<usize>>,
     /// Core holds back older unread answers than the page the board keeps.
     more: bool,
+    /// Only the open overlay advances older metadata; HOME refreshes still read the head.
+    before: Option<serde_json::Value>,
+    next_before: Option<serde_json::Value>,
+    page_failed: bool,
 }
 
 impl Overlay {
     pub fn new(session: u64, members: Vec<String>) -> Self {
         Self {
             session,
+            actor: None,
             members,
             items: BTreeMap::new(),
             order: Vec::new(),
@@ -120,6 +163,9 @@ impl Overlay {
             painted: RefCell::default(),
             top: Cell::new(None),
             more: false,
+            before: None,
+            next_before: None,
+            page_failed: false,
         }
     }
 
@@ -129,12 +175,39 @@ impl Overlay {
 
     /// Adds the scope's unread answers that the overlay has not shown yet.
     pub fn sync(&mut self, page: &Page) {
+        if self
+            .actor
+            .as_deref()
+            .is_some_and(|actor| actor != page.actor)
+        {
+            return;
+        }
+        self.actor = Some(page.actor.clone());
+        self.merge(page, self.before.is_none());
+    }
+
+    fn merge(&mut self, page: &Page, continuation: bool) {
         let opening = self.order.is_empty();
         let mut arrived = Vec::new();
+        let mut revised = false;
         for member in &self.members {
-            for answer in page.answers(member).filter(|answer| !answer.acknowledged) {
+            for answer in page.answers(member) {
                 let key = (member.clone(), answer.request.clone());
-                if !self.items.contains_key(&key) {
+                if let Some(held) = self.items.get_mut(&key) {
+                    if answer.revision > held.revision
+                        || (answer.revision == held.revision
+                            && held.kind.is_none()
+                            && answer.kind.is_some())
+                    {
+                        *held = answer.clone();
+                        revised = true;
+                        self.pages.remove(member);
+                        self.asked.remove(member);
+                        self.failed.remove(member);
+                    } else if answer.revision == held.revision && answer.acknowledged {
+                        held.acknowledged = true;
+                    }
+                } else if !answer.acknowledged {
                     self.items.insert(key.clone(), answer.clone());
                     arrived.push(key);
                 }
@@ -162,15 +235,86 @@ impl Overlay {
             }
         }
         self.order.extend(arrived);
-        let more = page.next_before.is_some();
-        if changed || self.more != more {
+        let more = if continuation {
+            self.next_before = page.next_before.clone();
+            self.next_before.is_some()
+        } else {
+            self.more
+        };
+        if changed || revised || self.more != more {
             self.more = more;
             self.bump();
         }
     }
 
+    /// The active overlay already owns these retained entries. Include older unread
+    /// metadata in displayed counts without counting the HOME head page twice.
+    pub fn additional_count(&self, page: &Page, member: &str) -> super::unread::Count {
+        if self.actor.as_deref() != Some(&page.actor) {
+            return super::unread::Count::default();
+        }
+        let total = self
+            .items
+            .values()
+            .filter(|answer| {
+                answer.member == member
+                    && !answer.acknowledged
+                    && page.answer(member, &answer.request).is_none()
+            })
+            .count();
+        super::unread::Count {
+            total,
+            more: total > 0 && self.more,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.items.is_empty() && !self.more
+    }
+
+    /// Metadata reads never grant acknowledgment. Each read yields to the lane, and a
+    /// failed read stays stopped until this overlay is reopened.
+    fn next_page(&self, actor: &str) -> Option<PageRead> {
+        if self.actor.as_deref() != Some(actor)
+            || self.page_failed
+            || self.items.values().any(|answer| !answer.acknowledged)
+        {
+            return None;
+        }
+        Some(PageRead {
+            actor: actor.into(),
+            before: self.next_before.clone()?,
+        })
+    }
+
+    fn page_arrived(
+        &mut self,
+        read: &PageRead,
+        result: Result<Page, String>,
+    ) -> Result<(), String> {
+        let page = match result {
+            Ok(page) => page,
+            Err(error) => {
+                self.page_failed = true;
+                return Err(error);
+            }
+        };
+        self.before = Some(read.before.clone());
+        self.merge(&page, true);
+        Ok(())
+    }
+
+    pub fn acknowledged(&mut self, completed: &super::unread::publish::Completed) {
+        for (sent, outcome) in &completed.items {
+            let key = (sent.member.clone(), sent.request.clone());
+            if let Some(answer) = self.items.get_mut(&key) {
+                let keep = answer.settle(sent, outcome);
+                if !keep {
+                    // Keep the already painted block but never offer it again.
+                    answer.acknowledged = true;
+                }
+            }
+        }
     }
 
     /// The members with something to show, in the list's order.
@@ -336,11 +480,14 @@ impl Overlay {
                 Text::Unavailable => lines.push(caption("○ reply text unavailable", look)),
             }
             let end = lines.len();
-            let has_text = matches!(self.text(actor, answer), Text::Found { .. });
+            let evidence = matches!(
+                self.text(actor, answer),
+                Text::Found { .. } | Text::Missing | Text::Unavailable
+            );
             blocks.push(Block {
                 item: index,
                 rows: start..end,
-                body: if has_text { body_start..end } else { 0..0 },
+                body: if evidence { body_start..end } else { 0..0 },
             });
         }
         if self.more && !lines.is_empty() {
@@ -365,6 +512,9 @@ impl Overlay {
         let Some(actor) = app.view.as_ref().and_then(|view| view.me_id.clone()) else {
             return;
         };
+        if self.actor.as_deref() != Some(&actor) {
+            return;
+        }
         let names = |member: &str| app.member_label(member);
         let mut modal = Modal {
             title: self.title(&names),
@@ -430,7 +580,10 @@ impl Overlay {
                     actor: actor.clone(),
                     member: answer.member.clone(),
                     request: answer.request.clone(),
-                    kind: answer.kind.unwrap_or(BodyKind::Final),
+                    kind: match answer.kind {
+                        Some(kind) => kind,
+                        None => continue,
+                    },
                     at_ms: Some(answer.answered_at_ms),
                     revision: Some(answer.revision),
                 });
@@ -690,8 +843,8 @@ impl App {
         Effect::None
     }
 
-    /// After a draw: the answers whose text the overlay painted in its viewport are read, as
-    /// the conversation's painted answers are. A block not scrolled into view stays unread.
+    /// After a successful draw: visible bodies and terminal unavailable captions admit
+    /// their exact revisions. Hidden blocks, loading and failed reads stay unread.
     pub(in crate::board) fn unread_overlay_drawn(&mut self) {
         self.unread_overlay_sync();
         if let Some(overlay) = &mut self.unread_overlay {
@@ -703,17 +856,19 @@ impl App {
         let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.clone()) else {
             return;
         };
-        let page = self.home_leads.unread(&actor);
         let next: Vec<Body> = overlay
             .painted()
             .into_iter()
-            .filter_map(|mut body| {
-                let answer = page?.answer(&body.member, &body.request)?;
-                if answer.acknowledged {
-                    return None;
-                }
-                body.revision = Some(answer.revision);
-                Some(body)
+            .filter(|body| {
+                body.actor == actor
+                    && overlay
+                        .items
+                        .get(&(body.member.clone(), body.request.clone()))
+                        .is_some_and(|answer| {
+                            !answer.acknowledged
+                                && Some(answer.revision) == body.revision
+                                && answer.kind == Some(body.kind)
+                        })
             })
             .collect();
         for seen in &next {
@@ -724,12 +879,47 @@ impl App {
         self.unread.displayed = next;
     }
 
+    pub(in crate::board) fn unread_overlay_page(&self) -> Option<(u64, PageRead)> {
+        let overlay = self.unread_overlay.as_ref()?;
+        let actor = self.view.as_ref()?.me_id.as_deref()?;
+        overlay.next_page(actor).map(|read| (overlay.session, read))
+    }
+
+    pub(in crate::board) fn unread_overlay_page_arrived(
+        &mut self,
+        session: u64,
+        read: &PageRead,
+        result: Result<Page, String>,
+    ) {
+        if self.view.as_ref().and_then(|view| view.me_id.as_deref()) != Some(&read.actor) {
+            return;
+        }
+        let Some(overlay) = self
+            .unread_overlay
+            .as_mut()
+            .filter(|overlay| overlay.session == session)
+        else {
+            return;
+        };
+        if overlay.next_page(&read.actor).as_ref() != Some(read) {
+            return;
+        }
+        if let Err(error) = overlay.page_arrived(read, result) {
+            self.say(format!(
+                "Older unread answers unavailable: {error} · reopen Unread to retry"
+            ));
+        }
+    }
+
     /// The overlay's own demand on the selected lane: the next member's answers to read.
     pub(in crate::board) fn unread_overlay_read(
         &self,
     ) -> Option<(u64, recent_responses::AnswerRead)> {
         let overlay = self.unread_overlay.as_ref()?;
         let actor = self.view.as_ref()?.me_id.clone()?;
+        if overlay.actor.as_deref() != Some(&actor) {
+            return None;
+        }
         let member = overlay.next_read()?;
         Some((
             overlay.session,

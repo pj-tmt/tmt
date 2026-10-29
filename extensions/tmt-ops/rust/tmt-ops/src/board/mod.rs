@@ -210,6 +210,13 @@ pub(in crate::board) enum BoardEvent {
         revision: u64,
         observation: recent_responses::Observation,
     },
+    UnreadPage {
+        cancellation: crate::runner::Cancellation,
+        session: u64,
+        read: unread_overlay::PageRead,
+        revision: u64,
+        result: Result<unread::Page, String>,
+    },
     UnreadBodies {
         cancellation: crate::runner::Cancellation,
         session: u64,
@@ -298,6 +305,7 @@ impl BoardEvent {
             Self::Message { .. } => "Message",
             Self::PaneOutput { .. } => "PaneOutput",
             Self::UnreadBodies { .. } => "UnreadBodies",
+            Self::UnreadPage { .. } => "UnreadPage",
             Self::PaneScreen { .. } => "PaneScreen",
             Self::TerminalLocated { .. } => "TerminalLocated",
             Self::Terminal { .. } => "Terminal",
@@ -1009,6 +1017,23 @@ fn session(
                                 == Some(refresh::SelectedRead::PaneOutput(read.clone()))
                         {
                             app.apply_answer_read(&read, observation);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::UnreadPage {
+                        cancellation,
+                        session,
+                        read,
+                        revision: read_revision,
+                        result,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::UnreadPage(session, read.clone()))
+                        {
+                            app.unread_overlay_page_arrived(session, &read, result);
                             dirty = true;
                         }
                         Effect::None

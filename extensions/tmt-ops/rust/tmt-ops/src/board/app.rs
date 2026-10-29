@@ -4893,6 +4893,9 @@ impl App {
             return None;
         }
         // An open Unread overlay covers the conversation: its answers are what is read.
+        if let Some((session, read)) = self.unread_overlay_page() {
+            return Some(super::refresh::SelectedRead::UnreadPage(session, read));
+        }
         if let Some((session, read)) = self.unread_overlay_read() {
             return Some(super::refresh::SelectedRead::UnreadBodies(session, read));
         }

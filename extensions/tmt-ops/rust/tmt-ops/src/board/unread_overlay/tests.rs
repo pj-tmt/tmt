@@ -64,6 +64,22 @@ fn replies(member: &str, items: &[(&str, &str)]) -> Observation {
     }))
 }
 
+/// A submitted reply and captured final whose metadata survives without their text.
+fn unavailable_answers(member: &str, reply: &str, turn: &str) -> Observation {
+    let document = json!({"identityId":member,"entries":[
+        {"entryId":"reply-entry","kind":"reply","requestId":reply,
+         "availability":"unavailable","acknowledgements":[],"acknowledgementsTruncated":false},
+        {"entryId":"turn-entry","kind":"final","responseId":"rsp_unavailable",
+         "availability":"unavailable","acknowledgements":[
+             {"identityId":ACTOR,"requestId":turn,"revision":1}],
+         "acknowledgementsTruncated":false}
+    ],"responses":[],"coverage":{"olderDropped":false},"capture":{"enabled":true}});
+    Observation::Observed(Arc::new(Answers {
+        timeline: Some(timeline::parse(member, &document).unwrap()),
+        ..Default::default()
+    }))
+}
+
 fn draw(app: &App, height: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(160, height)).unwrap();
     terminal
@@ -110,6 +126,8 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "unread-overlay-agent",
     "unread-overlay-loading",
     "unread-overlay-failed",
+    "unread-overlay-unavailable",
+    "unread-overlay-older",
 ];
 
 /// An opened overlay: two agents' unread answers, the way `scene` names.
@@ -124,7 +142,16 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         &mut app,
         &[
             (MEMBER, "w-old", now - 2_000_000, "final"),
-            (MEMBER, "w-new", now - 600_000, "final"),
+            (
+                MEMBER,
+                "w-new",
+                now - 600_000,
+                if scene == "unread-overlay-unavailable" {
+                    "turn"
+                } else {
+                    "final"
+                },
+            ),
             (OTHER, "c-one", now - 900_000, "final"),
         ],
     );
@@ -143,6 +170,41 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     );
     let core = replies(OTHER, &[("c-one", "The migration is in.")]);
     match scene {
+        "unread-overlay-unavailable" => {
+            arrive(
+                &mut app,
+                MEMBER,
+                unavailable_answers(MEMBER, "w-old", "w-new"),
+            );
+            arrive(&mut app, OTHER, replies(OTHER, &[]));
+        }
+        "unread-overlay-older" => {
+            // Settle the shown page, then deliver the real continuation event shape.
+            let items = app
+                .unread_overlay
+                .as_ref()
+                .unwrap()
+                .items
+                .values()
+                .cloned()
+                .map(|answer| (answer, crate::board::unread::publish::Outcome::Acknowledged))
+                .collect();
+            app.finished_unread(Ok(crate::board::unread::publish::Completed {
+                actor: ACTOR.into(),
+                items,
+            }));
+            let cursor = json!({"answeredAtMs":now-2_000_000,"requestId":"w-old"});
+            app.unread_overlay.as_mut().unwrap().next_before = Some(cursor);
+            let (session, read) = app.unread_overlay_page().unwrap();
+            let older = Page::read(
+                ACTOR,
+                &answers(&[(MEMBER, "older-answer", now - 3_000_000, "final")]),
+            )
+            .unwrap();
+            app.unread_overlay_page_arrived(session, &read, Ok(older));
+            arrive(&mut app, MEMBER, replies(MEMBER, &[]));
+            arrive(&mut app, OTHER, core);
+        }
         "unread-overlay-loading" => {}
         "unread-overlay-failed" => {
             arrive(&mut app, MEMBER, worker);
@@ -728,4 +790,308 @@ fn unread_overlay_frame_timing() {
                 .collect(),
         );
     });
+}
+
+#[test]
+fn painted_unavailable_captions_admit_every_visible_answer_without_a_body() {
+    crate::status::with_now_ms(10_000_000, || {
+        let mut app = app_with_two_members();
+        install(
+            &mut app,
+            &[
+                (MEMBER, "missing", 8_000_000, "final"),
+                (MEMBER, "unavailable-reply", 8_000_001, "final"),
+                (MEMBER, "unavailable-turn", 8_000_002, "turn"),
+            ],
+        );
+        app.open_unread(&UnreadScope::Member(MEMBER.into()));
+        arrive(
+            &mut app,
+            MEMBER,
+            unavailable_answers(MEMBER, "unavailable-reply", "unavailable-turn"),
+        );
+        let screen = draw(&app, 40);
+        assert!(screen.contains("answer not loaded"), "{screen}");
+        assert_eq!(
+            screen.matches("reply text unavailable").count(),
+            2,
+            "{screen}"
+        );
+        assert!(
+            app.unread.writer.offer().is_none(),
+            "paint alone does not write"
+        );
+        app.unread_drawn();
+        let requests: Vec<_> = app
+            .unread
+            .displayed
+            .iter()
+            .map(|answer| answer.request.as_str())
+            .collect();
+        assert_eq!(
+            requests,
+            ["missing", "unavailable-reply", "unavailable-turn"],
+            "every painted unavailable caption admits its exact answer, not only the top one"
+        );
+        assert!(app.unread.writer.offer().is_some());
+        assert_eq!(
+            app.unread_count(MEMBER).total,
+            3,
+            "Core has not acknowledged them yet"
+        );
+    });
+}
+
+#[test]
+fn loading_and_failed_captions_never_admit_unread_answers() {
+    for failed in [false, true] {
+        let mut app = app_with_two_members();
+        install(&mut app, &[(MEMBER, "waiting", 8_000_000, "final")]);
+        app.open_unread(&UnreadScope::Member(MEMBER.into()));
+        if failed {
+            arrive(&mut app, MEMBER, Observation::Unavailable);
+        }
+        let screen = draw(&app, 40);
+        assert!(
+            screen.contains(if failed {
+                "Answers unavailable"
+            } else {
+                "Loading answers"
+            }),
+            "{screen}"
+        );
+        app.unread_drawn();
+        assert!(app.unread.displayed.is_empty());
+        assert!(app.unread.writer.offer().is_none());
+        assert_eq!(app.unread_count(MEMBER).total, 1);
+    }
+}
+
+#[test]
+fn clearing_a_fifty_answer_page_demands_the_older_metadata_without_acknowledging_it() {
+    let mut app = app_with_two_members();
+    let requests: Vec<_> = (0..50).map(|n| format!("answer-{n:02}")).collect();
+    let items: Vec<_> = requests
+        .iter()
+        .enumerate()
+        .map(|(n, request)| (MEMBER, request.as_str(), 8_000_000 + n as u64, "final"))
+        .collect();
+    let mut page = answers(&items);
+    page["nextBefore"] = json!({"answeredAtMs":8_000_000,"requestId":"answer-00"});
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page.clone());
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(&mut app, MEMBER, replies(MEMBER, &[]));
+    for item in page["items"].as_array_mut().unwrap() {
+        item["acknowledged"] = json!(true);
+    }
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page);
+    app.unread_overlay_sync();
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+    assert!(
+        app.selected_read().is_some(),
+        "a cleared 50-answer page must demand the remaining ten of a 60-answer history"
+    );
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "demanding older metadata never acknowledges answers that were not shown"
+    );
+}
+
+#[test]
+fn sixty_unavailable_answers_clear_in_bounded_pages_only_after_their_captions_are_shown() {
+    use crate::board::refresh::SelectedRead;
+    use crate::board::unread::test_support::Fixture;
+    use std::{collections::BTreeSet, fs};
+    let fixture = Fixture::new();
+    let requests: Vec<_> = (1..=60).rev().map(|n| format!("answer-{n:02}")).collect();
+    let rows: Vec<_> = requests
+        .iter()
+        .enumerate()
+        .map(|(n, request)| (MEMBER, request.as_str(), 1000 - n as u64, "final"))
+        .collect();
+    let mut first = answers(&rows[..50]);
+    let before = json!({"answeredAtMs":951,"requestId":"answer-11"});
+    first["nextBefore"] = before.clone();
+    let older = answers(&rows[50..]);
+    fs::write(
+        fixture.0.join("pages.json"),
+        json!({"":first,"answer-11":older}).to_string(),
+    )
+    .unwrap();
+    let mut app = app_with_two_members();
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), first);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(&mut app, MEMBER, replies(MEMBER, &[]));
+    let mut shown = BTreeSet::new();
+    let mut continuations = 0;
+    for _ in 0..200 {
+        draw(&app, 20);
+        app.unread_drawn();
+        shown.extend(app.unread.displayed.iter().map(|body| body.request.clone()));
+        if let Some(writer) = app.unread.writer.offer() {
+            let completed = writer.publish(&fixture.core()).unwrap();
+            assert!(
+                completed
+                    .items
+                    .iter()
+                    .all(|(answer, _)| shown.contains(&answer.request)),
+                "an acknowledgment must have a painted caption"
+            );
+            assert!(completed.items.len() <= 50);
+            app.finished_unread(Ok(completed));
+        }
+        match app.selected_read() {
+            Some(SelectedRead::UnreadPage(session, read)) => {
+                continuations += 1;
+                assert_eq!(read.before, before);
+                let acked: Value = serde_json::from_str(
+                    &fs::read_to_string(fixture.0.join("acknowledged.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    acked.as_object().unwrap().len(),
+                    50,
+                    "older metadata waits until the page clears"
+                );
+                let result = read.read(&fixture.core());
+                app.unread_overlay_page_arrived(session, &read, result);
+                assert_eq!(
+                    app.unread_count(MEMBER).total,
+                    10,
+                    "the newly known older unread entries appear in the count"
+                );
+                let acked: Value = serde_json::from_str(
+                    &fs::read_to_string(fixture.0.join("acknowledged.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    acked.as_object().unwrap().len(),
+                    50,
+                    "reading metadata alone never acknowledges"
+                );
+            }
+            Some(SelectedRead::UnreadBodies(_, _)) => {
+                arrive(&mut app, MEMBER, replies(MEMBER, &[]))
+            }
+            _ => {}
+        }
+        if shown.len() == 60
+            && app
+                .unread_overlay
+                .as_ref()
+                .unwrap()
+                .items
+                .values()
+                .all(|answer| answer.acknowledged)
+        {
+            break;
+        }
+        press(&mut app, KeyCode::PageDown);
+    }
+    let acked: Value =
+        serde_json::from_str(&fs::read_to_string(fixture.0.join("acknowledged.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        acked.as_object().unwrap().len(),
+        60,
+        "both pages must settle through requests.ack"
+    );
+    assert_eq!(shown.len(), 60);
+    assert_eq!(continuations, 1);
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+    assert!(app.unread_overlay_page().is_none());
+    let calls = fs::read_to_string(fixture.0.join("calls")).unwrap();
+    assert!(!calls.contains("requests.show"));
+}
+
+#[test]
+fn an_unavailable_caption_below_the_viewport_and_a_stale_revision_are_not_admitted() {
+    let mut app = app_with_two_members();
+    install(
+        &mut app,
+        &[
+            (MEMBER, "long", 8_000_000, "final"),
+            (MEMBER, "hidden", 9_000_000, "final"),
+        ],
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("long", &"paragraph\n\n".repeat(100))]),
+    );
+    let screen = draw(&app, 20);
+    assert!(!screen.contains("answer not loaded"));
+    app.unread_drawn();
+    assert_eq!(
+        app.unread
+            .displayed
+            .iter()
+            .map(|body| body.request.as_str())
+            .collect::<Vec<_>>(),
+        ["long"]
+    );
+    // A new revision published after paint cannot inherit the old body's evidence.
+    let mut page = answers(&[
+        (MEMBER, "long", 8_000_000, "final"),
+        (MEMBER, "hidden", 9_000_000, "final"),
+    ]);
+    page["items"][0]["revision"] = json!(2);
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page);
+    app.unread_drawn();
+    assert!(app.unread.displayed.is_empty());
+    let screen = draw(&app, 20);
+    assert!(screen.contains("Loading answers"), "{screen}");
+}
+
+#[test]
+fn a_failed_continuation_waits_for_reopening_and_a_closed_session_drops_late_pages() {
+    let mut app = app_with_two_members();
+    let mut page = answers(&[(MEMBER, "cleared", 8_000_000, "final")]);
+    page["nextBefore"] = json!({"answeredAtMs":8_000_000,"requestId":"cleared"});
+    page["items"][0]["acknowledged"] = json!(true);
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let (session, read) = app
+        .unread_overlay_page()
+        .expect("even a cleared head page can continue");
+    app.unread_overlay_page_arrived(session, &read, Err("fixture read failed".into()));
+    assert!(app.unread_overlay_page().is_none(), "failure must not spin");
+    assert!(
+        app.notice
+            .as_deref()
+            .unwrap()
+            .contains("reopen Unread to retry")
+    );
+    press(&mut app, KeyCode::Esc);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let (new_session, _) = app.unread_overlay_page().unwrap();
+    assert_ne!(session, new_session);
+    let older = Page::read(ACTOR, &answers(&[(MEMBER, "late", 7_000_000, "final")])).unwrap();
+    app.unread_overlay_page_arrived(session, &read, Ok(older));
+    assert!(
+        app.unread_overlay.as_ref().unwrap().items.is_empty(),
+        "the old session cannot append"
+    );
+    assert!(app.unread.writer.offer().is_none());
+}
+
+#[test]
+fn a_new_actor_never_inherits_an_open_overlays_caption_or_cursor() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "old-actor", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(&mut app, MEMBER, replies(MEMBER, &[]));
+    draw(&app, 40);
+    app.view.as_mut().unwrap().me_id = Some(OTHER.into());
+    app.unread_drawn();
+    assert!(app.unread.displayed.is_empty());
+    assert!(app.unread.writer.offer().is_none());
+    assert!(app.unread_overlay_page().is_none());
+    assert!(app.unread_overlay_read().is_none());
 }

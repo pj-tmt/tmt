@@ -40,6 +40,25 @@ pub(super) struct Answer {
     pub acknowledged: bool,
 }
 
+impl Answer {
+    /// Returns false only for a notFound result at this exact revision.
+    pub fn settle(&mut self, sent: &Self, outcome: &publish::Outcome) -> bool {
+        match outcome {
+            publish::Outcome::Acknowledged if self.revision == sent.revision => {
+                self.acknowledged = true;
+            }
+            publish::Outcome::Conflict(current) if self.revision < *current => {
+                self.revision = *current;
+                self.acknowledged = false;
+                self.kind = None;
+            }
+            publish::Outcome::NotFound if self.revision == sent.revision => return false,
+            _ => {}
+        }
+        true
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Page {
     pub actor: String,
@@ -122,31 +141,9 @@ impl Page {
             let Some(answers) = self.replies.get_mut(&sent.member) else {
                 continue;
             };
-            if matches!(outcome, publish::Outcome::NotFound) {
-                answers.retain(|answer| {
-                    answer.request != sent.request || answer.revision != sent.revision
-                });
-                continue;
-            }
-            let Some(answer) = answers
-                .iter_mut()
-                .find(|answer| answer.request == sent.request)
-            else {
-                continue;
-            };
-            match outcome {
-                publish::Outcome::Acknowledged if answer.revision == sent.revision => {
-                    answer.acknowledged = true
-                }
-                publish::Outcome::Conflict(current) if answer.revision < *current => {
-                    answer.revision = *current;
-                    answer.acknowledged = false;
-                    // No source observation for this newer revision has been acquired yet.
-                    answer.kind = None;
-                }
-                publish::Outcome::Acknowledged | publish::Outcome::Conflict(_) => {}
-                publish::Outcome::NotFound => unreachable!(),
-            }
+            answers.retain_mut(|answer| {
+                answer.request != sent.request || answer.settle(sent, outcome)
+            });
         }
     }
 
@@ -196,7 +193,7 @@ fn nonempty(value: &Value) -> Option<&str> {
 }
 
 #[cfg(test)]
-mod test_support;
+pub(super) mod test_support;
 #[cfg(test)]
 mod tests;
 

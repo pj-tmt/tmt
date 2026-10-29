@@ -35,7 +35,7 @@ impl App {
 
     pub(in crate::board) fn unread_count(&self, member: &str) -> Count {
         self.unread_page()
-            .map_or_else(Count::default, |page| page.count(member))
+            .map_or_else(Count::default, |page| self.unread_member(page, member))
     }
     pub(in crate::board) fn unread_target(&self, target: &OpsTarget) -> Count {
         // Admit the bounded page before constructing a roster iterator: the
@@ -45,7 +45,7 @@ impl App {
         };
         match target {
             OpsTarget::DigestAll => Count::default(),
-            OpsTarget::Member { identity_id, .. } => page.count(identity_id),
+            OpsTarget::Member { identity_id, .. } => self.unread_member(page, identity_id),
             OpsTarget::Squad(room) => {
                 let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
                     snapshot
@@ -68,11 +68,18 @@ impl App {
                 }),
         }
     }
+    fn unread_member(&self, page: &Page, member: &str) -> Count {
+        let mut count = page.count(member);
+        if let Some(overlay) = &self.unread_overlay {
+            count.add(overlay.additional_count(page, member));
+        }
+        count
+    }
     fn unread_members<'a>(&self, page: &Page, members: impl Iterator<Item = &'a str>) -> Count {
         let mut count = Count::default();
         let mut seen = std::collections::BTreeSet::new();
         for member in members.filter(|member| seen.insert(*member)) {
-            count.add(page.count(member));
+            count.add(self.unread_member(page, member));
         }
         count
     }
@@ -176,6 +183,13 @@ impl App {
     ) {
         if let Ok(completed) = &result {
             self.home_leads.acknowledged(completed);
+            if let Some(overlay) = &mut self.unread_overlay {
+                if self.view.as_ref().and_then(|view| view.me_id.as_deref())
+                    == Some(&completed.actor)
+                {
+                    overlay.acknowledged(completed);
+                }
+            }
         }
         self.unread_observed();
         self.overview_rows.borrow_mut().clear();
