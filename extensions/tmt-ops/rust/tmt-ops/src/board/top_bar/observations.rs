@@ -3,7 +3,7 @@ use crate::{
     board::{
         home::limits::percent,
         inventory::ContextUsage,
-        limits::{Outlook, QuotaWindow, Standing},
+        limits::{QuotaWindow, Standing},
     },
     look::Look,
 };
@@ -27,23 +27,28 @@ impl Observations<'_> {
     ) -> Line<'static> {
         let mut spans = Vec::new();
         for standing in self.limits {
-            let Outlook::Known(figures) = standing.outlook(self.now) else {
+            if let Some(notice) = standing.notice() {
+                spans.push(Span::styled(
+                    format!("  {} {notice}", standing.provider.label()),
+                    look.role(Role::Muted),
+                ));
                 continue;
-            };
-            if figures.short.is_none() && !weekly {
+            }
+            let short = standing.window(QuotaWindow::Short, self.now);
+            let weekly = weekly
+                .then(|| standing.window(QuotaWindow::Weekly, self.now))
+                .flatten();
+            if short.is_none() && weekly.is_none() {
                 continue;
             }
             spans.push(Span::styled(
                 format!("  {}", standing.provider.label()),
                 look.role(Role::Muted),
             ));
-            for (kind, value) in [
-                (QuotaWindow::Short, figures.short),
-                (QuotaWindow::Weekly, weekly.then_some(figures.weekly)),
-            ] {
+            for (kind, value) in [(QuotaWindow::Short, short), (QuotaWindow::Weekly, weekly)] {
                 if let Some(value) = value {
                     let label = kind.key();
-                    let join = if kind == QuotaWindow::Weekly && figures.short.is_some() {
+                    let join = if kind == QuotaWindow::Weekly && short.is_some() {
                         " ·"
                     } else {
                         ""
@@ -52,7 +57,7 @@ impl Observations<'_> {
                         format!("{join} {label} "),
                         look.role(Role::Muted),
                     ));
-                    spans.push(Span::styled(percent(value.percent), look.role(Role::Text)));
+                    spans.push(Span::styled(percent(value.left), look.role(Role::Text)));
                 }
             }
         }
@@ -97,6 +102,7 @@ mod tests {
     fn only_live_windows_paint_and_weekly_parts_yield_together() {
         let now = 10_000_000;
         let limit = Standing {
+            current: None,
             rates: Default::default(),
             provider: Provider::named("claude"),
             latest: Some(Reading {
@@ -169,6 +175,47 @@ mod tests {
                     .line(true, false, None, look)
                     .to_string()
                     .contains(" / ")
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+    use crate::board::limits::{Current, Provider, Standing, observation::Report};
+    use serde_json::json;
+    #[test]
+    fn account_short_only_waiting_and_stale_stay_visible_without_invented_weekly_values() {
+        let report=Report::read(&json!({"observedAtMs":1000,"windows":[{"windowMinutes":300,"usedPercent":8.0,"resetsAtMs":10000}]})).unwrap();
+        let mut row = Standing {
+            current: Some(Current::Reported(report)),
+            provider: Provider::named("claude"),
+            latest: None,
+            burn: None,
+            trend: None,
+            rates: Default::default(),
+        };
+        let line = |row: &Standing| {
+            Observations {
+                limits: std::slice::from_ref(row),
+                context: None,
+                now: 2000,
+            }
+            .line(true, true, None, Look::default())
+            .to_string()
+        };
+        assert_eq!(line(&row), "  Claude 5h 92%");
+        for (state, word) in [
+            (Current::Waiting, "◌ Waiting"),
+            (Current::Expired, "◆ Stale"),
+        ] {
+            row.current = Some(state);
+            let text = line(&row);
+            assert!(text.contains(word), "{text}");
+            assert!(
+                !text.contains('%') && !text.contains("ago"),
+                "no balance or fabricated source age: {text}"
             );
         }
     }

@@ -1,11 +1,9 @@
-//! Provider usage limits for the HOME header. An account reports a weekly
-//! window and sometimes a short one; the board keeps a bounded history of those
-//! readings and estimates the burn rate from it. Sampling is the refresh
-//! worker's job and runs only while the board is open: a reading is only as
-//! recent as its source, and the header says how old it is. This module takes
-//! the clock and the pane capture as parameters; painting lives with the HOME
-//! header. Providers are whatever drivers the listing names; nothing here
-//! spells a driver.
+//! Provider quota evidence for the HOME header. The existing refresh worker
+//! acquires public account limits and, where unavailable on an older Core,
+//! session and statusline readings. Current account states override retained
+//! history for their keys. The bounded weekly history supplies rates, never a
+//! missing account balance; painters derive clock-dependent labels from held data.
+mod accounts;
 mod allowance;
 mod estimate;
 mod footer;
@@ -15,6 +13,7 @@ pub(in crate::board) mod observation;
 pub(in crate::board) mod pace;
 mod store;
 
+pub(in crate::board) use accounts::{Accounts, Current};
 pub use allowance::{Outcome, Rates, Row, Spent, rows};
 pub use estimate::{Figures, Left, Outlook, Trend, outlook};
 use serde_json::Value;
@@ -279,6 +278,8 @@ pub const CAPTURE_LINES: &str = "12";
 #[derive(Debug, Clone, PartialEq)]
 pub struct Standing {
     pub provider: Provider,
+    /// The current account source overrides retained or per-session evidence when present.
+    pub(in crate::board) current: Option<Current>,
     pub latest: Option<Reading>,
     pub burn: Option<f64>,
     pub trend: Option<Trend>,
@@ -288,7 +289,53 @@ pub struct Standing {
 
 impl Standing {
     pub(super) fn outlook(&self, now_ms: u64) -> Outlook {
+        if let Some(Current::Reported(report)) = &self.current {
+            if report.observed_at_ms > now_ms {
+                return Outlook::Unknown { age_ms: None };
+            }
+            if self.latest.is_none() {
+                return Outlook::Unknown {
+                    age_ms: Some(now_ms - report.observed_at_ms),
+                };
+            }
+        }
         outlook(self.latest.as_ref(), self.burn, self.trend, now_ms)
+    }
+
+    pub(in crate::board) fn window(&self, kind: QuotaWindow, now: u64) -> Option<Window> {
+        if let Some(current) = &self.current {
+            let Current::Reported(report) = current else {
+                return None;
+            };
+            let point = report.window(kind)?;
+            return (point.observed_at_ms <= now
+                && now - point.observed_at_ms <= 2 * 3_600_000
+                && point.resets_at_ms > now)
+                .then(|| point.balance());
+        }
+        let Outlook::Known(figures) = self.outlook(now) else {
+            return None;
+        };
+        let left = match kind {
+            QuotaWindow::Weekly => Some(figures.weekly),
+            QuotaWindow::Short => figures.short,
+        }?;
+        Some(Window {
+            left: left.percent,
+            resets_at_ms: now.saturating_add(left.resets_in_ms),
+        })
+    }
+
+    pub(in crate::board) fn notice(&self) -> Option<&'static str> {
+        self.current.as_ref().and_then(Current::notice)
+    }
+
+    pub(in crate::board) fn observed_at_ms(&self) -> Option<u64> {
+        match &self.current {
+            Some(Current::Reported(report)) => Some(report.observed_at_ms),
+            Some(_) => None,
+            None => self.latest.map(|reading| reading.observed_at_ms),
+        }
     }
 }
 
@@ -315,6 +362,7 @@ pub struct Sampler {
     directory: Option<std::path::PathBuf>,
     store: Option<Store>,
     footers: BTreeMap<Provider, FooterRead>,
+    account_reader: accounts::Reader,
 }
 
 /// The last time a provider's panes were read for their footer.
@@ -330,6 +378,7 @@ impl Sampler {
             directory,
             store: None,
             footers: BTreeMap::new(),
+            account_reader: Default::default(),
         }
     }
 
@@ -344,18 +393,48 @@ impl Sampler {
         now: Instant,
         capture: &mut dyn FnMut(&str) -> Option<String>,
     ) -> Snapshot {
+        self.sample_accounts(listed, None, now_ms, now, capture)
+    }
+
+    pub(super) fn account_read(
+        &mut self,
+        core: &crate::core::Core,
+    ) -> Result<Option<Accounts>, ()> {
+        self.account_reader.read(core)
+    }
+
+    pub(super) fn sample_accounts(
+        &mut self,
+        listed: &Value,
+        accounts: Option<&Accounts>,
+        now_ms: u64,
+        now: Instant,
+        capture: &mut dyn FnMut(&str) -> Option<String>,
+    ) -> Snapshot {
         let directory = &self.directory;
         let store = self
             .store
             .get_or_insert_with(|| Store::load(directory.clone()));
-        let reported = listing::reported(listed);
+        let mut reported = listing::reported(listed);
+        if let Some(accounts) = accounts {
+            for (provider, current) in &accounts.0 {
+                reported.remove(provider);
+                if let Some(reading) = current.reading() {
+                    reported.insert(provider.clone(), reading);
+                }
+            }
+        }
         for (provider, reading) in &reported {
             store.record(provider, *reading);
         }
         for (provider, candidates) in listing::footer_candidates(listed) {
             // A driver whose sessions name an account reports its limits; a footer is for the
             // ones that do not.
-            if !reported.keys().any(|known| known.id() == provider.id()) {
+            if !reported.keys().any(|known| known.id() == provider.id())
+                && !accounts.is_some_and(|accounts| {
+                    accounts.0.keys().any(|known| known.id() == provider.id())
+                })
+            {
                 read_footer(
                     store,
                     &mut self.footers,
@@ -367,7 +446,11 @@ impl Sampler {
             }
         }
         store.save_if_due(now_ms);
-        let providers = listing::providers(&listing::present(listed), store.providers());
+        let mut present = listing::present(listed);
+        if let Some(accounts) = accounts {
+            present.extend(accounts.0.keys().cloned());
+        }
+        let providers = listing::providers(&present, store.providers());
         // The newest label of each account: the kept one, then what the listing reported now.
         let mut labels: BTreeMap<Provider, String> = BTreeMap::new();
         for provider in store.providers().chain(reported.keys().cloned()) {
@@ -375,10 +458,17 @@ impl Sampler {
                 labels.insert(provider.clone(), label.to_owned());
             }
         }
+        if let Some(accounts) = accounts {
+            for provider in accounts.0.keys() {
+                if let Some(label) = provider.account_label() {
+                    labels.insert(provider.clone(), label.to_owned());
+                }
+            }
+        }
         // An account is named only where a driver has more than one, so a single account (or
         // none) reads exactly like the plain driver. Then the plain driver, whose sessions name
         // no account, reads as the unknown one rather than as the total.
-        let accounts = |driver: &str| {
+        let account_count = |driver: &str| {
             providers
                 .iter()
                 .filter(|other| other.id() == driver && other.account_key().is_some())
@@ -387,7 +477,7 @@ impl Sampler {
         let named: Vec<Provider> = providers
             .iter()
             .map(|provider| {
-                let several = accounts(provider.id()) > 1;
+                let several = account_count(provider.id()) > 1;
                 let provider = match labels.get(provider) {
                     Some(label) => provider.clone().labelled(label),
                     None => provider.clone(),
@@ -402,14 +492,29 @@ impl Sampler {
             .map(|provider| {
                 // A driver with one account folds the readings it kept before accounts were named
                 // into that account, so its pace survives the upgrade.
-                let history = if provider.account_key().is_some() && accounts(provider.id()) == 1 {
+                let current = accounts
+                    .and_then(|accounts| accounts.0.get(&provider))
+                    .cloned();
+                let mut history = if current.is_none()
+                    && provider.account_key().is_some()
+                    && account_count(provider.id()) == 1
+                {
                     folded(store.history(&provider.plain()), store.history(&provider))
                 } else {
                     store.history(&provider).to_vec()
                 };
+                if let Some(current) = &current {
+                    if let Some(reading) = current.reading() {
+                        history.retain(|kept| kept.observed_at_ms < reading.observed_at_ms);
+                        history.push(reading);
+                    } else {
+                        history.clear();
+                    }
+                }
                 let history = history.as_slice();
                 let (burn, trend) = estimate::pace(history);
                 Standing {
+                    current,
                     latest: history.last().copied(),
                     burn,
                     trend,

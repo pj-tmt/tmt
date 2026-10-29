@@ -16,6 +16,7 @@ use tmt_cli_style::Role;
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::board) struct Projection {
     pub balance: Option<Window>,
+    pub notice: Option<&'static str>,
     pub pace: Pace,
 }
 
@@ -57,6 +58,37 @@ pub(in crate::board) fn projection(
         })
         .map(|(_, report)| report)
         .collect();
+    let standing = app.limits.as_deref().and_then(|items| {
+        items.iter().find(|s| match account {
+            Some(key) => s.provider.id() == driver && s.provider.account_key() == Some(key),
+            None if several => s.provider.id() == driver && s.provider.account_key().is_none(),
+            None => s.provider.id() == driver,
+        })
+    });
+    if let Some(standing) = standing.filter(|standing| standing.current.is_some()) {
+        let balance = standing.window(kind, now);
+        let pace = match standing.current.as_ref() {
+            Some(crate::board::limits::Current::Reported(current)) => {
+                let mut admitted: Vec<_> = reports
+                    .iter()
+                    .copied()
+                    .filter(|report| {
+                        report.observed_at_ms < current.observed_at_ms
+                            && report.account.as_ref().map(|account| account.key.as_str())
+                                == standing.provider.account_key()
+                    })
+                    .collect();
+                admitted.push(current);
+                pace::project(admitted, kind, now)
+            }
+            _ => Pace::default(),
+        };
+        return Projection {
+            balance,
+            pace,
+            notice: standing.notice(),
+        };
+    }
     let pace = pace::project(reports.iter().copied(), kind, now);
     let balance = if reports.is_empty() {
         app.limits
@@ -84,7 +116,11 @@ pub(in crate::board) fn projection(
     } else {
         pace.latest.map(|point| point.balance())
     };
-    Projection { balance, pace }
+    Projection {
+        balance,
+        pace,
+        notice: None,
+    }
 }
 
 pub(in crate::board) fn usage_row(
@@ -95,10 +131,17 @@ pub(in crate::board) fn usage_row(
 ) -> Line<'static> {
     let Some(balance) = value.balance else {
         return Line::styled(
-            if width >= 18 {
-                "—  no limit source"
-            } else {
-                "—"
+            match value.notice {
+                Some(text) if text.chars().count() <= usize::from(width) => text,
+                Some(text)
+                    if text.split(" · ").next().unwrap_or(text).chars().count()
+                        <= usize::from(width) =>
+                {
+                    text.split(" · ").next().unwrap_or(text)
+                }
+                Some(_) => "—",
+                None if width >= 18 => "—  no limit source",
+                None => "—",
             },
             look.role(Role::Dim),
         );
@@ -223,6 +266,7 @@ mod tests {
     fn value(left: f64, rate: Option<f64>, early: Option<u64>) -> Projection {
         let reset = NOW + 6 * 86_400_000;
         Projection {
+            notice: None,
             balance: Some(Window {
                 left,
                 resets_at_ms: reset,
@@ -378,5 +422,41 @@ mod tests {
                 usage_clock_mark(&app, NOW + 7_200_001, 49)
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+    use crate::board::limits::{
+        Current, Provider, Standing,
+        observation::{Account, Report},
+    };
+    use serde_json::json;
+    #[test]
+    fn null_account_states_suppress_balance_and_rate_in_the_shared_usage_row() {
+        let mut app = crate::board::app::workspace::tests::board();
+        let report=Report::read(&json!({"observedAtMs":1000,"account":{"key":"0123456789ab","label":"work"},"windows":[{"windowMinutes":300,"usedPercent":8.0,"resetsAtMs":10000}]})).unwrap();
+        let provider = Provider::named("claude")
+            .with_account(&Account::read(&json!({"key":"0123456789ab","label":"work"})).unwrap());
+        app.limits = Some(vec![Standing {
+            current: Some(Current::Reported(report)),
+            provider,
+            latest: None,
+            burn: None,
+            trend: None,
+            rates: Default::default(),
+        }]);
+        let value = projection(&app, "claude", QuotaWindow::Short, 2000);
+        assert_eq!(value.balance.unwrap().left, 92.0);
+        for (state, word) in [(Current::Waiting, "Waiting"), (Current::Expired, "Stale")] {
+            app.limits.as_mut().unwrap()[0].current = Some(state);
+            let value = projection(&app, "claude", QuotaWindow::Short, 2000);
+            assert!(value.balance.is_none());
+            assert_eq!(value.pace, Pace::default());
+            let text = usage_row(value, 2000, 80, Look::default()).to_string();
+            assert!(text.contains(word), "{text}");
+            assert!(!text.contains('%'));
+        }
     }
 }

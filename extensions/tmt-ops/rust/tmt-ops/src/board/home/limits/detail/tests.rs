@@ -14,6 +14,7 @@ fn at(zone: &str) -> jiff::tz::TimeZone {
 
 fn held(zone: &str, observed_ago: u64) -> Vec<String> {
     let standings = vec![Standing {
+        current: None,
         rates: Default::default(),
         provider: Provider::named("claude"),
         latest: Some(Reading {
@@ -106,4 +107,21 @@ fn a_width_below_one_time_still_loses_none_of_it() {
     let line = observed("UTC", 3 * DAY);
     let wrapped = crate::board::notes::wrap(&line, 8).concat();
     assert_eq!(wrapped.replace(' ', ""), line.replace(' ', ""));
+}
+
+#[test]
+fn an_account_wide_null_state_is_explained_once_in_agents_details() {
+    let mut app = crate::board::app::workspace::tests::board();
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
+    app.limits = Some(vec![Standing {
+        provider: Provider::named("claude"),
+        current: Some(crate::board::limits::Current::Waiting),
+        latest: None,
+        burn: None,
+        trend: None,
+        rates: Default::default(),
+    }]);
+    let output = lines(&app, NOW).join("\n");
+    assert_eq!(output.matches("◌ Waiting").count(), 1, "{output}");
+    assert!(!output.contains("7d: ◌ Waiting") && !output.contains("5h: ◌ Waiting"));
 }

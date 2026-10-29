@@ -20,6 +20,7 @@ fn standing(
     rates: Rates,
 ) -> Standing {
     Standing {
+        current: None,
         provider: Provider::named(provider),
         latest: Some(Reading {
             observed_at_ms: NOW - observed_ago_ms,
@@ -156,6 +157,7 @@ fn only_a_window_that_runs_out_takes_the_attention_colour() {
 fn a_stale_reading_is_not_quoted_and_an_unsampled_provider_has_no_row() {
     let stale = standing("muse", 81.0, 100, 3 * HOUR, Rates::default());
     let unsampled = Standing {
+        current: None,
         provider: Provider::named("codex"),
         latest: None,
         burn: None,
