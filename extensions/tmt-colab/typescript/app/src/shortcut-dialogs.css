@@ -1,0 +1,97 @@
+.shortcut-local,
+.shortcut-extra {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.shortcut-columns[data-manage] {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+  gap: 24px;
+}
+.shortcut-columns > nav {
+  min-width: 0;
+}
+.shortcut-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+.shortcut-list > li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.shortcut-list > li > button:not(.tmt-ui-icon-action) {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.shortcut-list button[aria-current] {
+  font-weight: 650;
+}
+.shortcut-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.shortcut-editor fieldset {
+  min-width: 0;
+  padding: 8px 0;
+  border: 0;
+}
+.shortcut-editor label,
+.shortcut-projects label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shortcut-projects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.shortcut-preview {
+  padding-left: 20px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.shortcut-dialog .tmt-ui-field {
+  width: 100%;
+}
+.page-list-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.page-list-state-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 650px) {
+  .shortcut-columns[data-manage] {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .shortcut-columns > nav {
+    max-height: 150px;
+    overflow-y: auto;
+  }
+}
+
+.shortcut-dialog[data-mode='save'] {
+  max-width: min(400px, calc(100vw - 32px));
+}
+
+.page-list-state-filters > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}

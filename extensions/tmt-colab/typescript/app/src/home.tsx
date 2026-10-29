@@ -1,3 +1,6 @@
+import { useShortcuts } from './use-shortcuts.js';
+import { ShortcutDialog } from './shortcut-dialogs.js';
+import type { Shortcut } from './shortcuts.js';
 import { rereadInPlace, useSummaryFill } from './home-fill.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import {
@@ -10,7 +13,7 @@ import {
   type BrowserTab,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ExternalLink, Pin, Plus, Search } from 'lucide-react';
+import { Archive, ArchiveRestore, ExternalLink, Pin, Plus, Search, Settings } from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ProjectWriting,
@@ -29,22 +32,20 @@ import {
   filterPages,
   projectCounts,
   projectTone,
-  projectNameError,
   withProject,
   type PageSort,
   type ProjectChange,
 } from './projects.js';
 import {
   DEFAULT_VIEW,
-  type HomeView,
   HOME_STAGES,
+  type HomeView,
   pageStage,
   stageCounts,
   takeStage,
-  type HomeStage,
   type PageStage,
+  type HomeStage,
 } from './list-stage.js';
-import { AUTHOR_BYTES } from './bootstrap.js';
 import { ProjectMenuActionsSlot } from './project-menu-actions.js';
 import { inScope, knownScope, writeScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
@@ -72,69 +73,8 @@ import './page-list.css';
 const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
 const homeRoute = getRouteApi('/');
-/** The query that may filter and order the list (and a copied URL), bounded and validated. */
-export interface HomeSearch {
-  q?: string;
-  project?: string[];
-  /** The project the list is scoped to: the base the filters narrow; absent is All pages. */
-  scope?: string;
-  by?: string[];
-  sort?: 'title';
-  /** The tab: absent is `DEFAULT_VIEW`; `archived` takes precedence. */
-  stage?: HomeStage;
-  archived?: true;
-  /** Only the pages with an item waiting on the viewer. */
-  needs?: true;
-}
-/** The route merges what this returns over the raw query, so every key is named here: one it
- * cannot read is set to `undefined` and replaces the raw value instead of reaching the list. */
-export function validateHomeSearch(search: Record<string, unknown>): HomeSearch {
-  const out: HomeSearch = {
-    q: undefined,
-    project: undefined,
-    scope: undefined,
-    by: undefined,
-    sort: undefined,
-    stage: undefined,
-    archived: undefined,
-    needs: undefined,
-  };
-  if (typeof search.q === 'string' && search.q.trim()) out.q = search.q.trim().slice(0, 256);
-  if (Array.isArray(search.project)) {
-    const names = [
-      ...new Set(
-        search.project.filter(
-          (name): name is string =>
-            typeof name === 'string' && projectNameError(name) === undefined,
-        ),
-      ),
-    ].slice(0, 8);
-    if (names.length) out.project = names;
-  }
-  if (typeof search.scope === 'string' && projectNameError(search.scope) === undefined)
-    out.scope = search.scope;
-  if (Array.isArray(search.by)) {
-    const names = [
-      ...new Set(
-        search.by.filter(
-          (name): name is string =>
-            typeof name === 'string' &&
-            name.length > 0 &&
-            new TextEncoder().encode(name).length <= AUTHOR_BYTES &&
-            !/\p{Cc}/u.test(name),
-        ),
-      ),
-    ].slice(0, 8);
-    if (names.length) out.by = names;
-  }
-  if (search.sort === 'title') out.sort = 'title';
-  // The default is the absence of the key, so only another stage is a value worth keeping.
-  const stage = HOME_STAGES.find((name) => name === search.stage);
-  if (stage && stage !== DEFAULT_VIEW) out.stage = stage;
-  if (search.archived === true || search.archived === 'true') out.archived = true;
-  if (search.needs === true || search.needs === 'true') out.needs = true;
-  return out;
-}
+export { validateHomeSearch, type HomeSearch } from './page-list-filter.js';
+import { pageListFilter, type HomeSearch } from './page-list-filter.js';
 
 /** The ⋯ menu: management and the actions a phone has no room for beside the row. */
 function PageListActions({
@@ -304,6 +244,14 @@ export function Home() {
   const router = useRouter();
   const { pages: homePages, hints: titleHints } = useHomeSpace(space);
   const port = transport.management;
+  const shortcuts = useShortcuts(spaceId, space.projectPins);
+  const [shortcutDialog, setShortcutDialog] = useState<'save' | 'edit' | 'manage'>();
+  const currentShortcut = shortcuts.items.find((item) => item.id === search.shortcut);
+  function savedShortcut(item: Shortcut) {
+    setShortcutDialog(undefined);
+    void navigate({ search: { ...item.search, shortcut: item.id }, replace: true });
+  }
+
   // The owner folds summaries in the background: while an active page has none the list reads
   // again, and an empty stage tab says it is reading until the pages are in or the tries are up.
   const reading = useSummaryFill(
@@ -320,14 +268,14 @@ export function Home() {
         ? (search.stage ?? DEFAULT_VIEW)
         : 'all';
   const sort: PageSort = search.sort ?? 'updated';
-  const filter = {
-    projects: search.project ?? [],
-    authors: search.by ?? [],
-    text: search.q ?? '',
-    needsYou: search.needs === true,
-    ...(view === 'in-progress' || view === 'discussion' || view === 'done' ? { stage: view } : {}),
-  };
-  const shown = homePages.filter((p) => Boolean(p.archived) === archived);
+  const filter = pageListFilter({
+    ...search,
+    scope: undefined,
+    ...(!port ? { stage: undefined } : {}),
+  });
+  const shown = homePages.filter((p) =>
+    archived ? Boolean(p.archived) : search.includeArchived || !p.archived,
+  );
   // The pages the tab holds: a stage tab keeps the pages at that stage, so one that has not
   // reported its tasks yet is in none of them.
   const staged = filter.stage ? shown.filter((p) => pageStage(p) === filter.stage) : shown;
@@ -544,6 +492,21 @@ export function Home() {
     apply(next);
   }
 
+  function clearFilters() {
+    const next = editFromSearch([], '');
+    lastApplied.current = JSON.stringify([[], [], '']);
+    setEdit(next);
+    setResetKey((key) => key + 1);
+    setSearch({
+      project: undefined,
+      by: undefined,
+      q: undefined,
+      state: undefined,
+      includeArchived: undefined,
+      ...(!port ? { needs: undefined } : {}),
+    });
+  }
+
   const [status, setStatus] = useState<{ text: string; failed: boolean }>();
   const [dialog, setDialog] = useState<
     { kind: 'new'; initial: string[] } | { kind: 'manage' } | undefined
@@ -686,7 +649,9 @@ export function Home() {
     filter.projects.length > 0 ||
     filter.authors.length > 0 ||
     filter.text !== '' ||
-    filter.needsYou;
+    filter.needsYou ||
+    !!filter.state ||
+    !!search.includeArchived;
   const controls = (
     <>
       <div className="page-list-controls-boundary" ref={controlsBoundary} aria-hidden="true" />
@@ -736,8 +701,7 @@ export function Home() {
                 (document.activeElement as HTMLElement | null)?.blur();
                 return;
               }
-              replaceDraft(editFromSearch([], ''));
-              if (filter.needsYou && !port) setSearch({ needs: undefined });
+              clearFilters();
             }}
           />
         </div>
@@ -778,6 +742,39 @@ export function Home() {
   );
   const content = (
     <>
+      {port && (
+        <div className="page-list-state-filters">
+          <BrowserMenu
+            label={`Page state: ${search.state ?? 'Any'}`}
+            triggerText={`State: ${search.state === 'in-progress' ? 'In progress' : search.state === 'todo' ? 'To do' : search.state === 'done' ? 'Done' : 'Any'}`}
+            items={(['', 'todo', 'in-progress', 'done'] as const).map((state) => ({
+              key: state || 'any',
+              label:
+                state === 'todo'
+                  ? 'To do'
+                  : state === 'in-progress'
+                    ? 'In progress'
+                    : state === 'done'
+                      ? 'Done'
+                      : 'Any state',
+              role: 'menuitemradio' as const,
+              checked: (search.state ?? '') === state,
+            }))}
+            onSelect={(key) =>
+              setSearch({ state: key === 'any' ? undefined : (key as HomeSearch['state']) })
+            }
+          />
+          <label>
+            <BrowserCheckbox
+              checked={!!search.includeArchived}
+              onChange={(event) =>
+                setSearch({ includeArchived: event.target.checked ? true : undefined })
+              }
+            />
+            Include archived
+          </label>
+        </div>
+      )}
       {controls}
       {chosen.length > 0 ? (
         <BulkBar
@@ -955,7 +952,7 @@ export function Home() {
                 type="button"
                 variant="text"
                 label={t.clearFilters}
-                onActivate={() => replaceDraft(editFromSearch([], ''))}
+                onActivate={clearFilters}
               />
             </>
           ) : archived ? (
@@ -986,6 +983,25 @@ export function Home() {
         <div className="page-list-hero-text">
           <h1 title={scope ?? undefined}>{scope ?? t.heroTitle}</h1>
           <p>{t.heroBody}</p>
+          {port && (
+            <div className="page-list-shortcuts">
+              <BrowserAction
+                type="button"
+                variant="ghost"
+                presentation="compact"
+                label={currentShortcut ? 'Edit shortcut' : 'Save as shortcut'}
+                onActivate={() => setShortcutDialog(currentShortcut ? 'edit' : 'save')}
+              />
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                icon={<Settings />}
+                label="Manage shortcuts"
+                onActivate={() => setShortcutDialog('manage')}
+              />
+            </div>
+          )}
+          {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
           {port && scope !== undefined && space.projectPins && (
             <span className="page-list-hero-pin">
               <BrowserAction
@@ -1013,6 +1029,27 @@ export function Home() {
           {newPageAction}
         </span>
       </header>
+      {shortcutDialog && (
+        <ShortcutDialog
+          key={`${shortcutDialog}:${currentShortcut?.id ?? ''}`}
+          mode={shortcutDialog}
+          initial={
+            shortcutDialog === 'edit'
+              ? currentShortcut
+              : shortcutDialog === 'manage'
+                ? shortcuts.items[0]
+                : undefined
+          }
+          search={shortcutDialog === 'manage' ? {} : search}
+          store={shortcuts.store}
+          items={shortcuts.items}
+          pages={homePages}
+          projects={projectNames}
+          error={shortcuts.error}
+          onClose={() => setShortcutDialog(undefined)}
+          onSaved={savedShortcut}
+        />
+      )}
       <PinnedPages
         pages={
           port && !archived

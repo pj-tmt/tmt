@@ -5869,6 +5869,29 @@ top level; the human output marks pinned projects and says when the list is auto
 is not a project is `COLAB_PROJECT_NOT_FOUND`, a place out of range `COLAB_INPUT_INVALID` and a
 21st pin `COLAB_CAPACITY`.
 
+#### Browser-local shortcuts (#5507)
+
+The page list can save its current validated filters as a named shortcut, edit that shortcut,
+and manage saved shortcuts. Manual `state` (`todo`, `in-progress`, `done`) is independent of the
+task-derived `stage` tab. `includeArchived` includes active and archived pages; `archived` retains
+its archived-only meaning and takes precedence. Projects intersect; no selected project means
+all projects. Saved filters retain text, creator, sort and stage clauses; a project scope becomes
+a project condition. Missing manual state never matches a selected state.
+
+Shortcuts use one versioned browser-local record per space (`tmt-colab-shortcuts-v1:<space>`),
+with stable IDs and explicit order. They are not page metadata, management statements or sync
+records, and are not shared between browser profiles. Mutations synchronously reread the record,
+apply one change and persist it before reporting success; storage failures retain the draft.
+Corrupt or newer records are reported and left unchanged. Same-page changes and browser storage
+events refresh the local view without polling. Names contain 1–80 characters without control
+characters; filters retain the list's existing bounds.
+
+Once the owner's actual project-pin preference has arrived, explicit pins (`automatic:false`)
+migrate once, in order, into project-only shortcuts. Automatic recent-project suggestions do not
+migrate. The migration marker and shortcut records commit together, and failed persistence leaves
+the migration retryable. Migration does not write or remove legacy owner pins. The existing pinned
+project sidebar and Pin controls remain until the shared sidebar integration lands.
+
 ### Pins (#4356)
 
 A pin puts a page at the top of the owner's page list. Like a project it is display-only owner-store

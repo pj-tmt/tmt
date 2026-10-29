@@ -17,12 +17,15 @@ it('names every key, so one it cannot read replaces the raw value the route merg
   expect(Object.keys(dropped).sort()).toEqual([
     'archived',
     'by',
+    'includeArchived',
     'needs',
     'project',
     'q',
     'scope',
+    'shortcut',
     'sort',
     'stage',
+    'state',
   ]);
   expect(Object.values(dropped).every((value) => value === undefined)).toBe(true);
 });

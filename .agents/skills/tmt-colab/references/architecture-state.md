@@ -766,9 +766,23 @@ page lacks a summary the visible list also reads every 2 s, at most 15 times (`h
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
 
+Manual `state` is independent of task-derived `stage`; missing state does not match. Include
+archived is a union, while the Archived tab remains archived-only. `shortcuts.ts` validates saved
+filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
+rereading before each synchronous mutation. `use-shortcuts.ts` observes same-page events and
+browser storage events without polling. Explicit owner pins migrate once, in order, when the
+actual preference arrives; automatic suggestions do not. Records and the marker persist together,
+without changing owner pins. Corrupt/newer data and failed writes are reported and retained.
+`shortcut-dialogs.tsx` owns the name-only Save dialog and the Edit/Manage filter editor, matching
+preview and ordering controls. Home exposes Save/Edit and Manage; these preferences are not
+synced or shared. The existing sidebar and Pin controls remain until their shared-menu integration.
+
 `home.tsx` renders the list from the same pages;
-`manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `stage`, `archived`, `needs`, `scope`; the router merges its result
+`manage-page.tsx` holds the shared management dialog host. The React-free filter owner is
+`page-list-filter.ts`; Home, shortcut matching and dialog previews reuse its conditions and
+`projects.ts` matching. The filter lives in the route search
+(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `stage`, `archived`, `needs`, `scope`,
+`state`, `includeArchived`, `shortcut`; the router merges its result
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a draft until Enter
