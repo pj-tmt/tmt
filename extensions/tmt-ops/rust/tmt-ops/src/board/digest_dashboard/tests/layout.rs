@@ -256,7 +256,7 @@ fn cursor_and_viewport_changes_reuse_ranked_facts_without_freezing_live_supplier
     app.labels = supplied(serde_json::json!(9), false);
     let shown = paint(&mut app, 160, 40);
     assert!(
-        shown.contains("Held now: ≥9 observed"),
+        shown.contains("≥9 observed"),
         "supplier facts must stay live, including unknown member coverage: {shown}"
     );
     assert!(Rc::ptr_eq(&before, &app.workspace_rows()));
@@ -294,19 +294,11 @@ fn a_new_usage_receipt_at_the_same_clock_reorders_rows_and_query_scope_range_rec
     assert_eq!(app.workspace_rows().len(), 1, "only read-only all remains");
     assert!(super::super::exchange_participants(&app).is_empty());
     app.workspace.visibility.scope.clear();
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .preferences
-        .tok_range = TokRange::Hour;
+    app.digest_window = crate::config::DigestWindow::Week;
     let changed_range = app.workspace_rows();
     assert_eq!(
         changed_range[1].usage, None,
-        "a different range cannot reuse Day usage"
+        "a different window cannot reuse Day usage"
     );
     app.search.clear();
     app.workspace_reconcile();
@@ -380,7 +372,7 @@ fn narrow_table_keeps_24_hours_and_tab_exposes_exchange_matrix_without_selection
     assert!(!shown.contains("ACTIVITY"));
 }
 #[test]
-fn short_range_never_relabels_supplier_savings_and_absent_digest_keeps_core_evidence() {
+fn another_window_never_relabels_supplier_savings_and_absent_digest_keeps_core_evidence() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = fixture();
     app.labels = Default::default();
@@ -388,18 +380,10 @@ fn short_range_never_relabels_supplier_savings_and_absent_digest_keeps_core_evid
     assert!(shown.contains("28.7k"), "{shown}");
     assert!(shown.contains("Install: tmt extension install digest"));
     assert!(shown.contains("from\\to"));
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .preferences
-        .tok_range = TokRange::Hour;
+    app.digest_window = crate::config::DigestWindow::Week;
     let shown = paint(&mut app, 160, 40);
-    assert!(shown.contains("Usage 1h"));
-    assert!(shown.contains("Est. ctx avoided —"));
+    assert!(shown.contains("Window   7d ▾"), "{shown}");
+    assert!(shown.contains("Est. ctx avoided —"), "{shown}");
 }
 
 #[test]
@@ -725,16 +709,22 @@ fn input_price_qualification_is_shown_once_by_the_visible_amount() {
 }
 
 #[test]
-fn painted_digest_range_click_uses_the_shared_preferences_save() {
+fn painted_window_chip_opens_the_window_menu_and_a_choice_needs_no_save() {
+    use crate::{board::app::Choice, config::DigestWindow};
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     let _no_commands = crate::runner::forbid_commands();
     let mut app = fixture();
     paint(&mut app, 160, 36);
-    let hit = app
-        .workspace_strip_hits
-        .borrow()
+    let hits = app.workspace_strip_hits.borrow().clone();
+    assert!(
+        !hits
+            .iter()
+            .any(|(_, choice)| matches!(choice, Choice::TokRange(_))),
+        "the Agents range has no control on the Digest tab"
+    );
+    let hit = hits
         .iter()
-        .find(|(_, choice)| matches!(choice, crate::board::app::Choice::TokRange(_)))
+        .find(|(_, choice)| *choice == Choice::DigestWindowMenu)
         .unwrap()
         .0;
     let effect = app.mouse(
@@ -746,18 +736,18 @@ fn painted_digest_range_click_uses_the_shared_preferences_save() {
         },
         std::time::Instant::now(),
     );
-    let Effect::Act(crate::board::app::Request::WorkspacePreferences { expected, next, .. }) =
-        effect
-    else {
-        panic!("Range click must use the workspace preferences writer");
-    };
-    assert_eq!(expected.tok_range, crate::config::TokRange::Day);
-    assert_eq!(next.tok_range, crate::config::TokRange::Week);
+    assert_eq!(effect, Effect::None);
     assert_eq!(
-        app.tok_range(),
-        crate::config::TokRange::Day,
-        "only a confirmed save changes the held preference"
+        app.menu.as_ref().map(|menu| menu.title.as_str()),
+        Some("Digest window")
     );
+    app.menu = None;
+    assert_eq!(
+        app.choose(Choice::DigestWindow(DigestWindow::Week)),
+        Effect::None
+    );
+    assert_eq!(app.digest_window(), DigestWindow::Week);
+    assert_eq!(app.tok_range(), crate::config::TokRange::Day);
 }
 
 #[test]

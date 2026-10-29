@@ -1,4 +1,5 @@
-//! Impact band facts, controls and decoded scenes, using the existing held-data fixture.
+//! Digest summary facts, the tab-wide window and decoded scenes, using the existing held-data
+//! fixture.
 use super::*;
 use crate::{
     board::app::{App, Choice, Effect},
@@ -14,7 +15,6 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "impact-mixed-prices",
     "impact-separate-coverage",
     "impact-week",
-    "impact-all-time",
     "impact-basis",
     "impact-generic-labels",
 ];
@@ -43,12 +43,11 @@ pub(in crate::board) fn capture_case(
             member
         })
         .collect();
-    snapshot.workspace.preferences.digest_window = match scene {
-        "impact-week" => DigestWindow::Week,
-        "impact-all-time" => DigestWindow::AllTime,
-        _ => DigestWindow::Day,
+    let window = if scene == "impact-week" {
+        DigestWindow::Week
+    } else {
+        DigestWindow::Day
     };
-    let window = snapshot.workspace.preferences.digest_window;
     for (index, member) in doc["members"]
         .as_array_mut()
         .unwrap()
@@ -74,6 +73,7 @@ pub(in crate::board) fn capture_case(
             _ => {}
         }
     }
+    app.digest_window = window;
     app.labels = crate::labels::Supplied::from_document("digest", &doc, scene == "impact-stale");
     if scene == "impact-generic-labels" {
         let choose = crate::labels::Choose::parse(
@@ -111,49 +111,50 @@ pub(in crate::board) fn capture_case(
     app
 }
 
+/// The summary rows alone, as a `width`×`height` string per line.
+fn summary_lines(app: &App, width: u16, height: u16) -> Vec<String> {
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| super::super::summary::paint(frame, app, frame.area()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    (0..height)
+        .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+        .collect()
+}
+
 #[test]
 fn both_units_keep_their_own_coverage_and_whole_money_moves_to_details() {
     let _no_commands = crate::runner::forbid_commands();
     for scene in SCENES.iter().filter(|scene| **scene != "impact-basis") {
         let mut app = capture_case(scene, crate::look::Look::default());
         let shown = paint(&mut app, 160, 50);
-        assert!(shown.contains("Est. ctx avoided"), "{scene}: {shown}");
-        assert!(shown.contains("List-price equiv."), "{scene}: {shown}");
+        for heading in ["TOK USED", "SAVED · estimate", "≈ LIST PRICE SAVED"] {
+            assert!(shown.contains(heading), "{scene}: {heading}: {shown}");
+        }
+        assert!(shown.contains("Window  "), "{scene}: {shown}");
+        assert!(shown.contains(super::super::summary::DEFINITION), "{scene}");
         if *scene == "impact-separate-coverage" {
-            assert!(shown.contains("(7/7 agents)"), "{shown}");
-            assert!(shown.contains("(1/7 agents · partial)"), "{shown}");
+            assert!(shown.contains("7 of 7 agents"), "{shown}");
+            assert!(shown.contains("1 of 7 agents"), "{shown}");
         }
         if *scene == "impact-mixed-prices" {
             assert!(shown.contains("prices differ"), "{shown}");
         }
-        let narrow = paint(&mut app, 100, 32);
-        let cells: Vec<_> = narrow.chars().collect();
-        let lines: Vec<String> = cells
-            .chunks(100)
-            .map(|line| line.iter().collect())
-            .collect();
-        let band = lines
-            .iter()
-            .find(|line| line.starts_with("Impact "))
-            .unwrap();
-        if band.contains('$') {
+        // Too short for tiles: one line keeps every amount with its own coverage.
+        let compact = summary_lines(&app, 160, 3);
+        assert!(compact[1].contains("TOK used "), "{scene}: {compact:?}");
+        if let Some((_, price)) = compact[1].split_once("≈ list price saved ") {
+            // The whole amount and its own coverage, never one without the other.
+            let (amount, coverage) = price.split_once(" (").unwrap();
             assert!(
-                band.contains("List-price equiv. ≈ $86.79 (7/7 agents)")
-                    || band.contains("List-price equiv. $0.00 (7/7 agents)"),
-                "whole amount and coverage: {band}"
+                amount.contains('$') || amount == "prices differ" || amount == "—",
+                "{compact:?}"
             );
+            assert!(coverage.contains("/7 agents"), "{compact:?}");
         }
-        let small = paint(&mut app, 80, 32);
-        let small_cells: Vec<_> = small.chars().collect();
-        let small_band = small_cells
-            .chunks(80)
-            .map(|line| line.iter().collect::<String>())
-            .find(|line| line.starts_with("Impact "))
-            .unwrap();
-        assert!(
-            !small_band.contains('$'),
-            "unfit amount moves wholly: {small_band}"
-        );
+        assert_eq!(compact[2].trim_end(), super::super::summary::DEFINITION);
         let details = super::super::render::detail_lines(
             &app,
             100,
@@ -175,24 +176,34 @@ fn both_units_keep_their_own_coverage_and_whole_money_moves_to_details() {
 }
 
 #[test]
-fn band_controls_leave_usage_unit_selection_and_window_write_owner_intact() {
+fn the_window_is_the_tabs_own_view_state_and_leaves_the_agents_range_alone() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = capture_case("impact-complete", crate::look::Look::default());
     let selected = app.workspace.selected.clone();
     paint(&mut app, 160, 50);
     assert_eq!(app.choose(Choice::DigestWindowMenu), Effect::None);
     let menu = app.menu.as_ref().unwrap();
-    assert_eq!(menu.entries.len(), 3);
-    assert!(
+    assert_eq!(menu.title, "Digest window");
+    assert_eq!(
         menu.entries
             .iter()
-            .any(|entry| entry.choice == Choice::DigestWindow(DigestWindow::AllTime))
+            .map(|entry| entry.choice.clone())
+            .collect::<Vec<_>>(),
+        DigestWindow::ALL.map(Choice::DigestWindow).to_vec()
     );
     app.menu = None;
-    let change = app.choose(Choice::DigestWindow(DigestWindow::Week));
-    assert_eq!(app.digest_window(), DigestWindow::Day);
-    save(&mut app, change);
+    // No Config write: the window changes at once and the next demand reads its range.
+    assert_eq!(
+        app.choose(Choice::DigestWindow(DigestWindow::Week)),
+        Effect::None
+    );
     assert_eq!(app.digest_window(), DigestWindow::Week);
+    assert_eq!(app.digest_range(), TokRange::Week);
+    assert_eq!(
+        app.usage_report_want().map(|want| want.range),
+        Some(TokRange::Week)
+    );
+    assert!(paint(&mut app, 160, 50).contains("7d ▾"));
     assert_eq!(app.tok_range(), TokRange::Day);
     assert_eq!(app.savings_unit(), SavingsUnit::Tokens);
     assert_eq!(app.workspace.selected, selected);
@@ -240,7 +251,7 @@ fn painted_impact_controls_activate_through_the_digest_mouse_route() {
             match choice {
                 Choice::DigestWindowMenu => assert_eq!(
                     app.menu.as_ref().map(|menu| menu.title.as_str()),
-                    Some("Digest estimate window"),
+                    Some("Digest window"),
                     "the painted window chip must open its menu on Digest"
                 ),
                 Choice::DigestBasis => assert!(
@@ -322,7 +333,6 @@ fn basis_reveals_hidden_details_via_the_existing_panel_cas() {
             .effective()
             .side_shown()
     );
-    assert_eq!(expected.digest_window, next.digest_window);
     assert_eq!(expected.savings_unit, next.savings_unit);
     assert_eq!(expected.tok_range, next.tok_range);
     assert!(
@@ -357,7 +367,7 @@ fn details_show_each_impact_amount_once_and_basis_has_only_evidence() {
             "basis contains evidence only: {text}"
         );
     }
-    assert_eq!(text.matches(super::super::band::DEFINITION).count(), 1);
+    assert_eq!(text.matches(super::super::summary::DEFINITION).count(), 1);
     assert!(
         !basis.contains("Observed input quote"),
         "usage amount stays outside basis"
@@ -414,15 +424,9 @@ fn money_never_skips_an_unfit_context_field() {
         .collect();
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
     for width in 40..=120 {
-        let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 3)).unwrap();
-        terminal
-            .draw(|frame| super::super::band::paint(frame, &app, frame.area()))
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        let line: String = (0..width).map(|x| buffer[(x, 1)].symbol()).collect();
+        let line = &summary_lines(&app, width, 3)[1];
         assert!(
-            !line.contains("List-price equiv.") || line.contains("Est. ctx avoided"),
+            !line.contains("≈ list price saved") || line.contains("Saved "),
             "money must follow context at width {width}: {line}"
         );
     }

@@ -31,16 +31,6 @@ impl Line {
         Self::Tokens,
         Self::SinceReset,
     ];
-
-    pub fn caption(self) -> &'static str {
-        match self {
-            Self::Hours3 => "3h",
-            Self::Hours6 => "6h",
-            Self::Hours24 => "1d",
-            Self::Tokens => "TOKENS",
-            Self::SinceReset => "SINCE RESET",
-        }
-    }
 }
 
 /// Percent of the weekly window used per hour, for the lines read off the
@@ -193,42 +183,15 @@ pub fn project(left: f64, resets_in_ms: u64, now_ms: u64, rate: Option<f64>) -> 
     }
 }
 
-/// The even-burn figure beyond which the display only says "more than this".
-pub const NEED_CAP: f64 = 99.0;
-
-/// What the NEED %/h cell shows.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Need {
-    /// Inside the last hour before the reset the figure only grows without meaning.
-    Hidden,
-    /// More than [`NEED_CAP`] percent an hour.
-    Over,
-    Rate(f64),
-}
-
 /// A weekly window as of now, with its projection lines.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Weekly {
     pub left: f64,
     pub resets_at_ms: u64,
-    /// Percent per hour that lasts exactly until the reset.
-    pub need_per_hour: f64,
     pub lines: [Outcome; 5],
 }
 
 impl Weekly {
-    /// The NEED %/h display at `now_ms`: hidden in the last hour before the reset, capped
-    /// above [`NEED_CAP`].
-    pub fn need(&self, now_ms: u64) -> Need {
-        if self.resets_at_ms.saturating_sub(now_ms) < HOUR_MS {
-            Need::Hidden
-        } else if self.need_per_hour > NEED_CAP {
-            Need::Over
-        } else {
-            Need::Rate(self.need_per_hour)
-        }
-    }
-
     /// The worst of the lines, for a row with no room for all five.
     pub fn worst(&self) -> Outcome {
         self.lines
@@ -269,7 +232,6 @@ fn weekly(standing: &Standing, now_ms: u64, spent: Option<Spent>) -> Option<Week
         return None;
     };
     let left = figures.weekly;
-    let hours = left.resets_in_ms as f64 / HOUR_MS as f64;
     let lines = Line::ALL.map(|line| {
         let rate = match line {
             Line::Tokens => standing.rates.tokens(spent),
@@ -280,7 +242,6 @@ fn weekly(standing: &Standing, now_ms: u64, spent: Option<Spent>) -> Option<Week
     Some(Weekly {
         left: left.percent,
         resets_at_ms: now_ms.saturating_add(left.resets_in_ms),
-        need_per_hour: left.percent / hours,
         lines,
     })
 }

@@ -91,8 +91,7 @@ pub(super) fn rows(app: &App, summary: &super::summary::Summary) -> [Metric; 5] 
         None
     };
     let estimate = |unit| {
-        let (mut amount, mut coverage, note) =
-            savings::savings_value(&summary.savings, summary.window, unit);
+        let (mut amount, mut coverage, note) = savings::savings_value(&summary.savings, unit);
         // The token row already names missing member coverage. An unreported
         // cost stays a dash; reported quotes keep their own distinct coverage.
         if unit == SavingsUnit::Cost && amount.is_none() {

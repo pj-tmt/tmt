@@ -742,6 +742,9 @@ pub struct App {
     pub(in crate::board) terminal: super::terminal_tab::tab::Tab,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) digest_rows: RefCell<super::digest_dashboard::Cache>,
+    /// The Digest tab's window, kept by the view-state layer.
+    pub(in crate::board) digest_window: crate::config::DigestWindow,
+    pub(in crate::board) digest_allowance: super::digest_dashboard::AllowanceScroll,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
     pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
     pub(in crate::board) workspace_state_cells: RefCell<Vec<ratatui::layout::Rect>>,
@@ -2692,7 +2695,7 @@ impl App {
         if self.shell.tab == super::shell::OpsTab::Digest {
             entries.push(MenuEntry {
                 key: String::new(),
-                label: "Estimate window…".into(),
+                label: "Digest window…".into(),
                 choice: Choice::DigestWindowMenu,
             });
             entries.push(MenuEntry {
@@ -4472,6 +4475,13 @@ impl App {
             _ => None,
         };
         if let Some(lines) = lines {
+            if self.shell.tab == super::shell::OpsTab::Digest
+                && self
+                    .digest_allowance
+                    .wheel((event.column, event.row).into(), lines > 0)
+            {
+                return true;
+            }
             if let Some(pane) = self
                 .pointer_pane(event.column, event.row)
                 .filter(|pane| !self.collapsed_panes().contains(pane))

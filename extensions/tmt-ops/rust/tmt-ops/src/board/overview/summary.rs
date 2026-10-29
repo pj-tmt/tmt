@@ -34,6 +34,7 @@ pub(super) fn project(
     labels: &Supplied,
     visibility: &crate::board::workspace::OpsVisibility,
     activity_stale: bool,
+    window: DigestWindow,
 ) -> Summary {
     let roster = &snapshot.roster;
     // Visibility affects this view's counts, never the acquired global roster
@@ -50,7 +51,7 @@ pub(super) fn project(
                 .iter()
                 .filter(|squad| visibility.shows_squad(&squad.room_id, &snapshot.preferences))
                 .all(|squad| squad.observation == OpsObservation::Complete),
-        window: snapshot.preferences.digest_window,
+        window,
         unit: snapshot.preferences.savings_unit,
         ..Default::default()
     };
@@ -102,7 +103,13 @@ mod tests {
     use crate::board::workspace::OpsMember;
 
     fn project(snapshot: &OpsWorkspaceSnapshot, labels: &Supplied) -> Summary {
-        super::project(snapshot, labels, &Default::default(), false)
+        super::project(
+            snapshot,
+            labels,
+            &Default::default(),
+            false,
+            DigestWindow::Day,
+        )
     }
 
     #[test]
@@ -211,7 +218,7 @@ mod tests {
             &savings_document("24h", &[(FIRST, 18_200), (SECOND, 1_800)]),
             false,
         );
-        let mut snapshot = roster(&[FIRST, SECOND, THIRD]);
+        let snapshot = roster(&[FIRST, SECOND, THIRD]);
         let summary = project(&snapshot, &labels);
         assert_eq!(
             (
@@ -221,8 +228,13 @@ mod tests {
             ),
             (Some(20_000), 2, 3)
         );
-        snapshot.preferences.digest_window = DigestWindow::Week;
-        let summary = project(&snapshot, &labels);
+        let summary = super::project(
+            &snapshot,
+            &labels,
+            &Default::default(),
+            false,
+            DigestWindow::Week,
+        );
         assert_eq!(
             (
                 summary.savings.tokens,
@@ -231,12 +243,11 @@ mod tests {
             ),
             (None, 0, 3)
         );
-        snapshot.preferences.digest_window = DigestWindow::Day;
         let scoped = crate::board::workspace::OpsVisibility {
             scope: vec!["no-such-room".into()],
             reveal_hidden: false,
         };
-        let summary = super::project(&snapshot, &labels, &scoped, false);
+        let summary = super::project(&snapshot, &labels, &scoped, false, DigestWindow::Day);
         assert_eq!((summary.savings.tokens, summary.savings.total), (None, 0));
     }
     #[test]

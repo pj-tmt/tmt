@@ -5947,7 +5947,7 @@ describe('large board responsiveness', () => {
     });
   }, 180_000);
 
-  it('Digest Impact window and Basis controls open from real terminal clicks', async () => {
+  it('Digest window and Estimate basis controls open from real terminal clicks', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const scratch = startPrivateTmux(sandbox, 'impact');
@@ -5995,26 +5995,29 @@ describe('large board responsiveness', () => {
           interval: 50,
         });
         tmux(['send-keys', '-t', pane, '2']);
-        await vi.waitFor(() => expect(screen()).toContain('Basis…'), {
+        await vi.waitFor(() => expect(screen()).toContain('Estimate basis…'), {
           timeout: 10_000,
           interval: 25,
         });
         click('1d ▾');
-        await vi.waitFor(() => expect(screen()).toContain('Digest estimate window'), {
+        await vi.waitFor(() => expect(screen()).toContain('Digest window'), {
           timeout: 5_000,
           interval: 25,
         });
         expect(screen()).toContain('1d (current)');
-        expect(screen()).toContain('all time');
+        expect(screen()).toContain('7d');
+        expect(screen()).not.toContain('all time');
         tmux(['send-keys', '-t', pane, 'Escape']);
-        await vi.waitFor(() => expect(screen()).not.toContain('Digest estimate window'), {
+        await vi.waitFor(() => expect(screen()).not.toContain('Digest window'), {
           timeout: 5_000,
           interval: 25,
         });
-        // A short viewport puts the evidence below the fold, proving the click navigates.
-        expect(screen()).not.toContain('Estimate basis');
-        click('Basis…');
-        await vi.waitFor(() => expect(screen()).toContain('Estimate basis'), {
+        // A short viewport puts the evidence below the fold, proving the click navigates;
+        // the Details heading is the label without the control's ellipsis.
+        const evidence = /Estimate basis(?!…)/;
+        expect(screen()).not.toMatch(evidence);
+        click('Estimate basis…');
+        await vi.waitFor(() => expect(screen()).toMatch(evidence), {
           timeout: 5_000,
           interval: 25,
         });
