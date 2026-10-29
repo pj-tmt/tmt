@@ -85,7 +85,7 @@ for (const width of [1440, 390])
     await (await pageAction(page, 'Comments')).click();
     const panel = commentsRegion(page);
     // Selecting the row already brings the passage into view; the reader then scrolls away.
-    await panel.getByTestId('annotation-row').first().click();
+
     await page.evaluate(() => window.scrollTo(0, 0));
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await panel.getByRole('button', { name: /^Show in the page/ }).click();
@@ -129,7 +129,7 @@ test('an unsent reply survives closing and reopening the Comments panel', async 
   await open(page, 1440);
   await (await pageAction(page, 'Comments')).click();
   const panel = commentsRegion(page);
-  await panel.getByTestId('annotation-row').first().click();
+
   const input = panel.getByRole('combobox', { name: 'Message', exact: true });
   await input.fill('Kept across a close.');
   await commentsClose(page, 'discussion').click();
@@ -146,7 +146,7 @@ test('a focused reply field stays on screen in a sheet over a short viewport', a
   await open(page, 390, 420);
   await (await pageAction(page, 'Comments')).click();
   const panel = commentsRegion(page);
-  await panel.getByTestId('annotation-row').first().click();
+
   const input = panel.getByRole('combobox', { name: 'Message', exact: true });
   await input.click();
   await expect(input).toBeFocused();

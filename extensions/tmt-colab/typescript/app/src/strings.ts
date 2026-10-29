@@ -404,6 +404,8 @@ export const text = {
   savedDraftDiscard: 'Discard draft',
   askShort: 'Ask',
   comments: 'Comments',
+  commentsFilter: 'Thread filter',
+  commentsViewAll: 'All',
   commentSelection: 'Comment on selection',
   commentPage: 'Comment on page',
   commentPost: 'Post comment',

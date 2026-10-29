@@ -101,7 +101,7 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
     await input.press('Enter');
 
     await (await pageAction(second, 'Comments')).click();
-    await second.getByTestId('annotation-row').click();
+
     const thread = second.getByTestId('comment-thread').first();
     const rows = thread.getByTestId('message-attachment');
     await expect(rows).toHaveCount(4, { timeout: 60_000 });

@@ -1,3 +1,4 @@
+import { firstThread, listedThreads, threadKey } from '../src/comments-listing.js';
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vite-plus/test';
 import { readThreads, discussionKey, type DiscussionRecord } from '../src/thread-records.js';
@@ -133,4 +134,55 @@ it('combines undecided proposals and annotations once, independent of decision d
   ).toBe(2);
   expect(openThreadCount([{ ...resolved, resolved: false }])).toBe(1);
   expect(openThreadCount([{ ...approved, resolved: false }])).toBe(0);
+});
+
+it('walks filtered live threads by number, retaining the selected resolved thread until navigation', () => {
+  const base = thread();
+  const open = { ...base, threadId: 'open', ref: { ...base.ref, id: 'open' }, resolved: false };
+  const resolved = { ...base, threadId: 'resolved', ref: { ...base.ref, id: 'resolved' } };
+  const deleted = { ...open, threadId: 'deleted', deleted: true };
+  const chat = {
+    ...open,
+    threadId: open.ref.writer,
+    anchor: null,
+    ref: { ...open.ref, id: open.ref.writer },
+  };
+  const numbers = new Map([
+    [threadKey(open), 2],
+    [threadKey(resolved), 1],
+  ]);
+  const all = [open, chat, deleted, resolved];
+  expect(listedThreads(all, numbers, 'open', null)).toEqual([open]);
+  expect(listedThreads(all, numbers, 'open', threadKey(resolved))).toEqual([resolved, open]);
+  expect(listedThreads(all, numbers, 'all', null)).toEqual([resolved, open]);
+  expect(listedThreads(all, numbers, 'all', threadKey(deleted))).not.toContain(deleted);
+});
+it('prefers an undecided proposal, and keeps attention selection after acknowledgement', () => {
+  const open = { ...thread(), resolved: false, status: undefined };
+  const proposal = {
+    ...open,
+    threadId: 'proposal',
+    ref: { ...open.ref, id: 'proposal' },
+    proposal: {
+      proposalId: 'proposal',
+      title: 'Review',
+      body: 'Review this',
+      proposer: {
+        machineId: open.senderDevice,
+        agentId: open.senderDevice,
+        label: 'Agent',
+      },
+    },
+  };
+  const numbers = new Map([
+    [threadKey(open), 1],
+    [threadKey(proposal), 2],
+  ]);
+  expect(firstThread(listedThreads([open, proposal], numbers, 'open', null))).toBe(proposal);
+  expect(listedThreads([open, proposal], numbers, 'needs', null)).toEqual([proposal]);
+  expect(listedThreads([open, proposal], numbers, 'needs', threadKey(open))).toEqual([
+    open,
+    proposal,
+  ]);
+  expect(firstThread([])).toBeUndefined();
 });

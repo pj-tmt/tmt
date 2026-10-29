@@ -1136,12 +1136,24 @@ export async function verifyDiscussion() {
 export function releaseOpen() {
   openGate?.();
 }
-export function seedThread() {
-  return hooks!.seed();
+export function seedThread(body?: string) {
+  return hooks!.seed(body);
 }
 export async function seedManyThreads(count = 500) {
-  for (let index = 0; index < count; index++)
+  // Fixed ordering, even when several fixture writes share the same millisecond.
+  let createdAt =
+    Math.max(Date.now(), ...(current.threads ?? []).map((thread) => Number(thread.createdAt))) + 1;
+  for (let index = 0; index < count; index++) {
     await hooks!.seed(index === 0 ? '@Agent 1 Opening note' : `Background thread ${index}`);
+    const last = current.threads!.at(-1)!;
+    current = {
+      ...current,
+      threads: current.threads!.map((thread) =>
+        thread === last ? { ...thread, createdAt: String(createdAt++) } : thread,
+      ),
+    };
+  }
+  emit();
 }
 /** The agent's winning resolution arrives from another stream. */
 export function agentResolves() {

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { commentsRegion } from '../test/comments-region.js';
-import { commentsAction, pageAction } from '../test/page-actions.js';
+import { commentsAction, pageAction, chooseThreadFilter } from '../test/page-actions.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -56,13 +56,13 @@ const highlights = (frame: ReturnType<Page['frameLocator']>) =>
   }));
 
 for (const width of [1440, 390])
-  test(`the header arrows walk the threads in the order of the position, and the position is the way back at ${width}px`, async ({
+  test(`the header arrows walk numbered threads and the position stays static at ${width}px`, async ({
     page,
   }) => {
     const { panel } = await openFirst(page, width);
-    // Resolved threads are walked once Show resolved is on: the fifth thread is resolved.
-    await panel.getByRole('button', { name: 'Show resolved', exact: true }).click();
-    const position = panel.getByRole('button', { name: 'All comments', exact: true });
+    // All includes the resolved fifth thread.
+    await chooseThreadFilter(page, 'All');
+    const position = panel.locator('.discussion-position');
     const previous = panel.getByRole('button', { name: 'Previous thread', exact: true });
     const next = panel.getByRole('button', { name: 'Next thread', exact: true });
     const title = panel.locator('.discussion-quote q');
@@ -90,26 +90,20 @@ for (const width of [1440, 390])
     await previous.click();
     await expect(position).toHaveText('4 / 5');
     await expect(title).toHaveText(quotes[3]!);
-    // The position returns to the list: the drawer reads Comments and the arrows are gone.
-    await position.click();
-    await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Comments');
-    await expect(previous).toHaveCount(0);
-    await expect(next).toHaveCount(0);
-    await expect(panel.locator('.discussion-position')).toHaveCount(0);
+    await expect(position).toHaveJSProperty('tagName', 'SPAN');
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(0);
   });
 
 test('an open thread draws the selected look on its passage and a resolved one only a quiet dashed mark', async ({
   page,
 }) => {
   const { frame, panel } = await openFirst(page);
-  await panel.getByRole('button', { name: 'Show resolved', exact: true }).click();
+  await chooseThreadFilter(page, 'All');
   await expect.poll(() => highlights(frame)).toEqual({ quiet: false, selected: true });
   // Walking to the resolved thread: its passage keeps only the dashed mark, no selected look.
   const next = panel.getByRole('button', { name: 'Next thread', exact: true });
   for (let index = 0; index < 4; index++) await next.click();
-  await expect(panel.getByRole('button', { name: 'All comments', exact: true })).toHaveText(
-    '5 / 5',
-  );
+  await expect(panel.locator('.discussion-position')).toHaveText('5 / 5');
   await expect(panel.getByTestId('discussion-state')).toContainText('Resolved');
   await expect.poll(() => highlights(frame)).toEqual({ quiet: true, selected: false });
   // And back to an open thread: the dashed mark goes, the selected look returns.
@@ -131,16 +125,15 @@ test('the anchor title shows its passage in the page and an open thread has no s
 });
 
 for (const width of [1440, 800, 390])
-  test(`Resolve and Reopen are secondary text buttons that fit the header at ${width}px`, async ({
+  test(`Resolve and Reopen are icon actions that fit the header at ${width}px`, async ({
     page,
   }) => {
     const { panel } = await openFirst(page, width);
     const header = panel.locator('.tmt-ui-drawer-header');
     const resolve = panel.getByRole('button', { name: 'Resolve', exact: true });
     await expect(resolve).toBeVisible();
-    await expect(resolve).toHaveText('Resolve');
-    await expect(resolve).toHaveCSS('font-size', '12px');
-    await expect(resolve).toHaveCSS('border-top-left-radius', '8px');
+    await expect(resolve).toHaveText('');
+    await expect(resolve).toHaveClass(/tmt-ui-icon-action-control/);
     // The title is 15px bold.
     const title = panel.getByRole('heading', { level: 2 });
     await expect(title).toHaveCSS('font-size', '15px');
@@ -167,48 +160,10 @@ for (const width of [1440, 800, 390])
         };
       });
     expect(await row()).toEqual({ fits: true, inside: true, apart: true });
-    // In the 286px column row 1 is the title and Close; row 2 holds the position with both arrows as
-    // one group on the left and Resolve on the right. Wider, they all share one row.
-    const place = async () =>
-      header.evaluate((node) => {
-        const rect = (selector: string) => {
-          const box = node.querySelector(selector)!.getBoundingClientRect();
-          return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
-        };
-        return {
-          header:
-            node.getBoundingClientRect().right - parseFloat(getComputedStyle(node).paddingRight),
-          title: rect('h2'),
-          close: rect('button[aria-label^="Close"]'),
-          position: rect('.discussion-position'),
-          previous: rect('button[aria-label="Previous thread"]'),
-          next: rect('button[aria-label="Next thread"]'),
-          resolve: rect('.discussion-resolve'),
-        };
-      });
-    const at = await place();
-    const level = (a: { top: number; bottom: number }, b: { top: number; bottom: number }) =>
-      Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 4;
-    expect(at.position.right).toBeLessThanOrEqual(at.previous.left + 1);
-    expect(at.previous.right).toBeLessThanOrEqual(at.next.left + 1);
-    expect(at.next.right).toBeLessThanOrEqual(at.resolve.left + 1);
-    expect(level(at.position, at.previous) && level(at.next, at.resolve)).toBe(true);
-    // The column and the card are two rows: the title and Close, then the position, the arrows and
-    // Show resolved on the left and Resolve on the right. The phone sheet is one.
-    if (width !== 390) {
-      expect(level(at.title, at.close)).toBe(true);
-      expect(at.title.bottom).toBeLessThanOrEqual(at.position.top + 1);
-      expect(Math.abs(at.resolve.right - at.header)).toBeLessThanOrEqual(1);
-    } else {
-      expect(level(at.title, at.position) && level(at.position, at.close)).toBe(true);
-    }
-    expect(await row()).toEqual({ fits: true, inside: true, apart: true });
-    // With Show resolved on the resolved thread stays in view, to be reopened; the toggle is one of the
-    // header's controls and fits with the rest.
-    await panel.getByRole('button', { name: 'Show resolved', exact: true }).click();
+    await chooseThreadFilter(page, 'All');
     await resolve.click();
     const reopen = panel.getByRole('button', { name: 'Reopen', exact: true });
-    await expect(reopen).toHaveText('Reopen');
+    await expect(reopen).toHaveText('');
     expect(await row()).toEqual({ fits: true, inside: true, apart: true });
     // Its turns' avatars are 24px.
     await expect(panel.locator('.tmt-ui-avatar').first()).toHaveCSS('width', '24px');
@@ -292,51 +247,27 @@ for (const width of [1440, 390])
   });
 
 for (const width of [1440, 390])
-  test(`resolved threads are left out of the position and the arrows until Show resolved is on at ${width}px`, async ({
-    page,
-  }) => {
+  test(`Open excludes resolved threads and All walks them at ${width}px`, async ({ page }) => {
     const { panel } = await openFirst(page, width);
-    const position = panel.getByRole('button', { name: 'All comments', exact: true });
-    const next = panel.getByRole('button', { name: 'Next thread', exact: true });
-    const toggle = panel.getByRole('button', { name: 'Show resolved', exact: true });
-    // Four open threads and one resolved: the position counts the four.
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    const position = panel.locator('.discussion-position');
     await expect(position).toHaveText('1 / 4');
-    for (let index = 0; index < 3; index++) await next.click();
-    await expect(position).toHaveText('4 / 4');
-    await expect(panel.locator('.discussion-quote q')).toHaveText('second range');
-    await expect(next).toBeDisabled();
-    // Turning it on adds the resolved thread, in its place by number; turning it off takes it out.
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(position).toHaveText('4 / 5');
-    await expect(next).toBeEnabled();
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(position).toHaveText('4 / 4');
-    // The dock's count is the open threads, whichever way the toggle is.
-    await expect(commentsAction(page)).toHaveAccessibleName('Comments (4)');
-    await toggle.click();
+    await chooseThreadFilter(page, 'All');
+    await expect(position).toHaveText('1 / 5');
+    for (let index = 0; index < 4; index++)
+      await panel.getByRole('button', { name: 'Next thread', exact: true }).click();
+    await expect(panel.locator('.discussion-quote q')).toHaveText('old decision text');
+    await expect(panel.getByTestId('discussion-state')).toContainText('Resolved');
+    await chooseThreadFilter(page, 'Open');
+    await expect(position).toHaveText('1 / 4');
     await expect(commentsAction(page)).toHaveAccessibleName('Comments (4)');
   });
 
-test('the list shows open threads by default, resolved ones with Show resolved, and the choice stays on this device', async ({
+test('the All preference survives remount and does not depend on successful browser storage', async ({
   page,
 }) => {
-  const { panel } = await openFirst(page);
-  const toggle = panel.getByRole('button', { name: 'Show resolved', exact: true });
-  await panel.getByRole('button', { name: 'All comments', exact: true }).click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(panel.getByTestId('annotation-row')).toHaveCount(4);
-  await expect(panel.locator('.annotation-list-item[data-resolved]')).toHaveCount(0);
-  await toggle.click();
-  await expect(panel.getByTestId('annotation-row')).toHaveCount(5);
-  await expect(panel.locator('.annotation-list-item[data-resolved]')).toHaveCount(1);
-  // Kept on this device: a reload opens with it on, and storage that refuses leaves it off.
-  expect(await page.evaluate(() => localStorage.getItem('colab.comments.showResolved'))).toBe('1');
-  await toggle.click();
-  expect(await page.evaluate(() => localStorage.getItem('colab.comments.showResolved'))).toBeNull();
-  await toggle.click();
+  await openFirst(page);
+  await chooseThreadFilter(page, 'All');
+  expect(await page.evaluate(() => localStorage.getItem('colab.comments.filter'))).toBe('all');
   await page.reload();
   await page.evaluate(async () => {
     const path = '/test/ask-page-browser.tsx';
@@ -345,33 +276,31 @@ test('the list shows open threads by default, resolved ones with Show resolved, 
     await fixture.annotationLook();
   });
   await (await pageAction(page, 'Comments')).click();
-  await expect(
-    commentsRegion(page).getByRole('button', { name: 'Show resolved', exact: true }),
-  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(commentsRegion(page).locator('.discussion-position')).toHaveText('1 / 5');
+  await page.evaluate(() => {
+    Storage.prototype.setItem = () => {
+      throw new Error('quota');
+    };
+  });
+  await chooseThreadFilter(page, 'Open');
+  await expect(commentsRegion(page).locator('.discussion-position')).toHaveText('1 / 4');
 });
 
-test('with every thread resolved and Show resolved off the panel says there is no open thread', async ({
+test('resolving the final thread stays expanded until explicit filter navigation', async ({
   page,
 }) => {
   const { panel } = await openFirst(page);
-  const toggle = panel.getByRole('button', { name: 'Show resolved', exact: true });
-  await panel.getByRole('button', { name: 'All comments', exact: true }).click();
-  // Resolve the four open threads from their Discussion views; each moves on to the next open one.
   const resolve = panel.getByRole('button', { name: 'Resolve', exact: true });
-  await panel.getByTestId('annotation-row').first().click();
-  for (let left = 4; left > 1; left--) {
+  for (let left = 4; left > 0; left--) {
     await resolve.click();
+    await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
     await expect(commentsAction(page)).toHaveAccessibleName(`Comments (${left - 1})`);
-    await expect(panel.getByRole('button', { name: 'All comments', exact: true })).toHaveText(
-      `1 / ${left - 1}`,
-    );
+    await expect(panel.getByTestId('comment-entry').first()).toBeVisible();
+    if (left > 1) await panel.getByRole('button', { name: 'Next thread', exact: true }).click();
   }
-  // The last one: resolving it leaves the Discussion view for the list's empty state.
-  await resolve.click();
-  await expect(panel.getByTestId('comments-empty')).toContainText('No open threads');
-  await expect(panel.getByTestId('annotation-row')).toHaveCount(0);
-  await expect(toggle).toBeVisible();
-  await expect(commentsAction(page)).toHaveAccessibleName('Comments (0)');
-  await toggle.click();
-  await expect(panel.getByTestId('annotation-row')).toHaveCount(5);
+  await expect(panel.getByTestId('comments-empty')).toHaveCount(0);
+  await chooseThreadFilter(page, 'Open');
+  await expect(panel.getByTestId('comments-empty')).toContainText('Nothing waiting here.');
+  await chooseThreadFilter(page, 'All');
+  await expect(panel.locator('.discussion-position')).toHaveText('1 / 5');
 });

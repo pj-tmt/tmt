@@ -1,5 +1,10 @@
 import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import {
+  pageAction,
+  selectThread,
+  selectDiscussion,
+  chooseThreadFilter,
+} from '../test/page-actions.js';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -32,14 +37,6 @@ async function edit(found: Locator, body: string) {
   await comment.getByRole('button', { name: 'Save comment', exact: true }).click();
   await expect(comment.locator('.comment-body')).toHaveText(body);
 }
-/** Open the Comments list, returning from a retained Discussion first. Resolved threads are listed
- * only while Show resolved is on: `Resolved` turns it on, `Open` leaves it off. */
-async function view(page: Page, name: 'Open' | 'Resolved') {
-  await commentList(page);
-  const toggle = commentsRegion(page).getByRole('button', { name: text.showResolved, exact: true });
-  if (((await toggle.getAttribute('aria-pressed')) === 'true') !== (name === 'Resolved'))
-    await toggle.click();
-}
 async function comments(page: Page) {
   // An open anchored window replaces the dock; collapse it to reach the Comments action.
   const anchored = page.getByRole('dialog', { name: 'Annotate selection' });
@@ -53,12 +50,6 @@ async function comments(page: Page) {
   const panel = commentsRegion(page);
   if (!(await panel.isVisible())) await (await pageAction(page, 'Comments')).click();
   await expect(panel).toBeVisible();
-}
-async function commentList(page: Page) {
-  await comments(page);
-  const panel = commentsRegion(page);
-  const back = panel.getByRole('button', { name: 'All comments', exact: true });
-  if (await back.isVisible()) await back.click();
 }
 
 test.afterEach(disposeActiveWorlds);
@@ -153,8 +144,8 @@ test('a same-request annotation reply recovers from a visible transient read fai
     );
     await expect(page.getByTestId('ask-state')).toHaveCount(0);
     await page.reload();
-    await commentList(page);
-    await page.getByTestId('annotation-row').filter({ hasText: 'Quoted passage.' }).click();
+    await comments(page);
+    await selectDiscussion(page, 'Quoted passage.');
     await expect(page.getByTestId('ask-reply')).toHaveText(expected);
     await expect(page.getByTestId('ask-reply-attribution')).toContainText(agent.name);
     await expect(page.getByTestId('ask-reply-attribution')).not.toContainText(
@@ -360,11 +351,8 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t1.getByText(text.commentQuoteChanged)).toHaveCount(0);
     const threadId = (await t1.getAttribute('data-thread-id'))!;
     const messageId = await t1.getByTestId('comment-entry').first().getAttribute('data-message-id');
-    await commentList(second);
-    const row2 = second
-      .getByTestId('annotation-row')
-      .filter({ hasText: 'An & 🌍 exact quote for review.' });
-    await row2.click();
+    await comments(second);
+    await selectDiscussion(second, 'An & 🌍 exact quote for review.');
     const t2 = second.getByTestId('comment-thread').first();
     await expect(t2).toHaveAttribute('data-anchor', 'attached');
     await expect(t2.getByTestId('comment-entry').first().locator('.comment-byline')).toHaveText(
@@ -420,13 +408,13 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.evaluate(() => (document.documentElement.dataset.theme = 'light'));
     const beforeCommentsWidth = (await first.locator('iframe').boundingBox())!.width;
-    await commentList(first);
-    await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+    await comments(first);
+    await selectThread(first, threadId);
     await commentsRegion(first)
       .getByRole('button', { name: text.threadResolve, exact: true })
       .click();
-    await view(second, 'Resolved');
-    await expect(row2).toContainText(text.threadResolved);
+    await chooseThreadFilter(second, 'All');
+    await expect(second.getByTestId('discussion-state')).toContainText(text.threadResolved);
     // A person's resolve notifies the mentioned agent exactly once, through the Ask path.
     await until(() => agent.received().length === 3, 'resolve notification delivered');
     const notice = String(agent.received()[2].message);
@@ -435,11 +423,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await commentsRegion(first)
       .getByRole('button', { name: text.threadReopen, exact: true })
       .click();
-    await view(second, 'Open');
-    await expect(row2).toBeVisible();
-    await expect(row2).not.toContainText(text.threadResolved);
-    // The list and Discussion are separate views; reopen the peer thread to observe later edits.
-    await row2.click();
+    await chooseThreadFilter(second, 'Open');
+    await expect(t2).toBeVisible();
+    await expect(second.getByTestId('discussion-state')).toHaveCount(0);
     await expect(t2).toBeVisible();
     const marker = first.frameLocator('iframe').locator('[data-colab-thread]');
     await expect(marker).toHaveCount(1);
@@ -467,16 +453,12 @@ test('paired writers retain anchored annotation conversations, direct exact send
       }
     }
     expect(paints).toBeGreaterThan(0);
-    await first.getByRole('button', { name: text.allComments, exact: true }).click();
-    await expect(first.getByTestId('annotation-row').first()).toHaveAttribute(
-      'title',
-      opening.split('\n')[0].slice(0, 32),
-    );
+    await expect(first.getByTestId('annotation-row')).toHaveCount(0);
     await expect(marker).toHaveAttribute(
       'title',
       `Thread ${await marker.textContent()}: An & 🌍 exact quote for review.`,
     );
-    await commentsClose(first, 'list').click();
+    await commentsClose(first, 'discussion').click();
     await marker.click();
     await expect(t1).toBeVisible();
     // The current Discussion opens in the non-modal workspace column, not a floating window.
@@ -497,8 +479,8 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await marker.click();
       await expect(commentsRegion(first)).toBeVisible();
       await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
-      await commentList(first);
-      await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+      await comments(first);
+      await selectThread(first, threadId);
       for (const theme of ['light', 'dark']) {
         await first.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
@@ -512,9 +494,8 @@ test('paired writers retain anchored annotation conversations, direct exact send
           .evaluate((node) => {
             node.scrollTop = 0;
           });
-        await first.getByRole('button', { name: text.allComments, exact: true }).click();
         await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-threads.png` });
-        await first.locator(`[data-testid="annotation-row"][data-thread-id="${threadId}"]`).click();
+        await selectThread(first, threadId);
         await expect(t1).toHaveAttribute('data-anchor', 'attached');
         await commentsRegion(first)
           .locator('.tmt-ui-drawer-body')
@@ -543,8 +524,8 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await marker.click();
     }
     await first.setViewportSize({ width: 1440, height: 900 });
-    await commentList(first);
-    await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+    await comments(first);
+    await selectThread(first, threadId);
     await (await pageAction(first, 'Source')).click();
     const inserted = '<p style="height:300px">Inserted above.</p>' + html;
     const source = first.getByRole('textbox', { name: 'Page source', exact: true });
@@ -578,24 +559,22 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t1.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await expect(t2.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await expect(t2.getByRole('combobox')).toBeVisible();
-    await first.getByRole('button', { name: text.allComments, exact: true }).click();
     await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
     await first
       .getByRole('combobox', { name: 'Post comment', exact: true })
       .fill('Page-wide discussion.');
     await first.getByRole('button', { name: 'Post comment', exact: true }).click();
-    await first.getByRole('button', { name: text.allComments, exact: true }).click();
-    await expect(first.getByTestId('annotation-row')).toHaveCount(2);
+    await expect(commentsRegion(first).locator('.discussion-position')).toContainText('/ 2');
     await first.reload();
-    await commentList(first);
-    await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+    await comments(first);
+    await selectThread(first, threadId);
     await expect(first.getByTestId('comment-thread')).toHaveAttribute('data-thread-id', threadId);
     await expect(first.getByTestId('comment-thread')).toContainText('Comment deleted');
     await restartColab(world, door);
     await second.reload();
-    await commentList(second);
-    await expect(second.getByTestId('annotation-row')).toHaveCount(2);
-    await second.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+    await comments(second);
+    await expect(commentsRegion(second).locator('.discussion-position')).toContainText('/ 2');
+    await selectThread(second, threadId);
     await expect(second.getByTestId('comment-thread')).toContainText('Comment deleted');
     await expect(
       second.getByTestId('comment-thread').getByTestId('ask-reply').first(),
@@ -787,8 +766,8 @@ test('composer records plain annotations and replies without a recipient, then s
       'reply for the original request',
     );
     await page.reload();
-    await commentList(page);
-    await page.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+    await comments(page);
+    await selectThread(page, threadId);
     const restored = page.locator(`[data-testid=comment-thread][data-thread-id="${threadId}"]`);
     await expect
       .poll(() => restored.locator(`[data-message-id="${originalId}"] .comment-body`).textContent())
@@ -1071,8 +1050,8 @@ test('paired comment-only selection creates one durable comment without any Ask 
       'A durable selected comment',
     );
     await page.reload();
-    await commentList(page);
-    await page.getByTestId('annotation-row').filter({ hasText: 'Comment without talk.' }).click();
+    await comments(page);
+    await selectDiscussion(page, 'Comment without talk.');
     await expect(page.getByTestId('comment-entry').locator('.comment-body')).toHaveText(
       'A durable selected comment',
     );
