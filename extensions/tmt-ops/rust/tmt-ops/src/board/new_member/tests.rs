@@ -41,10 +41,14 @@ fn null_template_copies_both_lines_without_a_launch_or_creation() {
     }
     let review = draft.review(&loaded()).unwrap();
     assert!(review.outer.is_none());
-    assert!(review.copy().starts_with("tmt run --save new-worker codex"));
+    // Saved members launch temporary and are kept once started (#5536).
+    let copied = review.copy();
+    let lines: Vec<_> = copied.lines().collect();
+    assert_eq!(lines[0], "tmt run new-worker codex");
+    assert_eq!(lines[1], "tmt identity create new-worker");
     if review.room.is_some() {
-        assert_eq!(review.copy().lines().count(), 2);
-        assert!(review.copy().contains("ops sq add"));
+        assert_eq!(lines.len(), 3);
+        assert!(lines[2].contains("ops sq add"));
     }
 }
 #[test]
@@ -191,7 +195,7 @@ fn quoted_name_and_tool_path_remain_literal_inner_words() {
     c.draft.fields[0] = Editor::from("my worker's $token; hi");
     c.draft.fields[1] = Editor::from("/tools/my tool");
     let review = c.draft.review(c.loaded.as_ref().unwrap()).unwrap();
-    assert_eq!(review.command[3], "my worker's $token; hi");
+    assert_eq!(review.command[2], "my worker's $token; hi");
     assert!(crate::launch::line(&review.command).contains("'/tools/my tool'"));
 }
 #[test]

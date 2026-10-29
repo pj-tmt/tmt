@@ -18,7 +18,7 @@ a=sys.argv[1:]
 with (r/'calls').open('a') as f:f.write(json.dumps(a)+'\n')
 host=str(r/'host')
 if a[:2]==['host','templates']:
- print(json.dumps({'version':1,'hosts':[{'host':'tmux','state':'builtin','launch':{'argv':[host,'{session}','{command}'],'placeholders':['session','command']}}]}))
+ print(json.dumps({'version':1,'hosts':[{'host':h,'state':'builtin','launch':{'argv':[host,'{session}','{command}'],'placeholders':['session','command']}} for h in ('tmux','pty')]}))
 elif a[:2]==['config','show']:print(json.dumps({'paths':{'global':str(r/'config.json')},'resolved':{}}))
 elif a[:1]==['api']:json.load(sys.stdin);print(json.dumps({'dataRoot':str(r/'data')}))
 elif a[:1]==['ls']:
@@ -29,6 +29,9 @@ elif a[:1]==['ls']:
 elif a[:2]==['identity','show']:
  if (r/'existing').exists() or (r/'existing-alias').exists():print(json.dumps({'identity':{'id':'old','name':'new-worker'}}))
  else:print(json.dumps({'error':{'code':'NAME_NOT_FOUND','message':'not found'}}));sys.exit(3)
+elif a[:2]==['identity','create']:
+ if (r/'keep-fails').exists():print(json.dumps({'error':{'code':'NAME_CONFLICT','message':'kept elsewhere'}}));sys.exit(5)
+ print(json.dumps({'identity':{'id':'33333333-3333-4333-8333-333333333333','name':a[2]}}))
 elif a[:2]==['room','show']:print(json.dumps({'room':{'id':'changed'}}))
 else:print(json.dumps({'error':{'code':'UNEXPECTED','message':str(a)}}));sys.exit(1)
 "#).unwrap();
@@ -63,6 +66,9 @@ with (r/'launches').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\n')
         }
     }
     fn review(&self) -> model::Review {
+        self.review_on("tmux", true)
+    }
+    fn review_on(&self, host: &str, saved: bool) -> model::Review {
         let loaded = match complete(
             &self.core,
             Task {
@@ -78,8 +84,8 @@ with (r/'launches').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\n')
             _ => panic!(),
         };
         let mut draft = model::Draft::from_app(&board());
-        draft.fields =
-            ["new-worker", "codex", "a'b $c; d", "", "tmux", "a space"].map(Editor::from);
+        draft.fields = ["new-worker", "codex", "a'b $c; d", "", host, "a space"].map(Editor::from);
+        draft.saved = saved;
         draft.review(&loaded).unwrap()
     }
 }
@@ -220,5 +226,74 @@ fn launch_observes_a_binding_registered_after_the_old_five_second_window() {
             .lines()
             .count(),
         1
+    );
+}
+
+/// The identity launches temporary and is kept only after it started, so a failed
+/// launch leaves no saved identity (#5536).
+#[test]
+fn keep_is_applied_after_the_start_and_a_failure_names_the_command() {
+    let f = Fixture::new();
+    let review = f.review();
+    assert!(review.save);
+    assert!(!review.command.iter().any(|word| word == "--save"));
+    let launched = |review: model::Review| {
+        complete(
+            &f.core,
+            Task {
+                owner: 1,
+                work: Work::Launch(review),
+                config: None,
+            },
+        )
+        .result
+        .unwrap()
+    };
+    assert!(matches!(launched(review.clone()), Outcome::Created { .. }));
+    let calls = std::fs::read_to_string(f.root.join("calls")).unwrap();
+    let launched_at = calls.find("\"identity\", \"create\"").unwrap();
+    assert!(calls[launched_at..].contains("new-worker"));
+    // A failed keep leaves the started member temporary and says how to keep it.
+    std::fs::remove_file(f.root.join("launched")).unwrap();
+    std::fs::write(f.root.join("keep-fails"), "").unwrap();
+    let mut shown = review;
+    shown.display.command[0] = "tmt".into();
+    match launched(shown) {
+        Outcome::Created { message, .. } => {
+            assert!(message.contains("started as temporary"), "{message}");
+            assert!(message.contains("Keep it with: tmt identity create new-worker"));
+        }
+        _ => panic!(),
+    }
+    // Temporary members are never kept.
+    let temporary = f.review_on("tmux", false);
+    assert!(!temporary.save && temporary.save_line().is_none());
+}
+
+/// The built-in host runs one `tmt run --host pty`, with no session of its own.
+#[test]
+fn the_built_in_host_launches_one_run_with_its_host_named() {
+    let f = Fixture::new();
+    let review = f.review_on(model::BUILT_IN_HOST, true);
+    assert_eq!(
+        review.command[1..],
+        [
+            "run",
+            "--host",
+            "pty",
+            "new-worker",
+            "codex",
+            "--model=a'b $c; d"
+        ]
+    );
+    assert_eq!(review.session, "new-worker");
+    assert_eq!(review.lines()[0], "new-worker · pty");
+    let outer = review.outer.clone().unwrap();
+    assert_eq!(
+        outer[1..],
+        [
+            "new-worker".to_owned(),
+            crate::launch::line(&review.command)
+        ]
     );
 }

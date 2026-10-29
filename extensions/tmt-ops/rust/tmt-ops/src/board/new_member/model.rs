@@ -24,20 +24,33 @@ pub(in crate::board) struct Review {
     pub command: Vec<String>,
     pub outer: Option<Vec<String>>,
     pub room: Option<RoomTarget>,
+    /// Keep the identity: it launches temporary and is saved only once it started, so a
+    /// failed launch leaves no offline identity (#5536).
+    pub save: bool,
     pub(super) display: Box<Display>,
 }
+/// The built-in host: it has no sessions, and its launch names the host itself.
+pub(super) const BUILT_IN_HOST: &str = "pty";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Display {
     pub command: Vec<String>,
     pub outer: Option<Vec<String>>,
 }
 impl Review {
-    pub fn copy(&self) -> String {
-        let mut text =
-            crate::launch::line(self.display.outer.as_ref().unwrap_or(&self.display.command));
-        if let Some(room) = &self.room {
-            text.push('\n');
-            text.push_str(&crate::launch::line(&[
+    /// The command that keeps the started identity, when Keep is saved.
+    pub fn save_line(&self) -> Option<String> {
+        self.save.then(|| {
+            crate::launch::line(&[
+                self.display.command[0].clone(),
+                "identity".into(),
+                "create".into(),
+                self.name.clone(),
+            ])
+        })
+    }
+    fn squad_line(&self) -> Option<String> {
+        self.room.as_ref().map(|room| {
+            crate::launch::line(&[
                 self.display.command[0].clone(),
                 "ops".into(),
                 "sq".into(),
@@ -46,20 +59,32 @@ impl Review {
                 room.name.clone(),
                 "--".into(),
                 self.name.clone(),
-            ]));
-        }
-        text
+            ])
+        })
+    }
+    pub fn copy(&self) -> String {
+        std::iter::once(crate::launch::line(
+            self.display.outer.as_ref().unwrap_or(&self.display.command),
+        ))
+        .chain(self.save_line())
+        .chain(self.squad_line())
+        .collect::<Vec<_>>()
+        .join("\n")
     }
     pub fn copy_notice(&self) -> String {
-        if self.room.is_some() {
-            "Copy-only commands. Nothing was created. Run the squad-add command only after the identity exists.".into()
+        if self.save || self.room.is_some() {
+            "Copy-only commands. Nothing was created. Run the later commands only after the member started.".into()
         } else {
             "Copy-only command. Nothing was created.".into()
         }
     }
     pub fn lines(&self) -> Vec<String> {
         let mut text = vec![
-            format!("{} · {} / {}", self.name, self.host, self.session),
+            if self.host == BUILT_IN_HOST {
+                format!("{} · {}", self.name, self.host)
+            } else {
+                format!("{} · {} / {}", self.name, self.host, self.session)
+            },
             format!(
                 "Squad: {}",
                 self.room
@@ -83,9 +108,13 @@ impl Review {
                 format!("Copy only · {} has no launch template.", self.host),
             );
         }
-        if self.room.is_some() {
+        if let Some(line) = self.save_line() {
+            text.push("After it starts · keep".into());
+            text.push(line);
+        }
+        if let Some(line) = self.squad_line() {
             text.push("After the identity exists · squad add".into());
-            text.push(self.copy().split_once('\n').unwrap().1.into());
+            text.push(line);
         }
         text
     }
@@ -218,10 +247,17 @@ impl Draft {
                     .clone(),
             )
         };
+        // Never `--save`: a launch that ends during startup must leave no saved identity, so
+        // Keep is applied with `identity create` once the member started (#5536).
         let mut command = vec![loaded.executable.clone(), "run".into()];
-        if self.saved {
-            command.push("--save".into());
-        }
+        // The built-in host has no sessions: one `tmt run --host pty` is the whole launch,
+        // and its template ignores the session it is still filled with.
+        let session = if host == BUILT_IN_HOST {
+            command.extend(["--host".into(), BUILT_IN_HOST.into()]);
+            name
+        } else {
+            session
+        };
         command.extend([name.into(), tool.into()]);
         if !model.is_empty() {
             command.push(format!("--model={model}"));
@@ -241,6 +277,7 @@ impl Draft {
             command,
             outer,
             room,
+            save: self.saved,
             display: Box::new(Display {
                 command: display_command,
                 outer: display_outer,

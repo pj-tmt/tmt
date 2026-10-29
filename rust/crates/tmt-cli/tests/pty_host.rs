@@ -657,9 +657,13 @@ fn the_built_in_launch_template_starts_a_background_member_without_tmux() {
         command.stdin(Stdio::null()).output().unwrap()
     };
 
-    // The words start a background member that nothing waits on, and the session and command
-    // reach `tmt run` as data.
-    let started = run(&world, "templated", "printf up; read l");
+    // The command is itself one built-in-host launch; the template runs it whole, so exactly
+    // that member starts, and nothing is named after the session, which this host ignores (#5536).
+    let started = run(
+        &world,
+        "ignored-session",
+        "tmt run --host pty templated /bin/sh -c 'printf up; read l'",
+    );
     assert!(started.status.success(), "{started:?}");
     world.remember();
     world.remember_programs();
@@ -668,38 +672,55 @@ fn the_built_in_launch_template_starts_a_background_member_without_tmux() {
         String::from_utf8_lossy(&seen.stdout).contains("up"),
         "{seen:?}"
     );
+    // The session reaches the script only as data, and it is never run.
     let injected = world.root.join("injected");
-    let command = format!("touch {}", injected.display());
-    let hostile_name = format!("a b$({command})");
-    let hostile = run(&world, &hostile_name, "printf x; read l");
-    assert!(hostile.status.success(), "{hostile:?}");
+    let hostile_session = format!("a b$(touch {})", injected.display());
+    let plain = run(
+        &world,
+        &hostile_session,
+        "tmt run --host pty plain /bin/sh -c 'printf x; read l'",
+    );
+    assert!(plain.status.success(), "{plain:?}");
     world.remember();
     world.remember_programs();
-    assert!(!injected.exists(), "the session name ran as script text");
+    assert!(!injected.exists(), "the session ran as script text");
 
-    // An empty session or command is refused before `tmt run`, with no member started.
-    for (session, command) in [("", "printf x"), ("other", "")] {
-        let refused = run(&world, session, command);
-        assert_eq!(refused.status.code(), Some(2), "{refused:?}");
-        assert!(
-            String::from_utf8_lossy(&refused.stderr)
-                .contains("a session and a command are required")
-        );
-    }
-    let listed = world.json(&["ls", "--json"]);
-    let names: Vec<&str> = listed["identities"]
+    // A temporary member whose provider exits during startup reports why, and leaves no
+    // identity behind: the dialog launches without --save for this reason.
+    let provider = world.root.join("bin/early-provider");
+    tmt_test_support::write_executable(
+        &provider,
+        b"#!/bin/sh\nprintf 'fixture-startup-refused\\n' >&2\nexit 23\n",
+        0o755,
+    )
+    .unwrap();
+    let early = run(
+        &world,
+        "ignored-session",
+        "tmt run --host pty temp-early early-provider",
+    );
+    world.remember();
+    world.remember_programs();
+    assert_eq!(early.status.code(), Some(23), "{early:?}");
+    assert!(
+        String::from_utf8_lossy(&early.stderr).contains("fixture-startup-refused"),
+        "{early:?}"
+    );
+
+    // An empty command is refused before `tmt run`, with no member started.
+    let refused = run(&world, "other", "");
+    assert_eq!(refused.status.code(), Some(2), "{refused:?}");
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("a command is required"));
+
+    let listed = world.json(&["ls", "--all", "--json"]);
+    let mut names: Vec<&str> = listed["identities"]
         .as_array()
         .unwrap()
         .iter()
         .filter_map(|row| row["name"].as_str())
         .collect();
-    // Only the two members started with a real name and command exist; the name with shell
-    // syntax is bound literally.
-    assert_eq!(names.len(), 2, "{listed}");
-    assert!(
-        names.contains(&"templated") && names.contains(&hostile_name.as_str()),
-        "{listed}"
-    );
+    names.sort_unstable();
+    assert_eq!(names, ["plain", "templated"], "{listed}");
     assert!(world.clean());
 }
 

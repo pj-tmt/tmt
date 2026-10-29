@@ -834,14 +834,17 @@ target as any session. A session name holds no `.` or `:`, which tmux rewrites.
 A command that ends before the mark is set leaves no pane to mark, and the
 template exits non-zero.
 
-The `pty` template opens no pane: `{session}` is the name the member is bound as and
-`{command}` the command line, and `sh -c` hands both to `tmt run --host pty` as
-positional arguments, so nothing is interpolated into the script. `tmt run` starts the
-member's supervisor in the background and returns once the managed launcher is admitted,
-printing the host and the bound name; closing the terminal that ran the template leaves
-the member running. The template writes no mark, because the host itself answers whether
-tmt opened a built-in pane. An empty name or command is refused (exit 2) before
-`tmt run`, and the `tmt` it runs is the one found on `PATH`.
+The `pty` template opens no pane, and the built-in host has no sessions. `{command}` must
+itself be one built-in-host launch, `tmt run --host pty NAME TOOL …`, and the template runs
+it whole with `sh -c`, so exactly that member starts (#5536). `{session}` is filled only
+because the grammar requires it; the built-in host ignores it, and it is never run.
+`tmt run` starts the member's supervisor in the background and returns once the managed
+launcher is admitted, printing the host and the bound name. A provider that ends during
+startup instead returns its own status and output, and a temporary identity it was bound
+as does not remain. Closing the terminal that ran the template leaves the member running.
+The template writes no mark, because the host itself answers whether tmt opened a
+built-in pane. An empty command is refused (exit 2) before anything runs, and the `tmt`
+it names is the one found on `PATH`.
 
 ## Trust boundary
 
