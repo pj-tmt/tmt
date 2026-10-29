@@ -499,27 +499,19 @@ renameSync(output+'.tmp',output);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
         fixture.tmux(['send-keys', '-l', '-t', shell.pane, path.join(shim, 'ops-new-peer')]);
         // Model remains provider-default, Squad remains product, Host/session
-        // remain tmux/product, and Saved remains selected.
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(7).fill('Tab')]);
+        // remain tmux/product, and Saved remains selected. Up from AI tool
+        // passes Name and wraps to Create.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Up', 'Up']);
         await fixture.waitForCapture(
           (screen) =>
-            screen.includes('Will run') &&
+            screen.includes('Runs') &&
             screen.includes('new-worker') &&
             screen.includes('ops-new-peer'),
           shell.pane
         );
         expect(durableState(fixture)).toEqual(before);
+        // No review step: Create launches the previewed command.
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-        await fixture.waitForCapture(
-          (screen) => screen.includes('New member') && screen.includes('Opens with'),
-          shell.pane
-        );
-        fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
-        await fixture.waitForCapture((screen) => {
-          const position = screen.match(/Read · \d+–(\d+) of (\d+)/);
-          return !position || position[1] === position[2];
-        }, shell.pane);
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Enter']);
         await fixture.waitForCapture(
           (screen) => screen.includes('Created new-worker in product.'),
           shell.pane
