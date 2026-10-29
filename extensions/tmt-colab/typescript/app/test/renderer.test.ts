@@ -232,3 +232,39 @@ test('the source part of the frame key: script-free pages share a key, any scrip
     expect(sourceFrameKey(scripted)).not.toBe(sourceFrameKey(`${scripted} `));
   }
 });
+
+test('closed details hide body targets through every ancestor but preserve the first summary', () => {
+  const start = script.indexOf('function hiddenByClosedDetails(');
+  const end = script.indexOf('function resolveSlots()', start);
+  const hidden = runInNewContext(`${script.slice(start, end)}; hiddenByClosedDetails`) as (
+    target: unknown,
+  ) => boolean;
+  const outer = {
+    localName: 'details',
+    open: false,
+    parentElement: null,
+    children: [] as unknown[],
+  };
+  const inner = {
+    localName: 'details',
+    open: true,
+    parentElement: outer,
+    children: [] as unknown[],
+  };
+  const target = { parentElement: inner };
+  const summary = { localName: 'summary', contains: (node: unknown) => node === target };
+  expect(hidden(target)).toBe(true);
+  outer.open = true;
+  expect(hidden(target)).toBe(false);
+  inner.open = false;
+  expect(hidden(target)).toBe(true);
+  inner.children = [summary];
+  expect(hidden(target)).toBe(false);
+  outer.open = false;
+  expect(hidden(target)).toBe(true);
+  outer.children = [summary];
+  expect(hidden(target)).toBe(false);
+  // Only the first summary is exposed by a closed details element.
+  inner.children = [{ localName: 'summary', contains: () => false }, summary];
+  expect(hidden(target)).toBe(true);
+});

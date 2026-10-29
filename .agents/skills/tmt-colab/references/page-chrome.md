@@ -232,6 +232,11 @@ open panels spatially; overlapping anchored windows fit above its reserved botto
 marks the hovered target; text-bearing clicks and completed selections open the retained
 anchored discussion. Textless targets show a temporary hint and create nothing. Readers
 have no toggle. No selection navigation prepares, publishes or sends an Ask.
+Compact question slots report closed-disclosure visibility through the existing cosmetic port. The parent
+keeps their controls mounted with `display:none` while hidden, retaining unsent drafts and measurements;
+opening any containing `details` recomputes placement. `e2e/question-chip.spec.ts` covers nested disclosures,
+focus exclusion and draft survival at 1440/390 in both themes, with captures attached to test results.
+
 Question cards follow the actual authored group/standalone bounds measured by the
 opaque frame, through the existing slot owner and its strict cosmetic protocol.
 The [inline slot contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)

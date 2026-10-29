@@ -1241,3 +1241,43 @@ test('a served question group records three answers and asks each recipient once
     );
   });
 });
+
+test('served question controls follow closed details and retain an unsent draft', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('details-answer-agent', { gated: true });
+    const browser = await pairBrowser(world, 'details-answer-reader', { talk: true });
+    const id = '10000000-0000-4000-8000-000000000096';
+    const created = createPage(
+      world,
+      'Questions in details',
+      `<h1>Review notes</h1><details id="questions"><summary>Review questions</summary><tmt-question data-id="${id}" data-kind="short"><p data-question>Which heading?</p></tmt-question></details><p>After the questions.</p>`,
+      agent.pane,
+      [{ id, agent: agent.id }],
+    );
+    const page = await openPage(door, browser, created);
+    const details = page.frameLocator('iframe').locator('#questions');
+    const row = page.locator('.question-line');
+    const slot = page.locator('.question-compact-inline');
+    await expect(slot).toHaveCSS('display', 'none');
+    await details.locator('summary').click();
+    await expect(row).toBeVisible();
+    await row.click();
+    const answer = page.getByLabel('Your answer', { exact: true });
+    await answer.fill('A retained draft');
+    await details.locator('summary').click();
+    await expect(slot).toHaveCSS('display', 'none');
+    expect(
+      await answer.evaluate((node) => {
+        (node as HTMLElement).focus();
+        return document.activeElement === node;
+      }),
+    ).toBe(false);
+    await details.locator('summary').click();
+    await expect(answer).toHaveValue('A retained draft');
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+  });
+});

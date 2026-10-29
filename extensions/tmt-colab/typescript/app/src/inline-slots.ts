@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import {
   INLINE_SLOT_LIMIT,
   type AnchorPosition,
+  type InlineSlot,
   type RenderState,
   type mountRenderer,
 } from './renderer.js';
@@ -69,9 +70,15 @@ export function useInlineSlots({
     );
     let frame: number | undefined;
     let previous = '';
+    const measured = new Map<string, InlineSlot>();
     const measure = () => {
       frame = undefined;
-      const heights = admitted.map((node) => {
+      const heights = admitted.map((node): InlineSlot => {
+        const id = node.dataset.inlineSlot!;
+        // display:none keeps the mounted draft but has no measurable box. Retain its
+        // request so the frame can report the same slot visible when details reopens.
+        if (node.style.display === 'none')
+          return measured.get(id) ?? { id, height: 0, chip: { width: 1, height: 1 } };
         const box = node.getBoundingClientRect();
         const chip = chips.get(node.dataset.inlineSlot!)?.getBoundingClientRect();
         if (chip)
@@ -92,6 +99,7 @@ export function useInlineSlots({
           height: Math.min(2000, Math.max(0, Math.ceil(box.bottom - description.bottom))),
         };
       });
+      heights.forEach((slot) => measured.set(slot.id, slot));
       const next = JSON.stringify(heights);
       if (next !== previous) {
         previous = next;
