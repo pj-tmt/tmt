@@ -33,7 +33,6 @@ pub struct FinalText {
     text: String,
     truncated: bool,
     original_bytes: usize,
-    digest: Option<String>,
 }
 impl std::fmt::Debug for FinalText {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -54,11 +53,10 @@ impl FinalText {
             text: kept.to_owned(),
             truncated: kept.len() < text.len(),
             original_bytes: text.len(),
-            digest: Some(crate::content_digest::sha256(text.as_bytes())),
         })
     }
     /// Admit already bounded durable text without losing its truncation provenance.
-    pub fn from_kept(text: &str, original_bytes: usize, digest: Option<&str>) -> Option<Self> {
+    pub fn from_kept(text: &str, original_bytes: usize) -> Option<Self> {
         if text.is_empty()
             || original_bytes as u128 > crate::limits::MAX_JS_SAFE_INTEGER as u128
             || text.len() > MAX_TEXT_BYTES
@@ -67,27 +65,11 @@ impl FinalText {
         {
             return None;
         }
-        if digest.is_some_and(|value| {
-            !crate::content_digest::is_sha256(value)
-                || (original_bytes == text.len()
-                    && value != crate::content_digest::sha256(text.as_bytes()))
-        }) {
-            return None;
-        }
         Some(Self {
             text: text.into(),
             truncated: original_bytes > text.len(),
             original_bytes,
-            digest: digest.map(str::to_owned).or_else(|| {
-                (original_bytes == text.len())
-                    .then(|| crate::content_digest::sha256(text.as_bytes()))
-            }),
         })
-    }
-    /// Private identity of the full provider text, computed before truncation.
-    /// Legacy truncated captures cannot prove equality and retain no digest.
-    pub fn digest(&self) -> Option<&str> {
-        self.digest.as_deref()
     }
     pub fn text(&self) -> &str {
         &self.text
@@ -104,28 +86,6 @@ impl FinalText {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn full_final_identity_survives_truncation_and_legacy_uncertainty_is_explicit() {
-        let prefix = "x".repeat(MAX_TEXT_BYTES);
-        let a = FinalText::new(&format!("{prefix}A")).unwrap();
-        let b = FinalText::new(&format!("{prefix}B")).unwrap();
-        assert_eq!(a.text(), b.text());
-        assert_eq!(a.original_bytes(), b.original_bytes());
-        assert_ne!(a.digest(), b.digest());
-        let restored = FinalText::from_kept(a.text(), a.original_bytes(), a.digest()).unwrap();
-        assert_eq!(restored, a);
-        assert!(
-            FinalText::from_kept(a.text(), a.original_bytes(), None)
-                .unwrap()
-                .digest()
-                .is_none()
-        );
-        let short = FinalText::new("complete").unwrap();
-        assert_eq!(FinalText::from_kept("complete", 8, None).unwrap(), short);
-        assert!(FinalText::from_kept("complete", 8, a.digest()).is_none());
-        assert!(FinalText::from_kept(a.text(), a.original_bytes(), Some("invalid")).is_none());
-    }
-
     #[test]
     fn byte_cap_preserves_scalars_and_line_endings_without_a_marker() {
         let text = format!("{}🦀tail", "x".repeat(MAX_TEXT_BYTES - 2));

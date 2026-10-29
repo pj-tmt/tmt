@@ -81,12 +81,10 @@ pub struct CaptureFollowUp {
 struct KeptFinal {
     text: String,
     original_bytes: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    digest: Option<String>,
 }
 impl KeptFinal {
     fn decode(&self) -> Result<FinalText, StorageError> {
-        FinalText::from_kept(&self.text, self.original_bytes, self.digest.as_deref())
+        FinalText::from_kept(&self.text, self.original_bytes)
             .ok_or_else(|| invalid("Invalid queued final text"))
     }
 }
@@ -507,7 +505,6 @@ impl CaptureEvent {
                     .map(|r| KeptFinal {
                         text: r.text.text().into(),
                         original_bytes: r.text.original_bytes(),
-                        digest: r.text.digest().map(str::to_owned),
                     }),
                 now_ms: capture.now_ms,
                 admitted,

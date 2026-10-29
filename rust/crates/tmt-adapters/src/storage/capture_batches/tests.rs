@@ -780,20 +780,6 @@ fn direct_capture_retains_distinct_finals_without_a_prompt_but_dedupes_identical
         .unwrap();
     let items = page["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
-    let digests: i64 = w
-        .storage
-        .connection()
-        .unwrap()
-        .query_row(
-            "SELECT count(DISTINCT content_digest) FROM recent_responses",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(
-        digests, 2,
-        "the direct path persists complete-final identity"
-    );
     assert_eq!(items[0]["text"], "different final without prompt");
     assert_ne!(items[0]["responseId"], items[1]["responseId"]);
     assert_eq!(

@@ -777,7 +777,7 @@ fn hooks_do_not_create_a_missing_queue_and_core_provisions_before_publishing_sch
     assert!(HookQueue::open(&main, Duration::ZERO).is_err());
     assert!(!HookQueue::path(&main).exists());
     let storage = Storage::open(&main).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 85);
+    assert_eq!(storage.health().unwrap().schema_version, 84);
     let queue = HookQueue::open(&main, Duration::ZERO).unwrap();
     let mode: String = queue
         .connection
@@ -1442,7 +1442,7 @@ fn oversized_optional_telemetry_cannot_discard_a_supplied_final() {
 }
 
 #[test]
-fn distinct_final_digests_keep_long_answers_and_retries_in_the_recorded_batch() {
+fn truncated_finals_stay_in_the_recorded_batch_when_equality_is_unprovable() {
     for delayed in [false, true] {
         let mut w = World::new();
         let prefix = "x".repeat(tmt_core::responses::MAX_TEXT_BYTES);
@@ -1465,7 +1465,7 @@ fn distinct_final_digests_keep_long_answers_and_retries_in_the_recorded_batch() 
         for expected in [
             CaptureResult::Committed,
             CaptureResult::Committed,
-            CaptureResult::Duplicate,
+            CaptureResult::Committed,
         ] {
             let decoded = queue.next().unwrap().unwrap();
             assert_eq!(w.storage.ingest_hook_capture(&decoded).unwrap(), expected);
@@ -1477,16 +1477,12 @@ fn distinct_final_digests_keep_long_answers_and_retries_in_the_recorded_batch() 
             w.storage.ingest_hook_capture(&second).unwrap(),
             CaptureResult::Committed
         );
-        assert_eq!(w.final_count(), 2);
+        assert_eq!(
+            w.final_count(),
+            3,
+            "a different event ID cannot prove a truncated retry is identical"
+        );
         let db = w.storage.connection().unwrap();
-        let count: i64 = db
-            .query_row(
-                "SELECT count(DISTINCT content_digest) FROM recent_responses",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count, 2, "same kept prefix and byte count are not equality");
         let placed: i64 = db
             .query_row(
                 "SELECT count(*) FROM capture_entries WHERE batch_id=? AND kind='final'",
@@ -1494,7 +1490,7 @@ fn distinct_final_digests_keep_long_answers_and_retries_in_the_recorded_batch() 
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(placed, 2);
+        assert_eq!(placed, 3);
         if delayed {
             assert_eq!(
                 BindingRows(db).session_preferences(&w.agent).unwrap(),
@@ -1506,31 +1502,19 @@ fn distinct_final_digests_keep_long_answers_and_retries_in_the_recorded_batch() 
 }
 
 #[test]
-fn a_legacy_truncated_final_cannot_prove_a_duplicate_but_complete_text_can() {
+fn truncated_equality_is_unknown_but_complete_text_dedupes_in_the_same_batch() {
     for truncated in [false, true] {
         let mut w = World::new();
         let text = if truncated {
             "x".repeat(tmt_core::responses::MAX_TEXT_BYTES + 1)
         } else {
-            "complete legacy final".into()
+            "complete final".into()
         };
         let first = w.event(&text, false);
-        let mut legacy = serde_json::to_value(&first).unwrap();
-        legacy["capture"]["response"]
-            .as_object_mut()
-            .unwrap()
-            .remove("digest");
-        let legacy: CaptureEvent = serde_json::from_value(legacy).unwrap();
         assert_eq!(
-            w.storage.ingest_hook_capture(&legacy).unwrap(),
+            w.storage.ingest_hook_capture(&first).unwrap(),
             CaptureResult::Committed
         );
-        // Model an upgraded row whose full text was never available to hash.
-        w.storage
-            .connection()
-            .unwrap()
-            .execute("UPDATE recent_responses SET content_digest=NULL", [])
-            .unwrap();
         let repeated = w.event(&text, false);
         assert_eq!(
             w.storage.ingest_hook_capture(&repeated).unwrap(),
@@ -1564,4 +1548,36 @@ fn identical_finals_in_different_admitted_batches_are_both_retained() {
         current(w.storage.connection().unwrap(), &w.agent).unwrap(),
         previous
     );
+}
+
+#[test]
+fn new_queued_finals_round_trip_through_the_shipped_strict_payload_shape() {
+    // Frozen KeptFinal wire shape from main4b1b27805, before #5534. A running old flusher
+    // rejects unknown fields and quarantines the row, so additions are unsafe.
+    #[derive(serde::Deserialize, serde::Serialize)]
+    #[serde(deny_unknown_fields)]
+    struct ShippedKeptFinal {
+        text: String,
+        original_bytes: usize,
+    }
+    let w = World::new();
+    let text = "x".repeat(tmt_core::responses::MAX_TEXT_BYTES + 1);
+    let event = w.event(&text, false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    queue.enqueue(&event).unwrap();
+    let payload: String = queue
+        .connection
+        .query_row("SELECT payload FROM hook_writes", [], |row| row.get(0))
+        .unwrap();
+    let wire: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    let response = wire["capture"]["response"].clone();
+    let old: ShippedKeptFinal = serde_json::from_value(response.clone())
+        .expect("a running old flusher must decode a new row");
+    assert_eq!(old.original_bytes, text.len());
+    assert_eq!(old.text, "x".repeat(tmt_core::responses::MAX_TEXT_BYTES));
+    assert_eq!(serde_json::to_value(old).unwrap(), response);
+    let mut incompatible = response;
+    incompatible["digest"] = serde_json::json!("a".repeat(64));
+    assert!(serde_json::from_value::<ShippedKeptFinal>(incompatible).is_err());
+    assert_eq!(queue.next().unwrap().unwrap().id(), event.id());
 }

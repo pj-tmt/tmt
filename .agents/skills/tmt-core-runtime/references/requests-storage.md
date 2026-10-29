@@ -411,11 +411,12 @@ queue writer without waiting while it commits the bounded receipt cleanup, and s
 cleanup when the queue is busy. Old invalid receipts and closed or expired, unqueued provisional
 reservations are pruned in the same bounded housekeeping. The recorded batch owns final placement:
 a newer prompt or rebind cannot lose the final or have its activity/turn state changed.
-Ordinary Stops dedupe only the same event id or full-final digest in the recorded batch; a
-distinct final survives a missing prompt boundary without changing newer turn state. Schema 85
-adds the nullable private response digest, computed before truncation and carried by new queue
-events. A legacy truncated prefix without a digest cannot establish equality, so its final is
-kept. Separate continuations retain separate ids. A pre-upgrade turn without a batch gets a provisional id; queue serialization
+Ordinary Stops dedupe only the same event id or exact text in that recorded batch when
+neither final was truncated. If either was truncated, equality is unprovable and the final is
+kept; a different event id may therefore retain an identical long retry. The queued payload
+shape stays unchanged so an already-running old flusher can still decode new rows.
+A distinct final survives a missing prompt boundary without changing newer turn state.
+Separate continuations retain separate ids. A pre-upgrade turn without a batch gets a provisional id; queue serialization
 shares it across Stops even after acknowledgment, and ingestion creates it without
 displacing a newer turn. Retirement or a missing previously recorded batch leaves a
 durable failure receipt. On the queued path, append failure alone projects a capture-failure caption;

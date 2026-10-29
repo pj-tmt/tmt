@@ -72,7 +72,7 @@ fn the_provider_rebuild_preserves_rows_ids_high_water_indexes_foreign_keys_and_t
         )
         .is_err()
     );
-    apply_through(&mut db, 79).unwrap();
+    apply(&mut db).unwrap();
     assert_eq!(
         snapshot(&db),
         before,
@@ -134,7 +134,7 @@ fn an_empty_pruned_table_keeps_its_high_water_and_a_fresh_table_starts_at_one() 
             )
             .unwrap();
         }
-        apply_through(&mut db, 79).unwrap();
+        apply(&mut db).unwrap();
         response(&db, "agy").unwrap();
         assert_eq!(db.last_insert_rowid(), if pruned { 901 } else { 1 });
         assert_eq!(
@@ -157,10 +157,7 @@ fn a_refused_migration_record_rolls_back_both_rebuilds_and_can_be_retried() {
         "SELECT type,name,sql FROM sqlite_schema ORDER BY type,name",
     );
     db.execute_batch("CREATE TRIGGER refuse_capture_migration BEFORE INSERT ON _migrations WHEN NEW.version=79 BEGIN SELECT RAISE(ABORT,'forced capture migration rollback'); END;").unwrap();
-    assert_eq!(
-        apply_through(&mut db, 79).unwrap_err().migration_version,
-        Some(79)
-    );
+    assert_eq!(apply(&mut db).unwrap_err().migration_version, Some(79));
     assert_eq!(snapshot(&db), before);
     db.execute_batch("DROP TRIGGER refuse_capture_migration")
         .unwrap();
@@ -181,7 +178,7 @@ fn a_refused_migration_record_rolls_back_both_rebuilds_and_can_be_retried() {
         rows(&db, "PRAGMA foreign_keys"),
         vec![vec![Value::Integer(1)]]
     );
-    apply_through(&mut db, 79).unwrap();
+    apply(&mut db).unwrap();
     assert_eq!(snapshot(&db), before);
     response(&db, "agy").unwrap();
 }

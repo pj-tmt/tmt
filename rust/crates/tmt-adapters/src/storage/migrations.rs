@@ -418,7 +418,6 @@ const MIGRATIONS: &[Migration] = &[
         "schema/083.sql"
     ),
     migration!("receipt durable hook capture ingestion", "schema/084.sql"),
-    migration!("retain complete provider-final digests", "schema/085.sql"),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
@@ -1005,55 +1004,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn complete_final_digest_migration_is_nullable_and_preserves_legacy_response_bytes() {
-        let mut db = Connection::open_in_memory().unwrap();
-        apply_through(&mut db, 84).unwrap();
-        db.execute_batch("INSERT INTO identities(id,name,canonical_name,created_at,updated_at) VALUES('agent','Agent','agent','now','now');
-            INSERT INTO recent_responses(identity_id,text,ended_ms,provider,truncated,session_id,expires_ms,original_bytes)
-            VALUES('agent','legacy final',100,'claude',0,'session',1000000,12);").unwrap();
-        let before: (i64, String, i64) = db
-            .query_row(
-                "SELECT sequence,text,expires_ms FROM recent_responses",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .unwrap();
-        apply_through(&mut db, 85).unwrap();
-        let after: (i64, String, i64, Option<String>) = db
-            .query_row(
-                "SELECT sequence,text,expires_ms,content_digest FROM recent_responses",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .unwrap();
-        assert_eq!((after.0, after.1, after.2), before);
-        assert!(after.3.is_none());
-        assert!(
-            db.execute("UPDATE recent_responses SET content_digest='invalid'", [])
-                .is_err()
-        );
-        let prior: i64 = db
-            .query_row("SELECT value FROM change_cursor", [], |r| r.get(0))
-            .unwrap();
-        db.execute(
-            "UPDATE recent_responses SET content_digest=?",
-            ["a".repeat(64)],
-        )
-        .unwrap();
-        let next: i64 = db
-            .query_row("SELECT value FROM change_cursor", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(next, prior + 1);
-    }
-
-    #[test]
     fn binding_reservation_migration_preserves_active_binding_and_enforces_fences() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .pragma_update(None, "foreign_keys", "ON")
             .unwrap();
-        // Pin this fixture to the reservation migration's actual predecessor.
-        apply_through(&mut connection, 82).unwrap();
+        apply_through(&mut connection, MIGRATIONS.len() - 1).unwrap();
         connection.execute_batch(
             "INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES
                 ('one', 'One', 'one', 'now', 'now'), ('two', 'Two', 'two', 'now', 'now');
