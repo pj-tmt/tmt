@@ -1,4 +1,5 @@
 import type { DiscussionRef } from './thread-records.js';
+import type { AnchorPosition } from './renderer.js';
 import type { ComposerConnectionPresentation } from './router.js';
 import {
   useEffect,
@@ -40,7 +41,7 @@ export function useProposalLayer({
   setActiveThread,
   slotPositions,
 }: {
-  slotPositions: { id: string; top: number }[];
+  slotPositions: readonly AnchorPosition[];
   snapshot: PageSnapshot;
   view: PageView;
   binding: RefObject<PageBinding | undefined>;
@@ -329,7 +330,7 @@ export function useProposalLayer({
       const thread = proposals.find((thread) => thread.proposal!.proposalId === id);
       return (
         !!thread &&
-        slotPositions.some((slot) => slot.id === thread.threadId) &&
+        slotPositions.some((slot) => slot.id === thread.threadId && !slot.hidden) &&
         focusNeedsYouTarget(targets.current.get(id))
       );
     },
@@ -340,7 +341,7 @@ export function useProposalLayer({
       );
       if (!thread || proposalBusy.current) return;
       if (
-        slotPositions.some((slot) => slot.id === thread.threadId) &&
+        slotPositions.some((slot) => slot.id === thread.threadId && !slot.hidden) &&
         proposals.filter((candidate) => candidate.threadId === thread.threadId).length === 1
       ) {
         setRevealedHistory(`${ref.writer}:${ref.id}`);
@@ -367,8 +368,8 @@ export function useProposalLayer({
                 data-inline-proposal={thread.threadId}
                 data-inline-slot={thread.threadId}
                 className="proposal-inline"
-                data-detached={!slot || undefined}
-                style={{ top: slot?.top ?? 0 }}
+                data-detached={!slot || slot.hidden || undefined}
+                style={{ top: slot?.top ?? 0, display: slot?.hidden ? 'none' : undefined }}
               >
                 {proposalCard(thread)}
               </div>
@@ -377,6 +378,10 @@ export function useProposalLayer({
       </>
     ),
     renderProposal: (thread: ThreadView) =>
-      proposalCard(thread, !slotPositions.some((slot) => slot.id === thread.threadId), 'comments'),
+      proposalCard(
+        thread,
+        !slotPositions.some((slot) => slot.id === thread.threadId && !slot.hidden),
+        'comments',
+      ),
   };
 }

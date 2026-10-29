@@ -81,7 +81,7 @@ function validChipRect(rect: unknown): rect is ChipRect {
 export interface AnchorPosition {
   id: string;
   top: number;
-  /** A requested compact block inside a closed disclosure; no geometry is admitted. */
+  /** A requested slot inside a closed disclosure; no geometry is admitted. */
   hidden?: true;
   beforeTop?: number;
   descriptionHeight?: number;
@@ -761,7 +761,7 @@ export async function mountRenderer(
         const requested = slotHeights.find((item) => item.id === slot?.id);
         const answer = requested?.before !== undefined;
         const chip = requested?.chip !== undefined;
-        const hidden = chip && slot?.hidden === true;
+        const hidden = slot?.hidden === true;
         const keys = hidden
           ? ['id', 'hidden']
           : chip
@@ -778,8 +778,6 @@ export async function mountRenderer(
           typeof slot.id !== 'string' ||
           !admitted.has(slot.id) ||
           seen.has(slot.id) ||
-          (hidden &&
-            !questionGroups.some((group) => group.id === slot.id && group.form === 'chip')) ||
           (!hidden &&
             (typeof slot.top !== 'number' ||
               !Number.isFinite(slot.top) ||
