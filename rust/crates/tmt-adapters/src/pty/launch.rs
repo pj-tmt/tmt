@@ -12,6 +12,8 @@ use std::{
 };
 
 pub struct StartedMember {
+    pub identity_id: String,
+    pub binding_id: String,
     pub pane: String,
     pub name: String,
     pub socket: String,
@@ -137,6 +139,8 @@ pub fn start_member(
         )
     });
     Ok(StartedMember {
+        identity_id: marker.identity_id,
+        binding_id: marker.binding_id,
         name: marker.name,
         cleanup_warning,
         socket: socket_path(&directory, &pane)

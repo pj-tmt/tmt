@@ -84,16 +84,38 @@ impl World {
     }
 
     fn outer_with(&mut self, label: &str, command: &str, cols: u16) -> Connection {
+        self.outer_command(label, &format!("{command} -- alpha"), cols, false)
+    }
+
+    fn outer_command(
+        &mut self,
+        label: &str,
+        command: &str,
+        cols: u16,
+        outside_host: bool,
+    ) -> Connection {
         let directory = self.root.join("outer");
         let before = self.root.join(format!("{label}.before"));
         let after = self.root.join(format!("{label}.after"));
         let status = self.root.join(format!("{label}.status"));
         let pid = self.root.join(format!("{label}.attach-pid"));
         let script = format!(
-            "{stty} cols {cols}; {stty} -g > {before}; read ready; exec 3<&0; {cli} {command} -- alpha <&3 3<&- & attached=$!; printf '%s' \"$attached\" > {pid}; wait \"$attached\"; result=$?; {stty} -g > {after}; printf '%s' \"$result\" > {status}; printf 'OUTER-DONE\\n'; read end",
+            "{stty} cols {cols}; {stty} -g > {before}; read ready; {outside} exec 3<&0; {cli} {command} <&3 3<&- & attached=$!; printf '%s' \"$attached\" > {pid}; wait \"$attached\"; result=$?; {stty} -g > {after}; printf '%s' \"$result\" > {status}; printf 'OUTER-DONE\\n'; read end",
             stty = stty(),
             cli = quote(env!("CARGO_BIN_EXE_tmt")),
             command = command,
+            // The outer PTY supplies a real terminal, but the run scenario must
+            // exercise an ordinary terminal outside any TMT host locator.
+            outside = if outside_host {
+                let home = support::state_dir(&self.root);
+                assert!(home.starts_with(&self.root));
+                format!(
+                    "unset TMT_PTY_PANE TMT_PTY_SOCKET; export TMT_HOME={};",
+                    quote(home.to_str().unwrap())
+                )
+            } else {
+                String::new()
+            },
             cols = cols,
             before = quote(before.to_str().unwrap()),
             after = quote(after.to_str().unwrap()),
@@ -389,5 +411,57 @@ fn focus_uses_attach_and_supervisor_loss_restores_without_claiming_program_exit(
     assert!(text.contains("does not prove the agent ended"), "{text}");
     assert!(!text.contains("resume with:"));
     world.restored("pty_focus", 1);
+    assert!(world.clean());
+}
+
+#[test]
+fn interactive_run_attaches_then_detaches_without_stopping_the_new_member() {
+    let mut world = World::new();
+    let program = format!(
+        "printf '%s' \"$$\" > {}; {} -echo; while IFS= read -r line; do case \"$line\" in exit) exit 7;; *) printf 'RUN-REPLY:%s\\n' \"$line\";; esac; done",
+        quote(world.root.join("alpha.pid").to_str().unwrap()),
+        stty(),
+    );
+    let command = format!("run --save -- alpha /bin/sh -c {}", quote(&program));
+    let mut outer = world.outer_command("pty_run", &command, 80, true);
+    world.remember();
+    world.remember_programs();
+    outer.input(b"new-member-input\r").unwrap();
+    output_until(&mut outer, b"RUN-REPLY:new-member-input");
+    outer.input(b"\x1c").unwrap();
+    output_until(&mut outer, b"OUTER-DONE");
+    world.restored("pty_run", 0);
+    let list = world.json(&["ls", "alpha", "--json"]);
+    assert_eq!(list["identity"]["name"], "alpha", "{list}");
+    assert_eq!(list["presence"], "active", "{list}");
+    let original_pane = list["pane"]["id"].clone();
+    let mut again = world.outer("pty_run_again", false);
+    again.input(b"same-member-input\r").unwrap();
+    output_until(&mut again, b"RUN-REPLY:same-member-input");
+    let list = world.json(&["ls", "alpha", "--json"]);
+    assert_eq!(list["pane"]["id"], original_pane);
+    again.input(b"exit\r").unwrap();
+    output_until(&mut again, b"OUTER-DONE");
+    world.restored("pty_run_again", 7);
+    assert!(world.clean());
+}
+
+#[test]
+fn interactive_run_reports_the_attached_program_exit_and_restores_the_terminal() {
+    let mut world = World::new();
+    let program = format!(
+        "{} -echo; read line; printf 'RUN-EXIT:%s\\n' \"$line\"; exit 9",
+        stty(),
+    );
+    let command = format!("run --save -- alpha /bin/sh -c {}", quote(&program));
+    let mut outer = world.outer_command("pty_run_exit", &command, 80, true);
+    world.remember();
+    world.remember_programs();
+    outer.input(b"owned-exit\r").unwrap();
+    let output = output_until(&mut outer, b"OUTER-DONE");
+    let text = String::from_utf8_lossy(&output);
+    assert!(text.contains("RUN-EXIT:owned-exit"), "{text}");
+    assert!(text.contains("resume with:"), "{text}");
+    world.restored("pty_run_exit", 9);
     assert!(world.clean());
 }

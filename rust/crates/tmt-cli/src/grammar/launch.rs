@@ -7,7 +7,7 @@ pub(in crate::grammar) fn run() -> Command {
     let command = base(spec!(
         "run",
         "Start a known agent, or bind this pane and run a command",
-        details = "Paste delivery is the default. Experimental message channels require experimental.channel=true in global config.",
+        details = "Outside a host, an interactive terminal attaches to the new built-in member; Ctrl-\\ leaves it running. Piped callers return after startup confirmation. Paste delivery is the default. Experimental message channels require experimental.channel=true in global config.",
         [
             "Start and name an agent" => "tmt run worker claude",
             "Save the agent for later" => "tmt run --save worker claude",
