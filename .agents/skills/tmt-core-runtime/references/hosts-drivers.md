@@ -330,6 +330,11 @@ stream through the public `terminal.stream` API rather than deriving socket path
   or continued liveness; first-run sign-in need not emit hooks. Startup receipt controls
   are ephemeral and grant no session authority. An uncertain launch
   names the pane for inspection and never resends or stops a possibly running member.
+  A confirmed new `run` enters the existing attach owner when stdin/stdout support
+  an interactive view. The receipt pins its identity and binding before terminal
+  input; name changes cannot redirect it. Pipes and dumb terminals return after
+  confirmation; resume keeps its existing behavior. Attachment refusal or loss
+  never relaunches or stops the member. Ctrl-\ leaves it running as with `attach`.
 - **Evidence and markers.** Core observes the supervisor and pane process incarnations
   and verifies their direct parent/child relationship. Publication requires the matching
   pane PID; removal compares the binding key. Errors stay Unknown; only native process

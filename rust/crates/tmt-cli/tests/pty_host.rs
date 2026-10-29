@@ -311,6 +311,14 @@ fn run_without_tmux_starts_independent_members_and_check_reads_causal_output() {
             &script,
         ]);
         assert!(result.status.success(), "{name}: {result:?}");
+        // This launch has piped output and null input: it must return after
+        // confirmation, without acquiring a terminal or waiting for the member.
+        assert!(
+            !result
+                .stdout
+                .windows(8)
+                .any(|bytes| bytes == b"\x1b[?1049h")
+        );
         assert!(
             String::from_utf8_lossy(&result.stderr).contains("host pty"),
             "{result:?}"
