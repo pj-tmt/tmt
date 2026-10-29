@@ -228,7 +228,7 @@ fn tile_row(
         return Line::from(vec![
             Span::styled(label, look.role(Role::Text)),
             Span::styled(pad("—", LEFT, true), look.role(Role::Dim)),
-            Span::styled("  no limit source", look.role(Role::Muted)),
+            Span::styled("  no recent reading", look.role(Role::Muted)),
         ]);
     };
     let (outlook, runs_out) = match weekly.worst() {

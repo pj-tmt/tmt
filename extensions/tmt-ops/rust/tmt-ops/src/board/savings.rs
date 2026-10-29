@@ -6,7 +6,6 @@
 /// Captions, key/value rows and matrices share the same unit evidence.
 pub(in crate::board) fn savings_value(
     summary: &crate::labels::digest::SavingsSummary,
-    window: crate::config::DigestWindow,
     unit: crate::config::SavingsUnit,
 ) -> (Option<String>, String, Option<&'static str>) {
     use crate::config::SavingsUnit;
@@ -64,7 +63,7 @@ pub(in crate::board) fn savings_caption(
     width: usize,
 ) -> String {
     use unicode_width::UnicodeWidthStr;
-    let (value, coverage, note) = savings_value(summary, window, unit);
+    let (value, coverage, note) = savings_value(summary, unit);
     let value = value.unwrap_or_else(|| "—".into());
     let build = |label: &str, note: Option<&str>| {
         format!(
@@ -94,7 +93,7 @@ pub(in crate::board) fn compact_savings_caption(
     width: usize,
 ) -> Option<String> {
     use unicode_width::UnicodeWidthStr;
-    let (value, coverage, note) = savings_value(summary, window, unit);
+    let (value, coverage, note) = savings_value(summary, unit);
     let value = value?;
     let value = value
         .strip_suffix(" at list price")
@@ -222,8 +221,8 @@ mod tests {
         );
         value.tokens = Some(1_400_000);
         assert_eq!(
-            super::savings_caption(&value, DigestWindow::AllTime, SavingsUnit::Tokens, 100),
-            "Est. ctx avoided all time: 1.4M (3 of 5)"
+            super::savings_caption(&value, DigestWindow::Week, SavingsUnit::Tokens, 100),
+            "Est. ctx avoided 7d: 1.4M (3 of 5)"
         );
         value.tokens = Some(0);
         value.included = 5;
@@ -276,11 +275,6 @@ mod tests {
         assert_eq!(
             caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
             "Est. ctx avoided 1d: ≈ $12.40 at list price (2 of 3)"
-        );
-        // Lifetime has no percent: the saved choice reads as tokens.
-        assert_eq!(
-            caption(&value, DigestWindow::AllTime, SavingsUnit::Percent, 100),
-            "Est. ctx avoided all time: 18.2k"
         );
         // The qualifier that stops cost reading as money saved never narrows away.
         assert!(

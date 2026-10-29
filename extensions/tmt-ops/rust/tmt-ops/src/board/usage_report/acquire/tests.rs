@@ -332,7 +332,15 @@ fn skewed_batch_clocks_keep_the_all_row_total_and_activity_on_one_cut() {
                 .all(|call| call["input"]["throughMs"] == CUT)
         );
 
+        // The Digest tab reads only its own windows.
+        let Some(window) = crate::config::DigestWindow::ALL
+            .into_iter()
+            .find(|window| window.range() == range)
+        else {
+            continue;
+        };
         let mut app = board();
+        app.digest_window = window;
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         let template = snapshot.roster.members.values().next().unwrap().clone();
         snapshot.roster.members.clear();

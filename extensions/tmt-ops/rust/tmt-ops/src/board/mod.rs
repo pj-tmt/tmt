@@ -2849,39 +2849,19 @@ print(json.dumps(out))
     }
 
     #[test]
-    fn a_published_digest_window_wakes_the_existing_reader_once_and_cancelled_views_do_not() {
+    fn a_changed_digest_window_wakes_the_existing_reader_once() {
         use crate::config::DigestWindow;
         let mut app = app::workspace::tests::board();
-        let make = |window| {
+        // A restored or chosen window, as view state applies it before the loop sees it.
+        app.digest_window = DigestWindow::Week;
+        let snapshot = || {
             let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
             snapshot.view = Ok(app::workspace::tests::board().view.take().unwrap());
             snapshot
-                .view
-                .as_mut()
-                .unwrap()
-                .home
-                .as_mut()
-                .unwrap()
-                .workspace
-                .preferences
-                .digest_window = window;
-            snapshot
         };
         let (events, input) = channel();
-        events
-            .send(snapshot_event(make(DigestWindow::Week)))
-            .unwrap();
-        events
-            .send(snapshot_event(make(DigestWindow::Week)))
-            .unwrap();
-        let cancelled = crate::runner::Cancellation::default();
-        cancelled.cancel();
-        events
-            .send(BoardEvent::Snapshot {
-                cancellation: cancelled,
-                snapshot: Box::new(make(DigestWindow::AllTime)),
-            })
-            .unwrap();
+        events.send(snapshot_event(snapshot())).unwrap();
+        events.send(snapshot_event(snapshot())).unwrap();
         events.send(BoardEvent::InputClosed).unwrap();
         let windows = std::cell::RefCell::new(Vec::new());
         super::session(

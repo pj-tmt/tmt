@@ -248,7 +248,6 @@ pub(super) fn detail_lines(
     let summary = metrics::savings(app, &ids);
     text.extend(super::summary::fields(
         &summary,
-        app.digest_window(),
         ["Est. ctx avoided", "List-price equivalent:"],
     ));
     if let Some(points) = summary.percent.value {

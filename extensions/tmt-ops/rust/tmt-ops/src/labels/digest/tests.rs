@@ -147,7 +147,7 @@ fn threshold_zero_retains_scheduled_deadline_and_additive_fields_are_ignored() {
 
 #[test]
 fn published_savings_keep_the_supplied_window_coverage_and_known_zero() {
-    for (window, tokens) in [("24h", 2700), ("7d", 0), ("lifetime", 18_200)] {
+    for (window, tokens) in [("24h", 2700), ("7d", 0)] {
         let mut document = document();
         let id = document["members"][0]["identityId"]
             .as_str()
@@ -209,22 +209,22 @@ fn digest_window_uses_supplier_arguments_and_honest_display_names() {
     for (window, argument, label) in [
         (DigestWindow::Day, "24h", "1d"),
         (DigestWindow::Week, "7d", "7d"),
-        (DigestWindow::AllTime, "lifetime", "all time"),
     ] {
         assert_eq!(DigestWindow::parse(argument), Some(window));
+        assert_eq!(DigestWindow::parse(label), Some(window));
         assert_eq!(window.argument(), argument);
         assert_eq!(window.label(), label);
     }
-    assert_eq!(DigestWindow::parse("1h"), None);
+    // The Digest tab offers no lifetime window: TOK has none to set beside it.
+    for unknown in ["1h", "lifetime", "all time"] {
+        assert_eq!(DigestWindow::parse(unknown), None, "{unknown}");
+    }
 }
 
 #[test]
 fn independently_dated_estimates_sum_once_with_explicit_unavailable_members() {
-    let mut document = with_savings(
-        "lifetime",
-        &[(100, 1000, 2700), (200, 2000, 0), (300, 3000, 99)],
-    );
-    document["members"][2]["savings"]["window"] = json!("7d");
+    let mut document = with_savings("7d", &[(100, 1000, 2700), (200, 2000, 0), (300, 3000, 99)]);
+    document["members"][2]["savings"]["window"] = json!("24h");
     let status = parse(&document).unwrap();
     let ids: Vec<_> = document["members"]
         .as_array()
@@ -237,7 +237,7 @@ fn independently_dated_estimates_sum_once_with_explicit_unavailable_members() {
     let summary = summarize_savings(
         Some((&status, false)),
         supplied,
-        crate::config::DigestWindow::AllTime,
+        crate::config::DigestWindow::Week,
     );
     assert_eq!(
         summary,
@@ -252,7 +252,7 @@ fn independently_dated_estimates_sum_once_with_explicit_unavailable_members() {
     );
     for evidence in [None, Some((&status, true))] {
         assert_eq!(
-            summarize_savings(evidence, supplied, crate::config::DigestWindow::AllTime),
+            summarize_savings(evidence, supplied, crate::config::DigestWindow::Week),
             SavingsSummary {
                 total: 4,
                 ..Default::default()
@@ -263,7 +263,7 @@ fn independently_dated_estimates_sum_once_with_explicit_unavailable_members() {
         summarize_savings(
             Some((&status, false)),
             [ids[1]],
-            crate::config::DigestWindow::AllTime
+            crate::config::DigestWindow::Week
         )
         .tokens,
         Some(0)
@@ -275,7 +275,8 @@ fn independently_dated_estimates_sum_once_with_explicit_unavailable_members() {
             crate::config::DigestWindow::Day
         )
         .tokens,
-        None
+        Some(99),
+        "only the member with the asked window counts"
     );
 }
 
@@ -290,6 +291,7 @@ fn malformed_optional_estimates_never_poison_other_status_evidence() {
         ("estimatedInputTokensAvoided", json!(SAFE + 1)),
         ("method", json!(false)),
         ("window", json!("1h")),
+        ("window", json!("lifetime")),
         ("complete", json!("true")),
         ("gap", json!(42)),
         ("gap", json!("missing_context")),
@@ -360,11 +362,7 @@ fn source_window_argv_is_supplier_owned_and_other_sources_remain_generic() {
         status_arguments("digest", DigestWindow::Week),
         ["digest", "status", "--window", "7d"]
     );
-    assert_eq!(
-        status_arguments("digest", DigestWindow::AllTime),
-        ["digest", "status", "--window", "lifetime"]
-    );
-    for window in [DigestWindow::Day, DigestWindow::Week, DigestWindow::AllTime] {
+    for window in DigestWindow::ALL {
         assert_eq!(
             status_arguments("other-supplier", window),
             ["other-supplier", "status"]
@@ -568,20 +566,9 @@ fn each_valuation_fails_alone_and_never_removes_the_token_figure() {
 }
 
 #[test]
-fn valuations_need_their_parent_evidence_and_lifetime_has_no_percent() {
+fn valuations_need_their_parent_evidence() {
     let cost = quote("2026-10-14", 5400);
     let percent = share(2700, 7300, 60_000, 120_000);
-    // Lifetime percent is always null, even if a supplier sends one.
-    let document = with_valuations("lifetime", &[(2700, cost.clone(), percent.clone())]);
-    let id = document["members"][0]["identityId"].as_str().unwrap();
-    let savings = parse(&document).unwrap().members[id]
-        .savings
-        .clone()
-        .unwrap();
-    assert_eq!(
-        (savings.cost.is_some(), savings.percent.is_some()),
-        (true, false)
-    );
     // A gap nulls the token figure, so nothing can be quoted or compared.
     let mut gap = with_valuations("24h", &[(2700, cost, percent)]);
     gap["members"][0]["savings"]["estimatedInputTokensAvoided"] = Value::Null;
@@ -704,14 +691,6 @@ fn percents_combine_numerators_over_one_exact_interval_and_never_average() {
             conflict: false
         },
         "a member without a percent is excluded, and coverage says so"
-    );
-    let lifetime = with_valuations(
-        "lifetime",
-        &[(100, Value::Null, share(100, 100, 60_000, 120_000))],
-    );
-    assert_eq!(
-        summarize(&lifetime, DigestWindow::AllTime).percent,
-        Valuation::default()
     );
 }
 

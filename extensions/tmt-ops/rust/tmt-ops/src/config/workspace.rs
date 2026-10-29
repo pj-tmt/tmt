@@ -1733,7 +1733,6 @@ mod tests {
             reversed: true,
             layout: OpsLayout::Stack,
             tok_range: TokRange::default(),
-            digest_window: super::super::DigestWindow::default(),
             savings_unit: super::super::SavingsUnit::Cost,
             overview_sort: None,
             overview_panels: None,
@@ -1769,7 +1768,6 @@ mod tests {
             config.save_workspace_preferences(&expected, &next).unwrap();
             let loaded = fixture.config().workspace_preferences().unwrap();
             assert_eq!(loaded, next);
-            assert_eq!(loaded.digest_window, initial.digest_window);
             assert_eq!(loaded.layout, initial.layout);
             assert!(
                 fs::read_to_string(config.path())
@@ -1825,32 +1823,40 @@ mod tests {
     }
 
     #[test]
-    fn digest_window_uses_one_workspace_preference_and_preserves_authored_text() {
-        use super::super::DigestWindow;
+    fn an_authored_digest_window_loads_is_ignored_and_is_never_written() {
+        // The window is the Digest tab's view state; an older file keeps loading unchanged.
+        for text in [
+            "[workspace]\ndigest_window='lifetime'",
+            "[workspace]\ndigest_window='7d'",
+            "[workspace]\ndigest_window=7",
+        ] {
+            let config = config(text);
+            let before = config.document.to_string();
+            assert_eq!(
+                config.workspace_preferences().unwrap(),
+                OpsPreferences::default(),
+                "{text}"
+            );
+            assert_eq!(config.document.to_string(), before);
+        }
         let fixture = FileFixture::new();
         let mut config = fixture.config();
-        assert_eq!(
-            config.workspace_preferences().unwrap().digest_window,
-            DigestWindow::Day
+        let expected = config.workspace_preferences().unwrap();
+        let next = OpsPreferences {
+            reversed: !expected.reversed,
+            ..expected.clone()
+        };
+        config.save_workspace_preferences(&expected, &next).unwrap();
+        assert!(
+            !fs::read_to_string(config.path())
+                .unwrap()
+                .contains("digest_window")
         );
-        for window in [DigestWindow::Week, DigestWindow::AllTime, DigestWindow::Day] {
-            let expected = config.workspace_preferences().unwrap();
-            let next = OpsPreferences {
-                digest_window: window,
-                ..expected.clone()
-            };
-            config.save_workspace_preferences(&expected, &next).unwrap();
-            config = fixture.config();
-            assert_eq!(config.workspace_preferences().unwrap(), next);
-            let bytes = fs::read_to_string(config.path()).unwrap();
-            assert!(bytes.contains("# preserve user text"));
-            assert_eq!(config.document["bind"]["j"].as_str(), Some("copy"));
-        }
     }
 
     #[test]
-    fn savings_unit_is_one_additive_preference_beside_the_window() {
-        use super::super::{DigestWindow, SavingsUnit};
+    fn savings_unit_is_one_additive_preference() {
+        use super::super::SavingsUnit;
         let fixture = FileFixture::new();
         let mut config = fixture.config();
         assert_eq!(
@@ -1867,7 +1873,6 @@ mod tests {
             config = fixture.config();
             let loaded = config.workspace_preferences().unwrap();
             assert_eq!(loaded, next);
-            assert_eq!(loaded.digest_window, expected.digest_window);
             assert!(
                 fs::read_to_string(config.path())
                     .unwrap()
@@ -1883,68 +1888,10 @@ mod tests {
             assert!(bad.workspace_preferences().is_err());
             assert_eq!(bad.document.to_string(), before);
         }
-        // The order is tokens, percent, cost; lifetime has no percent.
-        let order = |window| {
-            let mut seen = vec![SavingsUnit::Tokens];
-            while seen.len() < 4 {
-                let next = seen.last().unwrap().next(window);
-                if next == SavingsUnit::Tokens {
-                    break;
-                }
-                seen.push(next);
-            }
-            seen
-        };
-        assert_eq!(
-            order(DigestWindow::Day),
-            [SavingsUnit::Tokens, SavingsUnit::Percent, SavingsUnit::Cost]
-        );
-        assert_eq!(
-            order(DigestWindow::AllTime),
-            [SavingsUnit::Tokens, SavingsUnit::Cost]
-        );
-        // A saved percent reads as tokens for lifetime, and the next step is cost.
-        assert_eq!(
-            SavingsUnit::Percent.shown(DigestWindow::AllTime),
-            SavingsUnit::Tokens
-        );
-        assert_eq!(
-            SavingsUnit::Percent.next(DigestWindow::AllTime),
-            SavingsUnit::Cost
-        );
-        assert_eq!(
-            SavingsUnit::Percent.shown(DigestWindow::Week),
-            SavingsUnit::Percent
-        );
-    }
-
-    #[test]
-    fn malformed_or_stale_digest_window_never_rewrites_the_config() {
-        for text in [
-            "[workspace]\ndigest_window='1h'",
-            "[workspace]\ndigest_window=7",
-        ] {
-            let config = config(text);
-            let before = config.document.to_string();
-            assert!(config.workspace_preferences().is_err());
-            assert_eq!(config.document.to_string(), before);
-        }
-        let fixture = FileFixture::new();
-        let mut first = fixture.config();
-        let mut stale = fixture.config();
-        let expected = first.workspace_preferences().unwrap();
-        let next = OpsPreferences {
-            digest_window: super::super::DigestWindow::Week,
-            ..expected.clone()
-        };
-        first.save_workspace_preferences(&expected, &next).unwrap();
-        let before = fs::read(first.path()).unwrap();
-        assert!(
-            stale
-                .save_workspace_preferences(&expected, &OpsPreferences::default())
-                .is_err()
-        );
-        assert_eq!(fs::read(first.path()).unwrap(), before);
+        // The order is tokens, percent, cost.
+        assert_eq!(SavingsUnit::Tokens.next(), SavingsUnit::Percent);
+        assert_eq!(SavingsUnit::Percent.next(), SavingsUnit::Cost);
+        assert_eq!(SavingsUnit::Cost.next(), SavingsUnit::Tokens);
     }
 
     #[test]

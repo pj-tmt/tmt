@@ -160,36 +160,29 @@ fn the_ranges_cycle_in_the_documented_order() {
 }
 
 #[test]
-fn the_painted_heading_and_the_digest_range_follow_one_shared_setting() {
+fn the_agents_range_and_the_digest_window_are_separate_settings() {
     let mut app = board();
     hold(&mut app, TokRange::SixHours);
     app.shell.tab = OpsTab::Agents;
     let agents = paint(&app, 160, 40).join("\n");
     assert!(agents.contains("TOK 6h"), "{agents}");
-    let agents_hit = chip(&app).unwrap();
+    assert!(chip(&app).is_some());
     app.shell.tab = OpsTab::Digest;
     let digest = paint(&app, 160, 40).join("\n");
-    assert!(digest.contains("Usage 6h"), "{digest}");
-    let digest_next = app
-        .workspace_strip_hits
-        .borrow()
-        .iter()
-        .find_map(|(_, choice)| match choice {
-            Choice::TokRange(range) => Some(*range),
-            _ => None,
-        })
-        .unwrap();
-    app.shell.tab = OpsTab::Agents;
-    paint(&app, 160, 40);
-    let Effect::Act(Request::WorkspacePreferences { next, .. }) =
-        click_at(&mut app, agents_hit.x, agents_hit.y)
-    else {
-        panic!("the chip must use the preferences writer");
-    };
-    assert_eq!(
-        next.tok_range, digest_next,
-        "both tabs write the same next range"
+    assert!(digest.contains("Window   1d ▾"), "{digest}");
+    assert!(
+        !app.workspace_strip_hits
+            .borrow()
+            .iter()
+            .any(|(_, choice)| matches!(choice, Choice::TokRange(_))),
+        "the Digest tab never writes the Agents range"
     );
+    assert_eq!(
+        app.choose(Choice::DigestWindow(crate::config::DigestWindow::Week)),
+        Effect::None
+    );
+    assert_eq!(app.tok_range(), TokRange::SixHours);
+    assert_eq!(app.digest_range(), TokRange::Week);
 }
 
 #[test]

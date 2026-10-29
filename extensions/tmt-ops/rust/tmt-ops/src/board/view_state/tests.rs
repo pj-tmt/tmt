@@ -770,6 +770,44 @@ fn missing_or_unknown_quota_choice_keeps_other_committed_controls() {
 }
 
 #[test]
+fn digest_window_is_layer_local_survives_restart_and_tolerates_old_or_unknown_hints() {
+    use crate::config::DigestWindow;
+    let scratch = Scratch::missing("view-state");
+    let week = Layer::parse("digest-week").unwrap().path(&scratch);
+    let day = Layer::parse("digest-day").unwrap().path(&scratch);
+    let now = Instant::now();
+    let mut first = board();
+    first.digest_window = DigestWindow::Week;
+    Session::load(week.clone(), false, false).flush(&mut first, now);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&week).unwrap()).unwrap()["controls"]["digestWindow"],
+        "7d"
+    );
+    first.digest_window = DigestWindow::Day;
+    Session::load(day.clone(), false, false).flush(&mut first, now);
+    let day_bytes = fs::read(&day).unwrap();
+
+    let mut next = cold();
+    assert!(Session::load(week, false, false).tick(&mut next, now).0);
+    assert_eq!(next.digest_window(), DigestWindow::Week);
+    assert_eq!(next.digest_range(), crate::config::TokRange::Week);
+    assert_eq!(fs::read(&day).unwrap(), day_bytes);
+
+    let controls = Controls::capture(&next);
+    assert_eq!(Controls::decode(&controls.json()), Some(controls.clone()));
+    let mut expected = controls.clone();
+    expected.digest_window = DigestWindow::Day;
+    let mut old = controls.json();
+    old.as_object_mut().unwrap().remove("digestWindow");
+    assert_eq!(Controls::decode(&old), Some(expected.clone()));
+    for unknown in [Value::Null, json!(7), json!("lifetime"), json!({})] {
+        let mut value = controls.json();
+        value["digestWindow"] = unknown;
+        assert_eq!(Controls::decode(&value), Some(expected.clone()));
+    }
+}
+
+#[test]
 fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
     use crate::config::StartupTab;
     let fixed = [

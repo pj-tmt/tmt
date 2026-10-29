@@ -7,7 +7,7 @@ use crate::{
         buttons::Button,
         usage_report::View,
     },
-    config::{DigestWindow, SavingsUnit},
+    config::SavingsUnit,
     labels::digest::SavingsSummary,
 };
 use ratatui::{
@@ -43,15 +43,11 @@ pub(super) fn height(width: u16, available: u16) -> u16 {
 }
 
 /// Each amount carries its own coverage. Missing quotes never borrow token coverage.
-pub(super) fn fields(
-    summary: &SavingsSummary,
-    window: DigestWindow,
-    labels: [&str; 2],
-) -> [String; 2] {
+pub(super) fn fields(summary: &SavingsSummary, labels: [&str; 2]) -> [String; 2] {
     let field = |unit, label, included| {
         format!(
             "{label} {} ({included}/{} agents{})",
-            amount(summary, window, unit),
+            amount(summary, unit),
             summary.total,
             if included < summary.total {
                 " · partial"
@@ -67,8 +63,8 @@ pub(super) fn fields(
 }
 
 /// One unit's amount without its coverage: a conflict names itself, missing is `—`.
-fn amount(summary: &SavingsSummary, window: DigestWindow, unit: SavingsUnit) -> String {
-    let (value, _, conflict) = crate::board::savings::savings_value(summary, window, unit);
+fn amount(summary: &SavingsSummary, unit: SavingsUnit) -> String {
+    let (value, _, conflict) = crate::board::savings::savings_value(summary, unit);
     let value = conflict
         .map(str::to_owned)
         .or(value)
@@ -100,11 +96,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             "TOK used {}",
             metrics::token_text(metrics::tokens(metrics::report(app), &ids))
         );
-        let [saved, price] = fields(
-            &summary,
-            app.digest_window(),
-            ["Saved", "≈ list price saved"],
-        );
+        let [saved, price] = fields(&summary, ["Saved", "≈ list price saved"]);
         paint_row(
             frame,
             1,
@@ -243,14 +235,13 @@ fn tiles(frame: &mut Frame, app: &App, area: Rect, ids: &[&str]) {
     let tile = area.width.saturating_sub(allowance) / 3;
     let reading = metrics::tokens(metrics::report(app), ids);
     let summary = metrics::savings(app, ids);
-    let window = app.digest_window();
     let coverage = |included: usize| format!("{included} of {} agents", summary.total);
     let usage = match reading {
         Some((_, true)) => format!("{} agents · partial", ids.len()),
         Some(_) => format!("{} agents", ids.len()),
         None => "usage unavailable".into(),
     };
-    let saved = amount(&summary, window, SavingsUnit::Tokens);
+    let saved = amount(&summary, SavingsUnit::Tokens);
     let saved = if saved == "—" {
         saved
     } else {
@@ -261,7 +252,7 @@ fn tiles(frame: &mut Frame, app: &App, area: Rect, ids: &[&str]) {
         ("SAVED · estimate", saved, coverage(summary.included)),
         (
             "≈ LIST PRICE SAVED",
-            amount(&summary, window, SavingsUnit::Cost),
+            amount(&summary, SavingsUnit::Cost),
             coverage(summary.cost.included),
         ),
     ];
