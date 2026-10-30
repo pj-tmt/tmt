@@ -273,6 +273,11 @@ delivery. They install and launch nothing.
     a row that already holds its key does not change. Examples are a daemon-hosted Claude
     worker, and a provider started from another provider's tool shell, Claude and Codex in any
     order.
+  - The walk reads one `ps` snapshot. Each row it visits (the hook, its ancestors, the
+    provider and the pane) must be present, well formed and the only row for its PID, or the
+    hook is refused. A bad or repeated row of a process off the walk does not refuse; a line
+    that does not start with a PID does. Replacement discovery keeps the strict rule: it
+    proves that one runtime is the only one, so any bad or repeated row refuses it.
   - When Claude sets `CLAUDE_PID`, it must equal the main provider's PID. A present value that
     is not a nonzero `u32`, or is not UTF-8, refuses. Without it (an older Claude), the main
     provider is admitted as before.
