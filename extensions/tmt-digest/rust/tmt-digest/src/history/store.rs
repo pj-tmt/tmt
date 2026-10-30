@@ -71,6 +71,14 @@ fn not_private() -> Error {
 }
 impl Store {
     pub fn open(root: &Path, write: bool) -> Result<Option<Self>, Error> {
+        // SQLite's NOFOLLOW refuses a link in any ancestor, such as macOS /var or an owner-linked
+        // data root (#5711). Resolve only the root Core reported; what lies under it stays
+        // refused when it is a link.
+        let root = match fs::canonicalize(root) {
+            Ok(root) => root,
+            Err(e) if !write && e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(io(e)),
+        };
         let digest = root.join("digest");
         let directory = digest.join("history");
         if write {
