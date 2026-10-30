@@ -145,8 +145,8 @@ export function ReaderApp({
       },
       onLink: requestPageLink,
       onEditLocks: editLockLayer.onEditLocks,
-      viewportInset: () => toolbarInset(bar.current),
-      frameLead: () => noteHeight() + bandSize.current,
+      viewportInset: () => toolbarInset(bar.current) + bandSize.current,
+      frameLead: () => noteHeight(),
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();

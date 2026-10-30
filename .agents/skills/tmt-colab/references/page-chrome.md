@@ -139,7 +139,8 @@ content heading repeats it, and the connection identity is not in the bar. `barR
 sticky bar to measure its clearances from. On a page the status band is the second layer: sticky
 directly under the bar (on a phone after the module tabs, which scroll away), scrolling inside itself
 when expanded taller than the room left, and the renderer counts it with the bar as the chrome a
-revealed element clears (`viewportInset`). The
+revealed element clears (`viewportInset`). The reader likewise pins its band under its header and
+includes its measured height in renderer reveal clearance. The
 hosted mount still portals the header into the shell's `bar` and `tools` slots (Search and the
 Remote chip) until it adopts the bar. A standalone header (reader, mounted and
 native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the

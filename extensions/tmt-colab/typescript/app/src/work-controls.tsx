@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react';
 import { BrowserAction, BrowserDialog, BrowserField, BrowserMenu } from '@tmt/browser-ui/react';
 import {
   useCallback,
@@ -529,9 +530,18 @@ export function AttachSubpage({
       mounted.current = false;
     };
   }, []);
-  const candidates = (pages ?? []).filter(
-    (page) => page.id !== pageId && !page.archived && page.pageType !== 'shell',
-  );
+  // Missing summaries leave parentage unknown; never offer a candidate on incomplete data.
+  const complete = pages?.every((page) => page.summary !== undefined) ?? false;
+  const candidates = complete
+    ? (pages ?? []).filter(
+        (page) =>
+          page.id !== pageId &&
+          !page.archived &&
+          page.pageType !== 'shell' &&
+          !page.summary?.parent &&
+          !pages?.some((child) => child.summary?.parent?.page === page.id),
+      )
+    : [];
   useEffect(() => {
     if (!retained || work.tasks[retained.task]?.child !== selectedPage) return;
     setUnsettled(false);
@@ -609,6 +619,7 @@ export function AttachSubpage({
         type="button"
         variant="ghost"
         label={label.attachSubpage}
+        leadingIcon={<Plus className="tmt-ui-icon" />}
         onActivate={() => {
           setUnsettled(false);
           setFailure(undefined);

@@ -404,12 +404,13 @@ test('state revision is captured when its menu opens, before a choice is applied
   expect(await page.evaluate(() => window.__workPage!.metadataCaptures)).toBe(1);
 });
 
-test('a page with no sub-pages shows one directly selectable task list', async ({ page }) => {
+test('a page with no sub-pages keeps tasks behind the toggle', async ({ page }) => {
   await mountRoute(page, true, true);
   const band = page.getByRole('region', { name: 'Work on this page' });
   await band.getByRole('button', { name: 'Expand status panel', exact: true }).click();
-  await expect(band.getByRole('button', { name: /^Tasks \d+$/ })).toHaveCount(0);
   await expect(band.locator('.work-subpages')).toHaveCount(0);
+  await expect(band.locator('.work-row')).toHaveCount(0);
+  await band.getByRole('button', { name: /^Tasks \d+$/ }).click();
   await expect(band.locator('.work-row')).toHaveCount(3);
   await band.locator('.work-row').filter({ hasText: 'Draft' }).locator('button').first().click();
   await expect(band.locator('.work-controls')).toBeVisible();
@@ -651,4 +652,69 @@ test('the attach picker does not offer shell pages', async ({ page }) => {
   const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
   const target = dialog.getByRole('combobox', { name: 'Page', exact: true });
   await expect(target.locator('option', { hasText: 'Dashboard' })).toHaveCount(0);
+  await expect(target.locator('option', { hasText: 'Already attached' })).toHaveCount(0);
+  await expect(target.locator('option', { hasText: 'Has child' })).toHaveCount(0);
+});
+
+test('status band exposes the spec meter and keeps tasks behind their chip', async ({ page }) => {
+  const host = await mountBand(page, 'panel');
+  await expect(host.locator('.work-head .tmt-ui-meter')).toBeVisible();
+  const done = host.locator('.work-segments [data-state=done]');
+  const working = host.locator('.work-segments [data-state=in-progress]');
+  expect((await done.boundingBox())!.width).toBeGreaterThan(0);
+  expect((await working.boundingBox())!.height).toBeGreaterThan(0);
+  expect(await working.evaluate((node) => getComputedStyle(node).backgroundColor)).not.toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  await expect(host.getByRole('button', { name: 'Expand status panel' })).toHaveClass(
+    /tmt-ui-action/,
+  );
+  await expand(page);
+  await expect(host.getByRole('button', { name: /Tasks/ })).toHaveClass(/tmt-ui-count-chip/);
+  await expect(host.locator('.work-tasks')).toHaveCount(0);
+});
+
+test('the expanded head stays fixed while its long body scrolls', async ({ page }) => {
+  const host = await mountBand(page, 'long');
+  await expand(page);
+  const head = host.locator('.work-head');
+  const body = host.locator('.work-body');
+  const before = await head.boundingBox();
+  expect(await body.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  await body.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  expect(await body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  expect((await head.boundingBox())!.y).toBe(before!.y);
+});
+
+test('expansion animates unless reduced motion is requested', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const host = await mountBand(page, 'panel');
+  const panel = host.locator('.work-band');
+  const collapsed = (await panel.boundingBox())!.height;
+  await expand(page);
+  const frames = await panel.evaluate(async (element) => {
+    const heights: number[] = [];
+    await new Promise<void>((resolve) => {
+      const start = performance.now();
+      const frame = () => {
+        heights.push(element.getBoundingClientRect().height);
+        if (performance.now() - start < 500) requestAnimationFrame(frame);
+        else resolve();
+      };
+      requestAnimationFrame(frame);
+    });
+    return heights;
+  });
+  const expanded = frames.at(-1)!;
+  expect(frames.some((height) => height > collapsed && height < expanded)).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(
+    await host
+      .locator('.work-body-transition')
+      .evaluate((node) => getComputedStyle(node).transitionDuration),
+  ).toMatch(/^0s(?:, 0s)*$/);
+  await page.getByRole('button', { name: 'Collapse status panel' }).click();
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBe(collapsed);
 });

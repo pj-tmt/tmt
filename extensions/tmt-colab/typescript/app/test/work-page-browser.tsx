@@ -256,11 +256,54 @@ export function mountWorkPage(
     // The owner list names the followed page, with the stage its summary says.
     async spaceHome() {
       const home = await listed();
+      const summary = { comments: 0, waiting: false, needsYou: 0 };
+      if (scenario === 'attach')
+        return {
+          ...home,
+          pages: [
+            { id: 'notes', ...base, sharing: 'private' as const, summary },
+            { id: FOLLOWED, title: 'Legal copy', sharing: 'private' as const, summary },
+            { id: PARENT, title: 'Release plan', sharing: 'private' as const, summary },
+            { id: 'has-child', title: 'Has child', sharing: 'private' as const, summary },
+            {
+              id: 'parented',
+              title: 'Already attached',
+              sharing: 'private' as const,
+              summary: { ...summary, parent: { page: 'has-child', task: 'T-1' } },
+            },
+            {
+              id: MADE,
+              title: 'Dashboard',
+              sharing: 'private' as const,
+              pageType: 'shell' as const,
+              summary,
+            },
+          ],
+        };
+      if (scenario === 'child' || scenario === 'child-orphan')
+        return {
+          ...home,
+          pages: [
+            {
+              id: 'notes',
+              ...base,
+              sharing: 'private' as const,
+              summary: {
+                ...summary,
+                parent: { page: PARENT, task: 'T-3', title: 'Draft the copy' },
+              },
+            },
+          ],
+        };
+      const completeHome = {
+        ...home,
+        pages: home.pages.map((page) => ({ ...page, summary: page.summary ?? summary })),
+      };
       return scenario === 'linked-done'
         ? {
-            ...home,
+            ...completeHome,
             pages: [
-              ...home.pages,
+              ...completeHome.pages,
               {
                 id: FOLLOWED,
                 title: 'Legal copy',
@@ -275,16 +318,24 @@ export function mountWorkPage(
               },
             ],
           }
-        : home;
+        : completeHome;
     },
     backendName: 'Studio Mac',
   };
   if (scenario === 'attach') {
+    const summary = { comments: 0, waiting: false, needsYou: 0 };
     rememberPages(routed, undefined, [
-      { id: 'notes', ...base, sharing: 'private' },
-      { id: FOLLOWED, title: 'Legal copy', sharing: 'private' },
-      { id: PARENT, title: 'Release plan', sharing: 'private' },
-      { id: MADE, title: 'Dashboard', sharing: 'private', pageType: 'shell' },
+      { id: 'notes', ...base, sharing: 'private', summary },
+      { id: FOLLOWED, title: 'Legal copy', sharing: 'private', summary },
+      { id: PARENT, title: 'Release plan', sharing: 'private', summary },
+      { id: 'has-child', title: 'Has child', sharing: 'private', summary },
+      {
+        id: 'parented',
+        title: 'Already attached',
+        sharing: 'private',
+        summary: { ...summary, parent: { page: 'has-child', task: 'T-1' } },
+      },
+      { id: MADE, title: 'Dashboard', sharing: 'private', pageType: 'shell', summary },
     ]);
   }
   if (scenario === 'child' || scenario === 'child-orphan') {

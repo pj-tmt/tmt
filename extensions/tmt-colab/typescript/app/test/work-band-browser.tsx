@@ -90,12 +90,17 @@ const cases: Record<string, WorkBandProps> = {
       { id: '20000000-0000-4000-8000-000000000004', title: 'Sidebar shortcuts', state: 'todo' },
     ],
   },
-  parent: {
-    work: full,
-    parent: { pageId: CHILD, taskId: 'T-6', title: 'Follow-up page for sizes' },
-  },
   'summary-only': { work: summaryOnly },
   empty: { work: empty },
+};
+
+cases.long = {
+  ...cases.panel!,
+  subpages: Array.from({ length: 40 }, (_, index) => ({
+    id: `page-${index}`,
+    title: `Page ${index}`,
+    state: 'todo' as const,
+  })),
 };
 
 let root: Root | undefined;

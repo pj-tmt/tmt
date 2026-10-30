@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Circle, CircleCheck, CircleDot } from 'lucide-react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import {
   useEffect,
@@ -17,15 +17,6 @@ import type { PageProgress, PageState } from './bootstrap.js';
 import { WorkList } from './work-list.js';
 import './work-band.css';
 
-/** The task of another page that follows this page; drawn in the expanded panel as a way back. */
-export interface WorkParent {
-  pageId: string;
-  taskId: string;
-  /** The parent page's title. */
-  title: string;
-  /** The parent task's own title, clipped by the owner; absent from an older owner. */
-  taskTitle?: string;
-}
 export interface WorkBandProps extends TaskDetailSlots {
   work: Work;
   onSize?(height: number): void;
@@ -36,8 +27,6 @@ export interface WorkBandProps extends TaskDetailSlots {
   subpages?: readonly { id: string; title?: string; state?: PageState | null }[];
   /** Below the list and the open task: where a new task is made and a refusal is told. */
   listActions?: ReactNode;
-  /** Where this page's own work sits in a parent page's task list. */
-  parent?: WorkParent;
   /** The address of a page, optionally at one cosmetic hint (a task). */
   pageHref?(pageId: string, hint?: PageHint): string;
   /** A task of this page to open with the list, from a link to it (`?task=`); one this page does
@@ -49,14 +38,13 @@ export interface WorkBandProps extends TaskDetailSlots {
 
 /**
  * The manual page state and native progress, with direct items and task controls one step away.
- * It scrolls with the page, never sticks, and opening the list pushes the page down in place.
+ * The band stays beneath the page bar while its expanded content scrolls.
  */
 export function WorkBand({
   work,
   onSize,
   listActions,
   attachAction,
-  parent,
   pageHref,
   focusTask,
   stageOf,
@@ -108,7 +96,6 @@ export function WorkBand({
         ['done', progress.done],
         ['in-progress', progress.inProgress],
         ['todo', progress.todo],
-        ['unknown', progress.unknown],
       ] as const)
     : [];
   return (
@@ -122,18 +109,24 @@ export function WorkBand({
         {progress ? (
           <>
             <div
-              className="work-segments"
+              className={`${ui.meter} work-segments`}
               role="img"
-              aria-label={buckets
-                .map(
-                  ([state, count]) =>
-                    `${state === 'unknown' ? t.unknown : t.taskState[state]} ${count}`,
-                )
-                .join(', ')}
+              aria-label={[
+                ...buckets.map(([state, count]) => `${t.taskState[state]} ${count}`),
+                ...(progress.unknown ? [`${t.unknown} ${progress.unknown}`] : []),
+              ].join(', ')}
             >
               {buckets.map(
                 ([state, count]) =>
-                  count > 0 && <span key={state} data-state={state} style={{ flexGrow: count }} />,
+                  count > 0 && (
+                    <span
+                      key={state}
+                      data-state={state}
+                      style={{
+                        flex: `0 0 ${progress.total ? (count / progress.total) * 100 : 0}%`,
+                      }}
+                    />
+                  ),
               )}
             </div>
             <span className="work-progress">{t.progress(progress.done, progress.total)}</span>
@@ -143,7 +136,8 @@ export function WorkBand({
         )}
         <button
           type="button"
-          className="work-toggle"
+          className="tmt-ui-action work-expand"
+          data-variant="ghost"
           aria-label={open ? t.collapsePanel : t.expandPanel}
           aria-expanded={open}
           aria-controls={listId}
@@ -156,78 +150,90 @@ export function WorkBand({
           )}
         </button>
       </div>
-      {open && (
+      <div className="work-body-transition" data-open={open} inert={!open}>
         <div className="work-body" id={listId} ref={detail}>
-          {parent && (
-            <p className="work-parent">
-              <a href={pageHref?.(parent.pageId, { task: parent.taskId })}>
-                {t.parentTask(parent.title, parent.taskId, parent.taskTitle)}
-              </a>
-            </p>
-          )}
-          {subpages.length > 0 && <h3 className="work-items-heading">{t.subpages}</h3>}
-          {subpages.length > 0 && (
-            <ul className="work-subpages" aria-label={t.subpages}>
-              {subpages.map((child) => (
-                <li key={child.id}>
-                  {pageHref ? (
-                    <a href={pageHref(child.id)}>{child.title ?? t.unknownPage}</a>
-                  ) : (
-                    <span>{child.title ?? t.unknownPage}</span>
-                  )}
-                  <span>{child.state ? t.taskState[child.state] : t.unknown}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {progress && (
-            <div className="work-legend">
-              {buckets
-                .filter(([state, count]) => state !== 'unknown' || count > 0)
-                .map(([state, count]) => (
+          <div className="work-body-content">
+            {subpages.length > 0 && <h3 className="work-items-heading">{t.subpages}</h3>}
+            {subpages.length > 0 && (
+              <ul className="work-subpages" aria-label={t.subpages}>
+                {subpages.map((child) => (
+                  <li key={child.id}>
+                    {pageHref ? (
+                      <a href={pageHref(child.id)}>
+                        {child.state === 'done' ? (
+                          <CircleCheck />
+                        ) : child.state === 'in-progress' ? (
+                          <CircleDot />
+                        ) : (
+                          <Circle />
+                        )}
+                        {child.title ?? t.unknownPage}
+                      </a>
+                    ) : (
+                      <span>
+                        {child.state === 'done' ? (
+                          <CircleCheck />
+                        ) : child.state === 'in-progress' ? (
+                          <CircleDot />
+                        ) : (
+                          <Circle />
+                        )}
+                        {child.title ?? t.unknownPage}
+                      </span>
+                    )}
+                    <span>{child.state ? t.taskState[child.state] : t.unknown}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {progress && (
+              <div className="work-legend">
+                {buckets.map(([state, count]) => (
                   <span key={state} data-state={state}>
-                    {state === 'unknown' ? t.unknown : t.taskState[state]} {count}
+                    {t.taskState[state]} {count}
                   </span>
                 ))}
+              </div>
+            )}
+            <div className="work-actions">
+              {attachAction}
+              <button
+                type="button"
+                className="tmt-ui-count-chip"
+                aria-expanded={tasksOpen}
+                onClick={() => setTasksOpen(!tasksOpen)}
+              >
+                <span>{t.tasks}</span>
+                <span className="tmt-ui-count">{tasks.order.length}</span>
+              </button>
             </div>
-          )}
-          {attachAction}
-          {subpages.length > 0 && (
-            <button
-              type="button"
-              className="work-toggle"
-              aria-expanded={tasksOpen}
-              onClick={() => setTasksOpen(!tasksOpen)}
-            >
-              {t.tasks} {tasks.order.length}
-            </button>
-          )}
-          {(subpages.length === 0 || tasksOpen) && (
-            <div className="work-tasks">
-              <WorkList
-                work={tasks}
-                states={derived.states}
-                selected={selected}
-                onSelect={(id) => {
-                  setTasksOpen(true);
-                  setSelected(id === selected ? undefined : id);
-                }}
-              />
-              {selected !== undefined && task && (
-                <TaskDetail
-                  id={selected}
-                  task={task}
-                  state={derived.states?.[selected] ?? task.state}
-                  pageHref={pageHref}
-                  onClose={() => setSelected(undefined)}
-                  {...slots}
+            {tasksOpen && (
+              <div className="work-tasks">
+                <WorkList
+                  work={tasks}
+                  states={derived.states}
+                  selected={selected}
+                  onSelect={(id) => {
+                    setTasksOpen(true);
+                    setSelected(id === selected ? undefined : id);
+                  }}
                 />
-              )}
-              {listActions}
-            </div>
-          )}
+                {selected !== undefined && task && (
+                  <TaskDetail
+                    id={selected}
+                    task={task}
+                    state={derived.states?.[selected] ?? task.state}
+                    pageHref={pageHref}
+                    onClose={() => setSelected(undefined)}
+                    {...slots}
+                  />
+                )}
+                {listActions}
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </section>
   );
 }

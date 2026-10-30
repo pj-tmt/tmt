@@ -112,3 +112,15 @@ main {
     width: calc(100vw - 32px);
   }
 }
+
+/* Keep the reader's status summary beneath its fixed header as the page scrolls. */
+.workspace > .work-band {
+  position: sticky;
+  top: var(--reader-bar-size);
+  z-index: 2;
+  max-height: calc(100dvh - var(--reader-bar-size));
+  overflow: hidden;
+}
+.workspace > .work-band .work-body {
+  max-height: calc(100dvh - var(--reader-bar-size) - 44px);
+}

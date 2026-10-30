@@ -1,5 +1,6 @@
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { BrowserMenu } from '@tmt/browser-ui/react';
+import { Circle, CircleCheck, CircleDot } from 'lucide-react';
 import { text } from './strings.js';
 import { SaveRefused, saveMessage } from './save.js';
 import type { PageState } from './bootstrap.js';
@@ -21,7 +22,7 @@ export function PageWorkBand({
   space,
   pageId,
   ...band
-}: Omit<WorkBandProps, 'work' | 'parent'> & {
+}: Omit<WorkBandProps, 'work'> & {
   /** Absent for a page that never had work; its compact panel remains present. */
   work?: Work;
   binding?: PageBinding;
@@ -32,11 +33,12 @@ export function PageWorkBand({
   pageId: string;
 }): ReactNode {
   const run = useWorkRun(binding);
-  const { stageOf, parent, subpages, observed, pages, knownChild } = useLinkedPages(
+  const { stageOf, subpages, observed, pages, knownChild } = useLinkedPages(
     transport,
     space,
     pageId,
     band.work,
+    Boolean(binding?.work && binding.canWork?.()),
   );
   const childStates = JSON.stringify(subpages.map((child) => [child.id, child.state]));
   const previousChildStates = useRef<string | undefined>(undefined);
@@ -56,7 +58,6 @@ export function PageWorkBand({
         stateControl={stateControl}
         subpages={subpages}
         stageOf={stageOf}
-        parent={parent}
       />
     );
   return (
@@ -65,12 +66,11 @@ export function PageWorkBand({
       work={work}
       stateControl={stateControl}
       attachAction={
-        !knownChild ? (
+        observed && pages?.find((page) => page.id === pageId)?.summary && !knownChild ? (
           <AttachSubpage pages={pages} pageId={pageId} work={work} run={run} />
         ) : undefined
       }
       subpages={subpages}
-      parent={parent}
       stageOf={stageOf}
       actions={(task, id, state) => (
         <TaskControls
@@ -115,6 +115,16 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
         label={text.workBand.pageState}
         variant="count"
         valueLabel={label}
+        tone={state === 'in-progress' ? 'attention' : 'neutral'}
+        icon={
+          state === 'done' ? (
+            <CircleCheck className="tmt-ui-icon" />
+          ) : state === 'in-progress' ? (
+            <CircleDot className="tmt-ui-icon" />
+          ) : (
+            <Circle className="tmt-ui-icon" />
+          )
+        }
         disabled={busy}
         onOpenChange={(open) => {
           if (!open) return;

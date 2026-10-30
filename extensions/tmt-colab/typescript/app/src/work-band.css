@@ -1,6 +1,4 @@
-/* The page's second layer: pinned directly under the bar while the page scrolls. Expanded taller than
-   the room under the bar, it scrolls inside itself. On a phone the module tabs above it scroll away first.
-   The reader keeps it in the flow. */
+/* The page's second layer stays under the bar; its expanded body scrolls when space is limited. */
 .page-main .work-band {
   position: sticky;
   top: var(--page-bar-size);
@@ -10,29 +8,18 @@
 }
 .work-band {
   box-sizing: border-box;
-  padding: 16px max(16px, env(safe-area-inset-left));
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
-  background: var(--c-sheet);
   color: var(--c-text);
   font: 14px/1.5 var(--f-body);
 }
-.work-parent,
 .work-detail p,
 .work-detail h3 {
   margin: 0;
-}
-.work-parent {
-  margin-bottom: 8px;
-  color: var(--c-muted);
-}
-.work-parent:last-child {
-  margin-bottom: 0;
 }
 .work-head {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
 .work-progress,
 .work-state {
@@ -41,7 +28,6 @@
 .work-who + .work-who {
   margin-left: 8px;
 }
-.work-toggle,
 .work-close,
 .work-row button {
   font: inherit;
@@ -50,15 +36,10 @@
   border: 0;
   cursor: pointer;
 }
-.work-toggle,
 .work-close {
   padding: 4px 0;
   color: var(--c-muted);
   text-decoration: underline;
-}
-.work-body {
-  margin-top: 12px;
-  border-top: 1px solid var(--tmt-ui-surface-rule);
 }
 .work-list {
   margin: 0;
@@ -213,35 +194,12 @@
   white-space: nowrap;
   cursor: default;
 }
-.work-segments {
-  display: flex;
-  flex: 1 1 120px;
-  min-width: 32px;
-  max-width: 320px;
-  height: 8px;
-  border: 1px solid var(--tmt-ui-surface-rule);
-}
 .work-segments span {
   min-width: 0;
-  flex-basis: 0;
-}
-.work-segments [data-state='done'] {
-  background: var(--c-working);
-}
-.work-segments [data-state='in-progress'] {
-  background: var(--tmt-ui-color-review);
-}
-.work-segments [data-state='unknown'] {
-  background: var(--c-muted);
 }
 .work-progress {
   white-space: nowrap;
   font-size: 12px;
-}
-.work-head > .work-toggle {
-  margin-left: auto;
-  text-decoration: none;
-  padding: 4px 8px;
 }
 .work-subpages {
   list-style: none;
@@ -297,9 +255,6 @@
 .work-legend [data-state='in-progress']::before {
   background: var(--tmt-ui-color-review);
 }
-.work-legend [data-state='unknown']::before {
-  background: var(--c-muted);
-}
 
 .work-attach-fields {
   display: grid;
@@ -308,4 +263,95 @@
 .work-attach-fields select {
   width: 100%;
   font: inherit;
+}
+
+/* The summary stays visible while the expanded details scroll beneath it. */
+.work-band {
+  padding: 0;
+  background: var(--tmt-ui-surface-paper);
+}
+.page-main .work-band {
+  overflow: hidden;
+}
+.work-head {
+  padding: 8px 20px;
+  gap: 12px;
+}
+.work-head > .work-expand {
+  margin-left: auto;
+  flex: none;
+  padding: 4px;
+}
+.work-segments {
+  display: flex;
+  flex: 0 1 160px;
+  width: 160px;
+  height: 12px;
+  min-width: 32px;
+  gap: 2px;
+}
+.work-segments [data-state='done'] {
+  background: var(--tmt-ui-color-accent);
+}
+.work-segments [data-state='in-progress'] {
+  background: var(--tmt-ui-color-review);
+}
+.work-body-transition {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+}
+.work-body-transition[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.work-body {
+  min-height: 0;
+  max-height: calc(100dvh - var(--page-bar-size, 0px) - 44px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.work-body-content {
+  padding: 8px 20px 20px;
+}
+.work-items-heading {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--c-muted);
+}
+.work-subpages {
+  margin: 0;
+}
+.work-subpages li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+}
+.work-subpages li > :first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.work-subpages svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.work-legend span::before {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.work-legend [data-state='done']::before {
+  background: var(--tmt-ui-color-accent);
+}
+.work-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

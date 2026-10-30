@@ -93,10 +93,8 @@ for (const reader of [false, true]) {
     const targetTop = await child
       .locator('#target')
       .evaluate((node) => node.getBoundingClientRect().top);
-    // The owner's status band stays pinned under the bar, so the anchor lands below both.
-    const pinned = reader
-      ? 0
-      : ((await page.locator('.page-main .work-band').boundingBox())?.height ?? 0);
+    // The status band stays pinned under the bar, so the anchor lands below both.
+    const pinned = (await page.locator('.work-band').boundingBox())?.height ?? 0;
     expect(
       Math.abs((await frame.boundingBox())!.y + targetTop - headerHeight(1440) - pinned),
     ).toBeLessThan(2);
@@ -328,4 +326,22 @@ for (const reader of [false, true]) {
       await expect(page.locator('.frame-host')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
     });
   }
+}
+
+for (const width of [390, 1440]) {
+  test(`reader: status band stays under the header while scrolling at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mount(page, html, true, true);
+    const band = page.locator('.work-band');
+    await page.evaluate(() => window.scrollTo(0, 600));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const first = await band.boundingBox();
+    const bar = await page.locator('.tmt-ui-header:visible').boundingBox();
+    expect(Math.abs(first!.y - (bar!.y + bar!.height))).toBeLessThan(2);
+    await page.evaluate(() => window.scrollTo(0, 1100));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(600);
+    expect(Math.abs((await band.boundingBox())!.y - first!.y)).toBeLessThan(2);
+  });
 }
