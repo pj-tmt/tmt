@@ -42,9 +42,10 @@ impl App {
                         self.say("Select an explicit squad or job before creating a timer."),
                     );
                 }
-                // Forms and the delete confirmation need the base layer's input
-                // line and menu; a send or pause keeps the list open to show it.
-                if matches!(job, 'n' | 'E' | 'o' | 'd') {
+                // Forms need the base layer's input line. The delete confirm is its
+                // own layer over the list, so closing it returns to the same row; a
+                // send, pause or delete keeps the list open to show the result.
+                if matches!(job, 'n' | 'E' | 'o') {
                     self.cron_list = None;
                 }
                 Some(self.cron_key(job, id.as_deref()))

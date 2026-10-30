@@ -43,9 +43,8 @@ fn preview_reads_override_but_cancel_uses_the_latest_acquisition_without_a_write
 fn pending_lane_is_exclusive_and_a_closed_picker_ignores_its_late_result() {
     let mut app = board();
     app.open_panels();
-    // Select Save using the public plain-key path, not a fabricated painted hit.
+    // Select Save (the last action) using the public plain-key path, not a fabricated painted hit.
     app.panels_event(&key(KeyCode::End));
-    app.panels_event(&key(KeyCode::Up));
     assert!(matches!(
         app.panels_event(&key(KeyCode::Enter)),
         Some(Effect::Act(Request::WorkspacePreferences { .. }))
@@ -249,7 +248,6 @@ fn pending_save_keeps_mouse_cancel_reachable_and_other_controls_disabled() {
     let mut app = board();
     app.open_panels();
     app.panels_event(&key(KeyCode::End));
-    app.panels_event(&key(KeyCode::Up));
     assert!(matches!(
         app.panels_event(&key(KeyCode::Enter)),
         Some(Effect::Act(_))

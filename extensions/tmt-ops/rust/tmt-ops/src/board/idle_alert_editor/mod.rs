@@ -282,7 +282,6 @@ impl App {
             .collect();
         if scopes.len() > 1 {
             self.menu = Some(Menu {
-                row_send: None,
                 link: None,
                 prefill: String::new(),
                 title: "Idle alert · choose squad".into(),

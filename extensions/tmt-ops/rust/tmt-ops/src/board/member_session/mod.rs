@@ -118,6 +118,23 @@ pub(in crate::board) struct Controller {
     ui: RefCell<picker_surface::State>,
 }
 impl Controller {
+    /// Closes just the confirm layer, back on the action that asked for it.
+    fn cancel_confirmation(&mut self) {
+        let Some(command) = self.confirmation.take() else {
+            return;
+        };
+        let action = if command.args.iter().any(|arg| arg == "--move") {
+            "move"
+        } else {
+            "resume"
+        };
+        let rows = self.list_rows();
+        let mut ui = self.ui.borrow_mut();
+        ui.reconcile(rows);
+        ui.select(action);
+        drop(ui);
+        self.invalidate();
+    }
     fn recovery_command(&self) -> Option<String> {
         if !self.task.evidence.is_unbound() || !self.task.evidence.remembered() {
             return None;
@@ -215,8 +232,8 @@ impl App {
                 return Some(Effect::None);
             }
             if key.code == KeyCode::Esc {
-                if c.confirmation.take().is_some() {
-                    c.invalidate();
+                if c.confirmation.is_some() {
+                    c.cancel_confirmation();
                 } else {
                     self.member_session = None;
                 }
@@ -238,11 +255,7 @@ impl App {
         let choice = c.choice(event);
         match choice.as_deref() {
             Some("close") => self.member_session = None,
-            Some("cancel") => {
-                let c = self.member_session.as_mut()?;
-                c.confirmation = None;
-                c.invalidate();
-            }
+            Some("cancel") => self.member_session.as_mut()?.cancel_confirmation(),
             Some("copy") => {
                 if let Some(command) = self.member_session.as_ref()?.recovery_command() {
                     return Some(Effect::Act(Request::Copy {

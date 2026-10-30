@@ -1632,9 +1632,8 @@ fn legacy_panel_bytes_survive_details_toggle_and_picker_save() {
         "saved".into(),
     );
     app.open_panels();
-    // End selects Cancel, Up selects Save; confirm through the actual picker input.
+    // End selects Save (the last action); confirm through the actual picker input.
     app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
     let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
     else {

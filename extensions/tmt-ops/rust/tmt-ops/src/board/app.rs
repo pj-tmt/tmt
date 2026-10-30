@@ -395,7 +395,6 @@ pub struct LinkSend {
 
 /// The row's action menu.
 pub struct Menu {
-    pub(super) row_send: Option<RowSend>,
     pub link: Option<LinkSend>,
     pub prefill: String,
     pub title: String,
@@ -2782,7 +2781,6 @@ impl App {
             choice: Choice::Checklist,
         });
         self.menu = Some(Menu {
-            row_send: None,
             link: None,
             prefill: String::new(),
             title: row
@@ -3726,25 +3724,6 @@ impl App {
     }
 
     fn menu_key(&mut self, key: KeyEvent) -> Effect {
-        if key.code == KeyCode::Tab
-            && let Some(send) = self.menu.as_ref().and_then(|menu| menu.row_send.clone())
-        {
-            let Some(squad) = self.target_squad(&send.target) else {
-                return self.say("The retained target is unavailable.");
-            };
-            let prefill = self.menu.as_ref().unwrap().prefill.clone();
-            self.menu = None;
-            let compose = send.note.clone().unwrap_or(Compose::Talk {
-                to: send.name.clone(),
-            });
-            self.ask(String::new(), compose, squad.clone());
-            if !prefill.is_empty() {
-                self.input.as_mut().unwrap().text = prefill.into();
-            }
-            self.attach_row(send, squad);
-            return Effect::None;
-        }
-
         if key.code == KeyCode::Esc
             && let Some((target, anchor)) = self.destination_full_menu()
         {
@@ -3791,7 +3770,6 @@ impl App {
         };
         let prefill = menu.prefill.clone();
         let link = menu.link.clone();
-        let row_send = menu.row_send.clone();
         self.menu = None;
         let effect = chosen.map_or(Effect::None, |choice| self.choose(choice));
         if let Some(input) = &mut self.input {
@@ -3799,12 +3777,6 @@ impl App {
                 input.text = prefill.into();
             }
             input.link = link;
-        }
-        if let Some(send) = row_send {
-            let Some(squad) = self.target_squad(&send.target) else {
-                return self.say("The retained target is unavailable.");
-            };
-            self.attach_row(send, squad);
         }
         effect
     }

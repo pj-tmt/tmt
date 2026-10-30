@@ -147,6 +147,7 @@ fn unbound_copy_uses_the_exact_uuid_command_and_never_opens_a_handoff() {
             !text.contains("Resume here") && !text.contains("Move here"),
             "{text}"
         );
+        key(&mut app, KeyCode::Down);
         let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Enter) else {
             panic!("unbound session offers copy, never foreground handoff");
         };
@@ -207,6 +208,7 @@ fn unbound_flag_changes_fence_copy_and_legacy_confirmations() {
         binding_observation(&mut app, "tmux", Some(json!(unbound)));
         load(&mut app);
         if !unbound {
+            key(&mut app, KeyCode::Down);
             key(&mut app, KeyCode::Enter);
             assert!(app.member_session.as_ref().unwrap().confirmation.is_some());
         }
@@ -346,6 +348,7 @@ fn copy_and_cancel_keep_the_board_and_never_launch() {
     let mut app = remembered();
     let _no_commands = crate::runner::forbid_commands();
     load(&mut app);
+    key(&mut app, KeyCode::Down);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     let text = paint(&app, 160, 36);
     assert!(text.contains("The board closes here"));
@@ -363,6 +366,7 @@ fn copy_and_cancel_keep_the_board_and_never_launch() {
 fn confirmation_requires_current_complete_paint_and_refuses_a_named_draft_or_effect() {
     let mut app = remembered();
     load(&mut app);
+    key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Down);
     assert_eq!(
@@ -427,6 +431,7 @@ fn activity_refresh_keeps_the_move_confirmation_but_session_changes_fence_it() {
         "activity is painted from the current snapshot, not the held task"
     );
     key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
     for elapsed in [30_000, 10_000, 0] {
         refresh(&mut app, now - elapsed);
@@ -450,6 +455,7 @@ fn activity_refresh_keeps_the_move_confirmation_but_session_changes_fence_it() {
     ] {
         let mut app = remembered();
         load(&mut app);
+        key(&mut app, KeyCode::Down);
         key(&mut app, KeyCode::Down);
         key(&mut app, KeyCode::Enter);
         paint(&app, 160, 36);
@@ -491,7 +497,9 @@ fn reopen_selection_or_memory_change_fences_old_reads_and_confirmations() {
             preset: None,
         }),
     });
+    key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
+    assert!(app.member_session.as_ref().unwrap().confirmation.is_some());
     app.references.agents.get_mut(MEMBER).unwrap().parameters["resume"]["session"] =
         json!("new-session");
     key(&mut app, KeyCode::Down);
@@ -633,6 +641,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                 "Public session read failed; no launch attempted.",
             )));
         } else if scene == "session-resume" || scene == "session-move" {
+            key(&mut app, KeyCode::Down);
             if scene == "session-move" {
                 key(&mut app, KeyCode::Down);
             }
@@ -735,6 +744,7 @@ fn a_kept_conversation_draft_is_named_and_never_lost_to_handoff() {
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(app.composer.has_drafts());
     load(&mut app);
+    key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Down);
@@ -761,7 +771,9 @@ fn missing_freshness_or_changed_target_never_admits_the_held_confirmation() {
     assert!(!app.member_session_evidence(MEMBER).remembered());
     app = remembered();
     load(&mut app);
+    key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
+    assert!(app.member_session.as_ref().unwrap().confirmation.is_some());
     paint(&app, 160, 36);
     app.workspace.selected = None;
     key(&mut app, KeyCode::Down);
@@ -772,6 +784,7 @@ fn missing_freshness_or_changed_target_never_admits_the_held_confirmation() {
 fn a_review_starts_on_cancel_and_tiny_frames_never_enable_the_handoff() {
     let mut app = remembered();
     load(&mut app);
+    key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
     assert_eq!(
         app.member_session
@@ -899,4 +912,40 @@ fn the_session_window_follows_the_close_rule() {
         &mut open(),
         crate::board::app::Overlay::MemberSession,
     );
+}
+
+#[test]
+fn close_leads_the_rows_and_a_cancelled_confirm_returns_to_its_action() {
+    fn selected(app: &App) -> Option<String> {
+        let c = app.member_session.as_ref().unwrap();
+        let ui = c.ui.borrow();
+        ui.picker.list.selected().map(str::to_owned)
+    }
+    let mut app = remembered();
+    load(&mut app);
+    paint(&app, 160, 36);
+    assert_eq!(
+        selected(&app).as_deref(),
+        Some("close"),
+        "Close comes first"
+    );
+    for (downs, action, cancel) in [
+        (1, "resume", KeyCode::Esc),
+        (2, "move", KeyCode::Esc),
+        (1, "resume", KeyCode::Enter),
+    ] {
+        let mut app = remembered();
+        load(&mut app);
+        for _ in 0..downs {
+            key(&mut app, KeyCode::Down);
+        }
+        key(&mut app, KeyCode::Enter);
+        assert!(app.member_session.as_ref().unwrap().confirmation.is_some());
+        paint(&app, 160, 36);
+        // Esc, or Enter on the confirm's Cancel (where it starts), closes just the confirm.
+        assert_eq!(key(&mut app, cancel), Effect::None);
+        let c = app.member_session.as_ref().unwrap();
+        assert!(c.confirmation.is_none() && app.foreground.is_none());
+        assert_eq!(selected(&app).as_deref(), Some(action), "{action}");
+    }
 }

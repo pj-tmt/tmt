@@ -617,7 +617,6 @@ impl App {
             return self.say("Not enough room beside this mention; resize to open its actions.");
         }
         self.menu = Some(Menu {
-            row_send: None,
             link: None,
             prefill: String::new(),
             title,

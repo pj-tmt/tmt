@@ -85,7 +85,13 @@ def open_session():
 
 def open_review():
     open_session()
-    os.write(master, b"\x1b[H" + (b"\x1b[B" if spec["move"] else b"") + b"\r")
+    # Home is Close; the actions follow it. Enter only once the wanted row is focused.
+    os.write(master, b"\x1b[H\x1b[B")
+    wait_for(lambda: screen.contains("› Resume here"), "Resume here focused")
+    if spec["move"]:
+        os.write(master, b"\x1b[B")
+        wait_for(lambda: screen.contains("› Move here"), "Move here focused")
+    os.write(master, b"\r")
     wait_for(lambda: screen.contains("The board closes here") and screen.contains("c copy command"), "review before foreground handoff")
 
 
@@ -206,7 +212,9 @@ os.read(release,1)
         assert screen.contains("Run it in the agent's pane")
         assert not screen.contains("Resume here") and not screen.contains("Move here")
         expected_argv = ["resume", "--", spec["recipient"]]
-        os.write(master, b"\x1b[H\r")
+        os.write(master, b"\x1b[H\x1b[B")
+        wait_for(lambda: screen.contains("› Copy command"), "Copy command focused")
+        os.write(master, b"\r")
         wait_copied(expected_argv, "copy-only recovery command")
         assert board_status is None and not (root / "handoff.json").exists()
         os.write(master, b"\x1b")

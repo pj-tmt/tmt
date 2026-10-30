@@ -887,7 +887,6 @@ impl App {
                         };
                         let identity_id = member.id.clone();
                         self.menu = Some(Menu {
-                            row_send: None,
                             link: None,
                             prefill: String::new(),
                             title,

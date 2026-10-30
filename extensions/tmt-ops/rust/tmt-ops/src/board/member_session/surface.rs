@@ -26,14 +26,14 @@ impl Controller {
                 !self.task.evidence.remembered() || !matches!(self.loaded, Some(Ok(_)));
             if self.task.evidence.is_unbound() {
                 return vec![
-                    ("copy", "Copy command", unavailable),
                     ("close", "Close", false),
+                    ("copy", "Copy command", unavailable),
                 ];
             }
             vec![
+                ("close", "Close", false),
                 ("resume", "Resume here…", unavailable),
                 ("move", "Move here…", unavailable),
-                ("close", "Close", false),
             ]
         }
     }
