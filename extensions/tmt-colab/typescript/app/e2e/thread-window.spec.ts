@@ -213,15 +213,24 @@ test('Resolve all remains busy until original notification attempts settle, incl
   ).toEqual(['notify:Agent 1']);
 });
 
-test('the current filter defaults to Open without reading the removed Show-resolved preference', async ({
+test('the legacy Show-resolved preference selects All when no current preference exists', async ({
   page,
 }) => {
   await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
   const panel = await open(page);
+  await expect(panel.getByRole('button', { name: 'Thread filter', exact: true })).toHaveText('All');
+  await expect(panel.locator('.discussion-position')).toHaveText('1 / 2');
+});
+
+test('the current filter overrides the legacy Show-resolved preference', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('colab.comments.showResolved', '1');
+    localStorage.setItem('colab.comments.filter', 'open');
+  });
+  const panel = await open(page);
   await expect(panel.getByRole('button', { name: 'Thread filter', exact: true })).toHaveText(
     'Open',
   );
-  await expect(panel.locator('.discussion-position')).toHaveText('1 / 2');
 });
 
 test('nested filter and batch confirmation consume Escape before the conversation', async ({
@@ -264,6 +273,55 @@ test('Resolve all reports a partial failure in the existing Discussion status li
   await expect(
     panel.getByRole('button', { name: 'Resolve all open (1)', exact: true }),
   ).toBeEnabled();
+});
+
+for (const action of ['navigation', 'filter change', 'close'] as const)
+  test(`a Resolve all failure clears after ${action}`, async ({ page }) => {
+    const panel = await open(page, 2, 'First note');
+    await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+    await run(page, 'failStatusOnce');
+    await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Resolve 2 open comments?' })
+      .getByRole('button', { name: 'Resolve all', exact: true })
+      .click();
+    await expect(panel.locator('.discussion-status')).toContainText(
+      '1 comment could not be resolved.',
+    );
+    if (action === 'navigation') {
+      await panel.getByRole('button', { name: 'Next', exact: true }).click();
+    } else if (action === 'filter change') {
+      await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+      await page.getByRole('menuitemradio', { name: 'Open', exact: true }).click();
+    } else {
+      await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
+      await commentsAction(page).click();
+    }
+    await expect(panel.locator('.discussion-status')).not.toContainText(
+      '1 comment could not be resolved.',
+    );
+  });
+
+test('an in-flight Resolve all report cannot reappear after closing and reopening', async ({
+  page,
+}) => {
+  const panel = await open(page, 1, 'First note');
+  await run(page, 'holdStatusOnce');
+  await panel.getByRole('button', { name: 'Resolve all open (1)', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Resolve 1 open comments?' })
+    .getByRole('button', { name: 'Resolve all', exact: true })
+    .click();
+  await expect(
+    panel.getByRole('button', { name: 'Resolve all open (1)', exact: true }),
+  ).toBeDisabled();
+  await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
+  await commentsAction(page).click();
+  await run(page, 'releaseStatus', { fail: true });
+  await expect(panel.locator('.discussion-status')).not.toContainText(
+    '1 comment could not be resolved.',
+  );
 });
 
 for (const width of [390, 1440])

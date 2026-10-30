@@ -464,6 +464,7 @@ export const text = {
   discussionReply: 'Reply',
   discussionPrevious: 'Previous',
   discussionNext: 'Next',
+  discussionClose: 'Close (Esc)',
   discussionPosition: (number: number, total: number) => `${number} / ${total}`,
   threadShowInPage: 'Show in the page',
   threadCollapseHelp: 'Collapse · Esc',

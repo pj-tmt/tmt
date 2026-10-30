@@ -1549,8 +1549,15 @@ function OpenPage({
   // position it shows.
   const [resolveSlot, setResolveSlot] = useState<HTMLElement | null>(null);
   const [resolveAllSlot, setResolveAllSlot] = useState<HTMLElement | null>(null);
-  const [batchStatus, setBatchStatus] = useState<ReactNode>(null);
+  const [batchStatus, setBatchStatus] = useState<{ generation: number; content: ReactNode } | null>(
+    null,
+  );
+  const [batchGeneration, setBatchGeneration] = useState(0);
   const [threadFilter, setThreadFilter] = useThreadFilter();
+  useEffect(() => {
+    setBatchStatus(null);
+    setBatchGeneration((generation) => generation + 1);
+  }, [panel, activeThread, threadFilter]);
   const listed = useMemo(
     () =>
       listedThreads(
@@ -2211,8 +2218,8 @@ function OpenPage({
               '--discussion-bottom': `${dockPlacement.bottom + dockPlacement.height + 16}px`,
             } as React.CSSProperties
           }
-          closeLabel="Close (Esc)"
-          closeTooltipLabel="Close (Esc)"
+          closeLabel={text.discussionClose}
+          closeTooltipLabel={text.discussionClose}
           title={text.discussion}
           caption={
             <>
@@ -2304,7 +2311,9 @@ function OpenPage({
                 select={openThread}
                 close={closeComments}
                 headerSlot={resolveSlot}
-                batchStatus={batchStatus}
+                batchStatus={
+                  batchStatus?.generation === batchGeneration ? batchStatus.content : null
+                }
                 showInPage={(ref) => {
                   // The panel stays: it is beside or over the page, not a modal that hides it.
                   renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
@@ -2336,7 +2345,9 @@ function OpenPage({
                     : undefined
                 }
                 blocked={discussionBlocked || changingStatus}
-                onReport={setBatchStatus}
+                onReport={(content) =>
+                  setBatchStatus(content === null ? null : { generation: batchGeneration, content })
+                }
               />
             </>
           )}
