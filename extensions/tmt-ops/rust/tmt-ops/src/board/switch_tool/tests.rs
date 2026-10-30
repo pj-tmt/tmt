@@ -370,3 +370,41 @@ fn another_agent_starts_fresh_and_says_which_draft_was_dropped() {
         Some("Dropped the kept Switch tool draft for worker.")
     );
 }
+
+#[test]
+fn a_session_change_never_lets_a_kept_review_switch() {
+    // Changed while hidden: the reopen starts fresh and names the dropped draft.
+    let mut app = form();
+    review(&mut app);
+    key(&mut app, KeyCode::Esc);
+    app.references.agents.get_mut(MEMBER).unwrap().parameters["resume"]["session"] =
+        json!("changed");
+    app.switch_tool_changed();
+    assert_eq!(app.switch_tool.as_ref().unwrap().stage, Stage::Review);
+    assert!(matches!(app.open_switch_tool(), Effect::SwitchTool(_)));
+    let c = app.switch_tool.as_ref().unwrap();
+    assert!(c.stage == Stage::Form && c.review.is_none() && !c.reopened);
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("Dropped the kept Switch tool draft for worker.")
+    );
+
+    // Changed after the reopen: the guard turns it into Changed before Apply can submit.
+    let mut app = form();
+    review(&mut app);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.open_switch_tool(), Effect::None);
+    paint(&app, 150, 43);
+    app.references.agents.get_mut(MEMBER).unwrap().parameters["resume"]["session"] =
+        json!("changed");
+    app.switch_tool.as_mut().unwrap().focus = 2;
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::None,
+        "never a stale switch"
+    );
+    assert!(matches!(
+        app.switch_tool.as_ref().unwrap().stage,
+        Stage::Result(_)
+    ));
+}
