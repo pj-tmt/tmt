@@ -70,6 +70,7 @@ import { RetentionHint } from './retention-hint.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
 import './page-list.css';
+import { AppHeader } from './app-header.js';
 
 const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
@@ -961,9 +962,12 @@ export function Home() {
       data-compact={compact ? '' : undefined}
       ref={section}
     >
+      <AppHeader
+        title={scope ?? text.pageList.allPages}
+        remote={{ deviceName: transport.backendName }}
+      />
       <header className="page-list-hero">
         <div className="page-list-hero-text">
-          <h1 title={scope ?? undefined}>{scope ?? t.heroTitle}</h1>
           <p>{t.heroBody}</p>
           {port && (
             <div className="page-list-shortcuts">

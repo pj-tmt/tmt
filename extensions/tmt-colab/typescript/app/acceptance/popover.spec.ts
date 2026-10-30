@@ -78,8 +78,8 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
 
         // A press outside the popover.
         await open(touch);
-        // The header's corner is empty; its centre holds the page's own controls.
-        const bar = page.locator('.tmt-ui-header:visible');
+        // The bar's corner is empty; its groups hold the title and the controls.
+        const bar = page.locator('.tmt-ui-topbar:visible');
         const corner = { x: 4, y: 4 };
         if (touch) await tap(page, bar, corner);
         else await bar.click({ position: corner });
@@ -108,7 +108,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await expect(input).toHaveText(`@${agent.name} Keep this draft.`, { useInnerText: true });
     await expect(popover.getByText('Draft kept', { exact: true })).toBeVisible();
     await page.screenshot({ path: '/tmp/1713-native-1440-light-draft-kept.png' });
-    await page.locator('.tmt-ui-header:visible').click({ position: { x: 4, y: 4 } });
+    await page.locator('.tmt-ui-topbar:visible').click({ position: { x: 4, y: 4 } });
     await expect(popover).toHaveCount(0);
     // A different selection gets its settled creator seed, never the earlier typed body.
     await selectInRenderer(page, '#other');
@@ -146,7 +146,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await close.click();
     await close.focus();
     await page.keyboard.press('Escape');
-    await page.locator('.tmt-ui-header:visible').click({ position: { x: 4, y: 4 } });
+    await page.locator('.tmt-ui-topbar:visible').click({ position: { x: 4, y: 4 } });
     await clearSelection(page);
     await page.waitForTimeout(300);
     await expect(popover).toBeVisible();

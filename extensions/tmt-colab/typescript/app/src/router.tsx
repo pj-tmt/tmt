@@ -37,24 +37,23 @@ import {
   MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
-  Moon,
   MousePointer2,
-  Sun,
 } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
+import { AppHeader } from './app-header.js';
 import { ColabHeader } from './colab-header.js';
 import { creatorName, PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
 import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import {
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
   type Ref,
 } from 'react';
@@ -80,7 +79,6 @@ import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
 import { ColabShell, ShellHostSlot } from './colab-shell.js';
-import { SharedTopBar } from './shared-top-bar.js';
 import {
   embeddedPageEnvironment,
   PageEnvironmentProvider,
@@ -108,7 +106,6 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
 import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
-import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
 import { useConnection } from './use-connection.js';
 import { terminalFailure } from './terminal-failure.js';
@@ -796,9 +793,9 @@ const root = createRootRouteWithContext<AppContext>()({
       error instanceof Error && (opening || error.message === text.reconnectFailed)
         ? openFailure(error)
         : undefined;
-    const header = useRef<HTMLElement>(null);
-    useLayoutEffect(() => {
-      const title = header.current?.querySelector('h1');
+    // The heading takes focus once it is drawn: in the shared bar it mounts after this view.
+    const header = useCallback((node: HTMLElement | null) => {
+      const title = node?.matches('h1') ? node : node?.querySelector('h1');
       if (title) {
         title.tabIndex = -1;
         title.focus({ preventScroll: true });
@@ -935,6 +932,7 @@ function PageFrame() {
   return (
     <div data-page-frame="" aria-busy="true">
       <ColabHeader
+        page
         remoteMenu={false}
         title={title || text.loading}
         remote={{ deviceName: transport.backendName }}
@@ -1079,61 +1077,6 @@ const blocked = createRoute({
   },
 });
 
-export function AppHeader({
-  linked = true,
-  title = text.pages,
-  titleVisible = true,
-  remote,
-  headerRef,
-  headingSuffix,
-  namedByContent = false,
-}: {
-  linked?: boolean;
-  title?: string;
-  titleVisible?: boolean;
-  remote?: { deviceName?: string };
-  headerRef?: Ref<HTMLElement>;
-  headingSuffix?: ReactNode;
-  /** The page's own content carries its heading: the shared bar's title row would repeat it. */
-  namedByContent?: boolean;
-}) {
-  const sharedBar = useContext(SharedTopBar);
-  return (
-    <ColabHeader
-      title={title}
-      titleVisible={titleVisible && !(namedByContent && sharedBar)}
-      headerRef={headerRef}
-      remote={remote}
-      headingSuffix={headingSuffix}
-      home={
-        linked
-          ? (brand, name) => (
-              <Link to="/" aria-label={name} title={name}>
-                {brand}
-              </Link>
-            )
-          : undefined
-      }
-      actions={sharedBar ? undefined : <ThemeButton />}
-    />
-  );
-}
-function ThemeButton() {
-  const dark = useSyncExternalStore(subscribeTheme, getTheme) === 'dark';
-  return (
-    <span className="theme">
-      <BrowserIconAction
-        type="button"
-        variant="text"
-        label={text.theme}
-        icon={dark ? <Moon /> : <Sun />}
-        onActivate={() => {
-          setThemeChoice(getTheme() === 'dark' ? 'light' : 'dark');
-        }}
-      />
-    </span>
-  );
-}
 function Shell() {
   const { transport, space } = root.useRouteContext();
   const router = useRouter();
@@ -1161,18 +1104,15 @@ function Shell() {
         }
       >
         <ColabShell transport={transport} space={space}>
-          {!isPage && (
+          {/* The list names its own scope; a page draws its own header. */}
+          {!isPage && !isHome && (
             <AppHeader
-              remote={isHome ? { deviceName: transport.backendName } : undefined}
-              titleVisible={!isHome && pathname !== '/settings'}
               title={
                 pathname.startsWith('/short/')
-                  ? 'Open a page'
-                  : pathname === '/'
-                    ? text.pages
-                    : pathname === '/settings'
-                      ? text.colabSettings.title
-                      : text.error
+                  ? text.openAPage
+                  : pathname === '/settings'
+                    ? text.colabSettings.section
+                    : text.error
               }
             />
           )}
@@ -1334,7 +1274,6 @@ function OpenPage({
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
-  const titleRow = useRef<HTMLDivElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
   const {
     reset: resetPageLinks,
@@ -1764,7 +1703,6 @@ function OpenPage({
     renderer,
     setState,
     toolbar,
-    titleRow,
     workBandSize,
     anchor,
     layers: {
@@ -1986,7 +1924,7 @@ function OpenPage({
         }
         crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
         barRef={toolbar}
-        rowRef={titleRow}
+        page
         title={view.title || snapshot.title || text.unknownPageTitle}
         remote={{ deviceName: transport.backendName }}
         caption={
@@ -2624,15 +2562,14 @@ function OpenPage({
             {view.pageType === 'shell' ? (
               <section className="page">
                 <AppHeader
+                  page
                   title={view.title || snapshot.title}
                   remote={{ deviceName: transport.backendName }}
-                  namedByContent
                 />
                 <main className="canvas">
                   {(view.shell || !endedError) && (
                     <ShellPage
                       shell={view.shell}
-                      title={view.title || snapshot.title}
                       embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
                     />
                   )}

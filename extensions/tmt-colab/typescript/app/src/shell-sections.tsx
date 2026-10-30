@@ -16,12 +16,11 @@ import type { PageSummary } from './transport.js';
 
 const t = text.shellPage;
 
-/** The page's own headline over its one-line greeting, which names the local time of day and the
+/** The page's one-line greeting under the bar's title, which names the local time of day and the
  * number waiting. The greeting names no one. */
-export function ShellHead({ title, model }: { title: string; model: ShellModel }) {
+export function ShellHead({ model }: { model: ShellModel }) {
   return (
     <header className="tmt-ui-page-head">
-      <h1 className="tmt-ui-page-title">{title || text.unknownPageTitle}</h1>
       <p className="tmt-ui-page-subtitle">
         {t.greeting(model.timeOfDay, model.waiting, spellSmallNumber(model.waiting))}
       </p>

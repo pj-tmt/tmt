@@ -27,11 +27,10 @@ test('an old short link opens a chooser after a new page collides and never gues
   await expect(page.getByRole('link', { name: /Original proposal/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /Later proposal/ })).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
-  // The shared bar plus the page's title row.
+  // The shared bar names the route in its title slot; no title row or own header repeats it.
   await expect(page.locator('#short-fixture .tmt-ui-topbar')).toHaveCount(1);
-  await expect(page.locator('#short-fixture .colab-title-row header')).toHaveCount(1);
-  // Inside the shell the rail carries the TMT mark; the title row draws none.
-  await expect(page.locator('#short-fixture .tmt-ui-header svg.tmt-ui-mark')).toHaveCount(0);
+  await expect(page.locator('#short-fixture .tmt-ui-topbar-title-current')).toHaveText('Open a page');
+  await expect(page.locator('#short-fixture .tmt-ui-header')).toHaveCount(0);
   await expect(page.getByTestId('short-page-choice').locator('section')).toHaveAttribute(
     'role',
     'status',
@@ -84,7 +83,7 @@ test('deleting the original page reserves old prefixes and never exposes its tit
   await expect(
     page.getByTestId('short-page-choice').locator('.tmt-ui-notice-mark svg.lucide-x'),
   ).toBeVisible();
-  await expect(page.locator('#short-fixture .tmt-ui-header')).toHaveCount(1);
+  await expect(page.locator('#short-fixture .tmt-ui-topbar-title-current')).toHaveText('Open a page');
   await expect(
     page.getByText('Its owner deleted it. Ask them for a new link if you still need it.'),
   ).toBeVisible();

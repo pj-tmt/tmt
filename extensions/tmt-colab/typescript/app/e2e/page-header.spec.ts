@@ -128,7 +128,7 @@ for (const width of [1440, 390])
 
 /**
  * The shared top bar (#4841, #5237): Search first at the left, then the page's actions, then Theme and
- * the Remote link. The bar draws no title; the page's title row is content under it.
+ * the Remote link. The page's title is in the bar's title slot; its status band is pinned under it.
  */
 test.describe('the shell bar', () => {
   async function mountPage(page: Page) {
@@ -172,45 +172,44 @@ test.describe('the shell bar', () => {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     };
 
-    test(`the bar draws no title; the page's title row is content on the content background at ${width} ${scheme}`, async ({
+    test(`the bar's title slot names the page and the status band stays pinned under it at ${width} ${scheme}`, async ({
       page,
     }) => {
       await look(page);
       await mountPage(page);
-      await expect(bar(page).getByRole('heading')).toHaveCount(0);
+      // The page's one heading is in the bar's left group; no title row or brand repeats it.
+      const title = bar(page).locator('.tmt-ui-topbar-title');
+      await expect(title.getByRole('heading', { level: 1 })).toHaveCount(1);
+      await expect(title.locator('.tmt-ui-topbar-title-current')).toHaveText('Live shared page');
+      await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+      await expect(page.locator('.colab-title-row')).toHaveCount(0);
       await expect(bar(page).locator('.tmt-ui-brand, .tmt-ui-wordmark, .tmt-ui-mark')).toHaveCount(
         0,
       );
-      // The title row is content: outside the bar, with no band surface or rule of its own, at the
-      // content column's left edge, and it scrolls with the page rather than staying under the bar.
-      const row = page.locator('.colab-title-row:visible');
-      const header = row.locator('header');
-      await expect(bar(page).locator('.colab-title-row')).toHaveCount(0);
-      await expect(header.getByRole('heading', { level: 1 })).toHaveText('Live shared page');
-      await expect(header).toHaveAttribute('aria-label', /^Colab · (.+ · )?Live shared page$/);
-      await expect(header).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-      await expect(header).toHaveCSS('border-bottom-width', '0px');
-      await expect(row).toHaveCSS('position', 'static');
-      const edges = await page.evaluate(() => {
-        const title = [...document.querySelectorAll('.colab-title-row h1')].find(
-          (node) => node.getBoundingClientRect().width > 0,
-        )!;
-        const main = title.closest('.tmt-ui-shell-main')!;
-        const padding = parseFloat(getComputedStyle(title.closest('header')!).paddingInlineStart);
-        return {
-          title: Math.round(title.getBoundingClientRect().left),
-          column: Math.round(main.getBoundingClientRect().left + padding),
-        };
-      });
-      expect(edges.title).toBe(edges.column);
-      const before = (await row.boundingBox())!;
+      // Two layers: the status band follows the bar (on a phone, after the module tabs that scroll
+      // away) and, once the page scrolls, stays where the bar ends, collapsed and expanded.
+      const band = page.locator('.page-main .work-band:visible');
+      const gap = async () =>
+        (await band.boundingBox())!.y -
+        ((await bar(page).boundingBox())!.y + (await bar(page).boundingBox())!.height);
+      const tabs =
+        width > 900 ? 0 : (await page.locator('.tmt-ui-module-menu:visible').boundingBox())!.height;
+      await expect.poll(gap).toBeCloseTo(tabs, 0);
       await page.evaluate(() => {
         document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
           '3000px';
         window.scrollTo(0, 400);
       });
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(400);
-      expect((await row.boundingBox())!.y).toBeLessThan(before.y);
+      await expect.poll(gap).toBeCloseTo(0, 0);
+      const toggle = band.locator('button[aria-expanded]').first();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect.poll(gap).toBeCloseTo(0, 0);
+      const room = await page.evaluate(() => window.innerHeight);
+      expect((await band.boundingBox())!.y + (await band.boundingBox())!.height).toBeLessThanOrEqual(
+        room + 1,
+      );
     });
 
     test(`the search opens from the shortcut once, with its key hint, and Escape returns focus at ${width} ${scheme}`, async ({

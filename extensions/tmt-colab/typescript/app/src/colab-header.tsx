@@ -23,6 +23,19 @@ import { getThemeChoice, subscribeTheme } from './theme.js';
 import { setStoredTheme, THEMES } from '@tmt/browser-ui/theme';
 import { Sun } from 'lucide-react';
 
+const captionId = 'colab-header-caption';
+
+/** Moves focus to the route's heading after an in-app navigation: in the shared bar's title slot,
+ * else in the module's own header. */
+export function focusPageHeading(): void {
+  const title =
+    document.querySelector<HTMLElement>('.tmt-ui-topbar-title h1') ??
+    document.querySelector<HTMLElement>('.tmt-ui-header h1');
+  if (!title) return;
+  title.tabIndex = -1;
+  title.focus({ preventScroll: true });
+}
+
 function assign<T>(ref: Ref<T> | undefined, value: T | null) {
   if (typeof ref === 'function') ref(value);
   else if (ref) ref.current = value;
@@ -56,7 +69,7 @@ export function ColabHeader({
   home,
   headerRef,
   barRef,
-  rowRef,
+  page = false,
   status,
   remote,
   remoteMenu = true,
@@ -76,8 +89,8 @@ export function ColabHeader({
   headerRef?: Ref<HTMLElement>;
   /** The sticky chrome the page measures from (the header; in the shared bar, the bar itself). */
   barRef?: Ref<HTMLElement>;
-  /** The title row, when the shared bar draws no title and the row is content under it. */
-  rowRef?: Ref<HTMLDivElement>;
+  /** The title names a page: in the shared bar its crumb (the scope) leads it, not the module. */
+  page?: boolean;
   status?: ReactNode;
   remote?: { deviceName?: string };
   remoteMenu?: boolean;
@@ -141,7 +154,7 @@ export function ColabHeader({
       title={title}
       titleVisible={titleVisible}
       caption={caption}
-      captionId={caption === undefined ? undefined : 'colab-header-caption'}
+      captionId={caption === undefined ? undefined : captionId}
       brandLink={
         home
           ? (brand) => home(<BrandParts>{brand}</BrandParts>, identity ?? text.home)
@@ -179,21 +192,42 @@ export function ColabHeader({
     />
   );
   if (!bar) return header;
-  if (shared) {
-    // The bar draws no title: the page's own row (title, crumb, project menu, caption) is content that
-    // scrolls with it, and only its actions and status belong to the shared bar.
-    const row = titleVisible || headingSuffix !== undefined || caption !== undefined;
+  if (shared)
+    // The bar's title slot is the route's one heading: the module or the page's scope, the title,
+    // then the page's chips. The content repeats none of it.
     return (
-      <>
-        <BrowserTopBar status={status} actions={actions} />
-        {row && (
-          <div className="colab-title-row" ref={rowRef}>
-            {header}
-          </div>
-        )}
-      </>
+      <BrowserTopBar
+        title={
+          <>
+            <h1
+              ref={(node) => assign(headerRef, node)}
+              aria-describedby={caption === undefined ? undefined : captionId}
+            >
+              {(!page || crumb !== undefined) && (
+                <span className="tmt-ui-topbar-title-prefix">
+                  <CrumbGroup>{page ? crumb : text.product}</CrumbGroup>
+                </span>
+              )}
+              <span className="tmt-ui-topbar-title-current" title={title}>
+                {title}
+              </span>
+            </h1>
+            {(headingSuffix !== undefined || caption !== undefined) && (
+              <div className="tmt-ui-topbar-title-chips">
+                {headingSuffix}
+                {caption !== undefined && (
+                  <span className="tmt-ui-caption" id={captionId} title={caption}>
+                    {caption}
+                  </span>
+                )}
+              </div>
+            )}
+          </>
+        }
+        status={status}
+        actions={actions}
+      />
     );
-  }
   return (
     <>
       {createPortal(header, bar)}
