@@ -94,7 +94,7 @@ impl Dialog<'_> {
     }
 
     /// Clear and frame the dialog, then paint its buttons on the footer line,
-    /// right-aligned, with the cursor's button focused.
+    /// from the left as every board dialog does, with the cursor's button focused.
     pub fn paint(
         &self,
         areas: ModalAreas,
@@ -115,7 +115,7 @@ impl Dialog<'_> {
         let row = ButtonRow {
             theme,
             depth,
-            align: Align::Right,
+            align: Align::Left,
             active: true,
             hovered,
         };
