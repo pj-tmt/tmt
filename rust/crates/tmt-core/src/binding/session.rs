@@ -523,6 +523,71 @@ impl BindingSessionState {
         };
         Some(next)
     }
+
+    /// Awaiting the next session: the provider left one conversation (clear, resume or a
+    /// conversation end) while its recorded process may still open the next. Only that same
+    /// process incarnation can continue it; a gone or replaced runtime never does.
+    pub fn awaiting_next_session(&self) -> bool {
+        self.state == RuntimeState::Unknown
+            && self.key.is_some()
+            && matches!(
+                self.last_transition,
+                Some(
+                    SessionTransition::Cleared
+                        | SessionTransition::Resumed
+                        | SessionTransition::Ended
+                )
+            )
+    }
+
+    /// A launch-owned binding awaiting its next session continues with the session its own
+    /// live process now reports, when the matching start was never admitted (#5703). That may
+    /// be the old session itself, after a held start that turned out stale. The caller has
+    /// verified that process and the launch owner; this checks only the record.
+    pub fn continue_session(&self, key: ObservedSessionKey) -> Option<Self> {
+        let old = self.key.as_ref()?;
+        if !self.awaiting_next_session()
+            || self.launch_owner.is_none()
+            || old.incarnation != key.incarnation
+            || key.provider_session.is_none()
+        {
+            return None;
+        }
+        Some(Self {
+            start_refusal: None,
+            key: Some(key),
+            launch_owner: self.launch_owner.clone(),
+            state: RuntimeState::Running,
+            last_transition: self.last_transition,
+        })
+    }
+
+    /// A clear or resume start for another session of the same running, launch-owned process
+    /// that arrives before the old session's end: hold it as awaiting the next session, so
+    /// that process's next verified event names the conversation that is really current.
+    pub fn hold_switch(
+        &self,
+        key: &ObservedSessionKey,
+        transition: SessionTransition,
+    ) -> Option<Self> {
+        let old = self.key.as_ref()?;
+        if self.state != RuntimeState::Running
+            || self.launch_owner.is_none()
+            || old.incarnation != key.incarnation
+            || old.provider_session.is_none()
+            || old.provider_session == key.provider_session
+            || !matches!(
+                transition,
+                SessionTransition::Cleared | SessionTransition::Resumed
+            )
+        {
+            return None;
+        }
+        let mut next = self.clone();
+        next.state = RuntimeState::Unknown;
+        next.last_transition = Some(transition);
+        Some(next)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1387,6 +1452,91 @@ mod tests {
                 )
                 .is_none()
             );
+        }
+    }
+
+    fn launched_running(old: &ObservedSessionKey) -> BindingSessionState {
+        BindingSessionState::default()
+            .admit_launched(
+                old.clone(),
+                ProcessIncarnation::new(41, "owner").unwrap(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn the_same_process_continues_a_binding_awaiting_its_next_session() {
+        let old = key("same-process", "old-session");
+        let new = key("same-process", "new-session");
+        let running = launched_running(&old);
+        assert!(!running.awaiting_next_session());
+        assert!(
+            running.continue_session(new.clone()).is_none(),
+            "a running binding is never taken over by another session"
+        );
+        for transition in [
+            SessionTransition::Cleared,
+            SessionTransition::Resumed,
+            SessionTransition::Ended,
+        ] {
+            let mut waiting = running.transition(&old, transition, None).unwrap();
+            waiting.state = RuntimeState::Unknown;
+            assert!(waiting.awaiting_next_session(), "{transition:?}");
+            let next = waiting.continue_session(new.clone()).unwrap();
+            assert_eq!(next.state, RuntimeState::Running);
+            assert_eq!(next.key, Some(new.clone()));
+            assert_eq!(next.launch_owner, running.launch_owner);
+            assert!(
+                waiting
+                    .continue_session(key("replacement-process", "new-session"))
+                    .is_none(),
+                "another process never continues it"
+            );
+            let mut unowned = waiting.clone();
+            unowned.launch_owner = None;
+            assert!(unowned.continue_session(new.clone()).is_none());
+            let mut gone = waiting.clone();
+            gone.state = RuntimeState::Ended;
+            assert!(gone.continue_session(new.clone()).is_none());
+        }
+    }
+
+    #[test]
+    fn an_early_clear_start_is_held_until_the_process_names_its_session() {
+        let old = key("same-process", "old-session");
+        let new = key("same-process", "new-session");
+        let running = launched_running(&old);
+        let held = running
+            .hold_switch(&new, SessionTransition::Cleared)
+            .unwrap();
+        assert_eq!(
+            held.key,
+            Some(old.clone()),
+            "the start alone switches nothing"
+        );
+        assert!(held.awaiting_next_session());
+        // The old session's late end keeps it awaiting.
+        let mut ended = held
+            .transition(&old, SessionTransition::Cleared, None)
+            .unwrap();
+        ended.state = RuntimeState::Unknown;
+        assert!(ended.awaiting_next_session());
+        assert_eq!(
+            ended.continue_session(new.clone()).unwrap().key,
+            Some(new.clone())
+        );
+        for refused in [
+            running.hold_switch(&old, SessionTransition::Cleared),
+            running.hold_switch(&new, SessionTransition::Started),
+            running.hold_switch(
+                &key("replacement-process", "new-session"),
+                SessionTransition::Cleared,
+            ),
+        ] {
+            assert!(refused.is_none());
         }
     }
 }
