@@ -6,6 +6,7 @@ use serde_json::Value;
 
 type Result<T> = std::result::Result<T, RemoteError>;
 enum MemberRead {
+    Summary,
     Roster(Page),
     Machines { member: String, page: Page },
 }
@@ -18,6 +19,7 @@ struct MachinePage {
 }
 fn parse(operation: &str, input: &Value) -> Result<MemberRead> {
     let keys = match operation {
+        "remote.members.summary" => vec![],
         "remote.members.list" => vec!["cursor", "limit"],
         "remote.members.machines" => vec!["memberId", "cursor", "limit"],
         _ => return Err(service::invalid()),
@@ -25,6 +27,9 @@ fn parse(operation: &str, input: &Value) -> Result<MemberRead> {
     let object = input.as_object().ok_or_else(service::invalid)?;
     if object.len() != keys.len() || keys.iter().any(|key| !object.contains_key(*key)) {
         return Err(service::invalid());
+    }
+    if operation == "remote.members.summary" {
+        return Ok(MemberRead::Summary);
     }
     if operation == "remote.members.list" {
         return serde_json::from_value(input.clone())
@@ -62,6 +67,15 @@ pub(crate) fn signed(
 ) -> Result<Vec<u8>> {
     let read = parse(permit.message.envelope().operation, &permit.message.input)?;
     let value = match read {
+        MemberRead::Summary => {
+            let view = permit.with_store(|store| {
+                service::summary(store, Caller::Browser(&permit.grant), now_ms()?)
+            })?;
+            permit.with_store(|store| {
+                service::validate_summary(store, Caller::Browser(&permit.grant), &view, now_ms()?)
+            })?;
+            serde_json::to_value(view).map_err(crate::store::database)?
+        }
         MemberRead::Roster(page) => {
             let invitation = source.invitation();
             let view = permit.with_store(|store| {
@@ -118,6 +132,8 @@ pub fn local(
     input: &Value,
 ) -> Result<Value> {
     match parse(operation, input)? {
+        // This summary belongs only to the signed owner-browser management interface.
+        MemberRead::Summary => Err(service::invalid()),
         MemberRead::Roster(page) => {
             let invitation = source.invitation();
             let view = {

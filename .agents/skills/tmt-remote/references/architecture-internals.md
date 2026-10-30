@@ -198,7 +198,11 @@ and returns all changed clients for the existing post-commit session owner.
 The contract owns the schema, policy and outcome semantics.
 
 `members::service` owns bounded person and machine projections over that same
-Store. Administrator views require the local owner or the exact current designated
+Store. The signed-browser-only `remote.members.summary` aggregate uses the existing person mapping
+and durable accepted-use records; unauthorized row facts stay null. It adds no native/provider
+read or persistence owner. Like roster disclosure, the adapter rechecks current designation and
+grant scope before signing; it bypasses journal adoption and is absent from private control.
+Administrator views require the local owner or the exact current designated
 owner browser; other admitted browsers see only their current member. Role labels
 on another associated machine grant no additional access. SQL limits precede
 materialization; view/caller/Remote-bound row-position cursors preserve legacy IDs

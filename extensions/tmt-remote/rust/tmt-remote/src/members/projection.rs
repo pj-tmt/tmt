@@ -10,6 +10,31 @@ use crate::{
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 
+pub(super) fn summary(c: &Connection, scope: &MemberViewAccess) -> Result<service::Summary> {
+    let (member_count, last_active_at_ms) = if scope.administrator() {
+        // Count people once, independently of their number of associated machines. The
+        // timestamp is historical accepted use, including use by a now-revoked machine.
+        let (count, last) = c.query_row(
+            "SELECT (SELECT COUNT(*) FROM members WHERE remote_id=?1 AND revoked_at_ms IS NULL), \
+             (SELECT MAX(u.used_at_ms) FROM device_last_use u JOIN member_machines m \
+              ON m.client_id=u.client_id WHERE m.remote_id=?1)",
+            [&scope.remote],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
+        ).map_err(database)?;
+        (
+            Some(u64::try_from(count).map_err(database)?),
+            last.map(u64::try_from).transpose().map_err(database)?,
+        )
+    } else {
+        (None, None)
+    };
+    Ok(service::Summary {
+        remote_id: scope.remote.clone(),
+        member_count,
+        last_active_at_ms,
+    })
+}
+
 fn binding(scope: &MemberViewAccess, view: &str, target: &str) -> [u8; 32] {
     let frame = serde_json::to_vec(&(&scope.remote, &scope.caller, &scope.member, view, target))
         .expect("string frame");

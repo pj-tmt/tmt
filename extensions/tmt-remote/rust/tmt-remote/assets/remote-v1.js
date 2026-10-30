@@ -11191,6 +11191,16 @@ function members(session, options = {}) {
 	}
 	return {
 		clientId,
+		summary: () => call("remote.members.summary", crypto.randomUUID(), {}, (value) => {
+			const row = object$3(value);
+			exact(row, [
+				"remoteId",
+				"memberCount",
+				"lastActiveAtMs"
+			]);
+			valid$6(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
+			return row;
+		}),
 		list: (value) => {
 			inputKeys(value, ["cursor", "limit"]);
 			page(value);
