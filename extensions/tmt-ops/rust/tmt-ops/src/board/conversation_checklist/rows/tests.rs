@@ -146,7 +146,7 @@ fn who_added_an_item_is_you_a_roster_name_a_short_id_or_nobody() {
 }
 
 #[test]
-fn a_link_row_shows_its_short_form_and_completed_items_have_no_display_rows() {
+fn a_link_row_shows_its_whole_address_and_completed_items_have_no_display_rows() {
     let rows = rows(
         &preview(vec![
             item(
@@ -171,7 +171,7 @@ fn a_link_row_shows_its_short_form_and_completed_items_have_no_display_rows() {
         rows.iter().map(|row| row.kind).collect::<Vec<_>>(),
         [Kind::Link]
     );
-    assert_eq!(rows[0].link, "example.org/…/4554");
+    assert_eq!(rows[0].address, "example.org/pull/4554?x=1");
     assert_eq!(rows[0].byline, "alice · 1h");
 }
 
@@ -189,47 +189,47 @@ fn a_github_issue_or_pull_reads_owner_repo_number() {
             "https://github.com/tmt-ninja/tmt/issues/4520",
             "tmt-ninja/tmt#4520",
         ),
-        (
-            "https://github.com/tmt-ninja/tmt/pull/4520/files?diff=split",
-            "tmt-ninja/tmt#4520",
-        ),
-        ("http://GitHub.com/a/b/pull/7#issuecomment-1", "a/b#7"),
+        ("http://GitHub.com/a/b/pull/7", "a/b#7"),
+        ("https://github.com/a/b/pull/7/", "a/b#7"),
     ] {
-        assert_eq!(link(reference), shown, "{reference}");
+        assert_eq!(address(reference), shown, "{reference}");
     }
 }
 
 #[test]
-fn any_other_address_reads_host_then_its_last_segment() {
+fn any_other_address_reads_whole_without_its_scheme() {
     for (reference, shown) in [
         (
             "https://github.com/tmt-ninja/tmt/actions/runs/39890481652",
-            "github.com/…/39890481652",
+            "github.com/tmt-ninja/tmt/actions/runs/39890481652",
         ),
         (
-            "https://colab.tmt.ninja/p/abc/checklist",
-            "colab.tmt.ninja/…/checklist",
+            "https://github.com/tmt-ninja/tmt/pull/4520/files?diff=split",
+            "github.com/tmt-ninja/tmt/pull/4520/files?diff=split",
         ),
-        ("https://example.com/a/b/", "example.com/…/b"),
-        ("https://example.com/only", "example.com/only"),
-        ("http://example.com?q=1", "example.com"),
+        (
+            "http://GitHub.com/a/b/pull/7#issuecomment-1",
+            "GitHub.com/a/b/pull/7#issuecomment-1",
+        ),
+        (
+            "http://127.0.0.1:50711/colab/p/161644f1",
+            "127.0.0.1:50711/colab/p/161644f1",
+        ),
+        ("https://example.com/a/b/", "example.com/a/b/"),
+        ("http://example.com?q=1", "example.com?q=1"),
         ("example.com/x", "example.com/x"),
         ("mailto:a@b.c", "mailto:a@b.c"),
         (
             "https://github.com/tmt-ninja/tmt/issues/new",
-            "github.com/…/new",
-        ),
-        (
-            "https://github.com/tmt-ninja/tmt/pull/",
-            "github.com/…/pull",
+            "github.com/tmt-ninja/tmt/issues/new",
         ),
     ] {
-        assert_eq!(link(reference), shown, "{reference}");
+        assert_eq!(address(reference), shown, "{reference}");
     }
 }
 
 #[test]
-fn a_todo_has_a_dash_for_its_link_and_every_status_names_its_state() {
+fn a_todo_has_no_address_and_its_kind_follows_the_reference() {
     let rows = rows(
         &preview(vec![
             item(1, None, Completion::Open, None, None),
@@ -243,19 +243,19 @@ fn a_todo_has_a_dash_for_its_link_and_every_status_names_its_state() {
         ]),
         NOW,
     );
-    assert_eq!(rows[0].link, "—");
-    assert_eq!(rows[0].kind.status(), "○ todo");
-    assert_eq!(rows[1].kind.status(), "↗ link");
+    assert_eq!(rows[0].address, "");
+    assert_eq!(rows[0].kind, Kind::Todo);
+    assert_eq!(rows[1].kind, Kind::Link);
 }
 
 #[test]
-fn every_status_mark_is_a_registered_board_mark() {
-    for kind in [Kind::Link, Kind::Todo] {
-        let row = format!("{} title", kind.status());
+fn every_row_mark_is_a_registered_board_mark() {
+    for mark in [OPEN_MARK, LINK_MARK] {
+        let row = format!("{mark} title");
         assert_eq!(
             crate::board::glyph_guard::glyph_error(&row),
             None,
-            "{kind:?}"
+            "{mark:?}"
         );
     }
 }

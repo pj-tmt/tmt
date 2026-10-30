@@ -165,8 +165,7 @@ fn a_refused_completion_keeps_the_open_row_and_does_not_claim_completed() {
         },
     );
     let screen = paint(&app);
-    assert!(screen.contains("○ todo"), "{screen}");
-    assert!(screen.contains("item 1"), "{screen}");
+    assert!(screen.contains("○ item 1"), "{screen}");
     assert!(screen.contains("The member is unavailable."), "{screen}");
     assert!(!screen.contains("✓ Completed"), "{screen}");
 }
@@ -196,7 +195,7 @@ fn shift_down_swaps_a_link_with_the_todo_below_it_in_the_one_list() {
 }
 
 #[test]
-fn the_byline_is_on_the_cursor_row_only_and_follows_the_cursor() {
+fn every_row_shows_who_added_it_when_on_its_second_line() {
     let stamped = |mut item: ItemView| {
         item.item.added = Some(Stamp {
             by: Id::parse(super::ACTOR).unwrap(),
@@ -207,9 +206,9 @@ fn the_byline_is_on_the_cursor_row_only_and_follows_the_cursor() {
     let (mut app, _) = opened(vec![stamped(todo(1)), stamped(todo(2))]);
     let count = |screen: &str| screen.matches("you · ").count();
     let first = paint(&app);
-    assert_eq!(count(&first), 1, "{first}");
+    assert_eq!(count(&first), 2, "{first}");
     press(&mut app, KeyCode::Down);
-    assert_eq!(count(&paint(&app)), 1);
+    assert_eq!(count(&paint(&app)), 2);
 }
 
 #[test]
@@ -355,25 +354,31 @@ fn clicking_the_chip_opens_the_list_for_the_selected_member() {
 }
 
 #[test]
-fn the_list_is_one_mixed_list_under_a_status_link_title_header_and_esc_closes_it() {
+fn the_list_is_one_mixed_list_of_two_line_rows_without_a_header_and_esc_closes_it() {
     let (mut app, _) = opened(vec![todo(1), link(2), done(3)]);
     let screen = paint(&app);
     assert!(screen.contains("Checklist · worker · 2 items"), "{screen}");
-    assert!(screen.contains("STATUS LINK"), "{screen}");
-    assert!(screen.contains("TITLE"), "{screen}");
+    assert!(
+        !screen.contains("STATUS") && !screen.contains("TITLE"),
+        "{screen}"
+    );
     assert!(
         !screen.contains("Links ·") && !screen.contains("Todo ·"),
         "{screen}"
     );
-    let (todo_at, link_at) = (screen.find("○ todo"), screen.find("↗ link"));
+    let lines: Vec<&str> = screen.lines().collect();
+    let line = |text: &str| lines.iter().position(|line| line.contains(text));
+    let (todo_at, link_at) = (line("○ item 1"), line("○ item 2"));
     assert!(
         todo_at.is_some() && link_at > todo_at,
         "stored order, not links first: {screen}"
     );
-    assert!(screen.contains("example.com/a"), "{screen}");
+    let address = line("↗ example.com/a").expect("the link is on its own line");
+    assert_eq!(Some(address), link_at.map(|at| at + 1), "{screen}");
+    let (_, sheet) = sheet_at(&app, 120);
     assert!(
-        screen.contains("—"),
-        "a todo has a dash for its link: {screen}"
+        !sheet.iter().any(|line| line.contains('—')),
+        "a todo shows no link: {sheet:#?}"
     );
     assert!(!screen.contains("item 3"), "{screen}");
     press(&mut app, KeyCode::Esc);
@@ -1346,5 +1351,177 @@ fn the_footer_names_what_enter_does_under_each_setting_and_keeps_esc_close_in_vi
     assert!(
         screen.contains("Esc close"),
         "the longer footer is not cut: {screen}"
+    );
+}
+
+/// The text inside the painted sheet at `width` columns, one string per line.
+fn sheet_at(app: &App, width: u16) -> (ratatui::layout::Rect, Vec<String>) {
+    let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let outer = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
+    let lines = (outer.top() + 1..outer.bottom().saturating_sub(1))
+        .map(|y| {
+            (outer.left() + 1..outer.right().saturating_sub(1))
+                .map(|x| buffer[(x, y)].symbol())
+                .collect()
+        })
+        .collect();
+    (outer, lines)
+}
+
+fn long(n: u8, title: &str, reference: &str) -> ItemView {
+    let mut item = view(n, Some(reference), Completion::Open, false);
+    item.item.content.title = title.into();
+    item
+}
+
+const LONG_TITLE: &str = "Report links: PM status page, usage analysis, daily report #1053, night plan and the follow-up review of every open request";
+const LONG_URL: &str = "https://127.0.0.1:50711/colab/p/161644f1-5d0f-4c11-9a54-7a2f0c3be8d1/section/report?view=wide&tab=usage";
+
+#[test]
+fn the_sheet_follows_the_board_width_and_wraps_whole_titles_and_links() {
+    for width in [60, 100, 160] {
+        let (app, _) = opened(vec![long(1, LONG_TITLE, LONG_URL)]);
+        let (outer, lines) = sheet_at(&app, width);
+        assert!(
+            outer.width >= width * 9 / 10 - 1 && outer.width <= width,
+            "{width}: the sheet takes the board's width: {outer:?}"
+        );
+        // The last line is the footer, which may be cut at a narrow width.
+        let words = lines[..lines.len() - 1].join(" ");
+        let words: Vec<&str> = words.split_whitespace().collect();
+        assert!(
+            words.join(" ").contains(LONG_TITLE),
+            "{width}: the whole title: {lines:#?}"
+        );
+        assert!(
+            words
+                .concat()
+                .contains(LONG_URL.trim_start_matches("https://")),
+            "{width}: the whole link: {lines:#?}"
+        );
+        assert!(
+            !words.concat().contains('…'),
+            "{width}: nothing cut: {lines:#?}"
+        );
+    }
+}
+
+#[test]
+fn the_cursor_row_is_highlighted_on_both_lines() {
+    let (app, _) = opened(vec![link(1), todo(2)]);
+    paint(&app);
+    let ui = app.notes_overlay.as_ref().unwrap().ui.borrow();
+    let row = crate::board::picker_surface::evidence::row(&ui, id(1).as_str());
+    assert_eq!(row.height, 2, "two lines for one item");
+}
+
+fn pointer_at(app: &mut App, column: u16, row: u16) {
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Moved,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        },
+        Instant::now(),
+    );
+}
+
+fn link_area(app: &App, item: u8) -> ratatui::layout::Rect {
+    app.notes_overlay
+        .as_ref()
+        .unwrap()
+        .link_hits
+        .borrow()
+        .iter()
+        .find(|(_, row)| row == id(item).as_str())
+        .map(|(area, _)| *area)
+        .expect("a painted link")
+}
+
+#[test]
+fn a_click_on_a_link_opens_it_and_a_click_on_the_title_chooses_the_row() {
+    let (mut app, _) = opened(vec![
+        link(1),
+        view(2, Some("https://example.org/b"), Completion::Open, false),
+    ]);
+    paint(&app);
+    let area = link_area(&app, 2);
+    let effect = click_at(&mut app, area.x, area.y);
+    assert!(
+        matches!(&effect, Effect::Act(Request::Open { link, .. }) if link == "https://example.org/b"),
+        "{effect:?}"
+    );
+    assert_eq!(
+        app.notes_overlay
+            .as_ref()
+            .unwrap()
+            .ui
+            .borrow()
+            .picker
+            .list
+            .selected(),
+        Some(id(2).as_str()),
+        "the opened row is the chosen one"
+    );
+    paint(&app);
+    let title = link_area(&app, 1);
+    let effect = click_at(&mut app, title.x + 2, title.y - 1);
+    assert!(
+        !matches!(effect, Effect::Act(Request::Open { .. })),
+        "{effect:?}"
+    );
+    assert_eq!(
+        app.notes_overlay
+            .as_ref()
+            .unwrap()
+            .ui
+            .borrow()
+            .picker
+            .list
+            .selected(),
+        Some(id(1).as_str()),
+        "a press on the title chooses the row"
+    );
+}
+
+#[test]
+fn the_pointer_highlights_only_the_link_under_it() {
+    let (mut app, _) = opened(vec![
+        link(1),
+        view(2, Some("https://example.org/b"), Completion::Open, false),
+    ]);
+    paint(&app);
+    let area = link_area(&app, 2);
+    let style_at = |app: &App, area: ratatui::layout::Rect| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal.backend().buffer()[(area.x + 2, area.y)].modifier
+    };
+    use ratatui::style::Modifier;
+    assert!(
+        !style_at(&app, area).contains(Modifier::UNDERLINED),
+        "at rest"
+    );
+    pointer_at(&mut app, area.x + 2, area.y);
+    assert!(
+        style_at(&app, area).contains(Modifier::UNDERLINED),
+        "under the pointer"
+    );
+    let other = link_area(&app, 1);
+    assert!(
+        style_at(&app, other).contains(Modifier::UNDERLINED),
+        "the cursor row's link is highlighted too"
+    );
+    pointer_at(&mut app, 0, 0);
+    assert!(
+        !style_at(&app, area).contains(Modifier::UNDERLINED),
+        "left again"
     );
 }

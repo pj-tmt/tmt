@@ -577,11 +577,13 @@ available yet. `D` opens Digest and `c` opens Timers outside a modal.
 
 A squad member's header shows its Checklist chip, `Checklist · 2 todo`
 (`Checklist · empty` for an empty list), led by its key as a keycap like the tab labels
-(` C  Checklist · …`; no keycap when the key is unbound). `C` or a click on the chip opens the list: one list in stored order under a
-`STATUS LINK TITLE` header, links and todos mixed (`↗ link` blue, `○ todo` amber; a GitHub issue or pull
-reads `owner/repo#N`, any other address `host/…/last-segment`, a todo `—`). Only the cursor row shows who
-added the item and how long ago (`you`, the member's name, or nothing for an item stored before the
-board recorded it). `↑↓`/`jk` choose,
+(` C  Checklist · …`; no keycap when the key is unbound). `C` or a click on the chip opens the list,
+as wide as the board: one list in stored order, links and todos mixed, two lines per item. The first
+line is `○` and the whole title; the second is `↗` and the whole link (a GitHub issue or pull reads
+`owner/repo#N`, any other address in full without its scheme), then who added the item and how long
+ago (`you`, the member's name, or nothing for an item stored before the board recorded it). A todo's
+second line has only who and when. Long titles and links wrap; nothing is cut. The pointer over a
+link highlights it, as does the chosen row, and a click on it opens it. `↑↓`/`jk` choose,
 Enter opens a link or ticks a todo (global `board.checklist_enter`, `open` by default: `tick` makes
 Enter tick a link row too; edit **checklist enter** in Ops Config or run
 `tmt ops sq config set board.checklist_enter tick`), Space always ticks and `o` always opens the link, `a` adds (a web address becomes a link; `Tab` moves
