@@ -136,7 +136,14 @@ impl App {
         }
         // The Unread overlay is a modal that paints answers itself: it feeds the writer.
         if self.unread_overlay.is_some() {
-            self.unread_overlay_drawn();
+            if self.overlay() == Some(crate::board::app::Overlay::Unread)
+                && !self.help
+                && self.menu.is_none()
+            {
+                self.unread_overlay_drawn();
+            } else {
+                self.unread.displayed.clear();
+            }
             return;
         }
         if self.modal_open() || self.shell.tab != crate::board::shell::OpsTab::Agents {
