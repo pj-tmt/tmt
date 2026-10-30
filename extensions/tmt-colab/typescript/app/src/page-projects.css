@@ -138,6 +138,11 @@
   .tmt-ui-topbar-title-chips:has(.page-header-projects) > .tmt-ui-caption {
     display: none;
   }
+  /* The hidden group's anchor takes no room in the title; More's anchor is fixed and the picker
+     and dialog open in the top layer, so neither is clipped. */
+  .tmt-ui-topbar-title-chips .page-header-projects {
+    overflow: hidden;
+  }
 }
 /* When an update row shares the shell bar, the refusal follows it in the same flow. */
 .tmt-ui-shell-bar > .page-pin-notice {
