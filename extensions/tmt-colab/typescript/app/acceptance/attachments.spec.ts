@@ -389,7 +389,7 @@ test('native attach lists a file for every device, reads back byte-equal, and re
 
 /** The Files entry says how many files the page lists (in More for an owner page). */
 async function expectFilesCount(page: Page, count: number, timeout = 30_000) {
-  await expect(await pageAction(page, 'Files')).toHaveAccessibleName(`${text.files} (${count})`, {
+  await expect(await pageAction(page, 'Files')).toHaveAccessibleName(`${text.files} ${count}`, {
     timeout,
   });
 }
@@ -505,7 +505,7 @@ test('files added to the page reach another device and a read-only link byte-ide
     await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files 2', {
       timeout: 30_000,
     });
-    await expect(await pageAction(reader.page, 'Files')).toHaveText(`${text.files} 2`, {
+    await expect(await pageAction(reader.page, 'Files')).toHaveAccessibleName(`${text.files} 2`, {
       timeout: 30_000,
     });
 
