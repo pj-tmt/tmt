@@ -472,7 +472,7 @@ test('sort orders by title; the Archived tab shows archived pages and counts the
 
 const operations = (page: Page) => page.evaluate(() => window.__pageOperations);
 const confirmDialog = (page: Page, name: string) => page.getByRole('dialog', { name });
-const status = (page: Page) => app(page).locator('.page-list-status[role="status"]');
+const status = (page: Page) => app(page).locator('.page-list-status');
 
 test('a page waiting on the viewer shows a dot in the waiting colour with the word and its count', async ({
   page,
