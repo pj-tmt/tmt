@@ -98,7 +98,12 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
   const revision = useRef<Promise<string | undefined>>(undefined);
   const label = state ? text.workBand.taskState[state] : text.workBand.stateUnavailable;
   if (!binding?.canMetadata?.() || !binding.metadata || !binding.metadataRevision || state == null)
-    return <span className={`work-page-state ${ui.countChip}`}>{label}</span>;
+    return (
+      <span className={`work-page-state ${ui.countChip}`}>
+        {state && stateIcon(state, 'tmt-ui-icon')}
+        {label}
+      </span>
+    );
   const select = async (next: string) => {
     if (busy || !['todo', 'in-progress', 'done'].includes(next)) return;
     setBusy(true);

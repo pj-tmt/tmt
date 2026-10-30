@@ -80,6 +80,7 @@ test('collapsed panel uses manual state and native progress, including unknown',
 }) => {
   const host = await mountBand(page);
   await expect(host.locator('.work-page-state')).toHaveText('To do');
+  await expect(host.locator('.work-page-state svg.lucide-circle')).toHaveCount(1);
   await expect(host.locator('.work-progress')).toHaveText('1 of 7 done');
   await expect(host.getByRole('img')).toHaveAttribute(
     'aria-label',
@@ -117,6 +118,7 @@ test('empty progress is zero and complete progress never changes manual state', 
   host = await mountBand(page, 'complete');
   await expect(host.locator('.work-progress')).toHaveText('5 of 5 done');
   await expect(host.locator('.work-page-state')).toHaveText('In progress');
+  await expect(host.locator('.work-page-state svg.lucide-circle-dot')).toHaveCount(1);
 });
 
 test('expansion pushes content down, shows direct states and legend, and keeps tasks reachable', async ({
@@ -156,6 +158,7 @@ test('task deep links open once and preserve detail, acceptance, assignee and co
 
 test('missing child list rows stay unknown, known rows use manual state', async ({ page }) => {
   await mountRoute(page, true, false, 'linked-done');
+  await expect(page.locator('#work-page-fixture .work-page-state svg.lucide-circle')).toHaveCount(1);
   await expand(page);
   await expect(page.getByRole('list', { name: 'Sub-pages' })).toHaveText('Legal copyDone');
   await mountRoute(page, true, false, 'linked-missing');

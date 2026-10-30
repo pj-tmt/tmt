@@ -122,6 +122,7 @@ export function WorkBand({
       <div className="work-head">
         {stateControl ?? (
           <span className={`work-page-state ${ui.countChip}`} data-state={pageState ?? 'unknown'}>
+            {pageState && stateIcon(pageState, 'tmt-ui-icon')}
             {pageState ? t.taskState[pageState] : t.stateUnavailable}
           </span>
         )}
