@@ -123,6 +123,16 @@ impl App {
             }
             _ => DialogInput::Ignored,
         };
+        // The letters the menu this replaced used: n keeps, y chooses the action like its button.
+        let input = match (input, event) {
+            (DialogInput::Ignored, Event::Key(key)) if key.code == KeyCode::Char('n') => {
+                DialogInput::Choose(0)
+            }
+            (DialogInput::Ignored, Event::Key(key)) if key.code == KeyCode::Char('y') => {
+                DialogInput::Choose(1)
+            }
+            (input, _) => input,
+        };
         Some(match input {
             DialogInput::Cancel | DialogInput::Choose(0) => self.close_overlay(Overlay::Confirm),
             DialogInput::Choose(_) => {
@@ -140,14 +150,6 @@ impl App {
                     self.confirm = Some(confirm);
                     return Some(Effect::None);
                 }
-                self.choose(confirm.choice)
-            }
-            // The letters the menu this replaced used: n keeps, y applies.
-            _ if matches!(event, Event::Key(key) if key.code == KeyCode::Char('n')) => {
-                self.close_overlay(Overlay::Confirm)
-            }
-            _ if matches!(event, Event::Key(key) if key.code == KeyCode::Char('y')) => {
-                let confirm = self.confirm.take().expect("open confirm");
                 self.choose(confirm.choice)
             }
             _ => Effect::None,

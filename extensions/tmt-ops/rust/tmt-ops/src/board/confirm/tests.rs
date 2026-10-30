@@ -69,4 +69,9 @@ fn an_unpainted_action_never_applies() {
     press(&mut app, KeyCode::Enter);
     assert!(app.confirm.is_some(), "nothing was painted to choose from");
     assert!(app.panels_picker.is_none());
+
+    let mut app = opened();
+    press(&mut app, KeyCode::Char('y'));
+    assert!(app.confirm.is_some(), "y needs the painted action too");
+    assert!(app.panels_picker.is_none());
 }
