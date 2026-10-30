@@ -321,6 +321,11 @@ fn a_clean_built_in_start_closes_the_form_onto_the_member_terminal() {
     assert!(app.new_member.is_none());
     assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
     assert!(app.terminal.shown());
+    // Its stream types once it opens; the terminal tests drive that.
+    assert_eq!(
+        app.terminal.typing_wish(),
+        Some("33333333-3333-4333-8333-333333333333")
+    );
     // A tmux start, or one with a partial failure, stays on the result.
     let mut app = form();
     let c = app.new_member.as_ref().unwrap();

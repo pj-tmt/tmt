@@ -624,7 +624,9 @@ live. The program's cursor shows as one reversed cell (not the terminal cursor) 
 hidden when the program hides it.
 
 Typing: `⏎` (the `talk` action while the terminal shows) starts it; after the stream ended it attaches
-again instead. While typing `App::terminal_key`, `terminal_mouse` and `terminal_paste` run before
+again instead. A clean built-in New member create calls `Tab::show_typing`, so that member's stream
+starts typing when it opens, as if clicked; another stream opening, another selection, a toggle, a
+reattach or Core finding no stream drops that wish. While typing `App::terminal_key`, `terminal_mouse` and `terminal_paste` run before
 every other handler, so each key (Esc, PageUp and Ctrl-C included), a paste and the wheel over the
 screen go to the program through `tmt-tui`'s encoders; only Ctrl-\ (or Ctrl-4) leaves, calls
 `Stream::stop_typing` and is never sent, and a press outside the screen leaves too. The window is
