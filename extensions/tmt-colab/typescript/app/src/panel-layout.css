@@ -10,5 +10,5 @@
   inset: auto var(--discussion-right) var(--discussion-bottom) auto;
   width: 360px;
   height: 470px;
-  max-height: none;
+  max-height: calc(100dvh - var(--discussion-bottom) - var(--tmt-ui-header-height) - 12px);
 }

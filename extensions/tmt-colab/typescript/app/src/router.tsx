@@ -1639,7 +1639,7 @@ function OpenPage({
     if (panel === 'chat') {
       if (!chatBusy.current) close();
     } else if (panel === 'comments') {
-      closeComments();
+      if (!annotationBusy.current && !statusBusy.current) closeComments();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };

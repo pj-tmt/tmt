@@ -992,6 +992,12 @@ for (const [width, height, theme] of [
     await expect(window).toBeVisible();
     await page.screenshot({ path: capturePath(`2719-thread-${width}-${height}-${theme}.png`) });
     if (height <= 500) {
+      if (width === 1440) {
+        const box = (await window.boundingBox())!;
+        const header = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
+        expect(box.y).toBeGreaterThanOrEqual(header.y + header.height);
+        expect(box.y + box.height).toBeLessThanOrEqual(height);
+      }
       const send = window.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
       await send.scrollIntoViewIfNeeded();
       await expect

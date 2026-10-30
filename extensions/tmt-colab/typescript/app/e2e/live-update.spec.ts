@@ -1,4 +1,4 @@
-import { commentsRegion, openPanel } from '../test/comments-region.js';
+import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
 import { pageAction, showResolvedOn, selectDiscussion } from '../test/page-actions.js';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -281,7 +281,7 @@ for (const width of [1440, 390]) {
       expect((await run(page, 'proof')).sends).toHaveLength(1);
 
       // A different page is the reset boundary, including drafts kept after close.
-      await page.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
+      await commentsClose(page, 'discussion').click();
       await change(page, source);
       await select(page);
       await input.fill('@Agent 1 This belongs to the previous page only.');

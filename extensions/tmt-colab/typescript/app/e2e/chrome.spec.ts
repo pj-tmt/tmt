@@ -304,8 +304,15 @@ for (const width of [1440, 390, 320])
             ).toHaveText('Untitled page');
           }
           for (const icon of await page.locator('svg.lucide:visible').all()) {
-            await expect(icon).toHaveCSS('stroke-linecap', 'square');
-            await expect(icon).toHaveCSS('stroke-linejoin', 'miter');
+            const round = await icon.evaluate((node) =>
+              Boolean(
+                node.closest(
+                  '.selection-mode, .tmt-ui-panel[data-panel=comments] .tmt-ui-drawer-header',
+                ),
+              ),
+            );
+            await expect(icon).toHaveCSS('stroke-linecap', round ? 'round' : 'square');
+            await expect(icon).toHaveCSS('stroke-linejoin', round ? 'round' : 'miter');
             await expect(icon).toHaveCSS('stroke-width', `${tokens.header['icon-stroke']}px`);
           }
           await page.screenshot({

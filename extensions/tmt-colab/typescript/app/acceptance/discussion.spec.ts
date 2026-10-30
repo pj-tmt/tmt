@@ -522,7 +522,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await first.evaluate(() => {
         document.documentElement.dataset.theme = 'light';
       });
-      await first.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
+      await commentsClose(first, 'discussion').click();
       await marker.click();
     }
     await first.setViewportSize({ width: 1440, height: 900 });
