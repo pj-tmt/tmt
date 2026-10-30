@@ -767,6 +767,12 @@ current tmux environment; review a candidate, choose a new name or exact
 existing identity UUID, and choose Temporary or Saved before confirming.
 Existing-name text never selects an identity; known choices are advisory
 previously observed evidence, and another/offline UUID can be entered directly.
+Esc hides the dialog where it is, and the same key reopens it on that screen (a confirm
+reopens on the screen that asks for it again). Back, first among the actions, steps to the
+previous screen; Esc on a confirm cancels just the confirm. ↑↓ read and pick actions: ↓
+past the end of the reading, or from the name field, reaches the actions, and ↑ on the
+first one goes back. Tab does nothing. A reopened name field with text offers Discard
+after Back. Actions that write still check the current state when chosen.
 
 Discovery supports tmux; unsupported hosts, permission/offline failures and
 incomplete observations carry their explanations. Runtime hints and recorded
@@ -791,7 +797,8 @@ answers: inside tmux, the original socket's captures; on the built-in host or in
 plain terminal, the built-in members. When the built-in store is empty but tmux
 snapshots exist, the list says so and names the `--socket` command; Ops never
 switches stores. The list reads Core's Latest capture and named saves for that
-store. Selecting or opening a preview is read-only.
+store. Selecting or opening a preview is read-only. The dialog keys are those of Add agent
+above; Backspace never steps back.
 
 A built-in preview lists each recorded member with what restore would do (resume,
 running and left alone, or needs you) and its folder. Its restore mode is Resume or

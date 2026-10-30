@@ -17,26 +17,48 @@ impl Controller {
             if key.kind != KeyEventKind::Press {
                 return None;
             }
+            // Esc hides the dialog with its screen; the confirm is its own layer and cancels
+            // first.
             if key.code == KeyCode::Esc {
-                if matches!(self.screen, Screen::Intro | Screen::Candidates)
-                    || self.pending.as_ref().is_some_and(|t| t.job.writes())
+                if self.screen == Screen::Confirm
+                    && !self.pending.as_ref().is_some_and(|t| t.job.writes())
                 {
-                    self.close();
+                    self.choose("cancel");
                 } else {
-                    self.choose("back");
+                    self.close();
                 }
                 return None;
             }
             if self.pending.as_ref().is_some_and(|t| t.job.writes()) {
                 return None;
             }
+            // ↓ from the field or past the end of the reading reaches the actions; ↑ on the first
+            // action goes back.
             if matches!(
                 self.screen,
                 Screen::Form | Screen::Details | Screen::Results
-            ) && matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
+            ) && key.modifiers.is_empty()
             {
-                self.form_focus = !self.form_focus;
-                return None;
+                let first = self
+                    .rows()
+                    .into_iter()
+                    .find(|row| !row.disabled)
+                    .map(|row| row.id);
+                let ui = self.ui.borrow();
+                let scroll = &ui.picker.list.scroll;
+                let to_actions = self.form_focus
+                    && key.code == KeyCode::Down
+                    && (self.screen == Screen::Form || scroll.offset() >= scroll.limit());
+                let to_field = !self.form_focus
+                    && key.code == KeyCode::Up
+                    && first.is_some()
+                    && ui.picker.list.selected() == first.as_deref();
+                drop(ui);
+                if to_actions || to_field {
+                    self.form_focus = to_field;
+                    self.invalidate();
+                    return None;
+                }
             }
             if key.code == KeyCode::Char('r') && key.modifiers == KeyModifiers::CONTROL {
                 return self.scan(self.scope.clone());

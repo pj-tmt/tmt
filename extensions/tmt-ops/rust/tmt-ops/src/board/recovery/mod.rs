@@ -49,6 +49,8 @@ pub(in crate::board) struct Controller {
     unknown: Option<String>,
     notice: String,
     form_focus: bool,
+    /// The Save screen was opened again with a typed name: Discard drops it.
+    reopened: bool,
     readable: Cell<bool>,
     list: RefCell<picker_surface::State>,
     panel: RefCell<picker_surface::State>,
@@ -87,6 +89,7 @@ impl Controller {
             unknown: None,
             notice: String::new(),
             form_focus: true,
+            reopened: false,
             readable: Cell::new(false),
             list: RefCell::new(picker_surface::State::new(None, vec![], None)),
             panel: RefCell::new(picker_surface::State::new(None, vec![], None)),
@@ -113,6 +116,24 @@ impl Controller {
             return None;
         }
         if self.pending.as_ref().is_some_and(|t| t.job.writes()) {
+            return None;
+        }
+        // A reopened inner screen shows where it was; Ctrl-R refreshes it. A confirm lost its
+        // confirmation on close, so it reopens on the screen that asks for it again.
+        match self.screen {
+            Screen::Confirm => self.screen = Screen::Preview,
+            Screen::Delete => self.screen = Screen::List,
+            _ => {}
+        }
+        if self.screen != Screen::List && !self.entries.is_empty() {
+            self.reopened = self.screen == Screen::Save
+                && self
+                    .form
+                    .borrow()
+                    .picker
+                    .query()
+                    .is_some_and(|name| !name.is_empty());
+            self.invalidate();
             return None;
         }
         self.refresh()
@@ -395,7 +416,17 @@ impl Controller {
             "refresh" => return self.refresh(),
             "back" | "cancel" => {
                 self.confirmation = None;
+                self.reopened = false;
                 self.screen = Screen::List;
+            }
+            "discard" if self.screen == Screen::Save => {
+                self.reopened = false;
+                self.screen = Screen::List;
+                self.form = RefCell::new(picker_surface::State::new(
+                    Some(String::new()),
+                    vec![],
+                    None,
+                ));
             }
             "details" if self.previewed() => {
                 self.screen = Screen::Preview;
@@ -450,6 +481,7 @@ impl Controller {
             "save" if self.store.is_some() && self.entries.iter().any(|e| e.name.is_none()) => {
                 self.screen = Screen::Save;
                 self.form_focus = true;
+                self.reopened = false;
                 self.form = RefCell::new(picker_surface::State::new(
                     Some(String::new()),
                     vec![],

@@ -153,22 +153,25 @@ impl Controller {
                     "Review restore…",
                     !self.previewed() || self.pending.is_some(),
                 ),
-                Row::choice("back", "Back to snapshots", false),
             ],
             Screen::Confirm => vec![
                 Row::choice("cancel", "Cancel", false),
                 Row::choice("confirm", "Restore", self.pending.is_some()),
             ],
-            Screen::Save => vec![
-                Row::choice("cancel", "Cancel", false),
-                Row::choice("save-confirm", "Save latest capture", busy),
-            ],
+            Screen::Save => [Row::choice("back", "Back", false)]
+                .into_iter()
+                .chain(
+                    self.reopened
+                        .then(|| Row::choice("discard", "Discard", false)),
+                )
+                .chain([Row::choice("save-confirm", "Save latest capture", busy)])
+                .collect(),
             Screen::Delete => vec![
                 Row::choice("cancel", "Cancel", false),
                 Row::choice("delete-confirm", "Delete snapshot", busy),
             ],
             Screen::Results => vec![
-                Row::choice("back", "Back to snapshots", busy),
+                Row::choice("back", "Back", busy),
                 Row::choice("close", "Close (retains this result)", false),
             ],
         };
@@ -190,6 +193,13 @@ impl Controller {
                     ),
                 ],
             );
+        }
+        // Back leads every inner screen's actions.
+        if let Some(at) = rows.iter().position(|row| row.id == "back") {
+            let back = rows.remove(at);
+            rows.insert(0, back);
+        } else if self.screen == Screen::Preview {
+            rows.insert(0, Row::choice("back", "Back", false));
         }
         if busy {
             if !rows.iter().any(|r| r.id == "close") {
@@ -472,14 +482,16 @@ impl Controller {
             String::new()
         };
         let reading = matches!(self.screen, Screen::Preview | Screen::Results) && self.form_focus;
-        let footer = if self.screen == Screen::Save {
-            "Tab name/actions · type/paste · Enter selects · Esc cancels"
+        let footer = if self.screen == Screen::Save && self.form_focus {
+            "type/paste · ↓ actions · Enter selects · Esc close"
+        } else if self.screen == Screen::Save {
+            "↑↓ actions · Enter selects · ↑ at the top: name · Esc close"
         } else if reading {
-            "↑↓ / PgUp/PgDn read · Tab actions · Esc snapshots"
+            "↑↓ / PgUp/PgDn read · ↓ at the end: actions · Esc close"
         } else if matches!(self.screen, Screen::Preview | Screen::Results) {
-            "↑↓ actions · Enter selects · Tab read · Esc snapshots"
+            "↑↓ actions · Enter selects · ↑ at the top: read · Esc close"
         } else {
-            "↑↓ / PgUp/PgDn select · Enter opens/selects · Ctrl-R refresh · Esc back"
+            "↑↓ / PgUp/PgDn select · Enter opens/selects · Ctrl-R refresh · Esc close"
         };
         let footer = if matches!(self.screen, Screen::Confirm | Screen::Delete) {
             let width = Modal {

@@ -110,15 +110,19 @@ impl Controller {
                 rows
             }
             Screen::Details => vec![
+                Row::new("back", "Back", false),
                 Row::new(
                     "bind",
                     "Choose identity and review binding",
                     pending || self.selected_pane().is_none_or(|p| !p.adoptable),
                 ),
-                Row::new("back", "Back to candidates", false),
             ],
             Screen::Form => {
-                let mut rows = vec![
+                let mut rows: Vec<_> = [Row::new("back", "Back", false)]
+                    .into_iter()
+                    .chain(self.reopened.then(|| Row::new("discard", "Discard", false)))
+                    .collect();
+                rows.extend([
                     Row::new(
                         "selector",
                         if self.existing {
@@ -137,9 +141,8 @@ impl Controller {
                         },
                         pending,
                     ),
-                    Row::new("cancel", "Cancel", false),
                     Row::new("review", "Review binding", pending),
-                ];
+                ]);
                 if self.existing {
                     rows.extend(self.known.iter().take(32).map(|a| {
                         Row::new(
@@ -156,6 +159,7 @@ impl Controller {
                 Row::new("confirm", "Bind agent", pending),
             ],
             Screen::Results => vec![
+                Row::new("back", "Back", false),
                 Row::new("previous-result", "Previous result", self.result_index == 0),
                 Row::new(
                     "next-result",
@@ -392,12 +396,14 @@ impl Controller {
                 .as_ref()
                 .map_or(String::new(), |e| safe(&e.message))
         };
-        let footer = if self.screen == Screen::Form {
-            "Tab input/actions · type/paste · Enter selects · Esc cancels"
+        let footer = if self.screen == Screen::Form && self.form_focus {
+            "type/paste · ↓ actions · Enter reviews · Esc close"
+        } else if self.screen == Screen::Form {
+            "↑↓ actions · Enter selects · ↑ at the top: name · Esc close"
         } else if matches!(self.screen, Screen::Details | Screen::Results) && self.form_focus {
-            "↑↓ / PgUp/PgDn read · Tab actions · Esc candidates"
+            "↑↓ / PgUp/PgDn read · ↓ at the end: actions · Esc close"
         } else {
-            "↑↓ select · Enter opens/selects · Ctrl-R scan · Esc back"
+            "↑↓ select · Enter opens/selects · Ctrl-R scan · Esc close"
         };
         let footer = if self.screen == Screen::Confirm {
             let width = Modal {

@@ -34,7 +34,15 @@ fn app_save_query_owns_typing_but_its_action_list_allows_destination_keys() {
         Some("q123")
     );
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(!app.recovery.as_ref().unwrap().owns_typing());
+    assert!(
+        app.recovery.as_ref().unwrap().owns_typing(),
+        "Tab does nothing"
+    );
+    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert!(
+        !app.recovery.as_ref().unwrap().owns_typing(),
+        "↓ reaches the actions"
+    );
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
         Effect::None
@@ -1820,4 +1828,98 @@ fn a_built_in_restore_report_keeps_each_member_and_matches_its_exit() {
         job: Job::Restore(selection),
     };
     assert!(load::complete(&core, task).result.is_err());
+}
+#[test]
+fn esc_hides_an_inner_screen_and_reopen_returns_to_it_with_back_first() {
+    let mut c = controller();
+    c.screen = Screen::Preview;
+    assert_eq!(c.rows()[0].id, "back", "Back leads the actions");
+    c.input(&key(KeyCode::Backspace));
+    assert!(
+        c.active && c.screen == Screen::Preview,
+        "Backspace never steps back"
+    );
+    c.input(&key(KeyCode::Esc));
+    assert!(!c.active && c.screen == Screen::Preview);
+    assert!(c.open().is_none(), "no refresh on reopen");
+    assert!(c.active && c.screen == Screen::Preview);
+}
+#[test]
+fn down_past_the_reading_reaches_the_actions_and_up_reads_again() {
+    let mut c = controller();
+    c.screen = Screen::Preview;
+    c.input(&key(KeyCode::Tab));
+    assert!(c.form_focus, "Tab does nothing");
+    render(&c, 160, 50);
+    for _ in 0..400 {
+        c.input(&key(KeyCode::Down));
+        if !c.form_focus {
+            break;
+        }
+        render(&c, 160, 50);
+    }
+    assert!(!c.form_focus, "↓ at the end of the reading");
+    c.panel.borrow_mut().select("back");
+    c.input(&key(KeyCode::Up));
+    assert!(c.form_focus, "↑ on the first action reads again");
+}
+#[test]
+fn a_confirm_is_its_own_layer_and_esc_returns_to_the_list() {
+    let mut c = controller();
+    review(&mut c);
+    c.input(&key(KeyCode::Esc));
+    assert!(c.active && c.screen == Screen::List && c.confirmation.is_none());
+    c.input(&key(KeyCode::Esc));
+    assert!(!c.active, "a second Esc hides the dialog");
+}
+#[test]
+fn a_reopened_save_name_offers_discard() {
+    let mut c = controller();
+    assert!(c.choose("save").is_none());
+    assert_eq!(c.screen, Screen::Save);
+    assert_eq!(c.rows()[0].id, "back");
+    assert!(c.rows().iter().all(|row| row.id != "discard"));
+    for ch in "night".chars() {
+        c.input(&key(KeyCode::Char(ch)));
+    }
+    c.input(&key(KeyCode::Esc));
+    assert!(!c.active);
+    assert!(c.open().is_none());
+    assert!(c.active && c.screen == Screen::Save && c.reopened);
+    assert_eq!(c.form.borrow().picker.query(), Some("night"));
+    let ids: Vec<_> = c.rows().into_iter().map(|row| row.id).collect();
+    assert_eq!(&ids[..3], ["back", "discard", "save-confirm"]);
+    assert!(c.choose("discard").is_none());
+    assert_eq!(c.screen, Screen::List);
+    assert_eq!(c.form.borrow().picker.query(), Some(""));
+}
+#[test]
+fn a_reopened_stale_screen_cannot_apply_an_outdated_choice() {
+    let mut c = controller();
+    review(&mut c);
+    // An outside press hides the confirm; its confirmation does not survive.
+    c.close();
+    assert!(c.open().is_none());
+    assert_eq!(
+        c.screen,
+        Screen::Preview,
+        "the confirm asks again from its preview"
+    );
+    assert!(c.confirmation.is_none());
+    c.screen = Screen::Confirm;
+    render(&c, 160, 50);
+    assert!(
+        c.choose("confirm").is_none(),
+        "no restore from an old confirmation"
+    );
+    assert!(c.pending.is_none());
+    // A preview that changed after the reopen invalidates a fresh confirmation too.
+    let mut c = controller();
+    c.screen = Screen::Preview;
+    c.close();
+    assert!(c.open().is_none());
+    review(&mut c);
+    c.preview = Some(Preview::decode(&preview_value(Some("other"))).unwrap());
+    assert!(c.choose("confirm").is_none());
+    assert!(c.pending.is_none());
 }
