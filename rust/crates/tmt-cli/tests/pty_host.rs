@@ -1237,9 +1237,16 @@ fn a_built_in_launch_records_its_members_and_only_an_explicit_removal_leaves_the
     }
     member(&mut world, "gamma");
     let listed = world.json(&["workspace", "ls", "--host", "pty", "--json"]);
-    let snapshots = listed["snapshots"].as_array().unwrap();
-    assert_eq!(snapshots[0]["shrink"], false, "{listed:#}");
-    assert_eq!(snapshots[0]["agents"], 3, "{listed:#}");
+    // Later captures of the same live set may follow as shrinks; the protected one is the merge.
+    let protected: Vec<_> = listed["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|snapshot| snapshot["protected"] == true)
+        .collect();
+    assert_eq!(protected.len(), 1, "{listed:#}");
+    assert_eq!(protected[0]["shrink"], false, "{listed:#}");
+    assert_eq!(protected[0]["agents"], 3, "{listed:#}");
     let baseline = built_in_members(&mut world);
     assert_eq!(baseline.len(), 3, "{baseline:?}");
     assert_eq!(baseline[0], ("alpha".into(), "live".into()));
