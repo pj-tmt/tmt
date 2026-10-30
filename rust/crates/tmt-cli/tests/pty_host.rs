@@ -209,7 +209,7 @@ impl World {
         }
     }
     fn remember_programs(&mut self) {
-        for name in ["alpha", "beta", "alpha-peer"] {
+        for name in ["alpha", "beta", "gamma", "alpha-peer"] {
             let Some(pid) = fs::read_to_string(self.root.join(format!("{name}.pid")))
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
@@ -1164,3 +1164,97 @@ mod terminal_stream;
 
 #[path = "pty_host/startup.rs"]
 mod startup;
+
+/// The newest built-in snapshot's members (the protected baseline by default), by name.
+fn built_in_members(world: &mut World) -> Vec<(String, String)> {
+    let shown = world.json(&["workspace", "show", "--host", "pty", "--json"]);
+    assert_eq!(shown["host"], "pty", "{shown:#}");
+    let mut members: Vec<_> = shown["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| {
+            (
+                member["name"].as_str().unwrap().to_owned(),
+                member["action"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    members.sort();
+    members
+}
+
+#[test]
+fn a_built_in_launch_records_its_members_and_only_an_explicit_removal_leaves_the_baseline() {
+    let mut world = World::new();
+    let store = support::state_dir(&world.root).join("workspace/pty");
+    let empty = world.json(&["workspace", "ls", "--host", "pty", "--json"]);
+    assert_eq!(
+        empty,
+        serde_json::json!({"version": 1, "host": "pty", "snapshots": []})
+    );
+    assert!(!store.exists(), "listing creates no store");
+    let member = |world: &mut World, name: &str| {
+        let script = format!(
+            "printf '%s' \"$$\" > '{}'; printf 'ready\\n'; while IFS= read -r line; do :; done",
+            world.root.join(format!("{name}.pid")).display()
+        );
+        let started = world.run(&[
+            "run",
+            "--host",
+            "pty",
+            "--no-channel",
+            "--save",
+            name,
+            "/bin/sh",
+            "-c",
+            &script,
+        ]);
+        assert!(started.status.success(), "{name}: {started:?}");
+    };
+    // The launch alone publishes: no manual save, hook or backstop.
+    member(&mut world, "alpha");
+    assert!(store.join("generations.json").is_file());
+    member(&mut world, "beta");
+    assert_eq!(
+        built_in_members(&mut world),
+        [
+            ("alpha".into(), "live".into()),
+            ("beta".into(), "live".into())
+        ]
+    );
+    // beta's program ends without an explicit stop, as at logout; the next launch's
+    // capture loses it, which is a shrink that keeps the full baseline.
+    let beta: i32 = fs::read_to_string(world.root.join("beta.pid"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    kill(Pid::from_raw(beta), Signal::SIGKILL).unwrap();
+    let deadline = Instant::now() + WAIT;
+    while world.json(&["ls", "beta", "--json"])["presence"] == "active" {
+        assert!(Instant::now() < deadline, "beta's supervisor did not end");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    member(&mut world, "gamma");
+    let listed = world.json(&["workspace", "ls", "--host", "pty", "--json"]);
+    let snapshots = listed["snapshots"].as_array().unwrap();
+    assert_eq!(snapshots[0]["shrink"], true, "{listed:#}");
+    assert_eq!(snapshots[0]["agents"], 2, "{listed:#}");
+    let baseline = built_in_members(&mut world);
+    assert_eq!(baseline.len(), 2, "{baseline:?}");
+    assert_eq!(baseline[0], ("alpha".into(), "live".into()));
+    assert_eq!(baseline[1].0, "beta");
+    assert_ne!(baseline[1].1, "live");
+    // Removing beta on purpose takes it out of the default restore.
+    let removed = world.run(&["rm", "beta", "--force", "--json"]);
+    assert!(removed.status.success(), "{removed:?}");
+    assert_eq!(
+        built_in_members(&mut world),
+        [("alpha".into(), "live".into())]
+    );
+    // A tmux-only reader never admits the built-in store.
+    let refused = world.run(&["workspace", "restore", "--host", "pty", "--json"]);
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let refused: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(refused["error"]["code"], "WORKSPACE_HOST_UNSUPPORTED");
+}

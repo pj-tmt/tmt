@@ -882,6 +882,13 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Report::Renamed { result, .. } if result.changed() => result.binding.as_ref(),
         _ => None,
     };
+    // A member removed on purpose leaves the default built-in restore, bound or not.
+    // Advisory: the removal already happened and keeps its result.
+    if let Report::Removed(entry) = &report
+        && let Ok(paths) = ConfigPaths::discover()
+    {
+        let _ = tmt_adapters::workspace::forget_builtin_member(&paths, &entry.identity.id);
+    }
     if let Some(binding) = changed_binding
         && let Ok(paths) = ConfigPaths::discover()
     {

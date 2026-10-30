@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     test_support::TestDirectory,
     workspace::{
-        publish_event,
+        decode, publish_event,
         tests::{paths, sample},
     },
 };
@@ -47,11 +47,12 @@ fn generations_select_the_protected_layout_and_require_pinned_smaller_consent() 
     small.captured_at_ms = 2;
     small.server.process = tmt_core::endpoint::ProcessIncarnation::new(11, "restart").unwrap();
     publish_event(&paths, &socket, || Ok(small.clone())).unwrap();
-    let chosen = acquire_selected(&paths, &socket, None, None).unwrap();
+    let chosen =
+        acquire_selected::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), None, None).unwrap();
     assert_eq!(chosen.snapshot, rich);
     assert!(chosen.protected);
     assert!(!chosen.requires_confirmation);
-    let entries = list_snapshots(&paths, &socket).unwrap();
+    let entries = list_snapshots::<WorkspaceSnapshot>(&paths, Store::Socket(&socket)).unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!((entries[0].panes, entries[0].agents), (1, 1));
     assert!(!entries[0].protected);
@@ -66,24 +67,40 @@ fn generations_select_the_protected_layout_and_require_pinned_smaller_consent() 
         .parse()
         .unwrap();
     assert!(selector.as_str().parse::<SnapshotName>().is_err());
-    let explicit = acquire_selected(&paths, &socket, Some(&selector), None).unwrap();
+    let explicit = acquire_selected::<WorkspaceSnapshot>(
+        &paths,
+        Store::Socket(&socket),
+        Some(&selector),
+        None,
+    )
+    .unwrap();
     assert_eq!(explicit.snapshot, small);
     assert!(explicit.requires_confirmation);
     assert!(matches!(
-        acquire_selected(&paths, &socket, Some(&selector), Some(&chosen.digest)),
+        acquire_selected::<WorkspaceSnapshot>(
+            &paths,
+            Store::Socket(&socket),
+            Some(&selector),
+            Some(&chosen.digest)
+        ),
         Err(Error::Changed)
     ));
-    let pinned =
-        acquire_selected(&paths, &socket, Some(&selector), Some(&explicit.digest)).unwrap();
+    let pinned = acquire_selected::<WorkspaceSnapshot>(
+        &paths,
+        Store::Socket(&socket),
+        Some(&selector),
+        Some(&explicit.digest),
+    )
+    .unwrap();
     assert!(!pinned.requires_confirmation);
     assert_eq!(pinned.bytes, explicit.bytes);
     let id = pinned.generation.as_ref().unwrap().id.clone();
     assert!(
-        !accept_generation(&paths, &socket, &id, None).unwrap(),
+        !accept_generation(&paths, Store::Socket(&socket), &id, None).unwrap(),
         "stale baseline cannot win"
     );
     assert_eq!(
-        acquire_selected(&paths, &socket, None, None)
+        acquire_selected::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), None, None)
             .unwrap()
             .snapshot,
         rich
@@ -91,14 +108,14 @@ fn generations_select_the_protected_layout_and_require_pinned_smaller_consent() 
     assert!(
         accept_generation(
             &paths,
-            &socket,
+            Store::Socket(&socket),
             &id,
             pinned.baseline.as_ref().map(|generation| &generation.id)
         )
         .unwrap()
     );
     assert_eq!(
-        acquire_selected(&paths, &socket, None, None)
+        acquire_selected::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), None, None)
             .unwrap()
             .snapshot,
         small
@@ -114,7 +131,7 @@ fn named_copy_is_exact_private_and_independent_of_automatic_latest() {
     // A byte digest must not normalize valid whitespace through the codec.
     bytes.push(b'\n');
     fs::write(&latest, &bytes).unwrap();
-    let entry = save(&paths, &socket, &name).unwrap();
+    let entry = save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name).unwrap();
     let saved = destination(&paths.workspace_directory(&socket), Some(&name));
     assert_eq!(fs::read(&saved).unwrap(), bytes);
     assert_eq!(entry.digest, sha256(&bytes));
@@ -125,8 +142,11 @@ fn named_copy_is_exact_private_and_independent_of_automatic_latest() {
     publish_event(&paths, &socket, || Ok(newer)).unwrap();
     assert_eq!(fs::read(&saved).unwrap(), bytes);
     assert_ne!(fs::read(&latest).unwrap(), bytes);
-    assert!(matches!(save(&paths, &socket, &name), Err(Error::Exists)));
-    let rows = list_snapshots(&paths, &socket).unwrap();
+    assert!(matches!(
+        save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name),
+        Err(Error::Exists)
+    ));
+    let rows = list_snapshots::<WorkspaceSnapshot>(&paths, Store::Socket(&socket)).unwrap();
     assert_eq!(rows.len(), 3);
     assert!(rows[0].name.is_none());
     assert_eq!(
@@ -137,30 +157,42 @@ fn named_copy_is_exact_private_and_independent_of_automatic_latest() {
         entry.digest
     );
     let other_socket = format!("{socket}-other");
-    assert!(list_snapshots(&paths, &other_socket).unwrap().is_empty());
+    assert!(
+        list_snapshots::<WorkspaceSnapshot>(&paths, Store::Socket(&other_socket))
+            .unwrap()
+            .is_empty()
+    );
     assert!(matches!(
-        acquire(&paths, &other_socket, Some(&name), None),
+        acquire::<WorkspaceSnapshot>(&paths, Store::Socket(&other_socket), Some(&name), None),
         Err(Error::NotFound)
     ));
-    remove(&paths, &socket, &name).unwrap();
+    remove::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name).unwrap();
     assert!(matches!(
-        remove(&paths, &socket, &name),
+        remove::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name),
         Err(Error::NotFound)
     ));
-    assert_eq!(save(&paths, &socket, &name).unwrap().digest, rows[0].digest);
+    assert_eq!(
+        save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name)
+            .unwrap()
+            .digest,
+        rows[0].digest
+    );
 }
 
 #[test]
 fn matching_guard_accepts_and_changed_bytes_refuse_without_reopening_acquired_input() {
     let (_root, paths, socket) = fixture();
-    let original = acquire(&paths, &socket, None, None).unwrap();
-    let frozen = acquire(&paths, &socket, None, Some(&original.digest)).unwrap();
+    let original =
+        acquire::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), None, None).unwrap();
+    let frozen =
+        acquire::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), None, Some(&original.digest))
+            .unwrap();
     let mut next = original.snapshot.clone();
     next.captured_at_ms += 1;
     next.windows[0].name = "changed layout".into();
     publish_event(&paths, &socket, || Ok(next)).unwrap();
     assert!(matches!(
-        acquire(&paths, &socket, None, Some(&original.digest)),
+        acquire::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), None, Some(&original.digest)),
         Err(Error::Changed)
     ));
     assert_eq!(frozen.snapshot, original.snapshot);
@@ -172,14 +204,22 @@ fn matching_guard_accepts_and_changed_bytes_refuse_without_reopening_acquired_in
 fn cap_and_nonblocking_lock_serialize_competing_saves_without_partial_files() {
     let (_root, paths, socket) = fixture();
     for index in 0..MAX_SAVED_SNAPSHOTS - 1 {
-        save(&paths, &socket, &format!("item-{index}").parse().unwrap()).unwrap();
+        save::<WorkspaceSnapshot>(
+            &paths,
+            Store::Socket(&socket),
+            &format!("item-{index}").parse().unwrap(),
+        )
+        .unwrap();
     }
     let directory = paths.workspace_directory(&socket);
     let held = lock(&directory).unwrap();
     let name = "busy".parse().unwrap();
-    assert!(matches!(save(&paths, &socket, &name), Err(Error::Busy)));
     assert!(matches!(
-        remove(&paths, &socket, &"item-0".parse().unwrap()),
+        save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name),
+        Err(Error::Busy)
+    ));
+    assert!(matches!(
+        remove::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &"item-0".parse().unwrap()),
         Err(Error::Busy)
     ));
     assert!(
@@ -196,7 +236,7 @@ fn cap_and_nonblocking_lock_serialize_competing_saves_without_partial_files() {
         let barrier = barrier.clone();
         std::thread::spawn(move || {
             barrier.wait();
-            save(&paths, &socket, &name.parse().unwrap())
+            save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name.parse().unwrap())
         })
     });
     barrier.wait();
@@ -208,9 +248,14 @@ fn cap_and_nonblocking_lock_serialize_competing_saves_without_partial_files() {
             .filter_map(|result| result.as_ref().err())
             .all(|error| matches!(error, Error::Busy | Error::Limit))
     );
-    assert!(matches!(save(&paths, &socket, &name), Err(Error::Limit)));
+    assert!(matches!(
+        save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name),
+        Err(Error::Limit)
+    ));
     assert_eq!(
-        list_snapshots(&paths, &socket).unwrap().len(),
+        list_snapshots::<WorkspaceSnapshot>(&paths, Store::Socket(&socket))
+            .unwrap()
+            .len(),
         MAX_SAVED_SNAPSHOTS + 1
     );
     assert!(fs::read_dir(&directory).unwrap().all(|entry| {
@@ -220,8 +265,9 @@ fn cap_and_nonblocking_lock_serialize_competing_saves_without_partial_files() {
             .to_string_lossy()
             .ends_with(".tmp")
     }));
-    remove(&paths, &socket, &"item-0".parse().unwrap()).unwrap();
-    save(&paths, &socket, &name).unwrap();
+    remove::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &"item-0".parse().unwrap())
+        .unwrap();
+    save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name).unwrap();
 }
 
 #[test]
@@ -252,7 +298,7 @@ fn malformed_oversized_symlinked_and_wrong_socket_documents_are_preserved() {
     let original = fs::read(&latest).unwrap();
     for bytes in [b"{\"version\":999}".to_vec(), vec![b' '; MAX_BYTES + 1]] {
         fs::write(&latest, &bytes).unwrap();
-        assert!(save(&paths, &socket, &name).is_err());
+        assert!(save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name).is_err());
         assert_eq!(fs::read(&latest).unwrap(), bytes);
         assert!(!destination(&paths.workspace_directory(&socket), Some(&name)).exists());
     }
@@ -260,20 +306,20 @@ fn malformed_oversized_symlinked_and_wrong_socket_documents_are_preserved() {
     let foreign = root.path.join("foreign");
     fs::write(&foreign, &original).unwrap();
     std::os::unix::fs::symlink(&foreign, &latest).unwrap();
-    assert!(save(&paths, &socket, &name).is_err());
+    assert!(save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name).is_err());
     assert!(fs::symlink_metadata(&latest).unwrap().is_symlink());
     assert_eq!(fs::read(&foreign).unwrap(), original);
     fs::remove_file(&latest).unwrap();
     let mut wrong = decode(&original).unwrap();
     wrong.server.socket.push_str("-different");
     fs::write(&latest, super::super::encode(&wrong).unwrap()).unwrap();
-    assert!(acquire(&paths, &socket, None, None).is_err());
+    assert!(acquire::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), None, None).is_err());
     fs::write(&latest, &original).unwrap();
-    save(&paths, &socket, &name).unwrap();
+    save::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name).unwrap();
     let named = destination(&paths.workspace_directory(&socket), Some(&name));
     fs::remove_file(&named).unwrap();
     std::os::unix::fs::symlink(&foreign, &named).unwrap();
-    assert!(remove(&paths, &socket, &name).is_err());
+    assert!(remove::<WorkspaceSnapshot>(&paths, Store::Socket(&socket), &name).is_err());
     assert!(fs::symlink_metadata(&named).unwrap().is_symlink());
     assert_eq!(fs::read(&foreign).unwrap(), original);
 }

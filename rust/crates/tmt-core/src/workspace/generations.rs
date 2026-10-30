@@ -46,7 +46,8 @@ impl WorkspaceGeneration {
     pub fn smaller_than(&self, previous: &Self) -> bool {
         self.panes < previous.panes || self.agents < previous.agents
     }
-    fn loses_half(&self, previous: &Self) -> bool {
+    /// The tmux shrink: losing at least half of either count. A server's panes end together.
+    pub fn loses_half(&self, previous: &Self) -> bool {
         (previous.panes > 0 && self.panes <= previous.panes / 2)
             || (previous.agents > 0 && self.agents <= previous.agents / 2)
     }
@@ -100,12 +101,22 @@ impl Catalogue {
     }
 
     /// The caller publishes returned files' replacement index before removing them.
-    pub fn append(&mut self, mut next: WorkspaceGeneration) -> Vec<GenerationId> {
+    pub fn append(&mut self, next: WorkspaceGeneration) -> Vec<GenerationId> {
+        self.append_judged(next, WorkspaceGeneration::loses_half)
+    }
+
+    /// The document kind judges a shrink against the baseline, the protected generation or
+    /// else the latest. A shrink never moves the protected baseline.
+    pub fn append_judged(
+        &mut self,
+        mut next: WorkspaceGeneration,
+        shrinks: impl FnOnce(&WorkspaceGeneration, &WorkspaceGeneration) -> bool,
+    ) -> Vec<GenerationId> {
         if self.get(&next.id).is_some() {
             return Vec::new();
         }
         let baseline = self.protected().or_else(|| self.latest());
-        next.shrink = baseline.is_some_and(|previous| next.loses_half(previous));
+        next.shrink = baseline.is_some_and(|previous| shrinks(&next, previous));
         if !next.shrink {
             self.protected = Some(next.id.clone());
         }

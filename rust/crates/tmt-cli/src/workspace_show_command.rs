@@ -17,14 +17,19 @@ pub fn execute(
 ) -> io::Result<u8> {
     let outcome: Result<_, Failure> = (|| {
         let (paths, socket, host) = crate::workspace_snapshot_command::context(socket)?;
-        let document =
-            workspace::saved::acquire_selected(&paths, &socket, name, None).map_err(|error| {
-                crate::workspace_snapshot_command::failure(
-                    error,
-                    "WORKSPACE_PLAN_UNAVAILABLE",
-                    name.is_none(),
-                )
-            })?;
+        let document = workspace::saved::acquire_selected(
+            &paths,
+            workspace::Store::Socket(&socket),
+            name,
+            None,
+        )
+        .map_err(|error| {
+            crate::workspace_snapshot_command::failure(
+                error,
+                "WORKSPACE_PLAN_UNAVAILABLE",
+                name.is_none(),
+            )
+        })?;
         let input = plan::read_document(
             &paths,
             &socket,
@@ -140,6 +145,98 @@ fn pane_description(action: tmt_core::workspace::plan::WorkspacePaneAction) -> &
         WorkspacePaneAction::StaleRequiresRetry => "stale remembered session",
         WorkspacePaneAction::Floating => "floating pane, not restored",
     }
+}
+
+/// A built-in preview: the recorded members, each with what a restore would do now. Read
+/// only: no capture, publication or storage initialization.
+pub fn execute_builtin(
+    name: Option<&tmt_core::workspace::SnapshotSelector>,
+    mode: OutputMode,
+) -> io::Result<u8> {
+    use tmt_core::workspace::builtin::{BuiltinSnapshot, member_plan};
+    let outcome: Result<_, Failure> = (|| {
+        let paths = tmt_adapters::config::ConfigPaths::discover().map_err(Failure::from)?;
+        let document = workspace::saved::acquire_selected::<BuiltinSnapshot>(
+            &paths,
+            workspace::Store::Builtin,
+            name,
+            None,
+        )
+        .map_err(|error| {
+            crate::workspace_snapshot_command::failure(error, "WORKSPACE_PLAN_UNAVAILABLE", false)
+        })?;
+        let (identities, live) = workspace::builtin_plan_input(
+            &paths,
+            &document.snapshot,
+            Instant::now() + workspace::CAPTURE_BUDGET,
+        )
+        .map_err(|error| {
+            Failure::new(
+                "WORKSPACE_PLAN_UNAVAILABLE",
+                format!("Could not read the workspace plan: {error}"),
+                1,
+            )
+        })?;
+        let plan = member_plan(&document.snapshot, &identities, &live, |cwd| {
+            std::path::Path::new(cwd).is_dir()
+        });
+        let members = plan
+            .iter()
+            .map(|row| {
+                serde_json::json!({
+                    "identityId": row.member.identity.id,
+                    "name": row.identity.map_or(row.member.identity.name.as_str(), |record| record.entry.identity.name.as_str()),
+                    "cwd": row.member.cwd,
+                    "harness": row.member.identity.harness,
+                    "action": row.action.as_str(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let human = std::iter::once(format!(
+            "Built-in members (captured {}):",
+            tmt_cli_style::value::relative_time(
+                tmt_adapters::request_runtime::wall_time_ms()
+                    .saturating_sub(document.snapshot.captured_at_ms)
+            )
+        ))
+        .chain(plan.iter().map(|row| {
+            format!(
+                "  {}  {}  {}",
+                row.identity
+                    .map_or(row.member.identity.name.as_str(), |record| record
+                        .entry
+                        .identity
+                        .name
+                        .as_str()),
+                row.action.as_str().replace('_', " "),
+                row.member.cwd.as_deref().unwrap_or("(folder unknown)")
+            )
+        }))
+        .collect::<Vec<_>>()
+        .join("\n");
+        let json = serde_json::json!({
+            "version": 1,
+            "host": tmt_core::host::HostKind::pty().as_str(),
+            "name": name.map(|name| name.as_str()),
+            "digest": document.digest,
+            "capturedAtMs": document.snapshot.captured_at_ms,
+            "generation": document.generation.as_ref().map(|generation| generation.id.as_str()),
+            "protected": document.protected,
+            "members": members,
+        });
+        Ok((json, human))
+    })();
+    let (json, human) = match outcome {
+        Ok(value) => value,
+        Err(error) => return error.publish(mode),
+    };
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    if mode.json {
+        writeln!(output, "{json}")?;
+    } else {
+        writeln!(output, "{human}")?;
+    }
+    Ok(0)
 }
 
 pub(crate) fn selected_socket(

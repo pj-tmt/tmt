@@ -23,6 +23,15 @@ server, pane PID and recorded native pane incarnation must agree before an
 identity is annotated. Mismatch never retires or repairs durable state. External
 hosts without a capture port skip.
 
+The built-in host has its own store ([contract](../../../../contracts/workspace-v1.md#built-in-host-snapshots)).
+`workspace::Store::{Socket, Builtin}` picks the directory and the `Recovery` trait gives each
+document kind its codec, counts and shrink judgment, so publication, the index, retention,
+named saves and selection stay one implementation; the tmux store's bytes are pinned by a test.
+Built-in capture reads the bound built-in identities through the same read-only projection and
+checks each member through `Host::observe_snapshot` and `identity_for_pane`. The pure
+`builtin::BuiltinSnapshot::covers` and `without` own its shrink rule and explicit-stop removal;
+`stop_command` and `rm` call `workspace::forget_builtin_member` after their own effect.
+
 Publication keeps immutable generation bytes ahead of the atomic catalogue,
 then updates the legacy projection and prunes only verified owned orphans.
 Readers use the committed catalogue even if a crash left the legacy projection

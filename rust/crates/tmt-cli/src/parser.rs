@@ -223,21 +223,25 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["api"] => if flag(m, "session") { Invocation::ApiSession } else { Invocation::Api },
         ["workspace", "restore"] => Invocation::WorkspaceRestore {
             socket: text(m, "socket"),
+            builtin: text(m, "host").is_some(),
             name: m.get_one::<tmt_core::workspace::SnapshotSelector>("name").cloned(),
             expect: text(m, "expect"),
             layout_only: flag(m, "layout-only"),
         },
         ["workspace", "show"] => Invocation::WorkspaceShow {
             socket: text(m, "socket"),
+            builtin: text(m, "host").is_some(),
             name: m.get_one::<tmt_core::workspace::SnapshotSelector>("name").cloned(),
         },
         ["workspace", "save"] => Invocation::WorkspaceSave {
             socket: text(m, "socket"),
+            builtin: text(m, "host").is_some(),
             name: m.get_one::<tmt_core::workspace::SnapshotName>("name").expect("required name").clone(),
         },
-        ["workspace", "ls"] => Invocation::WorkspaceList { socket: text(m, "socket") },
+        ["workspace", "ls"] => Invocation::WorkspaceList { socket: text(m, "socket"), builtin: text(m, "host").is_some() },
         ["workspace", "rm"] => Invocation::WorkspaceRemove {
             socket: text(m, "socket"),
+            builtin: text(m, "host").is_some(),
             name: m.get_one::<tmt_core::workspace::SnapshotName>("name").expect("required name").clone(),
         },
         ["mcp"] => Invocation::Mcp {

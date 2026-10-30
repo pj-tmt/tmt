@@ -51,23 +51,33 @@ pub enum Invocation {
     Init,
     WorkspaceRestore {
         socket: Option<String>,
+        /// `--host pty`: the built-in host's store instead of a tmux socket.
+        builtin: bool,
         name: Option<tmt_core::workspace::SnapshotSelector>,
         expect: Option<String>,
         layout_only: bool,
     },
     WorkspaceShow {
         socket: Option<String>,
+        /// `--host pty`: the built-in host's store instead of a tmux socket.
+        builtin: bool,
         name: Option<tmt_core::workspace::SnapshotSelector>,
     },
     WorkspaceSave {
         socket: Option<String>,
+        /// `--host pty`: the built-in host's store instead of a tmux socket.
+        builtin: bool,
         name: tmt_core::workspace::SnapshotName,
     },
     WorkspaceList {
         socket: Option<String>,
+        /// `--host pty`: the built-in host's store instead of a tmux socket.
+        builtin: bool,
     },
     WorkspaceRemove {
         socket: Option<String>,
+        /// `--host pty`: the built-in host's store instead of a tmux socket.
+        builtin: bool,
         name: tmt_core::workspace::SnapshotName,
     },
     Run {

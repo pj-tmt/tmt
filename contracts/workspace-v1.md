@@ -165,6 +165,35 @@ without refreshing it. Its 16-name cap, no-replacement publication, explicit
 removal and names disjoint from `g:` are unchanged. Manual saves cannot be
 removed by automatic retention.
 
+## Built-in host snapshots
+
+The built-in (`pty`) host keeps one store, `<global_dir>/workspace/pty/`; its fixed name
+never collides with a 64-hex socket directory. A restart ends every member supervisor but
+loses no durable state, so a built-in document records only what a restart loses: which
+members were running and where. Version 1 is `{version:1, host:"pty", capturedAtMs, members}`;
+each member is `{cwd, identity}`, with `cwd` the program's live directory (`null` when it could
+not be read) and `identity` the same annotation as a tmux pane's. The `host` key keeps the two
+codecs disjoint. A member is recorded only when its binding, supervisor and program incarnation
+agree; capture never starts, stops or repairs a supervisor. Publication, the index, the legacy
+`latest.json` projection, retention, named saves and digest selection are the tmux store's.
+
+Capture uses the same event and hook owners. A built-in launch publishes once its committed
+marker is ready, which creates the store; binding changes and admitted provider hooks follow,
+hooks coalescing to one attempt per 30 seconds for the whole store. `workspace.capture` examines
+the built-in store only when it already exists and reports it in the same counts and `reasons`.
+
+Members end one by one at logout or reboot, so a built-in capture is a shrink unless it holds every
+identity of the protected baseline; the baseline therefore keeps the last full set. A member stopped
+(`tmt stop`) or removed (`tmt rm`) on purpose first leaves the baseline: a derived document without it
+becomes the protected generation, so the default restore never brings it back.
+
+`tmt workspace ls|show|save|rm --host pty` select this store, exclusive with `--socket`; implicit
+selection is unchanged. List and save add `host` (`"tmux"` or `"pty"`) to their documents; a built-in
+document has no `socket`. `show --host pty` reports each member with its current `action`
+(`resumable`, `no_remembered_session`, `stale_requires_retry`, `identity_missing`, `live` or
+`folder_missing`) from current durable state, never the annotation. Built-in restore is not
+available yet: `restore --host pty` returns `WORKSPACE_HOST_UNSUPPORTED` before any effect.
+
 ## Restore authority
 
 Saved layouts admit legacy checksum syntax and tmux JSON version 2 tiled trees

@@ -1,5 +1,7 @@
 //! Invocation-owned coalescing and the recorded-socket public backstop.
-use super::{CAPTURE_BUDGET, capture_snapshot, decode, generations, publish_gated};
+use super::{
+    CAPTURE_BUDGET, Store, capture_builtin, capture_snapshot, decode, generations, publish_gated,
+};
 use crate::{
     bounded_file,
     config::{ConfigFiles, ConfigPaths},
@@ -13,7 +15,7 @@ use std::{
 use tmt_core::{
     endpoint::{ProcessIncarnation, ServerEvidence},
     host::HostKind,
-    workspace::{MAX_BYTES, WorkspaceServer, WorkspaceSnapshot},
+    workspace::{MAX_BYTES, WorkspaceServer, WorkspaceSnapshot, builtin::BuiltinSnapshot},
 };
 const CADENCE: &str = "capture-attempt.json";
 const PERIOD_MS: u64 = 30_000;
@@ -93,6 +95,48 @@ fn admit(directory: &Path, process: &ProcessIncarnation, now_ms: u64) -> io::Res
     crate::private_file::replace(&path, &bytes)?;
     Ok(true)
 }
+/// The built-in store has no one server incarnation: its members' hooks coalesce on time
+/// alone, one attempt per period. A backwards clock admits a fresh attempt.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PeriodAttempt {
+    version: u8,
+    #[serde(rename = "attemptedAtMs")]
+    attempted_at_ms: u64,
+}
+fn admit_period(directory: &Path, now_ms: u64) -> io::Result<bool> {
+    let path = directory.join(CADENCE);
+    match owned(&path, false) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+        other => {
+            other?;
+            let bytes = bounded_file::read_no_follow(&path, 2048).map_err(io::Error::other)?;
+            let value =
+                crate::json_document::parse(std::str::from_utf8(&bytes).map_err(io::Error::other)?)
+                    .map_err(io::Error::other)?;
+            let previous: PeriodAttempt =
+                serde_json::from_value(value).map_err(io::Error::other)?;
+            if previous.version != 1
+                || previous.attempted_at_ms > tmt_core::limits::MAX_JS_SAFE_INTEGER
+            {
+                return Err(io::Error::other(
+                    "Malformed workspace capture coordination.",
+                ));
+            }
+            if now_ms >= previous.attempted_at_ms && now_ms - previous.attempted_at_ms < PERIOD_MS {
+                return Ok(false);
+            }
+        }
+    }
+    let bytes = serde_json::to_vec(&PeriodAttempt {
+        version: 1,
+        attempted_at_ms: now_ms,
+    })
+    .map_err(io::Error::other)?;
+    crate::private_file::replace(&path, &bytes)?;
+    Ok(true)
+}
+
 fn native(process: u64, deadline: Instant) -> Option<ProcessIncarnation> {
     match UnixCommandRunner.process_observation(process, deadline)? {
         ProcessObservation::Live(process) | ProcessObservation::Stopped(process) => Some(process),
@@ -108,8 +152,18 @@ pub fn capture_hook(
     server: &ServerEvidence,
     deadline: Instant,
 ) -> io::Result<bool> {
-    if server.host != HostKind::Tmux || Instant::now() >= deadline || !enabled(paths)? {
+    let builtin = server.host == HostKind::pty();
+    if !builtin && server.host != HostKind::Tmux || Instant::now() >= deadline || !enabled(paths)? {
         return Ok(false);
+    }
+    if builtin {
+        return publish_gated(
+            paths,
+            Store::Builtin,
+            |directory| admit_period(directory, crate::request_runtime::wall_time_ms()),
+            |_| true,
+            || capture_builtin(paths, deadline),
+        );
     }
     let Some(process) = native(server.server_pid, deadline) else {
         return Ok(false);
@@ -117,7 +171,7 @@ pub fn capture_hook(
     let socket = &server.socket_path;
     publish_gated(
         paths,
-        socket,
+        Store::Socket(socket),
         |directory| admit(directory, &process, crate::request_runtime::wall_time_ms()),
         |_| true,
         || {
@@ -214,21 +268,22 @@ fn failure_reason(error: &io::Error, deadline: Instant) -> CaptureReason {
 /// records. All candidates share one acquisition deadline and cadence owner.
 pub fn capture_recorded(paths: &ConfigPaths) -> io::Result<WorkspaceCaptureReport> {
     let host = Host::for_workspace_socket();
-    recorded_with(
-        paths,
-        crate::request_runtime::wall_time_ms(),
-        Instant::now() + CAPTURE_BUDGET,
-        |previous, deadline| {
-            if native(previous.process.pid(), deadline).as_ref() != Some(&previous.process) {
-                return Err(ServerFailure::NotCurrent.into());
-            }
-            let snapshot = capture_snapshot(paths, &host, &previous.socket, None, None, deadline)?;
-            if snapshot.server != *previous {
-                return Err(ServerFailure::Changed.into());
-            }
-            Ok(snapshot)
-        },
-    )
+    let now_ms = crate::request_runtime::wall_time_ms();
+    let deadline = Instant::now() + CAPTURE_BUDGET;
+    let mut report = recorded_with(paths, now_ms, deadline, |previous, deadline| {
+        if native(previous.process.pid(), deadline).as_ref() != Some(&previous.process) {
+            return Err(ServerFailure::NotCurrent.into());
+        }
+        let snapshot = capture_snapshot(paths, &host, &previous.socket, None, None, deadline)?;
+        if snapshot.server != *previous {
+            return Err(ServerFailure::Changed.into());
+        }
+        Ok(snapshot)
+    })?;
+    recorded_builtin(paths, &mut report, now_ms, deadline, |deadline| {
+        capture_builtin(paths, deadline)
+    })?;
+    Ok(report)
 }
 fn recorded_with(
     paths: &ConfigPaths,
@@ -261,7 +316,7 @@ fn recorded_with(
         let load = (|| {
             owned(&entry.path(), true)?;
             let bytes = match generations::read(&entry.path())? {
-                Some(catalogue) => generations::acquire(
+                Some(catalogue) => generations::acquire::<WorkspaceSnapshot>(
                     &entry.path(),
                     catalogue.latest().expect("nonempty catalogue"),
                 )?,
@@ -278,42 +333,93 @@ fn recorded_with(
             report.skip(CaptureReason::Refused);
             continue;
         };
-        let mut attempted = false;
-        let gate = Cell::new(None);
-        let failure = Cell::new(None);
-        let published = publish_gated(
+        examine(
             paths,
-            &previous.socket,
-            |directory| {
-                if Instant::now() >= deadline {
-                    gate.set(Some(CaptureReason::Deadline));
-                    return Ok(false);
-                }
-                let admitted = admit(directory, &previous.process, now_ms)?;
-                if !admitted {
-                    gate.set(Some(CaptureReason::NotDue));
-                }
-                Ok(admitted)
-            },
-            |_| true,
-            || {
-                attempted = true;
-                report.attempted += 1;
-                capture(&previous, deadline)
-                    .inspect_err(|error| failure.set(Some(failure_reason(error, deadline))))
-            },
+            &mut report,
+            deadline,
+            Store::Socket(&previous.socket),
+            |directory| admit(directory, &previous.process, now_ms),
+            || capture(&previous, deadline),
         );
-        // Exactly one outcome per examined record. A lock held by another process is the one
-        // refusal that reaches neither the admission closure nor the callback.
-        match (published, attempted) {
-            (Ok(true), _) => report.published += 1,
-            (Ok(false), true) => report.count(CaptureReason::Unchanged),
-            (Err(_), true) => report.count(failure.get().unwrap_or(CaptureReason::Failed)),
-            (Ok(false), false) => report.skip(gate.get().unwrap_or(CaptureReason::Busy)),
-            (Err(_), false) => report.skip(CaptureReason::Refused),
-        }
     }
     Ok(report)
+}
+
+/// The built-in store, only once an event or hook created it: the backstop never initializes it.
+fn recorded_builtin(
+    paths: &ConfigPaths,
+    report: &mut WorkspaceCaptureReport,
+    now_ms: u64,
+    deadline: Instant,
+    capture: impl FnOnce(Instant) -> io::Result<BuiltinSnapshot>,
+) -> io::Result<()> {
+    if !enabled(paths)? {
+        return Ok(());
+    }
+    match owned(&paths.builtin_workspace_directory(), true) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => {
+            report.skip(CaptureReason::Refused);
+            return Ok(());
+        }
+        Ok(()) => (),
+    }
+    if Instant::now() >= deadline {
+        report.skip(CaptureReason::Deadline);
+        return Ok(());
+    }
+    examine(
+        paths,
+        report,
+        deadline,
+        Store::Builtin,
+        |directory| admit_period(directory, now_ms),
+        || capture(deadline),
+    );
+    Ok(())
+}
+
+/// Exactly one outcome per examined record. A lock held by another process is the one
+/// refusal that reaches neither the admission closure nor the callback.
+fn examine<D: super::Recovery>(
+    paths: &ConfigPaths,
+    report: &mut WorkspaceCaptureReport,
+    deadline: Instant,
+    store: Store<'_>,
+    admit: impl FnOnce(&Path) -> io::Result<bool>,
+    capture: impl FnOnce() -> io::Result<D>,
+) {
+    let mut attempted = false;
+    let gate = Cell::new(None);
+    let failure = Cell::new(None);
+    let published = publish_gated(
+        paths,
+        store,
+        |directory| {
+            if Instant::now() >= deadline {
+                gate.set(Some(CaptureReason::Deadline));
+                return Ok(false);
+            }
+            let admitted = admit(directory)?;
+            if !admitted {
+                gate.set(Some(CaptureReason::NotDue));
+            }
+            Ok(admitted)
+        },
+        |_| true,
+        || {
+            attempted = true;
+            report.attempted += 1;
+            capture().inspect_err(|error| failure.set(Some(failure_reason(error, deadline))))
+        },
+    );
+    match (published, attempted) {
+        (Ok(true), _) => report.published += 1,
+        (Ok(false), true) => report.count(CaptureReason::Unchanged),
+        (Err(_), true) => report.count(failure.get().unwrap_or(CaptureReason::Failed)),
+        (Ok(false), false) => report.skip(gate.get().unwrap_or(CaptureReason::Busy)),
+        (Err(_), false) => report.skip(CaptureReason::Refused),
+    }
 }
 
 #[cfg(test)]
@@ -374,6 +480,40 @@ mod tests {
         entries.sort();
         entries
     }
+    #[test]
+    fn the_backstop_examines_the_built_in_store_only_once_it_exists_and_coalesces_it() {
+        let root = TestDirectory::new();
+        let paths = paths(&root.path);
+        let mut report = WorkspaceCaptureReport::default();
+        recorded_builtin(
+            &paths,
+            &mut report,
+            1,
+            Instant::now() + CAPTURE_BUDGET,
+            |_| panic!("an absent store is never initialized"),
+        )
+        .unwrap();
+        assert_eq!(
+            (report.attempted, report.published, report.skipped),
+            (0, 0, 0)
+        );
+        assert!(!paths.global_dir.join("workspace").exists());
+        let snapshot = |at| BuiltinSnapshot {
+            captured_at_ms: at,
+            members: Vec::new(),
+        };
+        super::super::publish_store_event(&paths, Store::Builtin, || Ok(snapshot(1))).unwrap();
+        let deadline = Instant::now() + CAPTURE_BUDGET;
+        recorded_builtin(&paths, &mut report, 100_000, deadline, |_| Ok(snapshot(2))).unwrap();
+        assert_eq!(reasons(&report), [(CaptureReason::Unchanged, 1)]);
+        recorded_builtin(&paths, &mut report, 100_001, deadline, |_| {
+            panic!("coalesced")
+        })
+        .unwrap();
+        assert_eq!(report.skipped, 1);
+        assert_eq!(report.reasons[&CaptureReason::NotDue], 1);
+    }
+
     #[test]
     fn unchanged_backstop_coalesces_without_replacing_recovery_bytes_and_new_incarnation_is_due() {
         let (_root, paths, mut snapshot) = fixture();

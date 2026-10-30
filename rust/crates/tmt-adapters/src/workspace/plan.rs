@@ -105,7 +105,8 @@ mod tests {
         deadline: Instant,
     ) -> io::Result<WorkspacePlanInput> {
         let document =
-            super::super::saved::acquire(paths, socket, None, None).map_err(io::Error::other)?;
+            super::super::saved::acquire(paths, super::super::Store::Socket(socket), None, None)
+                .map_err(io::Error::other)?;
         read_document(paths, socket, host, deadline, None, document)
     }
 

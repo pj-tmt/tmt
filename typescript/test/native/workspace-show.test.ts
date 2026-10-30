@@ -156,6 +156,7 @@ describe('named workspace snapshots', () => {
       expect(saved.status).toBe(0);
       expect(JSON.parse(saved.stdout)).toEqual({
         version: 1,
+        host: 'tmux',
         socket,
         name: 'work',
         digest,
@@ -188,6 +189,7 @@ describe('named workspace snapshots', () => {
       expect(listed.status).toBe(0);
       expect(JSON.parse(listed.stdout)).toEqual({
         version: 1,
+        host: 'tmux',
         socket,
         snapshots: [
           {

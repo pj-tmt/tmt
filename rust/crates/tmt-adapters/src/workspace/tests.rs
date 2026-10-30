@@ -487,3 +487,209 @@ fn command_without_selected_tmux_pane_creates_no_snapshot_or_database() {
     assert!(!paths.global_dir.exists());
     assert!(!paths.database.exists());
 }
+
+/// Every byte a tmux store publishes, across changed, shrinking and unchanged captures:
+/// the documents, the index and the legacy projection, by filename (#5666 refactor guard).
+fn tmux_store_fingerprint() -> String {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    let mut snapshot = sample();
+    snapshot.panes[0].identity = Some(tmt_core::workspace::WorkspaceIdentity {
+        id: "4f1e7a6c-5a2b-4c3d-8e9f-0a1b2c3d4e5f".into(),
+        name: "seat".into(),
+        lifetime: "saved".into(),
+        binding: "binding-1".into(),
+        harness: Some("codex".into()),
+        session: Some("session-1".into()),
+        mode: Some("default".into()),
+        channel: Some(true),
+    });
+    let socket = snapshot.server.socket.clone();
+    // Losing the one annotated identity is a shrink; the window rename is a layout change.
+    let mut wide = snapshot.clone();
+    wide.panes[0].identity = None;
+    wide.windows[0].name = "renamed".into();
+    for (at, document) in [(1, &snapshot), (2, &wide), (3, &snapshot), (4, &snapshot)] {
+        let mut document = document.clone();
+        document.captured_at_ms = at;
+        publish_event(&paths, &socket, || Ok(document)).unwrap();
+    }
+    let store = paths.workspace_directory(&socket);
+    let mut files = std::fs::read_dir(&store)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.file_name().unwrap() != "publication.lock")
+        .map(|path| {
+            (
+                path.file_name().unwrap().to_owned(),
+                std::fs::read(&path).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    files.sort();
+    let mut all = Vec::new();
+    for (name, bytes) in files {
+        all.extend(name.as_encoded_bytes());
+        all.push(0);
+        all.extend(bytes);
+        all.push(0);
+    }
+    tmt_core::content_digest::sha256(&all)
+}
+
+#[test]
+fn tmux_store_bytes_are_unchanged_by_the_shared_store_refactor() {
+    // Computed on main before #5666 made the store generic over its document kind.
+    assert_eq!(
+        tmux_store_fingerprint(),
+        "75d88e89229ac65c648eb2e7fae752adb5b6bdc6bd05403705d4f14478a1f0de"
+    );
+}
+
+fn member(id: &str) -> builtin::BuiltinMember {
+    builtin::BuiltinMember {
+        cwd: Some(format!("/work/{id}")),
+        identity: WorkspaceIdentity {
+            id: id.into(),
+            name: format!("name-{id}"),
+            lifetime: "saved".into(),
+            binding: format!("binding-{id}"),
+            harness: Some("codex".into()),
+            session: Some(format!("session-{id}")),
+            mode: Some("independent".into()),
+            channel: None,
+        },
+    }
+}
+
+fn members(at: u64, ids: &[&str]) -> builtin::BuiltinSnapshot {
+    builtin::BuiltinSnapshot {
+        captured_at_ms: at,
+        members: ids.iter().map(|id| member(id)).collect(),
+    }
+}
+
+fn publish_builtin(paths: &ConfigPaths, snapshot: builtin::BuiltinSnapshot) -> bool {
+    publish_store_event(paths, Store::Builtin, || Ok(snapshot)).unwrap()
+}
+
+fn protected_members(paths: &ConfigPaths) -> Vec<String> {
+    let document =
+        saved::acquire_selected::<builtin::BuiltinSnapshot>(paths, Store::Builtin, None, None)
+            .unwrap();
+    assert!(
+        document.protected,
+        "the default selection is the protected baseline"
+    );
+    document
+        .snapshot
+        .members
+        .into_iter()
+        .map(|member| member.identity.id)
+        .collect()
+}
+
+#[test]
+fn built_in_codec_round_trips_and_neither_codec_admits_the_other_kind() {
+    let snapshot = members(5, &["a", "b"]);
+    let bytes = encode_builtin(&snapshot).unwrap();
+    assert_eq!(decode_builtin(&bytes).unwrap(), snapshot);
+    assert!(decode(&bytes).is_err());
+    assert!(decode_builtin(&encode(&sample()).unwrap()).is_err());
+    let mut repeated = snapshot.clone();
+    repeated.members[1].identity.binding = "binding-a".into();
+    assert!(encode_builtin(&repeated).is_err());
+    let text = String::from_utf8(bytes).unwrap();
+    for broken in [
+        text.replace("\"pty\"", "\"tmux\""),
+        text.replace("\"version\":1", "\"version\":2"),
+        text.replace("\"members\":[", "\"members\":{")
+            .replace("]}", "}}"),
+    ] {
+        assert!(decode_builtin(broken.as_bytes()).is_err(), "{broken}");
+    }
+}
+
+#[test]
+fn logout_keeps_the_full_built_in_baseline_and_an_unchanged_capture_writes_nothing() {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    assert!(publish_builtin(&paths, members(1, &["a", "b", "c", "d"])));
+    let store = paths.builtin_workspace_directory();
+    let before = fs::read(store.join("generations.json")).unwrap();
+    assert!(!publish_builtin(&paths, members(2, &["a", "b", "c", "d"])));
+    assert_eq!(fs::read(store.join("generations.json")).unwrap(), before);
+    // Members end one by one: each partial capture is retained but none becomes the baseline.
+    for (at, ids) in [
+        (3, &["a", "b", "c"][..]),
+        (4, &["a", "b"]),
+        (5, &["a"]),
+        (6, &[]),
+    ] {
+        assert!(publish_builtin(&paths, members(at, ids)));
+    }
+    assert_eq!(protected_members(&paths), ["a", "b", "c", "d"]);
+    let listed = saved::list_snapshots::<builtin::BuiltinSnapshot>(&paths, Store::Builtin).unwrap();
+    assert_eq!(listed[0].panes, 0);
+    assert!(listed[0].generation.as_ref().unwrap().shrink);
+}
+
+#[test]
+fn an_explicit_stop_leaves_the_baseline_and_a_new_member_then_advances_it() {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    assert!(
+        !forget_builtin_member(&paths, "a").unwrap(),
+        "no store is created"
+    );
+    assert!(!paths.builtin_workspace_directory().exists());
+    assert!(publish_builtin(&paths, members(1, &["a", "b", "c", "d"])));
+    // d is stopped on purpose; its supervisor's end is then captured.
+    assert!(forget_builtin_member(&paths, "d").unwrap());
+    assert!(!forget_builtin_member(&paths, "d").unwrap());
+    assert_eq!(protected_members(&paths), ["a", "b", "c"]);
+    assert!(
+        !publish_builtin(&paths, members(2, &["a", "b", "c"])),
+        "nothing changed"
+    );
+    // c is stopped and e started: the capture holds the remaining baseline and advances it.
+    assert!(forget_builtin_member(&paths, "c").unwrap());
+    assert!(publish_builtin(&paths, members(3, &["a", "b", "e"])));
+    assert_eq!(protected_members(&paths), ["a", "b", "e"]);
+    // A capture that also lost an unexplained member is a shrink.
+    assert!(publish_builtin(&paths, members(4, &["a", "e"])));
+    assert_eq!(protected_members(&paths), ["a", "b", "e"]);
+}
+
+#[test]
+fn built_in_named_saves_list_and_remove_beside_the_generations() {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    assert!(
+        saved::list_snapshots::<builtin::BuiltinSnapshot>(&paths, Store::Builtin)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(publish_builtin(&paths, members(1, &["a"])));
+    let name = "before-reboot".parse().unwrap();
+    let entry = saved::save::<builtin::BuiltinSnapshot>(&paths, Store::Builtin, &name).unwrap();
+    assert_eq!((entry.panes, entry.agents), (1, 1));
+    assert!(matches!(
+        saved::save::<builtin::BuiltinSnapshot>(&paths, Store::Builtin, &name),
+        Err(saved::Error::Exists)
+    ));
+    let listed = saved::list_snapshots::<builtin::BuiltinSnapshot>(&paths, Store::Builtin).unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[1].name.as_ref(), Some(&name));
+    // A tmux reader never admits the built-in store's bytes.
+    assert!(
+        saved::acquire::<WorkspaceSnapshot>(&paths, Store::Builtin, Some(&name), None).is_err()
+    );
+    saved::remove::<builtin::BuiltinSnapshot>(&paths, Store::Builtin, &name).unwrap();
+    assert_eq!(
+        saved::list_snapshots::<builtin::BuiltinSnapshot>(&paths, Store::Builtin)
+            .unwrap()
+            .len(),
+        1
+    );
+}
