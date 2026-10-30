@@ -162,7 +162,11 @@ function newSlot(url: string): ShellSlot {
     topBarReady: () => false,
     setTopBar: () => {
       bar.append(actions);
-      return { actions, status: document.createElement('div') };
+      return {
+        title: document.createElement('div'),
+        actions,
+        status: document.createElement('div'),
+      };
     },
     basePath: '/colab/',
     answer: () => undefined,
