@@ -1019,7 +1019,7 @@ for (const surface of ['chat', 'thread'] as const)
       }
       const panel =
         surface === 'chat'
-          ? page.locator('.page-conversation-window[data-panel=chat]')
+          ? page.locator('.tmt-ui-drawer[data-panel=chat]')
           : page.getByTestId('comment-thread').first();
       const input = await annotationInput(panel);
       await input.fill('A posted image at the message edge.');

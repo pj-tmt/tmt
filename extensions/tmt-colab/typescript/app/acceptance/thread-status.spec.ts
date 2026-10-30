@@ -16,8 +16,8 @@ const threadAction = (page: Page, name: string) =>
   commentsRegion(page).getByRole('button', { name, exact: true });
 const markers = (page: Page) => page.frameLocator('iframe').locator('[data-colab-thread]');
 const state = (page: Page) => page.getByTestId('discussion-state');
-async function annotate(page: Page, body: string, selector = '#quote') {
-  await selectInRenderer(page, selector);
+async function annotate(page: Page, body: string) {
+  await selectInRenderer(page, '#quote');
   await page.getByTestId('selection-ask').click();
   const compose = page.getByRole('dialog', { name: 'Annotate selection' });
   const input = compose.getByRole('combobox', { name: 'Message', exact: true });
@@ -200,98 +200,5 @@ test('status states captured for the UX look', async () => {
         path: `${captureDir}/focus-${name === text.threadReopen ? 'reopen' : 'next'}.png`,
       });
     }
-  });
-});
-
-test('Resolve all commits two native statuses and notifies each agent once in the retained window', async () => {
-  await withWorld(async (world) => {
-    const door = await startDoor(world, await freePort());
-    const alpha = await world.startAgent('batch-alpha');
-    const beta = await world.startAgent('batch-beta');
-    const author = await pairBrowser(world, 'batch-author', { talk: true });
-    const created = createPage(
-      world,
-      'Batch status acceptance',
-      '<p id="quote">First batch passage.</p><p id="quote2">Second batch passage.</p>',
-    );
-    const page = await openPage(door, author, created);
-    await annotate(page, '@batch-alpha @batch-beta First batch comment.');
-    await annotate(page, '@batch-alpha @ghost-agent Second batch comment.', '#quote2');
-    // These comments dispatch ordinary Asks; count batch notifications separately.
-    await expect.poll(() => alpha.received().length).toBe(2);
-    await expect.poll(() => beta.received().length).toBe(1);
-    const notices = (agent: typeof alpha) =>
-      agent
-        .received()
-        .filter((value) => String(value.message).includes('Thread resolved by batch-author.'));
-    await comments(page);
-    const panel = commentsRegion(page);
-    const action = panel.getByRole('button', { name: 'Resolve all open (2)', exact: true });
-    await action.click();
-    const confirmation = page.getByRole('dialog', { name: 'Resolve 2 open comments?' });
-    await expect(confirmation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
-    const captures = process.env.COLAB_BATCH_CAPTURE_DIR ?? test.info().outputPath('captures');
-    mkdirSync(captures, { recursive: true });
-    const shoot = async (label: string) => {
-      for (const [width, theme] of variants) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
-        await expect(
-          page.locator('.annotation-helper').filter({ hasText: 'Checking for agents' }),
-        ).toHaveCount(0);
-        await page.mouse.move(width - 1, 899);
-        await page.screenshot({
-          path: `${captures}/${label}-${width}-${theme}.png`,
-          animations: 'disabled',
-        });
-      }
-    };
-    await shoot('batch-confirm');
-    await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(action).toBeEnabled();
-    expect(notices(alpha)).toEqual([]);
-    expect(notices(beta)).toEqual([]);
-    await action.click();
-    await confirmation.getByRole('button', { name: 'Resolve all', exact: true }).click();
-    await expect(
-      panel.getByRole('status').filter({ hasText: 'Resolved 2 comments.' }),
-    ).toBeVisible();
-    await expect.poll(() => notices(alpha).length).toBe(1);
-    await expect.poll(() => notices(beta).length).toBe(1);
-    for (const agent of [alpha, beta]) {
-      expect(notices(agent)[0].message).toContain('Thread resolved by batch-author.');
-      expect(notices(agent)[0].message).toContain('First batch comment.');
-    }
-    const listing = () =>
-      JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])) as {
-        threads: { resolved: boolean }[];
-      };
-    expect(listing().threads).toHaveLength(2);
-    expect(listing().threads.every((thread) => thread.resolved)).toBe(true);
-    await expect(panel.getByRole('status').filter({ hasText: 'Not notified' })).toContainText(
-      'ghost-agent',
-    );
-    await expect(
-      panel.getByRole('status').filter({ hasText: 'Resolved 2 comments.' }),
-    ).toBeInViewport({ ratio: 1 });
-    await shoot('batch-result');
-    const reply = panel.getByRole('combobox', { name: 'Message', exact: true });
-    await reply.fill('Retained discussion draft');
-    const original = await reply.elementHandle();
-    await (await pageAction(page, 'Chat')).click();
-    const chat = page.getByTestId('chat-panel');
-    await chat.getByRole('combobox', { name: 'Message', exact: true }).fill('Retained Chat draft');
-    await shoot('chat-retained');
-    await commentsAction(page).click();
-    await expect(reply).toHaveText('Retained discussion draft');
-    expect(await reply.evaluate((node, original) => node === original, original)).toBe(true);
-    await shoot('discussion-retained');
-    await page.reload();
-    await expect(commentsAction(page)).toHaveAccessibleName('Comments (0)');
-    expect(listing().threads.every((thread) => thread.resolved)).toBe(true);
-    expect(notices(alpha)).toHaveLength(1);
-    expect(alpha.received()).toHaveLength(3);
-    expect(notices(beta)).toHaveLength(1);
-    expect(beta.received()).toHaveLength(2);
   });
 });

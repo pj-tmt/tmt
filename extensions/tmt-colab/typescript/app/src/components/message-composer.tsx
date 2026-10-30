@@ -97,11 +97,11 @@ function MessageField(props: MessageComposerProps) {
       if (!root) return;
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        // Wait for the retained composer's host to become visible.
+        // Wait for the existing drawer's native open and focus steps.
         const admitted = () =>
           !cancelled &&
           root.isConnected &&
-          root.getClientRects().length > 0 &&
+          !!root.closest('dialog[open]') &&
           !current.current.disabled &&
           current.current.activation?.id === activationId;
         if (!admitted()) return;

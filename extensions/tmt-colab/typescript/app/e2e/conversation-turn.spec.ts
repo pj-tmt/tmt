@@ -215,12 +215,10 @@ for (const width of [1440, 390]) {
         if (surface === 'chat') {
           await expect(page.locator('.chat-visibility')).toHaveCount(0);
           await expect(
-            page.locator(
-              '.page-conversation-window[data-panel="chat"]:not([hidden]) > .tmt-ui-drawer-header',
-            ),
+            page.locator('.tmt-ui-drawer[data-panel="chat"][open] > .tmt-ui-drawer-header'),
           ).toHaveCount(1);
           const header = page.locator(
-            '.page-conversation-window[data-panel=chat]:not([hidden]) > .tmt-ui-drawer-header',
+            '.tmt-ui-drawer[data-panel=chat][open] > .tmt-ui-drawer-header',
           );
           await expect(header.locator('.tmt-ui-drawer-caption')).toHaveText(text.chatVisible);
           await expect(header.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible();
