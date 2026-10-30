@@ -125,7 +125,13 @@ describe('acceptance process owner', () => {
       encoding: 'utf8',
     });
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual([[2_560_000, 2_740_000, 2_740_000], true, true]);
+    const [deadlines, ...refused] = JSON.parse(result.stdout) as [number[], boolean, boolean];
+    expect([deadlines, ...refused]).toEqual([[2_380_000, 2_740_000, 2_740_000], true, true]);
+    expect(
+      deadlines.map(
+        (deadline, index) => (deadline - 1_000_000) / 1000 + 30 + (index === 0 ? 360 : 0) + 30
+      )
+    ).toEqual([1800, 1800, 1800]);
   });
 
   it('publishes an incomplete verdict through the workflow CLI paths when no JSON flushed', () => {

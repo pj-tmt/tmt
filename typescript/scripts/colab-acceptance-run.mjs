@@ -14,7 +14,7 @@ export function acceptanceDeadline(startedAtSeconds, shard) {
     shard > ACCEPTANCE_SHARDS
   )
     throw new Error('Acceptance requires a positive start timestamp and an existing shard.');
-  return startedAtSeconds * 1000 + (shard === 1 ? 1560 : 1740) * 1000;
+  return startedAtSeconds * 1000 + (shard === 1 ? 1380 : 1740) * 1000;
 }
 
 /** Own only this child's new process group. Harness-detached groups remain the hosted job's concern. */
