@@ -144,6 +144,7 @@ for (const width of [390, 1440])
         page.getByRole('button', { name: 'Save as shortcut', exact: true }),
       ).toBeVisible();
       await page.mouse.move(width - 1, 899);
+      await page.screenshot({ path: capturePath(`shortcuts-hero-${width}-${theme}.png`) });
       await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
       const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
       await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Design reviews');

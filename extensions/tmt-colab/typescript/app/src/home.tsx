@@ -993,7 +993,7 @@ export function Home() {
       />
       <header className="page-list-hero">
         <div className="page-list-hero-text">
-          <h1>{currentShortcut?.name ?? scope ?? text.pageList.allPages}</h1>
+          <h2>{currentShortcut?.name ?? scope ?? text.pageList.allPages}</h2>
           <p>
             {currentShortcut
               ? [text.shortcuts.shortcut, ...shortcutConditions(search)].join(' · ')
