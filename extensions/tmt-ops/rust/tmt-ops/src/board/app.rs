@@ -627,6 +627,31 @@ pub(super) enum Overlay {
     PastePreview,
 }
 impl Overlay {
+    #[cfg(test)]
+    pub(super) const ALL: [Self; 22] = [
+        Self::Workspace,
+        Self::Recovery,
+        Self::Help,
+        Self::Settings,
+        Self::Theme,
+        Self::Panels,
+        Self::CronList,
+        Self::CronReview,
+        Self::MonitorDetails,
+        Self::ReplyReader,
+        Self::Checklist,
+        Self::QuotaDetails,
+        Self::EstimateBasis,
+        Self::Unread,
+        Self::Discovery,
+        Self::MemberSession,
+        Self::Notes,
+        Self::NewMember,
+        Self::SwitchTool,
+        Self::IdleAlert,
+        Self::UsageControls,
+        Self::PastePreview,
+    ];
     fn id(self) -> tmt_tui::app::ComponentId {
         vec![
             match self {
@@ -3293,9 +3318,9 @@ impl App {
         if self.checklist_shown()
             || self.recovery_shown()
             || self.discovery_shown()
-            || self.new_member.is_some()
+            || self.new_member_shown()
             || self.switch_tool_shown()
-            || self.idle_alert_editor.is_some()
+            || self.idle_alert_shown()
             || self.member_session.is_some()
             || self.notes_overlay.is_some()
         {
@@ -3690,12 +3715,8 @@ impl App {
                 menu.step(step);
                 Effect::None
             }
-            _ => {
-                if event.kind == MouseEventKind::Down(MouseButton::Left) && menu.anchor.is_some() {
-                    self.menu = None;
-                }
-                Effect::None
-            }
+            // An outside press already closed the menu (`outside_press`).
+            _ => Effect::None,
         }
     }
 
@@ -3874,9 +3895,9 @@ impl App {
             Some(Overlay::Unread)
         } else if self.switch_tool_shown() {
             Some(Overlay::SwitchTool)
-        } else if self.idle_alert_editor.is_some() {
+        } else if self.idle_alert_shown() {
             Some(Overlay::IdleAlert)
-        } else if self.new_member.is_some() {
+        } else if self.new_member_shown() {
             Some(Overlay::NewMember)
         } else if self.member_session.is_some() {
             Some(Overlay::MemberSession)
@@ -4584,10 +4605,9 @@ impl App {
             self.move_pointer(event);
         }
         // A dialog closes on an outside press and takes it; a peek window closes and lets it land.
-        if let Some(effect) = self.dialog_dismiss(event) {
+        if let Some(effect) = self.outside_press(event) {
             return effect;
         }
-        self.light_dismiss(event);
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
             return effect;
         }

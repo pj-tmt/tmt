@@ -212,7 +212,7 @@ impl Review {
         }
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         app.peek_areas
-            .set_dialog(crate::board::app::Overlay::CronReview, Some(areas.outer));
+            .set(crate::board::app::Overlay::CronReview, Some(areas.outer));
         let lines: Vec<_> = self
             .lines()
             .into_iter()
@@ -554,15 +554,19 @@ mod tests {
         );
     }
     #[test]
-    fn an_outside_press_closes_the_cron_review() {
-        let mut app = crate::board::app::workspace::tests::board();
-        let Effect::Act(Request::CronPreview(task)) = app.cron_review_request(request()) else {
-            panic!("preview");
+    fn the_cron_review_follows_the_close_rule() {
+        let open = || {
+            let mut app = crate::board::app::workspace::tests::board();
+            let Effect::Act(Request::CronPreview(task)) = app.cron_review_request(request()) else {
+                panic!("preview");
+            };
+            let (task, result) = run(*task, 0);
+            app.cron_review_ready(task, result);
+            app
         };
-        let (task, result) = run(*task, 0);
-        app.cron_review_ready(task, result);
-        crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-            &mut app,
+        crate::board::home::tests::dialog_dismiss::assert_close_rule(
+            &mut open(),
+            &mut open(),
             crate::board::app::Overlay::CronReview,
         );
     }

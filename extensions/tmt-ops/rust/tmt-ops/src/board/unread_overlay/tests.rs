@@ -623,7 +623,7 @@ fn a_press_inside_the_overlay_never_reaches_the_board_under_it_and_outside_close
         // Every hit the board painted under the modal, clicked where the modal covers it.
         let outer = app
             .peek_areas
-            .dialog(crate::board::app::Overlay::Unread)
+            .area(crate::board::app::Overlay::Unread)
             .expect("registered");
         let covered: Vec<_> = app
             .hits
@@ -1204,7 +1204,7 @@ fn unread_list_detail_uses_the_board_body_instead_of_a_fixed_modal_cap() {
     let screen = draw_size(&app, 160, 50);
     let outer = app
         .peek_areas
-        .dialog(crate::board::app::Overlay::Unread)
+        .area(crate::board::app::Overlay::Unread)
         .unwrap();
     assert_eq!(
         outer.width, 160,
@@ -2372,4 +2372,27 @@ fn older_core_only_metadata_does_not_change_the_existing_attention_sort() {
         app.unread_identities().contains(marked.member.as_str()),
         "an explicit manual mark joins attention"
     );
+}
+
+#[test]
+fn the_unread_window_follows_the_close_rule() {
+    crate::status::with_now_ms(10_000_000, || {
+        let open = || {
+            let mut app = app_with_two_members();
+            install(
+                &mut app,
+                &[
+                    (MEMBER, "w", 8_000_000, "final"),
+                    (OTHER, "c", 9_000_000, "final"),
+                ],
+            );
+            app.open_unread(&UnreadScope::All);
+            app
+        };
+        crate::board::home::tests::dialog_dismiss::assert_close_rule(
+            &mut open(),
+            &mut open(),
+            crate::board::app::Overlay::Unread,
+        );
+    });
 }

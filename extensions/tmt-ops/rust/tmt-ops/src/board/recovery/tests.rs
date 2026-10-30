@@ -1572,11 +1572,15 @@ fn automatic_capture_labels_use_the_local_clock_and_advance_age_without_reads() 
 }
 
 #[test]
-fn an_outside_press_closes_the_recovery_window() {
-    let mut app = crate::board::app::workspace::tests::board();
-    app.recovery = Some(controller());
-    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-        &mut app,
+fn the_recovery_window_follows_the_close_rule() {
+    let open = || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.recovery = Some(controller());
+        app
+    };
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut open(),
+        &mut open(),
         crate::board::app::Overlay::Recovery,
     );
 }

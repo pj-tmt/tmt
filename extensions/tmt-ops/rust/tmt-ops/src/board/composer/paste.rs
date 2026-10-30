@@ -518,7 +518,8 @@ impl App {
             areas.position,
             Line::styled(hint, border),
         );
-        self.peek_areas.set(crate::board::peek::Peek::Paste, outer);
+        self.peek_areas
+            .set(crate::board::app::Overlay::PastePreview, Some(outer));
     }
 }
 

@@ -195,7 +195,7 @@ impl Controller {
             fresh: builtin && self.fresh,
         })
     }
-    fn close(&mut self) {
+    pub(in crate::board) fn close(&mut self) {
         self.active = false;
         self.confirmation = None;
         self.requested_read = None;

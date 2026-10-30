@@ -529,10 +529,62 @@ fn invalid_save_keeps_shared_disabled_style_even_when_focused() {
 }
 
 #[test]
-fn an_outside_press_closes_the_idle_alert_form() {
-    let mut app = form();
-    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-        &mut app,
+fn the_idle_alert_form_follows_the_close_rule() {
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut form(),
+        &mut form(),
         crate::board::app::Overlay::IdleAlert,
     );
+}
+#[test]
+fn esc_hides_a_running_save_and_the_status_line_follows_it_to_its_result() {
+    let mut app = form();
+    paint(&app, 150, 43);
+    let c = app.idle_alert_editor.as_mut().unwrap();
+    c.enabled = true;
+    c.after = Editor::from("45m");
+    let mut task = c.task();
+    task.save = c
+        .config
+        .clone()
+        .map(|config| (Box::new(config), true, "45m".to_owned()));
+    c.pending = true;
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.overlay(), None, "Esc hides the running save");
+    let running = app.notice.clone().unwrap_or_default();
+    assert!(running.starts_with("◌ Saving idle alert · "), "{running}");
+    assert!(
+        running.ends_with("reopens this idle alert or its result."),
+        "{running}"
+    );
+    app.finished_idle_alert(Completed {
+        task,
+        result: Ok(Box::new(config())),
+        recovered: None,
+    });
+    let finished = app.notice.clone().unwrap_or_default();
+    assert!(
+        finished.starts_with("✓ Saved · squad idle alert · "),
+        "{finished}"
+    );
+    assert_eq!(app.open_idle_alert(None), Effect::None);
+    assert_eq!(
+        app.overlay(),
+        Some(crate::board::app::Overlay::IdleAlert),
+        "reopening shows the saved editor"
+    );
+    assert_eq!(
+        app.idle_alert_editor.as_ref().unwrap().after.as_str(),
+        "45m"
+    );
+}
+
+#[test]
+fn esc_while_loading_closes_without_keeping_anything() {
+    let mut app = board();
+    let Effect::IdleAlert(_) = app.open_idle_alert(None) else {
+        panic!("member must resolve its squad")
+    };
+    key(&mut app, KeyCode::Esc);
+    assert!(app.idle_alert_editor.is_none());
 }

@@ -5,16 +5,20 @@ use ratatui::{Frame, layout::Rect};
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
     app.peek_areas.clear();
-    let set = |overlay, outer| app.peek_areas.set_dialog(overlay, outer);
+    let set = |overlay, outer| app.peek_areas.set(overlay, outer);
     if let Some(switch) = &app.switch_tool
         && app.switch_tool_shown()
     {
         switch.render(frame, app, look, body);
     }
-    if let Some(editor) = &app.idle_alert_editor {
+    if let Some(editor) = &app.idle_alert_editor
+        && app.idle_alert_shown()
+    {
         editor.render(frame, app, body);
     }
-    if let Some(member) = &app.new_member {
+    if let Some(member) = &app.new_member
+        && app.new_member_shown()
+    {
         member.render(frame, app, look, body);
     }
     if let Some(session) = &app.member_session {
@@ -86,7 +90,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
             surface.outer()
         };
         if let Some(outer) = outer {
-            app.peek_areas.set(crate::board::peek::Peek::Menu, outer);
+            app.peek_areas.set_menu(outer);
         }
     }
     if let Some(list) = &app.cron_list {
@@ -109,7 +113,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
             body,
         );
         if let Some(outer) = list.modal_outer() {
-            app.peek_areas.set(crate::board::peek::Peek::Timers, outer);
+            app.peek_areas
+                .set(crate::board::app::Overlay::CronList, Some(outer));
         }
     }
     if let Some(picker) = &app.theme_picker {

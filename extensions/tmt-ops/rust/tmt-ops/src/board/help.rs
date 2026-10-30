@@ -339,5 +339,5 @@ pub(super) fn model(app: &App) -> KeyHelp {
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect) {
     let mut help = app.help_state.borrow_mut();
     let outer = help.render(frame, model(app), app.look(), body);
-    app.peek_areas.set(super::peek::Peek::Help, outer);
+    app.peek_areas.set(super::app::Overlay::Help, Some(outer));
 }

@@ -452,7 +452,8 @@ impl Basis {
         .expect("admitted estimate basis surface")
         .areas
         .outer;
-        app.peek_areas.set(crate::board::peek::Peek::Basis, outer);
+        app.peek_areas
+            .set(crate::board::app::Overlay::EstimateBasis, Some(outer));
         if self.scroll.viewport().height > 0 {
             app.frame_clocks
                 .borrow_mut()

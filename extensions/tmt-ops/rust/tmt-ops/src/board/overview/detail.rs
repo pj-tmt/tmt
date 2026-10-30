@@ -37,8 +37,10 @@ impl Details {
             modal.title = "Enlarge terminal · Esc closes agent details".into();
         }
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-        app.peek_areas
-            .set(crate::board::peek::Peek::Monitor, areas.outer);
+        app.peek_areas.set(
+            crate::board::app::Overlay::MonitorDetails,
+            Some(areas.outer),
+        );
         let retained = app
             .workspace_snapshot()
             .is_none_or(|snapshot| !snapshot.roster.contains(&self.target));

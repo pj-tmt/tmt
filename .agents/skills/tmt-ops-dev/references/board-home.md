@@ -389,18 +389,25 @@ selected UUID and consumes close before base dispatch. Shared ScrollState owns
 its current viewport, wheel/page scrolling and resize clamping. The old
 HOME display cache is not admitted as a new shell frame.
 
-Peek windows light-dismiss (`board/peek.rs`): the Timers list, Help, the subscription and
-agent details, and the Actions and mention menus close on a left press outside their painted
-sheet, and the same press goes on to what is under it. Each window records its painted sheet
-during paint (`PeekAreas`, cleared at the start of every paint), so a stale frame never
-dismisses. A wheel or other button outside, a keyboard close, a press inside, and any press
-while the composer holds a draft leave the window as it is. Every other centered overlay (the
-forms, Settings, Timer review, the theme and panels pickers, Recovery, both Checklists, the reply
-reader, Discovery, Session, New agent, Switch tool and Idle alert) is a dialog: it registers its
-painted sheet the same way (`set_dialog`) and a left press outside it closes it as Esc does, then
-takes the press. Esc is sent until the dialog is gone (at most four), so a delete question or an
-edit prompt is dropped on the way, and the conversation Checklist's unsent form, which Esc keeps,
-is discarded. The Usage controls dropdown keeps its own dismissal.
+One close rule (`board/peek.rs`): every overlay and menu records its painted sheet during paint
+(`PeekAreas`, cleared at the start of every paint, so a stale frame never closes anything), and a
+left press outside it closes it through `App::close_overlay`, one arm per overlay that does what
+Esc does on that overlay's first screen. A wheel or other button outside and a press inside leave
+it as it is.
+
+- Peeks (`Overlay::peeks`: the Timers list, Help, the subscription and agent details, Estimate
+  basis, the paste preview) and the Actions and mention menus let the press go on to what is
+  under them. Under an open composer a peek takes the press unless it is on the composer
+  band, so it never lands on a row and drops the draft.
+- Every other overlay is a dialog and takes the press. That covers the forms, Settings, Timer review,
+  the theme and panels pickers, Recovery, both Checklists, the reply reader, Unread, Discovery,
+  Session, New agent, Switch tool, Idle alert and the Usage controls dropdown.
+- An outside press keeps what Esc keeps (the conversation Checklist's unsent form included).
+- A dialog whose operation is running (New agent launch or template save, Switch tool, Idle alert
+  save, room Checklist update, a pending workspace form) hides instead of closing. The status line
+  says it is running, then names the result and the key that reopens it.
+- `home::tests::dialog_dismiss::assert_close_rule` is the shared test. `close_rule_test` names
+  where each `Overlay` runs it.
 
 ## Usage and verification
 

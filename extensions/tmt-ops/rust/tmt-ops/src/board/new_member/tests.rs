@@ -579,10 +579,58 @@ fn dialogs_use_compact_content_and_the_approved_copy() {
 }
 
 #[test]
-fn an_outside_press_closes_the_new_member_form() {
-    let mut app = form();
-    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-        &mut app,
+fn the_new_member_form_follows_the_close_rule() {
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut form(),
+        &mut form(),
         crate::board::app::Overlay::NewMember,
     );
+}
+#[test]
+fn esc_hides_a_running_launch_and_the_status_line_follows_it_to_its_result() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = form();
+    app.new_member.as_mut().unwrap().at = Focus::Create;
+    paint(&app, 150, 43);
+    let Effect::NewMember(task) = key(&mut app, KeyCode::Enter) else {
+        panic!("Create starts the launch")
+    };
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.overlay(), None, "Esc hides the running launch");
+    let c = app.new_member.as_ref().expect("the launch keeps going");
+    assert_eq!(c.stage, Stage::Launching);
+    let running = app.notice.clone().unwrap_or_default();
+    assert!(
+        running.starts_with("◌ Launching · new-worker.")
+            && running.ends_with("n reopens this new member or its result."),
+        "{running}"
+    );
+    app.finished_new_member(Completed {
+        task,
+        result: Ok(Outcome::Created {
+            id: "33333333-3333-4333-8333-333333333333".into(),
+            room: None,
+            message: "Created new-worker in Common pool.\nStarted in tmux.".into(),
+        }),
+    });
+    let finished = app.notice.clone().unwrap_or_default();
+    assert_eq!(
+        finished,
+        "Created new-worker in Common pool. · n reopens this new member or its result."
+    );
+    assert_eq!(
+        app.overlay(),
+        None,
+        "the result waits behind the closed form"
+    );
+    assert_eq!(
+        app.open_new_member(),
+        Effect::None,
+        "reopening starts nothing"
+    );
+    assert!(matches!(
+        app.new_member.as_ref().unwrap().stage,
+        Stage::Result(_)
+    ));
+    assert_eq!(app.overlay(), Some(crate::board::app::Overlay::NewMember));
 }

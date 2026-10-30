@@ -888,11 +888,15 @@ fn flat_token_click_follows_the_painted_cell_when_session_is_admitted_or_dropped
 }
 
 #[test]
-fn an_outside_press_closes_the_session_window() {
-    let mut app = remembered();
-    app.open_member_session();
-    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-        &mut app,
+fn the_session_window_follows_the_close_rule() {
+    let open = || {
+        let mut app = remembered();
+        app.open_member_session();
+        app
+    };
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut open(),
+        &mut open(),
         crate::board::app::Overlay::MemberSession,
     );
 }
