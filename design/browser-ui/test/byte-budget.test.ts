@@ -2,11 +2,10 @@ import { expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
-/** Shipped CSS, gzip level 9. GUI approved 21,761 B for the 16px rail action icons and 14px add-row plus
- * (+34 B over the 21,727 B cap); no headroom or UI foundation budget change.
- * Further increases require a lead decision. Raw sizes belong in the PR evidence.
- */
-const approvedGzipBytes = 21_761;
+/** #5517: GUI approved ListTable and PageSubheader at the Linux CI measurement:
+ * 21,761 -> 22,003 bytes, https://github.com/tmt-ninja/tmt/actions/runs/41122384789/job/124291864289.
+ * No headroom; later shared CSS changes require a new measurement and decision. */
+const approvedGzipBytes = 22_003;
 
 it('keeps the shipped stylesheets within the approved gzip cap', () => {
   const size = ['static', 'ui']

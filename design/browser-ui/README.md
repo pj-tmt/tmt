@@ -47,10 +47,10 @@ its original declarations and spelling. Only that generated distribution
 is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,761 bytes. The GUI
-lead approved an exact 114-byte increase over the v2 cap of 21,647 bytes for the shared row
-controls, drop indicator, action icons and add-row glyph, with no headroom or change to the UI foundation budget.
-Class encapsulation is retained, and further increases return to the lead. Each pull request
+size (level 9) of `generated/static.css` plus `generated/ui.css` to 22,003 bytes. GUI approved
+21,761 → 22,003 bytes for ListTable and PageSubheader (#5517) at the
+[Linux CI measurement](https://github.com/tmt-ninja/tmt/actions/runs/41122384789/job/124291864289),
+with no headroom or change to the UI foundation budget. Class encapsulation is retained, and further increases return to the lead. Each pull request
 that changes these stylesheets reports their raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
 on the document or scope `data-theme="light"`/`data-theme="dark"` on an island.
