@@ -356,6 +356,19 @@ fn observer(
     }
 }
 
+/// Each launch's stored session-learning detail: a fixed token such as
+/// `digest_stop:launch:binding` names why a Digest Stop ended with no output (#5459).
+fn stored_launch_outcomes(fixture: &Fixture) -> Vec<Option<String>> {
+    let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+    let mut rows = db
+        .prepare("SELECT detail FROM launch_observations ORDER BY created_at_ms")
+        .unwrap();
+    rows.query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CaptureScenario {
     Normal,
@@ -715,7 +728,8 @@ fn blocking_digest(
         }
         assert!(
             !(feedback.is_empty() || (driver == "agy" && feedback.trim() == "{}")),
-            "a verified Digest launch must still hand off the held item"
+            "a verified Digest launch must still hand off the held item; stored launch outcomes: {:?}",
+            stored_launch_outcomes(&fixture)
         );
         let feedback: Value = serde_json::from_str(&feedback).unwrap();
         assert_eq!(
