@@ -154,13 +154,42 @@
 .remote-head .settings-intro { margin: 0; }
 .remote-head-actions { display: flex; align-items: center; flex-shrink: 0; gap: var(--tmt-ui-space-s); }
 .settings-page #remote-list .tmt-ui-list-meta { grid-template-columns: auto; }
-.settings-page #remote-list .tmt-ui-list-description { overflow-wrap: anywhere; }
+.settings-page #remote-list .tmt-ui-list-description { overflow-wrap: anywhere; font-size: 11px; }
 .settings-page #remote-list .tmt-ui-list-leading { align-self: start; font-size: var(--tmt-ui-header-icon-size); }
 .remote-label { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tmt-ui-space-xs); }
-.remote-label > a { min-width: 0; color: var(--tmt-ui-color-text); overflow-wrap: anywhere; }
+.remote-label > a { min-width: 0; color: var(--tmt-ui-color-text); overflow-wrap: anywhere; font-weight: 550; text-decoration: none; }
+.remote-label > a:hover { text-decoration: underline; }
 .remote-label > a[aria-disabled='true'] { color: var(--tmt-ui-color-disabled-text); cursor: default; }
-.remote-role[data-role-tone='selected'] { background: var(--tmt-ui-surface-selection); border-color: transparent; }
-.remote-role[data-role-tone='muted'] { color: var(--tmt-ui-color-secondary); }
+/* Match the Colab page-list project chips and stage pills. */
+.remote-role.tmt-ui-chip {
+  border: 0;
+  border-radius: var(--tmt-ui-radius-s);
+  background: color-mix(in srgb, var(--tmt-ui-color-secondary) 13%, transparent);
+  color: var(--tmt-ui-color-secondary);
+  font-size: 10px;
+  line-height: 1.15;
+  padding: 4px 7px;
+  min-height: 0;
+}
+.remote-role.tmt-ui-chip > .tmt-ui-chip-label { padding: 0; }
+.remote-role[data-role-tone='selected'] {
+  background: color-mix(in srgb, var(--tmt-ui-color-accent-strong) 13%, transparent);
+  color: var(--tmt-ui-color-accent-strong);
+}
+.remote-stage.tmt-ui-chip {
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--tmt-ui-radius-pill);
+  min-height: 20px;
+  color: var(--tmt-ui-color-secondary);
+  background: var(--tmt-ui-surface-command);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 11px;
+}
+.remote-stage.tmt-ui-chip[data-tone='working'] { color: var(--tmt-ui-color-working); background: var(--tmt-ui-surface-working-soft); }
+.remote-stage.tmt-ui-chip[data-tone='blocked'] { color: var(--tmt-ui-color-blocked); background: var(--tmt-ui-surface-blocked-soft); }
+.remote-stage .tmt-ui-state-mark { width: 7px; height: 7px; }
 .remote-forget { color: var(--tmt-ui-color-blocked); }
 @media (max-width: 650px) {
   .remote-head { flex-direction: column; gap: var(--tmt-ui-space-m); }

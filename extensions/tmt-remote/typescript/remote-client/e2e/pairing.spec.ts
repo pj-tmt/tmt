@@ -5236,6 +5236,18 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.locator('[data-remote="studio"]')).toContainText('This machine');
       await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Member');
       await expect(page.getByRole('link', { name: 'Open studio', exact: true })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Open studio', exact: true })).toHaveCSS(
+        'text-decoration-line',
+        'none',
+      );
+      await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveCSS(
+        'font-size',
+        '10px',
+      );
+      await expect(page.locator('[data-remote="studio"] .tmt-ui-list-description')).toHaveCSS(
+        'font-size',
+        '11px',
+      );
       const overflow = page.getByRole('button', { name: 'Actions for studio', exact: true });
       await overflow.click();
       await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible();
@@ -5252,6 +5264,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
       expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
       await page.locator('#remotes').scrollIntoViewIfNeeded();
+      await overflow.blur();
       await capture(
         'list',
         'Current access is verified; the other origin is not probed or marked.',

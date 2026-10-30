@@ -87,6 +87,13 @@ test('People keeps drafts on refresh and reads machines only when expanded', asy
   await expect(page.getByRole('cell', { name: 'Guest', exact: true })).toBeVisible();
   const sending = page.getByText('Sending off', { exact: true });
   await expect(sending).toBeVisible();
+  const pill = sending.locator('..');
+  await expect(pill).toHaveCSS('font-size', '10px');
+  const dot = pill.locator('.tmt-ui-state-mark');
+  await expect(dot).toHaveCSS('width', '7px');
+  expect(await dot.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
+    await pill.evaluate((node) => getComputedStyle(node).color),
+  );
   expect(
     await sending.evaluate(
       (element) => element.parentElement!.scrollWidth <= element.parentElement!.clientWidth,
