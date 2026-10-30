@@ -113,26 +113,6 @@ fn frozen_operation_names_the_whole_confirm_and_survives_changed_selection() {
             }),
             "Leave squad",
         ),
-        (
-            Kind::Assign,
-            Change::Membership(Operation::Assign {
-                source: Some(room.clone()),
-                destination: room.clone(),
-                member: MEMBER.into(),
-                move_member: false,
-            }),
-            "Add",
-        ),
-        (
-            Kind::Assign,
-            Change::Membership(Operation::Assign {
-                source: Some(room.clone()),
-                destination: room,
-                member: MEMBER.into(),
-                move_member: true,
-            }),
-            "Move",
-        ),
         (Kind::RenameMember, rename_operation("worker"), "Rename"),
     ];
     for (kind, operation, expected) in cases {
@@ -438,7 +418,7 @@ fn removal_quoting_is_literal_and_never_leaks_into_other_scopes() {
 
 #[test]
 fn crud_reviews_wrap_with_body_margins_and_keep_clipped_mutations_disabled() {
-    for scene in ["crud-rename-review", "crud-move-review", "crud-remove"] {
+    for scene in ["crud-rename-review", "crud-remove"] {
         for width in [80, 150] {
             let mut app = crud_capture_case(scene, crate::look::Look::default());
             let text = paint(&app, width, 43).join("\n");
@@ -472,11 +452,8 @@ pub(in crate::board) const CRUD_SCENES: &[&str] = &[
     "crud-rename-pending",
     "crud-rename-success",
     "crud-rename-conflict",
-    "crud-move-fields",
-    "crud-move-review",
-    "crud-move-success",
-    "crud-move-refused",
-    "crud-move-partial",
+    "crud-moving",
+    "crud-moving-pool",
     "crud-remove",
     "crud-remove-copied",
     "crud-leave-squad",
@@ -548,36 +525,16 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
                 }
             }
         }
-        scene if scene.starts_with("crud-move-") => {
-            app.workspace_begin(Kind::Assign);
-            if scene != "crud-move-fields" {
-                app.input = None;
-                let draft = app.workspace_form.as_mut().unwrap();
-                draft.operation = Some(Change::Membership(Operation::Assign {
-                    source: Some(RoomTarget {
-                        id: ROOM.into(),
-                        name: "product".into(),
-                        revision: 2,
-                    }),
-                    destination: RoomTarget {
-                        id: "33333333-3333-4333-8333-333333333333".into(),
-                        name: "platform".into(),
-                        revision: 3,
-                    },
-                    member: MEMBER.into(),
-                    move_member: true,
-                }));
-                draft.stage = Stage::Review;
-                match scene {
-                    "crud-move-success" => app.finished_workspace(Ok(crate::membership::Outcome {
-                        document: json!({"source":"product","destination":"platform","member":{"id":MEMBER,"name":"worker"},"pausedTimers":0,"sourceRemoval":{"removed":true}}), complete: true,
-                    })),
-                    "crud-move-refused" => app.finished_workspace(Err(crate::core::SquadError::new("ROOM_REVISION_CONFLICT", "The source squad revision changed"))),
-                    "crud-move-partial" => app.finished_workspace(Ok(crate::membership::Outcome {
-                        document: json!({"failed":{"error":{"message":"Source removal was not confirmed"}},"results":[{"name":"destination addition"},{"name":"source removal","error":{"code":"CORE_UNAVAILABLE","message":"Source removal was not confirmed"}}]}), complete: false,
-                    })),
-                    _ => {}
-                }
+        scene if scene.starts_with("crud-moving") => {
+            app.shell.tab = OpsTab::Agents;
+            app.workspace.expanded.insert(ROOM.into());
+            app.workspace.selected = Some(OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: MEMBER.into(),
+            });
+            key(&mut app, KeyCode::Char('m'));
+            if scene == "crud-moving-pool" {
+                key(&mut app, KeyCode::Down);
             }
         }
         _ => panic!("unknown CRUD scene {scene}"),
@@ -629,19 +586,6 @@ fn rename_review_copies_the_human_equivalent_without_changing_the_cas() {
         panic!("CAS remains the executable operation");
     };
     assert_eq!(Some(operation), before);
-}
-
-#[test]
-fn move_review_is_human_sized_with_internal_ids_only_in_the_commands() {
-    let app = crud_capture_case("crud-move-review", crate::look::Look::default());
-    let draft = app.workspace_form.as_ref().unwrap();
-    assert_eq!(draft.title(), "Move to squad");
-    assert_eq!(
-        draft.review(),
-        format!(
-            "worker: product → platform\n\ntmt ops sq add --squad platform -- {MEMBER}\ntmt ops sq rm --squad product -- {MEMBER}\n\nHistory, drafts and timers stay; source timers pause until resumed."
-        )
-    );
 }
 
 #[test]

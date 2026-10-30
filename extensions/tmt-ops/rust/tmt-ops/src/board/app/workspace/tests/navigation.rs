@@ -281,7 +281,6 @@ fn pending_operations_hide_reopen_and_keep_their_single_outcome_without_resubmis
         (Kind::RenameSquad, vec!["renamed"]),
         (Kind::RenameMember, vec!["renamed"]),
         (Kind::Remove, vec![]),
-        (Kind::Assign, vec!["product", "add"]),
     ] {
         let mut app = board();
         assert_eq!(app.workspace_begin(kind), Effect::None);

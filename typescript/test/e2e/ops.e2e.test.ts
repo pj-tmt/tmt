@@ -262,6 +262,25 @@ async function selectHostWorker(fixture: E2EFixture, board: string) {
 }
 
 /** Two consumers share the same real board/caller/lead/member setup. */
+/** Proves an authored binding loaded: pages `?` until its own help line shows, then closes it. */
+async function expectHelpLine(fixture: E2EFixture, board: string, text: string) {
+  // The help caption reads `1–27 of 117 · 90 more ↓`.
+  const range = (screen: string) => /(\d+)–(\d+) of (\d+)/.exec(screen);
+  fixture.tmux(['send-keys', '-t', board, '?']);
+  let shown = await fixture.waitForCapture((screen) => range(screen) !== null, board);
+  while (!shown.includes(text)) {
+    const before = range(shown);
+    if (!before || before[2] === before[3]) throw new Error(`? never listed ${text}\n${shown}`);
+    fixture.tmux(['send-keys', '-t', board, 'PageDown']);
+    shown = await fixture.waitForCapture(
+      (screen) => screen.includes(text) || range(screen)?.[0] !== before[0],
+      board
+    );
+  }
+  fixture.tmux(['send-keys', '-t', board, 'Escape']);
+  await fixture.waitForCapture((screen) => screen.includes('m move'), board);
+}
+
 async function hostActionBoard(fixture: E2EFixture, action: string, task: string) {
   installSquad(fixture);
   const left = fixture.createShellPane('host-left');
@@ -319,6 +338,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       const initial = hostPaneSlots(fixture);
       const caller = clientPlace(fixture);
       await fixture.waitForCapture((screen) => screen.includes('m move'), panes.board);
+      await expectHelpLine(fixture, panes.board, 'swap the member into the');
       const ids = Object.keys(initial).sort();
       fixture.tmux(['send-keys', '-t', panes.board, 'j']);
       await fixture.waitFor(
@@ -425,6 +445,7 @@ renameSync(output+'.tmp',output);
       const caller = clientPlace(fixture);
       expect(fs.existsSync(output)).toBe(false);
       await fixture.waitForCapture((screen) => screen.includes('m move'), panes.board);
+      await expectHelpLine(fixture, panes.board, 'for this member');
       fixture.tmux(['send-keys', '-t', panes.board, 'j']);
       try {
         await fixture.waitFor(

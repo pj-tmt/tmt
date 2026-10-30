@@ -23,7 +23,6 @@ pub enum Kind {
     RenameMember,
     RemoveMember,
     Remove,
-    Assign,
 }
 impl Kind {
     pub(in crate::board) fn label(self) -> &'static str {
@@ -35,7 +34,6 @@ impl Kind {
             Self::RenameMember => "Rename",
             Self::RemoveMember => "Remove member",
             Self::Remove => "Leave squad",
-            Self::Assign => "Move membership",
         }
     }
 }
@@ -80,7 +78,6 @@ pub struct Draft {
     pub stage: Stage,
     pub room: Option<RoomTarget>,
     pub member: Option<OpsMember>,
-    pub rooms: BTreeMap<String, RoomTarget>,
     pub identities: BTreeMap<String, OpsMember>,
     pub values: Vec<String>,
     pub operation: Option<Change>,
@@ -104,17 +101,6 @@ impl Draft {
                 self.identity(text).map(|_| ())
             }
             (Kind::Add, 0) => self.identity(text).map(|_| ()),
-            (Kind::Assign, 0)
-                if !self
-                    .rooms
-                    .values()
-                    .any(|room| room.name == text || room.id == text) =>
-            {
-                Err("Choose an existing squad name or room UUID.".into())
-            }
-            (Kind::Assign, 1) if text != "add" && !(text == "move" && self.room.is_some()) => {
-                Err("Type add, or move for a current squad membership.".into())
-            }
             _ => Ok(()),
         }
     }
@@ -130,10 +116,6 @@ impl Draft {
             Kind::RenameSquad => &["New squad name"],
             Kind::RenameMember => &["New agent name"],
             Kind::Remove | Kind::RemoveMember => &[],
-            Kind::Assign => &[
-                "Destination squad",
-                "Add or move (add keeps every current membership)",
-            ],
         }
     }
     fn identity(&self, text: &str) -> Result<String, String> {
@@ -230,25 +212,6 @@ impl Draft {
                 room: room()?,
                 member: member()?,
             },
-            Kind::Assign => {
-                let destination = self
-                    .rooms
-                    .values()
-                    .find(|room| room.name == value(0) || room.id == value(0))
-                    .cloned()
-                    .ok_or_else(|| "Choose an existing squad name or room UUID.".to_owned())?;
-                let move_member = match value(1).trim() {
-                    "add" => false,
-                    "move" if self.room.is_some() => true,
-                    _ => return Err("Type add, or move for a current squad membership.".into()),
-                };
-                Operation::Assign {
-                    source: self.room.clone(),
-                    destination,
-                    member: member()?,
-                    move_member,
-                }
-            }
         }))
     }
     pub fn title(&self) -> String {
@@ -264,7 +227,6 @@ impl Draft {
             Kind::RenameMember => "Rename agent".into(),
             Kind::RemoveMember => "Remove member".into(),
             Kind::Remove => format!("Leave squad · {name}"),
-            Kind::Assign => "Move to squad".into(),
         }
     }
     pub fn removal_command(&self) -> Option<String> {
@@ -465,7 +427,7 @@ impl Draft {
         .into()
     }
 }
-fn room(app: &App, id: &str) -> Option<RoomTarget> {
+pub(super) fn room(app: &App, id: &str) -> Option<RoomTarget> {
     let snapshot = app.workspace_snapshot()?;
     snapshot.roster.squads.iter().find(|squad| {
         squad.room_id == id && squad.observation == super::OpsObservation::Complete
@@ -723,10 +685,8 @@ impl App {
             kind,
             Kind::Add | Kind::Lead | Kind::RenameSquad | Kind::Remove
         );
-        if matches!(
-            kind,
-            Kind::Remove | Kind::Assign | Kind::RenameMember | Kind::RemoveMember
-        ) && member.is_none()
+        if matches!(kind, Kind::Remove | Kind::RenameMember | Kind::RemoveMember)
+            && member.is_none()
         {
             return self.say("Select a named member first.");
         }
@@ -834,12 +794,6 @@ impl App {
             };
             member.name = name.to_owned();
         }
-        let rooms = snapshot
-            .roster
-            .squads
-            .iter()
-            .filter_map(|squad| room(self, &squad.room_id).map(|room| (room.id.clone(), room)))
-            .collect();
         let timer_impact = if self.cron.failure.is_none() {
             self.cron.cron.as_ref().map(|cron| {
                 cron.jobs
@@ -862,7 +816,6 @@ impl App {
             stage: Stage::Fields,
             room: selected_room,
             member,
-            rooms,
             identities: snapshot.roster.members.clone(),
             values: Vec::new(),
             operation: None,

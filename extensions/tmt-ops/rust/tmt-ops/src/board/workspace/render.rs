@@ -247,7 +247,12 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         y: inside.y + rule_height,
         ..inside
     });
-    let totals = if app.workspace.query.is_empty() {
+    let totals = if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
+        Line::styled(
+            format!("Moving {} · ↑↓ choose a squad", moving.name),
+            look.role(Role::Text),
+        )
+    } else if app.workspace.query.is_empty() {
         let squads = snapshot
             .roster
             .squads
@@ -333,8 +338,20 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         inside.height.saturating_sub(rule_height + header_height),
     );
     let rows = app.workspace_rows();
-    *app.row_starts.borrow_mut() = (0..rows.len()).collect();
-    if app.follow
+    // Only a lifted membership (`m`) adds a line; otherwise every row is its own line.
+    let placement = super::moving::placement(app, &rows);
+    let line = |index: usize| {
+        placement
+            .as_ref()
+            .map_or(index, |placement| placement.line(index))
+    };
+    let lines = rows.len() + usize::from(placement.as_ref().is_some_and(|p| p.after.is_some()));
+    *app.row_starts.borrow_mut() = (0..rows.len()).map(line).collect();
+    if let Some(placement) = &placement {
+        let lifted = placement.after.map_or(placement.source, |after| after + 1);
+        app.scrolls
+            .reveal_table_range(Pane::Rows, lifted..lifted + 1, body);
+    } else if app.follow
         && let Some(index) = rows
             .iter()
             .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
@@ -343,15 +360,31 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             .reveal_table_range(Pane::Rows, index..index + 1, body);
     }
     let paint_rows = |frame: &mut Frame, viewport: Rect, offset: usize| {
-        for (index, row) in rows
-            .iter()
-            .enumerate()
-            .skip(offset)
-            .take(usize::from(viewport.height))
-        {
-            let y = viewport.y + (index - offset) as u16;
-            let selected = Some(&row.target) == app.workspace.selected.as_ref();
+        for at in (offset..lines).take(usize::from(viewport.height)) {
+            let y = viewport.y + (at - offset) as u16;
             let stripe = Rect::new(viewport.x, y, viewport.width, 1);
+            let index = match placement.as_ref().and_then(|placement| placement.after) {
+                Some(after) if at == after + 1 => {
+                    let depth = placement.as_ref().map_or(1, |placement| placement.depth);
+                    super::moving::paint_lifted(frame.buffer_mut(), stripe, app, &rows, depth);
+                    continue;
+                }
+                Some(after) if at > after + 1 => at - 1,
+                _ => at,
+            };
+            let row = &rows[index];
+            if let Some(placement) = placement
+                .as_ref()
+                .filter(|placement| placement.source == index)
+            {
+                if placement.after.is_some() {
+                    super::moving::paint_placeholder(frame.buffer_mut(), stripe, app, row.depth);
+                } else {
+                    super::moving::paint_lifted(frame.buffer_mut(), stripe, app, &rows, row.depth);
+                }
+                continue;
+            }
+            let selected = Some(&row.target) == app.workspace.selected.as_ref();
             if row.target == OpsTarget::Hidden {
                 crate::board::tree_row::paint_line(
                     frame.buffer_mut(),
@@ -677,7 +710,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         }
     };
     app.scrolls
-        .show_table(frame, Pane::Rows, body, rows.len(), look, paint_rows);
+        .show_table(frame, Pane::Rows, body, lines, look, paint_rows);
     if body.height >= 2 {
         paint_totals(
             frame,
@@ -1283,9 +1316,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
     let short = body.height < 8;
     let crud = matches!(
         draft.kind,
-        super::manage::Kind::RenameMember
-            | super::manage::Kind::Assign
-            | super::manage::Kind::RemoveMember
+        super::manage::Kind::RenameMember | super::manage::Kind::RemoveMember
     );
     let modal = Modal {
         title: draft.title(),

@@ -320,6 +320,17 @@ fn agents_legend(app: &App) -> Option<Hints> {
     {
         return None;
     }
+    if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
+        // A lifted membership takes only these keys.
+        let target = moving.target_name(&app.workspace_rows());
+        return Some(Hints {
+            keys: vec![
+                ("↑↓".into(), "choose squad".into()),
+                ("⏎".into(), format!("move to {target}")),
+            ],
+            tail: vec![("Esc".into(), "cancel".into())],
+        });
+    }
     let bindings = app.bindings();
     let find = |verb, preferred: &str| effective_key(app, &bindings, verb, preferred);
     let bound = |key: &str, action: Ui| {
