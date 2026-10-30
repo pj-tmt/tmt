@@ -600,12 +600,9 @@ fn membership_context_changes_do_not_invent_unread_output_or_reparse_source() {
 #[test]
 fn shared_header_uses_runtime_not_vendor_and_preserves_colab_reference() {
     let mut app = fixture();
-    app.references = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[
-            {"id":"a","name":"alpha","runningDriver":"pi","resume":{"driver":"codex","model":"model-x","provider":"vendor-y"}}
-        ]})),
-    );
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({"identities":[
+        {"id":"a","name":"alpha","runningDriver":"pi","resume":{"driver":"codex","model":"model-x","provider":"vendor-y"}}
+    ]})));
     app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["fields"]["link"] =
         json!("https://colab.example/page");
     let shown = draw(&app, 80, 24);
@@ -631,20 +628,17 @@ fn shared_header_marks_a_basic_driver_instead_of_hiding_the_runtime_line() {
             .extend(extra.as_object().unwrap().clone());
         Ok(json!({"identities":[row]}))
     };
-    app.references = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &listed(json!({"driverSupport":"basic"})),
-    );
+    app.references =
+        crate::board::inventory::Inventory::from_listed(&listed(json!({"driverSupport":"basic"})));
     let shown = draw(&app, 80, 24);
     assert!(shown.contains("basic · –"), "{shown}");
     // Nothing observed and no basic marker: the line stays hidden, as before.
-    app.references = crate::board::inventory::Inventory::from_listed(&[], &listed(json!({})));
+    app.references = crate::board::inventory::Inventory::from_listed(&listed(json!({})));
     assert!(!draw(&app, 80, 24).contains("basic"));
     // An observed runtime and model always win over the marker.
-    app.references = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &listed(json!({"driverSupport":"basic","runningDriver":"pi","resume":{"model":"model-x"}})),
-    );
+    app.references = crate::board::inventory::Inventory::from_listed(&listed(
+        json!({"driverSupport":"basic","runningDriver":"pi","resume":{"model":"model-x"}}),
+    ));
     let shown = draw(&app, 80, 24);
     assert!(
         shown.contains("pi · model-x") && !shown.contains("basic ·"),
@@ -956,12 +950,9 @@ fn focus_uses_held_identity_stat_tiles_and_uuid_fenced_details_action() {
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     let mut app = workspace_fixture();
-    app.references = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[{
-            "id":crate::board::app::workspace::tests::MEMBER,"name":"worker","runningDriver":"runtime-long-界","resume":{"model":"model-long-value"}
-        }]})),
-    );
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({"identities":[{
+        "id":crate::board::app::workspace::tests::MEMBER,"name":"worker","runningDriver":"runtime-long-界","resume":{"model":"model-long-value"}
+    }]})));
     let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
     terminal
         .draw(|frame| {
@@ -1171,10 +1162,9 @@ fn member_projection_keeps_exact_response_and_refresh_invalidates_only_the_displ
             .collect::<String>()
     };
     let raw = "Ask #tmt:alpha; keep #tmt:missing literal.";
-    let mut inventory = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[{"id":"a","name":"Alpha","canonicalName":"alpha"}]})),
-    );
+    let mut inventory = crate::board::inventory::Inventory::from_listed(&Ok(
+        json!({"identities":[{"id":"a","name":"Alpha","canonicalName":"alpha"}]}),
+    ));
     let mut session = Session::default();
     session.update(Some(reply("raw-mention-request", raw)));
     assert!(session.prepare(80, Look::default(), &inventory));
@@ -1205,10 +1195,9 @@ fn member_projection_keeps_exact_response_and_refresh_invalidates_only_the_displ
         !session.prepare(80, Look::default(), &inventory),
         "ordinary frames reuse the resolved render cache"
     );
-    inventory = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[{"id":"a","name":"Renamed","canonicalName":"renamed"}]})),
-    );
+    inventory = crate::board::inventory::Inventory::from_listed(&Ok(
+        json!({"identities":[{"id":"a","name":"Renamed","canonicalName":"renamed"}]}),
+    ));
     assert!(session.prepare(80, Look::default(), &inventory));
     assert!(
         text(&session.rendered.as_ref().unwrap().mapped.lines).contains("#tmt:alpha"),
@@ -1640,12 +1629,9 @@ fn bare_and_at_only_sources_invalidate_on_inventory_change_without_acquiring_aut
         inventory::Inventory,
         recent_responses::{Item, Observation},
     };
-    let inventory = Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[
-            {"id":"a", "name":"Night", "canonicalName":"night-2"}
-        ]})),
-    );
+    let inventory = Inventory::from_listed(&Ok(json!({"identities":[
+        {"id":"a", "name":"Night", "canonicalName":"night-2"}
+    ]})));
     let mut session = Session::default();
     session.update(Some(reply("r", "ask @night-2 or night-2")));
     session.transcript_context = transcript::Context {

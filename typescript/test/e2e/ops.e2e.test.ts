@@ -926,7 +926,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await fixture.waitForCapture((screen) => screen.includes('Lead (optional'), shell.pane);
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'Ben']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => screen.includes('Member (@agent'), shell.pane);
+      await fixture.waitForCapture((screen) => screen.includes('Member (tmt/agent'), shell.pane);
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'worker']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitForCapture(
@@ -935,7 +935,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
             .split('\n')
             .some(
               (line) =>
-                line.startsWith('Create squad · Member (@agent') &&
+                line.startsWith('Create squad · Member (tmt/agent') &&
                 line.includes('›') &&
                 !line.includes('worker')
             ),

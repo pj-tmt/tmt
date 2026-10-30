@@ -398,12 +398,9 @@ mod tests {
         };
         let model = "model-界界-with-a-long-observed-label";
         let link = "https://例.test/a/very/long/path?literal=$(id)&value=unchanged";
-        app.references = crate::board::inventory::Inventory::from_listed(
-            &[],
-            &Ok(serde_json::json!({
-                "identities":[{"id":identity_id,"name":"worker","runningDriver":"claude","resume":{"model":model}}]
-            })),
-        );
+        app.references = crate::board::inventory::Inventory::from_listed(&Ok(serde_json::json!({
+            "identities":[{"id":identity_id,"name":"worker","runningDriver":"claude","resume":{"model":model}}]
+        })));
         app.view
             .as_mut()
             .unwrap()

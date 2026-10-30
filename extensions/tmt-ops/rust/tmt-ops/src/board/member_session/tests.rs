@@ -12,14 +12,11 @@ use serde_json::json;
 
 fn remembered() -> App {
     let mut app = board();
-    app.references = Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[{
-            "id":MEMBER,"name":"worker","driverSupport":"full",
-            "location":{"host":"tmux","session":"work","window":"agents"},
-            "resume":{"driver":"codex","session":"remembered-session","staleAtMs":null}
-        }]})),
-    );
+    app.references = Inventory::from_listed(&Ok(json!({"identities":[{
+        "id":MEMBER,"name":"worker","driverSupport":"full",
+        "location":{"host":"tmux","session":"work","window":"agents"},
+        "resume":{"driver":"codex","session":"remembered-session","staleAtMs":null}
+    }]})));
     app.view
         .as_mut()
         .unwrap()
@@ -45,7 +42,7 @@ fn binding_observation(app: &mut App, host: &str, unbound: Option<serde_json::Va
     } else {
         row.as_object_mut().unwrap().remove("session");
     }
-    app.references = Inventory::from_listed(&[], &Ok(json!({"identities":[row]})));
+    app.references = Inventory::from_listed(&Ok(json!({"identities":[row]})));
 }
 fn key(app: &mut App, code: KeyCode) -> Effect {
     app.member_session_event(&Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
@@ -91,7 +88,7 @@ fn absent_basic_stale_and_failed_observations_never_claim_resume() {
             row.insert("id".into(), json!(MEMBER));
             row.insert("name".into(), json!("worker"));
         }
-        app.references = Inventory::from_listed(&[], &Ok(json!({"identities":[value]})));
+        app.references = Inventory::from_listed(&Ok(json!({"identities":[value]})));
         assert!(!app.member_session_evidence(MEMBER).remembered());
     }
     app = remembered();
@@ -250,7 +247,7 @@ fn unbound_row_projection_refreshes_from_the_public_inventory() {
             row["name"] = json!("worker");
             row["session"] = json!({"unbound":unbound});
             let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
-            snapshot.references = Inventory::from_listed(&[], &Ok(json!({"identities":[row]})));
+            snapshot.references = Inventory::from_listed(&Ok(json!({"identities":[row]})));
             snapshot.tabs = app.tabs.clone();
             snapshot.view = Ok(app.view.take().unwrap());
             app.apply(snapshot);

@@ -90,24 +90,18 @@ fn test_target() -> OpsTarget {
 mod parser_tests {
     use super::*;
     fn inventory() -> Inventory {
-        Inventory::from_listed(
-            &[],
-            &Ok(serde_json::json!({"identities":[
-                {"id":"11111111-1111-4111-8111-111111111111", "name":"Ada", "canonicalName":"ada"},
-                {"id":"22222222-2222-4222-8222-222222222222", "name":"林", "canonicalName":"林"}
-            ]})),
-        )
+        Inventory::from_listed(&Ok(serde_json::json!({"identities":[
+            {"id":"11111111-1111-4111-8111-111111111111", "name":"Ada", "canonicalName":"ada"},
+            {"id":"22222222-2222-4222-8222-222222222222", "name":"林", "canonicalName":"林"}
+        ]})))
     }
     fn named_inventory() -> Inventory {
-        Inventory::from_listed(
-            &[],
-            &Ok(serde_json::json!({"identities":[
-                {"id":"11111111-1111-4111-8111-111111111111", "name":"Night", "canonicalName":"night-2"},
-                {"id":"22222222-2222-4222-8222-222222222222", "name":"Night long", "canonicalName":"night-2-extra"},
-                {"id":"33333333-3333-4333-8333-333333333333", "name":"Ben", "canonicalName":"ben"},
-                {"id":"44444444-4444-4444-8444-444444444444", "name":"Builder", "canonicalName":"builder"}
-            ]})),
-        )
+        Inventory::from_listed(&Ok(serde_json::json!({"identities":[
+            {"id":"11111111-1111-4111-8111-111111111111", "name":"Night", "canonicalName":"night-2"},
+            {"id":"22222222-2222-4222-8222-222222222222", "name":"Night long", "canonicalName":"night-2-extra"},
+            {"id":"33333333-3333-4333-8333-333333333333", "name":"Ben", "canonicalName":"ben"},
+            {"id":"44444444-4444-4444-8444-444444444444", "name":"Builder", "canonicalName":"builder"}
+        ]})))
     }
     #[test]
     fn canonical_bare_and_at_names_use_longest_complete_words_without_rewriting_source() {
@@ -129,6 +123,22 @@ mod parser_tests {
             ["night-2", "@night-2-extra", "@ben", "@builder"]
         );
         assert_eq!(text, original);
+    }
+    #[test]
+    fn tmt_slash_names_link_like_at_names_but_never_inside_a_path_or_address() {
+        let text = "ask tmt/night-2, tmt/ben. and @builder; ~/.config/tmt/ben x/tmt/ben a.tmt/ben tmt/night-20 github.com/tmt-ninja/tmt/ben";
+        let links = resolve(text, &named_inventory());
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| &text[link.range.clone()])
+                .collect::<Vec<_>>(),
+            ["tmt/night-2", "tmt/ben", "@builder"]
+        );
+        assert_eq!(
+            links[0].name, "tmt/night-2",
+            "the source text is shown as written"
+        );
     }
     #[test]
     fn the_idle_alert_notice_commands_link_their_member_uuid_and_nothing_else() {
@@ -193,12 +203,9 @@ mod interaction_tests {
     use ratatui::{Terminal, backend::TestBackend};
     fn app() -> App {
         let mut app = crate::board::app::workspace::tests::board();
-        app.references = Inventory::from_listed(
-            &[],
-            &Ok(
-                serde_json::json!({"identities":[{"id": crate::board::app::workspace::tests::MEMBER,"name":"worker","canonicalName":"worker"}]}),
-            ),
-        );
+        app.references = Inventory::from_listed(&Ok(
+            serde_json::json!({"identities":[{"id": crate::board::app::workspace::tests::MEMBER,"name":"worker","canonicalName":"worker"}]}),
+        ));
         app
     }
     fn paint(app: &App, width: u16, height: u16, y: u16) {
@@ -487,12 +494,9 @@ mod additional_tests {
     fn wrapped_reference_is_one_keyboard_stop_and_repeated_occurrences_are_distinct() {
         let mut app = board();
         app.focus = 1;
-        app.references = Inventory::from_listed(
-            &[],
-            &Ok(
-                serde_json::json!({"identities":[{"id":MEMBER,"name":"Long Worker Name","canonicalName":"worker"}]}),
-            ),
-        );
+        app.references = Inventory::from_listed(&Ok(
+            serde_json::json!({"identities":[{"id":MEMBER,"name":"Long Worker Name","canonicalName":"worker"}]}),
+        ));
         let mapped = crate::board::markdown::render_with_members(
             "#tmt:worker / #tmt:worker",
             8,
@@ -552,12 +556,9 @@ mod additional_tests {
     #[test]
     fn configured_host_argv_is_resolved_for_the_mentioned_uuid_without_changing_selection() {
         let mut app = board();
-        app.references = Inventory::from_listed(
-            &[],
-            &Ok(
-                serde_json::json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]}),
-            ),
-        );
+        app.references = Inventory::from_listed(&Ok(
+            serde_json::json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]}),
+        ));
         let target = app.workspace.selected.clone().unwrap();
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot.rows.get_mut(&target).unwrap()["pane"]["location"]["host"] =
@@ -614,12 +615,9 @@ mod visibility_tests {
         use crate::board::app::workspace::tests::{MEMBER, ROOM, board};
         use crate::config::OpsKeyScope;
         let mut app = board();
-        app.references = Inventory::from_listed(
-            &[],
-            &Ok(
-                serde_json::json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]}),
-            ),
-        );
+        app.references = Inventory::from_listed(&Ok(
+            serde_json::json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]}),
+        ));
         let target = app.workspace.selected.clone().unwrap();
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot.preferences.hidden.insert(ROOM.into());
@@ -656,12 +654,9 @@ mod frozen_membership_tests {
     use crate::board::app::workspace::tests::{MEMBER, board};
     fn app() -> App {
         let mut app = board();
-        app.references = Inventory::from_listed(
-            &[],
-            &Ok(
-                serde_json::json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]}),
-            ),
-        );
+        app.references = Inventory::from_listed(&Ok(
+            serde_json::json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]}),
+        ));
         app
     }
     #[test]
@@ -742,12 +737,9 @@ mod named_surface_tests {
 
     fn app() -> App {
         let mut app = board();
-        app.references = Inventory::from_listed(
-            &[],
-            &Ok(serde_json::json!({"identities":[
-                {"id":MEMBER, "name":"worker", "canonicalName":"night-2"}
-            ]})),
-        );
+        app.references = Inventory::from_listed(&Ok(serde_json::json!({"identities":[
+            {"id":MEMBER, "name":"worker", "canonicalName":"night-2"}
+        ]})));
         app
     }
     fn open(app: &mut App) {

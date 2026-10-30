@@ -1241,7 +1241,7 @@ fn startup_help_uses_workspace_bindings_and_keeps_complete_editor_guidance() {
         "bracketed paste never sends",
         "session-only",
         "request and byte range",
-        "mentions are text only",
+        "the sent text is tmt/<name>",
     ] {
         assert!(text.contains(required), "{required}");
     }
@@ -2211,7 +2211,7 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("Alt+⏎") && line.contains('@'))
+                .any(|line| line.contains("Alt+⏎") && line.contains("tmt/"))
         );
         assert_eq!(
             lines.last().unwrap().trim(),
@@ -2918,10 +2918,9 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             ))
         }
         "member-links" | "member-links-menu" => {
-            app.references = crate::board::inventory::Inventory::from_listed(
-                &[],
-                &Ok(json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]})),
-            );
+            app.references = crate::board::inventory::Inventory::from_listed(&Ok(
+                json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]}),
+            ));
             app.view.as_mut().unwrap().replies = vec![
                 json!({"recipientId":MEMBER,"requestId":"mention-response","response":"Review #tmt:worker, then ask #tmt:missing. CJK: 請#tmt:worker。"}),
             ];

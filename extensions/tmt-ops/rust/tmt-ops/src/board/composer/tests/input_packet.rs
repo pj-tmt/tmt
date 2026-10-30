@@ -51,14 +51,11 @@ fn capture_conversation_input_packet() {
                             .rows
                             .get_mut(&selected)
                             .unwrap()["waitingOnYou"] = json!([]);
-                        app.references = Inventory::from_listed(
-                            &[],
-                            &Ok(json!({"identities":[{
-                                "id":MEMBER,"name":"worker","runningDriver":"codex",
-                                "resume":{"usage":{"tokens":142000,"observedAtMs":1_791_600_000_000u64,
-                                    "windowTokens":if scene == "unknown-window" {None} else {Some(258000)}}}
-                            }]})),
-                        );
+                        app.references = Inventory::from_listed(&Ok(json!({"identities":[{
+                            "id":MEMBER,"name":"worker","runningDriver":"codex",
+                            "resume":{"usage":{"tokens":142000,"observedAtMs":1_791_600_000_000u64,
+                                "windowTokens":if scene == "unknown-window" {None} else {Some(258000)}}}
+                        }]})));
                         draw(&mut app, width, 36);
                         if scene == "note" {
                             // This literal observed squad names the selected agent as its lead.

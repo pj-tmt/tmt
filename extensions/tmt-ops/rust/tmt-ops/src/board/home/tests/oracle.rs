@@ -917,6 +917,17 @@ fn unread_hover_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// The `tmt/` mention picker with three matching agents, one chosen.
+fn mention_picker_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::mentions::tests::SCENES,
+        |_| grid(&[100, 60], &[36]),
+        |state, look, _, _| crate::board::mentions::tests::capture_case(state, look),
+        |_, _| {},
+    )
+}
+
 #[inline(never)]
 fn checklist_capture_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
@@ -1177,6 +1188,7 @@ fn captures() -> Value {
         frames.extend(quota_details_frames(&mut styles));
         frames.extend(unread_overlay_frames(&mut styles));
         frames.extend(account_limits_frames(&mut styles));
+        frames.extend(mention_picker_frames(&mut styles));
         let styles = styles
             .0
             .into_iter()

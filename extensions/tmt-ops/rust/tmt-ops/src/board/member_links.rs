@@ -70,12 +70,20 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
             continue;
         }
         let legacy = text[start..].starts_with("#tmt:");
-        let prefix = if legacy { 5 } else { usize::from(ch == '@') };
+        // `tmt/<name>` is the mention the composer writes; `@name` stays for older text.
+        let mention = text[start..].starts_with(super::mentions::TRIGGER);
+        let prefix = if legacy {
+            5
+        } else if mention {
+            super::mentions::TRIGGER.len()
+        } else {
+            usize::from(ch == '@')
+        };
         if !legacy
-            && text[..start]
-                .chars()
-                .next_back()
-                .is_some_and(|ch| word_char(ch) || ch == '@')
+            && text[..start].chars().next_back().is_some_and(|ch| {
+                // A `tmt/` inside a path or an address is not a mention.
+                word_char(ch) || ch == '@' || (mention && matches!(ch, '/' | '.' | '~'))
+            })
         {
             continue;
         }

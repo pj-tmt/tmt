@@ -41,7 +41,7 @@ fn exact_quote_label_uses_the_roster_name_at_insertion() {
     assert_eq!(quote.key.lead, MEMBER);
     assert_eq!(quote.range, 0..12);
     assert_eq!(quote.text, "exact source");
-    assert_eq!(input.quoted_message(), "> exact source\n\n");
+    assert_eq!(input.quoted_message_named(&|_| None), "> exact source\n\n");
 }
 
 #[test]
@@ -129,7 +129,10 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
                 );
                 if case == "boundary" {
                     assert_eq!(
-                        app.input.as_ref().unwrap().quoted_message(),
+                        app.input
+                            .as_ref()
+                            .unwrap()
+                            .quoted_message_named(&|id| app.mention_name(id)),
                         "kept draft\n> exact source ending in CR\n\n"
                     );
                     let target = app.conversation_target().unwrap();

@@ -122,11 +122,11 @@ impl Draft {
         match self.kind {
             Kind::Create => &[
                 "Squad name",
-                "Lead (optional @agent)",
-                "Member (@agent; blank reviews the chosen members)",
+                "Lead (optional tmt/agent)",
+                "Member (tmt/agent; blank reviews the chosen members)",
             ],
-            Kind::Add => &["Member (@agent)"],
-            Kind::Lead => &["Lead (@agent; blank clears leadership only)"],
+            Kind::Add => &["Member (tmt/agent)"],
+            Kind::Lead => &["Lead (tmt/agent; blank clears leadership only)"],
             Kind::RenameSquad => &["New squad name"],
             Kind::RenameMember => &["New agent name"],
             Kind::Remove | Kind::RemoveMember => &[],
@@ -137,14 +137,19 @@ impl Draft {
         }
     }
     fn identity(&self, text: &str) -> Result<String, String> {
-        let text = text.trim().strip_prefix('@').unwrap_or(text.trim());
+        // `tmt/name` as the picker inserts it; a typed `@name` or a bare UUID also names one.
+        let text = text.trim();
+        let text = text
+            .strip_prefix(crate::board::mentions::TRIGGER)
+            .or_else(|| text.strip_prefix('@'))
+            .unwrap_or(text);
         let matches: Vec<_> = self
             .identities
             .values()
             .filter(|member| member.id == text || member.name == text)
             .collect();
         if matches.len() != 1 {
-            return Err("Choose one known identity by its @name or UUID.".into());
+            return Err("Choose one known identity by its tmt/name or UUID.".into());
         }
         Ok(matches[0].id.clone())
     }

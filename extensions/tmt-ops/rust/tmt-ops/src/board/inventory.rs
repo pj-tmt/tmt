@@ -26,6 +26,18 @@ pub(super) struct Agent {
     pub canonical: String,
 }
 
+impl Agent {
+    /// The name a `tmt/` mention writes: the canonical name, which links back to this
+    /// agent, or the display name when Core gave none.
+    pub(super) fn mention(&self) -> &str {
+        if self.canonical.is_empty() {
+            &self.name
+        } else {
+            &self.canonical
+        }
+    }
+}
+
 /// A public, worker-acquired usage observation; no model-window inference.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ContextUsage {
@@ -52,24 +64,10 @@ impl ContextUsage {
 }
 
 impl Inventory {
-    pub(super) fn from_listed(
-        squads: &[crate::squad::Squad],
-        listed: &Result<serde_json::Value, crate::core::SquadError>,
-    ) -> Self {
+    pub(super) fn from_listed(listed: &Result<serde_json::Value, crate::core::SquadError>) -> Self {
+        // The mention picker offers agents only; a mention reads `tmt/<name>`.
         let mut candidates = BTreeMap::new();
         let mut agents = BTreeMap::new();
-        for squad in squads {
-            let id = format!("squad:{}", squad.room_id);
-            candidates.insert(
-                id.clone(),
-                Candidate {
-                    id,
-                    kind: "squad".into(),
-                    label: squad.name.clone(),
-                    insertion: format!("@{}", squad.name),
-                },
-            );
-        }
         if let Ok(listed) = listed {
             for row in listed["identities"].as_array().into_iter().flatten() {
                 let (Some(id), Some(name)) = (row["id"].as_str(), row["name"].as_str()) else {
@@ -106,6 +104,7 @@ impl Inventory {
                         basic: row["driverSupport"] == "basic",
                     },
                 );
+                let mention = agents[id].mention().to_owned();
                 let id = format!("agent:{id}");
                 candidates.insert(
                     id.clone(),
@@ -113,7 +112,7 @@ impl Inventory {
                         id,
                         kind: "agent".into(),
                         label: name.into(),
-                        insertion: format!("@{name}"),
+                        insertion: format!("{}{mention}", super::mentions::TRIGGER),
                     },
                 );
             }
@@ -143,7 +142,7 @@ mod tests {
             {"id": "c", "name": "unusable", "resume": {"consumption": {"modelId": ""}}},
             {"id": "d", "name": "no-resume"},
         ]}));
-        let inventory = Inventory::from_listed(&[], &listed);
+        let inventory = Inventory::from_listed(&listed);
         let model = |id: &str| inventory.agents[id].model.as_deref();
         assert_eq!(model("a"), Some("later"));
         assert_eq!(model("b"), Some("start"));
@@ -162,7 +161,7 @@ mod tests {
             {"id": "d", "name": "odd", "driverSupport": "Basic"},
             {"id": "e", "name": "typed", "driverSupport": 1},
         ]}));
-        let inventory = Inventory::from_listed(&[], &listed);
+        let inventory = Inventory::from_listed(&listed);
         let basic = |id: &str| inventory.agents[id].basic;
         assert!(basic("a"));
         assert!(!basic("b") && !basic("c") && !basic("d") && !basic("e"));

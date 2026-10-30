@@ -12,7 +12,7 @@ fn row() -> serde_json::Value {
 }
 fn app() -> App {
     let mut app = board();
-    app.references = Inventory::from_listed(&[], &Ok(json!({"identities":[row()]})));
+    app.references = Inventory::from_listed(&Ok(json!({"identities":[row()]})));
     app
 }
 fn loaded() -> Loaded {

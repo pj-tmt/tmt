@@ -1454,13 +1454,12 @@ fn provider_feedback_names_are_literal_and_do_not_create_authored_member_links()
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot.rows.get_mut(&target).unwrap()["name"] = json!(NAME);
         snapshot.roster.members.get_mut(MEMBER).unwrap().name = NAME.into();
-        app.references = crate::board::inventory::Inventory::from_listed(
-            &[],
-            &Ok(json!({"identities":[
+        app.references = crate::board::inventory::Inventory::from_listed(&Ok(
+            json!({"identities":[
                 {"id":MEMBER,"name":NAME,"canonicalName":NAME},
                 {"id":"99999999-9999-4999-8999-999999999999","name":"worker","canonicalName":"worker"}
-            ]})),
-        );
+            ]}),
+        ));
         let _no_acquisition = crate::runner::forbid_commands();
         let screen = crate::status::with_now_ms(SENT + 42_000, || board_frame(&app, 148, 51));
         assert!(

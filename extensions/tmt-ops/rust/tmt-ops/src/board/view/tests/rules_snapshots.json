@@ -122,7 +122,7 @@
       "                                                                           │",
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
-      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
+      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                            ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist  x leave squad  j host  p pin",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -154,7 +154,7 @@
       "↑ 3 earlier · PgUp",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
+      " worker  ● 0 unread                                            ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -186,7 +186,7 @@
       "↑ 3 earlier · PgUp",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
+      " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume",
       " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
@@ -314,7 +314,7 @@
       "                                                                           │",
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
-      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
+      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                            ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist  x leave squad  j host  p pin",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -346,7 +346,7 @@
       "                                               │",
       "                                               │",
       "                                               │   ⏎ to message worker",
-      " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                     ⏎  Alt+⏎  @",
+      " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                  ⏎  Alt+⏎  tmt/",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -378,7 +378,7 @@
       "↑ 3 earlier · PgUp",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
+      " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume",
       " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
@@ -506,7 +506,7 @@
       "↑ 3 earlier · PgUp",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
+      " worker  ● 0 unread                                                                                                        ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist  x leave squad  j host  p pin",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -538,7 +538,7 @@
       "↑ 3 earlier · PgUp",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
+      " worker  ● 0 unread                                            ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -570,7 +570,7 @@
       "↑ 3 earlier · PgUp",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
+      " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume",
       " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]

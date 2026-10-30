@@ -38,15 +38,12 @@ fn populated_conversation(rows: usize) -> (App, String, OpsTarget) {
     // Feed the same public unbound observation to both revisions so P02 measures
     // the changed session projection, without adding work to the acquisition lane.
     let name = &app.workspace_snapshot().unwrap().roster.members[&member].name;
-    app.references = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[{
-            "id":member,"name":name,"driverSupport":"full",
-            "location":{"host":"herdr","session":"work","window":"agents"},
-            "resume":{"driver":"codex","session":"probe-session","staleAtMs":null},
-            "session":{"unbound":true}
-        }]})),
-    );
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({"identities":[{
+        "id":member,"name":name,"driverSupport":"full",
+        "location":{"host":"herdr","session":"work","window":"agents"},
+        "resume":{"driver":"codex","session":"probe-session","staleAtMs":null},
+        "session":{"unbound":true}
+    }]})));
     app.view.as_mut().unwrap().replies = vec![json!({
         "recipientId":member,"requestId":"req_77777777-7777-4777-8777-777777777777",
         "response":measured_response(2_000)
