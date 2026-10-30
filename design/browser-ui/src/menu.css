@@ -248,10 +248,16 @@
   gap: var(--tmt-ui-space-s);
 }
 .tmt-ui-menu-leading-icon {
+  display: flex;
+  align-items: center;
   width: var(--tmt-ui-space-l);
   height: var(--tmt-ui-space-l);
   flex: none;
   color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-menu-item:has(.tmt-ui-menu-detail) .tmt-ui-menu-leading-icon {
+  align-self: flex-start;
+  margin-top: var(--tmt-ui-space-xs);
 }
 .tmt-ui-menu-leading-icon > svg {
   width: 100%;
@@ -287,6 +293,7 @@
 .tmt-ui-menu-heading[data-separated] {
   position: relative;
   margin-top: var(--tmt-ui-space-xs);
+  padding-top: var(--tmt-ui-space-l);
 }
 .tmt-ui-menu-heading[data-separated]::before {
   inset-inline: var(--tmt-ui-space-xs);

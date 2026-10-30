@@ -366,6 +366,22 @@ for (const width of [390, 1440])
       for (const label of ['Share', 'Organize', 'Content', 'Page'])
         await expect(menu.getByRole('group', { name: label, exact: true })).toBeVisible();
       await expect(menu.getByRole('menuitem', { name: 'Files 0', exact: true })).toBeVisible();
+      for (const name of ['Share…', 'Files 0']) {
+        const item = menu.getByRole('menuitem', { name, exact: true });
+        const icon = await item.locator('.tmt-ui-menu-leading-icon > svg').boundingBox();
+        const label = await item.locator('.tmt-ui-menu-label > span').first().boundingBox();
+        expect(icon).not.toBeNull();
+        expect(label).not.toBeNull();
+        expect(icon!.width).toBe(16);
+        expect(icon!.height).toBe(16);
+        expect(
+          Math.abs(icon!.y + icon!.height / 2 - label!.y - label!.height / 2),
+          `${name}: icon ${JSON.stringify(icon)} label ${JSON.stringify(label)}`,
+        ).toBeLessThanOrEqual(2);
+      }
+      const heading = menu.getByRole('group', { name: 'Organize' }).locator('.tmt-ui-menu-heading');
+      await expect(heading).toHaveCSS('margin-top', '4px');
+      await expect(heading).toHaveCSS('padding-top', '16px');
       await page.screenshot({ path: info.outputPath('open.png') });
       const files = menu.getByRole('menuitem', { name: 'Files 0', exact: true });
       await files.hover();
