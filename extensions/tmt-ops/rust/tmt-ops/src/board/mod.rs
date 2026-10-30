@@ -272,6 +272,10 @@ pub(in crate::board) enum BoardEvent {
     TokenWindowSaved(Result<Config, String>),
     /// A quiet cache publication; it owns no user action or progress notice.
     ViewStatePublished,
+    LocalUnreadPublished {
+        actor: String,
+        result: Result<(), String>,
+    },
     AnswersAcknowledged(Result<unread::publish::Completed, String>),
     /// A conversation's checklist summary was read; it owns no user action or progress notice.
     NotesRead(conversation_checklist::Completed),
@@ -319,6 +323,7 @@ impl BoardEvent {
             Self::Opened { .. } => "Opened",
             Self::TokenWindowSaved(_) => "TokenWindowSaved",
             Self::ViewStatePublished => "ViewStatePublished",
+            Self::LocalUnreadPublished { .. } => "LocalUnreadPublished",
             Self::AnswersAcknowledged(_) => "AnswersAcknowledged",
             Self::NotesRead(_) => "NotesRead",
             Self::VersionsRead(_) => "VersionsRead",
@@ -746,6 +751,13 @@ fn session(
                 // It must not acquire the user-action notice/in-flight count.
                 io(lane::Job::ViewState(writer));
             }
+        }
+        if let Some(task) = app
+            .unread
+            .local
+            .offer(app.view.as_ref().and_then(|view| view.me_id.as_deref()))
+        {
+            io(lane::Job::LocalUnread(task));
         }
         if let Some(writer) = app.unread.writer.offer() {
             io(lane::Job::AcknowledgeAnswers(writer));
@@ -1303,6 +1315,19 @@ fn session(
                         Effect::None
                     }
                     Ok(BoardEvent::ViewStatePublished) => Effect::None,
+                    Ok(BoardEvent::LocalUnreadPublished { actor, result }) => {
+                        if app.view.as_ref().and_then(|view| view.me_id.as_deref()) == Some(&actor)
+                        {
+                            app.local_unread_changed();
+                            dirty = true;
+                            match result {
+                                Ok(()) => Effect::None,
+                                Err(error) => app.say(error),
+                            }
+                        } else {
+                            Effect::None
+                        }
+                    }
                     Ok(BoardEvent::NotesRead(completed)) => {
                         app.finished_notes(completed, Instant::now());
                         dirty = true;
@@ -1824,6 +1849,7 @@ pub fn run(
         });
     }
     spawn_input(events, filter);
+    app.unread.local.start();
     lane.submit(lane::Job::Versions);
     let resumed = std::cell::Cell::new(false);
     let result = session(
@@ -1874,6 +1900,7 @@ pub fn run(
     // A last admitted draw drains once; failure alone never starts a retry.
     app.unread_observed();
     let acknowledgments = app.unread.writer.finish(&core);
+    let local_unread = app.unread.local.finish();
     if restored.is_ok()
         && let Some(state) = &mut view_state
     {
@@ -1886,6 +1913,7 @@ pub fn run(
     restored.map_err(failed)?;
     stopped?;
     acknowledgments?;
+    local_unread.map_err(|error| failed(io::Error::other(error)))?;
     if let Some(resume) = app.restart.take() {
         // Reap the API session before exec, which does not run destructors.
         drop(worker);

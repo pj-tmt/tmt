@@ -5,113 +5,203 @@ use crate::board::{app::App, workspace::OpsTarget};
 impl App {
     fn unread_page(&self) -> Option<&Page> {
         let actor = self.view.as_ref()?.me_id.as_deref()?;
-        self.home_leads
-            .unread(actor)
-            .filter(|page| !page.replies.is_empty())
+        self.home_leads.unread(actor)
     }
 
-    /// Sorting resolves the bounded results page once; comparisons use UUID
-    /// membership in the held Core acknowledgment projection.
-    pub(in crate::board) fn unread_identities(&self) -> std::collections::BTreeSet<&str> {
-        let Some(page) = self.unread_page() else {
+    pub(in crate::board) fn answer_unread(&self, actor: &str, answer: &super::Answer) -> bool {
+        !answer.acknowledged || self.unread.local.contains(actor, answer)
+    }
+
+    /// Resolve UUID membership once before sorting; local marks share this projection.
+    pub(in crate::board) fn unread_identities(&self) -> std::collections::BTreeSet<String> {
+        let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.as_deref()) else {
             return Default::default();
         };
-        page.replies
-            .keys()
-            .map(String::as_str)
-            .filter(|member| page.count(member).total > 0)
-            .collect()
+        let mut members: std::collections::BTreeSet<String> =
+            self.unread.local.members(actor).into_iter().collect();
+        if let Some(page) = self.unread_page() {
+            members.extend(page.replies.keys().cloned());
+        }
+        members.retain(|member| self.unread_count(member).total > 0);
+        members
     }
 
-    /// Whether the held page has an unacknowledged answer: a bound by the page, not the roster.
     pub(in crate::board) fn unread_pending(&self) -> bool {
-        self.unread_page().is_some_and(|page| {
-            page.replies
-                .values()
-                .flatten()
-                .any(|answer| !answer.acknowledged)
-        })
+        let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.as_deref()) else {
+            return false;
+        };
+        self.unread.local.has_marks(actor)
+            || self.unread_page().is_some_and(|page| {
+                page.replies
+                    .values()
+                    .flatten()
+                    .any(|answer| !answer.acknowledged)
+            })
     }
 
     pub(in crate::board) fn unread_count(&self, member: &str) -> Count {
-        self.unread_page()
-            .map_or_else(Count::default, |page| self.unread_member(page, member))
-    }
-    pub(in crate::board) fn unread_target(&self, target: &OpsTarget) -> Count {
-        // Admit the bounded page before constructing a roster iterator: the
-        // Common pool iterator computes assigned membership eagerly.
-        let Some(page) = self.unread_page() else {
+        let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.as_deref()) else {
             return Count::default();
         };
+        let page = self.unread_page();
+        let mut count = page.map_or_else(Count::default, |page| page.count(member));
+        if let (Some(overlay), Some(page)) = (&self.unread_overlay, page) {
+            count.add(overlay.additional_count(page, member));
+        }
+        if !self.unread.local.has_marks(actor) {
+            return count;
+        }
+        let mut known: std::collections::BTreeMap<String, super::Answer> =
+            std::collections::BTreeMap::new();
+        let held = self
+            .unread_overlay
+            .as_ref()
+            .map(|overlay| overlay.answers(actor, member))
+            .into_iter()
+            .flatten();
+        let head = page.map(|page| page.answers(member)).into_iter().flatten();
+        for answer in self
+            .unread
+            .local
+            .answers(actor, member)
+            .into_iter()
+            .chain(held.cloned())
+            .chain(head.cloned())
+        {
+            let entry = known
+                .entry(answer.request.clone())
+                .or_insert_with(|| answer.clone());
+            if answer.revision > entry.revision
+                || answer.revision == entry.revision && answer.acknowledged
+            {
+                *entry = answer.clone();
+            }
+        }
+        count.total = known
+            .values()
+            .filter(|answer| self.answer_unread(actor, answer))
+            .count();
+        count
+    }
+    pub(in crate::board) fn unread_target(&self, target: &OpsTarget) -> Count {
+        if self.unread_page().is_none()
+            && !self
+                .view
+                .as_ref()
+                .and_then(|view| view.me_id.as_deref())
+                .is_some_and(|actor| self.unread.local.has_marks(actor))
+        {
+            return Count::default();
+        }
         match target {
             OpsTarget::DigestAll => Count::default(),
-            OpsTarget::Member { identity_id, .. } => self.unread_member(page, identity_id),
-            OpsTarget::Squad(room) => {
-                let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
+            OpsTarget::Member { identity_id, .. } => self.unread_count(identity_id),
+            OpsTarget::Squad(room) => self
+                .workspace_snapshot()
+                .and_then(|snapshot| {
                     snapshot
                         .roster
                         .squads
                         .iter()
                         .find(|squad| &squad.room_id == room)
-                }) else {
-                    return Count::default();
-                };
-                self.unread_members(page, squad.members.iter().map(String::as_str))
-            }
+                })
+                .map_or_else(Count::default, |squad| {
+                    self.unread_members(squad.members.iter().map(String::as_str))
+                }),
             OpsTarget::Pool => self
                 .workspace_snapshot()
                 .map_or_else(Count::default, |snapshot| {
-                    self.unread_members(
-                        page,
-                        snapshot.roster.pool().map(|member| member.id.as_str()),
-                    )
+                    self.unread_members(snapshot.roster.pool().map(|member| member.id.as_str()))
                 }),
         }
     }
-    fn unread_member(&self, page: &Page, member: &str) -> Count {
-        let mut count = page.count(member);
-        if let Some(overlay) = &self.unread_overlay {
-            count.add(overlay.additional_count(page, member));
-        }
-        count
-    }
-    fn unread_members<'a>(&self, page: &Page, members: impl Iterator<Item = &'a str>) -> Count {
+    fn unread_members<'a>(&self, members: impl Iterator<Item = &'a str>) -> Count {
         let mut count = Count::default();
         let mut seen = std::collections::BTreeSet::new();
         for member in members.filter(|member| seen.insert(*member)) {
-            count.add(self.unread_member(page, member));
+            count.add(self.unread_count(member));
         }
         count
     }
     pub(in crate::board) fn unread_global(&self) -> Count {
-        let Some(page) = self.unread_page() else {
+        if self.unread_page().is_none()
+            && !self
+                .view
+                .as_ref()
+                .and_then(|view| view.me_id.as_deref())
+                .is_some_and(|actor| self.unread.local.has_marks(actor))
+        {
             return Count::default();
-        };
+        }
         self.workspace_snapshot()
             .map_or_else(Count::default, |snapshot| {
-                self.unread_members(page, snapshot.roster.members.keys().map(String::as_str))
+                self.unread_members(snapshot.roster.members.keys().map(String::as_str))
             })
     }
-    /// Explicit Mark read admits the selected member's unread answer revisions.
-    pub(in crate::board) fn mark_read(&mut self, member: &str) -> bool {
-        let Some(page) = self.unread_page() else {
-            return false;
-        };
-        if page.count(member).total == 0 && page.next_before.is_none() {
-            return false;
+
+    pub(in crate::board) fn local_unread_changed(&mut self) {
+        self.unread_overlay_sync();
+        if let Some(overlay) = &self.unread_overlay {
+            overlay.invalidate();
         }
-        for answer in page.answers(member).filter(|answer| !answer.acknowledged) {
+        self.overview_rows.borrow_mut().clear();
+        self.workspace_reconcile();
+        self.invalidate_frame_geometry();
+    }
+
+    /// Explicit reads alone may remove manual marks; automatic body admission never does.
+    pub(in crate::board) fn explicit_answers_read(
+        &mut self,
+        actor: &str,
+        answers: Vec<super::Answer>,
+    ) {
+        for answer in &answers {
+            if self.unread.local.contains(actor, answer) {
+                self.unread.local.read_after_ack(actor, answer);
+            }
+        }
+        for mut answer in answers {
+            // Explicit reads of local marks still use the public exact writer.
+            answer.acknowledged = false;
             self.unread.writer.seen(&Seen {
-                actor: page.actor.clone(),
-                answer: answer.clone(),
+                actor: actor.into(),
+                answer,
             });
         }
-        if let Some(before) = &page.next_before {
-            self.unread
-                .writer
-                .mark_member(&page.actor, member, before.clone());
+        self.local_unread_changed();
+    }
+
+    /// Freeze this member's known keys; the existing walk handles older Core-unread keys.
+    pub(in crate::board) fn mark_read(&mut self, member: &str) -> bool {
+        let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.clone()) else {
+            return false;
+        };
+        let mut answers: std::collections::BTreeMap<_, _> = self
+            .unread
+            .local
+            .answers(&actor, member)
+            .into_iter()
+            .map(|answer| (answer.request.clone(), answer))
+            .collect();
+        let mut before = None;
+        if let Some(page) = self.unread_page() {
+            before = page.next_before.clone();
+            for answer in page.answers(member) {
+                if (!answer.acknowledged || answers.contains_key(&answer.request))
+                    && answers
+                        .get(&answer.request)
+                        .is_none_or(|held| answer.revision >= held.revision)
+                {
+                    answers.insert(answer.request.clone(), answer.clone());
+                }
+            }
         }
-        true
+        let active = !answers.is_empty() || before.is_some();
+        self.explicit_answers_read(&actor, answers.into_values().collect());
+        if let Some(before) = before {
+            self.unread.writer.mark_member(&actor, member, before);
+        }
+        active
     }
     /// The key and menu form: the selected member.
     pub(in crate::board) fn mark_read_selected(&mut self) -> crate::board::app::Effect {
@@ -181,6 +271,7 @@ impl App {
             && let Some(page) = self.home_leads.unread(actor)
         {
             self.unread.writer.observed(page);
+            self.unread.local.observe(page);
         }
     }
 
@@ -201,7 +292,7 @@ impl App {
         self.overview_rows.borrow_mut().clear();
         self.workspace_reconcile();
         self.invalidate_frame_geometry();
-        if let Some(error) = self.unread.writer.failure() {
+        if let Some(error) = self.unread.writer.failure().or_else(|| result.err()) {
             self.set_notice(
                 Some(format!(
                     "Unread update failed: {error} {}",

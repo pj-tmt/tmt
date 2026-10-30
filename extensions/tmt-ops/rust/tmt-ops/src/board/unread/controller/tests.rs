@@ -237,7 +237,7 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_after_core_ack() {
     let mut app = unread_app();
     assert_eq!(
         app.unread_identities(),
-        std::collections::BTreeSet::from([MEMBER])
+        std::collections::BTreeSet::from([MEMBER.to_owned()])
     );
     let target = app.workspace.selected.clone().unwrap();
     let other = "44444444-4444-4444-8444-444444444444";

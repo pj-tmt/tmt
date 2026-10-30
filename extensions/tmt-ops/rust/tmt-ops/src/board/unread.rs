@@ -67,6 +67,25 @@ pub(super) struct Page {
 }
 
 impl Page {
+    /// Already acquired metadata retained by local view state, never a Core page read.
+    pub(in crate::board) fn retained(
+        actor: &str,
+        answers: impl IntoIterator<Item = Answer>,
+    ) -> Self {
+        let mut replies: BTreeMap<String, Vec<Answer>> = BTreeMap::new();
+        for answer in answers {
+            replies
+                .entry(answer.member.clone())
+                .or_default()
+                .push(answer);
+        }
+        Self {
+            actor: actor.into(),
+            replies,
+            next_before: None,
+        }
+    }
+
     /// Missing or malformed observations cannot erase a held page.
     pub fn read(actor: &str, document: &Value) -> Option<Self> {
         let items = document["items"].as_array()?;
@@ -198,5 +217,6 @@ pub(super) mod test_support;
 mod tests;
 
 mod controller;
+pub(super) mod local;
 pub(super) mod publish;
 pub(super) mod walk;

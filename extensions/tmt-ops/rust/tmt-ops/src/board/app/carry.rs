@@ -68,6 +68,7 @@ impl App {
             || self.quota_details.is_some()
             || self.estimate_basis.is_some()
             || self.unread_overlay.is_some()
+            || self.unread.local.pending()
             || self.monitor_details.is_some()
             || self.cron_review.is_some()
             || self.usage_controls

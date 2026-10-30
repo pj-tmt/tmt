@@ -295,8 +295,21 @@ evidence. List previews, Loading, failures, hidden/clipped detail and failed pai
 none. Actor/member/request/revision fences prevent an old draw from reading a newer
 answer. The existing selected lane acquires head pages for previews and follows older
 timeline cursors for the selected answer only; no per-row show calls or paint reads.
-`r` marks the selected exact revision read (already read is a no-op), or explicitly retries
-a failed read. Marking an answer unread again is not offered yet (#5580).
+`r` toggles the selected answer's effective read state, or explicitly retries a failed
+read. `board/unread/local` owns the per-viewer machine-local manual marks: effective
+unread is Core-unacknowledged OR manually marked. Detail/conversation paint may still
+acknowledge Core-unread answers, but never removes a manual mark. Only explicit `r`,
+confirmed `a` or member Mark read clears one, after the exact Core acknowledgment
+succeeds. The writer owns that settlement even if the UI closes before consuming its
+event; exit drains the admitted cache removal. Core acknowledgment remains monotone.
+The index retains at most 500 request keys with member, revision, answered time and kind,
+never text; fresh Core revisions win and notFound removes a stale key. It lives under
+`$XDG_CACHE_HOME/tmt-ops/unread/<viewer>.json` (the ordinary cache fallback applies),
+independently of named views/reset-view and shared Config. A full index refuses a new
+mark visibly. Existing quiet-lane tasks load it and apply bounded deltas with the shared
+extension-state Document lock/publication owner; input/paint do no file I/O. Failed
+publication restores the confirmed projection, reports its cause and requires explicit
+retry. Concurrent boards update current bytes rather than replacing stale snapshots.
 
 `a` freezes the opening's actor/member scope and held revisions, then asks once before
 marking all read. Cancel writes nothing. Confirmation offers the held keys and continues
@@ -307,7 +320,7 @@ Mark read uses the same walk with one member. No local acknowledgment store exis
 `SelectedRead::UnreadPage` appends older metadata after held scope entries settle, fenced
 by actor/session. HOME head refreshes do not reset the continuation; metadata reads alone
 never acknowledge. Counts combine the bounded HOME summary and older metadata already
-held by the open overlay without double counting. The body-derived prompt uses only the
+held by the open overlay and manual-mark metadata without double counting. The body-derived prompt uses only the
 matching viewer/request input; unavailable original text is labeled instead of guessed.
 Paint and hover do no I/O. Shutdown joins the lane before draining admitted writes and
 reporting unresolved failures. Legacy-cutoff consumption belongs to
