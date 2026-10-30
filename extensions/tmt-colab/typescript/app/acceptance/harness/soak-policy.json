@@ -116,11 +116,23 @@
         "Invalid decoder output",
         "Decoder projection capacity",
         "Decoder input capacity",
-        "Decoder unavailable",
         "Decoder checkpoint capacity",
         "Decoder baseline capacity",
         "Decoder writer capacity",
         "Decoder failed or exceeded its time budget"
+      ]
+    },
+    {
+      "file": "extensions/tmt-colab/typescript/app/src/fold.ts",
+      "kind": "type",
+      "name": "DecoderUnavailableReason",
+      "allowed": [
+        "Decoder unavailable: busy",
+        "Decoder unavailable: closed",
+        "Decoder unavailable: worker error",
+        "Decoder unavailable: invalid output",
+        "Decoder unavailable: timeout",
+        "Decoder unavailable: post failed"
       ]
     },
     {

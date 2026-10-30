@@ -14,7 +14,10 @@ import {
 } from 'node:fs';
 import { SoakCollector } from '../acceptance/harness/soak-collector.js';
 import SoakReporter, { apiSpan } from '../acceptance/harness/soak-reporter.js';
-import { appendSoakInvocation } from '../acceptance/harness/soak-diagnostics.js';
+import {
+  appendSoakInvocation,
+  projectSoakFailure,
+} from '../acceptance/harness/soak-diagnostics.js';
 import {
   policy,
   loadSoakDictionary,
@@ -311,4 +314,40 @@ describe('soak failure collection before world cleanup', () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+});
+
+it('keeps only the fixed decoder reason in the public soak projection', () => {
+  const dictionary = loadSoakDictionary();
+  for (const reason of [
+    'Decoder unavailable: busy',
+    'Decoder unavailable: closed',
+    'Decoder unavailable: worker error',
+    'Decoder unavailable: invalid output',
+    'Decoder unavailable: timeout',
+    'Decoder unavailable: post failed',
+  ]) {
+    const result = projectSoakFailure(
+      {
+        version: 1,
+        scenario: policy.id,
+        observedMs: 1,
+        assertion: 'peer-live-after-refusal',
+        error: { message: reason, url: secret, stack: secret },
+      },
+      dictionary,
+    )!;
+    expect(result.error).toEqual({ code: null, message: reason, unrecognized: false });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  }
+  const unknown = projectSoakFailure(
+    {
+      version: 1,
+      scenario: policy.id,
+      observedMs: 1,
+      error: { message: secret },
+    },
+    dictionary,
+  )!;
+  expect(unknown.error).toEqual({ code: null, message: null, unrecognized: true });
+  expect(JSON.stringify(unknown)).not.toContain(secret);
 });
