@@ -213,9 +213,11 @@ fn diagnostic_status_preserves_door_when_credential_writer_is_busy() {
         .output()
         .unwrap();
     assert!(human.status.success());
+    let line = String::from_utf8_lossy(&human.stdout);
     assert!(
-        String::from_utf8_lossy(&human.stdout)
-            .contains("Firestore sign-in could not be confirmed.")
+        line.contains("held the Firestore sign-in lock")
+            && line.contains("REMOTE_STATE_UNAVAILABLE"),
+        "{line}"
     );
     assert_eq!(fs::read(path).unwrap(), bytes);
 }
