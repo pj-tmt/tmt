@@ -475,10 +475,25 @@ pub(in crate::grammar) fn learn() -> Command {
             "Read agent guidance",
             [
                 "Read the tmt guidance" => "tmt learn",
-                "Print a bundled skill" => "tmt learn --skill tmt-inbox",
+                "List the tmt skill's reference topics" => "tmt learn --skill tmt --topics",
+                "Read one reference before running agents" => "tmt learn --skill tmt run",
             ]
         )),
         &["skill"],
+    )
+    .arg(
+        operand("topic", false)
+            .value_name("TOPIC")
+            .requires("skill")
+            .help("Print one reference of the selected skill, embedded in this binary"),
+    )
+    .arg(
+        Arg::new("topics")
+            .long("topics")
+            .action(ArgAction::SetTrue)
+            .requires("skill")
+            .conflicts_with("topic")
+            .help("List the selected skill's reference topics"),
     )
 }
 

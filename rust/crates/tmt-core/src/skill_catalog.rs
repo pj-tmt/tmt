@@ -1,7 +1,7 @@
-//! The bundled skills TMT installs, as data: the one place their names are
-//! spelled. Parsing reads the names here; the adapters' catalog
-//! (`tmt-adapters/src/skill_installation/catalog.rs`) pairs each with its
-//! embedded bytes and joins owned skills from owner records.
+//! The bundled skills TMT installs, as data: the one place their names and
+//! reference topics are spelled. Parsing reads the names here; the adapters'
+//! catalog (`tmt-adapters/src/skill_installation/catalog.rs`) pairs each with
+//! its embedded bytes and joins owned skills from owner records.
 
 /// Who publishes a bundled skill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +14,9 @@ pub enum Group {
 pub struct BundledName {
     pub name: &'static str,
     pub group: Group,
+    /// Reference topics served from the binary by `tmt learn --skill <name>
+    /// <topic>`; never installed beside the skill's entry.
+    pub topics: &'static [&'static str],
 }
 
 /// Core's main skill: the one a driver's skill target names.
@@ -26,12 +29,30 @@ pub static BUNDLED: [BundledName; 2] = [
     BundledName {
         name: MAIN,
         group: Group::Core,
+        topics: &[
+            "run",
+            "setup",
+            "config",
+            "install",
+            "identities",
+            "attention",
+            "context",
+        ],
     },
     BundledName {
         name: INBOX,
         group: Group::Core,
+        topics: &[],
     },
 ];
+
+/// The reference topics of a bundled skill; `None` for an unknown name.
+pub fn topics(name: &str) -> Option<&'static [&'static str]> {
+    BUNDLED
+        .iter()
+        .find(|skill| skill.name == name)
+        .map(|skill| skill.topics)
+}
 
 /// Fixed historical bundle inventory, used only to verify older source generations.
 /// Retired names are absent from the bundled catalog; this metadata never
@@ -56,5 +77,23 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), BUNDLED.len());
+    }
+
+    #[test]
+    fn topics_are_unique_plain_words() {
+        for skill in &BUNDLED {
+            let mut topics = skill.topics.to_vec();
+            assert!(topics.iter().all(|topic| {
+                !topic.is_empty()
+                    && topic
+                        .bytes()
+                        .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+            }));
+            topics.sort_unstable();
+            topics.dedup();
+            assert_eq!(topics.len(), skill.topics.len(), "{}", skill.name);
+        }
+        assert_eq!(topics(INBOX), Some(&[][..]));
+        assert_eq!(topics("unknown"), None);
     }
 }

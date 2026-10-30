@@ -13,6 +13,12 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   bytes and the earlier bundle layouts upgrades still verify; `Catalog::new` joins owner-held
   skills and never lets an owner shadow a core name. Skills install as one versioned bundle
   materialized by digest. Skill installation never opens configuration, SQLite or tmux.
+- A bundled skill's `references/<topic>.md` files are embedded beside its entry, in the order
+  of the topics `tmt_core::skill_catalog` spells, and only `tmt learn --skill <name> <topic>`
+  serves them (`--topics` lists them). They are not part of the materialized bundle: the
+  installed directory, its digest, refresh and release receipts carry the entry alone, so an
+  agent reads a reference from the binary, offline, without a checkout. The catalog tests keep
+  every reference file embedded, the main entry under 40,000 bytes and its retained gates.
 - Core publication selects bundled catalog names; official release publication verifies its
   installed product receipt before selecting names. These operations replace
   existing leaf entries at those names, without prompt, flag, backup or prior ownership/byte

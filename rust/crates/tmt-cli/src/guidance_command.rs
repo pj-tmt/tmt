@@ -1,15 +1,28 @@
-//! Exact canonical skill viewing and a deliberately short native quick start.
+//! Exact canonical skill viewing, the embedded skill references, and a
+//! deliberately short native quick start.
 
+use crate::invocation::LearnReference;
 use std::io::{self, Write};
 use tmt_adapters::drivers::Registry;
 
-pub fn execute(skill: Option<&str>) -> io::Result<u8> {
+pub fn execute(skill: Option<&str>, reference: Option<&LearnReference>) -> io::Result<u8> {
     let mut output = io::stdout().lock();
     if let Some(skill) = skill {
-        output.write_all(
-            tmt_adapters::skill_installation::bundled_skill_named(skill)
-                .expect("grammar validates bundled skill name"),
-        )?;
+        match reference {
+            None => output.write_all(
+                tmt_adapters::skill_installation::bundled_skill_named(skill)
+                    .expect("grammar validates bundled skill name"),
+            )?,
+            Some(LearnReference::Topic(topic)) => output.write_all(
+                tmt_adapters::skill_installation::bundled_reference(skill, topic)
+                    .expect("parser validates the reference topic"),
+            )?,
+            Some(LearnReference::Topics) => {
+                for topic in tmt_core::skill_catalog::topics(skill).unwrap_or_default() {
+                    writeln!(output, "{topic}")?;
+                }
+            }
+        }
     } else {
         writeln!(
             output,
@@ -46,7 +59,7 @@ pub fn execute(skill: Option<&str>) -> io::Result<u8> {
         )?;
         writeln!(
             output,
-            "Read tmt learn --skill for complete current safety and usage guidance.\nUse tmt help for options. Managed native installations use tmt upgrade; package-manager installations use their original manager."
+            "Read tmt learn --skill for current safety and usage guidance, and\ntmt learn --skill tmt --topics for its references. Use tmt help for options.\nManaged native installations use tmt upgrade; package-manager installations use their original manager."
         )?;
     }
     Ok(0)
@@ -64,7 +77,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
     ),
     crate::cli_style_tests::HintSpec::skipped(
-        "Read tmt learn --skill for complete current safety and usage guidance.\nUse tmt help for options. Managed native installations use tmt upgrade; package-manager installations use their original manager.",
+        "Read tmt learn --skill for current safety and usage guidance, and\ntmt learn --skill tmt --topics for its references. Use tmt help for options.\nManaged native installations use tmt upgrade; package-manager installations use their original manager.",
         "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
     ),
     crate::cli_style_tests::HintSpec::skipped(

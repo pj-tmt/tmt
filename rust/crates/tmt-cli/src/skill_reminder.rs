@@ -364,8 +364,12 @@ mod tests {
             },
             Invocation::Learn {
                 skill: Some("tmt".into()),
+                reference: None,
             },
-            Invocation::Learn { skill: None },
+            Invocation::Learn {
+                skill: None,
+                reference: None,
+            },
             Invocation::Install {
                 target: None,
                 directory: None,

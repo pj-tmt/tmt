@@ -52,6 +52,11 @@ pub fn bundled_skill_named(name: &str) -> Option<&'static [u8]> {
     catalog::bundled(name).map(|skill| skill.bytes)
 }
 
+/// A bundled skill's reference, embedded in this binary and never installed.
+pub fn bundled_reference(name: &str, topic: &str) -> Option<&'static [u8]> {
+    catalog::bundled(name)?.reference(topic)
+}
+
 use crate::drivers::{DriverDefinition, Registry};
 use std::{
     collections::{BTreeMap, BTreeSet},

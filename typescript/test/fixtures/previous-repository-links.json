@@ -40,7 +40,7 @@
     "site/src/colab/ColabLanding.tsx": 4,
     "site/src/home/HomePage.tsx": 3,
     "skills/README.md": 2,
-    "skills/tmt/SKILL.md": 10,
+    "skills/tmt/SKILL.md": 5,
     "typescript/scripts/ci-failure-watch.mjs": 1,
     "typescript/scripts/lint-config.mjs": 1,
     "typescript/scripts/pr-rc-selftest.mjs": 2,

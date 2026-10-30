@@ -344,8 +344,9 @@ never prove loss. External runtime launch/setup/hooks remain unwired. Details:
 ## Managed skills and native installation
 
 Managed agent guidance is a filesystem concern separate from application state.
-`tmt_core::skill_catalog` is the one list of bundled skill names; the bundle is
-embedded and materialized by digest under `skill_installation`, and the
+`tmt_core::skill_catalog` is the one list of bundled skill names and reference topics; the
+bundle is embedded and materialized by digest under `skill_installation` (references are
+embedded only, served by `tmt learn`, never installed), and the
 architecture test rejects duplicate multi-name lists in production Rust. Core install exposes
 only `tmt` and `tmt-inbox`.
 Skill installation never opens configuration, SQLite or tmux. Retired bundles, catalog
