@@ -111,11 +111,11 @@ export function remoteRegistryPage(
   const table = createListTable(
     [
       { id: 'icon', label: '', track: '48px', hideBelow: 'phone' },
-      { id: 'name', label: 'Name', track: 'minmax(0, 1fr)' },
-      { id: 'connection', label: 'Connection', track: '128px' },
-      { id: 'role', label: 'Your role', track: '136px' },
-      { id: 'members', label: 'Members', track: '96px', hideBelow: 'phone' },
-      { id: 'active', label: 'Last active', track: '104px', hideBelow: 'phone' },
+      { id: 'name', label: 'Name', track: 'minmax(0, 2.4fr)' },
+      { id: 'connection', label: 'Connection', track: 'minmax(0, 1.2fr)' },
+      { id: 'role', label: 'Your role', track: 'minmax(0, .9fr)' },
+      { id: 'members', label: 'Members', track: 'minmax(0, 1fr)', hideBelow: 'phone' },
+      { id: 'active', label: 'Last active', track: 'minmax(0, 1fr)', hideBelow: 'phone' },
       { id: 'actions', label: '', track: '36px' },
     ],
     'My Remotes',

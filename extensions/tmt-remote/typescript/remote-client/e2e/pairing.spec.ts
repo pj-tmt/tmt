@@ -5224,6 +5224,11 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
         'Connected',
       );
+      expect(
+        await page
+          .locator('[data-remote="studio"] .tmt-ui-list-state')
+          .evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
       await expect(page.locator('#remote-list > [role="row"]').first()).toHaveAttribute(
         'data-remote',
         'studio',
