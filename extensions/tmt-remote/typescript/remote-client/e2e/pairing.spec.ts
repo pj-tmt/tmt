@@ -4927,7 +4927,7 @@ test('Create guide keeps prerequisites and completion unchecked and copies only 
     await page.goto(`${origin}/remote/create`);
     const guide = page.locator('#remote-create');
     await expect(guide).toBeVisible();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Create a Remote');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Remote / Create a Remote');
     await expect(page.locator('#remote-context')).toBeHidden();
     await expect(guide.getByRole('radio', { name: /Cloudflare/ })).toBeDisabled();
     await guide.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -6003,7 +6003,7 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
       ['light', 'dark'],
     );
     await rail.getByRole('link', { name: 'Ops', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agents');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Agents');
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(page).toHaveTitle('Ops · TMT');
     // Ops reads the owner's board (x/-/ops), which needs an owner session: this browser is not
@@ -6015,7 +6015,7 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
     // The sections stay in the module menu; each is empty the same way.
     const menu = modulePages(page);
     await menu.getByRole('link', { name: 'Squads', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Squads');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Squads');
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Sample data');
     await captureState(

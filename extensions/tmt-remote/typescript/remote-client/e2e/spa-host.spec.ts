@@ -338,6 +338,8 @@ test.describe('route identities in the shared top bar', () => {
           ['/remote/', 'My Remotes'],
           ['/remote/overview', 'Overview'],
           ['/remote/members', 'People'],
+          ['/remote/my-devices', 'My devices'],
+          ['/remote/service', 'Service & upgrade'],
           ['/remote/settings', 'Settings'],
           ['/remote/create', 'Create a Remote'],
           ['/remote/join', 'Join a Remote'],
@@ -785,10 +787,10 @@ test.describe('the app in a browser', () => {
     expect(Math.round(headerBox!.x)).toBeGreaterThanOrEqual(
       Math.round(railBox!.x + railBox!.width),
     );
-    await expect(header).toHaveCSS('font-size', '37px');
-    // The bar draws no module crumb and no second TMT: the title is the page's name.
+    await expect(header).toHaveCSS('font-size', '16px');
+    // The route heading includes its module prefix without repeating the rail brand.
     await expect(header.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-    await expect(header).toHaveText('Agents');
+    await expect(header).toHaveText('Ops / Agents');
     await expect(page.locator('.tmt-ui-module-menu-title')).toHaveCount(0);
     await expect(rail).toHaveCSS('width', '232px');
     await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
@@ -1482,7 +1484,7 @@ test.describe('the Digest route on the owner reads', () => {
         'Pace',
         'Resets in',
       ]);
-      const headline = page.locator('.digest-head .tmt-ui-page-title');
+      const headline = page.locator('.tmt-ui-topbar-navigation h1');
       await expect(headline).toBeVisible();
       await expect(headline).toHaveCSS('font-family', /Inter, -apple-system, system-ui/);
       await expect(provider.locator('.tmt-ui-meter-fill')).toHaveCSS(
