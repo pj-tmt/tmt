@@ -411,17 +411,11 @@ own module/drawing boundaries and verification.
   Cron's v1 conversion keeps conflicting source bytes in a private export before commit;
   its store tracks one CLI and one board warning, and the board worker forwards the latter.
   No Ops data enters `config.json` or Core's database.
-- **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
-  UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
-  Lifecycles and module rules: [Ops references](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
-  The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
-  The shell replaces tab/factory/switcher navigation and HOME cursors.
-  The background HOME usage receipt prefers public `consumption.limits` by account;
-  only an unsupported operation selects legacy identity/footer readings. Paint uses held states.
+- **Workspace.** Agents/Digest share one acquired roster ([workspace](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity)); the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
+  Paint/input do no Core reads; WP1 owns conversation/editor/drafts. UUID selection, the virtual Common pool, membership pause/Resume and squad rename belong to the [surface](.agents/skills/tmt-ops-dev/references/board-home.md) and [cron](.agents/skills/tmt-ops-dev/references/board-cron.md) references.
+  Per-name view state stays in the disposable Ops cache, apart from shared Config preferences. Lifecycles and the HOME usage receipt: [refresh worker](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
   Savings and usage figures are supplier estimates, never provider history; [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns their readers, valuation and lifecycles.
   Member references resolve through the acquired global identity inventory and grant no delivery authority or paint/input I/O ([reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md)).
-  Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config under owned locks; cron jobs and counters remain keyed by that UUID. Partial results
-  offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
 - **Board rendering.** The [Ops board guide](.agents/skills/tmt-ops-dev/references/board-home.md#shared-board-components) owns shared painter responsibilities and their host adapters.
 - **Discovery.** The board consumes [Core discovery
   v1](contracts/discovery-v1.md) through finite public `discover` and guarded
