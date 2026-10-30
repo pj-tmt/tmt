@@ -467,19 +467,15 @@ Archive, installer, verifier, publication, compiled schema and PR producer/clean
 ### Main release cuts
 
 A release is a product-prefixed tag on a main commit. `release.yml` admits main
-pushes by cadence, with hourly backup and manual dispatch. Allocation captures
-main once and reserves each released component's next alpha number from drafts
-and tags; each allocated tag owns an independent pipeline. New work is measured
-from the newest non-failed allocated ancestor cut, whether in flight or published.
-Verification-failed drafts reserve numbers but allow replacement cuts, including
-at the same main commit; they stay unpublished and do not hold later cuts or merges.
+pushes by cadence, with hourly backup and manual dispatch. Each allocated tag owns an
+independent pipeline; allocation, failed-draft replacement and predecessor history are in
+the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#cut-allocation).
 
 Build-time version injection belongs to the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#cut-and-source-tooling).
 
 Notes, migration comparison and breaking authorization share the newest published
-ancestor. Before own publication, a predecessor supplies history; both lines reserve versions.
-Retired identities stay historical. Drafts never advance published evidence. Tags become
-immutable after all gates pass; only the CLI converges latest to its highest publication.
+ancestor. Drafts never advance published evidence. Tags become immutable after all gates
+pass; only the CLI converges latest to its highest publication.
 
 The [release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns publication authorization and product activation; the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery) owns gates and recovery.
 
