@@ -286,7 +286,7 @@ none. Actor/member/request/revision fences prevent an old draw from reading a ne
 answer. The existing selected lane acquires head pages for previews and follows older
 timeline cursors for the selected answer only; no per-row show calls or paint reads.
 `r` marks the selected exact revision read (already read is a no-op), or explicitly retries
-a failed read. Read-to-unread is a separate Core/extension contract, not a local flag.
+a failed read. Marking an answer unread again is not offered yet (#5580).
 
 `a` freezes the opening's actor/member scope and held revisions, then asks once before
 marking all read. Cancel writes nothing. Confirmation offers the held keys and continues
