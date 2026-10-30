@@ -50,14 +50,17 @@ impl super::CallerEnvironment {
     /// (`callerHost` of `tmt host templates`). Advisory only: it is not evidence and selects,
     /// binds or launches nothing; implicit selection keeps its own rules. `None` when no
     /// locator names a host, or more than one external host is named.
-    pub fn advisory_host<'a>(&self, records: &'a [DriverRecord]) -> Option<&'a str> {
+    pub fn advisory_host(&self, records: &[DriverRecord]) -> Option<String> {
+        use tmt_core::host::HostKind;
         match self.named_host(records) {
-            super::NamedHost::Pty | super::NamedHost::PtyNested => Some("pty"),
+            super::NamedHost::Pty | super::NamedHost::PtyNested => {
+                Some(HostKind::pty().as_str().to_owned())
+            }
             // tmux inside another host: the caller's own pane is tmux's.
             super::NamedHost::Builtin | super::NamedHost::Nested(_) if self.names_tmux() => {
-                Some("tmux")
+                Some(HostKind::Tmux.as_str().to_owned())
             }
-            super::NamedHost::External(record) => Some(record.name.as_str()),
+            super::NamedHost::External(record) => Some(record.name.clone()),
             super::NamedHost::Builtin
             | super::NamedHost::Nested(_)
             | super::NamedHost::Ambiguous => None,
@@ -111,11 +114,7 @@ mod tests {
                 .map(|name| ((*name).to_owned(), "value".into()))
                 .collect(),
         };
-        let advisory = |tmux, variables: &[&str]| {
-            caller(tmux, variables)
-                .advisory_host(&records)
-                .map(str::to_owned)
-        };
+        let advisory = |tmux, variables: &[&str]| caller(tmux, variables).advisory_host(&records);
         assert_eq!(advisory(false, &[]), None, "a plain terminal names none");
         assert_eq!(advisory(true, &[]).as_deref(), Some("tmux"));
         assert_eq!(

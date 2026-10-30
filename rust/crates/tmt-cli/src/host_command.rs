@@ -25,9 +25,7 @@ fn read() -> Result<(Vec<HostLaunch>, Option<String>), Failure> {
     let tmt = running_tmt()?;
     let records = registry::read(&paths.global_dir)
         .map_err(|error| Failure::new(error.code(), error.to_string(), 1))?;
-    let caller_host = CallerEnvironment::approved(&records)
-        .advisory_host(&records)
-        .map(str::to_owned);
+    let caller_host = CallerEnvironment::approved(&records).advisory_host(&records);
     let drivers: Vec<_> = records
         .into_iter()
         .map(|record| {
