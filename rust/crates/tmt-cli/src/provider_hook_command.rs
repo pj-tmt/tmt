@@ -306,11 +306,31 @@ fn observe_turn(
         return Ok(Observation::default());
     };
     if !matches!(
-        evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot)),
+        evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot.clone())),
         BindingEvidence::Active(_)
     ) {
         return Err(TurnFailure::NotApplicable);
     }
+    let stored = continue_awaiting_session(
+        Continuation {
+            paths: &paths,
+            stored: &stored,
+            snapshot: &snapshot,
+            process: &process,
+            harness,
+            mode: lifecycle.mode(host),
+            launch: run.learning.map(|learning| &learning.launch),
+            session: &turn.session,
+        },
+        deadline,
+    )
+    .map_err(|_| TurnFailure::NotApplicable)?
+    .unwrap_or(stored);
+    let binding = stored
+        .entry
+        .binding
+        .as_ref()
+        .ok_or(TurnFailure::NotApplicable)?;
     let current = binding.session.key.as_ref().is_some_and(|key| {
         key.incarnation == process && key.provider_session.as_ref() == Some(&turn.session)
     });
@@ -949,7 +969,7 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
     let host = lifecycle
         .host_evidence()
         .map_err(|_| DigestStop::LaunchHost)?;
-    let bound = caller_check(
+    let mut bound = caller_check(
         verified_lifecycle_caller(
             provider,
             lifecycle,
@@ -991,6 +1011,30 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
     let process = lifecycle
         .digest_process(&binding.session, &bound.process, session, host, deadline)
         .ok_or(DigestStop::LaunchProcess)?;
+    let harness = HarnessId::new(provider).map_err(|_| DigestStop::LaunchBinding)?;
+    if let Some(stored) = continue_awaiting_session(
+        Continuation {
+            paths: &bound.paths,
+            stored: &bound.stored,
+            snapshot: &bound.snapshot,
+            process: &process,
+            harness: &harness,
+            mode: lifecycle.mode(host),
+            launch: Some(&launch),
+            session,
+        },
+        deadline,
+    )
+    .map_err(|()| probe_failure(DigestStop::LaunchCallerProbe, deadline))?
+    {
+        bound.stored = stored;
+    }
+    let binding = bound
+        .stored
+        .entry
+        .binding
+        .as_ref()
+        .ok_or(DigestStop::LaunchBinding)?;
     if binding.id != launch.binding_id
         || binding.identity_id != launch.identity_id
         || binding.session.state != tmt_core::binding::session::RuntimeState::Running
@@ -1647,6 +1691,99 @@ pub(super) struct SessionCommit<'a> {
 }
 
 /// Both starting hooks and optional caller discovery share this exact commit.
+/// A launch-owned binding awaiting its next session continues with the session its own
+/// verified process reports (#5703): a `/clear` whose start was never admitted otherwise
+/// leaves every later event of that process refused. The launch claim must name this binding
+/// and its live owner, as the launch's own hooks do; nothing else continues it. Returns the
+/// refreshed context once committed, `None` when the binding is not awaiting this session.
+fn continue_awaiting_session(
+    continuation: Continuation<'_>,
+    deadline: Instant,
+) -> Result<Option<IdentityContextSnapshot>, ()> {
+    let Continuation {
+        paths,
+        stored,
+        snapshot,
+        process,
+        harness,
+        mode,
+        launch,
+        session,
+    } = continuation;
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    let (Some(launch), Some(mode)) = (launch, mode) else {
+        return Ok(None);
+    };
+    if !binding.session.awaiting_next_session()
+        || !launch.valid()
+        || launch.binding_id != binding.id
+        || launch.identity_id != binding.identity_id
+        || launch.owner().as_ref() != binding.session.launch_owner.as_ref()
+    {
+        return Ok(None);
+    }
+    let Some(next) =
+        binding
+            .session
+            .continue_session(tmt_core::binding::session::ObservedSessionKey {
+                incarnation: process.clone(),
+                provider_session: Some(session.clone()),
+            })
+    else {
+        return Ok(None);
+    };
+    let owner = binding.session.launch_owner.as_ref().ok_or(())?;
+    if !matches!(
+        observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline).map_err(|_| ())?,
+        tmt_adapters::process::runtime::ProcessObservation::Live(current) if current == *owner
+    ) || !matches!(
+        evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot.clone())),
+        BindingEvidence::Active(_)
+    ) {
+        return Ok(None);
+    }
+    let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+    let committed = storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            if records
+                .entry_by_id(&binding.identity_id)?
+                .and_then(|entry| entry.binding)
+                .as_ref()
+                != Some(binding)
+                || records.session_preferences(&binding.identity_id)? != stored.preferences
+                || !records.set_session_state(&binding.id, &binding.session, &next)?
+            {
+                return Ok(false);
+            }
+            let mut preferences = stored.preferences.clone();
+            preferences.remember(harness.clone(), mode, session.clone());
+            records.set_session_preferences(&binding.identity_id, &preferences)
+        })
+        .map_err(|_| ());
+    let closed = storage.close().map_err(|_| ());
+    if !committed? {
+        return Ok(None);
+    }
+    closed?;
+    Storage::context_by_identity(
+        &paths.database,
+        &binding.identity_id,
+        tmt_adapters::request_runtime::wall_time_ms(),
+    )
+    .map_err(|_| ())
+}
+
+struct Continuation<'a> {
+    paths: &'a ConfigPaths,
+    stored: &'a IdentityContextSnapshot,
+    snapshot: &'a EndpointSnapshot,
+    process: &'a ProcessIncarnation,
+    harness: &'a HarnessId,
+    mode: Option<tmt_core::binding::session::RuntimeMode>,
+    launch: Option<&'a tmt_adapters::runtime::hook_protocol::HookLaunch>,
+    session: &'a ProviderSessionId,
+}
+
 pub(super) fn commit_session(
     storage: &mut Storage,
     proposed: SessionCommit<'_>,
@@ -1801,6 +1938,21 @@ fn observe_main_event(
         run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     };
+    let stored = continue_awaiting_session(
+        Continuation {
+            paths: &paths,
+            stored: &stored,
+            snapshot: &snapshot,
+            process: &process,
+            harness,
+            mode: lifecycle.mode(host),
+            launch: run.learning.map(|learning| &learning.launch),
+            session,
+        },
+        deadline,
+    )?
+    .unwrap_or(stored);
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
     if binding.session.state != tmt_core::binding::session::RuntimeState::Running
         || !binding.session.key.as_ref().is_some_and(|key| {
             key.incarnation == process && key.provider_session.as_ref() == Some(session)

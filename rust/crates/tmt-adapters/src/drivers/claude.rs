@@ -104,6 +104,10 @@ impl ClaudeObservation {
                         // The matching preliminary end records continuation. A
                         // delayed start from an older conversation cannot jump
                         // over a completed newer start with no matching end.
+                        // A start that beats its end is held instead (#5703).
+                        if current.state == RuntimeState::Running {
+                            return current.hold_switch(&key, self.transition);
+                        }
                         if current.state != RuntimeState::Unknown
                             || current.last_transition != Some(self.transition)
                         {

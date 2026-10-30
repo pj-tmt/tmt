@@ -37,6 +37,8 @@ mod sampling;
 mod self_bind;
 #[path = "external_host/send_now.rs"]
 mod send_now;
+#[path = "external_host/session_switch.rs"]
+mod session_switch;
 #[path = "external_host/stop.rs"]
 mod stop;
 #[path = "external_host/stop_capture.rs"]

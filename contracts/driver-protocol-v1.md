@@ -598,7 +598,14 @@ whose keys are 1–64 bytes of text.
 
 A verified provider end retains the exact process/session key and launch owner,
 records its session transition, and leaves stored runtime readiness Unknown until a
-fresh SessionStart admits the same live incarnation's next session. Only
+fresh SessionStart admits the same live incarnation's next session. Such a
+binding is awaiting its next session. When it is launch-owned, the next verified
+turn end or prompt from that same incarnation, with that launch owner still live
+and verified as a launch's hooks verify it, also continues it with the session
+that event names, so a lost start cannot strand the member. A clear or resume start for
+another session that arrives while the binding still runs is held: the binding
+waits as above with its key unchanged. A running binding, another process or a
+binding without a launch owner never changes the session this way. Only
 conclusive process loss or owned-child exit makes the runtime Ended; provider
 end never proves it. Stale session keys and unverified replacement processes
 cannot change that observation.

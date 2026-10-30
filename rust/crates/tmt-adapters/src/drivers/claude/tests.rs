@@ -440,10 +440,15 @@ fn resumed_start_attaches_first_session_to_admitted_process_only() {
     );
     assert_eq!(attached.launch_owner, Some(owner));
     assert_eq!(attached.state, RuntimeState::Running);
-    assert!(
-        event(true, SessionTransition::Resumed, "stale-session")
-            .propose(&attached, &process, RuntimeLiveness::Alive)
-            .is_none()
+    // A stale resumed start never takes the key; it is only held, and the process's own
+    // current session continues the binding (#5703).
+    let held = event(true, SessionTransition::Resumed, "stale-session")
+        .propose(&attached, &process, RuntimeLiveness::Alive)
+        .unwrap();
+    assert_eq!(held.key, attached.key);
+    assert_eq!(
+        held.continue_session(attached.key.clone().unwrap()),
+        Some(attached.clone())
     );
     let mut ended = admitted.clone();
     ended.state = RuntimeState::Ended;
@@ -514,16 +519,24 @@ fn a_compact_start_names_a_running_launch_owned_unnamed_key() {
         }
     );
     // The named key now follows the normal rules: another compact is a plain
-    // transition, and a clear to another session still needs its end first.
+    // transition, and a clear to another session before its end is only held:
+    // the key stays until that process names its session (#5703).
     assert!(
         compact
             .propose(&named, &process, RuntimeLiveness::Alive)
             .is_some()
     );
+    let held = event(true, SessionTransition::Cleared, "next")
+        .propose(&named, &process, RuntimeLiveness::Alive)
+        .unwrap();
+    assert_eq!(held.key, named.key);
+    assert!(held.awaiting_next_session());
+    let ended = event(false, SessionTransition::Cleared, "current")
+        .propose(&held, &process, RuntimeLiveness::Alive)
+        .unwrap();
     assert!(
-        event(true, SessionTransition::Cleared, "next")
-            .propose(&named, &process, RuntimeLiveness::Alive)
-            .is_none()
+        ended.awaiting_next_session(),
+        "the late end keeps it awaiting"
     );
 
     // Another process incarnation.
