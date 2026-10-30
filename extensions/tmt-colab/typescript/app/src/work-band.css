@@ -300,13 +300,20 @@
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
+  visibility: hidden;
   transition:
     grid-template-rows var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
-    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    visibility 0s linear var(--tmt-ui-motion-base);
 }
 .work-body-transition[data-open='true'] {
   grid-template-rows: 1fr;
   opacity: 1;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    visibility 0s;
 }
 .work-body {
   min-height: 0;

@@ -676,6 +676,21 @@ test('status band exposes the spec meter and keeps tasks behind their chip', asy
   await expect(host.locator('.work-tasks')).toHaveCount(0);
 });
 
+test('collapsed details leave the accessibility tree and return on expansion', async ({ page }) => {
+  const host = await mountBand(page, 'panel');
+  const tasks = host.getByRole('button', { name: /Tasks/ });
+  await expect(tasks).toHaveCount(0);
+  await expand(page);
+  await expect(tasks).toHaveCount(1);
+  await host.getByRole('button', { name: 'Collapse status panel' }).click();
+  await expect(tasks).toHaveCount(0);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expand(page);
+  await expect(tasks).toHaveCount(1);
+  await host.getByRole('button', { name: 'Collapse status panel' }).click();
+  await expect(tasks).toHaveCount(0);
+});
+
 test('the expanded head stays fixed while its long body scrolls', async ({ page }) => {
   const host = await mountBand(page, 'long');
   await expand(page);
