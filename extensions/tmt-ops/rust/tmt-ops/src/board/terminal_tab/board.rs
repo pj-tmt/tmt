@@ -4,16 +4,16 @@ use super::{discovery::Located, stream::StreamEvent};
 use crate::{
     action::{OpsUiAction, Verb},
     board::{
-        app::{App, Effect, event_name},
+        app::{App, CopyFeedback, Effect, Request, event_name},
         shell::{OpsTab, RightTab},
     },
 };
 use ratatui::{
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::Position,
 };
 use std::time::Duration;
-use tmt_tui::components::terminal::{is_leave, key_bytes, paste_bytes, wheel_bytes};
+use tmt_tui::components::terminal::{MouseMode, is_leave, key_bytes, paste_bytes, wheel_bytes};
 
 impl App {
     /// After a draw: a program that hides its cursor while typing still has the real cursor
@@ -62,10 +62,10 @@ impl App {
     /// The member core should be asked about next, when it has not answered or its answer is old.
     pub(in crate::board) fn terminal_locate(&self) -> Option<String> {
         // Like every background read, only for a pane that is on screen; a shown terminal is.
-        if !self.terminal.shown() && !self.scrolls.visible(crate::config::Pane::Replies) {
+        let id = self.terminal_identity()?;
+        if !self.terminal.shown_for(&id) && !self.scrolls.visible(crate::config::Pane::Replies) {
             return None;
         }
-        let id = self.terminal_identity()?;
         self.terminal
             .needs_locating(&id, crate::status::now_ms())
             .then_some(id)
@@ -204,28 +204,63 @@ impl App {
         Some(Effect::None)
     }
 
-    /// While typing, the wheel over the screen is the program's and a press elsewhere ends
-    /// typing (and then lands as usual).
+    /// A left drag over a shown screen selects its text and the release copies it, unless the
+    /// program is being typed into and asked for the mouse itself. While typing, the wheel over
+    /// the screen is the program's and a press elsewhere ends typing (and then lands as usual).
     pub(in crate::board) fn terminal_mouse(&mut self, event: MouseEvent) -> Option<Effect> {
-        if !self.terminal.typing() || self.modal_open() {
+        if self.modal_open() || !self.terminal_showing() {
             return None;
         }
         let area = self.terminal.area()?;
+        let typing = self.terminal.typing();
         if !area.contains(Position::new(event.column, event.row)) {
-            if matches!(event.kind, MouseEventKind::Down(_)) {
+            if typing && matches!(event.kind, MouseEventKind::Down(_)) {
                 self.terminal.stop_typing();
             }
             return None;
         }
-        if let MouseEventKind::ScrollUp | MouseEventKind::ScrollDown = event.kind
-            && let Some(bytes) = wheel_bytes(
-                event.kind == MouseEventKind::ScrollUp,
-                event.column - area.x,
-                event.row - area.y,
-                self.terminal.modes(),
-            )
-        {
-            self.terminal.send(&bytes);
+        let at = (event.column - area.x, event.row - area.y);
+        let program_mouse = typing && self.terminal.modes().mouse != MouseMode::Off;
+        match event.kind {
+            // The press only anchors a selection; it still lands on the board (focus, menus).
+            MouseEventKind::Down(MouseButton::Left) if !program_mouse => {
+                self.terminal.select_from(at);
+                if !typing {
+                    return None;
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) if !program_mouse => {
+                self.terminal.select_to(at);
+                if !typing && !self.terminal.dragged() {
+                    return None;
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) if !program_mouse => {
+                self.terminal.select_to(at);
+                if let Some(text) = self.terminal.selected_text() {
+                    return Some(Effect::Act(Request::Copy {
+                        text,
+                        program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+                        feedback: CopyFeedback::Selection,
+                    }));
+                }
+                if !typing {
+                    return None;
+                }
+            }
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if typing => {
+                if let Some(bytes) = wheel_bytes(
+                    event.kind == MouseEventKind::ScrollUp,
+                    at.0,
+                    at.1,
+                    self.terminal.modes(),
+                ) {
+                    self.terminal.send(&bytes);
+                }
+            }
+            // Watching, anything else over the screen is the board's as before.
+            _ if !typing => return None,
+            _ => {}
         }
         Some(Effect::None)
     }

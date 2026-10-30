@@ -1200,3 +1200,157 @@ fn a_member_without_a_built_in_stream_has_nothing_to_zoom_or_resize() {
     app.terminal.fit_window();
     assert!(!app.terminal_sync(), "no stream is opened");
 }
+
+/// A second member, `codex-worker`, in the same room as `worker`.
+fn with_second_member(app: &mut App) {
+    use crate::board::app::workspace::tests::{CODEX_MEMBER, ROOM};
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut member = workspace.roster.members[MEMBER].clone();
+    member.id = CODEX_MEMBER.into();
+    member.name = "codex-worker".into();
+    workspace.roster.members.insert(CODEX_MEMBER.into(), member);
+    workspace.roster.squads[0].members.push(CODEX_MEMBER.into());
+    workspace.rows.insert(
+        crate::board::workspace::OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: CODEX_MEMBER.into(),
+        },
+        serde_json::json!({"id":CODEX_MEMBER,"name":"codex-worker","state":"working"}),
+    );
+    app.apply_terminal_located(CODEX_MEMBER, Located::Stream(address("b")));
+}
+
+fn select(app: &mut App, identity: &str) {
+    app.workspace.selected = Some(crate::board::workspace::OpsTarget::Member {
+        room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+        identity_id: identity.into(),
+    });
+    app.terminal_sync();
+}
+
+#[test]
+fn a_terminal_asked_for_one_member_leaves_every_other_member_on_chat_and_enter_composes() {
+    use crate::board::app::workspace::tests::CODEX_MEMBER;
+    let mut app = reader();
+    with_second_member(&mut app);
+    shown(&mut app);
+    assert!(app.terminal_showing());
+    select(&mut app, CODEX_MEMBER);
+    assert!(!app.terminal_showing(), "another member shows its chat");
+    assert!(text(&app).contains("to message codex-worker"));
+    app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.input.is_some(), "Enter composes, as for a tmux member");
+    assert!(!app.terminal.typing());
+    app.input = None;
+    // worker keeps its own choice.
+    select(&mut app, MEMBER);
+    assert!(app.terminal_showing());
+}
+
+#[test]
+fn after_a_create_types_into_its_member_another_member_still_composes() {
+    use crate::board::app::workspace::tests::CODEX_MEMBER;
+    let mut app = reader();
+    with_second_member(&mut app);
+    app.terminal.show_typing(MEMBER);
+    with_stream(&mut app);
+    assert!(app.terminal_sync());
+    assert!(app.terminal.typing(), "the created member takes the keys");
+    select(&mut app, CODEX_MEMBER);
+    assert!(!app.terminal.typing(), "typing ended with that stream");
+    assert!(!app.terminal_showing());
+    app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.input.is_some(), "Enter composes");
+}
+
+fn drag(attached: &mut Attached, from: (u16, u16), to: (u16, u16)) -> crate::board::app::Effect {
+    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+    let now = std::time::Instant::now();
+    let area = attached.app.terminal.area().unwrap();
+    let at = |(column, row): (u16, u16)| (area.x + column, area.y + row);
+    let (x, y) = at(from);
+    attached
+        .app
+        .mouse(mouse_at(MouseEventKind::Down(MouseButton::Left), x, y), now);
+    let (x, y) = at(to);
+    attached
+        .app
+        .mouse(mouse_at(MouseEventKind::Drag(MouseButton::Left), x, y), now);
+    attached
+        .app
+        .mouse(mouse_at(MouseEventKind::Up(MouseButton::Left), x, y), now)
+}
+
+fn copied(effect: crate::board::app::Effect) -> Option<String> {
+    match effect {
+        crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) => Some(text),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_drag_over_the_screen_copies_its_text_while_watching_and_while_typing() {
+    let mut attached = Attached::new(b"hello world\r\nsecond line");
+    text(&attached.app);
+    assert_eq!(
+        copied(drag(&mut attached, (6, 0), (5, 1))).as_deref(),
+        Some("world\nsecond"),
+        "watching: reading order, rows joined"
+    );
+    let shown = buffer_at(&attached.app, at(&attached.app, 7, 0));
+    assert!(
+        shown.modifier.contains(Modifier::REVERSED),
+        "the selection shows"
+    );
+    attached.start_typing();
+    assert_eq!(
+        copied(drag(&mut attached, (0, 0), (4, 0))).as_deref(),
+        Some("hello")
+    );
+    assert!(
+        attached.peer.quiet(),
+        "the drag sends nothing to the program"
+    );
+    assert!(attached.app.terminal.typing(), "and typing goes on");
+    // A press that does not move copies nothing.
+    assert_eq!(copied(drag(&mut attached, (2, 0), (2, 0))), None);
+}
+
+#[test]
+fn a_click_on_the_watched_screen_still_lands_on_the_board() {
+    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+    let mut attached = Attached::new(b"hello world");
+    text(&attached.app);
+    let screen = Some(crate::config::Pane::Replies);
+    attached.app.focus = 0;
+    assert_ne!(attached.app.focused_pane(), screen);
+    let area = attached.app.terminal.area().unwrap();
+    let (x, y) = (area.x + 2, area.y);
+    for kind in [
+        MouseEventKind::Down(MouseButton::Left),
+        MouseEventKind::Up(MouseButton::Left),
+    ] {
+        assert!(
+            attached.app.terminal_mouse(mouse_at(kind, x, y)).is_none(),
+            "{kind:?} without a move is the board's"
+        );
+    }
+    attached.app.mouse(
+        mouse_at(MouseEventKind::Down(MouseButton::Left), x, y),
+        std::time::Instant::now(),
+    );
+    assert_eq!(
+        attached.app.focused_pane(),
+        screen,
+        "the press focuses the pane"
+    );
+    assert_eq!(copied(drag(&mut attached, (2, 0), (2, 0))), None);
+}
+
+#[test]
+fn a_program_that_asked_for_the_mouse_keeps_the_drag_and_the_line_names_the_bypass() {
+    let mut attached = Attached::new(b"hello\x1b[?1002h");
+    attached.start_typing();
+    assert_eq!(copied(drag(&mut attached, (0, 0), (4, 0))), None);
+    assert!(text(&attached.app).contains("bypass-drag selects"));
+}
