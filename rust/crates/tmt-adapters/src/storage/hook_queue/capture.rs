@@ -561,8 +561,20 @@ impl Storage {
     /// Existing compatible database only. SQLite alone waits for its writer;
     /// no schema upgrade, WAL retry loop or hook deadline is renewed here.
     pub fn open_hook_flusher(path: &Path) -> Result<Self, StorageError> {
+        // SQLite's NOFOLLOW refuses a link in any ancestor, such as macOS /var or an owner-linked
+        // data root. Resolve the directory as the hook queue does; the database file itself still
+        // may not be a link. An unresolvable directory opens the path as given and fails the same.
+        let resolved = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .and_then(|parent| std::fs::canonicalize(parent).ok())
+            .zip(path.file_name())
+            .map_or_else(
+                || path.to_path_buf(),
+                |(directory, file)| directory.join(file),
+            );
         let connection = Connection::open_with_flags(
-            path,
+            &resolved,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )
         .map_err(|e| classify(e, "Open capture flusher storage"))?;

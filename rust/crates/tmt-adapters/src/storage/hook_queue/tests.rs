@@ -2966,3 +2966,49 @@ fn expired_text_does_not_hide_a_refused_direct_or_queued_end() {
         assert_eq!(w.final_count(), 1, "a refused end adds no final");
     }
 }
+
+#[test]
+fn the_flusher_opens_a_database_reached_through_a_linked_directory_but_never_a_linked_file() {
+    let w = World::new();
+    let real = w.path.parent().unwrap().to_path_buf();
+    let links = TestDirectory::new();
+    // A data root reached through a link, as macOS /var or a symlinked ~/.config is.
+    let alias = links.path.join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    let mut flusher = Storage::open_hook_flusher(&alias.join("capture.db"))
+        .expect("a linked directory resolves to the real one");
+    flusher.close().unwrap();
+    // The database file itself must not be a link.
+    let linked_file = links.path.join("linked.db");
+    std::os::unix::fs::symlink(&w.path, &linked_file).unwrap();
+    assert!(Storage::open_hook_flusher(&linked_file).is_err());
+    // A missing directory fails as before and creates nothing.
+    let missing = links.path.join("missing/capture.db");
+    assert!(Storage::open_hook_flusher(&missing).is_err());
+    assert!(!links.path.join("missing").exists());
+}
+
+#[test]
+fn housekeeping_through_a_linked_data_directory_still_prunes_old_receipts() {
+    let w = World::new();
+    let _queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    let links = TestDirectory::new();
+    let alias = links.path.join("alias");
+    std::os::unix::fs::symlink(w.path.parent().unwrap(), &alias).unwrap();
+    let mut storage = Storage::open(alias.join("capture.db")).unwrap();
+    storage.connection().unwrap().execute("INSERT INTO hook_capture_receipts(event_id,outcome,committed_ms) VALUES('old-unrelated','duplicate',1)",[]).unwrap();
+    let now = w.now;
+    tmt_core::request::RequestService::new(&mut storage, || now)
+        .cleanup()
+        .unwrap();
+    let exists: bool = storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM hook_capture_receipts WHERE event_id='old-unrelated')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!exists, "retention reached the queue through the link");
+}

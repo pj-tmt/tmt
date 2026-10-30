@@ -246,9 +246,12 @@ impl Fixture {
     fn new(name: &str) -> Self {
         let root = std::env::temp_dir().join(format!("tmt-external-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        for dir in ["home", "xdg", "state", "tmux", "driver"] {
+        for dir in ["home", "xdg", "data/state", "tmux", "driver"] {
             fs::create_dir_all(root.join(dir)).unwrap();
         }
+        // The data directory sits under a linked ancestor, as it does under macOS /var or a
+        // linked ~/.config, so every hook flush here resolves through a link (#5653).
+        std::os::unix::fs::symlink(root.join("data"), root.join("linked")).unwrap();
         let driver = root.join("driver/tmt-driver-fake");
         tmt_test_support::write_executable(&driver, DRIVER.as_bytes(), 0o755).unwrap();
         let pid = std::process::id().to_string();
@@ -307,7 +310,7 @@ impl Fixture {
     }
 
     fn state(&self) -> PathBuf {
-        self.root.join("state")
+        self.root.join("linked/state")
     }
 
     /// Approval is setup, not the behavior under test: its `capabilities`
@@ -2332,7 +2335,7 @@ impl SteppedProvider {
         let turn_end = hook_ends_turn(&payload);
         let output = self.hook_command(payload, env);
         if turn_end {
-            wait_flushed(&self.steps.parent().unwrap().join("state"));
+            wait_flushed(&self.steps.parent().unwrap().join("linked/state"));
         }
         output
     }
