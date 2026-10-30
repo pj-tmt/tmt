@@ -48,12 +48,14 @@ Static markup uses shared class/slot and native accessibility contracts.
 never establish access. Socket tests verify exact shared-plus-host CSS bytes and
 unchanged CSP/types. Browser cases compare computed presentation with current browser
 tokens at 1440/390 light/dark and 320 fit, retaining keyboard focus and disabled/loading
-states. Notice pages retain their identifying `h1` above the state `h2`. Digest, Ops and TMT Settings use the hero as their single `h1`, without a second small shell title; loading and unavailable states keep one identifying heading. Document titles and shell menu/back navigation remain with the shell owner.
+states. Standalone notice pages retain their identifying `h1` above the state `h2`. App routes instead put their single `h1` in the shared top bar; loading and unavailable states retain that route identity. Document titles and shell menu/back navigation remain with the shell owner.
 
-The SPA root installs shared top-bar bindings before route adoption. Remote-owned routes without a hero move
-their original title into the content column, using the same title-row type as Colab's own shell,
-and put only module actions in the bar's existing action slot. The GUI-owned leaf controls their
-order. The leaf owns the single trusted Command/Ctrl+K listener; Remote owns the
+The SPA root installs shared top-bar bindings before route adoption. Remote-owned routes put
+their single h1 in the bar's left title slot, with module/name/section segments; the shared leaf
+hides prefixes and truncates the last segment on phones. Ops and TMT Settings update that title
+for each section, including loading and unavailable states. Content keeps its one-line subtitle
+and page actions, without a duplicate heading or hero sentence. The shell retains document titles,
+Back navigation and common controls; the GUI-owned leaf controls their order. The leaf owns the single trusted Command/Ctrl+K listener; Remote owns the
 confined module prefetch, registry and pending-open lifetime. Navigation is unavailable until the
 live composed shell describes its admitted modules and sections. Unconfirmed session counts stay
 unconfirmed, rather than using a device count. Search uses Colab's `mountSearchSession` entry;
@@ -303,7 +305,7 @@ name button's inset focus frame has padding around the name.
 
 ## TMT Settings Modules
 
-Modules uses the same shell menu and inset: a hero, a read-only note with `tmt extension ls` and the
+Modules uses the same shell menu and inset: a subtitle, a read-only note with `tmt extension ls` and the
 shared nonexecuting Copy, and one card of module records (glyph tile, name, one line of product copy,
 an Installed or Not installed state with its mark, the channel and version in mono). The page keeps
 one static map of copy for the product's own modules (`tmt-settings-copy.ts`); another module shows
@@ -315,7 +317,7 @@ labelled "Sample installed modules". No install, update or read is added by this
 
 ## TMT Settings Drivers & hooks
 
-Drivers & hooks takes the same inset and shell menu: a hero, a note, two nonexecuting Copy commands
+Drivers & hooks takes the same inset and shell menu: a subtitle, a note, two nonexecuting Copy commands
 (`tmt driver ls` and `tmt setup --status`), a Host drivers card, an Agent hooks card and a card that
 says what each role is. A driver is its name, the product's line for herdr (the one map in
 `tmt-settings-copy.ts`; another name shows no line), an Approved state and the version in mono; a

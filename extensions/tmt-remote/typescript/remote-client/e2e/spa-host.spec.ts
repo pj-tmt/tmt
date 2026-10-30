@@ -322,6 +322,107 @@ const beyondAssets = (requests: Request[]) =>
         ),
     );
 
+test.describe('route identities in the shared top bar', () => {
+  for (const width of [1440, 390])
+    for (const colorScheme of ['light', 'dark'] as const)
+      test(`route title ownership at ${width} ${colorScheme}`, async ({ page }, testInfo) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme });
+        await page.addInitScript(
+          (theme) => localStorage.setItem('tmt-ui-theme', theme),
+          colorScheme,
+        );
+        await page.goto(`${origin}/`);
+        const cases = [
+          ['/', 'Home'],
+          ['/remote/', 'My Remotes'],
+          ['/remote/overview', 'Overview'],
+          ['/remote/members', 'People'],
+          ['/remote/settings', 'Settings'],
+          ['/remote/create', 'Create a Remote'],
+          ['/remote/join', 'Join a Remote'],
+          ['/ops#agents', 'Agents'],
+          ['/ops#squads', 'Squads'],
+          ['/ops#schedules', 'Timers'],
+          ['/ops#settings', 'Ops settings'],
+          ['/digest', 'Digest'],
+          ['/settings#general', 'General'],
+          ['/settings#identities', 'Identities'],
+          ['/settings#modules', 'Modules'],
+          ['/settings#drivers', 'Drivers & hooks'],
+        ] as const;
+        try {
+          await page.evaluate(() => {
+            (window as unknown as { titleDocument: number }).titleDocument = 1;
+          });
+          for (const [path, current] of cases) {
+            await page.evaluate((path) => {
+              history.pushState(null, '', path);
+              window.dispatchEvent(new PopStateEvent('popstate'));
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
+            }, path);
+            const title = page.locator('.tmt-ui-topbar-navigation h1');
+            await expect(title.locator('.tmt-ui-topbar-title-current'), path).toHaveText(current);
+            await expect(page.locator('h1'), path).toHaveCount(1);
+            await expect(page.locator('.tmt-ui-shell-main h1,.root-title-row'), path).toHaveCount(
+              0,
+            );
+            const prefix = title.locator('.tmt-ui-topbar-title-prefix');
+            if (await prefix.count()) {
+              if (width <= 900) await expect(prefix, path).toBeHidden();
+              else await expect(prefix, path).toBeVisible();
+            }
+            const geometry = await title.evaluate((node) => {
+              const bar = node.closest('.tmt-ui-topbar')!.getBoundingClientRect();
+              const box = node.getBoundingClientRect();
+              return {
+                inside: box.top >= bar.top && box.bottom <= bar.bottom,
+                overflow: document.documentElement.scrollWidth > innerWidth,
+              };
+            });
+            expect(geometry, path).toEqual({ inside: true, overflow: false });
+            if (path === '/remote/') {
+              await expect(page.locator('.tmt-ui-topbar-actions .remote-head-actions')).toHaveCount(
+                0,
+              );
+              await expect(page.locator('#remote-head .remote-head-actions')).toBeVisible();
+              const actions = page.locator('#remote-head .remote-head-actions');
+              await expect(actions.locator(':scope > *').first()).toHaveAttribute(
+                'id',
+                'remote-join',
+              );
+              await expect(actions.locator(':scope > *').last()).toHaveAttribute(
+                'data-variant',
+                'primary',
+              );
+              await expect(
+                page
+                  .locator('#remote-head')
+                  .getByRole('button', { name: 'Join a Remote', exact: true }),
+              ).toHaveText('Join');
+            }
+            await page.mouse.move(0, 0);
+            await page.screenshot({
+              path: testInfo.outputPath(
+                `route-${path.replace(/[^a-z0-9]/gi, '-') || 'home'}-${width}-${colorScheme}.png`,
+              ),
+            });
+          }
+          expect(
+            await page.evaluate(
+              () => (window as unknown as { titleDocument: number }).titleDocument,
+            ),
+          ).toBe(1);
+          await page.goBack();
+          await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Modules');
+          await page.goForward();
+          await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Drivers & hooks');
+        } finally {
+          await page.close();
+        }
+      });
+});
+
 test.describe('the app in a browser', () => {
   test('makes no session reads from an unpaired /remote', async () => {
     const { page, requests } = await openApp('/remote');
@@ -462,7 +563,7 @@ test.describe('the app in a browser', () => {
       .toEqual([view.id === 'remotes' ? 'remotes' : 'overview']);
     if (view.id !== 'remotes')
       await expect(page.locator(`#remote-tab-${view.id}`)).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('.root-title-row h1'), view.id).toHaveText(view.h1);
+    await expect(page.locator('.tmt-ui-topbar-title-current'), view.id).toHaveText(view.h1);
     await expect(page.locator(view.shown), view.id).toBeVisible();
     await expect(page.locator(view.hidden), view.id).toBeHidden();
     await expect(page, view.id).toHaveTitle(`${view.h1} · TMT`);
@@ -670,7 +771,7 @@ test.describe('the app in a browser', () => {
     const rail = page.locator('nav.tmt-ui-rail');
     const brand = rail.locator('> .tmt-ui-shell-brand');
     const header = page.getByRole('heading', { level: 1 });
-    // The brand sits once in the rail; the page's single hero starts the content column.
+    // The brand stays in the rail; the single route heading is in the top bar's left group.
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(brand).toContainText('tmt');
     await expect(header).toContainText('Agents');
@@ -903,7 +1004,7 @@ test.describe('the Ops route on the owner read', () => {
       reads = await stub(page, [board, changed]);
     });
     const rows = page.locator('#ops-section tbody tr:not(.tmt-ui-table-group)');
-    await expect(page.locator('#ops-section .tmt-ui-page-title')).toHaveText('Your team, in sync.');
+    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Agents');
     await expect(rows).toHaveCount(2);
     // Lead first: the name with its mark, the state as a chip, what it works on, the model.
     await expect(rows.nth(0).locator('.tmt-ui-table-select')).toHaveText('tmt-lead');
@@ -963,9 +1064,7 @@ test.describe('the Ops route on the owner read', () => {
     // The next read, five seconds on, repaints only what changed.
     await expect(rows.nth(0)).toContainText('merge', { timeout: 8000 });
     await page.goto(`${origin}/ops#schedules`);
-    await expect(page.locator('#ops-section .tmt-ui-page-title')).toHaveText(
-      'Keep the rhythm visible.',
-    );
+    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Timers');
     const timer = page.locator('#ops-section tbody tr');
     await expect(timer.locator('td').nth(0)).toContainText('Hourly pass');
     await expect(timer.locator('td').nth(1)).toHaveText('tmt-core');
@@ -990,7 +1089,7 @@ test.describe('the Ops route on the owner read', () => {
     await expect(page.locator('#ops-section .ops-foot')).toHaveCSS('border-top-style', 'solid');
     await page.goto(`${origin}/ops#settings`);
     // The settings have no browser read: where they are, then the views that are here.
-    await expect(page.locator('#ops-section .tmt-ui-page-title')).toHaveText('Ops settings');
+    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Ops settings');
     await expect(page.locator('#ops-section .tmt-ui-page-subtitle')).toHaveText(
       'Manage your workspace from the terminal.',
     );
@@ -1007,7 +1106,7 @@ test.describe('the Ops route on the owner read', () => {
     await expect(page.locator('#ops-section .ops-foot')).toHaveText('CLI-managed settings');
     await page.getByRole('link', { name: 'View squads' }).click();
     await expect(page).toHaveURL(`${origin}/ops#squads`);
-    await expect(page.locator('#ops-section .tmt-ui-page-title')).not.toHaveText('Ops settings');
+    await expect(page.locator('.tmt-ui-topbar-title-current')).not.toHaveText('Ops settings');
     await page.goBack();
     await page.getByRole('link', { name: 'View agents' }).click();
     await expect(page).toHaveURL(`${origin}/ops#agents`);
@@ -1136,7 +1235,7 @@ test.describe('the Ops route on the owner read', () => {
       await stub(page, [squadBoard()]);
     });
     const section = page.locator('#ops-section');
-    await expect(section.locator('.tmt-ui-page-title')).toHaveText('Squads, clearly connected.');
+    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Squads');
     await expect(section.locator('.tmt-ui-page-subtitle')).toHaveText(
       'Every team, its lead and the people moving work forward.',
     );
@@ -1241,7 +1340,7 @@ test.describe('the Ops route on the owner read', () => {
     await expect(drawer).not.toContainText('approve the plan');
     await expect(drawer.locator('dd')).toHaveCount(0);
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('heading', { name: 'Squads, clearly connected.' })).toBeFocused();
+    await expect(page.getByRole('heading', { name: 'Ops / Squads', exact: true })).toBeFocused();
 
     await page.getByRole('button', { name: 'tmt-lead, Working', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'tmt-lead', exact: true })).toBeVisible();
@@ -1249,7 +1348,7 @@ test.describe('the Ops route on the owner read', () => {
     await page.evaluate(() => {
       location.hash = 'schedules';
     });
-    await expect(page.getByRole('heading', { name: 'Keep the rhythm visible.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ops / Timers', exact: true })).toBeVisible();
     await page.evaluate(() => {
       location.hash = 'squads';
     });
@@ -1453,7 +1552,7 @@ test.describe('Settings General website presentation', () => {
           const general = page.locator('#tmt-settings-page');
           await expect(general).toHaveClass(/tmt-ui-page/);
           await expect(
-            general.getByRole('heading', { name: 'Make TMT feel like yours.' }),
+            page.getByRole('heading', { name: 'TMT settings / General', exact: true }),
           ).toBeVisible();
           await expect(
             general.getByRole('heading', { name: 'Appearance', exact: true }),
@@ -1516,13 +1615,17 @@ test.describe('Settings General website presentation', () => {
           // Modules has its own page and takes the inset like every settings section.
           await expect(general).toHaveClass(/tmt-ui-page/);
           await expect(
-            general.getByRole('heading', { name: 'Modules, in one place.' }),
+            page.getByRole('heading', { name: 'TMT settings / Modules', exact: true }),
           ).toBeVisible();
           await expect(general).not.toContainText('Make TMT feel like yours.');
           await menu.getByRole('link', { name: 'Drivers & hooks', exact: true }).click();
           await expect(general).toHaveClass(/tmt-ui-page/);
           await expect(
-            general.getByRole('heading', { name: 'Drivers & hooks', exact: true, level: 1 }),
+            page.getByRole('heading', {
+              name: 'TMT settings / Drivers & hooks',
+              exact: true,
+              level: 1,
+            }),
           ).toBeVisible();
           await expect(general.getByRole('button', { name: 'Copy tmt driver ls' })).toBeVisible();
           await menu.getByRole('link', { name: 'General', exact: true }).click();
@@ -1578,7 +1681,9 @@ test.describe('Settings Identities website presentation', () => {
         try {
           const main = page.locator('#tmt-settings-page');
           await expect(main).toHaveClass(/tmt-ui-page/);
-          await expect(main.getByRole('heading', { name: 'Identity management' })).toBeVisible();
+          await expect(
+            page.getByRole('heading', { name: 'TMT settings / Identities', exact: true }),
+          ).toBeVisible();
           await expect(main).toContainText('Identity inventory unavailable');
           await expect(main.locator('code')).toHaveText('tmt ls');
           await expect(main.locator('tbody')).toHaveCount(0);

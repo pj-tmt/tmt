@@ -47,7 +47,7 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
   const state: AgentsState = { filter: 'all', query: '', collapsed: new Set() };
   let board: OpsBoard | undefined;
   const page = el('div', 'ops-agents-page');
-  const head = pageHead('Your team, in sync.', 'A clear view of every squad and agent.');
+  const head = pageHead('A clear view of every squad and agent.');
   const stats = el('div');
   const banner = el('div');
   const grid = el('div', 'ops-grid');

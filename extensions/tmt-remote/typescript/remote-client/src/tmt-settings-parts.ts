@@ -14,9 +14,8 @@ export function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-export function settingsHead(title: string, subtitle: string): HTMLElement {
+export function settingsHead(subtitle: string): HTMLElement {
   const head = element('div', browserUiClasses.pageHead);
-  head.append(element('h1', browserUiClasses.pageTitle, title));
   if (subtitle) head.append(element('p', browserUiClasses.pageSubtitle, subtitle));
   return head;
 }

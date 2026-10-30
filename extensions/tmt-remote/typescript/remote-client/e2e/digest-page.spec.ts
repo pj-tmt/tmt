@@ -114,7 +114,7 @@ async function openShell(page: Page, size: { width: number; height: number }, qu
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.goto(`${origin}/digest/${query}`);
   await expect(page.locator('#digest-sections .digest-card').first()).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Understand your team’s usage.');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Digest');
   await expect(page.locator('.root-title-row')).toHaveCount(0);
   await expect(page).toHaveTitle('Digest · TMT');
   return errors;
@@ -128,9 +128,7 @@ for (const [name, size] of [
     page,
   }, testInfo) => {
     const errors = await openShell(page, size);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-      'Understand your team’s usage.',
-    );
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Digest');
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(page).toHaveTitle('Digest · TMT');
     // The rail is a drawer on a phone; it is part of the page from tablet width up.

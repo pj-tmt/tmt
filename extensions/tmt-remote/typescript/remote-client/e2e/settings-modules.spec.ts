@@ -23,7 +23,7 @@ for (const width of [1440, 390])
     test(`injected module records and their actions at ${width} ${theme}`, async ({ page }) => {
       await open(page, 'injected', width, theme);
       await expect(
-        page.getByRole('heading', { name: 'Modules, in one place.', exact: true }),
+        page.getByRole('heading', { name: 'TMT settings / Modules', exact: true }),
       ).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Sample installed modules' })).toBeVisible();
       const notice = page.locator('.tmt-settings-warning');

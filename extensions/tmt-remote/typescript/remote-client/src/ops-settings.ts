@@ -26,7 +26,7 @@ export function settingsView(href: (section: 'agents' | 'squads') => string): HT
   links.append(link('agents', 'View agents', true), link('squads', 'View squads'));
   keep.append(text, links);
   page.append(
-    pageHead('Ops settings', 'Manage your workspace from the terminal.'),
+    pageHead('Manage your workspace from the terminal.'),
     terminalCard({
       id: 'ops-settings-title',
       title: 'The right controls, in your terminal.',

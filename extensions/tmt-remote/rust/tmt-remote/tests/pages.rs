@@ -872,7 +872,7 @@ fn remote_headers_carry_the_static_mark_only_outside_the_web_shell() {
 }
 
 #[test]
-fn hero_pages_keep_document_titles_without_a_second_shell_heading() {
+fn route_pages_leave_the_single_heading_to_the_shared_top_bar() {
     for (page, title) in [
         (include_str!("../assets/digest.html"), "Digest · TMT"),
         (include_str!("../assets/ops.html"), "Ops · TMT"),
@@ -886,8 +886,9 @@ fn hero_pages_keep_document_titles_without_a_second_shell_heading() {
         assert!(!page.contains("tmt-ui-shell-bar"));
     }
     let digest = include_str!("../assets/digest.html");
-    assert_eq!(digest.matches("<h1").count(), 1);
-    assert!(digest.contains("<h1 class=\"tmt-ui-page-title\">Understand your team’s usage.</h1>"));
+    assert_eq!(digest.matches("<h1").count(), 0);
+    assert!(!digest.contains("Understand your team’s usage."));
+    assert!(digest.contains("Token usage, allowance and the conversations between seats."));
 }
 
 #[test]

@@ -1847,7 +1847,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const joinHost = document.getElementById("remote-join");
 	const joinMenu = mountBrowserMenu(joinHost, {
 		label: "Join a Remote",
-		...shell?.actions ? {} : { triggerText: "Join a Remote" },
+		triggerText: "Join",
 		items: [{
 			key: "invite",
 			label: "Join with an invitation"

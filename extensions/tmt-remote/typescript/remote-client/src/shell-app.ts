@@ -22,8 +22,8 @@ import { digestPage } from './digest-page.js';
 import { moduleLoad, type ModuleLoad } from './module-entry.js';
 import { opsPage } from './ops-page.js';
 import { remoteApp } from './remote-app.js';
-import { REMOTE_PATHS } from './remote-routes.js';
-import { homePage, hostRemote, remoteShell } from './remote-shell.js';
+import { REMOTE_PATHS, remoteItem } from './remote-routes.js';
+import { homePage, hostRemote, remoteShell, setRouteTitle } from './remote-shell.js';
 import { tmtSettingsPage } from './tmt-settings-page.js';
 import { applyStoredTheme } from '@tmt/browser-ui/theme';
 import { navigationSnapshot, RootSearch, type SearchModule } from './root-search.js';
@@ -34,8 +34,8 @@ interface RootSlot extends ShellSlot {
 }
 
 /**
- * Put a page's markup into the slot: actions into the common bar, heading and content into the
- * main area, its title and page name onto the document. The page files stay the one source of each
+ * Put a page's markup into the slot: route identity into the common bar, actions and content into
+ * the main area, and its document title and page name onto the shell. The page files stay the one source of each
  * page's markup; the door no longer serves them as documents.
  */
 async function adopt(slot: ShellSlot, html: string): Promise<() => void> {
@@ -53,23 +53,22 @@ async function adopt(slot: ShellSlot, html: string): Promise<() => void> {
   );
   adoptBar(slot, bar);
   document.documentElement.dataset.tmtPage = page.documentElement.dataset.tmtPage ?? '';
-  slot.setTitle(page.title.replace(/ · TMT$/, ''));
+  setRouteTitle(slot, page.title.replace(/ · TMT$/, ''));
   return release;
 }
 
-/** The common bar draws controls. Pages without their own hero retain a content title row. */
+/** Page actions remain in the content sub-header; route identity belongs to the left bar. */
 function adoptBar(slot: ShellSlot, source: Element | null): void {
-  const { actions } = slot.setTopBar();
   const header = source?.querySelector('header');
-  if (!header) return;
-  const row = document.createElement('div');
-  row.className = 'root-title-row';
-  for (const node of Array.from(header.children)) {
-    if (node.matches('.header-actions,.tmt-ui-header-actions'))
-      actions.append(document.adoptNode(node));
-    else row.append(document.adoptNode(node));
+  const title = header?.querySelector('.header-title')?.textContent;
+  if (title) setRouteTitle(slot, title);
+  const actions = header?.querySelector('.header-actions,.tmt-ui-header-actions');
+  if (actions) {
+    const row = document.createElement('div');
+    row.className = 'tmt-page root-page-actions';
+    row.append(document.adoptNode(actions));
+    slot.main.prepend(row);
   }
-  if (row.childNodes.length) slot.main.prepend(row);
 }
 
 /**
@@ -105,7 +104,7 @@ async function pageStyles(page: Document): Promise<() => void> {
 
 /**
  * Remote's connection check and settings forms as one document of views: both pages' markup in the
- * slot (each page's `main` marked `data-page`), the connection page's title in content. The
+ * slot (each page's `main` marked `data-page`), with route identity in the shared top bar. The
  * page's own code decides which view shows (`remote-app.ts`). The settings stylesheet loads with
  * the first settings view, not with the route: the connection check stays a page that asks the
  * door for nothing. `settingsStyles` resolves once it has loaded.
@@ -145,6 +144,7 @@ async function adoptRemote(
     ),
   );
   adoptBar(slot, bar);
+  setRouteTitle(slot, remoteItem(location.pathname)?.title ?? 'Remote', ['Remote']);
   document.documentElement.dataset.tmtPage = 'landing';
   return () => {
     releaseLanding();
@@ -233,7 +233,7 @@ function message(
     main.append(open);
   }
   slot.main.replaceChildren(main);
-  slot.setTitle(title);
+  setRouteTitle(slot, title);
 }
 
 export const routes: readonly ShellRoute[] = [
