@@ -2102,6 +2102,8 @@ struct SteppedProvider {
     /// The child is a pane shell that leads its own process group, with the
     /// provider and its commands in it.
     shell: bool,
+    /// The launch observation `tmt run` exports to every hook of a managed launch.
+    launch: Option<String>,
 }
 
 impl SteppedProvider {
@@ -2265,6 +2267,7 @@ impl SteppedProvider {
             steps,
             next: 0,
             shell: !ancestors.is_empty(),
+            launch: None,
         }
     }
 
@@ -2335,9 +2338,18 @@ impl SteppedProvider {
     /// deliberately keep the detached flusher from finishing.
     fn hook_command(&mut self, payload: Value, env: &[(&str, &[u8])]) -> (i32, String, String) {
         let step = self.steps.join(self.next.to_string());
+        let launch = self.launch.clone();
+        let mut env = env.to_vec();
+        if let Some(launch) = &launch
+            && !env
+                .iter()
+                .any(|(name, _)| *name == "TMT_LAUNCH_OBSERVATION")
+        {
+            env.push(("TMT_LAUNCH_OBSERVATION", launch.as_bytes()));
+        }
         if !env.is_empty() {
             let mut lines = Vec::new();
-            for (name, value) in env {
+            for (name, value) in &env {
                 lines.extend_from_slice(name.as_bytes());
                 lines.push(b'=');
                 lines.extend_from_slice(value);
