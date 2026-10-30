@@ -3746,7 +3746,7 @@ describe('required CI gate', () => {
     expect(acceptance).not.toContain('actions: read');
     expect(acceptance).toContain('node scripts/colab-acceptance-run.mjs ${{ matrix.shard }} pnpm');
     expect(acceptance).toContain(
-      'name: Prove the real producer and hosted reader through the emulators\n        timeout-minutes: 3'
+      'name: Prove the real producer and hosted reader through the emulators\n        timeout-minutes: 6'
     );
     expect(acceptance).toContain('permissions:\n      contents: read');
     expect(acceptance).not.toContain('CARGO_BUILD_JOBS:');

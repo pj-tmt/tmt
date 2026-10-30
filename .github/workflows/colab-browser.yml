@@ -475,8 +475,9 @@ jobs:
           fi
           node scripts/colab-acceptance-run.mjs ${{ matrix.shard }} pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,./acceptance/harness/soak-reporter.ts,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
       # Run once per full event, after the ordinary binaries and their hashes were consumed.
+      # Covers Firebase setup, native builds, the browser proof and cleanup.
       - name: Prove the real producer and hosted reader through the emulators
-        timeout-minutes: 3
+        timeout-minutes: 6
         if: ${{ !cancelled() && matrix.shard == 1 }}
         uses: ./.github/actions/hosted-reader-emulator
       - name: Retain only test outcomes without credentials or trace payloads

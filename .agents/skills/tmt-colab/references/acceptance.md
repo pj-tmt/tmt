@@ -55,8 +55,9 @@ The acceptance job records its start timestamp before checkout. The ordinary sui
 at +1,560 seconds on shard 1 or +1,740 seconds on shards 2 and 3, including setup/build time. The runner
 owns a new process group: SIGINT allows up to 30 seconds for final JSON and cleanup, then SIGKILL
 bounds that group only. Deadline and job-signal interruption remain nonzero even if the child
-exits zero. Shard 1 reserves a further 180 seconds for the hosted-reader proof; every shard reserves
-30 seconds for public reporting/upload before the unchanged 30-minute job ceiling. A forced group
+exits zero. Shard 1's hosted-reader step has a six-minute ceiling covering Firebase setup, native
+builds, the browser proof and cleanup. Every shard reserves 30 seconds for public reporting/upload;
+the suite deadlines and the 30-minute job ceiling remain unchanged, so the step cannot extend the job. A forced group
 kill does not reach harness-detached browser/tmux groups and is not proof of clean world teardown;
 the hosted runner's job lifetime bounds those groups. These are CI budgets, not spec timeouts.
 
