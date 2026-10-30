@@ -2962,7 +2962,12 @@ shows the bounded quoted text. Comment first-line tooltips stay in parent chrome
 its current highlight request and opens that thread's Discussion view in the Comments panel. A `+n` marker
 posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the parent accepts the
 current render and request only and opens Comments (closing an open annotation
-window). The message carries no thread ID; the parent retains its selected
+window). On closing a Discussion opened by a marker, the parent can request focus for the
+current marker with exactly `type:"colab.render.focus-thread"`, `renderId`, `requestId` and
+`id`; for an individual opener the ID must be in the current highlight request, while `null`
+means the last trusted grouped-marker opener. The frame focuses its current marker or the same
+shared `+n` group when present. A missing, detached, changed or stale marker is a no-op. This is
+cosmetic focus restoration and cannot publish, sign or send. The message carries no thread ID; the parent retains its selected
 Discussion or chooses the first matching thread from its verified filter sequence. Forging either view-only
 action cannot publish, sign or send. The passage of the thread whose anchored window or Discussion view is open
 takes a selected look: the deepest tint (28 %) and a solid 2 px underline in the accent
@@ -3994,9 +3999,13 @@ available above the selected conversation and in an empty view.
 In Discussion, Resolve and Reopen retain the conversation, quote, messages, composer
 and unsent draft in the same mounted window. Resolving does not collapse it or
 advance to another thread, even under Open. The header action changes to Reopen;
-unknown or ambiguous recipients remain visible as Not notified. Agent replies join
-verified Ask records to comment IDs and remain attributed to their agent. Overlay
-geometry does not reflow page content.
+unknown or ambiguous recipients remain visible as Not notified. Resolve all confirms a
+snapshot of the open threads in the current filter, then re-admits each status write;
+partial failure leaves committed changes in place and is reported in the existing state
+line. A mentioned agent is assigned to its first successfully committed status in the
+batch and notified at most once. Reopen can supersede remaining attempts for its status.
+Agent replies join verified Ask records to comment IDs and remain attributed to their
+agent. Overlay geometry does not reflow page content.
 Shared Chat, Source, Agents, Files and Export drawers leave an 8 px
 header/right/bottom gutter (4 px through 480 px), with top/right/bottom safe-area insets, an opaque
 square surface and a 1 px border. The header remains visible behind the scrim. All drawers use the shared leaf
@@ -4005,8 +4014,12 @@ author-frame backdrop press dismisses only, without click-through; a second pres
 acts. The shared Close button retains draft/attempt owners; Chat keeps its audience
 caption. Action and Manage radio menus use the shared top-layer Menu; autocomplete
 remains a listbox. A nested menu consumes Escape before its drawer. Comments is the one
-exception: a non-modal panel (a column beside the page, a card or a sheet by width) with no scrim,
-trap or inert page, sharing the single panel slot with the drawers.
+exception: a non-modal panel with no scrim, trap or inert page, sharing the single panel
+slot with the drawers. At wide widths Discussion is a 360 × 470 px floating card, 16 px
+above the measured dock; card and sheet modes remain at narrower widths. Its compact
+single-row header holds Discussion, position, filter, previous/next, Resolve or Reopen,
+Resolve all and Close. Escape on the page or in Discussion closes it, retains the draft,
+clears passage selection and restores the opener when available.
 A trusted non-editing `@` key opens the existing Chat under the same admission as
 the dock's Chat action: a mounted, unarchived page and no other menu or
 dialog. An anchored annotation does not block it. Only a mounted editable composer
@@ -4087,19 +4100,16 @@ page. The dock is one capsule at the page's lower corner that holds, left to rig
 Comments actions, divided by hairlines; the Comments and Chat actions hide while selection mode or
 an annotation window is open. The page header holds no Comments or Chat control: the dock is where
 both are. The Comments action shows the page's open-thread count beside its icon (its slot is held while
-the threads are verified, so no false 0) and, while any thread has news the viewer has not seen, the count
-takes the needs-you colour and a bullet, and the action's name says so (`Comments (2) · New`); it presses
-open the Comments panel and has no keyboard shortcut. The drawer opens out of the dock's rectangle and
+the threads are verified, so no false 0). The count stays plain; when a thread has news
+the action's accessible name says so (`Comments (2) · New`). It opens the Comments panel
+and has no keyboard shortcut. The drawer opens out of the dock's rectangle and
 closes back into it: the same dialog, clipped to the dock at one end of the motion (180 ms, the leaf's
-`--tmt-ui-motion-base` and easings); under reduced motion there is no animation. The Comments panel opens
-out of the dock the same way, with one motion for both: in a column (from 1180 px) the dock stays in
-place and reachable with its Comments action pressed, and the panel opens with the motion and leaves
-the page grid at once when it closes; as a card or a sheet the panel covers the dock's corner, so the
-dock stays in its place, unseen and out of reach, and the clip runs back into it on close. A panel that is
-already open when the page mounts (a restored panel or route) is there at once, without the motion. While Chat is
-open the dock stays in its place, unseen and out of reach, and the drawer covers it. Close/Escape or a
-backdrop press returns focus to the Chat action; closing the Comments panel returns it to the Comments
-action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape
+`--tmt-ui-motion-base` and easings); under reduced motion there is no animation. The Comments panel
+opens out of the dock, which stays visible and marks its open action. A panel that is already
+open when the page mounts is there at once, without the motion. While Chat is open the dock
+stays in its place, unseen and out of reach, and the drawer covers it. Close/Escape or a
+backdrop press returns focus to the Chat action; closing Discussion returns focus to its
+marker opener when still available, otherwise to the Comments action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape
 dismisses; at wide widths a press on the backdrop, anywhere outside the drawer, dismisses.
 Messages scroll inside it; one shared plaintext message input remains at the bottom.
 Chat uses the same shared history owner and scroll policy as inline annotation

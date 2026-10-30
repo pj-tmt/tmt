@@ -97,13 +97,13 @@ test('the dock opens the Discussion view: header, title passage, turns, reply, R
 
   // The list is replaced; the drawer reads Discussion with the thread's position.
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Discussion');
-  await expect(drawer.locator('.tmt-ui-drawer-caption')).toHaveText('1 / 1');
+  await expect(drawer.locator('.discussion-position')).toHaveText('1 / 1');
   await expect(drawer.getByTestId('annotation-row')).toHaveCount(0);
   // An open thread has no state label; the static position and arrows stand in the header.
   await expect(drawer.getByTestId('discussion-state')).toHaveCount(0);
   await expect(drawer.locator('.discussion-position')).toHaveText('1 / 1');
-  await expect(drawer.getByRole('button', { name: 'Previous thread', exact: true })).toBeDisabled();
-  await expect(drawer.getByRole('button', { name: 'Next thread', exact: true })).toBeDisabled();
+  await expect(drawer.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled();
+  await expect(drawer.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
   const thread = drawer.getByTestId('comment-thread');
   // The title is the passage: its number and the quoted text, no heading of the first message.
   await expect(thread.locator('.discussion-title')).toHaveCount(0);

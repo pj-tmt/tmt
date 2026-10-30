@@ -12,9 +12,9 @@ export function chatAction(host: Page | Locator) {
   return host.locator('.page-floating-actions').getByRole('button', { name: CHAT_NAME });
 }
 
-/** Exercise the retained legacy preference: it selects All when no v2 filter is stored. */
+/** Start the browser fixture with the current All filter selected. */
 export async function showResolvedOn(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
+  await page.addInitScript(() => localStorage.setItem('colab.comments.filter', 'all'));
 }
 
 /** The visible bar's buttons: the shared top bar where Colab is the shell's root, the module header
@@ -35,7 +35,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   const comments = commentsRegion(page);
   const dismissDrawer = async () => {
     if (await comments.isVisible()) {
-      await comments.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
+      await comments.getByRole('button', { name: 'Close (Esc)' }).click();
       await comments.waitFor({ state: 'hidden' });
       return;
     }
@@ -126,12 +126,12 @@ async function walkDiscussion(page: Page, matches: () => Promise<boolean>) {
   await expect(position).toBeVisible();
   const count = Number((await position.innerText()).split('/')[1].trim());
   if (!Number.isSafeInteger(count) || count < 1) throw new Error('Missing thread count');
-  const previous = panel.getByRole('button', { name: 'Previous thread', exact: true });
+  const previous = panel.getByRole('button', { name: 'Previous', exact: true });
   for (let index = 0; index < count && !(await previous.isDisabled()); index++)
     await previous.click();
   for (let index = 0; index < count; index++) {
     if (await matches()) return;
-    const next = panel.getByRole('button', { name: 'Next thread', exact: true });
+    const next = panel.getByRole('button', { name: 'Next', exact: true });
     if (await next.isDisabled()) break;
     await next.click();
   }

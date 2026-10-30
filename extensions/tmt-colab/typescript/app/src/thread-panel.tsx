@@ -1,4 +1,5 @@
 import { threadNeedsYou } from './comments-listing.js';
+import { compactRelativeTime } from './display-time.js';
 import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreatorTarget } from './creator-default.js';
@@ -148,6 +149,16 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
 /** Actor names are admitted display metadata, never inferred from a device ID. */
 export function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
   return status?.actorName ? text.threadResolvedBy(status.actorName) : text.threadResolved;
+}
+
+/** The Discussion state line adds the signed status time without changing other surfaces. */
+export function discussionResolvedLabel(
+  status: ThreadPresentation['status'] | undefined,
+  now = Date.now(),
+) {
+  const label = resolvedLabel(status);
+  const at = status?.at === undefined ? NaN : Number(status.at);
+  return Number.isFinite(at) ? `${label} · ${compactRelativeTime(at, now)}` : label;
 }
 
 function Composer({
@@ -954,6 +965,7 @@ export function ThreadPanel({
   proposalStatusPending,
   showInPage,
   headerSlot,
+  batchStatus,
 }: {
   creationRecipient?: CreatorTarget;
   hideHeader?: boolean;
@@ -983,6 +995,7 @@ export function ThreadPanel({
   showInPage?(ref: DiscussionRef): void;
   /** Where the Discussion view puts its Resolve control: the Comments panel's header. */
   headerSlot?: HTMLElement | null;
+  batchStatus?: ReactNode;
 }) {
   const numbers = suppliedNumbers ?? threadNumbers(threads);
   const [compose, setCompose] = useState(false);
@@ -1036,7 +1049,8 @@ export function ThreadPanel({
         {pageComment}
         {/* The reserved state line keeps the quote and composer still through Resolve. */}
         <div className="discussion-status">
-          {(shownResolved || needsYou) && (
+          {batchStatus && <span role="status">{batchStatus}</span>}
+          {!batchStatus && (shownResolved || needsYou) && (
             <span
               className="discussion-state"
               data-state={shownResolved ? 'resolved' : 'needs'}
@@ -1046,7 +1060,7 @@ export function ThreadPanel({
               {shownResolved
                 ? pendingResolved !== undefined
                   ? text.threadResolving
-                  : resolvedLabel(status)
+                  : discussionResolvedLabel(status)
                 : text.needsYouWord}
             </span>
           )}

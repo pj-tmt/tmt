@@ -34,10 +34,10 @@ test('dock order opens one discussion directly, with a static position and expli
   await expect(panel.getByTestId('comment-thread')).toBeVisible();
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 2');
   await expect(panel.getByRole('button', { name: 'All comments', exact: true })).toHaveCount(0);
-  await panel.getByRole('button', { name: 'Next thread', exact: true }).click();
+  await panel.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(panel.locator('.discussion-position')).toHaveText('2 / 2');
-  await expect(panel.getByRole('button', { name: 'Next thread', exact: true })).toBeDisabled();
-  await panel.getByRole('button', { name: 'Previous thread', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
+  await panel.getByRole('button', { name: 'Previous', exact: true }).click();
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 2');
 });
 
@@ -63,7 +63,7 @@ test('Resolve retains the selected conversation, composer draft and unknown-reci
   const after = await thread.boundingBox();
   expect(after?.y).toBe(before?.y);
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 1');
-  await expect(panel.getByRole('button', { name: 'Next thread', exact: true })).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
 });
 
 test('filter choices replace the list tabs and expose the empty Needs you view', async ({
@@ -112,7 +112,7 @@ test('incoming resolution is not acknowledged by rendering, but reopening the se
   await run(page, 'agentResolves');
   await expect(commentsAction(page)).toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(1);
-  await panel.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+  await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
   await commentsAction(page).click();
   await expect(commentsAction(page)).not.toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(2);
@@ -133,11 +133,135 @@ test('passive arrivals in an already open empty view never acknowledge a resolut
     fixture.proposal('detached');
     fixture.agentResolves();
   });
-  await expect(panel.getByTestId('discussion-state')).toHaveText('Resolved by Atlas');
+  await expect(panel.getByTestId('discussion-state')).toHaveText('Resolved by Atlas · just now');
   expect(await run(page, 'seenProof')).toBe(0);
   await expect(commentsAction(page)).toHaveAccessibleName(/New/);
-  await panel.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+  await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
   await commentsAction(page).click();
   expect(await run(page, 'seenProof')).toBe(1);
   await expect(commentsAction(page)).not.toHaveAccessibleName(/New/);
+});
+
+test('Resolve all confirms the filter snapshot, preserves Cancel and notifies a mentioned agent only once', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true });
+  await run(page, 'seedThread', '@Agent 1 First note');
+  await run(page, 'seedThread', '@Agent 1 Second note');
+  await commentsAction(page).click();
+  const panel = commentsRegion(page);
+  const action = panel.getByRole('button', { name: 'Resolve all open (2)', exact: true });
+  await action.click();
+  const confirm = page.getByRole('dialog', { name: 'Resolve 2 open comments?', exact: true });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(confirm).toBeHidden();
+  await expect(action).toBeEnabled();
+  expect(
+    (await run(page, 'proof')).actions.filter((value: string) => value.startsWith('notify:')),
+  ).toEqual([]);
+  await action.click();
+  await confirm.getByRole('button', { name: 'Resolve all', exact: true }).click();
+  await expect(confirm).toBeHidden();
+  await expect(
+    panel.getByRole('button', { name: 'Resolve all open (0)', exact: true }),
+  ).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeVisible();
+  await expect
+    .poll(async () =>
+      (await run(page, 'proof')).actions.filter((value: string) => value.startsWith('notify:')),
+    )
+    .toEqual(['notify:Agent 1']);
+});
+
+test('a confirmed Resolve-all snapshot excludes an arrival while the confirmation is open', async ({
+  page,
+}) => {
+  const panel = await open(page, 2, 'First note');
+  await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Resolve 2 open comments?', exact: true });
+  await run(page, 'seedThread', 'Arrived after confirmation opened');
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Resolve all', exact: true }).click();
+  await expect(
+    panel.getByRole('button', { name: 'Resolve all open (1)', exact: true }),
+  ).toBeEnabled();
+});
+
+test('Resolve all remains busy until original notification attempts settle, including after a new arrival', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true, holdStatusNotice: true });
+  await run(page, 'seedThread', '@Agent 1 First note');
+  await commentsAction(page).click();
+  const panel = commentsRegion(page);
+  await panel.getByRole('button', { name: 'Resolve all open (1)', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Resolve 1 open comments?', exact: true })
+    .getByRole('button', { name: 'Resolve all', exact: true })
+    .click();
+  await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
+  await run(page, 'seedThread', 'Arrived while notification is pending');
+  const action = panel.getByRole('button', { name: 'Resolve all open (1)', exact: true });
+  await expect(action).toBeDisabled();
+  await run(page, 'finishStatusNotice');
+  await expect(action).toBeEnabled();
+  expect(
+    (await run(page, 'proof')).actions.filter((value: string) => value.startsWith('notify:')),
+  ).toEqual(['notify:Agent 1']);
+});
+
+test('the current filter defaults to Open without reading the removed Show-resolved preference', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
+  const panel = await open(page);
+  await expect(panel.getByRole('button', { name: 'Thread filter', exact: true })).toHaveText(
+    'Open',
+  );
+  await expect(panel.locator('.discussion-position')).toHaveText('1 / 2');
+});
+
+test('nested filter and batch confirmation consume Escape before the conversation', async ({
+  page,
+}) => {
+  const panel = await open(page);
+  const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+  await input.fill('Retained through nested Escape');
+  await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(panel).toBeVisible();
+  await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Resolve 2 open comments?' });
+  await expect(confirmation).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(confirmation).toBeHidden();
+  await expect(panel).toBeVisible();
+  await expect(input).toHaveText('Retained through nested Escape');
+  await expect(
+    panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }),
+  ).toBeEnabled();
+});
+
+test('Resolve all reports a partial failure in the existing Discussion status line', async ({
+  page,
+}) => {
+  const panel = await open(page, 2, 'First note');
+  await run(page, 'failStatusOnce');
+  await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Resolve 2 open comments?' })
+    .getByRole('button', { name: 'Resolve all', exact: true })
+    .click();
+  await expect(panel.locator('.discussion-status')).toContainText(
+    '1 comment could not be resolved.',
+  );
+  await expect(panel.locator('.resolve-all-report')).toHaveCount(0);
+  await expect(
+    panel.getByRole('button', { name: 'Resolve all open (1)', exact: true }),
+  ).toBeEnabled();
 });

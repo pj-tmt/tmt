@@ -1,3 +1,4 @@
+import { discussionResolvedLabel } from '../src/thread-panel.js';
 import { firstThread, listedThreads, threadKey } from '../src/comments-listing.js';
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vite-plus/test';
@@ -185,4 +186,18 @@ it('prefers an undecided proposal, and keeps attention selection after acknowled
     proposal,
   ]);
   expect(firstThread([])).toBeUndefined();
+});
+
+it('Discussion resolved line shows the actor and relative time when available', () => {
+  const status = projectThreadStatus(thread());
+  const now = 1791072300000;
+  expect(discussionResolvedLabel({ ...status, actorName: 'Ben', at: String(now) }, now)).toBe(
+    'Resolved by Ben · just now',
+  );
+  expect(
+    discussionResolvedLabel({ ...status, actorName: 'Ben', at: String(now - 120000) }, now),
+  ).toBe('Resolved by Ben · 2m ago');
+  expect(discussionResolvedLabel({ ...status, actorName: undefined, at: undefined }, now)).toBe(
+    'Resolved',
+  );
 });

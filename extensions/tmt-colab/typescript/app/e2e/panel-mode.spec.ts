@@ -25,8 +25,8 @@ async function open(page: Page, width: number, height = 900) {
 
 // The mode follows the viewport at both sides of each width panel-mode.ts names.
 for (const [width, mode] of [
-  [1600, 'column'],
-  [1180, 'column'],
+  [1600, 'card'],
+  [1180, 'card'],
   [1179, 'card'],
   [761, 'card'],
   [760, 'sheet'],
@@ -38,11 +38,10 @@ for (const [width, mode] of [
     const panel = commentsRegion(page);
     await expect(panel).toBeVisible();
     await expect(panel).toHaveAttribute('data-mode', mode);
-    // A column is a track of the page grid; a card and a sheet float over the page.
-    await expect(panel).toHaveCSS('position', mode === 'column' ? 'sticky' : 'fixed');
+    // Every currently supported mode floats over the page without a grid track.
+    await expect(panel).toHaveCSS('position', 'fixed');
     const workspace = panel.locator('xpath=..');
-    if (mode === 'column') await expect(workspace).toHaveAttribute('data-panel-column', '');
-    else await expect(workspace).not.toHaveAttribute('data-panel-column', /.*/);
+    await expect(workspace).not.toHaveAttribute('data-panel-column', /.*/);
   });
 
 // Resizing across a width moves the open panel to the other mode without closing it.
@@ -50,13 +49,13 @@ test('the open Comments panel changes mode as the viewport crosses a width', asy
   await open(page, 1440);
   await (await pageAction(page, 'Comments')).click();
   const panel = commentsRegion(page);
-  await expect(panel).toHaveAttribute('data-mode', 'column');
+  await expect(panel).toHaveAttribute('data-mode', 'card');
   await page.setViewportSize({ width: 1000, height: 900 });
   await expect(panel).toHaveAttribute('data-mode', 'card');
   await page.setViewportSize({ width: 600, height: 900 });
   await expect(panel).toHaveAttribute('data-mode', 'sheet');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(panel).toHaveAttribute('data-mode', 'column');
+  await expect(panel).toHaveAttribute('data-mode', 'card');
 });
 
 for (const width of [1440, 1024, 390])
@@ -94,17 +93,16 @@ for (const width of [1440, 390])
     await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Discussion');
   });
 
-// Escape on the page leaves the panel open; Escape inside it steps back, then closes it.
-test('Escape on the page leaves the Comments panel open; inside it, it closes it', async ({
-  page,
-}) => {
+// Escape closes the panel from the page or from within the panel.
+test('Escape closes the Comments panel from the page and from inside it', async ({ page }) => {
   await open(page, 1440);
   await (await pageAction(page, 'Comments')).click();
   const panel = commentsRegion(page);
   await expect(panel).toBeVisible();
   await page.locator('body').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('Escape');
-  await expect(panel).toBeVisible();
+  await expect(panel).toBeHidden();
+  await (await pageAction(page, 'Comments')).click();
   await panel.getByRole('heading', { level: 2 }).focus();
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();

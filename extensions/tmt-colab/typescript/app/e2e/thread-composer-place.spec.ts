@@ -138,11 +138,14 @@ test('in a long thread a reader at the bottom stays pinned and the composer hold
   const messages = thread.locator('.thread-messages');
   const composer = thread.locator('.conversation-composer');
   await expect.poll(() => distance(messages)).toBeLessThanOrEqual(1);
-  const before = await place(composer);
+  // Compare actual coordinates: rounding each side first can turn a subpixel offset into 1px.
+  const before = (await composer.boundingBox())!;
   await run(page, 'scrollArrival');
   await expect(thread.getByTestId('comment-entry')).toHaveCount(41);
   await expect.poll(() => distance(messages)).toBeLessThanOrEqual(1);
-  expect(await place(composer)).toEqual(before);
+  const after = (await composer.boundingBox())!;
+  expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(0.25);
+  expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(0.25);
 });
 
 test('in a long thread a reader scrolled up is held and the composer holds', async ({ page }) => {

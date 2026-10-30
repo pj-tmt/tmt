@@ -80,7 +80,7 @@ for (const width of [1440, 390])
       await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await expect(title).toHaveCSS('flex-wrap', 'nowrap');
-      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
+      await page.screenshot({ path: test.info().outputPath(`1586-${width}-${theme}-short.png`) });
       const heading = page.getByRole('heading', { name: 'Release notes', exact: true });
       // The header holds no access chip at any width (#4116), so the title keeps its room.
       await expect(heading).toBeVisible();
@@ -113,7 +113,7 @@ for (const width of [1440, 390])
       await page.getByRole('button', { name: 'More', exact: true }).click();
       // Theme is the shared bar's: More keeps no copy of it.
       await expect(page.getByRole('menuitemradio')).toHaveCount(0);
-      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-menu.png` });
+      await page.screenshot({ path: test.info().outputPath(`1586-${width}-${theme}-menu.png`) });
       await page.keyboard.press('Escape');
       await mount(page, true);
       await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(1500);
@@ -127,7 +127,9 @@ for (const width of [1440, 390])
             ),
         )
         .toBe(true);
-      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-long-top.png` });
+      await page.screenshot({
+        path: test.info().outputPath(`1586-${width}-${theme}-long-top.png`),
+      });
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
       expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
       expect(
@@ -137,30 +139,26 @@ for (const width of [1440, 390])
           .evaluate((node) => node.ownerDocument.defaultView!.scrollY),
       ).toBe(0);
       expect((await bar.boundingBox())?.y).toBe(0);
-      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-middle.png` });
-      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-long-scrolled.png` });
+      await page.screenshot({ path: test.info().outputPath(`1586-${width}-${theme}-middle.png`) });
+      await page.screenshot({
+        path: test.info().outputPath(`1586-${width}-${theme}-long-scrolled.png`),
+      });
       const beforePanel = await frame.boundingBox(),
         scrollBeforePanel = await page.evaluate(() => window.scrollY);
       await (await pageAction(page, 'Comments')).click();
       const comments = commentsRegion(page);
       await expect(comments).toBeVisible();
       expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforePanel);
-      const metric = (name: string) =>
-        page
-          .locator('.workspace')
-          .evaluate(
-            (node, name) => Number.parseFloat(getComputedStyle(node).getPropertyValue(name)),
-            name,
-          );
       if (width === 1440) {
-        // A column takes its own tracks from the page grid: the frame narrows by the panel, its
-        // margin and the gap, and stays as tall.
-        await expect(comments).toHaveAttribute('data-mode', 'column');
-        const taken =
-          (await metric('--colab-panel-width')) +
-          (await metric('--colab-panel-edge')) +
-          (await metric('--colab-panel-gap'));
-        expect((await frame.boundingBox())?.width).toBe(beforePanel!.width - taken);
+        // The wide card floats above the dock and does not reflow the page.
+        await expect(comments).toHaveAttribute('data-mode', 'card');
+        expect((await frame.boundingBox())?.width).toBe(beforePanel!.width);
+        expect((await frame.boundingBox())?.height).toBe(beforePanel!.height);
+        const card = (await comments.boundingBox())!;
+        const dock = (await page.locator('.page-floating-actions:visible').boundingBox())!;
+        expect(card.width).toBe(360);
+        expect(card.height).toBe(470);
+        expect(Math.abs(dock.y - card.y - card.height - 16)).toBeLessThanOrEqual(1);
       } else {
         // A sheet floats over the page: the frame does not move; the sheet has the leaf's 7px insets.
         await expect(comments).toHaveAttribute('data-mode', 'sheet');
@@ -173,7 +171,9 @@ for (const width of [1440, 390])
         expect(box.width).toBe(width - 2 * gap);
         expect(box.y + box.height).toBe(900 - gap);
       }
-      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
+      await page.screenshot({
+        path: test.info().outputPath(`1586-${width}-${theme}-comments.png`),
+      });
       await commentsClose(page, 'empty').click();
       await expect(comments).not.toBeVisible();
       await expect(commentsAction(page)).toBeFocused();
@@ -335,7 +335,7 @@ for (const width of [1440, 390])
           (node, name) => Number.parseFloat(getComputedStyle(node).getPropertyValue(name)),
           name,
         );
-      // The marker's lane edge, measured fresh: a column reflows the page as it opens and closes.
+      // After close, the original page marker is reachable again.
       const frameAt = async () => {
         const box = await marker.boundingBox();
         return (
@@ -347,20 +347,17 @@ for (const width of [1440, 390])
         );
       };
       if (width === 1440) {
-        // A column: 24px clear of the viewport's right edge, sticky 20px under the header and the
-        // pinned status band, with no edge of its own; it reflows the page beside it, so the marker
-        // lane stays uncovered.
-        await expect(panel).toHaveAttribute('data-mode', 'column');
-        expect(edge.x + edge.width).toBe(width - (await length('--colab-panel-edge')));
-        const band = (await page.locator('.work-band:visible').boundingBox())!.height;
-        expect(edge.y).toBeCloseTo(
-          headerHeight(width) + band + (await length('--colab-panel-sticky-gap')),
-          0,
-        );
-        await expect(panel).toHaveCSS('border-left-width', '0px');
-        await expect(panel).toHaveCSS('border-right-width', '0px');
-        expect((await frame.boundingBox())?.width).toBeLessThan(before!.width);
-        await expect.poll(frameAt).toBe(true);
+        // The card has its own edge, stays above the dock and leaves the page width intact.
+        await expect(panel).toHaveAttribute('data-mode', 'card');
+        const dock = (await page
+          .locator('#ask-page-fixture .page-floating-actions')
+          .boundingBox())!;
+        expect(edge.width).toBe(360);
+        expect(edge.height).toBe(470);
+        expect(Math.abs(dock.y - edge.y - edge.height - 16)).toBeLessThanOrEqual(1);
+        await expect(panel).toHaveCSS('border-left-width', '1px');
+        await expect(panel).toHaveCSS('border-right-width', '1px');
+        expect((await frame.boundingBox())?.width).toBe(before!.width);
       } else {
         // A sheet: the leaf's insets on three sides, edged all round, over the page.
         await expect(panel).toHaveAttribute('data-mode', 'sheet');

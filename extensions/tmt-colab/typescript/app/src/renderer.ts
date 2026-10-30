@@ -228,6 +228,8 @@ export async function mountRenderer(
     readings?: ReadingRenderBlock[],
   ): void;
   scrollAnchor(id: string): void;
+  /** Restore focus to a currently admitted marker, without granting page authority. */
+  focusThread(id: string | null): void;
   /** Mark the passage of the thread whose window is open (null: none), which the page draws in its
    * selected look. An id the current highlight request does not hold (a resolved thread) selects
    * nothing and clears the selection left behind; the selection outlives a new request, which
@@ -1310,6 +1312,21 @@ export async function mountRenderer(
       behavior: 'instant',
     });
   };
+  const focusThread = (id: string | null) => {
+    if (
+      stopped ||
+      !ready ||
+      !requestId ||
+      (id !== null && !anchors.some((anchor) => anchor.id === id))
+    )
+      return;
+    channel.port1.postMessage({
+      type: 'colab.render.focus-thread',
+      renderId: snapshot.renderId,
+      requestId,
+      id,
+    });
+  };
   const anchorRectangle = (id: string): SelectionRect | undefined => {
     const position = positions.get(id);
     if (stopped || !position) return;
@@ -1366,6 +1383,7 @@ export async function mountRenderer(
     slots,
     questions,
     scrollAnchor,
+    focusThread,
     select,
     scrollReading: (id: string) => {
       if (stopped || !ready || !readingBlocks.some((reading) => reading.id === id)) return;

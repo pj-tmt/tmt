@@ -1606,74 +1606,106 @@ button.discussion-quote:focus-visible {
 .comment-thread[data-layout='discussion'] .conversation-composer {
   border-top: 0;
 }
-/* The position (n / N) ends the panel heading, next to Close, as on the website. */
+/* Mock 1: the Discussion header is one compact row with a bordered filter. */
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+  padding: 8px 6px 8px 14px;
+  --tmt-ui-host-icon-action-size: 26px;
+  --tmt-ui-header-icon-size: 16px;
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header::after {
+  display: none;
+}
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
+  display: flex;
   flex: 1;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  gap: 0;
 }
-/* The Discussion header: a 15px bold title, the position, the thread arrows, a `✓ Resolve` text
-   button and Close; the gap, the 24px arrows and the 12px position text keep them on one row where
-   the panel is wide enough. */
-.tmt-ui-panel[data-discussion] .tmt-ui-drawer-header {
-  gap: 4px;
-}
-.tmt-ui-panel[data-discussion] .tmt-ui-drawer-heading h2 {
-  font-size: 15px;
-  font-weight: 700;
-  /* The title gives way before anything overlaps: on a font wider than the one this row was measured
-     with (the card and the phone sheet fill it to the pixel), it is shortened, never a control. */
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading h2 {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
+  font-size: 13px;
+  font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tmt-ui-panel[data-discussion] .tmt-ui-drawer-caption {
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-caption {
+  display: inline-flex;
   flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
 }
-/* The 286px column and the 328px card cannot hold the title, the position, two arrows, Show resolved,
-   `Resolve` and Close on one row (they need about 314px of the 262px and 280px inside their headers):
-   row 1 is the title and Close, row 2 the position with the arrows and Show resolved as one group on
-   the left and `Resolve` on the right. The phone sheet is wide enough for one row. */
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion] .tmt-ui-drawer-header {
-  flex-wrap: wrap;
-  row-gap: 4px;
+.tmt-ui-panel[data-panel='comments'] .discussion-position {
+  font-size: 11px;
 }
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion] .tmt-ui-drawer-heading,
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
-  .tmt-ui-drawer-header-actions {
-  display: contents;
-}
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
-  .tmt-ui-drawer-heading
-  h2 {
-  flex: 1;
-  min-width: 0;
-}
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
-  .tmt-ui-drawer-header
-  > .tmt-ui-icon-action {
-  order: 1;
-}
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
-  .tmt-ui-drawer-header::after {
-  content: '';
-  order: 1;
-  flex: 0 0 100%;
-  height: 0;
-}
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion] .tmt-ui-drawer-caption {
-  order: 2;
-}
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion]
-  .tmt-ui-drawer-header-actions
-  > * {
-  order: 3;
-}
-.tmt-ui-panel[data-discussion] .tmt-ui-drawer-header-actions {
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-menu-trigger {
+  min-height: 0;
   gap: 2px;
-  --tmt-ui-host-icon-action-size: 24px;
-  --tmt-ui-header-icon-size: 14px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-menu-trigger > svg {
+  width: 12px;
+  height: 12px;
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header .tmt-ui-icon-action-control {
+  border-radius: 6px;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header .tmt-ui-icon-action-control:disabled {
+  opacity: 0.35;
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header .tmt-ui-icon-action-icon > svg {
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header .tmt-ui-icon-action-tooltip {
+  overflow: visible;
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header .tmt-ui-icon-action-tooltip-label {
+  position: relative;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: #26393f;
+  color: white;
+  font-size: 11px;
+  line-height: 1;
+}
+.tmt-ui-panel[data-panel='comments']
+  .tmt-ui-drawer-header
+  .tmt-ui-icon-action-tooltip-label::before {
+  position: absolute;
+  top: -4px;
+  right: 16px;
+  width: 8px;
+  height: 8px;
+  background: #26393f;
+  content: '';
+  transform: rotate(45deg);
+}
+.discussion-separator {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--tmt-ui-surface-rule);
 }
 
 /* The annotation window is the website's: a sans title with its close, the quoted selection under an
@@ -1957,8 +1989,7 @@ button.discussion-quote:focus-visible {
   min-width: 44px;
   padding: 0 12px;
 }
-/* The dock's Comments action holds the open-thread count, and the needs-you colour and bullet while a
-   thread has news; the count's slot is held while the threads are verified, so nothing moves when it arrives. */
+/* The dock holds a plain open-thread count; its slot stays put while threads are verified. */
 .page-floating-actions .tmt-ui-icon-action-control:has(.dock-count) {
   width: auto;
   min-width: 44px;
@@ -1973,12 +2004,7 @@ button.discussion-quote:focus-visible {
 .dock-count[data-pending] {
   min-width: 1ch;
 }
-.dock-count[data-unseen] {
-  color: var(--c-waiting);
-}
-/* While Chat is open, or Comments over the page as a card or a sheet, the dock has become the panel: it
-   keeps its place, unseen, for the panel to open out of and close back into (dock-motion.ts), and for
-   focus to return to. */
+/* The existing Chat drawer retains its dock transition until its frame is decided. */
 .selection-mode[data-panel-open] {
   opacity: 0;
   pointer-events: none;
@@ -2025,8 +2051,15 @@ button.discussion-quote:focus-visible {
   gap: 8px;
 }
 .selection-mode .tmt-ui-icon-action-icon > svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.page-floating-actions .tmt-ui-icon-action-control[aria-expanded='true'] {
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-accent-strong);
 }
 .selection-mode-hint {
   margin: 0;
