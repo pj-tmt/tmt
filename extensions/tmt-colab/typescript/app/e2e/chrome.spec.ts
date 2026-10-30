@@ -222,25 +222,14 @@ for (const width of [1440, 390, 320])
           });
           expect(current.height).toBe(headerHeight);
           if (shelled) {
-            // The bar draws no title or brand. A screen whose content names itself (the list) has no
-            // title row; the others keep theirs as content: static, with no band of its own.
-            await expect(page.locator('.tmt-ui-topbar:visible .tmt-ui-title')).toHaveCount(0);
-            const row = page.locator('.colab-title-row header:visible');
-            if (screen === 'pages' || screen === 'archived' || screen === 'empty') {
-              await expect(row).toHaveCount(0);
-              await expect(page.locator('#chrome-fixture .home h1')).toHaveCount(1);
-            } else {
-              await expect(row).toHaveCount(1);
-              await expect(row.locator('.tmt-ui-title')).toHaveCSS(
-                'font-size',
-                tokens.header['title-size'],
-              );
-              await expect(row.locator('.tmt-ui-wordmark')).toHaveCount(0);
-              await expect(row).toHaveCSS('position', 'static');
-              await expect(row).toHaveCSS('flex-wrap', 'nowrap');
-              await expect(row).toHaveCSS('border-bottom-width', '0px');
-              await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-            }
+            // The bar's title slot holds the screen's one heading, at the bar's title size; no title
+            // row or content heading repeats it, and the bar draws no brand.
+            const heading = page.locator('.tmt-ui-topbar:visible .tmt-ui-topbar-title h1');
+            await expect(heading).toHaveCount(1);
+            await expect(heading).toHaveCSS('font-size', tokens.header['title-size']);
+            await expect(page.locator('.colab-title-row')).toHaveCount(0);
+            await expect(page.locator('#chrome-fixture h1')).toHaveCount(1);
+            await expect(page.locator('.tmt-ui-topbar:visible .tmt-ui-wordmark')).toHaveCount(0);
           } else {
             expect(title?.size).toBe(tokens.header['title-size']);
             expect(frame.wordmark?.size).toBe(tokens.header['wordmark-size']);
@@ -426,9 +415,9 @@ for (const width of [1440, 390, 320])
         const path = '/test/chrome-browser.tsx';
         await (await import(path)).mount('page');
       });
-      const header = page.locator('#chrome-fixture .tmt-ui-header');
+      const header = page.locator('#chrome-fixture .colab-topbar-identity');
       const bar = page.locator('#chrome-fixture .tmt-ui-topbar');
-      // The connection moved into the header's accessible name; the bar shows the page title alone.
+      // The connection is in the title group's accessible name; the bar shows the page title alone.
       await expect(header).toHaveAttribute(
         'aria-label',
         'Colab · local · Studio Mac · Release notes',
@@ -441,7 +430,11 @@ for (const width of [1440, 390, 320])
       await expect(header.locator('.tmt-ui-brand, .tmt-ui-wordmark')).toHaveCount(0);
       await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
       const heading = header.getByRole('heading', { name: 'Release notes', exact: true });
-      expect(await header.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      expect(
+        await bar
+          .locator('.tmt-ui-topbar-title')
+          .evaluate((node) => node.scrollWidth <= node.clientWidth),
+      ).toBe(true);
       // The access words stay in the document for assistive technology, never on screen (#4116);
       // Share… in the More menu carries them.
       await expect(bar.locator('.page-connection')).toHaveText('Private · Live');

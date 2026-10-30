@@ -33,7 +33,11 @@ Openable links (`effects::openable`: `http`, `https`, `mailto`) are recorded by 
 renderer as `member_links::Target::Url` cells beside the member mentions, for a label,
 an autolink and a bare address outside code. They share the hit table, hover, focus
 and Enter with mentions; a `Url` hit opens the popover of `member_links/popover.rs`
-(a `Menu`: the origin as an inert row, then Open, Copy, Show full). `effects::open_argv`
+(a `Menu`: the origin as an inert row, then Open, Copy, Show full). A bare address is a
+word less its closing punctuation (`member_links::word_token`) that `is_bare_url` admits;
+plain rows (`paint_plain_hits`: notices, key/value fields, workspace rows, the squad
+focus) use the same rule from the row's complete source, cached with its member names,
+and keep only the painted part of a cut address as the hit, opening the whole one. `effects::open_argv`
 fills `{url}` as one argument; `detect_opener` picks the default per `OpenHost`.
 `board/hyperlinks.rs` also lets a supporting terminal click an `http(s)` label: `paint_hits`
 leaves the cells alone and `Hit`s of `Target::Url` become `Span`s (`State::web_spans`),
@@ -272,7 +276,10 @@ claim read and do not cause an automatic retry. Reopening the reader or explicit
 Mark read supplies a new admission. Failed work does not block other conversations.
 
 Every painted `● N unread` (top bar, an Agents row's STATE, the conversation header,
-the composer info line) and the `unread` action (`u`) open `board/unread_overlay` for
+the composer info line) records an `unread_hits` area. The one under the pointer
+(`App::unread_hover`, while the board takes input without an overlay) is restyled after
+the frame's counts with the composer chip's Hot style. A press on one, or the
+`unread` action (`u`), opens `board/unread_overlay` for
 their member scope. The overlay fills the board body, keeping the top bar and tabs.
 At 100 columns and wider, a grouped list (two fifths, capped at 58 columns) sits beside
 the selected answer's markdown, agent/time header and exact-request `re:` line. Below
@@ -401,7 +408,10 @@ title, is `LINK_MARK` (`↗`) and `address()` in the `link` role, then the bylin
 without its scheme. A todo's line 2 is only the byline. The link text carries the `link` hit id; the
 controller keeps its painted areas (`link_hits`) and the item under the pointer (`hovered`, from
 `App::move_pointer` while Notes is the top overlay). A press on a link selects its row and opens it;
-the cursor row's link and the hovered link paint in the selection colour, underlined. Shift+↑↓ swaps
+the cursor row's link and the hovered link paint in the selection colour, underlined.
+The title text carries the `title` hit id; its bare web links (`member_links::bare_urls`,
+the transcript's rule) map onto its painted glyphs the same way and become links 1.. of
+the row (`LinkHit::link`; 0 is the item's own link), each hovered on its own. Shift+↑↓ swaps
 with the neighbouring row of the same list. Captions
 resolve held preview/roster data by the frozen room/member UUID, falling back to
 `member <short UUID>` when no name is held. Rendering never reads Core or borrows

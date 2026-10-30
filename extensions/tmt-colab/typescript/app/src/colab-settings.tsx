@@ -62,7 +62,6 @@ export function ColabSettings({ source = colabSettingsSource }: { source?: Colab
   return (
     <section className="home colab-settings" aria-label={t.title}>
       <header className="colab-settings-hero">
-        <h1>{t.title}</h1>
         <p>{t.subtitle}</p>
       </header>
       {unavailable && (

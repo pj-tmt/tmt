@@ -107,8 +107,8 @@ shadcn manner (code copied into our package, not a themed dependency).
 The one sticky row on every screen: TMT mark, product word and plain screen
 title on the left, without a default divider; status group, then light actions on
 the right. Use the same height, type and order across screens. Actions that do not fit overflow into More;
-status remains visible as mark plus word. A page whose hero is its heading (the Colab page
-list) draws no title in the header: the header keeps its accessible name, and the hero is the page's `h1`.
+status remains visible as mark plus word. The title is the page's one `h1`; content repeats no large
+title.
 
 - Colab owner pages and space home are the exception to the leading mark: neutral
   `◉ local · <backend name>` (`local` when absent), Colab, `/`, title and muted
@@ -173,10 +173,9 @@ product bars stay unchanged until their owning adoption.
   rail item names the module. The header keeps the module in its accessible name
   (`Colab · <page>`), and the document title keeps it too. While a route loads the bar
   shows the module's name as its title and keeps its height and rule. A module that adopts the
-  shared top bar (Colab in its own shell, #5237) moves its actions there and draws its title row as
-  content: on the content background with no band or rule of its own, at the content column's
-  left edge, scrolling with the page, so only the bar and a phone's module tabs stay fixed. A
-  route whose content names itself (the list, settings, a shell page) has no title row.
+  shared top bar (Colab, #5237) moves its actions there and puts its title in the bar's title slot
+  (`<module or scope> / <title>`, a page's chips after it), with no title row under the bar. A
+  Colab page's status band is the one second layer, sticky directly under the bar.
 - **Bar cluster:** the shell owns the right end of the bar. A module fills the **search**
   slot (Colab: Search pages, an icon with a quiet `⌘K` key hint that a touch screen and a
   bar under 640 px do not draw; ⌘K opens it from anywhere in the module) and the **chip**

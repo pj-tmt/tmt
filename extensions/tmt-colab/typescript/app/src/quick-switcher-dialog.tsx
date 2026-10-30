@@ -1,3 +1,4 @@
+import { focusPageHeading } from './colab-header.js';
 import { BrowserDialog, BrowserMenu } from '@tmt/browser-ui/react';
 import type { SearchGroup, SearchRegistry } from '@tmt/browser-ui/search';
 import {
@@ -222,11 +223,7 @@ export function QuickSwitcherHost({
       .navigate(id)
       .then(() => {
         if (!mounted.current || latest.current.pageId !== id) return;
-        const title = document.querySelector<HTMLElement>('.tmt-ui-header h1');
-        if (title) {
-          title.tabIndex = -1;
-          title.focus({ preventScroll: true });
-        }
+        focusPageHeading();
       })
       .catch(() => {
         // The router owns its load-error surface; no second navigation or retry is admitted.

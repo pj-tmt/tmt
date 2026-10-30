@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { mountRenderer, sourceFrameKey } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
-import { frameLead, toolbarInset } from './toolbar-inset.js';
+import { toolbarInset } from './toolbar-inset.js';
 import type { PageSnapshot, PageView } from './transport.js';
 
 type RendererOptions = Parameters<typeof mountRenderer>[2];
@@ -47,7 +47,6 @@ export function usePageRenderer({
   renderer,
   setState,
   toolbar,
-  titleRow,
   workBandSize = 0,
   anchor,
   layers,
@@ -63,9 +62,6 @@ export function usePageRenderer({
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   setState(state: RenderState | 'loading'): void;
   toolbar: RefObject<HTMLElement | null>;
-  /** The page's title row when it is content under the shared bar: it takes room from a frame that
-   * fills the viewport, but not from where a revealed element lands. */
-  titleRow: RefObject<HTMLElement | null>;
   workBandSize?: number;
   /** The element a shell item opened the page at. */
   anchor: string | undefined;
@@ -165,8 +161,8 @@ export function usePageRenderer({
       onEditLocks,
       onQuestions,
       onReadings,
-      viewportInset: () => toolbarInset(toolbar.current),
-      frameLead: () => frameLead(titleRow.current) + bandSize.current,
+      // The status band is sticky under the bar: it covers the page like the bar does.
+      viewportInset: () => toolbarInset(toolbar.current) + bandSize.current,
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {
         setResolved(ids);
@@ -212,7 +208,6 @@ export function usePageRenderer({
     renderer,
     setState,
     toolbar,
-    titleRow,
     onSlots,
     onEditLocks,
     onQuestions,

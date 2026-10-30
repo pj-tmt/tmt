@@ -6,6 +6,7 @@ mod consumption_history;
 mod context;
 mod database_rename;
 mod digest_hook;
+pub use digest_hook::LaunchClaim;
 mod discovery;
 mod dispatch;
 mod errors;

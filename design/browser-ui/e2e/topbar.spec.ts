@@ -231,7 +231,7 @@ const routeTitles = [
   ['reader', 'Weekly plan'],
   ['pair', 'tmt'],
 ] as const;
-for (const renderer of ['react', 'native'])
+for (const renderer of ['react', 'native', 'hosted'])
   for (const width of [1440, 390])
     for (const theme of ['light', 'dark'] as const)
       for (const [identity, title] of routeTitles)
@@ -248,6 +248,7 @@ for (const renderer of ['react', 'native'])
           await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
           const current = heading.locator('.tmt-ui-topbar-title-current');
           await expect(current).toHaveText(title);
+          await expect(current).toHaveCSS('font-weight', '600');
           await expect(current).toHaveCSS('text-overflow', 'ellipsis');
           const right = bar.locator('.tmt-ui-topbar-controls');
           const [leftBox, headingBox, rightBox] = await Promise.all([
@@ -259,7 +260,10 @@ for (const renderer of ['react', 'native'])
           expect(headingBox!.x + headingBox!.width).toBeLessThanOrEqual(rightBox!.x);
           for (const prefix of await heading.locator('.tmt-ui-topbar-title-prefix').all()) {
             if (width <= 900) await expect(prefix).toBeHidden();
-            else await expect(prefix).toBeVisible();
+            else {
+              await expect(prefix).toBeVisible();
+              await expect(prefix).toHaveCSS('font-weight', '400');
+            }
           }
           if (identity === 'colab-page') {
             const chips = left.locator('.tmt-ui-topbar-title-chips');

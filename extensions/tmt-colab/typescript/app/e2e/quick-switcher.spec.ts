@@ -67,15 +67,15 @@ for (const width of [1440, 390]) {
     ).not.toContain('Loading pages…');
     await beta.click();
     await expect(dialog(page)).toHaveCount(0);
-    await expect(page.locator('.tmt-ui-header h1')).toHaveText('Beta review');
-    await expect(page.locator('.tmt-ui-header h1')).toBeFocused();
+    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Beta review');
+    await expect(page.locator('.tmt-ui-topbar-title h1')).toBeFocused();
     expect((await proof(page)).pageReads).toEqual(['c0000002-1111-4111-8111-000000000001']);
     await page.keyboard.press(await shortcut(page));
     await expect(options(page)).toHaveCount(2);
     await expect(options(page).filter({ hasText: 'Beta review' })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(dialog(page)).toHaveCount(0);
-    await expect(page.locator('.tmt-ui-header h1')).toBeFocused();
+    await expect(page.locator('.tmt-ui-topbar-title h1')).toBeFocused();
   });
 }
 
@@ -115,6 +115,7 @@ test('failed destination loading focuses the error screen heading', async ({ pag
   await options(page).filter({ hasText: 'Beta review' }).click();
   await expect(dialog(page)).toHaveCount(0);
   await expect(page.getByText('Fixture page load refused', { exact: true })).toBeVisible();
+  // The root error view has no shell here: its standalone header keeps the heading.
   await expect(page.locator('.tmt-ui-header h1')).toHaveText('This page could not open.');
   await expect(page.locator('.tmt-ui-header h1')).toBeFocused();
   await expect(page.locator('.tmt-ui-header h1')).toHaveAttribute('tabindex', '-1');

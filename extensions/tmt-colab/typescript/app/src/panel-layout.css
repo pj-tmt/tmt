@@ -33,11 +33,15 @@
 }
 .workspace[data-panel-column] > .tmt-ui-panel[data-mode='column'] {
   grid-column: 2;
+  /* Under both layers: the bar and the page's pinned status band, which spans the workspace. */
   position: sticky;
-  top: calc(var(--page-bar-size) + var(--tmt-ui-shell-lead, 0px) + var(--colab-panel-sticky-gap));
-  max-height: calc(
-    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - 2 *
+  top: calc(
+    var(--page-bar-size) + var(--tmt-ui-shell-lead, 0px) + var(--colab-work-band-size, 0px) +
       var(--colab-panel-sticky-gap)
+  );
+  max-height: calc(
+    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) -
+      var(--colab-work-band-size, 0px) - 2 * var(--colab-panel-sticky-gap)
   );
   margin-inline-end: var(--colab-panel-edge);
 }

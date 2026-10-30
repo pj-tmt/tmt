@@ -22,9 +22,7 @@ for (const width of [1440, 390])
       page,
     }) => {
       await mount(page, width, theme);
-      await expect(
-        app(page).getByRole('heading', { name: 'A shared place for ideas.' }),
-      ).toBeVisible();
+      await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('All pages');
       await expect(app(page).getByRole('tab')).toHaveCount(6);
       for (const name of [
         'All, 75',
@@ -455,7 +453,7 @@ test('compact projects preserve the draft and scope, with no duplicate phone pro
   await expect(home).toHaveAttribute('data-compact', '');
   await home.getByRole('button', { name: 'Scope to blog', exact: true }).click();
   await expect(home).not.toHaveAttribute('data-compact');
-  await expect(home.getByRole('heading', { name: 'blog', exact: true })).toBeVisible();
+  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
   await expect(home.getByRole('button', { name: 'Scope to blog', exact: true })).toBeFocused();
   await expect(search).toHaveText('a long unfinished query that remains a draft');
   expect(new URL(page.url()).hash).toContain('scope=blog');

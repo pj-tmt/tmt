@@ -98,17 +98,26 @@ pub fn execute(
                 storage.close().map_err(|_| ())?;
                 return Ok(());
             };
-            let Some(batch) = storage
+            let claimed = storage
                 .claim_digest_for_launch(
                     &stored,
                     tmt_core::operation::new_operation_id(),
                     tmt_core::operation::new_operation_id(),
                     Some(through),
                 )
-                .map_err(|_| ())?
-            else {
-                storage.close().map_err(|_| ())?;
-                return Ok(());
+                .map_err(|_| ())?;
+            let batch = match claim_refusal(claimed) {
+                Ok(Some(batch)) => batch,
+                // Nothing to claim is not a refusal and names nothing.
+                Ok(None) => {
+                    storage.close().map_err(|_| ())?;
+                    return Ok(());
+                }
+                Err(stop) => {
+                    refuse(stop);
+                    let _ = storage.close();
+                    return Err(());
+                }
             };
             let text = match digest::text(&mut storage, &batch) {
                 Ok(text) => text,
@@ -310,6 +319,20 @@ pub fn execute(
     Ok(u8::from(worker && result.is_err()))
 }
 
+/// A claim that found the launch's authority changed refuses with the launch check it
+/// failed, which the worker reports and the supervisor stores (#5459).
+fn claim_refusal(
+    claim: tmt_adapters::storage::LaunchClaim,
+) -> Result<Option<tmt_core::request::digest::DigestChecklist>, DigestStop> {
+    use tmt_adapters::storage::LaunchClaim;
+    match claim {
+        LaunchClaim::Claimed(batch) => Ok(Some(batch)),
+        LaunchClaim::Nothing => Ok(None),
+        LaunchClaim::BindingChanged => Err(DigestStop::LaunchBinding),
+        LaunchClaim::RememberedChanged => Err(DigestStop::LaunchRemembered),
+    }
+}
+
 /// The supervisor's reading of its worker: `failure` is `None` for a worker that finished.
 /// A worker that ran and failed names its own refusal on stderr; a finished worker writes
 /// none, so any stderr byte from it is a refusal of its own.
@@ -388,6 +411,33 @@ fn publication_state(result: Result<(), handoff::HandoffFailure>) -> DigestState
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_claim_refuses_only_on_an_authority_change_and_names_it() {
+        use tmt_adapters::storage::LaunchClaim;
+        assert!(matches!(claim_refusal(LaunchClaim::Nothing), Ok(None)));
+        assert_eq!(
+            claim_refusal(LaunchClaim::BindingChanged).unwrap_err(),
+            DigestStop::LaunchBinding
+        );
+        assert_eq!(
+            claim_refusal(LaunchClaim::RememberedChanged).unwrap_err(),
+            DigestStop::LaunchRemembered
+        );
+        // The worker reports both by name, and its supervisor reads them back to store.
+        for stop in [DigestStop::LaunchBinding, DigestStop::LaunchRemembered] {
+            assert_eq!(
+                worker_refusal(
+                    Some(CommandFailure::Exit {
+                        code: Some(1),
+                        signal: None
+                    }),
+                    stop.name().as_bytes()
+                ),
+                Some(stop)
+            );
+        }
+    }
+
     #[test]
     fn only_complete_publication_is_delivered() {
         assert_eq!(publication_state(Ok(())), DigestState::Delivered);

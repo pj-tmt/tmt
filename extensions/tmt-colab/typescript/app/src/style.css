@@ -71,10 +71,7 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   font: 11px var(--f-mono);
 }
 main {
-  min-height: calc(
-    100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) -
-      var(--colab-title-row-size, 0px) - 57px
-  );
+  min-height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
 }
 footer {
   padding: 16px 32px;
@@ -294,8 +291,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .frame-host {
   min-height: calc(
-    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) -
-      var(--colab-title-row-size, 0px) - var(--colab-work-band-size, 0px)
+    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-work-band-size, 0px)
   );
   /* Browser page canvas stays white; theme tokens belong to the surrounding chrome. */
   background: #fff;
@@ -324,9 +320,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .page-opening {
   display: grid;
   place-items: center;
-  min-height: calc(
-    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-title-row-size, 0px)
-  );
+  min-height: calc(100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px));
 }
 .page-opening-mark {
   display: block;

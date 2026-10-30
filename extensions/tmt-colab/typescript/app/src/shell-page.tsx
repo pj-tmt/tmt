@@ -33,17 +33,14 @@ const t = text.shellPage;
  * own. A page with no admitted value says so instead of drawing nothing. */
 export function ShellPage({
   shell,
-  title,
   embed,
 }: {
   shell: Shell | undefined;
-  /** The page's own title: the headline of the dashboard. */
-  title: string;
   /** Hosts the chapter's page itself in its panel; absent where the app cannot (no panel). */
   embed?: EmbedPage;
 }) {
   return shell ? (
-    <ShellContent shell={shell} title={title} embed={embed} />
+    <ShellContent shell={shell} embed={embed} />
   ) : (
     <div className="shell-page tmt-ui-page">
       <p className="shell-state" role="status">
@@ -53,15 +50,7 @@ export function ShellPage({
   );
 }
 
-function ShellContent({
-  shell,
-  title,
-  embed,
-}: {
-  shell: Shell;
-  title: string;
-  embed: EmbedPage | undefined;
-}) {
+function ShellContent({ shell, embed }: { shell: Shell; embed: EmbedPage | undefined }) {
   const { transport } = rootRoute.useRouteContext();
   const [home, setHome] = useState<SpaceHome | 'failed' | undefined>();
   useEffect(() => {
@@ -85,7 +74,6 @@ function ShellContent({
   return (
     <ShellBody
       shell={shell}
-      title={title}
       home={home === 'failed' ? { title: '', pages: [] } : home}
       failed={home === 'failed'}
       embed={embed}
@@ -127,13 +115,11 @@ function useWide(): boolean {
 
 function ShellBody({
   shell,
-  title,
   home,
   failed,
   embed,
 }: {
   shell: Shell;
-  title: string;
   home: SpaceHome;
   failed: boolean;
   embed: EmbedPage | undefined;
@@ -225,7 +211,7 @@ function ShellBody({
   const empty = cells.length === 0;
   return (
     <div className="shell-page tmt-ui-page" ref={root}>
-      <ShellHead title={title} model={model} />
+      <ShellHead model={model} />
       <section className="tmt-ui-card shell-glance" aria-labelledby="shell-glance-heading">
         <h2 id="shell-glance-heading" className="tmt-ui-card-title">
           {t.glance}

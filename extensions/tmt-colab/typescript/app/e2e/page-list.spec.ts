@@ -376,7 +376,7 @@ test('the home is the concept17 list with no Today view, and an old /all link ke
   page,
 }) => {
   await mount(page);
-  await expect(app(page).getByRole('heading', { name: 'A shared place for ideas.' })).toBeVisible();
+  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('All pages');
   await expect(app(page).getByRole('navigation', { name: 'Home views' })).toHaveCount(0);
   await expect(
     app(page).getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
@@ -1335,12 +1335,15 @@ for (const width of [1440, 390])
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3747-scoped-list-${width}-${theme}.png`) });
       await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
+      // The scope leads the page's title in the bar; a phone keeps only the title.
       const crumb = app(page).locator('.colab-scope-crumb', { hasText: /^design$/ });
-      // The page's header holds only More, so the crumb has room on a phone too.
-      await expect(crumb).toBeVisible();
+      if (width > 900) await expect(crumb).toBeVisible();
+      else await expect(crumb).toBeHidden();
+      await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('Alpha plan');
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3747-page-crumb-${width}-${theme}.png`) });
-      await crumb.click();
+      if (width > 900) await crumb.click();
+      else await page.goBack();
       await showAll(page);
       await scopeTo(page, 'All pages');
       await expect(titles(page)).toHaveCount(4);
@@ -1578,10 +1581,12 @@ for (const width of [1440, 390, 320])
         await expect(scopeTrigger(page, long)).toBeVisible();
         expect(await inside()).toEqual({ scroll: 0, crumbInside: true, railOverflow: 0 });
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
-        // The title row owns the column's whole width (the actions are in the shared bar), so even a
-        // 320px phone keeps the crumb, ellipsized at its own cap.
+        // The bar's title keeps the crumb, ellipsized at its own cap, beside a long title; a phone
+        // keeps only the title, ellipsized.
         const crumb = app(page).locator('.colab-scope-crumb', { hasText: long });
-        await expect(crumb).toBeVisible();
+        if (width > 900) await expect(crumb).toBeVisible();
+        else await expect(crumb).toBeHidden();
+        await expect(app(page).locator('.tmt-ui-topbar-title-current')).toBeVisible();
         expect(
           await page.evaluate(
             () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -1591,7 +1596,8 @@ for (const width of [1440, 390, 320])
           await page.screenshot({
             path: await capturePath(`3747-page-crumb-long-${width}-${theme}.png`),
           });
-        await crumb.click();
+        if (width > 900) await crumb.click();
+        else await page.goBack();
         await showAll(page);
         await expect(scopeTrigger(page, long)).toBeVisible();
       }
@@ -1766,7 +1772,7 @@ for (const width of [1440, 390, 320])
       ['Latin', 'W'.repeat(32)],
       ['CJK', '漢'.repeat(32)],
     ] as const)
-      test(`a ${kind} project name wraps inside the heading and New page stays in view at ${width}px ${theme}`, async ({
+      test(`a ${kind} project name ellipsizes in the bar's title and New page stays in view at ${width}px ${theme}`, async ({
         page,
       }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -1781,29 +1787,29 @@ for (const width of [1440, 390, 320])
           .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: name }) });
         await entry.scrollIntoViewIfNeeded();
         await entry.click();
-        const heading = app(page).locator('.page-list-hero h1');
+        const heading = app(page).locator('.tmt-ui-topbar-title-current');
         await expect(heading).toHaveText(name);
         await expect(heading).toHaveAttribute('title', name);
         const create = app(page)
           .locator('.page-list-hero-create')
           .getByRole('button', { name: 'New page' });
         await expect(create).toBeVisible();
-        const hero = await page.evaluate(() => {
-          const h1 = document.querySelector('#list-fixture .page-list-hero h1') as HTMLElement;
+        const bar = await page.evaluate(() => {
+          const title = document.querySelector('#list-fixture .tmt-ui-topbar-title-current')!;
+          const controls = document.querySelector('#list-fixture .tmt-ui-topbar-controls')!;
           const button = document.querySelector(
             '#list-fixture .page-list-hero-create button',
           ) as HTMLElement;
-          const box = h1.getBoundingClientRect();
+          const box = title.getBoundingClientRect();
           const action = button.getBoundingClientRect();
           return {
-            lines: Math.round(box.height / parseFloat(getComputedStyle(h1).lineHeight)),
-            // The button is whole inside the window and the heading ends before it starts.
+            // One line that ends before the bar's controls (cut with an ellipsis when it must).
+            oneLine: box.height < 40,
+            beforeControls: box.right <= controls.getBoundingClientRect().left + 0.5,
             actionInside: action.left >= 0 && action.right <= document.documentElement.clientWidth,
-            beside: box.right <= action.left,
           };
         });
-        expect(hero.lines).toBeLessThanOrEqual(2);
-        expect(hero).toMatchObject({ actionInside: true, beside: true });
+        expect(bar).toMatchObject({ oneLine: true, beforeControls: true, actionInside: true });
         await insideViewport(page);
         await page.screenshot({
           path: await capturePath(`5144-heading-${kind}-${width}-${theme}.png`),

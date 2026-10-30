@@ -2,10 +2,10 @@ import { headerHeight } from './tokens.js';
 import { expect, test, type Page } from '@playwright/test';
 
 /** What trusted content takes between the header and the page frame, margins included: the reader's
- * status and note, or the owner page's title row under the shared bar. */
+ * status and note, or the owner page's status band. */
 const noteSize = (page: Page) =>
   page
-    .locator('.reader-note, .reader-status-row, .colab-title-row, .work-band')
+    .locator('.reader-note, .reader-status-row, .work-band')
     .evaluateAll((nodes) =>
       nodes
         .filter((node) => node.getClientRects().length)
@@ -93,9 +93,13 @@ for (const reader of [false, true]) {
     const targetTop = await child
       .locator('#target')
       .evaluate((node) => node.getBoundingClientRect().top);
-    expect(Math.abs((await frame.boundingBox())!.y + targetTop - headerHeight(1440))).toBeLessThan(
-      2,
-    );
+    // The owner's status band stays pinned under the bar, so the anchor lands below both.
+    const pinned = reader
+      ? 0
+      : ((await page.locator('.page-main .work-band').boundingBox())?.height ?? 0);
+    expect(
+      Math.abs((await frame.boundingBox())!.y + targetTop - headerHeight(1440) - pinned),
+    ).toBeLessThan(2);
     await child.locator('#grow').evaluate((node: HTMLElement) => {
       node.style.height = '0px';
     });

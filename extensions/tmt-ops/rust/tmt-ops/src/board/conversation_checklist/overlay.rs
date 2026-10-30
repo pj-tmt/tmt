@@ -36,10 +36,10 @@ pub(in crate::board) struct Controller {
     pub(super) ui: RefCell<picker_surface::State>,
     pub(super) template: RefCell<Option<(String, tmt_tui::components::surface::Template<()>)>>,
     pub(super) kind_hits: RefCell<Vec<(ratatui::layout::Rect, NoteKind)>>,
-    /// Where the last paint put each link row's link, by item id.
-    pub(super) link_hits: RefCell<Vec<(Rect, String)>>,
-    /// The item whose link is under the pointer.
-    pub(super) hovered: RefCell<Option<String>>,
+    /// Where the last paint put each link's cells.
+    pub(super) link_hits: RefCell<Vec<super::surface::LinkHit>>,
+    /// The link under the pointer: its item and which of the item's links it is.
+    pub(super) hovered: RefCell<Option<(String, usize)>>,
     closed: bool,
 }
 
@@ -96,18 +96,18 @@ impl Controller {
         self.ui.borrow_mut().invalidate();
     }
 
-    /// The item whose painted link holds this point.
-    fn link_at(&self, at: ratatui::layout::Position) -> Option<String> {
+    /// The painted link that holds this point.
+    fn link_at(&self, at: ratatui::layout::Position) -> Option<super::surface::LinkHit> {
         self.link_hits
             .borrow()
             .iter()
-            .find(|(area, _)| area.contains(at))
-            .map(|(_, id)| id.clone())
+            .find(|hit| hit.area.contains(at))
+            .cloned()
     }
 
     /// Follow the pointer over the links; true when the highlighted link changed.
     pub(in crate::board) fn move_pointer(&self, at: ratatui::layout::Position) -> bool {
-        let next = self.link_at(at);
+        let next = self.link_at(at).map(|hit| (hit.row, hit.link));
         let changed = *self.hovered.borrow() != next;
         if changed {
             *self.hovered.borrow_mut() = next;
@@ -226,17 +226,15 @@ impl Controller {
                 _ => {}
             }
         }
-        // A press on a row's link opens it; the rest of the row still chooses the row.
+        // A press on a link opens it; the rest of the row still chooses the row.
         if let Event::Mouse(mouse) = event
             && mouse.kind == MouseEventKind::Down(MouseButton::Left)
-            && let Some(id) = self.link_at((mouse.column, mouse.row).into())
-            && let Some(link) = items
-                .iter()
-                .find(|row| row.id.as_str() == id)
-                .and_then(|row| row.reference.clone())
+            && let Some(hit) = self.link_at((mouse.column, mouse.row).into())
+            && items.iter().any(|row| row.id.as_str() == hit.row)
+            && !hit.url.is_empty()
         {
-            self.ui.borrow_mut().select(&id);
-            return Self::open(app, &link);
+            self.ui.borrow_mut().select(&hit.row);
+            return Self::open(app, &hit.url);
         }
         let input = self.ui.borrow_mut().input(event, PickerField::List);
         match input {

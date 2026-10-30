@@ -36,7 +36,7 @@ for (const width of [1440, 390])
       }, theme);
       await mount(page, false);
       const bar = page.locator('.tmt-ui-topbar:visible'),
-        title = page.locator('.colab-title-row header:visible'),
+        title = bar.locator('.tmt-ui-topbar-title'),
         frame = page.locator('iframe');
       await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
       await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
@@ -45,7 +45,7 @@ for (const width of [1440, 390])
       await expect(page.locator('.canvas')).toHaveCSS('box-shadow', 'none');
       // Inside the TMT web shell the page fills the main column beside the rail (the module's pages
       // nest in it)
-      // and starts under the bar, plus the module menu's tab row on a phone and the page's title row.
+      // and starts under the bar, plus the module menu's tab row on a phone and the page's status band.
       const rect = await frame.boundingBox();
       const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!;
       const lead = await page.evaluate(() =>
@@ -63,9 +63,8 @@ for (const width of [1440, 390])
         (await page.evaluate(() => document.documentElement.clientWidth)) - column.x,
       );
       const header = (await bar.boundingBox())!;
-      const row = (await page.locator('.colab-title-row:visible').boundingBox())!;
       const panel = (await page.locator('.work-band:visible').boundingBox())!;
-      expect(rect?.y).toBe(header.y + header.height + lead + row.height + panel.height);
+      expect(rect?.y).toBe(header.y + header.height + lead + panel.height);
       expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
       // The frame ends the document: a page taller than the room grows it (window scroll mode), so
       // the bottom is the frame's, not a fixed 900 that depends on the runner's fonts. The frame
@@ -85,17 +84,23 @@ for (const width of [1440, 390])
       const heading = page.getByRole('heading', { name: 'Release notes', exact: true });
       // The header holds no access chip at any width (#4116), so the title keeps its room.
       await expect(heading).toBeVisible();
-      if (width < 480) await expect(heading).toHaveAttribute('title', 'Release notes');
+      if (width < 480)
+        await expect(title.locator('.tmt-ui-topbar-title-current')).toHaveAttribute(
+          'title',
+          'Release notes',
+        );
       // The shell's rail carries the TMT mark; the bar keeps none (a phone's menu button opens the rail).
       await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
       if (width >= 480)
         await expect(page.locator('.tmt-ui-shell-brand .tmt-brand-mark')).toBeVisible();
       else await expect(page.locator('.tmt-ui-shell-open:visible')).toBeVisible();
-      // The bar draws no module crumb (the rail names the module), so the title keeps its row; the
-      // module and the connection identity stay in the header's accessible name.
+      // The bar draws no brand (the rail names the module); its title slot holds the page's one
+      // heading and no title row repeats it.
       await expect(bar.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-      await expect(title.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-      await expect(title).toHaveAttribute(
+      await expect(title.getByRole('heading', { level: 1 })).toHaveCount(1);
+      await expect(page.locator('.colab-title-row')).toHaveCount(0);
+      // The module and the connection identity stay in the title group's accessible name.
+      await expect(title.locator('.colab-topbar-identity')).toHaveAttribute(
         'aria-label',
         'Colab · local · Studio Mac · Release notes',
       );
@@ -310,12 +315,9 @@ for (const width of [1440, 390])
       const frame = page.locator('#ask-page-fixture iframe');
       const marker = page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]');
       await expect(marker).toBeVisible();
-      // The page starts under the title row: give it room and scroll exactly past the row, so the
-      // column's sticky offset under the bar applies and the marker stays clear of the bar.
-      const rowHeight = Math.round(
-        (await page.locator('.colab-title-row:visible').boundingBox())!.height +
-          (await page.locator('.work-band:visible').boundingBox())!.height,
-      );
+      // The page starts under the status band, which stays pinned under the bar: give it room and
+      // keep it at the top, so the marker stays clear of both.
+      const rowHeight = 0;
       await page.evaluate((top) => {
         document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
           '3000px';
@@ -345,11 +347,16 @@ for (const width of [1440, 390])
         );
       };
       if (width === 1440) {
-        // A column: 24px clear of the viewport's right edge, sticky 20px under the header, with no
-        // edge of its own; it reflows the page beside it, so the marker lane stays uncovered.
+        // A column: 24px clear of the viewport's right edge, sticky 20px under the header and the
+        // pinned status band, with no edge of its own; it reflows the page beside it, so the marker
+        // lane stays uncovered.
         await expect(panel).toHaveAttribute('data-mode', 'column');
         expect(edge.x + edge.width).toBe(width - (await length('--colab-panel-edge')));
-        expect(edge.y).toBe(headerHeight(width) + (await length('--colab-panel-sticky-gap')));
+        const band = (await page.locator('.work-band:visible').boundingBox())!.height;
+        expect(edge.y).toBeCloseTo(
+          headerHeight(width) + band + (await length('--colab-panel-sticky-gap')),
+          0,
+        );
         await expect(panel).toHaveCSS('border-left-width', '0px');
         await expect(panel).toHaveCSS('border-right-width', '0px');
         expect((await frame.boundingBox())?.width).toBeLessThan(before!.width);
@@ -488,13 +495,12 @@ test('one-row fitting retains full labels, stable content and compact action aut
     },
     { title, deviceName },
   );
-  const header = page.locator('.colab-title-row header:visible');
   const bar = page.locator('.tmt-ui-topbar:visible');
+  const header = bar.locator('.tmt-ui-topbar-title');
   const heading = header.getByRole('heading', { name: title, exact: true });
   await expect(heading).toBeVisible();
-  await expect(header).toHaveAttribute('aria-label', `Colab · local · ${deviceName} · ${title}`);
   await expect(header.locator('.tmt-ui-caption')).toBeVisible();
-  await expect(header.locator('.tmt-ui-mark')).toBeHidden();
+  await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
   const iframe = page.locator('#layout-fixture iframe');
   await expect(
     page.frameLocator('#layout-fixture iframe').getByRole('heading', { name: 'Stable content' }),
@@ -505,14 +511,14 @@ test('one-row fitting retains full labels, stable content and compact action aut
     await page.setViewportSize({ width, height: 900 });
     await expect(header.locator('.tmt-ui-caption'))[width <= 900 ? 'toBeHidden' : 'toBeVisible']();
     // The shell carries the mark at every width (the rail, or the phone's menu button), not the bar.
-    await expect(header.locator('.tmt-ui-mark')).toBeHidden();
+    await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
     await expect(
       page.locator(
         width > 900 ? '.tmt-ui-shell-brand .tmt-brand-mark:visible' : '.tmt-ui-shell-open:visible',
       ),
     ).toBeVisible();
-    await expect(heading).toHaveAttribute('title', title);
-    await expect(header).toHaveCSS('height', `${headerHeight(width)}px`);
+    await expect(header.locator('.tmt-ui-topbar-title-current')).toHaveAttribute('title', title);
+    await expect(bar).toHaveCSS('height', `${headerHeight(width)}px`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
@@ -546,6 +552,6 @@ test('one-row fitting retains full labels, stable content and compact action aut
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount('<h1>Stable content</h1>', {}, {});
   });
-  await expect(header).toHaveAttribute('aria-label', /^Colab · local/);
+  await expect(header.getByRole('heading', { level: 1 })).toHaveCount(1);
   await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
 });

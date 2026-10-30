@@ -2373,7 +2373,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   // The chapter's panel header repeats the title: read the page header's.
   await expect(
-    page.locator('.tmt-ui-header').getByRole('heading', { name: 'Checkpoint', exact: true }),
+    page.locator('.tmt-ui-topbar-title').getByRole('heading', { name: 'Checkpoint', exact: true }),
   ).toBeVisible();
   await expect(page.getByTestId('comments-panel')).toContainText('No comments yet.');
   await expect(page.getByTestId('comment-entry')).toHaveCount(0);
@@ -2802,7 +2802,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
   await row().locator('a').click();
   await expect(
-    page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
+    page.locator('.tmt-ui-topbar-title').getByRole('heading', { name: title, exact: true }),
   ).toBeVisible();
   await expect(page).toHaveTitle(`${title} · Colab`);
   await (await pageAction(page, 'Manage page')).click();
@@ -2852,7 +2852,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await row().locator('a').click();
   await expect(
-    page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
+    page.locator('.tmt-ui-topbar-title').getByRole('heading', { name: title, exact: true }),
   ).toBeVisible();
   await backToList(page);
   await showAllPages(page);

@@ -7,8 +7,3 @@ export function toolbarInset(toolbar: HTMLElement | null): number {
   const lead = Number.parseFloat(getComputedStyle(toolbar).getPropertyValue('--tmt-ui-shell-lead'));
   return toolbar.offsetHeight + toolbar.getBoundingClientRect().top + (lead > 0 ? lead : 0);
 }
-
-/** The title row's height: the content between the sticky chrome and the page frame (0 without it). */
-export function frameLead(row: HTMLElement | null): number {
-  return row?.offsetHeight ?? 0;
-}

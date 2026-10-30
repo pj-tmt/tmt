@@ -44,7 +44,7 @@ are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/S
 owns moves and the tracked-file guard.
 
 `tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
-`design/browser-ui` splits React entries (`./ui`, `./react`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The shared shell exposes a route-owned left title slot (compact final segment) and separate right status and action slots; the root owns common controls. The [README](design/browser-ui/README.md) owns modality and header-action rules.
+`design/browser-ui` splits React entries (`./ui`, `./react`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The [README](design/browser-ui/README.md#shared-top-bar) owns the route-owned top-bar slots, root-owned common controls, modality and header-action rules.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -57,8 +57,7 @@ product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.m
 
 The `typescript` pnpm workspace owns private Node tooling/tests and one lockfile,
 with parent-relative packages for the parked browser-addon shell, Remote client SDK,
-and Colab browser/client packages.
-It is not a second CLI runtime. Packages resolve declared dependencies, never
+and Colab browser/client packages. Packages resolve declared dependencies, never
 root-hoisted tooling; browser specs reach the tooling SQLite oracle through
 `typescript/test/support`. Rust, root launchers, core contracts and canonical
 skills stay outside this boundary; extension contracts stay with their product.
@@ -281,6 +280,10 @@ the durable identity inbox, which settles `queued`. Unbound identity delivery us
 the foreground observer and recipient pull. The [request contract](contracts/request-response-v1.md)
 owns behavior and limits.
 
+Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md) and one [price file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file); tick collects, status reads.
+A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off; an `auto` member is held like an interval one until [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery).
+The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
+
 ### Tmux and process effects
 
 `tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
@@ -289,7 +292,7 @@ native-first process-incarnation acquisition. `process::interactive` owns direct
 sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
 
-Driver-owned consumption attribution uses completed-record evidence; Agy may fill an omitted model from its admitted hook observation, never a kept resume setting ([consumption rules](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
+Driver-owned consumption attribution uses completed-record evidence ([consumption rules](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
 
 The CLI acquires caller-host evidence only for caller-scoped operations; explicit senders
 and stored bindings retain their own authority. Caller-process observation failures retain typed adapter causes through the driver registry to bounded CLI context.
@@ -348,13 +351,9 @@ only `tmt` and `tmt-inbox`.
 Skill installation never opens configuration, SQLite or tmux. Retired bundles, catalog
 publication, removal and refresh/uninstall preservation follow the [installer owner](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills).
 Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
-(explicit consent), are stored per owner and linked into the same roots; the first
-owner of a name keeps it until an explicit force and core names are reserved.
-API-supplied names refuse unmanaged targets; explicit force backs them up before
-replacement. An API name or owner alone cannot authorize catalog replacement.
-Native release skills publish after binary consent. Skill failures after successful
-binary activation are warnings with path/cause and partial publication; human and
-JSON summaries retain each product's activation and skills outcome.
+(explicit consent) and link into the same roots; core names are reserved, and an API
+name or owner alone cannot authorize catalog replacement. Name ownership, force
+backups and post-activation skill warnings follow the same installer owner.
 
 Native executable installation is a different owner under `tmt-adapters::native_install`.
 Its cosmetic pane-option cutover performs host CAS outside SQLite, between short row checks.
@@ -367,18 +366,13 @@ keeps the previous release, and failure or cancellation never leaves a half-publ
 current release. CLI self-upgrade delegates to the verified candidate under the
 [handoff contract](contracts/native-install-handoff-v1.md); PR channel trust,
 compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
-run the consented extension phase; there is no rollback or second installer. Upgrade shares setup's missing inventory and provider publisher; only interactive approval can add a provider scope.
+run the consented extension phase; there is no rollback or second installer.
 `install_guidance` projects setup's verified inventory as public
 [`guidance.actions`](contracts/extension-api.md#installation-guidance-through-the-ordinary-cli);
 PATH only resolves commands.
 Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-uses) gate activation; listing compares locally.
 [Installer architecture](.agents/skills/tmt-core-runtime/references/install-architecture.md) owns retention,
 discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.
-
-Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
-A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off. An `auto` member is held like an interval one: the tick renews the hold and offers [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery); Core and the turn end deliver.
-Prices are one [public file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file).
-The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
 ## Ops extension
 
@@ -411,17 +405,11 @@ own module/drawing boundaries and verification.
   Cron's v1 conversion keeps conflicting source bytes in a private export before commit;
   its store tracks one CLI and one board warning, and the board worker forwards the latter.
   No Ops data enters `config.json` or Core's database.
-- **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
-  UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
-  Lifecycles and module rules: [Ops references](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
-  The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
-  The shell replaces tab/factory/switcher navigation and HOME cursors.
-  The background HOME usage receipt prefers public `consumption.limits` by account;
-  only an unsupported operation selects legacy identity/footer readings. Paint uses held states.
+- **Workspace.** Agents/Digest share one acquired roster ([workspace](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity)); the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
+  Paint/input do no Core reads; WP1 owns conversation/editor/drafts. UUID selection, the virtual Common pool, membership pause/Resume and squad rename belong to the [surface](.agents/skills/tmt-ops-dev/references/board-home.md) and [cron](.agents/skills/tmt-ops-dev/references/board-cron.md) references.
+  Per-name view state stays in the disposable Ops cache, apart from shared Config preferences. Lifecycles and the HOME usage receipt: [refresh worker](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
   Savings and usage figures are supplier estimates, never provider history; [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns their readers, valuation and lifecycles.
   Member references resolve through the acquired global identity inventory and grant no delivery authority or paint/input I/O ([reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md)).
-  Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config under owned locks; cron jobs and counters remain keyed by that UUID. Partial results
-  offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
 - **Board rendering.** The [Ops board guide](.agents/skills/tmt-ops-dev/references/board-home.md#shared-board-components) owns shared painter responsibilities and their host adapters.
 - **Discovery.** The board consumes [Core discovery
   v1](contracts/discovery-v1.md) through finite public `discover` and guarded
@@ -479,19 +467,15 @@ Archive, installer, verifier, publication, compiled schema and PR producer/clean
 ### Main release cuts
 
 A release is a product-prefixed tag on a main commit. `release.yml` admits main
-pushes by cadence, with hourly backup and manual dispatch. Allocation captures
-main once and reserves each released component's next alpha number from drafts
-and tags; each allocated tag owns an independent pipeline. New work is measured
-from the newest non-failed allocated ancestor cut, whether in flight or published.
-Verification-failed drafts reserve numbers but allow replacement cuts, including
-at the same main commit; they stay unpublished and do not hold later cuts or merges.
+pushes by cadence, with hourly backup and manual dispatch. Each allocated tag owns an
+independent pipeline; allocation, failed-draft replacement and predecessor history are in
+the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#cut-allocation).
 
 Build-time version injection belongs to the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#cut-and-source-tooling).
 
 Notes, migration comparison and breaking authorization share the newest published
-ancestor. Before own publication, a predecessor supplies history; both lines reserve versions.
-Retired identities stay historical. Drafts never advance published evidence. Tags become
-immutable after all gates pass; only the CLI converges latest to its highest publication.
+ancestor. Drafts never advance published evidence. Tags become immutable after all gates
+pass; only the CLI converges latest to its highest publication.
 
 The [release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns publication authorization and product activation; the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery) owns gates and recovery.
 
@@ -593,13 +577,12 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
   network. Everything the frame reports is a cosmetic claim; only parent controls admit
-  discussion or sends, and highlights carry only IDs, quote selectors and bounded paint ordinals, never bodies or labels.
-  All inline slot kinds report closed-disclosure visibility; the parent hides mounted controls and retains drafts and stable measurement requests, without changing send authority.
-  This contains author code; page self-navigation can still leak a request. Theme projection and the cosmetic port are in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
+  discussion or sends ([highlights](.agents/skills/tmt-colab/references/discussion.md), [slots and theme](.agents/skills/tmt-colab/references/page-chrome.md)).
+  This contains author code; page self-navigation can still leak a request.
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
-  Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
+  Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence remain planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. ([native opening](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission))
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`; [detail](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission)), and the Worker is resource
-  containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store, signed by the root-local writer. Metadata commands retain expected-revision and save operation/status fences; [editor metadata requests](extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256) pass automatic owner admission and preserve root-local content authority. Reader Info sends these requests through the existing door/hosted own writers and observes owner-authenticated results; page/epoch lifetimes fence requests and UI completions. Per-action [routing](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#page-source-and-export) is in the sync reference.
+  containment, not a security sandbox. Native code stores content and `kind:"own"` actions signed by the root-local writer under the [publication](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) fences; [editor metadata requests](extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256) pass automatic owner admission and preserve root-local content authority. Per-action [routing](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#page-source-and-export) is in the sync reference.
