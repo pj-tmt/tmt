@@ -11,6 +11,17 @@ use std::cell::RefCell;
 use tmt_cli_style::Role;
 use tmt_tui::components::{Completion, Editor, strip};
 
+/// What a mention starts with: `@name` reads as a file reference to Claude Code.
+pub(super) const TRIGGER: &str = "tmt/";
+/// A chosen mention is an expanded fold over its `tmt/<name>` text whose label holds the
+/// agent's identity, so a rename never retargets it; editing the text drops the fold.
+const IDENTITY: &str = "tmt-mention:";
+
+/// The identity a chosen mention's fold stands for.
+pub(super) fn mentioned(fold: &tmt_tui::components::Fold) -> Option<&str> {
+    fold.label.strip_prefix(IDENTITY)
+}
+
 #[derive(Default)]
 pub(super) struct State {
     pub completion: Completion,
@@ -55,9 +66,13 @@ impl App {
         } else {
             super::app::INPUT_LIMIT
         };
-        let accepted = self
-            .reference_editor_mut()
-            .is_some_and(|editor| completion.accept(editor, limit));
+        let accepted = completion.chosen().is_some_and(|(range, candidate)| {
+            self.reference_editor_mut()
+                .is_some_and(|editor| insert_mention(editor, range, &candidate, limit))
+        });
+        if accepted {
+            completion.close();
+        }
         self.mentions.completion = completion;
         accepted
     }
@@ -81,11 +96,59 @@ impl App {
         }
         let mut completion = std::mem::take(&mut self.mentions.completion);
         if let Some(editor) = self.reference_editor() {
-            completion.update(editor, &self.references.candidates);
+            completion.update(editor, &self.references.candidates, TRIGGER);
         }
         self.mentions.completion = completion;
         self.mentions.hits.borrow_mut().clear();
     }
+    /// A mentioned agent's current name, from the held identity inventory.
+    pub(super) fn mention_name(&self, identity: &str) -> Option<String> {
+        self.references
+            .agents
+            .get(identity)
+            .map(|agent| agent.mention().to_owned())
+    }
+
+    /// A picker row's squad (`· lead` for its lead) and STATE cell, from the snapshot.
+    fn mention_detail(&self, candidate: &str) -> (String, Option<super::activity::Label>) {
+        let (Some(id), Some(snapshot)) =
+            (candidate.strip_prefix("agent:"), self.workspace_snapshot())
+        else {
+            return (String::new(), None);
+        };
+        let squad = snapshot
+            .roster
+            .squads
+            .iter()
+            .find(|squad| squad.members.iter().any(|member| member == id));
+        let label = snapshot.roster.members.get(id).map(|member| {
+            let state = squad.and_then(|squad| squad.member_states.get(id));
+            super::activity::Member {
+                activity: member.activity,
+                waiting: state.map_or(member.waiting, |state| state.waiting),
+                idle_over: state.is_some_and(|state| state.idle_over),
+                task: None,
+            }
+            .label(
+                self.activity_stale(std::time::Instant::now()),
+                crate::status::now_ms(),
+            )
+        });
+        // The age ticks with the frame clock, like the Agents STATE cell.
+        if let Some(label) = &label {
+            self.admit_activity_clock(label.at);
+        }
+        let squad = squad.map_or_else(String::new, |squad| {
+            let name = super::notes::single_line(&squad.name);
+            if squad.lead.as_deref() == Some(id) {
+                format!("{name} · lead")
+            } else {
+                name
+            }
+        });
+        (squad, label)
+    }
+
     pub(super) fn mention_key(&mut self, key: KeyEvent) -> Option<Effect> {
         if !self.mentions.completion.open() {
             return None;
@@ -136,6 +199,39 @@ impl App {
     }
 }
 
+/// Replace the typed token with the candidate's `tmt/<name>` as a mention fold, then a
+/// space, all or nothing.
+fn insert_mention(
+    editor: &mut Editor,
+    range: std::ops::Range<usize>,
+    candidate: &tmt_tui::components::Candidate,
+    limit: usize,
+) -> bool {
+    let Some(identity) = candidate.id.strip_prefix("agent:") else {
+        return false;
+    };
+    let mut next = editor.clone();
+    let start = range.start;
+    if !next.replace_range(range, "", limit)
+        || !next.insert_folded(&candidate.insertion, format!("{IDENTITY}{identity}"), limit)
+    {
+        return false;
+    }
+    let Some(id) = next
+        .folds()
+        .iter()
+        .find(|fold| fold.source.start == start && mentioned(fold).is_some())
+        .map(|fold| fold.id)
+    else {
+        return false;
+    };
+    if !next.set_expanded(id, true) || !next.insert(" ", limit) {
+        return false;
+    }
+    *editor = next;
+    true
+}
+
 pub(super) fn render(frame: &mut Frame, app: &App) {
     app.mentions.hits.borrow_mut().clear();
     let completion = &app.mentions.completion;
@@ -160,6 +256,14 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
     let x = anchor.x.min(screen.right().saturating_sub(width));
     let look = app.look();
     let start = completion.selected.saturating_sub(count - 1);
+    let name_cells = completion
+        .matches
+        .iter()
+        .map(|candidate| unicode_width::UnicodeWidthStr::width(candidate.label.as_str()))
+        .max()
+        .unwrap_or(0)
+        .min(24);
+    let squad_cells = 20;
     for row in 0..height {
         let rect = Rect::new(x, y + row, width, 1);
         let line = if row == height - 1 {
@@ -169,13 +273,17 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 | Compose::Annotate { to, .. } => Some(to.as_str()),
                 _ => None,
             });
-            Line::styled(
-                recipient.map_or_else(
-                    || "Mentions are text only".to_owned(),
-                    |recipient| format!("Mentions are text only · sent to {recipient}"),
-                ),
-                look.role(Role::Muted),
-            )
+            let sent = recipient.map_or_else(String::new, |to| format!(", sent to {to}"));
+            // A narrow picker drops the key hints before it cuts the recipient.
+            let info = [
+                format!("Agents · ↑↓ choose · Tab insert · text only{sent}"),
+                format!("Agents · Tab insert · text only{sent}"),
+                format!("text only{sent}"),
+            ]
+            .into_iter()
+            .find(|info| unicode_width::UnicodeWidthStr::width(info.as_str()) <= usize::from(width))
+            .unwrap_or_else(|| format!("text only{sent}"));
+            Line::styled(info, look.role(Role::Muted))
         } else if let Some(candidate) = completion.matches.get(start + usize::from(row)) {
             let selected = start + usize::from(row) == completion.selected;
             let style = if selected {
@@ -188,11 +296,7 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 .borrow_mut()
                 .push((rect, start + usize::from(row)));
             let mut spans = vec![Span::styled(
-                format!(
-                    "{} {:5}  ",
-                    if selected { "›" } else { " " },
-                    candidate.kind
-                ),
+                format!("{} {TRIGGER}", if selected { "›" } else { " " }),
                 style,
             )];
             let mut at = 0;
@@ -205,13 +309,37 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 at = matched.end;
             }
             spans.push(Span::styled(&candidate.label[at..], style));
+            // The name column, then the agent's squad and its STATE cell, as in Agents.
+            let shown = unicode_width::UnicodeWidthStr::width(candidate.label.as_str());
+            spans.push(Span::styled(
+                " ".repeat(name_cells.saturating_sub(shown) + 2),
+                style,
+            ));
+            let (squad, state) = app.mention_detail(&candidate.id);
+            spans.push(Span::styled(
+                format!("{squad:<squad_cells$}  "),
+                style.patch(look.role(Role::Dim)),
+            ));
+            if let Some(label) = state {
+                let mut mark = crate::board::state_cell::mark(Some(label.state), look);
+                mark.style = style.patch(mark.style);
+                spans.push(mark);
+                spans.push(Span::styled(
+                    format!(
+                        " {}{}",
+                        label.state,
+                        label.age.map(|age| format!(" {age}")).unwrap_or_default()
+                    ),
+                    style.patch(look.role(Role::Muted)),
+                ));
+            }
             Line::from(spans)
         } else {
             Line::styled(
                 if app.references.error.is_some() {
-                    "Agent inventory unavailable; squad references only"
+                    "Agent inventory unavailable"
                 } else {
-                    "No matching agent or squad"
+                    "No matching agent"
                 },
                 look.role(Role::Muted),
             )
@@ -233,4 +361,4 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

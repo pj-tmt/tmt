@@ -14,11 +14,11 @@ fn candidates() -> Vec<Candidate> {
 fn completion_replaces_only_the_query_and_preserves_candidate_identity() {
     let mut editor = Editor::from("hello @co");
     let mut completion = Completion::default();
-    completion.update(&editor, &candidates());
+    completion.update(&editor, &candidates(), "@");
     assert!(completion.open());
     assert_eq!(completion.matches.len(), 2);
     completion.move_by(1);
-    completion.update(&editor, &candidates());
+    completion.update(&editor, &candidates(), "@");
     assert_eq!(completion.matches[completion.selected].id, "squad:2");
     assert!(completion.accept(&mut editor, 100));
     assert_eq!(editor.as_str(), "hello @core ");
@@ -28,14 +28,14 @@ fn completion_replaces_only_the_query_and_preserves_candidate_identity() {
 fn dismiss_no_matches_and_overflow_never_change_source() {
     let mut editor = Editor::from("@unknown");
     let mut completion = Completion::default();
-    completion.update(&editor, &candidates());
+    completion.update(&editor, &candidates(), "@");
     assert!(completion.open() && completion.matches.is_empty());
     assert!(!completion.accept(&mut editor, 100));
     completion.dismiss(&editor);
-    completion.update(&editor, &candidates());
+    completion.update(&editor, &candidates(), "@");
     assert!(!completion.open());
     editor = "@c".into();
-    completion.update(&editor, &candidates());
+    completion.update(&editor, &candidates(), "@");
     assert!(!completion.accept(&mut editor, 2));
     assert_eq!(editor.as_str(), "@c");
     assert!(completion.open());
@@ -44,13 +44,13 @@ fn dismiss_no_matches_and_overflow_never_change_source() {
 fn emails_and_folded_source_do_not_open_completion() {
     for text in ["name@example", "word@@core", "plain"] {
         let mut completion = Completion::default();
-        completion.update(&text.into(), &candidates());
+        completion.update(&text.into(), &candidates(), "@");
         assert!(!completion.open());
     }
     let mut editor = Editor::default();
     editor.insert_folded("@core", "[source]".into(), 100);
     let mut completion = Completion::default();
-    completion.update(&editor, &candidates());
+    completion.update(&editor, &candidates(), "@");
     assert!(!completion.open());
 }
 
@@ -79,7 +79,7 @@ fn fuzzy_completion_ignores_separators_and_keeps_unicode_names() {
     ] {
         let editor = Editor::from(format!("hello @{query}"));
         let mut completion = Completion::default();
-        completion.update(&editor, &named_candidates(&[label]));
+        completion.update(&editor, &named_candidates(&[label]), "@");
         assert_eq!(completion.matches.len(), 1, "{query} should match {label}");
     }
 }
@@ -98,6 +98,7 @@ fn fuzzy_completion_ranks_matches_and_keeps_inventory_order_on_ties() {
             "axbyc",
             "unrelated",
         ]),
+        "@",
     );
     assert_eq!(
         completion
@@ -126,7 +127,7 @@ fn fuzzy_highlights_are_label_source_ranges_and_clear_with_the_picker() {
     ] {
         let mut editor = Editor::from(format!("@{query}"));
         let mut completion = Completion::default();
-        completion.update(&editor, &named_candidates(&[label]));
+        completion.update(&editor, &named_candidates(&[label]), "@");
         let highlighted: String = completion
             .matched_ranges(0)
             .iter()
@@ -139,17 +140,17 @@ fn fuzzy_highlights_are_label_source_ranges_and_clear_with_the_picker() {
     }
     let editor = Editor::from("@ux1");
     let mut completion = Completion::default();
-    completion.update(&editor, &named_candidates(&["ux-1"]));
+    completion.update(&editor, &named_candidates(&["ux-1"]), "@");
     completion.dismiss(&editor);
     assert!(completion.matched_ranges(0).is_empty());
-    completion.update(&Editor::from("plain"), &named_candidates(&["ux-1"]));
+    completion.update(&Editor::from("plain"), &named_candidates(&["ux-1"]), "@");
     assert!(completion.matched_ranges(0).is_empty());
 }
 
 #[test]
 fn empty_query_preserves_inventory_order_without_highlights() {
     let mut completion = Completion::default();
-    completion.update(&Editor::from("@"), &named_candidates(&["z", "", "a"]));
+    completion.update(&Editor::from("@"), &named_candidates(&["z", "", "a"]), "@");
     assert_eq!(
         completion
             .matches
@@ -159,4 +160,33 @@ fn empty_query_preserves_inventory_order_without_highlights() {
         ["z", "", "a"]
     );
     assert!((0..3).all(|at| completion.matched_ranges(at).is_empty()));
+}
+
+#[test]
+fn the_caller_trigger_opens_the_picker_and_other_prefixes_do_not() {
+    let candidates = || {
+        vec![Candidate {
+            id: "agent:1".into(),
+            kind: "agent".into(),
+            label: "night-lead".into(),
+            insertion: "tmt/night-lead".into(),
+        }]
+    };
+    let mut completion = Completion::default();
+    let mut editor = Editor::from("ask tmt/ni");
+    completion.update(&editor, &candidates(), "tmt/");
+    assert!(completion.open());
+    assert!(completion.accept(&mut editor, usize::MAX));
+    assert_eq!(editor.as_str(), "ask tmt/night-lead ");
+    for text in [
+        "ask @ni",
+        "see ~/.config/tmt/ni",
+        "github.com/tmt-ninja/tmt/ni",
+        "tmt/a/tmt/ni",
+    ] {
+        completion.update(&Editor::from(text), &candidates(), "tmt/");
+        assert!(!completion.open(), "{text}");
+    }
+    completion.update(&Editor::from("ask tmt/ni"), &candidates(), "");
+    assert!(!completion.open(), "an empty trigger never opens");
 }

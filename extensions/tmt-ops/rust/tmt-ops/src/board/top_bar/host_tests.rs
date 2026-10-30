@@ -42,15 +42,12 @@ pub(super) fn observed_app(now: u64) -> (crate::board::app::App, Vec<String>, Ve
                 .clone()
         })
         .collect();
-    app.references = Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities": [
-            {"id":members[0], "name":names[0], "runningDriver":"codex",
-             "resume":{"usage":{"tokens":142000,"windowTokens":258000,"observedAtMs":now}}},
-            {"id":members[1], "name":names[1], "runningDriver":"claude",
-             "resume":{"usage":{"tokens":0,"observedAtMs":now}}}
-        ]})),
-    );
+    app.references = Inventory::from_listed(&Ok(json!({"identities": [
+        {"id":members[0], "name":names[0], "runningDriver":"codex",
+         "resume":{"usage":{"tokens":142000,"windowTokens":258000,"observedAtMs":now}}},
+        {"id":members[1], "name":names[1], "runningDriver":"claude",
+         "resume":{"usage":{"tokens":0,"observedAtMs":now}}}
+    ]})));
     app.limits = Some(vec![
         Standing {
             current: None,

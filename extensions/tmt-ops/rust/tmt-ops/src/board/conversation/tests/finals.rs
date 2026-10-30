@@ -180,10 +180,9 @@ fn final_member_links_hit_the_painted_name_in_both_conversation_placements() {
     for grouped in [false, true] {
         let mut app = workspace_fixture();
         let agent = crate::board::app::workspace::tests::MEMBER;
-        app.references = crate::board::inventory::Inventory::from_listed(
-            &[],
-            &Ok(json!({"identities":[{"id":agent,"name":"worker","canonicalName":"worker"}]})),
-        );
+        app.references = crate::board::inventory::Inventory::from_listed(&Ok(
+            json!({"identities":[{"id":agent,"name":"worker","canonicalName":"worker"}]}),
+        ));
         app.view.as_mut().unwrap().replies = vec![json!({
             "recipientId":agent,"requestId":"linked-final","submittedAtMs":3_540_000,
             "response":"Ping #tmt:worker / #tmt:worker"

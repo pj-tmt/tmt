@@ -190,9 +190,25 @@ impl Input {
     }
 
     pub(in crate::board) fn quoted_message(&self) -> String {
+        self.quoted_message_named(&|_| None)
+    }
+
+    /// The sent body. A chosen mention is written with its agent's current name, when
+    /// `name` knows it, so a rename between insert and send names the same agent.
+    pub(in crate::board) fn quoted_message_named(
+        &self,
+        name: &dyn Fn(&str) -> Option<String>,
+    ) -> String {
         let mut body = String::new();
         let mut end = 0;
         for fold in self.text.folds() {
+            if let Some(current) = super::super::mentions::mentioned(fold).and_then(name) {
+                body.push_str(&self.text.as_str()[end..fold.source.start]);
+                body.push_str(super::super::mentions::TRIGGER);
+                body.push_str(&current);
+                end = fold.source.end;
+                continue;
+            }
             let Some(source) = self.inline_quotes.get(&fold.id) else {
                 continue;
             };

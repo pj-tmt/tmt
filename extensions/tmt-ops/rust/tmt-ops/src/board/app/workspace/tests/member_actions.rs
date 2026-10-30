@@ -273,16 +273,10 @@ fn member_authored_note_keeps_help_footer_and_actions() {
 }
 
 fn reference_inventory(app: &mut App) {
-    app.references = crate::board::inventory::Inventory::from_listed(
-        &[crate::squad::Squad {
-            name: "tmt-ux".into(),
-            room_id: ROOM.into(),
-        }],
-        &Ok(json!({"identities":[
-            {"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"ux-1"},
-            {"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","name":"tmt-ux-lead"}
-        ]})),
-    );
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({"identities":[
+        {"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"ux-1"},
+        {"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","name":"tmt-ux-lead"}
+    ]})));
 }
 
 #[test]
@@ -306,7 +300,7 @@ fn workspace_member_squad_and_note_inputs_share_fuzzy_completion_without_retarge
             .unwrap(),
         );
         let compose = app.input.as_ref().expect(surface).compose.clone();
-        for ch in "@ux1".chars() {
+        for ch in "tmt/ux1".chars() {
             assert_eq!(key(&mut app, KeyCode::Char(ch)), Effect::None);
         }
         assert_eq!(
@@ -315,7 +309,7 @@ fn workspace_member_squad_and_note_inputs_share_fuzzy_completion_without_retarge
         );
         assert_eq!(key(&mut app, KeyCode::Tab), Effect::None);
         let input = app.input.as_ref().unwrap();
-        assert_eq!(input.text.as_str(), "@ux-1 ", "{surface}");
+        assert_eq!(input.text.as_str(), "tmt/ux-1 ", "{surface}");
         assert_eq!(input.compose, compose, "{surface}");
     }
 }

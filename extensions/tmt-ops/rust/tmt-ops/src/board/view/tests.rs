@@ -147,7 +147,7 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
     assert!(
         lines
             .iter()
-            .any(|line| line.contains("Alt+⏎") && line.contains('@')),
+            .any(|line| line.contains("Alt+⏎") && line.contains("tmt/")),
         "{lines:?}"
     );
     let editor = app.input_viewport.get().unwrap().0;

@@ -29,16 +29,19 @@ impl Completion {
     pub fn matched_ranges(&self, index: usize) -> &[Range<usize>] {
         self.matched_ranges.get(index).map_or(&[], Vec::as_slice)
     }
-    /// Only the token immediately before the caret participates. Addresses in
-    /// ordinary words and references inside folded source do not open a picker.
-    pub fn update(&mut self, editor: &Editor, candidates: &[Candidate]) {
+    /// Only the token immediately before the caret participates, and only when it starts
+    /// with the caller's `trigger` (such as `@`). Addresses in ordinary words and
+    /// references inside folded source do not open a picker.
+    pub fn update(&mut self, editor: &Editor, candidates: &[Candidate], trigger: &str) {
         let cursor = editor.cursor();
         let prefix = &editor.as_str()[..cursor];
         let start = prefix
             .rfind(char::is_whitespace)
             .map_or(0, |at| at + prefix[at..].chars().next().unwrap().len_utf8());
         let token = &prefix[start..];
-        let query = token.strip_prefix('@').filter(|query| !query.contains('@'));
+        let query = token
+            .strip_prefix(trigger)
+            .filter(|query| !trigger.is_empty() && !query.contains(trigger));
         let folded = editor
             .folds()
             .iter()
@@ -93,20 +96,28 @@ impl Completion {
         self.matched_ranges.clear();
     }
     pub fn accept(&mut self, editor: &mut Editor, max_bytes: usize) -> bool {
-        let Some(range) = self.range.clone() else {
-            return false;
-        };
-        let Some(candidate) = self.matches.get(self.selected) else {
+        let Some((range, candidate)) = self.chosen() else {
             return false;
         };
         if !editor.replace_range(range, &format!("{} ", candidate.insertion), max_bytes) {
             return false;
         }
+        self.close();
+        true
+    }
+    /// The token's source range and the selected candidate, for a caller that writes the
+    /// insertion itself; `close` ends the completion once it has.
+    pub fn chosen(&self) -> Option<(Range<usize>, Candidate)> {
+        Some((
+            self.range.clone()?,
+            self.matches.get(self.selected)?.clone(),
+        ))
+    }
+    pub fn close(&mut self) {
         self.range = None;
         self.matches.clear();
         self.matched_ranges.clear();
         self.dismissed = None;
-        true
     }
 }
 

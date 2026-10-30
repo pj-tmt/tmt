@@ -1145,7 +1145,7 @@ fn load(
     // When core's activity observation reached the board: the age of this read
     // decides whether the board may still show it as current.
     let listed_at = Instant::now();
-    let references = super::inventory::Inventory::from_listed(&squads, &listed);
+    let references = super::inventory::Inventory::from_listed(&listed);
     let mut attention = BTreeMap::new();
     let mut deferred = None;
     let mut enrich = None;

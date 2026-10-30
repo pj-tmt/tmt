@@ -436,7 +436,7 @@ fn defaults_deduplicate_members_and_choose_observed_model_only_within_the_tool()
         {"id":"other","name":"other","runningDriver":"codex","resume":{"observedModel":{"model":"alpha","observedAtMs":100}}},
         {"id":"claude","name":"claude","runningDriver":"claude","resume":{"observedModel":{"model":"zeta","observedAtMs":100}}}
     ]});
-    app.references = Inventory::from_listed(&[], &Ok(rows));
+    app.references = Inventory::from_listed(&Ok(rows));
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot
         .roster

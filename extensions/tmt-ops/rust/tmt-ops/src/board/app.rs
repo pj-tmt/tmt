@@ -3425,7 +3425,15 @@ impl App {
                 if input.draft_key.is_some() {
                     return self.preview_paste_at_cursor();
                 } else if message {
-                    input.text.toggle_fold();
+                    // A chosen mention stays text; only pasted and quoted ranges fold.
+                    let cursor = input.text.cursor();
+                    let at_mention = input.text.folds().iter().any(|fold| {
+                        super::mentions::mentioned(fold).is_some()
+                            && (fold.source.contains(&cursor) || fold.source.end == cursor)
+                    });
+                    if !at_mention {
+                        input.text.toggle_fold();
+                    }
                 }
                 return Effect::None;
             }
@@ -3526,7 +3534,7 @@ impl App {
             .any(|fold| fold.source.start == 0 && input.inline_quotes.contains_key(&fold.id));
         let text = crate::requests::message::inline_body(
             row.map(|row| (squad, row)),
-            &input.quoted_message(),
+            &input.quoted_message_named(&|id| self.mention_name(id)),
             starts_quote,
         );
         if input
@@ -3580,7 +3588,7 @@ impl App {
             });
         let fallback = text;
         let text = if chat.is_some() {
-            input.quoted_message()
+            input.quoted_message_named(&|id| self.mention_name(id))
         } else {
             fallback.clone()
         };

@@ -153,14 +153,11 @@ pub(in crate::board) fn mixed(app: &mut App) {
     snapshot.tabs = app.tabs.clone();
     snapshot.view = Ok(app.view.take().unwrap());
     app.apply(snapshot);
-    app.references = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[
-            {"id":first,"name":"worker","canonicalName":"worker"},
-            {"id":"44444444-4444-4444-8444-444444444444","name":"codex-worker","canonicalName":"codex-worker"},
-            {"id":"33333333-3333-4333-8333-333333333333","name":"Owner","canonicalName":"owner"}
-        ]})),
-    );
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({"identities":[
+        {"id":first,"name":"worker","canonicalName":"worker"},
+        {"id":"44444444-4444-4444-8444-444444444444","name":"codex-worker","canonicalName":"codex-worker"},
+        {"id":"33333333-3333-4333-8333-333333333333","name":"Owner","canonicalName":"owner"}
+    ]})));
     use crate::board::limits::{Provider, Reading, Standing, Window};
     app.limits = Some(vec![
         Standing {

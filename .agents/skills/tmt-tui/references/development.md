@@ -48,7 +48,9 @@ One spelling per value kind; anything else fails admission with a located error:
   content without changing send/copy source. Callers supply byte limits and own
   submit policy, session drafts, focus and effects.
 - `components::Completion` owns the active source token, stable candidate
-  selection and replacement. Its case-insensitive matcher ignores `-`, `_`, `.`,
+  selection and replacement. The token is the word before the caret that starts
+  with the caller's trigger (`update(editor, candidates, trigger)`); the component
+  holds no default trigger. Its case-insensitive matcher ignores `-`, `_`, `.`,
   and spaces, ranking exact, prefix, word-start initials, substring, then scattered
   subsequence matches; ties preserve caller order. Label source ranges identify
   matched characters for emphasis, including Unicode case expansion. Callers

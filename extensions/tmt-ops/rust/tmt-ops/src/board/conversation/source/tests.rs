@@ -420,10 +420,9 @@ fn literal_selection_keeps_wide_and_combining_glyphs_whole() {
 #[test]
 fn a_linked_name_can_be_drag_selected_and_still_opens_its_menu_on_click() {
     let mut app = fixture("Mention #tmt:worker here");
-    app.references = crate::board::inventory::Inventory::from_listed(
-        &[],
-        &Ok(json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]})),
-    );
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(
+        json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]}),
+    ));
     let buffer = draw(&mut app, 100, 36);
     let (x, y) = (0..buffer.area.height)
         .find_map(|y| {

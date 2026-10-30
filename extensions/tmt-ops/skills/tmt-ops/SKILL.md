@@ -260,9 +260,13 @@ Tab and other authored bindings retain their ordinary meanings.
 
 ## Member links
 
-Write `#tmt:<canonical-name>` or `#tmt:<identity-UUID>` in message text to refer to a
-member. Known references display the member's name as an underlined link; unknown
-references stay literal. Links do not broadcast or change the message recipient.
+Type `tmt/` in a message to pick an agent: the picker lists agents with their squad
+and state, and Tab or Enter inserts `tmt/<name>` (an `@name` reads as a file reference
+to Claude Code). The draft keeps the chosen agent, so a rename before sending still
+names it; the sent text is plain `tmt/<name>`. `#tmt:<canonical-name>`,
+`#tmt:<identity-UUID>` and `@name` in older text still refer to a member. Known
+references display as an underlined link; unknown references stay literal; a `tmt/`
+inside a path or address is not a reference. Links do not broadcast or change the message recipient.
 Conversation responses, outgoing messages, inactive composer previews and Recent
 exchange previews use the same acquired identity inventory. Copy and annotation
 keep the original markup and exact source.
@@ -1446,7 +1450,7 @@ least three rows, a blank padding row above and below the text, growing upward
 without moving its info line. Focus changes only the fill, never the height.
 Terminals under 28 rows give the padding up and keep the one-row box. The line below
 shows the recipient, acquired unread/open-request counts, optional running-session
-context usage and `⏎ send  Alt+⏎ new line  @ mention`; narrow widths shorten the
+context usage and `⏎ send  Alt+⏎ new line  tmt/ mention`; narrow widths shorten the
 words before dropping keys. Unknown context is omitted, not estimated.
 Default Enter or a click focuses it; list actions remain available while idle.
 At eight terminal rows, the Agents composer fills the body and member rows are

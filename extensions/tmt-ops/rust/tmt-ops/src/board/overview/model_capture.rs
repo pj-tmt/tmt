@@ -46,7 +46,7 @@ fn capture_model_columns() {
                         room_id: Some(workspace.roster.squads[0].room_id.clone()),
                         identity_id: first,
                     });
-                    app.references = Inventory::from_listed(&[], &Ok(json!({"identities":listed})));
+                    app.references = Inventory::from_listed(&Ok(json!({"identities":listed})));
                     app.workspace_reconcile();
                     assert_eq!(app.look().depth, look.depth);
                     assert_eq!(
