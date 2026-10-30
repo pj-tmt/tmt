@@ -406,7 +406,6 @@
 /* Optional row commands share one reserved area with the counts; neither state shifts the label. */
 .tmt-ui-rail-menu-row {
   position: relative;
-  min-width: 0;
 }
 .tmt-ui-rail-row-action {
   width: 24px;
@@ -420,13 +419,12 @@
   gap: var(--tmt-ui-space-xs);
   visibility: hidden;
 }
-.tmt-ui-rail-menu-row[data-actions='1'] .tmt-ui-shell-counts {
+.tmt-ui-rail-menu-row[data-actions] .tmt-ui-shell-counts {
   min-width: 24px;
   justify-content: flex-end;
 }
 .tmt-ui-rail-menu-row[data-actions='2'] .tmt-ui-shell-counts {
   min-width: calc(48px + var(--tmt-ui-space-xs));
-  justify-content: flex-end;
 }
 .tmt-ui-rail-drag {
   position: absolute;
@@ -435,8 +433,8 @@
   visibility: hidden;
   cursor: grab;
 }
-.tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-rail-row-actions,
-.tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-rail-drag {
+.tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging])
+  > :is(.tmt-ui-rail-row-actions, .tmt-ui-rail-drag) {
   visibility: visible;
 }
 .tmt-ui-rail-menu-row[data-actions]:is(:hover, :focus-within, [data-dragging])
