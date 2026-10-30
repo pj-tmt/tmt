@@ -135,7 +135,6 @@ test('attach keeps a new task after owner refusal and links that same task on re
     const colab = (args: string[]) =>
       JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
     colab(['task', 'add', other.pageId, '--title', 'Existing parent task']);
-    colab(['task', 'link', other.pageId, 'T-1', child.pageId]);
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'attach-owner');
     const page = await openPage(door, browser, parent);
@@ -146,6 +145,8 @@ test('attach keeps a new task after owner refusal and links that same task on re
     const choices = dialog.getByRole('combobox', { name: 'Page', exact: true });
     await expect(choices.locator('option', { hasText: 'Existing child' })).toHaveCount(1);
     await choices.selectOption({ label: 'Existing child' });
+    // Another owner can attach the selected page after the eligibility list was read.
+    colab(['task', 'link', other.pageId, 'T-1', child.pageId]);
     await dialog.getByLabel('Task title').fill('Follow existing child');
     await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
     await expect(dialog.getByRole('alert')).toBeVisible();
