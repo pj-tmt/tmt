@@ -2529,6 +2529,31 @@ test('a page whose catchup takes over ten seconds in all still opens', async ({
   await backToList(page);
   await expect.poll(() => f.connections).toBe(0);
 });
+test('leaving an expanded band cancels an in-flight attach eligibility read', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(90_000);
+  const source = '<h1>Slow attach eligibility</h1>' + 'x'.repeat(150_000),
+    f = await wire(context, { source });
+  await page.goto(mount);
+  await showAllPages(page);
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Slow attach eligibility' }),
+  ).toBeVisible();
+  await expect.poll(() => f.connections).toBe(1);
+  f.slowChunks({ ms: 1000, objectsOnly: true });
+  await page.getByRole('button', { name: 'Expand status panel' }).click();
+  await expect.poll(() => f.connections).toBe(2);
+  await page.getByRole('button', { name: 'Collapse status panel' }).click();
+  await expect.poll(() => f.connections).toBe(1);
+  await page.getByRole('button', { name: 'Expand status panel' }).click();
+  await expect.poll(() => f.connections).toBe(2);
+  await page.getByRole('link', { name: 'Colab settings', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Colab settings', level: 1 })).toBeVisible();
+  await expect.poll(() => f.connections).toBe(0);
+});
 test('tampered statement reference blocks home metadata and preserves the verified prefix', async ({
   page,
   context,

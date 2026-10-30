@@ -20,6 +20,7 @@ import './work-band.css';
 export interface WorkBandProps extends TaskDetailSlots {
   work: Work;
   onSize?(height: number): void;
+  onOpenChange?(open: boolean): void;
   pageState?: PageState | null;
   progress?: PageProgress | null;
   stateControl?: ReactNode;
@@ -43,6 +44,7 @@ export interface WorkBandProps extends TaskDetailSlots {
 export function WorkBand({
   work,
   onSize,
+  onOpenChange,
   listActions,
   attachAction,
   pageHref,
@@ -81,9 +83,10 @@ export function WorkBand({
     if (focusTask === undefined || focused.current === focusTask || !work.tasks[focusTask]) return;
     focused.current = focusTask;
     setOpen(true);
+    onOpenChange?.(true);
     setTasksOpen(true);
     setSelected(focusTask);
-  }, [focusTask, work]);
+  }, [focusTask, work, onOpenChange]);
   useEffect(() => {
     if (selected !== undefined && selected === focused.current)
       detail.current?.scrollIntoView({ block: 'nearest' });
@@ -141,7 +144,10 @@ export function WorkBand({
           aria-label={open ? t.collapsePanel : t.expandPanel}
           aria-expanded={open}
           aria-controls={listId}
-          onClick={() => setOpen(!open)}
+          onClick={() => {
+            setOpen(!open);
+            onOpenChange?.(!open);
+          }}
         >
           {open ? (
             <ChevronUp size={16} aria-hidden="true" />

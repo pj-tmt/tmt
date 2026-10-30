@@ -13,7 +13,7 @@ function followed(work: Work | undefined): string {
     .join(' ');
 }
 
-/** Follow the owner list for child stages and parentage. Writable pages and pages with linked
+/** Follow the owner list for child stages and parentage. An open writable band and pages with linked
  * tasks refresh the list; absent summaries never establish attach eligibility. When a child is
  * missing from the list its task keeps its stored state. */
 export function useLinkedPages(

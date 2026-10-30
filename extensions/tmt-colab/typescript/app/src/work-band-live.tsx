@@ -22,7 +22,7 @@ export function PageWorkBand({
   space,
   pageId,
   ...band
-}: Omit<WorkBandProps, 'work'> & {
+}: Omit<WorkBandProps, 'work' | 'onOpenChange'> & {
   /** Absent for a page that never had work; its compact panel remains present. */
   work?: Work;
   binding?: PageBinding;
@@ -33,12 +33,13 @@ export function PageWorkBand({
   pageId: string;
 }): ReactNode {
   const run = useWorkRun(binding);
+  const [open, setOpen] = useState(false);
   const { stageOf, subpages, observed, pages, knownChild } = useLinkedPages(
     transport,
     space,
     pageId,
     band.work,
-    Boolean(binding?.work && binding.canWork?.()),
+    Boolean(open && binding?.work && binding.canWork?.()),
   );
   const childStates = JSON.stringify(subpages.map((child) => [child.id, child.state]));
   const previousChildStates = useRef<string | undefined>(undefined);
@@ -55,6 +56,7 @@ export function PageWorkBand({
       <WorkBand
         {...band}
         work={work}
+        onOpenChange={setOpen}
         stateControl={stateControl}
         subpages={subpages}
         stageOf={stageOf}
@@ -64,6 +66,7 @@ export function PageWorkBand({
     <WorkBand
       {...band}
       work={work}
+      onOpenChange={setOpen}
       stateControl={stateControl}
       attachAction={
         observed && pages?.find((page) => page.id === pageId)?.summary && !knownChild ? (
