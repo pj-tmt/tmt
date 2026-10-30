@@ -1461,7 +1461,11 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             _ => "cancel",
         }),
         Stage::Pending | Stage::Result(_) => Some("cancel"),
-        Stage::Fields => None,
+        Stage::Fields => match draft.fields_button {
+            Some(super::manage::ReviewButton::Cancel) => Some("cancel"),
+            Some(super::manage::ReviewButton::Discard) => Some("discard"),
+            _ => None,
+        },
     };
     if draft.stage == Stage::Review {
         let removal = draft.kind == super::manage::Kind::RemoveMember;
@@ -1566,7 +1570,10 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             crate::board::buttons::Button::secondary(label).focused(focused == Some("cancel")),
         ];
         if discard {
-            buttons.push(crate::board::buttons::Button::secondary("Discard"));
+            buttons.push(
+                crate::board::buttons::Button::secondary("Discard")
+                    .focused(focused == Some("discard")),
+            );
         }
         let painted = crate::board::buttons::paint(
             app,

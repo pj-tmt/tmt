@@ -92,6 +92,9 @@ pub struct Draft {
     pub reopened: bool,
     /// The Review stage's Cancel / apply cursor (`review_start`).
     pub review: tmt_tui::components::DialogState,
+    /// The Fields stage's chosen button: ↓ on the editor's last line reaches Cancel, ←→ Discard
+    /// when reopened, ↑ goes back to the editor (`None`).
+    pub fields_button: Option<ReviewButton>,
 }
 /// Review of a removal starts on Cancel, so a stray Enter never takes an agent out of a squad;
 /// any other review starts on its apply button, so Enter applies what was just reviewed.
@@ -591,11 +594,43 @@ impl App {
             {
                 Some(self.workspace_copy_command())
             }
+            Event::Key(key) if editing && draft.fields_button.is_some() => {
+                let reopened = draft.reopened;
+                let draft = self.workspace_form.as_mut()?;
+                match key.code {
+                    KeyCode::Up => draft.fields_button = None,
+                    KeyCode::Left | KeyCode::Right if reopened => {
+                        draft.fields_button = Some(match draft.fields_button {
+                            Some(ReviewButton::Cancel) => ReviewButton::Discard,
+                            _ => ReviewButton::Cancel,
+                        });
+                    }
+                    KeyCode::Enter => {
+                        if draft.fields_button == Some(ReviewButton::Discard) {
+                            self.workspace_discard();
+                        } else {
+                            self.workspace_close();
+                            self.input = None;
+                        }
+                    }
+                    _ => {}
+                }
+                Some(Effect::None)
+            }
             Event::Key(key) if editing => {
                 self.update_mentions();
-                let effect = self
-                    .mention_key(*key)
-                    .unwrap_or_else(|| self.input_key(*key));
+                let effect = match self.mention_key(*key) {
+                    Some(effect) => effect,
+                    None if key.code == KeyCode::Down
+                        && key.modifiers.is_empty()
+                        && self.input_on_last_line() =>
+                    {
+                        // ↑↓ change rows: past the field's last line is the button row.
+                        self.workspace_form.as_mut()?.fields_button = Some(ReviewButton::Cancel);
+                        Effect::None
+                    }
+                    None => self.input_key(*key),
+                };
                 self.update_mentions();
                 Some(effect)
             }
@@ -649,6 +684,9 @@ impl App {
                     )
                     && let Some(input) = self.input.as_mut()
                 {
+                    if let Some(draft) = self.workspace_form.as_mut() {
+                        draft.fields_button = None;
+                    }
                     input.text.place(
                         area.width,
                         skip + usize::from(mouse.row - area.y),
@@ -696,6 +734,13 @@ impl App {
         draft.invalidate();
     }
     /// Drops a kept form for good; only an explicit Discard does this.
+    fn input_on_last_line(&self) -> bool {
+        let width = self.input_viewport.get().map_or(80, |(area, _)| area.width);
+        self.input.as_ref().is_none_or(|input| {
+            let layout = input.text.layout(width);
+            layout.cursor.0 + 1 >= layout.lines.len()
+        })
+    }
     pub(in crate::board) fn workspace_discard(&mut self) {
         if self
             .workspace_form
@@ -736,6 +781,7 @@ impl App {
             if kind == draft.kind {
                 draft.shown = true;
                 draft.reopened = matches!(draft.stage, Stage::Fields | Stage::Review);
+                draft.fields_button = None;
                 if draft.stage == Stage::Review {
                     draft.review = review_start(draft.kind, draft.reopened);
                 }
@@ -919,6 +965,7 @@ impl App {
             typed: String::new(),
             reopened: false,
             review: review_start(kind, false),
+            fields_button: None,
         });
         self.workspace_form_next()
     }

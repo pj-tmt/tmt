@@ -1,6 +1,6 @@
 use super::*;
 use crate::board::workspace::{
-    manage::Change,
+    manage::{Change, ReviewButton},
     rename_member::{Completed, Outcome, Request as Rename},
 };
 
@@ -480,4 +480,42 @@ fn a_kept_review_reopens_on_apply_with_discard_beside_it() {
     key(&mut app, KeyCode::Left);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.workspace_form.is_none(), "Discard drops the kept draft");
+}
+
+#[test]
+fn down_from_the_field_reaches_cancel_and_discard_by_keyboard() {
+    let mut app = board();
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    paint(&app, 160, 36);
+    app.input.as_mut().unwrap().text = "half".into();
+    assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().fields_button,
+        Some(ReviewButton::Cancel)
+    );
+    key(&mut app, KeyCode::Right);
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().fields_button,
+        Some(ReviewButton::Cancel),
+        "a fresh form has only Cancel"
+    );
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.workspace_form.as_ref().unwrap().fields_button, None);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(hidden(&app), "Cancel keeps the draft");
+
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    assert_eq!(app.workspace_form.as_ref().unwrap().fields_button, None);
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Right);
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Discard"), "{screen}");
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().fields_button,
+        Some(ReviewButton::Discard)
+    );
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.workspace_form.is_none() && app.input.is_none());
 }
