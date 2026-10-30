@@ -643,8 +643,9 @@ update the chip, STATE and header together; held counts remain during refresh.
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
 Outside an editor or modal, `w` opens saved workspace snapshots on every tab;
 compatible explicit bindings retain their configured meaning. The top bar offers
-the same Snapshots action, then `g  Web`: a click or `g` runs `tmt remote open`, which
-opens the web UI of the running local Remote in your own browser. That browser gets
+the same Snapshots action, then `g  Web`: a click or `g` runs `tmt remote open --open`,
+which opens the web UI of the running local Remote in your own browser and shows
+Remote's result line. That browser gets
 Remote's one-time read-only connection offer, which is Remote's behaviour of the
 command, not a pairing Ops starts. When Remote is missing or stopped, the status line
 names the command to run (`tmt extension install remote`, or the one Remote
