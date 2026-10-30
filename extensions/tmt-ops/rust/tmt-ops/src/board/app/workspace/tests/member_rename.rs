@@ -557,3 +557,22 @@ fn a_kept_rename_reopened_from_another_agent_still_names_its_own_target() {
         "selection is untouched"
     );
 }
+
+#[test]
+fn another_form_replacing_a_kept_draft_says_so() {
+    let mut app = board();
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    app.input.as_mut().unwrap().text = "half".into();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(hidden(&app));
+
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_begin(Kind::RenameSquad);
+    let draft = app.workspace_form.as_ref().unwrap();
+    assert!(draft.shown && draft.kind == Kind::RenameSquad && !draft.reopened);
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("Dropped the kept Rename draft."),
+        "typed text never vanishes silently"
+    );
+}

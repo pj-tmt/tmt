@@ -1036,7 +1036,9 @@ cannot submit. Pending prevents repeated applies.
 Esc, Cancel or a click outside hides a management form and keeps what you typed or
 reviewed; the same key reopens it, titled with its target, with Discard beside Cancel to
 drop it. ↓ past a field's last line reaches those buttons, ←→ move between them and ↑
-goes back. Member actions reopen only from the Agents list.
+goes back. Member actions reopen only from the Agents list. One draft is kept at a time:
+starting a different management form drops it, and the status line says
+`Dropped the kept <form> draft.`
 Results retain per-item success/failure and explicit repair guidance, with no
 automatic retry; Enter or Esc closes a result. `x` removes membership, not an identity, process, draft or history.
 Source timers pause before leave; re-add/reassign never resumes them. Explicit

@@ -951,6 +951,12 @@ impl App {
         } else {
             None
         };
+        // One kept draft at a time: a different form replaces it, and says so.
+        let dropped = self
+            .workspace_form
+            .as_ref()
+            .filter(|draft| !draft.shown && matches!(draft.stage, Stage::Fields | Stage::Review))
+            .map(|draft| draft.kind.label());
         self.workspace_form = Some(Draft {
             kind,
             stage: Stage::Fields,
@@ -968,7 +974,11 @@ impl App {
             review: review_start(kind, false),
             fields_button: None,
         });
-        self.workspace_form_next()
+        let effect = self.workspace_form_next();
+        if let Some(label) = dropped {
+            self.say(format!("Dropped the kept {label} draft."));
+        }
+        effect
     }
     fn workspace_form_next(&mut self) -> Effect {
         let draft = self.workspace_form.as_ref().expect("opened workspace form");
