@@ -465,6 +465,7 @@ fn a_kept_form_reopens_with_discard_reached_by_arrows() {
     key(&mut app, KeyCode::Right);
     assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Create);
     key(&mut app, KeyCode::Left);
+    paint(&app, 150, 43);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.new_member.is_none(), "Discard drops the kept draft");
 }
@@ -688,4 +689,48 @@ fn esc_hides_a_running_launch_and_the_status_line_follows_it_to_its_result() {
         Stage::Result(_)
     ));
     assert_eq!(app.overlay(), Some(crate::board::app::Overlay::NewMember));
+}
+
+#[test]
+fn reopen_keeps_the_template_button_and_arrows_stay_on_the_button_row() {
+    let mut app = form();
+    app.new_member.as_mut().unwrap().at = Focus::Slot(model::Slot::Host);
+    key(&mut app, KeyCode::Char('e'));
+    paint(&app, 150, 43);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Right);
+    let c = app.new_member.as_ref().unwrap();
+    assert_eq!(c.template_controls()[c.focus - 1], Control::Apply);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.open_new_member(), Effect::None);
+    let c = app.new_member.as_ref().unwrap();
+    assert_eq!(
+        c.template_controls()[c.focus - 1],
+        Control::Apply,
+        "Discard joined the row; focus stayed on Save template"
+    );
+
+    // ←→ on the form's buttons never walk into the fields.
+    let mut app = form();
+    app.new_member.as_mut().unwrap().at = Focus::Cancel;
+    key(&mut app, KeyCode::Left);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Create);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Cancel);
+}
+
+#[test]
+fn an_unpainted_discard_never_drops_the_draft() {
+    let mut app = form();
+    key(&mut app, KeyCode::Esc);
+    app.open_new_member();
+    let c = app.new_member.as_mut().unwrap();
+    c.at = Focus::Discard;
+    c.invalidate();
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.new_member.is_some(), "nothing painted to choose from");
+    paint(&app, 150, 43);
+    app.new_member.as_mut().unwrap().at = Focus::Discard;
+    key(&mut app, KeyCode::Enter);
+    assert!(app.new_member.is_none());
 }

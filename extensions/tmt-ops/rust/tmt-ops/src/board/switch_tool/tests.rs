@@ -332,6 +332,7 @@ fn a_kept_switch_reopens_on_its_agent_with_discard() {
         "{screen}"
     );
     key(&mut app, KeyCode::Right);
+    paint(&app, 150, 43);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.switch_tool.is_none(), "Discard drops the kept draft");
 }
@@ -407,4 +408,29 @@ fn a_session_change_never_lets_a_kept_review_switch() {
         app.switch_tool.as_ref().unwrap().stage,
         Stage::Result(_)
     ));
+}
+
+#[test]
+fn reopen_keeps_the_focused_button_so_enter_never_discards() {
+    let mut app = form();
+    review(&mut app);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(
+        app.switch_tool.as_ref().unwrap().focused(),
+        Some(Control::Apply)
+    );
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.open_switch_tool(), Effect::None);
+    paint(&app, 150, 43);
+    assert_eq!(
+        app.switch_tool.as_ref().unwrap().focused(),
+        Some(Control::Apply),
+        "Discard joined the row; focus stayed on Switch"
+    );
+    let effect = key(&mut app, KeyCode::Enter);
+    assert!(app.switch_tool.is_some(), "Enter did not discard");
+    assert!(
+        matches!(effect, Effect::SwitchTool(_) | Effect::Act(_)),
+        "{effect:?}"
+    );
 }
