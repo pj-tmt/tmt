@@ -3,7 +3,7 @@ use super::{
     Summary,
     draft::Draft,
     overlay::Controller,
-    rows::{Kind, Row},
+    rows::{Kind, LINK_MARK, OPEN_MARK, Row},
 };
 use crate::{
     board::{
@@ -12,63 +12,36 @@ use crate::{
     },
     look::Look,
 };
-use ratatui::{Frame, layout::Rect};
+use ratatui::{Frame, layout::Rect, style::Modifier};
 use serde_json::json;
-use unicode_width::UnicodeWidthStr;
 
 const FILE: &str = "ops.conversation-checklist.xml";
-/// The widest the LINK column grows before the title gives way.
-const LINK_MAX: usize = 28;
-/// The widest the right-hand `who · age` column grows; it is painted on the cursor row only.
-const META_MAX: usize = 24;
-/// The title keeps at least this many cells; the link gives way first, then the byline.
-const TITLE_MIN: usize = 24;
-/// The STATUS column: a mark, a space and the word (`↗ link`, `○ todo`).
-const STATUS_CELLS: usize = 6;
-/// The modal's width (`w-100`) and what its border, padding, cursor, status and gaps take.
-const MODAL_CELLS: u16 = 100;
-const CHROME_CELLS: usize = 4 + 1 + STATUS_CELLS + 4;
+/// The hit id of a row's second line.
+pub(super) const LINK_HIT: &str = "link";
+/// What parts the link from `who · age` on the second line.
+const META_GAP: &str = "   ";
 
-/// The column widths of the list: the link and the byline, as admitted by the room left.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct Columns {
-    link: usize,
-    meta: usize,
-}
-
-fn markup(title: &str, columns: Columns, header: bool, form_only: bool) -> String {
-    let Columns { link, meta } = columns;
-    let grid = format!("grid grid-cols-[1_{STATUS_CELLS}_{link}_1fr_{meta}] gap-x-1 shrink-0");
+/// Each item takes two lines: the cursor, its mark and the whole title, then under the title
+/// `↗` and its whole link followed by `who · age`, or for a todo only who added it when. The
+/// second line is one wrapped text so the byline follows the link wherever the link ends.
+fn markup(title: &str, width: u16, form_only: bool) -> String {
+    let lines = "grid grid-cols-[1_1_1fr] gap-x-1 shrink-0";
     let choices = if form_only {
         String::new()
     } else {
-        let header = if header {
-            format!(
-                r#"<tmt-row class="{grid}"><tmt-text/><tmt-text token="muted">STATUS</tmt-text><tmt-text token="muted">LINK</tmt-text><tmt-text token="muted">TITLE</tmt-text><tmt-text/></tmt-row>"#
-            )
-        } else {
-            String::new()
-        };
         format!(
-            r#"{header}<tmt-list id="choices" bind="$.rows" empty="No items yet · a adds one"><tmt-row class="{grid}"><tmt-text bind="row.cursor"/><tmt-text bind="row.status" token-bind="row.role"/><tmt-text bind="row.link" token-bind="row.link_role" class="truncate"/><tmt-text bind="row.title" token="text" class="truncate"/><tmt-text bind="row.meta" token="dim" class="truncate"/></tmt-row></tmt-list>"#
+            r#"<tmt-list id="choices" bind="$.rows" empty="No items yet · a adds one"><tmt-row class="flex-col shrink-0"><tmt-row class="{lines}"><tmt-text bind="row.cursor"/><tmt-text bind="row.mark" token-bind="row.role"/><tmt-text bind="row.title" token="text" wrap="true"/></tmt-row><tmt-row class="{lines}"><tmt-text/><tmt-text/><tmt-text id="{LINK_HIT}" bind="row.link" token-bind="row.link_role" wrap="true"/></tmt-row></tmt-row></tmt-list>"#
         )
     };
     format!(
-        r#"<tmt-view version="1"><tmt-modal id="notes" title="{title}" placement="center" class="w-100"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" token-bind="note.role" class="truncate"/></tmt-repeat>{choices}</tmt-scroll><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" class="truncate"/></tmt-modal></tmt-view>"#
+        r#"<tmt-view version="1"><tmt-modal id="notes" title="{title}" placement="center" class="w-{width}"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" token-bind="note.role" class="truncate"/></tmt-repeat>{choices}</tmt-scroll><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" class="truncate"/></tmt-modal></tmt-view>"#
     )
 }
 
 fn schema() -> tmt_tui::binding::Schema {
     use tmt_tui::binding::Schema;
-    let mut schema = picker_surface::schema(&[
-        "cursor",
-        "status",
-        "link",
-        "link_role",
-        "title",
-        "meta",
-        "role",
-    ]);
+    let mut schema =
+        picker_surface::schema(&["cursor", "mark", "link", "link_role", "title", "role"]);
     if let Schema::Object(fields) = &mut schema
         && let Some(Schema::Collection(notes)) = fields.get_mut("notes")
         && let Schema::Object(fields) = notes.as_mut()
@@ -80,6 +53,11 @@ fn schema() -> tmt_tui::binding::Schema {
 
 fn safe(text: &str) -> String {
     crate::board::notes::single_line(text)
+}
+
+/// A link row's `↗` and whole address, the part of its second line that opens the link.
+fn link_text(row: &Row) -> String {
+    format!("{LINK_MARK} {}", safe(&row.address))
 }
 
 /// The field with a caret where the next character goes.
@@ -135,22 +113,9 @@ impl Controller {
         } else {
             format!("Checklist · {}", safe(&member))
         };
-        let room = usize::from(body.width.min(MODAL_CELLS)).saturating_sub(CHROME_CELLS);
-        let widest = |cell: fn(&Row) -> usize, most: usize| {
-            items.iter().map(cell).max().unwrap_or(0).min(most)
-        };
-        // The title has priority: the link gives way first, then the byline.
-        let spare = room.saturating_sub(TITLE_MIN);
-        let link = widest(|row| row.link.width(), LINK_MAX)
-            .max("LINK".len())
-            .min(spare.max(1));
-        let meta = widest(|row| row.byline.width(), META_MAX).min(spare.saturating_sub(link));
-        let columns = Columns {
-            link,
-            meta: meta.max(1),
-        };
-        let header = !items.is_empty();
-        let key = format!("{title}/{link}/{meta}/{header}/{form_only}");
+        // The sheet asks for the whole board; the modal keeps its usual margin around it.
+        let width = body.width.max(1);
+        let key = format!("{title}/{width}/{form_only}");
         let mut cached = self.template.borrow_mut();
         if cached.as_ref().is_none_or(|(old, _)| old != &key) {
             let escaped = tmt_cli_style::table::escape(&title)
@@ -159,11 +124,7 @@ impl Controller {
                 .replace('"', "&quot;");
             *cached = Some((
                 key,
-                picker_surface::compile(
-                    FILE,
-                    &markup(&escaped, columns, header, form_only),
-                    schema(),
-                ),
+                picker_surface::compile(FILE, &markup(&escaped, width, form_only), schema()),
             ));
             self.ui.borrow_mut().template_changed();
         }
@@ -187,15 +148,20 @@ impl Controller {
             .iter()
             .map(|row| {
                 let cursor = selected.as_deref() == Some(row.id.as_str());
+                // A todo has no link, so who added it when takes the link's place.
+                let link = match row.kind {
+                    Kind::Link if row.byline.is_empty() => link_text(row),
+                    Kind::Link => format!("{}{META_GAP}{}", link_text(row), safe(&row.byline)),
+                    Kind::Todo => safe(&row.byline),
+                };
                 json!({
                     "id": row.id.as_str(), "disabled": false,
                     "cursor": if cursor { "›" } else { "" },
-                    "status": row.kind.status(),
-                    "role": if row.kind == Kind::Link { "link" } else { "waiting" },
-                    "link": safe(&row.link),
+                    "mark": OPEN_MARK,
+                    "role": "waiting",
+                    "link": link,
                     "link_role": if row.kind == Kind::Link { "link" } else { "dim" },
                     "title": safe(&row.title),
-                    "meta": if cursor { safe(&row.byline) } else { String::new() },
                 })
             })
             .collect();
@@ -308,6 +274,63 @@ impl Controller {
             }
         } else {
             ui.render(FILE, template, data, frame, look, body);
+            self.paint_links(frame, look, &items, selected.as_deref(), &ui);
         }
+    }
+
+    /// Find the link on each link row's painted second line: its first glyphs, in reading
+    /// order, are `↗` and the address, the rest is the byline, which takes the `dim` colour.
+    /// The cursor row's link and the link under the pointer are highlighted as other board
+    /// links are: the selection colour, underlined.
+    fn paint_links(
+        &self,
+        frame: &mut Frame,
+        look: Look,
+        items: &[Row],
+        selected: Option<&str>,
+        ui: &picker_surface::State,
+    ) {
+        let hovered = self.hovered.borrow();
+        let mut hits = Vec::new();
+        for hit in ui.frame.iter().flat_map(|map| &map.hits) {
+            let Some(row) = hit
+                .row_id
+                .as_deref()
+                .filter(|_| hit.id.last().is_some_and(|id| id == LINK_HIT))
+            else {
+                continue;
+            };
+            let Some(item) = items
+                .iter()
+                .find(|item| item.id.as_str() == row && item.kind == Kind::Link)
+            else {
+                continue;
+            };
+            let glyphs = link_text(item)
+                .chars()
+                .filter(|glyph| !glyph.is_whitespace())
+                .count();
+            let lit = selected == Some(row) || hovered.as_deref() == Some(row);
+            let dim = look.role(tmt_cli_style::Role::Dim);
+            let buffer = frame.buffer_mut();
+            let painted = (hit.rect.top()..hit.rect.bottom())
+                .flat_map(|y| (hit.rect.left()..hit.rect.right()).map(move |x| (x, y)))
+                .filter(|at| !buffer[*at].symbol().trim().is_empty())
+                .collect::<Vec<_>>();
+            for (index, (x, y)) in painted.into_iter().enumerate() {
+                let cell = &mut buffer[(x, y)];
+                if index >= glyphs {
+                    if let Some(fg) = dim.fg {
+                        cell.set_fg(fg);
+                    }
+                    continue;
+                }
+                hits.push((Rect::new(x, y, 1, 1), row.to_owned()));
+                if lit {
+                    cell.set_style(look.selection().add_modifier(Modifier::UNDERLINED));
+                }
+            }
+        }
+        *self.link_hits.borrow_mut() = hits;
     }
 }

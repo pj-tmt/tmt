@@ -23,7 +23,7 @@ for (const width of [1440, 390])
     test(`injected module records and their actions at ${width} ${theme}`, async ({ page }) => {
       await open(page, 'injected', width, theme);
       await expect(
-        page.getByRole('heading', { name: 'Modules, in one place.', exact: true }),
+        page.getByRole('heading', { name: 'TMT settings / Modules', exact: true }),
       ).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Sample installed modules' })).toBeVisible();
       const notice = page.locator('.tmt-settings-warning');
@@ -158,9 +158,9 @@ for (const state of ['unavailable', 'empty', 'refused', 'failed', 'observed'])
     await open(page, state);
     if (state === 'failed') {
       await expect(page.locator('#tmt-settings-note')).toHaveText('Settings could not be read.');
-      await expect(page.locator('#tmt-settings-section')).toHaveText('Modules');
+      await expect(page.locator('#tmt-settings-section')).toBeEmpty();
       await expect(
-        page.getByRole('heading', { level: 1, name: 'Modules', exact: true }),
+        page.getByRole('heading', { level: 1, name: 'TMT settings / Modules', exact: true }),
       ).toBeVisible();
       await expect(page.locator('.tmt-page-loading')).toHaveCount(0);
     } else if (state === 'observed') {

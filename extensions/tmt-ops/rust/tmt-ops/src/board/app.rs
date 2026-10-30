@@ -4409,6 +4409,11 @@ impl App {
             (event.column, event.row).into(),
             !self.modal_open() && !self.loading(),
         );
+        let notes_changed = self.overlay() == Some(Overlay::Notes)
+            && self
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|notes| notes.move_pointer((event.column, event.row).into()));
         let control =
             if self.loading() || self.modal_open() || self.input.is_some() || self.searching {
                 None
@@ -4450,6 +4455,7 @@ impl App {
         });
         let changed = unread_overlay_changed
             || chart_changed
+            || notes_changed
             || resize_changed
             || buttons_changed
             || links_changed

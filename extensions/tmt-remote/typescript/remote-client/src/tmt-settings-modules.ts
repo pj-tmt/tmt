@@ -49,10 +49,7 @@ export function modulesView(
 ): HTMLElement[] {
   const rows = settings.modules.rows;
   const unavailable = settings.modules.unavailable;
-  const head = settingsHead(
-    'Modules, in one place.',
-    'A few focused tools. One connected workspace.',
-  );
+  const head = settingsHead('A few focused tools. One connected workspace.');
   const out: HTMLElement[] = [head];
   if (unavailable || !rows.length) {
     const notice = settingsNotice(

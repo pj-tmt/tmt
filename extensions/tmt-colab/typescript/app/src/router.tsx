@@ -184,6 +184,11 @@ function PageFloatingActions({
   selectPending: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const dock = useRef<HTMLDivElement>(null);
+  const tooltipPlacement = useMemo(
+    () => ({ anchor: () => dock.current, side: 'above' as const }),
+    [],
+  );
   const [placement, setPlacement] = useState<{
     right: number;
     bottom: number;
@@ -293,11 +298,12 @@ function PageFloatingActions({
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
-      <div className="page-floating-actions">
+      <div className="page-floating-actions" ref={dock}>
         {(canSelect || selectPending) && (
           <BrowserIconAction
             type="button"
             variant="secondary"
+            tooltipPlacement={tooltipPlacement}
             busy={selectPending}
             label={text.selectionMode}
             ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
@@ -322,6 +328,7 @@ function PageFloatingActions({
           <BrowserIconAction
             type="button"
             variant="secondary"
+            tooltipPlacement={tooltipPlacement}
             label={chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat}
             buttonRef={chatButton}
             hasPopup="dialog"
@@ -345,6 +352,7 @@ function PageFloatingActions({
           <BrowserIconAction
             type="button"
             variant="secondary"
+            tooltipPlacement={tooltipPlacement}
             label={`${text.comments}${comments === undefined ? '' : ` (${comments})`}${unseen ? ` · ${text.threadUnseen}` : ''}`}
             buttonRef={commentsButton}
             expanded={panel === 'comments'}

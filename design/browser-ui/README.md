@@ -365,6 +365,12 @@ Escape dismisses it without consuming the host's key event, so a containing menu
 Focus restored by that Escape does not open a replacement tooltip; a one-frame
 guard ends early on the next non-Escape key. No transition or polling is used. Placement observers and
 resize/scroll/Escape listeners exist only while shown and are removed on close/unmount.
+An optional `tooltipPlacement={{ anchor, side: 'above' }}` selects a host-owned group
+rectangle instead of the button, with an explicit above position. `anchor()` returns the
+current group element or null; missing/detached groups show no help. Hover, focus, accessible
+names and dismissal still belong to each original button. The group tooltip uses the same
+resolved `--tmt-ui-toggle-gap` token as ordinary tooltip spacing, outside its painted label,
+and retains the shared viewport clamps, placement observers and cleanup.
 Long copy wraps within the viewport and is bounded by the remaining vertical space.
 The host's visible disabled reason remains outside the tooltip.
 

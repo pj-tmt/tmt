@@ -1,13 +1,4 @@
 /* Remote-owned layout and explicit host metrics; shared presentation is embedded first. */
-/* Same in-flow title-row type as Colab's own shell (#5252); the common bar draws no title. */
-.root-title-row {
-  margin: 32px auto 0;
-}
-.root-title-row .tmt-ui-title {
-  font: var(--tmt-ui-header-title-weight) var(--tmt-ui-header-title-size) /
-    var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
-  letter-spacing: normal;
-}
 .root-search-status:not([hidden]) {
   position: fixed;
   bottom: var(--tmt-ui-space-l);
@@ -72,8 +63,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 /* Remote's page column. Its class and the element rules below stay scoped to it: a module route
    (Colab) shares this document and keeps its own layout and type. */
-.tmt-page,
-.root-title-row {
+.tmt-page {
   width: min(100% - 32px, 820px);
 }
 .tmt-page {
@@ -940,3 +930,9 @@ body:not(:has(.tmt-ui-shell)) {
 #invitation-heading + p { margin-block-start: var(--tmt-ui-space-xs); }
 #invitation-candidate:not([hidden]) + #invitation-refresh { margin-block-start: var(--tmt-ui-space-s); }
 #invitation-words { font-family: var(--tmt-ui-font-mono); font-size: var(--tmt-ui-card-title-size); font-weight: 600; }
+
+.root-page-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0;
+}

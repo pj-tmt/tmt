@@ -2,9 +2,8 @@
 //! invalidate it or have their newer observations overwritten by an old snapshot.
 use super::super::hook_queue::CaptureResult;
 use super::super::{
-    IdentityContextSnapshot, Storage, StorageError,
-    bindings::BindingRows,
-    identities::{commit_immediate_transaction, with_immediate_transaction},
+    IdentityContextSnapshot, Storage, StorageError, bindings::BindingRows,
+    identities::with_immediate_transaction,
 };
 use crate::runtime::{driver_state, hook_protocol::ActivityObservation};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -18,7 +17,7 @@ use tmt_core::{
 };
 
 #[derive(Clone, Copy)]
-pub enum CaptureFailure {
+pub(in crate::storage) enum CaptureFailure {
     Worker,
     Budget,
     Storage,
@@ -113,6 +112,7 @@ impl Storage {
                     now_ms: capture.now_ms,
                     outcome: CaptureResult::from(outcome),
                 },
+                CaptureFailure::Worker,
             )?;
             // Once admitted under the writer, finish the final and its receipt.
             // Expiring the hook budget cannot undo an already retained answer.
@@ -277,59 +277,6 @@ fn commit_turn_end(
     Ok(TurnCaptureOutcome::Committed)
 }
 
-impl Storage {
-    /// Best-effort diagnostics never renew the hook budget, replay capture or
-    /// attach a failure to a binding/session that replaced the verified one.
-    pub fn record_capture_failure(
-        &mut self,
-        expected: &IdentityContextSnapshot,
-        reason: CaptureFailure,
-        now: u64,
-        deadline: Instant,
-    ) -> Result<(), StorageError> {
-        let Some(binding) = expected.entry.binding.as_ref() else {
-            return Ok(());
-        };
-        commit_immediate_transaction(self, "capture failure", |db| {
-            if Instant::now() >= deadline {
-                return Ok(());
-            }
-            let rows = BindingRows(db);
-            if rows
-                .entry_by_id(&binding.identity_id)?
-                .and_then(|entry| entry.binding)
-                .as_ref()
-                != Some(binding)
-            {
-                return Ok(());
-            }
-            let current = rows.session_preferences(&binding.identity_id)?;
-            let pair = |preferences: &tmt_core::binding::session::SessionPreferences| {
-                preferences
-                    .remembered
-                    .as_ref()
-                    .map(|r| (r.harness.clone(), r.provider_session.clone()))
-            };
-            if pair(&current) != pair(&expected.preferences) {
-                return Ok(());
-            }
-            if let Some(batch) = super::super::capture_batches::current(db, &binding.identity_id)? {
-                db.execute("INSERT INTO capture_entries(identity_id,batch_id,kind,failure,created_ms)
-                    SELECT ?1,?2,'failure',?3,?4 WHERE NOT EXISTS(SELECT 1 FROM capture_entries WHERE batch_id=?2 AND kind='failure')",
-                    rusqlite::params![binding.identity_id,batch,reason.as_str(),now as i64])
-                    .map_err(|e|super::super::classify(e,"Record capture failure"))?;
-            }
-            if Instant::now() >= deadline {
-                return Err(StorageError::new(
-                    super::super::StorageErrorCode::Busy,
-                    "Capture diagnostic exceeded its budget",
-                ));
-            }
-            Ok(())
-        })
-    }
-}
-
 /// A verified capture's recorded coordinates, never a request to alter current activity.
 pub(in crate::storage) struct CaptureDisposition<'a> {
     pub event_id: &'a str,
@@ -374,6 +321,7 @@ pub(in crate::storage) fn capture_receipt(
 pub(in crate::storage) fn finish_capture_disposition(
     db: &Connection,
     capture: &CaptureDisposition<'_>,
+    failure: CaptureFailure,
 ) -> Result<(), StorageError> {
     if capture_receipt(db, capture.event_id)?.is_some() {
         return Ok(());
@@ -389,11 +337,11 @@ pub(in crate::storage) fn finish_capture_disposition(
              WHERE b.id=?1 AND b.identity_id=?2 AND b.binding_id=?3 AND b.driver=?4 AND b.session_id=?5 AND b.runtime_pid=?6 AND b.runtime_start=?7)",
             params![batch,capture.identity,capture.binding,capture.provider,capture.session,capture.process.pid() as i64,capture.process.start_identity()],
             |row| row.get(0),
-        ).map_err(|e| super::super::classify(e, "Check refused capture's recorded batch"))?;
+        ).map_err(|e| super::super::classify(e, "Check capture failure's recorded batch"))?;
         if recorded && !super::same_final_in_batch(db, Some(batch), response)? {
             db.execute("INSERT INTO capture_entries(identity_id,batch_id,kind,failure,created_ms) VALUES(?1,?2,'failure',?3,?4)",
-                params![capture.identity,batch,CaptureFailure::Worker.as_str(),capture.now_ms as i64])
-                .map_err(|e| super::super::classify(e, "Record refused final capture"))?;
+                params![capture.identity,batch,failure.as_str(),capture.now_ms as i64])
+                .map_err(|e| super::super::classify(e, "Record uncaptured final"))?;
         }
     }
     db.execute("INSERT INTO hook_capture_receipts(event_id,identity_id,batch_id,outcome,committed_ms) VALUES(?,?,?,?,?)",

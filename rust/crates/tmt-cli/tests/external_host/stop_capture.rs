@@ -676,6 +676,41 @@ fn blocking_digest(
                     .any(|entry| entry["kind"] == "input" && entry["text"] == "Core decision item"),
                 "{timeline:#}"
             );
+            let failed_before = entries
+                .iter()
+                .filter(|entry| entry["kind"] == "failure")
+                .count();
+            let recorded_batch = before_stop["entries"][0]["inputBatchId"].clone();
+            assert!(
+                entries
+                    .iter()
+                    .filter(|entry| entry["kind"] == "failure")
+                    .all(|entry| entry["inputBatchId"] == recorded_batch),
+                "{timeline:#}"
+            );
+            let mut second_miss = first.clone();
+            second_miss[final_field] = "A distinct final also could not be published".into();
+            observer(&mut provider, second_miss, capture, scenario);
+            let after = passthrough::api(
+                &fixture,
+                "ok",
+                "responses.timeline",
+                serde_json::json!({"identityId":agent}),
+            );
+            let failures: Vec<_> = after["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|entry| entry["kind"] == "failure")
+                .collect();
+            assert_eq!(failures.len(), failed_before + 1, "{after:#}");
+            assert!(
+                failures
+                    .iter()
+                    .all(|entry| entry["inputBatchId"] == recorded_batch),
+                "{after:#}"
+            );
+            assert_eq!(after["responses"], serde_json::json!([]));
             continue;
         }
         assert!(

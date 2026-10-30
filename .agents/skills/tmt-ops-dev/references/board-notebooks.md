@@ -392,12 +392,17 @@ collapse or viewport. Unknown and partial totals retain their existing presentat
 
 The conversation entry is `C  Checklist · …` (the key as a keycap, none when unbound); its modal is `Checklist · <member>`
 (with the item count), and a source form is `Add to checklist · <member>`.
-The list is one list in stored order (`rows.rs`, no kind grouping) under a muted
-`STATUS LINK TITLE` header: STATUS is the mark and its word (`↗ link` in the `link` role, `○ todo` in
-`waiting`), LINK is `link()` (GitHub issue/PR `owner/repo#N`, else `host/…/last-segment`, `—` for a
-todo) and TITLE takes the rest. Only the cursor row paints its byline, in a column sized to the widest
-byline; the title keeps 24 cells and the link gives way first. Shift+↑↓ swaps with the neighbouring
-row of the same list. Captions
+The list is one list in stored order (`rows.rs`, no kind grouping), with no header, in a sheet
+that asks for the whole board body; the modal then keeps its usual 90% cap, or the full width below
+the md step (the width is part of the template key, so a resize recompiles it). Each item is a two-line `flex-col` row, and the selection covers both lines.
+Line 1 is the cursor, `OPEN_MARK` (`○`, `waiting` role) and the wrapped title. Line 2, under the
+title, is `LINK_MARK` (`↗`) and `address()` in the `link` role, then the byline in `dim` capped at
+24 cells. `address()` gives a GitHub issue/PR as `owner/repo#N` and any other reference whole
+without its scheme. A todo's line 2 is only the byline. The link text carries the `link` hit id; the
+controller keeps its painted areas (`link_hits`) and the item under the pointer (`hovered`, from
+`App::move_pointer` while Notes is the top overlay). A press on a link selects its row and opens it;
+the cursor row's link and the hovered link paint in the selection colour, underlined. Shift+↑↓ swaps
+with the neighbouring row of the same list. Captions
 resolve held preview/roster data by the frozen room/member UUID, falling back to
 `member <short UUID>` when no name is held. Rendering never reads Core or borrows
 another selected member's name. Both form variants label the first field Title.

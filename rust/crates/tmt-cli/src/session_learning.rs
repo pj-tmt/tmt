@@ -121,7 +121,7 @@ impl Learning {
         ) else {
             return;
         };
-        if let Err(error) =
+        if let tmt_adapters::storage::hook_queue::CapturePublication::Unpublished(error) =
             crate::hook_flush_command::enqueue(&self.paths.database, &event, deadline)
             && error.code == tmt_adapters::storage::StorageErrorCode::IncompatibleSchema
         {

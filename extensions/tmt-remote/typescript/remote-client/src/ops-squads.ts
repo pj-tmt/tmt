@@ -22,15 +22,12 @@ const idleAlert = (squad: OpsSquad | undefined): string =>
 
 export function squadsView(): { node: HTMLElement; update(board: OpsBoard): void; close(): void } {
   const members = new Map<string, HTMLButtonElement>();
-  const heading = pageHead(
-    'Squads, clearly connected.',
-    'Every team, its lead and the people moving work forward.',
-  );
-  const fallback = heading.querySelector('h1')!;
+  const heading = pageHead('Every team, its lead and the people moving work forward.');
+  const fallback = heading;
   fallback.tabIndex = -1;
   const drawer = agentDrawer({
     returnFocus: (agent) => members.get(keyOf(agent)),
-    fallback: () => fallback,
+    fallback: () => document.querySelector<HTMLElement>('.tmt-ui-topbar-title h1') ?? fallback,
   });
   const page = el('div', 'ops-squads-page');
   const stats = el('div');

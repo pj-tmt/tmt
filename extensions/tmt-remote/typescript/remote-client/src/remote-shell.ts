@@ -4,14 +4,12 @@ import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 
 type Select = (id: string, href: string) => boolean;
 export interface RemoteShell {
-  /** Only the module action slot; the root retains the common controls. */
-  readonly actions?: HTMLElement;
   /** The module menu this page shows; `select` takes over a plain click on one of its items. */
   setMenu(menu: ShellMenu | undefined, select?: Select): void;
   /** Go to another TMT URL without reloading; the same route only follows the new path. */
   navigate(href: string): void;
-  /** The document title; ` · TMT` is appended. */
-  setTitle(title: string): void;
+  /** Route identity in the top bar and the shell-owned document title. */
+  setTitle(title: string, ancestors?: readonly string[], documentTitle?: string): void;
   /**
    * Read the owner's composed shell once: at `address` when the page already holds the door's
    * answer, otherwise through the door. Pages call it only when it may send work; the landing
@@ -26,6 +24,34 @@ export interface RemoteShell {
   holdNavigation?(reason: () => string): void;
   /** Aborted when the route unmounts: page code ends its listeners, checks and sessions on it. */
   readonly signal: AbortSignal;
+}
+
+/** Routes supply plain title segments; the shared leaf owns layout and phone truncation. */
+export function setRouteTitle(
+  slot: Pick<ShellSlot, 'setTitle' | 'topBarReady' | 'setTopBar'>,
+  title: string,
+  ancestors: readonly string[] = [],
+  documentTitle = title,
+): void {
+  if (!slot.topBarReady()) return;
+  slot.setTitle(documentTitle);
+  const target = slot.setTopBar().title;
+  const label = [...ancestors, title].join(' / ');
+  if (target.querySelector('h1')?.getAttribute('aria-label') === label) return;
+  const heading = document.createElement('h1');
+  heading.setAttribute('aria-label', label);
+  heading.tabIndex = -1;
+  if (ancestors.length) {
+    const prefix = document.createElement('span');
+    prefix.className = 'tmt-ui-topbar-title-prefix';
+    prefix.textContent = `${ancestors.join(' / ')} / `;
+    heading.append(prefix);
+  }
+  const current = document.createElement('span');
+  current.className = 'tmt-ui-topbar-title-current';
+  current.textContent = title;
+  heading.append(current);
+  target.replaceChildren(heading);
 }
 
 let current: RemoteShell | undefined;
@@ -44,10 +70,10 @@ export function hostRemote(
 ): void {
   current = slot &&
     signal && {
-      actions: slot.topBarReady() ? slot.setTopBar().actions : undefined,
       setMenu: (menu, select) => slot.setMenu(menu, select),
       navigate: (href) => slot.navigate(href),
-      setTitle: (title) => slot.setTitle(title),
+      setTitle: (title, ancestors, documentTitle) =>
+        setRouteTitle(slot, title, ancestors, documentTitle),
       describe: (address) => slot.describe(address),
       described: (listener) => slot.described(listener),
       observedSession: (session) => {

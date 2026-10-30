@@ -68,10 +68,7 @@ export function driversView(settings: TmtSettings): HTMLElement[] {
   const drivers = settings.drivers.rows;
   const hooks = settings.hooks.rows;
   const none = !drivers.length && !hooks.length;
-  const head = settingsHead(
-    'Drivers & hooks',
-    'The connections that bring your terminal team together.',
-  );
+  const head = settingsHead('The connections that bring your terminal team together.');
   const commands = element('div', 'tmt-settings-commands');
   commands.append(commandCopy('tmt driver ls'), commandCopy('tmt setup --status'));
   if (unavailable || none) {
