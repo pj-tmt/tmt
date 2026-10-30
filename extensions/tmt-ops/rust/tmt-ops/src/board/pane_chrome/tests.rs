@@ -34,7 +34,8 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
                 assert_eq!(crate::test_support::stacked_rules(&lines), None);
                 let focused: Vec<_> = lines
                     .into_iter()
-                    .filter(|line| line.contains(" ▸ "))
+                    // Title rows only: the Details tab chips mark their shown tab with `▸` too.
+                    .filter(|line| line.contains("━ ▸ ") || line.contains("─ ▸ "))
                     .collect();
                 assert_eq!(focused.len(), 1, "{focused:?}");
                 focused.into_iter().next().unwrap()
