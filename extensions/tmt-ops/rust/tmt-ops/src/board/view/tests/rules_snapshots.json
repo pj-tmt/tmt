@@ -6,7 +6,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -25,6 +24,7 @@
       "                                                                           │── Usage ─────────────────────────────────────────────────────── last 60m · — tok ──",
       "                                                                           │                                                                    TOK  % of squad",
       "                                                                           │ worker                                                               —           —",
+      "                                                                           │",
       "                                                                           │── Conversation ────────────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
@@ -38,7 +38,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -59,6 +58,7 @@
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
+      "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -70,7 +70,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -91,6 +90,7 @@
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
+      "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
       " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
@@ -102,7 +102,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -121,6 +120,7 @@
       "                                                                           │ │ Third response line",
       "                                                                           │",
       "                                                                           │",
+      "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                            ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist  x leave squad  j host  p pin",
@@ -134,7 +134,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -150,8 +149,9 @@
       " C  Checklist",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
+      " │ Second response line",
       " │ Third response line",
-      "↑ 3 earlier · PgUp",
+      "↑ 2 earlier · PgUp",
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                            ⏎ send  Alt+⏎ new line  tmt/ mention",
@@ -166,7 +166,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -182,8 +181,9 @@
       " C  Checklist",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
+      " │ Second response line",
       " │ Third response line",
-      "↑ 3 earlier · PgUp",
+      "↑ 2 earlier · PgUp",
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
@@ -198,7 +198,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -217,6 +216,7 @@
       "                                                                           │── Usage ─────────────────────────────────────────────────────── last 60m · — tok ──",
       "                                                                           │                                                                    TOK  % of squad",
       "                                                                           │ worker                                                               —           —",
+      "                                                                           │",
       "                                                                           │── Conversation ────────────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
@@ -230,7 +230,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -249,6 +248,7 @@
       "                                               │── Usage ─────────────────────── last 60m · — tok ──",
       "                                               │                                    TOK  % of squad",
       "                                               │ worker                               —           —",
+      "                                               │",
       "                                               │── Conversation ────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                     │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
@@ -262,7 +262,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -283,6 +282,7 @@
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
+      "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
       " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
@@ -294,7 +294,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -313,6 +312,7 @@
       "                                                                           │ │ Third response line",
       "                                                                           │",
       "                                                                           │",
+      "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                            ⏎ send  Alt+⏎ new line  tmt/ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist  x leave squad  j host  p pin",
@@ -326,7 +326,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -345,6 +344,7 @@
       "                                               │ │ Third response line",
       "                                               │",
       "                                               │",
+      "                                               │",
       "                                               │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                  ⏎  Alt+⏎  tmt/",
       " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  S switch tool  C checklist",
@@ -358,7 +358,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -374,8 +373,9 @@
       " C  Checklist",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
+      " │ Second response line",
       " │ Third response line",
-      "↑ 3 earlier · PgUp",
+      "↑ 2 earlier · PgUp",
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
@@ -390,7 +390,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -411,6 +410,7 @@
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
+      "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -422,7 +422,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -443,6 +442,7 @@
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
+      "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
       " Tab panes  w snapshots  / search  c timers  u unread  , settings  ? help  q quit"
     ]
@@ -454,7 +454,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -475,6 +474,7 @@
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
+      "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
       " Tab panes  w snapshots  / search  c timers  u unread  ? help  q quit"
     ]
@@ -486,7 +486,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -502,8 +501,9 @@
       " C  Checklist",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      " │ Second response line",
       " │ Third response line",
-      "↑ 3 earlier · PgUp",
+      "↑ 2 earlier · PgUp",
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                                                                                        ⏎ send  Alt+⏎ new line  tmt/ mention",
@@ -518,7 +518,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -534,8 +533,9 @@
       " C  Checklist",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
+      " │ Second response line",
       " │ Third response line",
-      "↑ 3 earlier · PgUp",
+      "↑ 2 earlier · PgUp",
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                            ⏎ send  Alt+⏎ new line  tmt/ mention",
@@ -550,7 +550,6 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -566,8 +565,9 @@
       " C  Checklist",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
+      " │ Second response line",
       " │ Third response line",
-      "↑ 3 earlier · PgUp",
+      "↑ 2 earlier · PgUp",
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
