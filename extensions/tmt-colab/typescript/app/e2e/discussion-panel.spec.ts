@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { commentsRegion } from '../test/comments-region.js';
+import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { commentsAction, pageAction, chooseThreadFilter } from '../test/page-actions.js';
 
 const fixture = '/test/ask-page-browser.tsx';
@@ -303,4 +303,26 @@ test('resolving the final thread stays expanded until explicit filter navigation
   await expect(panel.getByTestId('comments-empty')).toContainText('Nothing waiting here.');
   await chooseThreadFilter(page, 'All');
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 5');
+});
+
+test('closing Discussion clears its selected passage by button and Escape from the page', async ({
+  page,
+}) => {
+  const { frame } = await openFirst(page);
+  const selected = () => highlights(frame);
+  await expect.poll(selected).toMatchObject({ selected: true });
+  await commentsClose(page, 'discussion').click();
+  await expect(commentsRegion(page)).toHaveCount(0);
+  await expect.poll(selected).toMatchObject({ selected: false });
+
+  await frame.locator('[data-colab-thread]').filter({ hasText: /^1$/ }).click();
+  await expect.poll(selected).toMatchObject({ selected: true });
+  // Escape must work with focus back in the page, not only inside the panel.
+  await page.evaluate(() => {
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
+  await page.keyboard.press('Escape');
+  await expect(commentsRegion(page)).toHaveCount(0);
+  await expect.poll(selected).toMatchObject({ selected: false });
 });

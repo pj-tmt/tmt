@@ -1453,7 +1453,7 @@ function OpenPage({
     if (panel === 'about' || panel === 'source') void refreshSize();
   }, [panel, refreshSize]);
   const toggleSelectionMode = useRef<() => void>(() => {});
-  const escapeAnnotation = useRef<(fromPanel?: boolean) => void>(() => {});
+  const escapeAnnotation = useRef<() => void>(() => {});
   const chatBusy = useRef(false);
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
@@ -1605,14 +1605,11 @@ function OpenPage({
     );
     return true;
   };
-  escapeAnnotation.current = (fromPanel = false) => {
+  escapeAnnotation.current = () => {
     if (panel === 'chat') {
       if (!chatBusy.current) close();
-    } else if (panel === 'comments' && fromPanel) {
-      // Escape inside the non-modal panel closes it; on the page it falls through to the rungs
-      // below and leaves the panel open. A send or status change in flight holds the open
-      // Discussion, as Chat holds its busy send.
-      if (!discussedThread || !statusBusy.current) closeComments();
+    } else if (panel === 'comments') {
+      closeComments();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };
@@ -1641,13 +1638,20 @@ function OpenPage({
         event.ctrlKey ||
         event.metaKey ||
         (event.shiftKey && event.key !== '@') ||
-        (event.key !== '@' && !canSelect)
+        (event.code === 'KeyC' && !canSelect)
       )
         return;
       if (event.key === '@') {
         if (activateChat.current()) event.preventDefault();
         return;
       }
+      if (
+        event.key === 'Escape' &&
+        !panelsRef.current.panel &&
+        !annotationRef.current &&
+        !selectionMode
+      )
+        return;
       event.preventDefault();
       if (event.key === 'Escape') escapeAnnotation.current();
       else if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
@@ -1655,7 +1659,7 @@ function OpenPage({
     };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
-  }, [canSelect, selectionMode, annotate, currentSelector, currentRectangle]);
+  }, [canSelect, selectionMode, annotate, annotationRef, currentSelector, currentRectangle]);
   const { read: readingHint, anchor, task } = search;
   const {
     readings,
@@ -2213,7 +2217,7 @@ function OpenPage({
           data-discussion={discussedThread || undefined}
           onDismiss={(reason) => {
             if (reason === 'close') closeComments();
-            else escapeAnnotation.current(true);
+            else escapeAnnotation.current();
           }}
         >
           {endedNotice && <div className="panel-notice">{endedNotice}</div>}
