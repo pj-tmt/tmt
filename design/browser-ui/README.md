@@ -1159,6 +1159,6 @@ repair. CI selection and gate ownership live in the
 
 ### List table and page subheader
 
-`BrowserListTable` and the framework-free `createListTable` render caller-supplied columns and rows without owning navigation, selection, data, or keyboard state. Each column supplies `id`, `label`, `track`, and optionally `hideBelow: 'phone'`; one grid track value aligns the semantic column headers and each row. The host supplies one cell per column and owns links and row actions. At phone width headers are hidden and rows stack; cells marked for phone hiding are hidden with their headers.
+`BrowserListTable` and the framework-free `createListTable` render caller-supplied columns and rows without owning navigation, selection, data, or keyboard state. Each column supplies `id`, `label`, `track`, and optionally `hideBelow: 'phone'`; the component sets host-supplied `--tmt-ui-list-tracks` from those tracks to align the semantic column headers and each row; there is no default. The host supplies one cell per column and owns links and row actions. At phone width headers are hidden and rows stack; cells marked for phone hiding are hidden with their headers.
 
 `BrowserPageSubheader` and `createPageSubheader` render a content subheader with a title, optional count, subtitle, actions, and heading level (default 2). Counts use the shell count pill. The host owns actions and the top-bar title; the subheader does not replace the page identity in the top bar.
