@@ -1,6 +1,10 @@
 import { brandMarkSvg, freshMarkId } from './brand-mark-svg.js';
 import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
+import {
+  createShellMenuInteractions,
+  type ShellMenuInteractions,
+} from './shell-menu-interactions.js';
 import { countText } from './static.js';
 import { createShellTopBar, type ShellCommonControls, type ShellTopBar } from './topbar.js';
 export type { ShellCommonControls, ShellRemoteStatus, ShellTopBar } from './topbar.js';
@@ -53,6 +57,8 @@ export interface ShellMenuItem {
   current: boolean;
   /** Neutral total pill before the amber attention pill; zero is hidden. */
   total?: number;
+  /** Up to two host-owned commands, shown on hover/focus without activating this link. */
+  actions?: readonly ShellMenuIconAction[];
   /** Shown but not followed; `note` says why (its tooltip and description). */
   disabled?: boolean;
   note?: string;
@@ -62,13 +68,18 @@ export interface ShellMenuAction {
   label: string;
   onActivate(): void;
 }
+export interface ShellMenuIconAction extends ShellMenuAction {
+  icon: ShellIcon;
+}
 export interface ShellMenuGroup {
   label?: string;
   /** At most one labelled icon command beside the group heading. */
-  action?: ShellMenuAction & { icon: ShellIcon };
+  action?: ShellMenuIconAction;
   items: ShellMenuItem[];
   /** Full visible label, such as "+ New project". */
   add?: ShellMenuAction;
+  /** Request moving fromId to the current index of toId; the host supplies the resulting order. */
+  reorder?(fromId: string, toId: string): void;
 }
 export interface ShellMenu {
   title: string;
@@ -516,7 +527,7 @@ export function mountShell(
     if (!item.note) label.title = item.label;
     anchor.append(label);
     const shown = entryCounts(item);
-    if (shown.length) {
+    if (shown.length || item.actions?.length) {
       const counts = document.createElement('span');
       counts.className = 'tmt-ui-shell-counts';
       for (const value of shown) counts.append(count(document, value));
@@ -545,11 +556,36 @@ export function mountShell(
     };
     return button;
   };
+  const announcement = document.createElement('div');
+  announcement.className = 'tmt-ui-visually-hidden';
+  announcement.setAttribute('role', 'status');
+  announcement.setAttribute('aria-live', 'polite');
+  announcement.setAttribute('aria-atomic', 'true');
+  let menuInteractions: ShellMenuInteractions[] = [];
+  const interactions = (current: () => ShellMenuGroup | undefined) => {
+    const controls = createShellMenuInteractions(
+      current,
+      (name) => icon(document, name),
+      (action) => {
+        setDrawer(false);
+        action.onActivate();
+      },
+      (message) => {
+        announcement.textContent = message;
+      },
+    );
+    menuInteractions.push(controls);
+    return controls;
+  };
   const nested = (menuView: ShellMenu, selected: ShellMenuItem | undefined) => {
     const list = document.createElement('ul');
     list.className = 'tmt-ui-rail-sub';
     list.setAttribute('aria-label', menuView.title);
     menuView.groups.forEach((group, index) => {
+      const controls =
+        group.reorder || group.items.some((item) => item.actions?.length)
+          ? interactions(() => latest.menu?.groups[index])
+          : undefined;
       let entries = list;
       if (group.label || group.action) {
         const section = document.createElement('li');
@@ -576,7 +612,10 @@ export function mountShell(
       }
       for (const item of group.items) {
         const row = document.createElement('li');
-        row.append(menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item, selected));
+        const anchor = menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item, selected);
+        row.dataset.menuGroup = String(index);
+        row.append(anchor);
+        if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
         entries.append(row);
       }
       if (group.add) {
@@ -592,9 +631,17 @@ export function mountShell(
     if (menuView.settings) {
       const row = document.createElement('li');
       row.className = 'tmt-ui-rail-settings';
-      row.append(
-        menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', menuView.settings, selected),
+      const anchor = menuEntry(
+        'tmt-ui-module-menu-item tmt-ui-rail-sub-item',
+        menuView.settings,
+        selected,
       );
+      row.dataset.menuGroup = 'settings';
+      row.append(anchor);
+      if (menuView.settings.actions?.length)
+        interactions(() =>
+          latest.menu?.settings ? { items: [latest.menu.settings] } : undefined,
+        ).decorate(row, anchor, menuView.settings);
       list.append(row);
     }
     return list;
@@ -638,9 +685,23 @@ export function mountShell(
   let latest = view;
   const render = (next: ShellView) => {
     latest = next;
-    const key = JSON.stringify(next);
+    // Callback identity is not view state, but adding/removing a reorder affordance is.
+    const key = JSON.stringify([next, next.menu?.groups.map((group) => Boolean(group.reorder))]);
     if (key === shown) return;
     shown = key;
+    const focused = rail.contains(document.activeElement)
+      ? (document.activeElement as HTMLElement)
+      : undefined;
+    const owner = focused?.closest<HTMLElement>('[data-menu-item]');
+    const focus = owner
+      ? {
+          id: owner.dataset.menuItem,
+          group: owner.dataset.menuGroup,
+          part: focused?.dataset.railPart,
+        }
+      : undefined;
+    for (const controls of menuInteractions) controls.dispose();
+    menuInteractions = [];
     hideTip();
     const railTop = rail.scrollTop;
     const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
@@ -661,6 +722,26 @@ export function mountShell(
     syncRailScroll();
     root.dataset.menu = next.menu ? 'shown' : 'none';
     menu.replaceChildren();
+    if (next.menu?.groups.some((group) => group.reorder)) {
+      if (!announcement.isConnected) root.append(announcement);
+    } else announcement.remove();
+    if (focus) {
+      const restored = [...rail.querySelectorAll<HTMLElement>('[data-rail-part]')].find(
+        (element) => {
+          const row = element.closest<HTMLElement>('[data-menu-item]');
+          return (
+            row !== null &&
+            row.dataset.menuItem === focus.id &&
+            row.dataset.menuGroup === focus.group &&
+            element.dataset.railPart === focus.part
+          );
+        },
+      );
+      if (restored && restored.getClientRects().length) {
+        restored.focus({ preventScroll: true });
+        restored.scrollIntoView({ block: 'nearest' });
+      }
+    }
   };
   setDrawer(false);
   render(view);
@@ -672,6 +753,9 @@ export function mountShell(
     clearTopBar: topBar.clear,
     update: render,
     dispose() {
+      for (const controls of menuInteractions) controls.dispose();
+      menuInteractions = [];
+      announcement.remove();
       topBar.dispose();
       watchTools?.disconnect();
       root.style.removeProperty('--tmt-ui-shell-tools-width');

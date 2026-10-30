@@ -142,6 +142,8 @@ it('caps counts at 99+ and falls back to the box icon', () => {
   expect(shellCount(5, 'plain')).toEqual({ text: '5', needsYou: false });
   expect(moduleIcon('network')).toBe('box');
   expect(moduleIcon('users')).toBe('users');
+  expect(moduleIcon('pencil')).toBe('box');
+  expect(moduleIcon('trash-2')).toBe('box');
 });
 
 it('hides a plain total at zero and a needs-you count at zero, and keeps both above it', () => {

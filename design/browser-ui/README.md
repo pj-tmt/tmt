@@ -47,10 +47,11 @@ its original declarations and spelling. Only that generated distribution
 is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to +15% of the 18,824-byte pre-v2 baseline (21,647 bytes). The GUI lead approved this
-budget for the scoped v2 panel, dialog/confirm, ghost/icon action, tinted Notice and shell
-metrics work; the original 10% predates that scope. Class encapsulation is retained, and any
-further increase returns to the lead; each pull request that changes them also reports the raw sizes. Consumers embed checked CSS;
+size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,727 bytes. The GUI
+lead approved an exact 80-byte increase over the v2 cap of 21,647 bytes for the shared row
+controls and drop indicator, with no headroom or change to the UI foundation budget.
+Class encapsulation is retained, and further increases return to the lead. Each pull request
+that changes these stylesheets reports their raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
 on the document or scope `data-theme="light"`/`data-theme="dark"` on an island.
 A dark island on a light page needs dark foregrounds as well as dark surfaces.
@@ -139,6 +140,19 @@ trailing muted button with the full visible label (for example `+ New project`) 
 navigation row rendered last after a hairline starting at the same 36px child indent. Hosts own commands, navigation, current
 state and data; these presentation additions do not change the composed-shell wire format.
 Callbacks update without rebuilding an otherwise unchanged view or losing keyboard focus.
+
+A `ShellMenuItem.actions` list provides up to two labelled icon commands. They are siblings
+of the navigation link and never activate it. On hover or focus within the row, commands
+replace the visible pills in their reserved trailing area; labels and row geometry do not
+shift. The left reorder handle follows the same hover/focus rule.
+
+Optional `ShellMenuGroup.reorder(fromId, toId)` requests moving `fromId` to the position
+currently occupied by `toId` in that same group. Dragging the handle or pressing
+Alt+ArrowUp/Down within the focused row uses this callback. The host owns the resulting
+order, persistence and refusal; the leaf never changes order optimistically. A live region
+announces the request, not a persisted result. Host view updates retain focus on the stable
+row/control. Replacing the view or disposing the shell cancels active drag state; external
+or cross-group drops cannot supply moves. The module-icon wire allowlist is unchanged.
 
 The optional static `page` class (`tmt-ui-page`) applies shared content insets:
 33px/36px block/inline, 24px/18px through 760px. Hosts opt in on their content

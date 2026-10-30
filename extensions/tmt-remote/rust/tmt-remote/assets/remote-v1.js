@@ -3392,6 +3392,14 @@ function createMenuController(options) {
 * of Remote's describe contract; an unknown name falls back to `box`.
 */
 var shellIconNodes = {
+	pencil: [["path", { d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" }], ["path", { d: "m15 5 4 4" }]],
+	"trash-2": [
+		["path", { d: "M10 11v6" }],
+		["path", { d: "M14 11v6" }],
+		["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" }],
+		["path", { d: "M3 6h18" }],
+		["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }]
+	],
 	link: [["path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" }], ["path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" }]],
 	info: [
 		["circle", {
@@ -4753,6 +4761,139 @@ function brandMarkSvg({ size, className = "tmt-brand-mark", id }) {
 	return `<svg class="${className}" data-form="${small ? "small" : "full"}" viewBox="0 0 96 96" aria-hidden="true"${dimensions}>${brandMarkInner(small, id)}</svg>`;
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/shell-menu-interactions.ts
+/** One group's transient controls. The host's latest model is the only order and command owner. */
+function createShellMenuInteractions(current, drawIcon, activate, announce) {
+	const lifetime = new AbortController();
+	const listen = { signal: lifetime.signal };
+	let source;
+	let target;
+	let fromId;
+	const cancel = () => {
+		if (source) delete source.dataset.dragging;
+		if (target) delete target.dataset.dropEdge;
+		source = target = void 0;
+		fromId = void 0;
+	};
+	const requestMove = (from, to) => {
+		const group = current();
+		if (!group?.reorder || from === to) return;
+		const fromIndex = group.items.findIndex((item) => item.id === from);
+		const toIndex = group.items.findIndex((item) => item.id === to);
+		if (fromIndex < 0 || toIndex < 0) return;
+		const label = group.items[fromIndex].label;
+		group.reorder(from, to);
+		announce(`Move requested: ${label}, position ${toIndex + 1} of ${group.items.length}.`);
+	};
+	return {
+		decorate(row, anchor, item) {
+			const doc = row.ownerDocument;
+			row.classList.add("tmt-ui-rail-menu-row");
+			row.dataset.menuItem = item.id;
+			anchor.dataset.railPart = "link";
+			const button = (label, name, part) => {
+				const control = doc.createElement("button");
+				control.type = "button";
+				control.className = "tmt-ui-rail-group-action tmt-ui-rail-row-action";
+				control.title = label;
+				control.setAttribute("aria-label", label);
+				control.dataset.railPart = part;
+				control.append(drawIcon(name));
+				return control;
+			};
+			const actions = item.actions?.slice(0, 2) ?? [];
+			if (actions.length) {
+				row.dataset.actions = String(actions.length);
+				const commands = doc.createElement("div");
+				commands.className = "tmt-ui-rail-row-actions";
+				for (const [index, action] of actions.entries()) {
+					const control = button(action.label, action.icon, `action-${index}`);
+					control.addEventListener("click", (event) => {
+						event.stopPropagation();
+						const latest = current()?.items.find((entry) => entry.id === item.id)?.actions?.[index];
+						if (latest) activate(latest);
+					}, listen);
+					commands.append(control);
+				}
+				row.append(commands);
+			}
+			if (current()?.reorder) {
+				row.dataset.reorderable = "";
+				anchor.draggable = false;
+				anchor.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+				const handle = button(`Reorder ${item.label}`, "menu", "drag");
+				handle.classList.add("tmt-ui-rail-drag");
+				handle.draggable = true;
+				handle.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+				handle.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+				}, listen);
+				handle.addEventListener("dragstart", (event) => {
+					const group = current();
+					if (!group?.reorder || !group.items.some((entry) => entry.id === item.id)) {
+						event.preventDefault();
+						return;
+					}
+					cancel();
+					source = row;
+					fromId = item.id;
+					row.dataset.dragging = "";
+					if (event.dataTransfer) {
+						event.dataTransfer.effectAllowed = "move";
+						event.dataTransfer.setData("application/x-tmt-shell-row", "move");
+					}
+				}, listen);
+				handle.addEventListener("dragend", cancel, listen);
+				row.append(handle);
+			}
+			row.addEventListener("keydown", (event) => {
+				if (event.key === "Escape" && fromId !== void 0) {
+					cancel();
+					event.stopPropagation();
+					return;
+				}
+				if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+				const group = current();
+				if (!group?.reorder) return;
+				const index = group.items.findIndex((entry) => entry.id === item.id);
+				if (index < 0) return;
+				event.preventDefault();
+				event.stopPropagation();
+				const next = group.items[index + (event.key === "ArrowUp" ? -1 : 1)];
+				if (next) requestMove(item.id, next.id);
+				else announce(`${item.label} is already ${event.key === "ArrowUp" ? "first" : "last"}.`);
+			}, listen);
+			row.addEventListener("dragover", (event) => {
+				const group = current();
+				const from = group?.items.findIndex((entry) => entry.id === fromId) ?? -1;
+				const to = group?.items.findIndex((entry) => entry.id === item.id) ?? -1;
+				if (!group?.reorder || from < 0 || to < 0 || from === to) return;
+				event.preventDefault();
+				if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+				if (target) delete target.dataset.dropEdge;
+				target = row;
+				row.dataset.dropEdge = from < to ? "after" : "before";
+			}, listen);
+			row.addEventListener("dragleave", (event) => {
+				if (!row.contains(event.relatedTarget)) delete row.dataset.dropEdge;
+			}, listen);
+			row.addEventListener("drop", (event) => {
+				if (fromId === void 0) return;
+				event.preventDefault();
+				event.stopPropagation();
+				const from = fromId;
+				cancel();
+				requestMove(from, item.id);
+			}, listen);
+		},
+		dispose() {
+			lifetime.abort();
+			cancel();
+		}
+	};
+}
+//#endregion
 //#region ../../../../design/browser-ui/src/theme.ts
 /**
 * The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
@@ -5401,7 +5542,7 @@ function mountShell(root, view, select) {
 		if (!item.note) label.title = item.label;
 		anchor.append(label);
 		const shown = entryCounts(item);
-		if (shown.length) {
+		if (shown.length || item.actions?.length) {
 			const counts = document.createElement("span");
 			counts.className = "tmt-ui-shell-counts";
 			for (const value of shown) counts.append(count(document, value));
@@ -5425,11 +5566,28 @@ function mountShell(root, view, select) {
 		};
 		return button;
 	};
+	const announcement = document.createElement("div");
+	announcement.className = "tmt-ui-visually-hidden";
+	announcement.setAttribute("role", "status");
+	announcement.setAttribute("aria-live", "polite");
+	announcement.setAttribute("aria-atomic", "true");
+	let menuInteractions = [];
+	const interactions = (current) => {
+		const controls = createShellMenuInteractions(current, (name) => icon(document, name), (action) => {
+			setDrawer(false);
+			action.onActivate();
+		}, (message) => {
+			announcement.textContent = message;
+		});
+		menuInteractions.push(controls);
+		return controls;
+	};
 	const nested = (menuView, selected) => {
 		const list = document.createElement("ul");
 		list.className = "tmt-ui-rail-sub";
 		list.setAttribute("aria-label", menuView.title);
 		menuView.groups.forEach((group, index) => {
+			const controls = group.reorder || group.items.some((item) => item.actions?.length) ? interactions(() => latest.menu?.groups[index]) : void 0;
 			let entries = list;
 			if (group.label || group.action) {
 				const section = document.createElement("li");
@@ -5448,7 +5606,10 @@ function mountShell(root, view, select) {
 			}
 			for (const item of group.items) {
 				const row = document.createElement("li");
-				row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected));
+				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected);
+				row.dataset.menuGroup = String(index);
+				row.append(anchor);
+				if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
 				entries.append(row);
 			}
 			if (group.add) {
@@ -5460,7 +5621,10 @@ function mountShell(root, view, select) {
 		if (menuView.settings) {
 			const row = document.createElement("li");
 			row.className = "tmt-ui-rail-settings";
-			row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", menuView.settings, selected));
+			const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", menuView.settings, selected);
+			row.dataset.menuGroup = "settings";
+			row.append(anchor);
+			if (menuView.settings.actions?.length) interactions(() => latest.menu?.settings ? { items: [latest.menu.settings] } : void 0).decorate(row, anchor, menuView.settings);
 			list.append(row);
 		}
 		return list;
@@ -5491,9 +5655,18 @@ function mountShell(root, view, select) {
 	let latest = view;
 	const render = (next) => {
 		latest = next;
-		const key = JSON.stringify(next);
+		const key = JSON.stringify([next, next.menu?.groups.map((group) => Boolean(group.reorder))]);
 		if (key === shown) return;
 		shown = key;
+		const focused = rail.contains(document.activeElement) ? document.activeElement : void 0;
+		const owner = focused?.closest("[data-menu-item]");
+		const focus = owner ? {
+			id: owner.dataset.menuItem,
+			group: owner.dataset.menuGroup,
+			part: focused?.dataset.railPart
+		} : void 0;
+		for (const controls of menuInteractions) controls.dispose();
+		menuInteractions = [];
 		hideTip();
 		const railTop = rail.scrollTop;
 		const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
@@ -5503,6 +5676,19 @@ function mountShell(root, view, select) {
 		syncRailScroll();
 		root.dataset.menu = next.menu ? "shown" : "none";
 		menu.replaceChildren();
+		if (next.menu?.groups.some((group) => group.reorder)) {
+			if (!announcement.isConnected) root.append(announcement);
+		} else announcement.remove();
+		if (focus) {
+			const restored = [...rail.querySelectorAll("[data-rail-part]")].find((element) => {
+				const row = element.closest("[data-menu-item]");
+				return row !== null && row.dataset.menuItem === focus.id && row.dataset.menuGroup === focus.group && element.dataset.railPart === focus.part;
+			});
+			if (restored && restored.getClientRects().length) {
+				restored.focus({ preventScroll: true });
+				restored.scrollIntoView({ block: "nearest" });
+			}
+		}
 	};
 	setDrawer(false);
 	render(view);
@@ -5514,6 +5700,9 @@ function mountShell(root, view, select) {
 		clearTopBar: topBar.clear,
 		update: render,
 		dispose() {
+			for (const controls of menuInteractions) controls.dispose();
+			menuInteractions = [];
+			announcement.remove();
 			topBar.dispose();
 			watchTools?.disconnect();
 			root.style.removeProperty("--tmt-ui-shell-tools-width");

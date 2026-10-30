@@ -403,6 +403,59 @@
   color: var(--tmt-ui-color-selected-text);
   font-weight: 600;
 }
+/* Optional row commands share one reserved area with the counts; neither state shifts the label. */
+.tmt-ui-rail-menu-row {
+  position: relative;
+  min-width: 0;
+}
+.tmt-ui-rail-row-action {
+  width: 24px;
+  height: 24px;
+}
+.tmt-ui-rail-row-actions {
+  position: absolute;
+  inset: 0 var(--tmt-ui-rail-sub-padding-inline) 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  visibility: hidden;
+}
+.tmt-ui-rail-menu-row[data-actions='1'] .tmt-ui-shell-counts {
+  min-width: 24px;
+  justify-content: flex-end;
+}
+.tmt-ui-rail-menu-row[data-actions='2'] .tmt-ui-shell-counts {
+  min-width: calc(48px + var(--tmt-ui-space-xs));
+  justify-content: flex-end;
+}
+.tmt-ui-rail-drag {
+  position: absolute;
+  inset: 50% auto auto 8px;
+  transform: translateY(-50%);
+  visibility: hidden;
+  cursor: grab;
+}
+.tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-rail-row-actions,
+.tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-rail-drag {
+  visibility: visible;
+}
+.tmt-ui-rail-menu-row[data-actions]:is(:hover, :focus-within, [data-dragging])
+  .tmt-ui-shell-counts {
+  visibility: hidden;
+}
+.tmt-ui-rail-menu-row[data-dragging] > a {
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-rail-menu-row[data-drop-edge]::after {
+  position: absolute;
+  inset: 0 var(--tmt-ui-rail-sub-padding-inline) auto 36px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-accent);
+  content: '';
+  pointer-events: none;
+}
+.tmt-ui-rail-menu-row[data-drop-edge='after']::after {
+  inset-block: auto 0;
+}
 .tmt-ui-shell-count {
   box-sizing: border-box;
   min-width: 20px;
