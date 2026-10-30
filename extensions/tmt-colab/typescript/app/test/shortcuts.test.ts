@@ -1,6 +1,6 @@
 import { expect, it } from 'vite-plus/test';
 import { validateHomeSearch, listPages } from '../src/page-list-filter.js';
-import { shortcutCounts, shortcutSearch } from '../src/shortcuts.js';
+import { shortcutConditions, shortcutCounts, shortcutSearch } from '../src/shortcuts.js';
 import type { PageSummary } from '../src/transport.js';
 const pages = [
   {
@@ -90,4 +90,26 @@ it('shortcut counts remain unknown until the data needed by each filter is avail
   );
   expect(shortcutCounts(complete, { project: ['design'] })).toEqual({ total: 2, attention: 1 });
   expect(shortcutCounts(complete, { needs: true })).toEqual({ total: 1, attention: 1 });
+});
+
+it('shortcut summaries show saved conditions and retain their actual sort label', () => {
+  expect(
+    shortcutConditions({
+      project: ['design'],
+      state: 'in-progress',
+      needs: true,
+      includeArchived: true,
+      q: 'Plan',
+      by: ['Ana'],
+      sort: 'title',
+    }),
+  ).toEqual([
+    'project: design',
+    'stage: In progress',
+    'Needs me',
+    'Include archived',
+    'Search: Plan',
+    'Creators: Ana',
+    'Sort: Title',
+  ]);
 });

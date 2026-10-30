@@ -771,14 +771,14 @@ archived is a union, while the Archived tab remains archived-only. `shortcuts.ts
 filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
 rereading before each synchronous mutation. `use-shortcuts.ts` observes same-page events and
 browser storage events without polling. No store, record access or event subscription exists until
-its space is defined. The pinned-project sidebar and Pin controls remain active, so the hook does
-not trigger migration. `ShortcutStore.migrate` and its tests retain the once-only explicit-pin
-migration for the sidebar swap: automatic suggestions are excluded, records and marker persist
-together, and owner pins are unchanged. Corrupt/newer data and failed writes are reported and retained.
-`shortcut-dialogs.tsx` owns the name-only Save dialog and the Edit/Manage filter editor, matching
-preview and ordering controls. Its labels use `BrowserField`; `page-state-menu.tsx` shares the manual
-state menu with Home, using the existing task-state labels and the central string catalog. Home exposes Save/Edit and Manage; these preferences are not
-synced or shared. The existing sidebar and Pin controls remain until their shared-menu integration.
+its space is defined. Home calls `ShortcutStore.migrate` once for explicit project pins;
+automatic suggestions are excluded, records and marker persist together, and owner pins are
+unchanged. Corrupt/newer data and failed writes are reported and retained.
+`shortcut-dialogs.tsx` owns Save and the Edit/Manage filter editor, matching previews and
+ordering. Its fields use `BrowserField`, project and additional-condition toggles use
+`BrowserCountChip`, and `page-state-menu.tsx` shares the manual state menu with Home.
+The page-list hero offers Save/Edit; the sidebar Shortcuts group opens Manage. These
+preferences are not synced or shared.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The React-free filter owner is

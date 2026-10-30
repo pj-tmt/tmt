@@ -26,6 +26,12 @@
  * list's name is the bar's title. */
 .page-list-hero-text {
   min-width: 0;
+  flex: 1;
+}
+
+.page-list-hero h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
 }
 
 .home .page-list-hero p {

@@ -1,11 +1,10 @@
-.shortcut-local,
 .shortcut-extra {
   color: var(--tmt-ui-color-secondary);
   font-size: 13px;
 }
 .shortcut-columns[data-manage] {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   gap: 24px;
 }
 .shortcut-columns > nav {
@@ -19,16 +18,30 @@
 .shortcut-list > li {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--tmt-ui-radius);
+}
+.shortcut-list > li:hover,
+.shortcut-list > li:has([aria-current]) {
+  background: var(--tmt-ui-surface-hover);
+}
+.shortcut-list > li:has([aria-current]) {
+  box-shadow: inset 2px 0 var(--tmt-ui-color-accent);
 }
 .shortcut-list > li > button:not(.tmt-ui-icon-action) {
   flex: 1;
   min-width: 0;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   text-align: start;
-  overflow-wrap: anywhere;
-}
-.shortcut-list button[aria-current] {
-  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .shortcut-editor {
   display: flex;
@@ -49,20 +62,8 @@
   max-height: 140px;
   overflow-y: auto;
 }
-.shortcut-preview {
-  padding-left: 20px;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
 .shortcut-dialog .tmt-ui-field {
   width: 100%;
-}
-.page-list-shortcuts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
 }
 .page-list-state-filters {
   display: flex;
@@ -93,4 +94,64 @@
 
 .shortcut-state > .tmt-ui-menu {
   width: 100%;
+}
+
+.shortcut-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  font-size: 13px;
+}
+.shortcut-summary > svg {
+  flex: none;
+}
+
+.tmt-ui-dialog.shortcut-dialog[data-mode='manage'] {
+  --tmt-ui-dialog-width: 640px;
+}
+.shortcut-dialog .shortcut-delete {
+  margin-inline-end: auto;
+}
+.shortcut-count {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+}
+.shortcut-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.shortcut-summary > span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shortcut-dialog[data-mode='save'] .tmt-ui-dialog-body {
+  padding: 16px;
+}
+.shortcut-editor .shortcut-extra {
+  margin: 0;
+}
+@media (min-width: 651px) {
+  .shortcut-dialog[data-mode='manage'] .tmt-ui-dialog-body {
+    padding: 0;
+  }
+  .shortcut-columns[data-manage] {
+    gap: 0;
+    min-height: 300px;
+  }
+  .shortcut-columns[data-manage] > nav {
+    padding: 12px;
+    border-right: 1px solid var(--tmt-ui-surface-rule);
+  }
+  .shortcut-columns[data-manage] > .shortcut-editor {
+    padding: 16px;
+    gap: 14px;
+  }
 }
