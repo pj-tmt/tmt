@@ -1,6 +1,7 @@
 import { CompactControlsFrame } from './compact-controls-frame.js';
 import { ChartsSection } from './charts.js';
 import { MenuHostFrame } from './menu-host-frame.js';
+import { RailFrame } from './rail-frame.js';
 import { TopBarFrame } from './topbar-frame.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -635,6 +636,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       );
     case 'charts':
       return <ChartsSection />;
+    case 'rail':
+      return <RailFrame params={params} />;
     case 'shell':
       return <ShellFrame params={params} />;
     case 'hosted':

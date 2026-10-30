@@ -283,7 +283,7 @@
   border-radius: var(--tmt-ui-radius);
   padding: var(--tmt-ui-rail-item-padding-block) var(--tmt-ui-rail-item-padding-inline);
 }
-/* Hover lightly tints the row; the current module is a soft mint pill with a mint edge. */
+/* Hover and the deepest current row use soft surfaces, without an edge marker. */
 .tmt-ui-rail-item:hover,
 .tmt-ui-rail-search:hover,
 .tmt-ui-module-menu-item:hover,
@@ -291,22 +291,15 @@
   color: var(--tmt-ui-color-selected-text);
   background: var(--tmt-ui-surface-hover);
 }
+.tmt-ui-rail-item[data-module-current] {
+  font-weight: 600;
+}
+.tmt-ui-rail-item[data-module-current] > .tmt-ui-shell-icon {
+  color: var(--tmt-ui-color-accent);
+}
 .tmt-ui-rail-item[aria-current='page'] {
   background: var(--tmt-ui-surface-selection);
   color: var(--tmt-ui-color-selected-text);
-  font-weight: 600;
-}
-.tmt-ui-rail-item[aria-current='page'] > .tmt-ui-shell-icon {
-  color: var(--tmt-ui-color-accent);
-}
-/* The current-module marker is a separate straight bar in the rail's gutter, outside the rounded
-   row: never the row's border (a lone edge on a rounded box curls at its corners). */
-.tmt-ui-rail-item[aria-current='page']::before {
-  position: absolute;
-  inset: var(--tmt-ui-space-xs) auto var(--tmt-ui-space-xs) calc(-1 * var(--tmt-ui-space-s));
-  width: var(--tmt-ui-indicator-width);
-  background: var(--tmt-ui-color-accent);
-  content: '';
 }
 .tmt-ui-rail-label,
 .tmt-ui-module-menu-label {
@@ -319,12 +312,7 @@
   /* Keep long names inside the rail instead of giving the nested grid a content-sized track. */
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
-  /* Ben direct: text starts 8px past the parent icon, independent of its label. */
-  margin: var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-s)
-    calc(
-      var(--tmt-ui-rail-item-padding-inline) + var(--tmt-ui-rail-sub-indent) -
-        var(--tmt-ui-rail-sub-padding-inline)
-    );
+  margin: var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-s);
   padding-left: 0;
 }
 .tmt-ui-rail-sub-items {
@@ -332,12 +320,16 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin: 0;
-  /* Ben direct: one more indent for named groups, retaining the counts' right edge. */
-  padding: 0 0 0 var(--tmt-ui-rail-sub-indent);
+  padding: 0;
   list-style: none;
 }
 .tmt-ui-rail-sub-group {
-  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m) var(--tmt-ui-space-xs);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-xs);
+  min-height: var(--tmt-ui-control-size);
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-rail-sub-padding-inline);
   color: var(--tmt-ui-color-disabled-text);
   font: var(--tmt-ui-eyebrow-weight) var(--tmt-ui-eyebrow-size) / var(--tmt-ui-caption-line-height)
     var(--tmt-ui-font-body);
@@ -354,23 +346,63 @@
   font-size: var(--tmt-ui-rail-sub-size);
   line-height: 1.25;
 }
-/* The current page is a filled row; only the parent module keeps its gutter marker. */
+/* The same indent applies to every child and its heading, including named groups. */
+.tmt-ui-rail-sub .tmt-ui-rail-sub-item,
+.tmt-ui-rail-sub-group {
+  padding-inline-start: 36px;
+}
+.tmt-ui-rail-sub-group > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmt-ui-rail-group-action {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--tmt-ui-control-size);
+  height: var(--tmt-ui-control-size);
+  padding: 0;
+  border: 0;
+  border-radius: var(--tmt-ui-radius);
+  background: transparent;
+  color: var(--tmt-ui-color-secondary);
+  cursor: pointer;
+}
+.tmt-ui-rail-group-action:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-rail-group-action:focus-visible,
+.tmt-ui-rail-add:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.tmt-ui-rail-add {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--tmt-ui-color-secondary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tmt-ui-rail-settings {
+  margin-top: var(--tmt-ui-space-s);
+  padding-top: var(--tmt-ui-space-xs);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
 .tmt-ui-rail-sub-item[aria-current='page'],
 .tmt-ui-rail-sub-item[aria-current='location'] {
-  background: var(--tmt-ui-color-accent);
-  color: var(--tmt-ui-color-on-accent);
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-selected-text);
   font-weight: 600;
-}
-.tmt-ui-rail-sub-item[aria-current='page']:focus-visible,
-.tmt-ui-rail-sub-item[aria-current='location']:focus-visible {
-  outline-color: var(--tmt-ui-color-on-accent);
 }
 .tmt-ui-shell-count {
   box-sizing: border-box;
   min-width: 20px;
   margin-left: auto;
   padding: var(--tmt-ui-rail-count-padding-block) 5px;
-  border-radius: var(--tmt-ui-radius-s);
+  border-radius: var(--tmt-ui-radius-pill);
   background: var(--tmt-ui-surface-hover);
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-rail-count-size)/1 var(--tmt-ui-font-mono);
@@ -378,7 +410,8 @@
 }
 .tmt-ui-shell-counts {
   display: flex;
-  gap: var(--tmt-ui-space-s);
+  gap: var(--tmt-ui-space-xs);
+  flex-shrink: 0;
   margin-left: auto;
 }
 .tmt-ui-shell-counts > .tmt-ui-shell-count {
@@ -390,11 +423,6 @@
   border-radius: var(--tmt-ui-radius-pill);
   background: var(--tmt-ui-surface-waiting-soft);
   color: var(--tmt-ui-color-waiting);
-}
-.tmt-ui-rail-sub-item[aria-current='page'] .tmt-ui-shell-count,
-.tmt-ui-rail-sub-item[aria-current='location'] .tmt-ui-shell-count {
-  background: transparent;
-  color: inherit;
 }
 .tmt-ui-rail-item[aria-disabled='true'],
 .tmt-ui-module-menu-item[aria-disabled='true'],
@@ -533,9 +561,6 @@
   .tmt-ui-shell {
     display: block;
   }
-  .tmt-ui-shell:not([data-menu='none']) {
-    --tmt-ui-shell-lead: var(--tmt-ui-module-menu-row-height);
-  }
   .tmt-ui-shell-content {
     display: block;
   }
@@ -581,52 +606,8 @@
     padding-top: var(--tmt-ui-space-xs);
     border-top: 0;
   }
-  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-sub {
-    display: none;
-  }
-  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-item .tmt-ui-shell-count {
-    position: static;
-    background: none;
-    color: var(--tmt-ui-color-waiting);
-  }
   .tmt-ui-module-menu {
-    position: static;
-    display: flex;
-    box-sizing: border-box;
-    width: auto;
-    height: var(--tmt-ui-module-menu-row-height);
-    overflow-x: auto;
-    border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-    background: var(--tmt-ui-surface-paper);
-    font: var(--tmt-ui-command-size)/1.3 var(--tmt-ui-font-body);
-    scrollbar-width: none;
-  }
-  .tmt-ui-shell[data-menu='none'] .tmt-ui-module-menu {
     display: none;
-  }
-  .tmt-ui-module-menu-items {
-    display: flex;
-    padding-block: 0;
-  }
-  .tmt-ui-module-menu-item {
-    gap: var(--tmt-ui-space-m);
-    /* Two thirds of the screen at most, so a long name ellipsizes and the next tab peeks in. */
-    max-width: 66vw;
-    padding: var(--tmt-ui-space-m);
-  }
-  .tmt-ui-module-menu-label {
-    min-width: 0;
-  }
-  .tmt-ui-module-menu-item[aria-current='page'] {
-    color: var(--tmt-ui-color-accent);
-    font-weight: 600;
-  }
-  .tmt-ui-module-menu-item[aria-current='page']::after {
-    position: absolute;
-    inset: auto 0 0;
-    height: var(--tmt-ui-tab-indicator-width);
-    background: var(--tmt-ui-color-accent);
-    content: '';
   }
 }
 /* A phone-width bar draws no key hint. */
