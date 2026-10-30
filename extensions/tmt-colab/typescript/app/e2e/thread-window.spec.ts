@@ -265,3 +265,44 @@ test('Resolve all reports a partial failure in the existing Discussion status li
     panel.getByRole('button', { name: 'Resolve all open (1)', exact: true }),
   ).toBeEnabled();
 });
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`Discussion review states ${width} ${theme}`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      const panel = await open(page, 2, 'First note');
+      await expect(panel.getByTestId('comment-thread')).toBeVisible();
+      await page.screenshot({ path: info.outputPath('discussion.png') });
+      await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+      await page.screenshot({ path: info.outputPath('filter.png') });
+      await page.keyboard.press('Escape');
+      await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
+      const confirm = page.getByRole('dialog', { name: 'Resolve 2 open comments?', exact: true });
+      await expect(confirm).toBeVisible();
+      await page.screenshot({ path: info.outputPath('confirm.png') });
+      await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await panel.getByRole('button', { name: 'Resolve', exact: true }).click();
+      await expect(panel.getByTestId('discussion-state')).toContainText('Resolved');
+      await page.screenshot({ path: info.outputPath('resolved.png') });
+      await panel.getByRole('button', { name: 'Reopen', exact: true }).click();
+      await run(page, 'failStatusOnce');
+      await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
+      await page
+        .getByRole('dialog', { name: 'Resolve 2 open comments?' })
+        .getByRole('button', { name: 'Resolve all', exact: true })
+        .click();
+      await expect(panel.locator('.discussion-status')).toContainText(
+        '1 comment could not be resolved.',
+      );
+      await page.screenshot({ path: info.outputPath('error.png') });
+      await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+      await page.getByRole('menuitemradio', { name: 'Needs you', exact: true }).click();
+      await expect(panel.getByTestId('comments-empty')).toBeVisible();
+      await page.screenshot({ path: info.outputPath('empty.png') });
+      await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
+      await page.screenshot({ path: info.outputPath('dock.png') });
+    });

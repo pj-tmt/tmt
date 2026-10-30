@@ -463,11 +463,11 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await commentsClose(first, 'discussion').click();
     await marker.click();
     await expect(t1).toBeVisible();
-    // The current Discussion opens in the non-modal workspace column, not a floating window.
+    // Wide Discussion floats without narrowing the authored page.
     await expect(commentsRegion(first)).toBeVisible();
     await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
     const frameWidth = (await first.locator('iframe').boundingBox())!.width;
-    expect(frameWidth).toBeLessThan(beforeCommentsWidth);
+    expect(frameWidth).toBe(beforeCommentsWidth);
     await first
       .frameLocator('iframe')
       .locator('body')
