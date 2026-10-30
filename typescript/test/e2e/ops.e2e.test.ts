@@ -517,7 +517,7 @@ renameSync(output+'.tmp',output);
           shell.pane
         );
         fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'new-worker']);
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Down']);
         fixture.tmux(['send-keys', '-l', '-t', shell.pane, path.join(shim, 'ops-new-peer')]);
         // Model remains provider-default, Squad remains product, Host/session
         // remain tmux/product, and Saved remains selected. Up from AI tool
@@ -736,14 +736,15 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         board
       );
       fixture.tmux(['send-keys', '-l', '-t', board, 'claude']);
-      fixture.tmux(['send-keys', '-t', board, 'Tab']);
+      // ↓ moves to Model, then to Cancel; → reaches Review.
+      fixture.tmux(['send-keys', '-t', board, 'Down']);
       fixture.tmux(['send-keys', '-l', '-t', board, 'switch-model']);
-      fixture.tmux(['send-keys', '-t', board, 'Tab', 'Tab', 'Enter']);
+      fixture.tmux(['send-keys', '-t', board, 'Down', 'Right', 'Enter']);
       await fixture.waitForCapture(
         (screen) => screen.includes('Opens with') && screen.includes('--driver=claude'),
         board
       );
-      fixture.tmux(['send-keys', '-t', board, 'Tab']);
+      fixture.tmux(['send-keys', '-t', board, 'Right']);
       await fixture.waitForCapture((screen) => screen.includes('Opens with'), board);
       fixture.tmux(['send-keys', '-t', board, 'Enter']);
       try {
