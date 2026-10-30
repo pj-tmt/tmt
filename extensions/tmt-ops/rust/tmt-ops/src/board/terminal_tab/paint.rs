@@ -1,6 +1,6 @@
 //! Painting the Terminal tab: its chips, the rule above it, the program's screen and the line
 //! under the screen that says what the stream is doing.
-use super::tab::{Condition, View};
+use super::tab::{Caret, Condition, View};
 use crate::{
     board::{
         app::{App, Choice},
@@ -187,7 +187,11 @@ pub(in crate::board) fn render(
         Some(screen) => {
             let live = view.condition == Condition::Live;
             cells(buffer, screen_area, screen, !live, look);
-            if live {
+            let caret = (live && typing)
+                .then(|| caret(screen_area, screen))
+                .flatten();
+            app.terminal.place_caret(caret);
+            if live && caret.is_none() {
                 cursor(buffer, screen_area, screen);
             }
         }
@@ -273,6 +277,16 @@ fn note(condition: &Condition, screen: bool, typing: bool, zoomed: bool, name: &
             format!(" The terminal could not be reached: {reason}. ⏎ tries again.")
         }
     }
+}
+
+/// While typing, the real cursor goes where the program's is, shown or hidden as the program has
+/// it, when that cell is inside `area`; it then stands in for the reversed cell.
+pub(super) fn caret(area: Rect, screen: &Screenful) -> Option<Caret> {
+    let (column, row) = screen.caret?;
+    (column < area.width && row < area.height).then(|| Caret {
+        at: ratatui::layout::Position::new(area.x + column, area.y + row),
+        shown: screen.cursor.is_some(),
+    })
 }
 
 /// Where the program's cursor is, as one reversed cell (not the terminal's own cursor), when the

@@ -413,6 +413,21 @@ fn a_snapshot_rebuilds_the_screen_with_its_colors_cursor_and_input_modes() {
 }
 
 #[test]
+fn a_snapshot_keeps_a_hidden_cursor_where_the_program_parked_it() {
+    // An input method draws uncommitted text at the cursor, shown or not: the relay to
+    // `tmt attach` must put it back where the program left it, still hidden.
+    let (member, gate) = Gate::member(r"printf 'prompt\r\n> \033[?25l\033[2;3H'; read l");
+    let mut client = member.connect();
+    gate.open();
+    collect(&mut client, says("prompt"));
+
+    let rebuilt = snapshot(&mut client);
+    let screen = rebuilt.screen.screen();
+    assert_eq!(screen.cursor_position(), (1, 2));
+    assert!(screen.hide_cursor());
+}
+
+#[test]
 fn a_snapshot_of_the_alternate_screen_enters_it() {
     let (member, gate) = Gate::member(r"printf 'main\r\n\033[?1049h\033[2J\033[Halt'; read l");
     let mut client = member.connect();

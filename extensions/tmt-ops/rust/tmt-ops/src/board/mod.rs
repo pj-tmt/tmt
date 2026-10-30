@@ -1847,7 +1847,8 @@ pub fn run(
                         links.set(app.member_links.borrow().web_spans());
                     }
                 })
-                .map(|_| ())
+                .map(|_| ())?;
+            app.park_hidden_caret(&mut screen)
         },
         |job| worker.history(job),
     );
