@@ -27,6 +27,7 @@ use std::{
 pub(in crate::board) struct Cache {
     held: Option<(Key, Projection)>,
     savings: Option<(SavingsKey, Rc<SavingsSummary>)>,
+    held_text: Option<(SavingsKey, Rc<str>)>,
 }
 
 /// The admitted rows' saved sum is one read of one status; the projection key leaves labels out
@@ -215,8 +216,16 @@ fn exchange_participants(app: &App) -> Rc<[crate::board::exchange_matrix::Exchan
 
 /// Session scope uses exactly the admitted Digest identities, including its
 /// current search, while saved hiding remains an Agents/Overview preference.
-pub(super) fn held_text(app: &crate::board::app::App) -> String {
+/// The status row and Details for `all` share one count per held status and row set.
+pub(super) fn held_text(app: &crate::board::app::App) -> Rc<str> {
     let rows = app.workspace_rows();
+    let key = SavingsKey::of(app, &rows);
+    let mut cache = app.digest_rows.borrow_mut();
+    if let Some((held, text)) = &cache.held_text
+        && held.matches(&key)
+    {
+        return text.clone();
+    }
     let identities = rows
         .iter()
         .filter_map(|row| match &row.target {
@@ -226,7 +235,8 @@ pub(super) fn held_text(app: &crate::board::app::App) -> String {
             _ => None,
         })
         .collect();
-    model::held_text(&app.labels, Some(&identities))
+    let text = Rc::from(model::held_text(&app.labels, Some(&identities)));
+    cache.held_text.insert((key, text)).1.clone()
 }
 pub(super) use render::{details_clock_mark, render};
 

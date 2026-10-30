@@ -195,6 +195,7 @@ fn a_new_projection_is_built_after_the_stale_one_and_its_report_are_released() {
             },
         )),
         savings: None,
+        held_text: None,
     };
     drop(old);
     assert_eq!(
@@ -672,7 +673,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     app.workspace.visibility.scope = vec![room];
     app.workspace_reconcile();
     assert_eq!(app.workspace_rows().len(), 2);
-    assert_eq!(super::held_text(&app), "3");
+    assert_eq!(&*super::held_text(&app), "3");
     let mut captures = Vec::new();
     for (base, depth) in [
         (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
@@ -720,7 +721,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     app.workspace_reconcile();
     assert_eq!(app.workspace_rows().len(), 1);
     assert_eq!(app.workspace_rows()[0].target, OpsTarget::DigestAll);
-    assert_eq!(super::held_text(&app), "0");
+    assert_eq!(&*super::held_text(&app), "0");
     assert!(
         paint(&mut app, 100, 36).contains("0 held"),
         "empty scoped search retains only the read-only aggregate"
@@ -733,7 +734,12 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
         3,
         "Digest ignores saved hiding and has one aggregate"
     );
-    assert_eq!(super::held_text(&app), "≥3 observed · 1 unknown");
+    assert_eq!(&*super::held_text(&app), "≥3 observed · 1 unknown");
+    // The status row and Details read one count until the status or the rows change.
+    assert!(std::rc::Rc::ptr_eq(
+        &super::held_text(&app),
+        &super::held_text(&app)
+    ));
 }
 
 pub(in crate::board) fn savings_document() -> serde_json::Value {
