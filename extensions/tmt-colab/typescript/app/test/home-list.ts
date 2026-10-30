@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 /** The home list, once the app has loaded the space. */
 export const homeList = (page: Page) => page.locator('section.home');
@@ -13,16 +13,20 @@ export async function showAllPages(page: Page) {
   await expect(all).toHaveAttribute('aria-selected', 'true');
 }
 
-/**
- * Back to the page list through the shell: the rail's nested All pages on a wide screen, the
- * module menu's All pages on a phone (the shell's own 900px breakpoint). The bar has no module
- * crumb to click.
- */
+/** Open the shell's one child tree when the phone drawer owns it. */
+export async function openModuleNavigation(page: Page, scope: Locator = page.locator('body')) {
+  const open = scope.getByRole('button', { name: 'Open navigation', exact: true });
+  if ((page.viewportSize()?.width ?? 1440) <= 900) {
+    await expect(open).toBeVisible();
+    if ((await open.getAttribute('aria-expanded')) === 'false') await open.click();
+  }
+  const menu = scope.locator('.tmt-ui-rail-sub:visible');
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** Back through the same All pages row in the wide rail or phone drawer. */
 export async function backToPageList(page: Page) {
-  const phone = (page.viewportSize()?.width ?? 1440) <= 900;
-  await page
-    .locator(phone ? '.tmt-ui-module-menu a:visible' : '.tmt-ui-rail-sub a:visible', {
-      hasText: 'All pages',
-    })
-    .click();
+  const menu = await openModuleNavigation(page);
+  await menu.getByRole('link', { name: 'All pages', exact: true }).click();
 }

@@ -55,7 +55,7 @@ for (const width of [1440, 390])
           ),
         ),
       );
-      expect(lead).toBe(width < 480 ? 44 : 0);
+      expect(lead).toBe(0);
       expect(rect?.x).toBe(column.x);
       expect(rect?.x).toBe(width < 480 ? 0 : railWidth);
       expect(rect?.width).toBe(column.width);

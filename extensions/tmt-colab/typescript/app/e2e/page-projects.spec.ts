@@ -339,8 +339,11 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
     page.evaluate(() => {
       const frame = document.querySelector('#ask-page-fixture iframe');
       const menu = frame?.closest('.tmt-ui-shell')?.querySelector('.tmt-ui-module-menu');
-      if (!menu || !frame) throw new Error('The page fixture needs its sub-bar and frame.');
-      return { menu: menu.getBoundingClientRect().top, frame: frame.getBoundingClientRect().top };
+      if (!menu || !frame) throw new Error('The page fixture needs its shell and frame.');
+      return {
+        menuHeight: menu.getBoundingClientRect().height,
+        frame: frame.getBoundingClientRect().top,
+      };
     });
   const beforeNotice = await layout();
   await (await pageAction(host, text.pageList.pinItem)).click();
@@ -350,7 +353,9 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   const noticeBox = await notice.boundingBox();
   expect(noticeBox).not.toBeNull();
   const withNotice = await layout();
-  expect(withNotice.menu).toBeCloseTo(beforeNotice.menu + noticeBox!.height);
+  // The phone child tree lives in the closed drawer, not a content-offset tab strip.
+  expect(beforeNotice.menuHeight).toBe(0);
+  expect(withNotice.menuHeight).toBe(0);
   expect(withNotice.frame).toBeCloseTo(beforeNotice.frame + noticeBox!.height);
   await expect(page.getByRole('alert')).toHaveCount(1);
   await expect(header.locator('.page-attention[data-attention="projects"]')).not.toHaveAttribute(

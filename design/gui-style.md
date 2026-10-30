@@ -128,15 +128,8 @@ The one TMT web UI frame (#3937): one header row, then a global rail, an optiona
 module menu and the host's content. Every Colab and Remote page except the refusal
 page renders in it.
 
-The opt-in shared top bar places Search first in its left group, after the phone navigation
-button and before host content (Ben’s approved deviation from the website). Its icon and platform
-shortcut hint share one hit, hover and focus box; the hint is hidden below 640px. The right group
-keeps module actions followed by Theme and a Remote icon/count. Search opens the host's one switcher; the
-leaf reads no product data. Remote counts live sessions; zero and unknown omit the badge
-but keep distinct accessible names. The bar draws no title or avatar: the rail names the
-module and the content supplies its real h1. Root-only bindings and the actions-only module
-adapter are defined in the [leaf contract](browser-ui/README.md#shared-top-bar). Existing
-product bars stay unchanged until their owning adoption.
+The [shared top-bar contract](browser-ui/README.md#shared-top-bar) owns title slots,
+Search, common controls and responsive header ordering. Root bindings remain host-owned.
 
 - **Rail:** one fixed list, identical on every page: Home,
   Colab, Remote, Ops, Digest, any other module Remote's
@@ -145,37 +138,26 @@ product bars stay unchanged until their owning adoption.
   the disabled text colour with its reason as the tooltip (not paired, or not
   installed); it is never removed. Every page paints the answer this browser read
   last (session storage), then refreshes it once.
-  Each item is a Lucide icon plus its label; the current item has the selected
-  fill, the accent icon and a straight marker (`indicator-width`) in the rail's gutter,
-  outside the rounded row and never its border. The current module's pages nest under
-  it as sub-items; the current sub-item uses accent/on-accent fill without a gutter
-  marker, with an on-accent focus frame. A labelled group is a named nested list
-  whose items add 8 px of indent (Ben direct); unlabelled entries keep their base
-  indent and counts keep the same right edge. A count is a
-  small box after the label: a plain total in the hover fill, a needs-you count a
-  pill in the waiting colour on its soft fill; `99+` above 99; a count of zero draws
-  nothing. The number alone is
-  drawn, and the item's accessible name says what it counts. Home sums needs-you
-  counts only when every module reports one.
+  Each item is a Lucide icon plus its label. Exactly one deepest current row has a soft
+  accent fill, rounded corners and no edge line. Its module ancestor has bold text and
+  an accent icon with no fill. Child rows, group headers and group rows share a 36px indent.
+  Total and attention are rounded neutral grey and amber pills with a 4px token gap;
+  zero is hidden, selection never restyles them, and modules show attention only.
+  Group headers are small caps with at most one labelled icon command. A trailing muted
+  `+ New …` is a button and never selected. Optional module settings come last after a
+  hairline. Rows truncate to one line with full labels on hover. Host-owned commands and
+  the native/React model are defined in the [shared rail contract](browser-ui/README.md#shared-rail).
+  Home sums needs-you counts only when every module reports one.
 - **Wide rail:** always the full 232 px, with the selected nested page visible. Older
   collapse preferences are ignored; there is no collapse toggle or collapse shortcut.
   The rail scrolls as one column, with only the brand sticky above a rule while scrolled.
   Settings follows navigation in normal flow, pushed to the bottom when content fits.
-- **Module menu:** the active module's own menu (Colab: All pages, then each project
-  with its page count and needs-you count, then New project and Manage projects; Remote:
-  each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a
-  wide screen its pages nest under the current rail item and share the rail's surface,
-  rows and current-page fill; on a phone they are a tab strip under the title bar. It has
-  no title of its own.
-- **Header:** one continuous sticky row: the host's header (moved into the shell's bar)
-  shows the page title and the page's own actions, with one bottom rule. There is no
-  module crumb and no brand in the bar: the rail's head carries the brand and the current
-  rail item names the module. The header keeps the module in its accessible name
-  (`Colab · <page>`), and the document title keeps it too. While a route loads the bar
-  shows the module's name as its title and keeps its height and rule. A module that adopts the
-  shared top bar (Colab, #5237) moves its actions there and puts its title in the bar's title slot
-  (`<module or scope> / <title>`, a page's chips after it), with no title row under the bar. A
-  Colab page's status band is the one second layer, sticky directly under the bar.
+- **Module menu:** the active module's host-supplied child list nests under its module
+  row on desktop and inside the phone drawer. The same tree and styles serve both.
+- **Header:** one continuous sticky row. Route-owned titles and actions use the
+  [shared top-bar slots](browser-ui/README.md#shared-top-bar); there is no separate
+  module-title band. The rail owns the brand. Legacy host bars remain host-owned
+  until their separate adoption.
 - **Bar cluster:** the shell owns the right end of the bar. A module fills the **search**
   slot (Colab: Search pages, an icon with a quiet `⌘K` key hint that a touch screen and a
   bar under 640 px do not draw; ⌘K opens it from anywhere in the module) and the **chip**
@@ -190,7 +172,7 @@ product bars stay unchanged until their owning adoption.
   pages (Remote: `.tmt-page`), since every module shares the one document. While a
   route loads, its place shows the busy mark.
 - **Phone (≤ 900 px):** the rail becomes a top-left menu button that opens it as a
-  drawer; the module menu becomes tabs under the title bar.
+  drawer with the same nested module menu.
 - Primitive: `mountShell` in `design/browser-ui/src/shell.ts` (static hosts) and
   `BrowserShell` (React). Basis: own.
 

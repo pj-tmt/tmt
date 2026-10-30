@@ -115,11 +115,30 @@ menu and drawer retain their behavior and the same single scroll owner.
 The shell and heading metrics follow the concept website: 232px rail, 45px module
 rows, 33px sub-items and a 45px brand mark. Body and display text use
 `Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or
-external font requests. Rail sub-item text starts 8px beyond the parent's icon
-left edge (Ben direct). Labelled groups render as named nested lists with one extra
-8px indent; unlabelled entries stay flat and counts retain their right edge. The
-selected sub-item uses accent/on-accent fill without a gutter marker, with an
-on-accent focus frame. The parent module keeps its marker.
+external font requests.
+
+### Shared rail
+
+`mountShell` owns the one rail renderer; `BrowserShell` and `HostedShell` pass it the
+same `ShellMenu` model. Exactly one deepest current row is selected: a soft accent fill,
+rounded corners and no edge line. Its current module ancestor has bold text and an accent
+icon without a fill. Child rows, labelled group headings and group rows share a 36px
+indent. The phone drawer shows this same tree, without a separate module tab strip.
+Rows truncate to one line and retain their full labels on hover.
+
+A child can carry `total` and `count`: neutral grey and amber rounded pills, respectively,
+separated by `space-xs` (4px). Both use the body font and identical height, padding and
+minimum width; the neutral total has a visible grey fill and primary ink for contrast.
+Zero is hidden, values above 99 read `99+`, and selection
+never changes the pill colours. Module rows show only nonzero attention counts.
+
+Each `ShellMenuGroup` has `items` and optional `label`, `action` and `add`. `action` is
+one icon button with `icon`, accessible `label` and host-owned `onActivate`. `add` is a
+trailing muted button with the full visible label (for example `+ New project`) and
+`onActivate`; it never navigates or becomes selected. Optional `ShellMenu.settings` is a
+navigation row rendered last after a hairline starting at the same 36px child indent. Hosts own commands, navigation, current
+state and data; these presentation additions do not change the composed-shell wire format.
+Callbacks update without rebuilding an otherwise unchanged view or losing keyboard focus.
 
 The optional static `page` class (`tmt-ui-page`) applies shared content insets:
 33px/36px block/inline, 24px/18px through 760px. Hosts opt in on their content

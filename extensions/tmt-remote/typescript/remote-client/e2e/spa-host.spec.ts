@@ -306,9 +306,8 @@ async function openApp(path: string, prepare?: (page: Page) => Promise<void>) {
   return { page, requests, url: (request: Request) => new URL(request.url()) };
 }
 
-/** The module's pages: nested in the rail on a wide screen, a tab strip on a phone. */
-const modulePages = (page: Page) =>
-  page.locator('.tmt-ui-rail-sub:visible, nav.tmt-ui-module-menu:visible');
+/** The same nested module tree is visible in the wide rail or open phone drawer. */
+const modulePages = (page: Page) => page.locator('.tmt-ui-rail-sub:visible');
 
 /** Requests that are not the document or the door's own static SDK files. */
 const beyondAssets = (requests: Request[]) =>
@@ -730,7 +729,7 @@ test.describe('the app in a browser', () => {
           label: item.textContent?.trim(),
           href: item.getAttribute('href'),
           disabled: item.getAttribute('aria-disabled'),
-          current: item.getAttribute('aria-current'),
+          current: item.hasAttribute('data-module-current'),
         })),
       );
     const first = await rail();
@@ -823,7 +822,11 @@ test.describe('the app in a browser', () => {
     await page.keyboard.press('Escape');
     await expect(rail).toBeHidden();
     await expect(open).toBeFocused();
-    await expect(page.locator('.tmt-ui-module-menu [aria-current="page"]')).toBeVisible();
+    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toBeHidden();
+    await open.click();
+    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toBeVisible();
+    await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
+    await page.keyboard.press('Escape');
     expect(await page.evaluate(() => localStorage.getItem('tmt.shell.rail'))).toBe('collapsed');
     await page.close();
   });
@@ -1587,11 +1590,14 @@ test.describe('Settings General website presentation', () => {
               fullPage: true,
             });
           }
+          if (width === 390)
+            await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
           const menu = modulePages(page);
           await expect(menu.getByRole('link', { name: 'General', exact: true })).toHaveAttribute(
             'aria-current',
             'page',
           );
+          if (width === 390) await page.keyboard.press('Escape');
           const tabs = general.getByRole('tablist', { name: 'Theme' });
           await tabs.getByRole('tab', { name: 'Dark', exact: true }).click();
           await expect(tabs.getByRole('tab', { name: 'Dark', exact: true })).toHaveAttribute(
@@ -1620,6 +1626,8 @@ test.describe('Settings General website presentation', () => {
             page.getByRole('heading', { name: 'TMT settings / Modules', exact: true }),
           ).toBeVisible();
           await expect(general).not.toContainText('Make TMT feel like yours.');
+          if (width === 390)
+            await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
           await menu.getByRole('link', { name: 'Drivers & hooks', exact: true }).click();
           await expect(general).toHaveClass(/tmt-ui-page/);
           await expect(
@@ -1630,6 +1638,8 @@ test.describe('Settings General website presentation', () => {
             }),
           ).toBeVisible();
           await expect(general.getByRole('button', { name: 'Copy tmt driver ls' })).toBeVisible();
+          if (width === 390)
+            await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
           await menu.getByRole('link', { name: 'General', exact: true }).click();
           await expect(
             general.getByRole('heading', { name: 'Appearance', exact: true }),
@@ -1696,9 +1706,12 @@ test.describe('Settings Identities website presentation', () => {
           const grid = await main.locator('.tmt-settings-grid').boundingBox();
           const foot = await main.locator('.tmt-settings-foot').boundingBox();
           expect(foot!.width).toBeCloseTo(grid!.width, 0);
+          if (width === 390)
+            await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
           await expect(
             modulePages(page).getByRole('link', { name: 'Identities', exact: true }),
           ).toHaveAttribute('aria-current', 'page');
+          if (width === 390) await page.keyboard.press('Escape');
           if (process.env.TMT_IDENTITIES_CAPTURE_DIR) {
             await page.evaluate(() => document.fonts.ready);
             await page.screenshot({

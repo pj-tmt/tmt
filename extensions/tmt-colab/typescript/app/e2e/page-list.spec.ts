@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openModuleNavigation } from '../test/home-list.js';
 import { capturePath } from './captures.js';
 
 async function mount(
@@ -37,9 +38,8 @@ const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
 /** The shell's module menu: All pages, each project with its counts, then the project actions. On a
- * wide screen its entries nest under Colab in the rail; on a phone they are the strip under the bar. */
-const moduleMenu = (page: Page) =>
-  app(page).locator('.tmt-ui-rail-sub:visible, .tmt-ui-module-menu:visible');
+ * wide screen its entries nest under Colab in the rail; phones use the same tree in the drawer. */
+const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-rail-sub:visible');
 /** The menu's current scope row, named by its value. */
 const scopeTrigger = (page: Page, value = 'All pages') =>
   moduleMenu(page)
@@ -50,10 +50,12 @@ const scopeTrigger = (page: Page, value = 'All pages') =>
 const scopeRows = (page: Page) =>
   moduleMenu(page).locator('a[data-id="all"], a[data-id^="project:"]');
 async function fromScopeMenu(page: Page, name: string) {
+  await openModuleNavigation(page, app(page));
   await moduleMenu(page).getByRole('link', { name, exact: true }).click();
 }
 /** Scope the list to a project (or All pages) from the module menu. */
 async function scopeTo(page: Page, name: string) {
+  await openModuleNavigation(page, app(page));
   await moduleMenu(page)
     .locator('a')
     .filter({
@@ -943,7 +945,7 @@ test('the module menu lists dashboards under Dashboards and opens Colab settings
 });
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`the scope menu mutes its counts with the secondary colour in ${theme}`, async ({
+  test(`the scope menu keeps total and attention pills readable through selection in ${theme}`, async ({
     page,
   }) => {
     await page.emulateMedia({ colorScheme: theme });
@@ -953,29 +955,48 @@ for (const theme of ['light', 'dark'] as const) {
     }, theme);
     const row = scopeRows(page).nth(1);
     await expect(row).toHaveText(/design\s*2\s*(?:◆ )?1/);
-    // A token no CSS defines leaves the declaration invalid, so the count would inherit the name's
-    // colour; the count must instead be the colour the secondary token has in this theme.
     const colors = await row.evaluate((element) => {
       const color = (target: Element) => getComputedStyle(target).color;
-      const probe = document.createElement('span');
-      probe.style.color = 'var(--tmt-ui-color-secondary)';
-      element.append(probe);
-      const secondary = color(probe);
-      probe.remove();
+      const role = (name: string) => {
+        const probe = document.createElement('span');
+        probe.style.color = `var(--tmt-ui-color-${name})`;
+        element.append(probe);
+        const value = color(probe);
+        probe.remove();
+        return value;
+      };
       return {
-        count: color(element.querySelector('.tmt-ui-shell-count')!),
+        total: color(element.querySelector('.tmt-ui-shell-count:not([data-kind])')!),
+        attention: color(element.querySelector('.tmt-ui-shell-count[data-kind="needs-you"]')!),
         name: color(element.querySelector('.tmt-ui-module-menu-label')!),
-        secondary,
+        primary: role('text'),
+        secondary: role('secondary'),
+        waiting: role('waiting'),
       };
     });
-    expect(colors.count).toBe(colors.secondary);
-    // A rail row at rest is drawn in the secondary colour itself; the current row's name is not.
-    const current = await scopeRows(page)
-      .first()
-      .evaluate(
-        (element) => getComputedStyle(element.querySelector('.tmt-ui-module-menu-label')!).color,
+    expect(colors.total).toBe(colors.primary);
+    expect(colors.name).toBe(colors.secondary);
+    expect(colors.total).not.toBe(colors.name);
+    expect(colors.attention).toBe(colors.waiting);
+    expect(colors.attention).not.toBe(colors.total);
+    const paint = () =>
+      row.locator('.tmt-ui-shell-count').evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const css = getComputedStyle(node);
+          return {
+            color: css.color,
+            fill: css.backgroundColor,
+            font: css.fontFamily,
+            padding: css.padding,
+          };
+        }),
       );
-    expect(colors.count).not.toBe(current);
+    const before = await paint();
+    expect(before[0]!.fill).not.toBe(before[1]!.fill);
+    for (const pill of before) expect(pill.fill).not.toBe('rgba(0, 0, 0, 0)');
+    await scopeTo(page, 'design');
+    await expect(row).toHaveAttribute('aria-current', 'page');
+    expect(await paint()).toEqual(before);
     await page.screenshot({ path: await capturePath(`3952-scope-menu-${theme}.png`) });
   });
 }
@@ -1565,6 +1586,7 @@ for (const width of [1440, 390, 320])
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
+        await openModuleNavigation(page, app(page));
         const row = moduleMenu(page)
           .locator('a')
           .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: long }) });
@@ -1573,13 +1595,15 @@ for (const width of [1440, 390, 320])
           await page.screenshot({
             path: await capturePath(`3747-scope-long-${width}-${theme}.png`),
           });
-        // On a phone the module menu is a scrolling tab strip; a long tab ellipsizes within it.
+        // The same child row ellipsizes inside the wide rail or phone drawer.
         await row.scrollIntoViewIfNeeded();
         const box = await row.boundingBox();
         expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
         await row.click();
+        await openModuleNavigation(page, app(page));
         await expect(scopeTrigger(page, long)).toBeVisible();
         expect(await inside()).toEqual({ scroll: 0, crumbInside: true, railOverflow: 0 });
+        if (width <= 900) await page.keyboard.press('Escape');
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
         // The bar's title keeps the crumb, ellipsized at its own cap, beside a long title; a phone
         // keeps only the title, ellipsized.
@@ -1599,7 +1623,9 @@ for (const width of [1440, 390, 320])
         if (width > 900) await crumb.click();
         else await page.goBack();
         await showAll(page);
+        await openModuleNavigation(page, app(page));
         await expect(scopeTrigger(page, long)).toBeVisible();
+        if (width <= 900) await page.keyboard.press('Escape');
       }
     });
 
@@ -1781,7 +1807,7 @@ for (const width of [1440, 390, 320])
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        // On a phone the module menu is a scrolling tab strip.
+        await openModuleNavigation(page, app(page));
         const entry = moduleMenu(page)
           .locator('a')
           .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: name }) });

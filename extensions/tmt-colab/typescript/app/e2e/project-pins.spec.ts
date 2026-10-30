@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openModuleNavigation } from '../test/home-list.js';
 import { capturePath } from './captures.js';
 
 // #5073: the Colab side menu lists the projects the owner pins, in the owner's order. Until the owner
@@ -15,13 +16,15 @@ async function mount(page: Page, size: Size, pinned?: 'automatic' | string[], ha
     },
     { size, hash, pinned },
   );
+  await openModuleNavigation(page, app(page));
 }
 const app = (page: Page) => page.locator('#list-fixture');
-const moduleMenu = (page: Page) =>
-  app(page).locator('.tmt-ui-rail-sub:visible, .tmt-ui-module-menu:visible');
+const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-rail-sub:visible');
 /** The menu's project entries, in order, by name. */
-const listed = (page: Page) =>
-  moduleMenu(page).locator('a[data-id^="project:"] .tmt-ui-module-menu-label').allTextContents();
+const listed = async (page: Page) => {
+  const menu = await openModuleNavigation(page, app(page));
+  return menu.locator('a[data-id^="project:"] .tmt-ui-module-menu-label').allTextContents();
+};
 const menuEntry = (page: Page, name: string) =>
   moduleMenu(page)
     .locator('a')

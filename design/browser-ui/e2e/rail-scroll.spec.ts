@@ -31,7 +31,7 @@ for (const theme of ['light', 'dark'] as const)
         await rail.evaluate((node) => {
           node.scrollTop = 100;
         });
-        const current = rail.locator('.tmt-ui-rail-item[aria-current="page"]');
+        const current = rail.locator('.tmt-ui-rail-item[data-module-current]');
         await current.focus();
         await expect
           .poll(async () => (await current.boundingBox())!.y)
@@ -73,7 +73,7 @@ for (const theme of ['light', 'dark'] as const)
   test(`phone rail ${theme}: single scroll owner, reachable Settings and original dismissal`, async ({
     page,
   }) => {
-    // A short viewport exercises actual drawer overflow; projects stay in the module strip.
+    // A short viewport exercises actual drawer overflow; the same project tree stays in the drawer.
     await page.setViewportSize({ width: 390, height: 260 });
     await page.goto(`/?frame=shell&projects=20&theme=${theme}`);
     const rail = page.locator('nav.tmt-ui-rail');

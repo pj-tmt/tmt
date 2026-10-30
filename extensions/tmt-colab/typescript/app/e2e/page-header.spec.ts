@@ -186,15 +186,15 @@ test.describe('the shell bar', () => {
       await expect(bar(page).locator('.tmt-ui-brand, .tmt-ui-wordmark, .tmt-ui-mark')).toHaveCount(
         0,
       );
-      // Two layers: the status band follows the bar (on a phone, after the module tabs that scroll
-      // away) and, once the page scrolls, stays where the bar ends, collapsed and expanded.
+      // The status band follows the bar with no phone tab strip, and stays at its bottom
+      // after scrolling, collapsed and expanded.
       const band = page.locator('.page-main .work-band:visible');
       const gap = async () =>
         (await band.boundingBox())!.y -
         ((await bar(page).boundingBox())!.y + (await bar(page).boundingBox())!.height);
-      const tabs =
-        width > 900 ? 0 : (await page.locator('.tmt-ui-module-menu:visible').boundingBox())!.height;
-      await expect.poll(gap).toBeCloseTo(tabs, 0);
+      if (width <= 900)
+        await expect(page.locator('#ask-page-fixture .tmt-ui-module-menu')).toBeHidden();
+      await expect.poll(gap).toBeCloseTo(0, 0);
       await page.evaluate(() => {
         document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
           '3000px';

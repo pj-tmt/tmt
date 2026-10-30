@@ -145,7 +145,7 @@ it('caps counts at 99+ and falls back to the box icon', () => {
 });
 
 it('hides a plain total at zero and a needs-you count at zero, and keeps both above it', () => {
-  expect(entryCounts({ total: 0 })).toEqual([]);
+  expect(entryCounts({ total: 0, count: shellCount(0) })).toEqual([]);
   expect(entryCounts({ total: 6 })).toEqual([{ text: '6', needsYou: false }]);
   expect(entryCounts({ total: 6, count: shellCount(1) })).toEqual([
     { text: '6', needsYou: false },
