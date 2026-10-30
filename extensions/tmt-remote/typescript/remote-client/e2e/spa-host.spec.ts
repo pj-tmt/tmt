@@ -368,6 +368,9 @@ test.describe('route identities in the shared top bar', () => {
             await expect(page.locator('.tmt-ui-shell-main h1,.root-title-row'), path).toHaveCount(
               0,
             );
+            const main = page.locator('.tmt-ui-shell-main');
+            if (path.startsWith('/remote')) await expect(main).toHaveAttribute('data-remote-view');
+            else await expect(main).not.toHaveAttribute('data-remote-view');
             const prefix = title.locator('.tmt-ui-topbar-title-prefix');
             if (await prefix.count()) {
               if (width <= 900) await expect(prefix, path).toBeHidden();
