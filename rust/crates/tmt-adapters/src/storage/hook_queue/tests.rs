@@ -2895,3 +2895,74 @@ fn expired_text_in_the_recorded_batch_cannot_suppress_a_queued_event() {
 fn expired_text_in_the_recorded_batch_cannot_suppress_a_direct_event() {
     assert_expired_recorded_text_does_not_suppress_a_new_event(false);
 }
+
+#[test]
+fn exact_text_replay_requires_a_body_live_at_the_capture_read_clock() {
+    let mut w = World::new();
+    let text = "a retained body with an explicit availability boundary";
+    let event = w.event(text, false);
+    w.storage.ingest_hook_capture(&event).unwrap();
+    let db = w.storage.connection().unwrap();
+    db.execute("UPDATE recent_responses SET ended_ms=1, expires_ms=2", [])
+        .unwrap();
+    let batch = current(db, &w.agent).unwrap();
+    let response = ResponseCapture {
+        text: tmt_core::responses::FinalText::new(text).unwrap(),
+    };
+    assert!(
+        super::super::responses::same_final_in_batch(db, batch.as_deref(), &response, 1).unwrap()
+    );
+    for read_clock in [2, 3] {
+        assert!(
+            !super::super::responses::same_final_in_batch(
+                db,
+                batch.as_deref(),
+                &response,
+                read_clock
+            )
+            .unwrap()
+        );
+    }
+    assert_eq!(
+        w.final_count(),
+        1,
+        "availability checks do not prune the body"
+    );
+}
+
+#[test]
+fn expired_text_does_not_hide_a_refused_direct_or_queued_end() {
+    for queued in [false, true] {
+        let mut w = World::new();
+        let text = "expired text is no longer a visible answer";
+        let first = w.event(text, false);
+        if queued {
+            w.storage.ingest_hook_capture(&first).unwrap();
+        } else {
+            w.direct_end(&first, text);
+        }
+        w.storage
+            .connection()
+            .unwrap()
+            .execute("UPDATE recent_responses SET ended_ms=1, expires_ms=2", [])
+            .unwrap();
+        w.refuse_end(CaptureResult::NoAdmittedStart);
+        let refused = w.event(text, false);
+        for _ in 0..2 {
+            let outcome = if queued {
+                w.storage.ingest_hook_capture(&refused).unwrap()
+            } else {
+                CaptureResult::from(w.direct_end(&refused, text))
+            };
+            assert_eq!(outcome, CaptureResult::NoAdmittedStart);
+        }
+        let failures = w.visible_failures();
+        assert_eq!(
+            failures.len(),
+            1,
+            "{queued}: the refused event stays event-fenced"
+        );
+        assert_eq!(failures[0]["failure"]["code"], "worker_error");
+        assert_eq!(w.final_count(), 1, "a refused end adds no final");
+    }
+}
