@@ -2757,7 +2757,7 @@ fn a_zero_wait_schema_read_reports_busy_until_wal_admission_is_released() {
 
 #[test]
 fn a_near_expired_enqueue_open_reports_unpublished_busy_without_appending() {
-    let w = World::new();
+    let mut w = World::new();
     let event = w.event("no budget to publish this final", false);
     let holder = Connection::open(HookQueue::path(&w.path)).unwrap();
     holder
