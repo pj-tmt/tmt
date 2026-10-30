@@ -84,7 +84,7 @@ test('native page titles fill missing visible home labels without opening the pa
     await expect.poll(() => sent.filter((type) => type === 'subscribe').length).toBe(1);
     await captureHeader(page, testInfo, 'page');
     await (await pageAction(page, 'Manage page')).click();
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog', { name: title, exact: true });
     await expect(dialog.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(dialog.getByText('Active', { exact: true })).toBeVisible();
     await expect(dialog.getByText(`Page ID: ${created.pageId}`, { exact: true })).toBeHidden();
