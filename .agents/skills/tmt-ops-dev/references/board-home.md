@@ -91,7 +91,7 @@ from held observations, never perform acquisition or display raw UUIDs. A lane j
 progress notice is held until `SPINNER_DELAY` (`App::set_progress`), so a job that ends
 sooner paints nothing; a job the user did not ask to wait on (`Job::shows_progress`) has
 none, and a result or failure is shown at once. Persistent
-migration and acquisition failures retain their existing footer priority. `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
+migration and acquisition failures retain their existing footer priority. `board::buttons` owns hover and hit registration per layer, including ChipGroup selectors, and paints through tmt-tui's `Button` and `ButtonRow`; callers keep activation authority.
 
 `board::unread` projects what answered the user's messages from one page of Core's
 originator `answers` view (a submitted final, or a passthrough's captured turn), limited

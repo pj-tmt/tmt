@@ -1,5 +1,6 @@
 use super::*;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use tmt_cli_style::theme::screen::{self, ChipKind, ChipState};
 
 fn moved(app: &mut App, x: u16, y: u16) -> bool {
     app.move_pointer(MouseEvent {

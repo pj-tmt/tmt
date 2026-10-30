@@ -1,8 +1,13 @@
 //! Application-neutral components implementing the Full-screen interaction
 //! contract in `design/cli-style.md`. Markup is admitted by `surface::compile`.
+mod button;
 pub mod collection;
+pub use button::{Button, ButtonRow};
 mod completion;
 pub use completion::{Candidate, Completion};
+
+mod dialog;
+pub use dialog::{Dialog, DialogHits, DialogInput, DialogKind, DialogState, FieldKind, Focus};
 
 mod editor;
 mod key_help;

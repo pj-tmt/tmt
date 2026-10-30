@@ -392,16 +392,16 @@ The same key means the same thing in every view and overlay.
 
 | Key            | Base                                 | Overlay                         |
 | -------------- | ------------------------------------ | ------------------------------- |
-| ↑↓, j/k        | move the cursor                      | move or scroll                  |
+| ↑↓, j/k        | move the cursor                      | next field or item, or scroll   |
 | PgUp/PgDn      | page                                 | page                            |
 | Home/End, g/G  | first or last item                   | first or last line              |
 | Enter          | the row's main action (jump)         | confirm or save                 |
 | Esc            | clear search or selection, else quit | close without changing anything |
 | `?`            | open help                            | close help, or text in a field  |
 | `q`            | quit                                 | close, or text in a field       |
-| ←→             | previous or next tab                 | not used (edit cursor in input) |
+| ←→             | previous or next tab                 | change a value, or next button  |
 | `/`            | search                               | not used                        |
-| Tab, Shift-Tab | next or previous pane                | next or previous field          |
+| Tab, Shift-Tab | next or previous pane                | not used                        |
 | Ctrl-C         | quit                                 | quit                            |
 
 A view may add its own keys, but never reuses one of these for something else.
@@ -445,6 +445,24 @@ fits, is a fit and not a step.
   Content that does not fit scrolls; the overlay never grows past the view.
 - A prompt is a short overlay docked above the footer, so the board stays
   visible as a live preview of the value being typed.
+
+### Dialogs
+
+Every overlay that asks, edits, chooses or shows is one dialog of four kinds:
+a **confirm** (text and buttons), a **form** (fields and buttons), a **list**
+(choosable rows, optional buttons) and a **read-only** view (scrolling text).
+
+- Keys: ↑↓ move between fields and then the button row, or between rows; ←→
+  change a choice, move the cursor in a text field, or move between buttons.
+  Enter chooses the focused button, else the primary one; in a list it chooses
+  the row. Esc, and `q` outside a text field, close the dialog. Tab does nothing.
+- Mouse: a press on a button chooses it, a press on a field focuses it, and a
+  press outside the dialog closes it. A read-only view's outside press also
+  lands on the board underneath.
+- Closing never loses work: an editor keeps its draft and shows it on reopen;
+  only Enter or an explicit clear discards it. While an operation runs, closing
+  hides the dialog and the operation continues; reopening shows its result, and
+  the status line names it.
 
 ### Lists and selection
 

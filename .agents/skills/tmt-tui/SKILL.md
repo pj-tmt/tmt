@@ -32,6 +32,26 @@ sends back. It parses with `vt100` at the workspace pin (the parser that formats
 snapshot), keeps no scrollback and does no I/O, and it knows nothing of the stream that carries the
 bytes or of `tmt-pty-protocol`.
 
+## Dialogs
+
+A new overlay that asks, edits, chooses or shows is a `components::Dialog`; the
+rule it implements is [Dialogs](../../../design/cli-style.md#dialogs).
+
+- Pick the kind by what the user does: `Confirm` for a yes/no with text (delete
+  timer?), `Form` for fields (rename squad), `List` for choosing a row
+  (snapshots), `ReadOnly` for reading (agent details).
+- `DialogState::key` and `DialogState::mouse` are the only key and mouse rule:
+  the application acts on the `DialogInput` they return (`Field`, `Content`,
+  `Choose`, `Cancel`) and never reads Tab, Esc or an outside press itself.
+- `Dialog::areas` keeps the modal size rule; never compute a dialog rectangle by
+  hand. `Dialog::paint` frames it and paints the `Button` row; the application
+  paints the content and adds its field rectangles to `DialogHits.fields`.
+- The application keeps drafts across a close and keeps a running operation going
+  when its dialog hides.
+- Tests: the crate's dialog tests own the rule; a new Ops dialog adds its scene to
+  the HOME oracle and a test that Esc and an outside press close it and that a
+  draft survives reopen.
+
 ## References
 
 - [references/pipeline-and-components.md](references/pipeline-and-components.md): admission, binding, geometry, paint and component rules.
