@@ -1352,3 +1352,133 @@ fn built_in_members_are_recorded_leave_only_on_purpose_and_restore_never_touches
     );
     assert_eq!(world.json(&["ls", "alpha", "--json"])["presence"], "active");
 }
+
+/// A tmux store as a tmux user leaves it when their server ends.
+fn leave_tmux_store(world: &World, socket: &str) {
+    use tmt_core::workspace::*;
+    let paths = tmt_adapters::config::ConfigPaths::resolve(
+        &world.root,
+        &world.root,
+        Some(&support::state_dir(&world.root)),
+        None,
+    );
+    let snapshot = WorkspaceSnapshot {
+        captured_at_ms: 1,
+        server: WorkspaceServer {
+            socket: socket.into(),
+            process: ProcessIncarnation::new(10, "native-start").unwrap(),
+            id: None,
+        },
+        sessions: vec![WorkspaceSession {
+            id: "$1".into(),
+            name: "work".into(),
+            windows: vec![WindowLink {
+                index: 0,
+                window: "@1".into(),
+                active: true,
+            }],
+        }],
+        windows: vec![WorkspaceWindow {
+            id: "@1".into(),
+            name: "shell".into(),
+            layout: "abc,80x24,0,0,1".into(),
+            visible_layout: "abc,80x24,0,0,1".into(),
+            width: 80,
+            height: 24,
+            active_pane: "%1".into(),
+        }],
+        panes: vec![WorkspacePane {
+            id: "%1".into(),
+            window: "@1".into(),
+            index: 0,
+            left: 0,
+            top: 0,
+            width: 80,
+            height: 24,
+            cwd: "/tmp".into(),
+            identity: None,
+            command: None,
+        }],
+    };
+    assert!(tmt_adapters::workspace::publish_event(&paths, socket, || Ok(snapshot)).unwrap());
+}
+
+#[test]
+fn outside_tmux_workspace_commands_select_the_built_in_store_and_point_at_tmux_stores() {
+    let mut world = World::new();
+    // No tmux and no stores: an empty built-in listing, no hint.
+    let empty = world.json(&["workspace", "ls", "--json"]);
+    assert_eq!(
+        empty,
+        serde_json::json!({"version": 1, "host": "pty", "snapshots": []})
+    );
+    // A tmux user whose server ended: the built-in store is still selected, and the tmux
+    // stores are named with the --socket form.
+    leave_tmux_store(&world, "/tmp/ended-tmux.sock");
+    let hinted = world.json(&["workspace", "ls", "--json"]);
+    assert_eq!(hinted["host"], "pty", "{hinted:#}");
+    assert_eq!(hinted["snapshots"], serde_json::json!([]), "{hinted:#}");
+    assert_eq!(
+        hinted["socketStores"],
+        serde_json::json!(["/tmp/ended-tmux.sock"]),
+        "{hinted:#}"
+    );
+    let human = world.run(&["workspace", "ls"]);
+    assert!(human.status.success(), "{human:?}");
+    assert!(
+        String::from_utf8_lossy(&human.stdout)
+            .contains("tmt workspace ls --socket '/tmp/ended-tmux.sock'"),
+        "{human:?}"
+    );
+    for command in ["show", "restore"] {
+        let refused = world.run(&["workspace", command, "--json"]);
+        assert_eq!(refused.status.code(), Some(3), "{refused:?}");
+        let refused: Value = serde_json::from_slice(&refused.stdout).unwrap();
+        assert_eq!(refused["error"]["code"], "WORKSPACE_SNAPSHOT_NOT_FOUND");
+        assert!(
+            refused["error"]["suggestion"]
+                .as_str()
+                .unwrap()
+                .contains(&format!(
+                    "tmt workspace {command} --socket '/tmp/ended-tmux.sock'"
+                )),
+            "{refused:#}"
+        );
+        assert_eq!(
+            refused["socketStores"],
+            serde_json::json!(["/tmp/ended-tmux.sock"])
+        );
+    }
+    // The explicit socket still reaches the tmux store.
+    let tmux = world.json(&[
+        "workspace",
+        "ls",
+        "--socket",
+        "/tmp/ended-tmux.sock",
+        "--json",
+    ]);
+    assert_eq!(tmux["host"], "tmux", "{tmux:#}");
+    assert_eq!(tmux["snapshots"].as_array().unwrap().len(), 1, "{tmux:#}");
+    // Once a member runs, the built-in store answers alone; the hint is gone.
+    let started = world.run(&[
+        "run",
+        "--host",
+        "pty",
+        "--no-channel",
+        "--save",
+        "alpha",
+        "/bin/sh",
+        "-c",
+        "printf 'ready\\n'; while IFS= read -r line; do :; done",
+    ]);
+    assert!(started.status.success(), "{started:?}");
+    let listed = world.json(&["workspace", "ls", "--json"]);
+    assert_eq!(listed["host"], "pty", "{listed:#}");
+    assert!(listed.get("socketStores").is_none(), "{listed:#}");
+    let shown = world.json(&["workspace", "show", "--json"]);
+    assert_eq!(shown["members"][0]["name"], "alpha", "{shown:#}");
+    assert_eq!(shown["members"][0]["action"], "live", "{shown:#}");
+    let restored = world.json(&["workspace", "restore", "--json"]);
+    assert_eq!(restored["host"], "pty", "{restored:#}");
+    assert_eq!(restored["members"][0]["status"], "skipped", "{restored:#}");
+}

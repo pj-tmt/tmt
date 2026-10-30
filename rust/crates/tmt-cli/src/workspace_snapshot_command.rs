@@ -59,7 +59,111 @@ fn entry(entry: &saved::SnapshotEntry) -> serde_json::Value {
         "agents": entry.agents, "protected": entry.protected, "shrink": entry.generation.as_ref().is_some_and(|generation| generation.shrink)})
 }
 
+/// Without `--socket` or `--host`, a caller on the built-in host, or in no tmux server at all,
+/// selects the built-in store. A caller inside tmux keeps its socket and an external host is
+/// refused as before, so only the plain-terminal case changes.
+fn implicit_builtin(invocation: &Invocation) -> Result<bool, Failure> {
+    let (socket, builtin) = match invocation {
+        Invocation::WorkspaceShow {
+            socket, builtin, ..
+        }
+        | Invocation::WorkspaceRestore {
+            socket, builtin, ..
+        }
+        | Invocation::WorkspaceSave {
+            socket, builtin, ..
+        }
+        | Invocation::WorkspaceRemove {
+            socket, builtin, ..
+        }
+        | Invocation::WorkspaceList { socket, builtin } => (socket, *builtin),
+        _ => return Ok(false),
+    };
+    if builtin || socket.is_some() {
+        return Ok(false);
+    }
+    let caller = CallerEnvironment::current();
+    let host = crate::caller_context::workspace_host(&caller, false)?;
+    Ok(host.kind() == HostKind::pty()
+        || host.kind() == HostKind::Tmux && matches!(caller.selected_server_socket(), Ok(None)))
+}
+
+fn select_builtin(invocation: &Invocation) -> Invocation {
+    let mut selected = invocation.clone();
+    match &mut selected {
+        Invocation::WorkspaceShow { builtin, .. }
+        | Invocation::WorkspaceRestore { builtin, .. }
+        | Invocation::WorkspaceSave { builtin, .. }
+        | Invocation::WorkspaceRemove { builtin, .. }
+        | Invocation::WorkspaceList { builtin, .. } => *builtin = true,
+        _ => unreachable!("workspace commands only"),
+    }
+    selected
+}
+
+/// An implicit built-in selection with no built-in snapshot, while tmux stores exist (a tmux
+/// user in a plain terminal after their server ended): say so and name the `--socket` form.
+/// The selected store never changes; `socketStores` only lists what exists.
+fn without_builtin_snapshot(invocation: &Invocation, mode: OutputMode) -> Option<io::Result<u8>> {
+    let paths = ConfigPaths::discover().ok()?;
+    let empty = saved::list_snapshots::<BuiltinSnapshot>(&paths, Store::Builtin)
+        .is_ok_and(|entries| entries.is_empty());
+    if !empty {
+        return None;
+    }
+    let sockets = saved::socket_stores(&paths);
+    let first = sockets.first()?;
+    let command = match invocation {
+        Invocation::WorkspaceShow { .. } => "show",
+        Invocation::WorkspaceRestore { .. } => "restore",
+        Invocation::WorkspaceSave { .. } => "save",
+        Invocation::WorkspaceRemove { .. } => "rm",
+        _ => "ls",
+    };
+    let hint = format!(
+        "tmux workspace snapshots exist; select one with tmt workspace {command} --socket {}",
+        crate::output::shell_word(first)
+    );
+    if command == "ls" {
+        let mut output = tmt_cli_style::stream::stdout(mode.json);
+        let written = if mode.json {
+            writeln!(
+                output,
+                "{}",
+                serde_json::json!({"version": 1, "host": HostKind::pty().as_str(), "snapshots": [], "socketStores": sockets})
+            )
+        } else {
+            writeln!(output, "No built-in member snapshots. {hint}.")
+        };
+        return Some(written.map(|()| 0));
+    }
+    let failure = Failure::new(
+        "WORKSPACE_SNAPSHOT_NOT_FOUND",
+        "No built-in member snapshot exists. Nothing was changed.",
+        3,
+    )
+    .suggestion(hint);
+    if !mode.json {
+        return Some(failure.publish(mode));
+    }
+    let mut document = failure.document();
+    document["socketStores"] = sockets.into();
+    Some(writeln!(tmt_cli_style::stream::stdout(true), "{document}").map(|()| failure.status))
+}
+
 pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
+    let selected;
+    let invocation = match implicit_builtin(invocation) {
+        Ok(false) => invocation,
+        Ok(true) => {
+            if let Some(published) = without_builtin_snapshot(invocation, mode) {
+                return published;
+            }
+            selected = select_builtin(invocation);
+            &selected
+        }
+        Err(error) => return error.publish(mode),
+    };
     match invocation {
         Invocation::WorkspaceShow {
             socket,
@@ -229,3 +333,14 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
     }
     Ok(0)
 }
+
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::core(
+        "tmux workspace snapshots exist; select one with tmt workspace {command} --socket {}",
+        &[""],
+        &[
+            ("{command}", "ls"),
+            ("--socket {}", "--socket /tmp/hint.sock"),
+        ],
+    )];
