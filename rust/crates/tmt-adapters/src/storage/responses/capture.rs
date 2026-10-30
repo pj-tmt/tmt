@@ -64,10 +64,20 @@ impl Storage {
         recorded_batch: Option<&str>,
         capture: TurnCapture<'_>,
     ) -> Result<TurnCaptureOutcome, StorageError> {
+        self.capture_turn_end_with_clock(event_id, recorded_batch, capture, Instant::now)
+    }
+
+    pub(in crate::storage) fn capture_turn_end_with_clock(
+        &mut self,
+        event_id: &str,
+        recorded_batch: Option<&str>,
+        capture: TurnCapture<'_>,
+        now: impl Fn() -> Instant,
+    ) -> Result<TurnCaptureOutcome, StorageError> {
         let Some(binding) = capture.expected.entry.binding.as_ref() else {
             return Ok(TurnCaptureOutcome::NotApplicable);
         };
-        if Instant::now() >= capture.deadline {
+        if now() >= capture.deadline {
             return Ok(TurnCaptureOutcome::NotApplicable);
         }
         if !matches!(
@@ -86,7 +96,7 @@ impl Storage {
                     _ => TurnCaptureOutcome::NotApplicable,
                 });
             }
-            let outcome = commit_turn_end(db, &capture, recorded_batch)?;
+            let outcome = commit_turn_end(db, &capture, recorded_batch, &now)?;
             let remembered = capture.expected.preferences.remembered.as_ref();
             finish_capture_disposition(
                 db,
@@ -104,12 +114,8 @@ impl Storage {
                     outcome: CaptureResult::from(outcome),
                 },
             )?;
-            if Instant::now() >= capture.deadline {
-                return Err(StorageError::new(
-                    super::super::StorageErrorCode::Busy,
-                    "Capture disposition exceeded its hook budget",
-                ));
-            }
+            // Once admitted under the writer, finish the final and its receipt.
+            // Expiring the hook budget cannot undo an already retained answer.
             Ok(outcome)
         })
     }
@@ -119,6 +125,7 @@ fn commit_turn_end(
     db: &Connection,
     capture: &TurnCapture<'_>,
     recorded_batch: Option<&str>,
+    now: &impl Fn() -> Instant,
 ) -> Result<TurnCaptureOutcome, StorageError> {
     let binding = capture
         .expected
@@ -127,7 +134,7 @@ fn commit_turn_end(
         .as_ref()
         .expect("verified binding");
 
-    if Instant::now() >= capture.deadline {
+    if now() >= capture.deadline {
         return Ok(TurnCaptureOutcome::NotApplicable);
     }
     let mut records = BindingRows(db);
@@ -266,12 +273,6 @@ fn commit_turn_end(
     )?;
     if capture.interrupted {
         super::super::capture_batches::close(db, &binding.identity_id, capture.now_ms)?;
-    }
-    if Instant::now() >= capture.deadline {
-        return Err(super::super::StorageError::new(
-            super::super::StorageErrorCode::Busy,
-            "Final capture exceeded its hook budget",
-        ));
     }
     Ok(TurnCaptureOutcome::Committed)
 }

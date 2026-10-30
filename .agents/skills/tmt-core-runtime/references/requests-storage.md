@@ -405,6 +405,8 @@ unrelated backlog cannot block its continuation. Invalid queue rows are atomical
 queue failure receipt, so they cannot poison the flusher or another identity.
 
 A main transaction commits capture plus its UUID receipt; queue acknowledgment follows.
+Direct capture checks its hook deadline before work; once admitted under the writer,
+it finishes the final and receipt rather than rolling them back on budget expiry.
 Receipts are content-free bookkeeping excluded from board change-cursor triggers and
 retained for 30 days and while their event remains queued. Request housekeeping holds the
 queue writer without waiting while it commits the bounded receipt cleanup, and skips that

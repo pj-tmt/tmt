@@ -466,6 +466,89 @@ fn expired_history_reports_its_coverage_without_a_read_time_write() {
     assert_eq!(w.storage.change_cursor().unwrap(), cursor);
 }
 #[test]
+fn a_direct_final_and_receipt_survive_budget_expiry_after_writer_admission() {
+    use std::cell::Cell;
+
+    let mut w = World::new();
+    let request = w.input(0);
+    let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
+        .unwrap()
+        .unwrap();
+    let lifecycle = crate::drivers::claude::ClaudeLifecycle;
+    let payload = br#"{"hook_event_name":"Stop","session_id":"fixture-session","last_assistant_message":"kept past the budget"}"#;
+    let activity = lifecycle.decode_activity(payload).unwrap();
+    let turn = lifecycle.decode_turn(payload).unwrap();
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(2);
+    let clock = Cell::new(started);
+    let reads = Cell::new(0);
+    let now = || {
+        let instant = clock.get();
+        reads.set(reads.get() + 1);
+        if reads.get() == 2 {
+            // Both pre-work checks succeed. Every later observation, including
+            // between final/receipt writes and return, is past the deadline.
+            // No sleep or scheduler timing is involved.
+            clock.set(deadline);
+        }
+        instant
+    };
+    let event = uuid::Uuid::new_v4().to_string();
+    let batch = current(w.storage.connection().unwrap(), &w.agent)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        w.storage
+            .capture_turn_end_with_clock(
+                &event,
+                Some(&batch),
+                TurnCapture {
+                    expected: &expected,
+                    process: &w.process,
+                    activity: &activity,
+                    response: Some(ResponseCapture {
+                        text: turn.final_text.unwrap(),
+                    }),
+                    interrupted: false,
+                    now_ms: w.now + 1,
+                    deadline,
+                },
+                now,
+            )
+            .unwrap(),
+        TurnCaptureOutcome::Committed
+    );
+    assert!(clock.get() >= deadline);
+    // A separate connection observes durable state, rather than writes in a
+    // transaction which a late budget error could still roll back.
+    let mut reopened = Storage::open(&w.path).unwrap();
+    let page = reopened
+        .conversation_timeline(&w.agent, 50, None, w.now + 2)
+        .unwrap();
+    assert_eq!(page["responses"][0]["text"], "kept past the budget");
+    let receipt: String = reopened
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT outcome FROM hook_capture_receipts WHERE event_id=?1",
+            [&event],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(receipt, "committed");
+    let state: String = reopened
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT state FROM request_passthrough WHERE request_id=?1",
+            [&request],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "answered");
+}
+
+#[test]
 fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
     for stale in [false, true] {
         let mut w = World::new();
