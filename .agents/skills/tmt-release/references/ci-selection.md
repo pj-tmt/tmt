@@ -68,8 +68,9 @@ Native-process contracts retain a 20-minute job limit and unchanged test deadlin
 
 `Docker E2E` gates shards from `typescript/scripts/e2e-shards.mjs` and committed
 `test/e2e/shard-weights.json`: full scope requires both (shard 1 also runs the pinned
-adapter environment slice), component scope requires shard 1, and no native
-selection requires neither.
+adapter environment slice), component scope requires shard 1 when its `scopedChecks.e2eFiles`
+names files and neither for an explicit empty list (the job skips on an empty file list, which
+the harness would read as every file), and no native selection requires neither.
 Vitest and the splitter discover identical retained files; the guard rejects zero
 or double membership. Pinned Node runs the built-in-only wrapper on the host;
 pnpm activation/frozen install belong to the image. Only the hosted `ubuntu-latest`

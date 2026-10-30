@@ -49,14 +49,25 @@ const TEST_FILE = /^[A-Za-z0-9._-]+$/;
 
 function parseScopedChecks(name, checks) {
   if (checks === undefined) return undefined;
-  const files = (key) => {
-    const list = nonEmptyStrings(checks[key], `components.${name}.scopedChecks.${key}`);
+  const label = (key) => `components.${name}.scopedChecks.${key}`;
+  const plainFiles = (key, list) => {
     if (list.some((file) => !TEST_FILE.test(file))) {
-      throw new Error(`components.${name}.scopedChecks.${key} must be plain file names.`);
+      throw new Error(`${label(key)} must be plain file names.`);
     }
     return list;
   };
-  return { nativeTests: files('nativeTests'), e2eFiles: files('e2eFiles') };
+  // A component may run no E2E file, but it must say so with an explicit empty list.
+  const e2eFiles = checks.e2eFiles;
+  if (!Array.isArray(e2eFiles) || e2eFiles.some((file) => typeof file !== 'string')) {
+    throw new Error(`${label('e2eFiles')} must be a list of plain file names.`);
+  }
+  return {
+    nativeTests: plainFiles(
+      'nativeTests',
+      nonEmptyStrings(checks.nativeTests, label('nativeTests'))
+    ),
+    e2eFiles: plainFiles('e2eFiles', e2eFiles),
+  };
 }
 
 function literalPath(value, label) {
@@ -949,11 +960,11 @@ export function notifyMainFullFailure(context, request) {
 
 /**
  * What each native job must have reported for the scope. A scoped component runs
- * its Rust checks and the first E2E shard (which holds its files); the second shard,
- * the CLI runtime builds, packed installs and tooling unit tests are skipped because
- * the CLI is unchanged. `none` skips everything. Anything unexpected, including an
- * unknown scope, fails: a selected job that was skipped, cancelled or missing is as
- * wrong as a job that ran when the selector skipped it.
+ * its Rust checks and, when it names E2E files, the first E2E shard (which holds
+ * them); the second shard, the CLI runtime builds, packed installs and tooling unit
+ * tests are skipped because the CLI is unchanged. `none` skips everything. Anything
+ * unexpected, including an unknown scope, fails: a selected job that was skipped,
+ * cancelled or missing is as wrong as a job that ran when the selector skipped it.
  */
 function expectedNativeResults(scope, map, macos = 'true') {
   if (scope === 'full') {
@@ -970,7 +981,7 @@ function expectedNativeResults(scope, map, macos = 'true') {
   return {
     nativeRust: 'success',
     unitTests: 'skipped',
-    e2eShard1: 'success',
+    e2eShard1: scopedChecks(scope, map).e2eFiles.length > 0 ? 'success' : 'skipped',
     e2eShard2: 'skipped',
     runtimeBuild: 'skipped',
     packedInstall: 'skipped',
