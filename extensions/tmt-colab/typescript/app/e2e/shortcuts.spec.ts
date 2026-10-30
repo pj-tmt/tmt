@@ -1,13 +1,27 @@
 import { capturePath } from './captures.js';
 import { expect, test, type Page } from '@playwright/test';
 test.use({ actionTimeout: 5000 });
-async function mount(page: Page, size: 'stages' | 'work' = 'stages') {
+/** Automatic pins by default: only explicit pins become shortcuts, so the record starts empty. */
+async function mount(
+  page: Page,
+  size: 'stages' | 'work' = 'stages',
+  pinned: 'automatic' | string[] = 'automatic',
+) {
   await page.goto('/');
-  await page.evaluate(async (size) => {
-    const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList(size, '/', ['design']);
-  }, size);
+  await page.evaluate(
+    async ({ size, pinned }) => {
+      const path = '/test/page-list-browser.tsx';
+      await (await import(path)).mountPageList(size, '/', pinned);
+    },
+    { size, pinned },
+  );
 }
+const record = (page: Page) =>
+  page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    const { pageListSpace } = await import(path);
+    return JSON.parse(localStorage.getItem(`tmt-colab-shortcuts-v1:${pageListSpace}`) ?? 'null');
+  });
 /** The list's own Manage; the side menu's Shortcuts group has the same command. */
 const heroManage = (page: Page) =>
   page
@@ -55,7 +69,7 @@ test('Manage creates and reorders explicit shortcuts and the side menu follows i
   await mount(page);
   await page.evaluate(async () => {
     const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList('stages', '/?scope=design', ['design']);
+    await (await import(path)).mountPageList('stages', '/?scope=design', 'automatic');
   });
   await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
   const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
@@ -179,7 +193,7 @@ test('another tab receives storage updates; a separate browser profile has no sa
   try {
     const fresh = await isolated.newPage();
     await mount(fresh);
-    await fresh.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+    await heroManage(fresh).click();
     await expect(fresh.getByRole('button', { name: 'From other tab', exact: true })).toHaveCount(0);
   } finally {
     await isolated.close();
@@ -244,7 +258,7 @@ test('Save uses the effective list scope when a removed project falls back to Al
   await mount(page);
   await page.evaluate(async () => {
     const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList('stages', '/?scope=gone', ['design']);
+    await (await import(path)).mountPageList('stages', '/?scope=gone', 'automatic');
   });
   await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
@@ -254,35 +268,54 @@ test('Save uses the effective list scope when a removed project falls back to Al
   await expect(page.locator('#list-fixture .pages > li')).toHaveCount(5);
 });
 
-test('legacy pins stay unmigrated and the side menu lists no project', async ({ page }) => {
-  await mount(page);
-  await expect(rail(page).locator('a[data-id="all"]')).toBeVisible();
+test('explicit pinned projects become project shortcuts once, in order; automatic ones do not', async ({
+  page,
+}) => {
+  await mount(page, 'stages', ['ops', 'design']);
+  await expect(railShortcuts(page)).toHaveText(['ops', 'design']);
   await expect(rail(page).locator('a[data-id^="project:"]')).toHaveCount(0);
-  const record = await page.evaluate(async () => {
-    const path = '/test/page-list-browser.tsx';
-    const { pageListSpace } = await import(path);
-    return localStorage.getItem(`tmt-colab-shortcuts-v1:${pageListSpace}`);
+  const migrated = await record(page);
+  expect(migrated.migrated).toBe(true);
+  expect(
+    migrated.items.map((item: { name: string; search: unknown }) => [item.name, item.search]),
+  ).toEqual([
+    ['ops', { project: ['ops'] }],
+    ['design', { project: ['design'] }],
+  ]);
+  // Once only: a later load, even with other pins, adds nothing, and the owner's pins are not written.
+  await mount(page, 'stages', ['design', 'q4 plan']);
+  await expect(railShortcuts(page)).toHaveText(['ops', 'design']);
+  expect(await page.evaluate(() => window.__projectManage)).toEqual([]);
+  // A migrated shortcut opens the list on its project.
+  await railShortcuts(page).first().click();
+  await expect(page).toHaveURL(/shortcut=/);
+  await expect(page).toHaveURL(/project=/);
+  await expect(railShortcuts(page).first()).toHaveAttribute('aria-current', 'page');
+  // Automatic recent projects are suggestions, not choices: none migrates.
+  await page.evaluate(() => localStorage.clear());
+  await mount(page);
+  await expect(railShortcuts(page)).toHaveCount(0);
+  expect(await record(page)).toEqual({ version: 1, migrated: true, items: [] });
+});
+
+test('a failed migration write leaves it to retry on the next load', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const write = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('tmt-colab-shortcuts-v1:')) throw new Error('quota');
+      return write.call(this, key, value);
+    };
   });
-  expect(record).toBeNull();
-  await heroManage(page).click();
-  await expect(page.getByRole('dialog', { name: 'Manage shortcuts', exact: true })).toContainText(
-    'No shortcuts yet.',
-  );
-  await page
-    .getByRole('dialog', { name: 'Manage shortcuts', exact: true })
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
-  await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
-  const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
-  await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Manual view');
-  await save.getByRole('button', { name: 'Save', exact: true }).click();
-  const saved = await page.evaluate(async () => {
+  await page.evaluate(async () => {
     const path = '/test/page-list-browser.tsx';
-    const { pageListSpace } = await import(path);
-    return JSON.parse(localStorage.getItem(`tmt-colab-shortcuts-v1:${pageListSpace}`)!);
+    await (await import(path)).mountPageList('stages', '/', ['ops']);
   });
-  expect(saved.migrated).toBe(false);
-  expect(saved.items.map((item: { name: string }) => item.name)).toEqual(['Manual view']);
+  await expect(rail(page).locator('a[data-id="all"]')).toBeVisible();
+  await expect(railShortcuts(page)).toHaveCount(0);
+  expect(await record(page)).toBeNull();
+  await mount(page, 'stages', ['ops']);
+  await expect(railShortcuts(page)).toHaveText(['ops']);
 });
 
 test('no shortcut record is read or written before the space is defined', async ({ page }) => {

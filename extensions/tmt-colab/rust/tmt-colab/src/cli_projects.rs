@@ -49,8 +49,8 @@ pub fn command() -> Command {
         .subcommand(command_spec!("remove","Take a page out of projects","tmt colab project remove 10000000-0000-4000-8000-000000000001 launch","Removing a project the page is not in changes nothing. The project stays, even with no page left.").alias("rm").arg(crate::cli_grammar::page()).arg(names("Projects to remove")))
         .subcommand(command_spec!("rename","Rename a project","tmt colab project rename launch release","Archived pages are included. Renaming onto an existing project merges the two: a page in both keeps one entry. No page is deleted.").arg(Arg::new("name").required(true).index(1).help("The project to rename")).arg(Arg::new("to").required(true).index(2).help("Its new name")))
         .subcommand(command_spec!("delete","Delete a project","tmt colab project delete launch","Only the grouping goes: no page is deleted. Archived pages are included.").arg(Arg::new("name").required(true).index(1).help("The project to delete")))
-        .subcommand(command_spec!("pin","Show a project in the Colab side menu","tmt colab project pin launch --position 1","The side menu lists the projects you pin, in your order. Until you pin one it shows the five you used most recently; the first pin makes the list yours. At most 20. Pinning a pinned project moves it.").arg(Arg::new("name").required(true).index(1).help("The project to pin")).arg(Arg::new("position").long("position").value_parser(clap::value_parser!(usize)).help("Its place in the list, from 1 (default: last)")))
-        .subcommand(command_spec!("unpin","Take a project out of the Colab side menu","tmt colab project unpin launch","The project and its pages stay. Unpinning a project that is not pinned changes nothing.").arg(Arg::new("name").required(true).index(1).help("The project to unpin")))
+        .subcommand(command_spec!("pin","Pin a project to your project list","tmt colab project pin launch --position 1","Your pinned projects, in your order. Until you pin one the list is the five you used most recently; the first pin makes the list yours. A browser turns your pins into shortcuts once. At most 20. Pinning a pinned project moves it.").arg(Arg::new("name").required(true).index(1).help("The project to pin")).arg(Arg::new("position").long("position").value_parser(clap::value_parser!(usize)).help("Its place in the list, from 1 (default: last)")))
+        .subcommand(command_spec!("unpin","Take a project out of your pinned list","tmt colab project unpin launch","The project and its pages stay. Unpinning a project that is not pinned changes nothing.").arg(Arg::new("name").required(true).index(1).help("The project to unpin")))
 }
 /// The strings of a JSON array, in order; anything else reads as none.
 fn strings(value: &Value) -> Vec<String> {
@@ -194,7 +194,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 rows.push(("projects", "none".into()));
             } else if automatic {
                 rows.push((
-                    "side menu",
+                    "pinned",
                     "automatic: your most recently used projects, until you pin one".into(),
                 ));
             }
