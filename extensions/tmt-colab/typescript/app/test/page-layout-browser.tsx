@@ -59,7 +59,7 @@ export function updatePublisher(publisherAgent?: string) {
 
 export async function mountReader(
   source: string,
-  attribution?: Pick<PageView, 'originalAuthor' | 'publisherAgent' | 'editLocks'>,
+  attribution?: Pick<PageView, 'originalAuthor' | 'publisherAgent' | 'editLocks' | 'layout'>,
 ) {
   await import('@tmt/browser-ui/static.css');
   await import('../src/reader-style.css');

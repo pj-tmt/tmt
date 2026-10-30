@@ -130,6 +130,15 @@ test('expansion pushes content down, shows direct states and legend, and keeps t
   await expand(page);
   await expect(host.getByRole('list', { name: 'Sub-pages' }).locator('li')).toHaveCount(3);
   await expect(host.locator('.work-legend')).toHaveText('Done 3In progress 1To do 1');
+  await expect(host.locator('.work-body-transition')).toHaveCSS('border-bottom-width', '1px');
+  const panelBottom =
+    (await host.locator('.work-band').boundingBox())!.y +
+    (await host.locator('.work-band').boundingBox())!.height;
+  const actionsBottom =
+    (await host.locator('.work-actions').boundingBox())!.y +
+    (await host.locator('.work-actions').boundingBox())!.height;
+  expect(panelBottom - actionsBottom).toBeGreaterThanOrEqual(20);
+
   expect((await host.locator('[data-after]').boundingBox())!.y).toBeGreaterThan(before);
   expect(await host.locator('.work-band').evaluate((node) => getComputedStyle(node).position)).toBe(
     'static',
@@ -722,6 +731,26 @@ test('the expanded head stays fixed while its long body scrolls', async ({ page 
   expect(await body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
   expect((await head.boundingBox())!.y).toBe(before!.y);
 });
+
+for (const width of [390, 1440])
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`long expanded scrolled capture ${width} ${scheme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: scheme });
+      const host = await mountBand(page, 'long');
+      await expand(page);
+      const head = host.locator('.work-head');
+      const before = (await head.boundingBox())!.y;
+      const body = host.locator('.work-body');
+      await body.evaluate((node) => {
+        node.scrollTop = node.scrollHeight / 2;
+      });
+      expect(await body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      expect((await head.boundingBox())!.y).toBe(before);
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`long-scrolled-${width}-${scheme}.png`) });
+    });
+  }
 
 test('expansion animates unless reduced motion is requested', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });

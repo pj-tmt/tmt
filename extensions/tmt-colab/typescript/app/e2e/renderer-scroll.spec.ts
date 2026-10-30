@@ -1,5 +1,6 @@
 import { headerHeight } from './tokens.js';
 import { expect, test, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 /** What trusted content takes between the header and the page frame, margins included: the reader's
  * status and note, or the owner page's status band. */
@@ -19,7 +20,13 @@ const noteSize = (page: Page) =>
         ),
     );
 
-async function mount(page: Page, source: string, reader: boolean, readerOnly = false) {
+async function mount(
+  page: Page,
+  source: string,
+  reader: boolean,
+  readerOnly = false,
+  layout?: 'column',
+) {
   await page.goto('/');
   // The shipped reader bundle never loads the owner stylesheet; drop it so the reader rules stand alone.
   if (readerOnly)
@@ -47,12 +54,13 @@ async function mount(page: Page, source: string, reader: boolean, readerOnly = f
     Object.assign(window, { firstHeight });
   });
   await page.evaluate(
-    async ({ source, reader }) => {
+    async ({ source, reader, layout }) => {
       const path = '/test/page-layout-browser.tsx';
       const fixture = await import(path);
-      await fixture[reader ? 'mountReader' : 'mount'](source);
+      if (reader) await fixture.mountReader(source, layout ? { layout } : undefined);
+      else await fixture.mount(source);
     },
-    { source, reader },
+    { source, reader, layout },
   );
   // The owner page's status sits in the shared bar; the reader's content row carries it.
   await expect(
@@ -345,3 +353,82 @@ for (const width of [390, 1440]) {
     expect(Math.abs((await band.boundingBox())!.y - first!.y)).toBeLessThan(2);
   });
 }
+
+for (const width of [390, 1440])
+  test(`reader: expanded band and starter gutter evidence at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    const styleGuide = await readFile(
+      new URL('../../../skills/tmt-colab/references/page-style.md', import.meta.url),
+      'utf8',
+    );
+    const starterStyle = styleGuide.match(/```html\n([\s\S]*?)\n```/)![1]!;
+    const starter = await readFile(
+      new URL('../../../rust/tmt-colab/templates/starter.html', import.meta.url),
+      'utf8',
+    );
+    const source =
+      starter
+        .replace('{{style}}', starterStyle)
+        .replaceAll(/\{\{uuid:[^}]+\}\}/g, '20000000-0000-4000-8000-000000000001') +
+      Array.from({ length: 35 }, (_, i) => `<p>Reader paragraph ${i + 1}</p>`).join('');
+    await mount(page, source, true, true, 'column');
+    await page.getByRole('button', { name: 'Expand status panel' }).click();
+    await expect(page.getByRole('button', { name: 'Collapse status panel' })).toBeVisible();
+    await expect(
+      page
+        .frameLocator('iframe')
+        .getByText('State the result in a sentence, then what the reader should do next.'),
+    ).toBeVisible();
+    if (process.env.COLAB_CAPTURE_DIR) {
+      const { capturePath } = await import('./captures.js');
+      await page.screenshot({ path: capturePath(`reader-starter-gutter-${width}.png`) });
+    }
+    const band = (await page.locator('.work-head').boundingBox())!;
+    const chip = (await page.locator('.work-page-state').boundingBox())!;
+    const frame = (await page.locator('iframe').boundingBox())!;
+    const banner = (await page.locator('.reader-note').boundingBox())!;
+    const card = await page
+      .frameLocator('iframe')
+      .locator('.tmt-ui-card')
+      .first()
+      .evaluate((node) => node.getBoundingClientRect().left);
+    const layout = await page
+      .frameLocator('iframe')
+      .locator('html')
+      .getAttribute('data-colab-layout');
+    console.log(
+      `reader gutter width=${width} band=${chip.x - band.x} banner=${banner.x - band.x} starter-card=${frame.x + card - band.x} frame-layout=${layout}`,
+    );
+    if (width === 390) {
+      expect(Math.abs(chip.x - banner.x)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(chip.x - (frame.x + card))).toBeLessThanOrEqual(0.5);
+    } else {
+      expect(chip.x - band.x).toBe(20);
+    }
+    await page.evaluate(() => window.scrollTo(0, 700));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+    const header = (await page.locator('.tmt-ui-header:visible').boundingBox())!;
+    const pinnedBand = (await page.locator('.work-band').boundingBox())!;
+    expect(Math.abs(pinnedBand.y - (header.y + header.height))).toBeLessThan(2);
+    await expect(page.getByRole('button', { name: 'Collapse status panel' })).toBeVisible();
+    if (process.env.COLAB_CAPTURE_DIR) {
+      const { capturePath } = await import('./captures.js');
+      await page.screenshot({ path: capturePath(`reader-expanded-scrolled-${width}.png`) });
+    }
+  });
+
+test('reader: unstyled page retains its authored default gutter', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mount(page, '<main><h1>Reader page</h1><p>Page text</p></main>', true, true);
+  await page.getByRole('button', { name: 'Expand status panel' }).click();
+  const frame = (await page.locator('iframe').boundingBox())!;
+  const text = await page
+    .frameLocator('iframe')
+    .getByText('Page text')
+    .evaluate((node) => node.getBoundingClientRect().left);
+  expect(frame.x + text).toBe(8);
+  if (process.env.COLAB_CAPTURE_DIR) {
+    const { capturePath } = await import('./captures.js');
+    await page.screenshot({ path: capturePath('reader-unstyled-gutter-390.png') });
+  }
+});

@@ -315,6 +315,7 @@
     visibility 0s linear var(--tmt-ui-motion-base);
 }
 .work-body-transition[data-open='true'] {
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
   grid-template-rows: 1fr;
   opacity: 1;
   visibility: visible;

@@ -24,13 +24,18 @@
   margin-bottom: 0;
 }
 
+/* The note and compact status band use the same reader gutter. */
+:root {
+  --reader-gutter: var(--tmt-ui-space-l);
+}
+
 /* What the link allows, always in view above the page: the website's reader note. */
 .reader-note {
   box-sizing: border-box;
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  width: min(100% - 32px, 844px);
+  width: min(100% - var(--reader-gutter) - var(--reader-gutter), 844px);
   margin: 16px auto 0;
   padding: 16px 18px;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -58,4 +63,10 @@
   color: var(--tmt-ui-color-secondary);
   font-size: 0.6875rem;
   line-height: 1.6;
+}
+
+@media (max-width: 600px) {
+  .workspace > .work-band :is(.work-head, .work-body-content) {
+    padding-inline: var(--reader-gutter);
+  }
 }
