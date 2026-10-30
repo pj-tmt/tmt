@@ -41,7 +41,7 @@ impl<'a> Client<'a> {
         jitter: &'a dyn Jitter,
         cancel: &'a dyn Cancellation,
     ) -> Result<Self, AuthError> {
-        let read = store.load()?;
+        let read = store.load_within(cancel)?;
         if read
             .credential
             .as_ref()
@@ -113,7 +113,7 @@ impl<'a> Client<'a> {
         }
     }
     fn check_generation(&mut self) -> Result<(), AuthError> {
-        let read = match self.store.load() {
+        let read = match self.store.load_within(self.cancel) {
             Ok(read) => read,
             Err(error) => {
                 self.cache.token = None;
@@ -138,7 +138,7 @@ impl<'a> Client<'a> {
             self.cache.token = None;
             self.cache.needs_signin = true;
             let old = self.cache.credential.as_ref().expect("captured credential");
-            self.store.remove(old)?;
+            self.store.remove_within(old, self.cancel)?;
             self.cache.credential = None;
         }
         Ok(())
@@ -179,6 +179,8 @@ impl<'a> Client<'a> {
             last_used_at_ms: started.wall_ms,
             revoking: false,
         };
+        // The provider already created this identity, so a cancel does not cut
+        // the save short: it waits the whole write wait.
         self.store
             .replace(None, &credential)
             .map_err(AuthError::uncertain)?;
@@ -295,7 +297,7 @@ impl<'a> Client<'a> {
                         .wall_ms
                         .max(old.last_used_at_ms)
                         .min(old.expires_at_ms);
-                    self.store.replace(Some(&old), &next)?;
+                    self.store.replace_within(Some(&old), &next, self.cancel)?;
                     self.fence()?;
                     self.cache.credential = Some(next);
                     self.install(issued, now.monotonic_ms);
@@ -309,7 +311,7 @@ impl<'a> Client<'a> {
                 {
                     self.cache.token = None;
                     self.cache.needs_signin = true;
-                    self.store.remove(&old)?;
+                    self.store.remove_within(&old, self.cancel)?;
                     self.cache.credential = None;
                     return Err(error);
                 }
@@ -369,7 +371,8 @@ impl<'a> Client<'a> {
         let mut revoking = old.clone();
         revoking.mark_revoking();
         if !old.revoking {
-            self.store.replace(Some(&old), &revoking)?;
+            self.store
+                .replace_within(Some(&old), &revoking, self.cancel)?;
             self.cache.credential = Some(revoking.clone());
         }
         // Take the cached ID token out of normal access before any Auth effect.
@@ -395,7 +398,7 @@ impl<'a> Client<'a> {
                 let issued = match rest::refresh_reply(&self.project, &revoking, response) {
                     Ok(issued) => issued,
                     Err(error) if error.kind == AuthErrorKind::UserNotFound => {
-                        self.store.remove(&revoking)?;
+                        self.store.remove_within(&revoking, self.cancel)?;
                         self.cache.credential = None;
                         self.cache.needs_signin = true;
                         return Ok(());
@@ -403,8 +406,11 @@ impl<'a> Client<'a> {
                     Err(error) => return Err(error),
                 };
                 revoking.refresh_token = issued.refresh;
-                self.store
-                    .replace(self.cache.credential.as_ref(), &revoking)?;
+                self.store.replace_within(
+                    self.cache.credential.as_ref(),
+                    &revoking,
+                    self.cancel,
+                )?;
                 self.cache.credential = Some(revoking.clone());
                 Token {
                     uid: issued.uid,
@@ -415,7 +421,7 @@ impl<'a> Client<'a> {
             }
         };
         self.fence()?;
-        if self.store.load()?.credential.as_ref() != Some(&revoking) {
+        if self.store.load_within(self.cancel)?.credential.as_ref() != Some(&revoking) {
             return Err(AuthError::state_changed());
         }
         let deadline = self.clock.now().monotonic_ms.saturating_add(ATTEMPT_MS);
@@ -432,7 +438,7 @@ impl<'a> Client<'a> {
             return Err(AuthError::unavailable().uncertain());
         }
         rest::delete_reply(response).map_err(AuthError::uncertain)?;
-        self.store.remove(&revoking)?;
+        self.store.remove_within(&revoking, self.cancel)?;
         self.cache.credential = None;
         self.cache.needs_signin = true;
         Ok(())

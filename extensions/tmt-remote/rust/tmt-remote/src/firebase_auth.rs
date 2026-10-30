@@ -59,6 +59,7 @@ pub enum AuthErrorKind {
 pub struct AuthError {
     pub kind: AuthErrorKind,
     possible_effect: bool,
+    lock_held: bool,
 }
 impl AuthError {
     pub fn unavailable() -> Self {
@@ -81,6 +82,15 @@ impl AuthError {
         Self {
             kind,
             possible_effect: false,
+            lock_held: false,
+        }
+    }
+    /// Another holder kept the credential lock for the whole write wait. It
+    /// stays `Unavailable`, so callers keep their busy handling.
+    fn lock_held() -> Self {
+        Self {
+            lock_held: true,
+            ..Self::unavailable()
         }
     }
     fn uncertain(mut self) -> Self {
@@ -90,6 +100,14 @@ impl AuthError {
 }
 impl fmt::Display for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.lock_held {
+            return write!(
+                f,
+                "Another tmt operation held the Firestore sign-in lock under remote/firebase-auth for {} seconds; nothing changed. Run the same command again after it ends. ({})",
+                tmt_extension_state::WRITE_WAIT.as_secs(),
+                self.code()
+            );
+        }
         let message = match self.kind {
             AuthErrorKind::ReSignInNeeded | AuthErrorKind::UserNotFound => {
                 presentation::SIGN_IN_ENDED
@@ -214,6 +232,26 @@ pub trait CredentialStore {
     /// Compare the captured generation under the writer lock before replacing.
     fn replace(&self, expected: Option<&Credential>, next: &Credential) -> Result<(), AuthError>;
     fn remove(&self, expected: &Credential) -> Result<(), AuthError>;
+    // The same operations for a caller with its own budget: a store that waits
+    // for a lock also stops waiting when `cancel` does. The lifecycle uses these.
+    fn load_within(&self, _cancel: &dyn Cancellation) -> Result<StoreRead, AuthError> {
+        self.load()
+    }
+    fn replace_within(
+        &self,
+        expected: Option<&Credential>,
+        next: &Credential,
+        _cancel: &dyn Cancellation,
+    ) -> Result<(), AuthError> {
+        self.replace(expected, next)
+    }
+    fn remove_within(
+        &self,
+        expected: &Credential,
+        _cancel: &dyn Cancellation,
+    ) -> Result<(), AuthError> {
+        self.remove(expected)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
