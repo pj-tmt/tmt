@@ -730,6 +730,7 @@ impl super::CapturePublication {
             &mut storage,
             "unpublished capture failure",
             |db| {
+                let transaction_now_ms = crate::request_runtime::wall_time_ms();
                 if std::time::Instant::now() >= deadline {
                     return Err(StorageError::new(
                         super::super::StorageErrorCode::Busy,
@@ -752,6 +753,7 @@ impl super::CapturePublication {
                         outcome: CaptureResult::NotApplicable,
                     },
                     reason,
+                    transaction_now_ms,
                 )
             },
         );
@@ -784,6 +786,7 @@ pub(super) fn read_publication_receipt(
 }
 
 fn ingest(db: &Connection, event: &CaptureEvent) -> Result<CaptureResult, StorageError> {
+    let transaction_now_ms = crate::request_runtime::wall_time_ms();
     if !event.valid() {
         return Err(invalid("Invalid hook capture event"));
     }
@@ -791,7 +794,7 @@ fn ingest(db: &Connection, event: &CaptureEvent) -> Result<CaptureResult, Storag
         return Ok(outcome);
     }
     let result = match &event.capture {
-        Some(c) => commit(db, c)?,
+        Some(c) => commit(db, c, transaction_now_ms)?,
         None => CaptureResult::NotApplicable,
     };
     if let Some(capture) = &event.capture {
@@ -818,6 +821,7 @@ fn ingest(db: &Connection, event: &CaptureEvent) -> Result<CaptureResult, Storag
                 outcome: result,
             },
             super::super::CaptureFailure::Worker,
+            transaction_now_ms,
         )?;
     } else {
         db.execute("INSERT INTO hook_capture_receipts(event_id,identity_id,batch_id,outcome,committed_ms) VALUES(?,?,NULL,?,?)",params![event.id(),event.identity(),result.token(),crate::request_runtime::wall_time_ms() as i64]).map_err(|e|classify(e,"Commit metadata capture receipt"))?;
@@ -874,7 +878,11 @@ fn current_turn(db: &Connection, c: &PendingCapture) -> Result<bool, StorageErro
     } && binding_fingerprint(db, &c.identity)? == c.binding_fingerprint)
 }
 
-fn commit(db: &Connection, c: &PendingCapture) -> Result<CaptureResult, StorageError> {
+fn commit(
+    db: &Connection,
+    c: &PendingCapture,
+    transaction_now_ms: u64,
+) -> Result<CaptureResult, StorageError> {
     let mut rows = BindingRows(db);
     let Some(_entry) = rows.entry_by_id(&c.identity)? else {
         return Ok(CaptureResult::RetiredIdentity);
@@ -915,7 +923,7 @@ fn commit(db: &Connection, c: &PendingCapture) -> Result<CaptureResult, StorageE
         .transpose()?;
     if !c.continuation
         && let Some(response) = response.as_ref()
-        && responses::same_final_in_batch(db, c.batch.as_deref(), response)?
+        && responses::same_final_in_batch(db, c.batch.as_deref(), response, transaction_now_ms)?
     {
         return Ok(CaptureResult::Duplicate);
     }

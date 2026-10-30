@@ -87,6 +87,7 @@ impl Storage {
             return Ok(TurnCaptureOutcome::NotApplicable);
         }
         with_immediate_transaction(self, "capture turn final", |db| {
+            let transaction_now_ms = crate::request_runtime::wall_time_ms();
             if let Some(previous) = capture_receipt(db, event_id)? {
                 return Ok(match previous {
                     CaptureResult::Committed => TurnCaptureOutcome::Committed,
@@ -95,7 +96,7 @@ impl Storage {
                     _ => TurnCaptureOutcome::NotApplicable,
                 });
             }
-            let outcome = commit_turn_end(db, &capture, recorded_batch, &now)?;
+            let outcome = commit_turn_end(db, &capture, recorded_batch, &now, transaction_now_ms)?;
             let remembered = capture.expected.preferences.remembered.as_ref();
             finish_capture_disposition(
                 db,
@@ -113,6 +114,7 @@ impl Storage {
                     outcome: CaptureResult::from(outcome),
                 },
                 CaptureFailure::Worker,
+                transaction_now_ms,
             )?;
             // Once admitted under the writer, finish the final and its receipt.
             // Expiring the hook budget cannot undo an already retained answer.
@@ -126,6 +128,7 @@ fn commit_turn_end(
     capture: &TurnCapture<'_>,
     recorded_batch: Option<&str>,
     now: &impl Fn() -> Instant,
+    transaction_now_ms: u64,
 ) -> Result<TurnCaptureOutcome, StorageError> {
     let binding = capture
         .expected
@@ -208,7 +211,7 @@ fn commit_turn_end(
     }
     if capture.activity.event.kind == EventKind::TurnEnded
         && let Some(response) = capture.response.as_ref()
-        && super::same_final_in_batch(db, batch.as_deref(), response)?
+        && super::same_final_in_batch(db, batch.as_deref(), response, transaction_now_ms)?
     {
         return Ok(TurnCaptureOutcome::Duplicate);
     }
@@ -324,6 +327,7 @@ pub(in crate::storage) fn finish_capture_disposition(
     db: &Connection,
     capture: &CaptureDisposition<'_>,
     failure: CaptureFailure,
+    transaction_now_ms: u64,
 ) -> Result<(), StorageError> {
     if capture_receipt(db, capture.event_id)?.is_some() {
         return Ok(());
@@ -342,7 +346,8 @@ pub(in crate::storage) fn finish_capture_disposition(
                     params![batch,capture.identity,capture.binding,capture.provider,capture.session,capture.process.pid() as i64,capture.process.start_identity()],
                     |row| row.get(0),
                 ).map_err(|e| super::super::classify(e, "Check capture failure's recorded batch"))?;
-                recorded && !super::same_final_in_batch(db, Some(batch), response)?
+                recorded
+                    && !super::same_final_in_batch(db, Some(batch), response, transaction_now_ms)?
             }
             None => unbatched_capture_is_current(db, capture)?,
         };

@@ -1,5 +1,8 @@
 //! Two-phase recovery reuses ordinary resume and generic external dispatch.
 
+pub(crate) mod builtin;
+pub use builtin::execute as execute_builtin;
+
 use crate::{invocation::OutputMode, output::Failure};
 use std::{
     io::{self, Write},
@@ -24,13 +27,17 @@ fn layout_deadline(panes: usize) -> Instant {
 }
 
 /// Writes the report and returns its path, or nothing when it cannot be written.
-fn write_report(paths: &ConfigPaths, document: &mut serde_json::Value) -> Option<String> {
-    let path = paths.global_dir.join(LAST_REPORT);
+fn write_report(
+    paths: &ConfigPaths,
+    file: &str,
+    document: &mut serde_json::Value,
+) -> Option<String> {
+    let path = paths.global_dir.join(file);
     let mut bytes = serde_json::to_vec(document).ok()?;
     if bytes.len() > MAX_REPORT_BYTES
         && let Some(object) = document.as_object_mut()
     {
-        for key in ["windows", "panes", "revival"] {
+        for key in ["windows", "panes", "revival", "members"] {
             object.remove(key);
         }
         object.insert("truncated".into(), true.into());
@@ -558,7 +565,7 @@ pub fn execute(
             let report = report_paths
                 .as_ref()
                 .filter(|_| reached_host.get())
-                .and_then(|paths| write_report(paths, &mut failed));
+                .and_then(|paths| write_report(paths, LAST_REPORT, &mut failed));
             error.message = with_report(&error.message, report.as_deref());
             return error.publish(mode);
         }
@@ -574,7 +581,7 @@ pub fn execute(
             "status": pane.status, "message": pane.message})).collect::<Vec<_>>()});
     let report = report_paths
         .as_ref()
-        .and_then(|paths| write_report(paths, &mut document));
+        .and_then(|paths| write_report(paths, LAST_REPORT, &mut document));
     if mode.json {
         document["report"] = report.into();
         if layout_only && revival.is_empty() {
@@ -1059,13 +1066,23 @@ mod tests {
             local_config: root.join("local"),
             database: root.join("db"),
         };
-        let first = write_report(&paths, &mut serde_json::json!({"status": "partial"})).unwrap();
+        let first = write_report(
+            &paths,
+            LAST_REPORT,
+            &mut serde_json::json!({"status": "partial"}),
+        )
+        .unwrap();
         assert!(first.ends_with("/restore-last.json"));
         assert_eq!(
             std::fs::metadata(&first).unwrap().permissions().mode() & 0o777,
             0o600
         );
-        write_report(&paths, &mut serde_json::json!({"status": "completed"})).unwrap();
+        write_report(
+            &paths,
+            LAST_REPORT,
+            &mut serde_json::json!({"status": "completed"}),
+        )
+        .unwrap();
         assert_eq!(
             std::fs::read_to_string(&first).unwrap(),
             r#"{"status":"completed"}"#
@@ -1073,7 +1090,7 @@ mod tests {
         // Too large: the per-pane lists go, the verdict stays.
         let mut large =
             serde_json::json!({"status": "partial", "panes": ["x".repeat(MAX_REPORT_BYTES)]});
-        write_report(&paths, &mut large).unwrap();
+        write_report(&paths, LAST_REPORT, &mut large).unwrap();
         let kept: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&first).unwrap()).unwrap();
         assert_eq!(

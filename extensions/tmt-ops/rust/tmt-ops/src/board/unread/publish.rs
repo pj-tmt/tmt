@@ -84,6 +84,7 @@ pub(super) fn acknowledge(
 
 #[derive(Debug, Default)]
 struct Pending {
+    local: super::local::State,
     updates: BTreeMap<(String, String), Answer>,
     ready: bool,
     queued: bool,
@@ -229,6 +230,20 @@ impl Writer {
     }
 
     pub fn publish(&self, core: &Core) -> Result<Completed, String> {
+        let completed = self.publish_core(core)?;
+        let local = self
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .local
+            .clone();
+        // Settlement belongs to the writer, including its exit drain. The UI
+        // may close before the queued completion event is consumed.
+        local.completed(&completed)?;
+        Ok(completed)
+    }
+
+    fn publish_core(&self, core: &Core) -> Result<Completed, String> {
         let walk = {
             let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
             if pending.updates.is_empty() {
@@ -350,6 +365,7 @@ impl Writer {
 
     pub fn finish(&self, core: &Core) -> Result<(), crate::core::SquadError> {
         self.settled();
+        let mut finishing_error = None;
         // Only already admitted writes drain on exit. A continuation is a new
         // read, not a write the user saw; its legacy cutoff remains for restart.
         while {
@@ -361,11 +377,12 @@ impl Writer {
             };
             let result = writer.publish(core);
             self.settled();
-            if result.is_err() {
+            if let Err(error) = result {
+                finishing_error = Some(error);
                 break;
             }
         }
-        match self.failure() {
+        match self.failure().or(finishing_error) {
             Some(error) => Err(crate::core::SquadError::hinted(
                 "SQUAD_ACK_FAILED",
                 &format!("Unread update failed: {error}"),
@@ -377,10 +394,25 @@ impl Writer {
     }
 }
 
-#[derive(Default)]
 pub(in crate::board) struct Session {
     pub writer: Writer,
+    pub local: super::local::State,
     pub displayed: Vec<Body>,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        let local = super::local::State::default();
+        let writer = Writer(Arc::new(Mutex::new(Pending {
+            local: local.clone(),
+            ..Default::default()
+        })));
+        Self {
+            writer,
+            local,
+            displayed: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

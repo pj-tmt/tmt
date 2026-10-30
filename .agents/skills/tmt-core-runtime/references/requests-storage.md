@@ -413,8 +413,10 @@ queue writer without waiting while it commits the bounded receipt cleanup, and s
 cleanup when the queue is busy. Old invalid receipts and closed or expired, unqueued provisional
 reservations are pruned in the same bounded housekeeping. The recorded batch owns final placement:
 a newer prompt or rebind cannot lose the final or have its activity/turn state changed.
-Ordinary Stops dedupe only the same event id or exact text in that recorded batch when
-neither final was truncated. If either was truncated, equality is unprovable and the final is
+Replaying the same event id remains a no-op even after its body expires. A different
+event's ordinary Stop dedupes only exact text in that recorded batch when neither
+final was truncated and the candidate body is still readable at the capture
+transaction's clock. An expired-but-unpruned body cannot suppress a different event. If either was truncated, equality is unprovable and the final is
 kept; a different event id may therefore retain an identical long retry. The queued payload
 shape stays unchanged so an already-running old flusher can still decode new rows.
 A distinct final survives a missing prompt boundary without changing newer turn state.

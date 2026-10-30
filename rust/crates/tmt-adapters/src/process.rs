@@ -358,6 +358,16 @@ impl UnixCommandRunner {
     pub fn start(&self, request: CommandRequest<'_>) -> Result<RunningCommand, CommandError> {
         start_command(request, true)
     }
+
+    /// The same owned, bounded run with the child started in `directory`.
+    pub fn execute_in(
+        &self,
+        request: CommandRequest<'_>,
+        directory: &std::path::Path,
+        environment: &[(OsString, OsString)],
+    ) -> Result<CommandOutput, CommandError> {
+        start_command_in(request, true, environment, Some(directory))?.wait()
+    }
 }
 
 fn start_command(
@@ -372,8 +382,22 @@ fn start_command_with_environment(
     owns_group: bool,
     environment: &[(OsString, OsString)],
 ) -> Result<RunningCommand, CommandError> {
+    start_command_in(request, owns_group, environment, None)
+}
+
+fn start_command_in(
+    request: CommandRequest<'_>,
+    owns_group: bool,
+    environment: &[(OsString, OsString)],
+    directory: Option<&std::path::Path>,
+) -> Result<RunningCommand, CommandError> {
     remaining(request.deadline)?;
-    let command = Exec::cmd(request.program)
+    let command = Exec::cmd(request.program);
+    let command = match directory {
+        Some(directory) => command.cwd(directory),
+        None => command,
+    };
+    let command = command
         .env_extend(environment.iter().cloned())
         .args(request.args.iter().cloned())
         .stdin(request.input.to_vec())

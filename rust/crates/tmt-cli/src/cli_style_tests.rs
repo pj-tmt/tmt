@@ -298,6 +298,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             "workspace_snapshot_command.rs",
             crate::workspace_snapshot_command::PRINTED_HINTS,
         ),
+        (
+            "workspace_restore_command/builtin.rs",
+            crate::workspace_restore_command::builtin::PRINTED_HINTS,
+        ),
         ("binding_command.rs", crate::binding_command::PRINTED_HINTS),
         (
             "binding_command/session.rs",

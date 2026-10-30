@@ -494,12 +494,17 @@ body with a list and selected answer detail side by side. Below 100 columns it o
 with the list only; Enter opens detail and Esc returns to the list. Only the selected
 detail's visible answer body or terminal unavailable caption is acknowledged after a
 successful draw; list previews, hover, Loading and failures never mark read.
-`r` marks the selected answer read or retries a failed read; `a` asks once before
-marking all answers in the opening's scope read. Enter from detail (or the wide list)
+`r` toggles the selected answer between read and unread, or retries a failed read.
+A manual unread mark stays until explicit `r`, `a` or member Mark read clears it;
+viewing the detail does not clear it. These marks belong to your identity on this
+machine, independent of named views, with at most 500 marks; a full set refuses a
+new mark visibly. They do not reverse Core acknowledgment or affect other devices.
+`a` asks once before marking all answers in the opening's scope read. Enter from detail (or the wide list)
 opens the selected agent's chat. The member menu's
 "Mark read" or the `mark-read` action (no default key; bind it in Help or Settings)
 still explicitly acknowledges the conversation's unread answers without showing them.
-Core keeps this state across restart, named views and reset-view. A failure
+Core keeps acknowledgment across restart, named views and reset-view. Manual unread
+marks use the local Ops cache; clearing that cache removes only those local marks. A failure
 keeps unread evidence and names the cause; reopen the conversation or use Mark read
 to retry. A newer answer revision stays unread until that answer is seen. Existing
 local read cutoffs migrate once; the cutoff compares answeredAtMs, conservatively

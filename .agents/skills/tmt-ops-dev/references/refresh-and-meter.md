@@ -239,6 +239,10 @@ action-argument or query fields. The case includes the trace beside its captured
 screen on failure, preserving its assertions and deadlines. This is not a user
 feature or a selection policy.
 
+Manual unread cache work shares the quiet action lane with saved views; its owner,
+publication, capacity and effective-state rules are in
+[Unread evidence](board-notebooks.md). It adds no worker, Core read or paint I/O.
+
 ## Load timing trace
 
 `TMT_OPS_TIMING_TRACE` enables board-only diagnostic JSON Lines. Unset, empty or
