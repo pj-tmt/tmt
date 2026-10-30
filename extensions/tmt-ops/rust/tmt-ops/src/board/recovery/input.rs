@@ -15,14 +15,12 @@ impl Controller {
                 return None;
             }
             // Esc hides the dialog with its screen; a confirm is its own layer and returns to
-            // the list first.
+            // the screen that asked for it first.
             if key.code == KeyCode::Esc {
                 if matches!(self.screen, Screen::Confirm | Screen::Delete)
                     && !self.pending.as_ref().is_some_and(|t| t.job.writes())
                 {
-                    self.confirmation = None;
-                    self.screen = Screen::List;
-                    self.invalidate();
+                    self.cancel_confirm();
                 } else {
                     self.close();
                 }

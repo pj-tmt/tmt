@@ -654,7 +654,7 @@ impl Controller {
                     self.form_reopened = true;
                     self.screen(Screen::Form, None)
                 }
-                "resume-operation" => self.screen(Screen::Confirm, Some("cancel")),
+                "resume-operation" => self.confirm(),
                 "reorder" if self.manager() && self.writable() => {
                     self.target_label = None;
                     let current = self.current().unwrap();
@@ -743,7 +743,7 @@ impl Controller {
                             self.target_label = Some(self.draft.as_ref().unwrap().title.clone());
                             self.submit = Some(request);
                             self.reviewed = true;
-                            self.screen(Screen::Confirm, Some("cancel"))
+                            self.confirm()
                         }
                         Err(error) => self.problem(error.message),
                     }
@@ -751,14 +751,29 @@ impl Controller {
                 _ => Effect::None,
             },
             Screen::Confirm => match id {
-                "cancel" => {
-                    self.submit = None;
-                    if self.draft.is_some() {
-                        self.screen(Screen::Form, None)
-                    } else {
-                        self.screen(Screen::List, None)
+                // Cancel returns to the screen that asked for the confirm. Reorder keeps its
+                // moved order; any other source drops the reviewed request.
+                "cancel" => match self.confirm_from.take() {
+                    Some(Screen::Reorder) => self.screen(Screen::Reorder, None),
+                    Some(Screen::Details(item) | Screen::Members(Some(item)))
+                        if self.item(&item).is_some() =>
+                    {
+                        self.submit = None;
+                        self.screen(Screen::Details(item), None)
                     }
-                }
+                    Some(source @ (Screen::Form | Screen::Actions)) => {
+                        self.submit = None;
+                        self.screen(source, None)
+                    }
+                    _ => {
+                        self.submit = None;
+                        if self.draft.is_some() {
+                            self.screen(Screen::Form, None)
+                        } else {
+                            self.screen(Screen::List, None)
+                        }
+                    }
+                },
                 "refresh" => self.read(),
                 "review" => self.review(),
                 "confirm" => self.apply(),
@@ -769,7 +784,7 @@ impl Controller {
                     self.submit = None;
                     self.screen(Screen::List, None)
                 }
-                "apply" => self.screen(Screen::Confirm, Some("cancel")),
+                "apply" => self.confirm(),
                 _ => Id::parse(id).map_or(Effect::None, |item| {
                     self.screen(Screen::OrderActions(item), None)
                 }),
@@ -842,6 +857,11 @@ impl Controller {
             },
         });
         self.reviewed = true;
+        self.confirm()
+    }
+    /// Opens the confirm over the current screen, which Cancel returns to.
+    fn confirm(&mut self) -> Effect {
+        self.confirm_from = Some(self.screen.clone());
         self.screen(Screen::Confirm, Some("cancel"))
     }
     fn review(&mut self) -> Effect {

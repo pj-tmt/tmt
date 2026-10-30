@@ -957,10 +957,9 @@ fn a_reopened_form_offers_discard_and_the_confirm_cancels_first() {
     assert_eq!(c.screen, Screen::Confirm);
     c.input(&esc);
     assert!(
-        c.active && c.screen != Screen::Confirm,
-        "Esc cancels the confirm first"
+        c.active && c.screen == Screen::Form,
+        "Esc cancels the confirm first, back on its form"
     );
-    c.screen = Screen::Form;
     assert!(c.choose("discard").is_none());
     assert!(c.screen == Screen::Candidates && c.editor.as_str().is_empty());
 }
@@ -1000,4 +999,24 @@ fn reopen_keeps_the_chosen_action_when_discard_joins_the_rows() {
         Some("review"),
         "rows are chosen by id, so Discard does not take the cursor"
     );
+}
+#[test]
+fn a_cancelled_confirm_returns_to_its_form_with_the_typed_text() {
+    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    for esc in [true, false] {
+        let mut c = controller();
+        assert!(c.choose("bind").is_none());
+        assert!(c.input(&Event::Paste("worker".into())).is_none());
+        assert!(c.review(AgentSelector::NewName("worker".into()), false));
+        assert_eq!(c.screen, Screen::Confirm);
+        if esc {
+            c.input(&Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        } else {
+            assert!(c.choose("cancel").is_none());
+        }
+        assert!(c.active, "esc={esc}");
+        assert_eq!(c.screen, Screen::Form, "esc={esc}: where its reopen lands");
+        assert_eq!(c.editor.as_str(), "worker", "esc={esc}");
+        assert!(c.confirmation.is_none());
+    }
 }
