@@ -8,13 +8,13 @@ use super::*;
 use serde_json::json;
 use std::process::Child;
 
-const SOCKET: &str = "/tmp/fake.sock";
+pub(super) const SOCKET: &str = "/tmp/fake.sock";
 
 /// A pane shell this test owns: killed and reaped when dropped.
-struct Shell(Child);
+pub(super) struct Shell(Child);
 
 impl Shell {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self(
             std::process::Command::new("/bin/sleep")
                 .arg("60")
@@ -24,7 +24,7 @@ impl Shell {
         )
     }
 
-    fn pid(&self) -> String {
+    pub(super) fn pid(&self) -> String {
         self.0.id().to_string()
     }
 }
@@ -36,17 +36,17 @@ impl Drop for Shell {
     }
 }
 
-fn beside(fixture: &Fixture, file: &str, text: &str) {
+pub(super) fn beside(fixture: &Fixture, file: &str, text: &str) {
     fs::write(fixture.root.join("driver").join(file), text).unwrap();
 }
 
-fn registry_file(fixture: &Fixture) -> PathBuf {
+pub(super) fn registry_file(fixture: &Fixture) -> PathBuf {
     registry::registry_path(&fixture.state())
 }
 
 /// Replaces the registry with exactly `records`, as approvals left it, and
 /// removes the lock that approving left, so a test sees any new one.
-fn approvals(fixture: &Fixture, records: &[registry::DriverRecord]) {
+pub(super) fn approvals(fixture: &Fixture, records: &[registry::DriverRecord]) {
     fs::write(
         registry_file(fixture),
         serde_json::to_vec(&json!({"version": 1, "drivers": records})).unwrap(),
@@ -57,7 +57,7 @@ fn approvals(fixture: &Fixture, records: &[registry::DriverRecord]) {
 
 /// `record` as a first-party approval: in this test binary, which is not a
 /// managed installation, its release ships no such driver.
-fn first_party(mut record: registry::DriverRecord) -> registry::DriverRecord {
+pub(super) fn first_party(mut record: registry::DriverRecord) -> registry::DriverRecord {
     record.source = registry::DriverSource::FirstParty;
     record
 }
@@ -75,7 +75,7 @@ fn unrelated(record: &registry::DriverRecord) -> registry::DriverRecord {
 
 /// What must stay unchanged across a scan or guarded add: the registry's
 /// bytes, and no registry lock.
-fn approvals_untouched(fixture: &Fixture, before: &[u8]) {
+pub(super) fn approvals_untouched(fixture: &Fixture, before: &[u8]) {
     assert_eq!(fs::read(registry_file(fixture)).unwrap(), before);
     assert!(!fixture.state().join("drivers.lock").exists());
 }
@@ -119,7 +119,7 @@ fn publishes(fixture: &Fixture) -> usize {
         .count()
 }
 
-fn rows(fixture: &Fixture, table: &str) -> i64 {
+pub(super) fn rows(fixture: &Fixture, table: &str) -> i64 {
     let database = fixture.state().join("tmt.db");
     if !database.exists() {
         return 0;
@@ -195,7 +195,7 @@ fn an_unapproved_or_outdated_driver_is_unsupported_and_never_called() {
 
 /// A `tmux` on PATH that logs its arguments and fails, except that it
 /// answers `list-panes` with the `panes` file beside it, when there is one.
-fn tmux_shim(fixture: &Fixture) -> PathBuf {
+pub(super) fn tmux_shim(fixture: &Fixture) -> PathBuf {
     let bin = fixture.root.join("shim");
     fs::create_dir_all(&bin).unwrap();
     tmt_test_support::write_executable(
@@ -212,7 +212,7 @@ exit 1
     bin
 }
 
-fn shimmed(fixture: &Fixture, nested: bool, args: &[&str]) -> Value {
+pub(super) fn shimmed(fixture: &Fixture, nested: bool, args: &[&str]) -> Value {
     let bin = tmux_shim(fixture);
     let mut command = fixture.command_in(Some("f1"), args);
     command.env(
@@ -230,7 +230,7 @@ fn shimmed(fixture: &Fixture, nested: bool, args: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-fn shim_log(fixture: &Fixture) -> Vec<String> {
+pub(super) fn shim_log(fixture: &Fixture) -> Vec<String> {
     fs::read_to_string(fixture.root.join("shim/log"))
         .unwrap_or_default()
         .lines()
@@ -563,7 +563,7 @@ fn recording_the_server_for_one_pane_keeps_the_other_expectations_of_its_scan() 
 
 /// The driver's default server is another one, `/tmp/fake-b.sock`; the
 /// caller's pane and every fenced scan are on `SOCKET`.
-fn other_default(fixture: &Fixture) {
+pub(super) fn other_default(fixture: &Fixture) {
     let pid = std::process::id();
     beside(
         fixture,
@@ -576,7 +576,7 @@ fn other_default(fixture: &Fixture) {
 
 /// The `server` and `snapshot` requests the driver received, each as its
 /// operation and the socket it asked about (`null` for the default).
-fn inventory(fixture: &Fixture) -> Vec<(String, Value)> {
+pub(super) fn inventory(fixture: &Fixture) -> Vec<(String, Value)> {
     fs::read_to_string(fixture.root.join("driver/inventory"))
         .unwrap_or_default()
         .lines()

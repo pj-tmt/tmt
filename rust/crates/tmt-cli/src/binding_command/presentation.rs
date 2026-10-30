@@ -116,7 +116,8 @@ pub(super) fn document(report: &Report) -> Value {
                 "id": id, "updated": *refresh == PaneRefresh::Updated,
             })),
         }),
-        Report::Listed { rows, .. } => json!({"identities": rows.iter().map(|row| {
+        Report::Listed { rows, detected, .. } => {
+            let mut document = json!({"identities": rows.iter().map(|row| {
             let mut value = presence_document(&row.presence);
             value["session"] = json!({"activity":row.activity,"unbound":row.unbound,"learning":row.learning.as_ref().map(crate::session_learning::document)});
             if let Some(resume) = &row.resume {
@@ -129,7 +130,26 @@ pub(super) fn document(report: &Report) -> Value {
                 value["driverSupport"] = support.as_str().into();
             }
             with_address(value, address(&row.presence, row.remembered.as_ref()))
-        }).collect::<Vec<_>>()}),
+        }).collect::<Vec<_>>()});
+            // Present exactly when `--detected` was given (#4471).
+            let Some(detected) = detected else {
+                return document;
+            };
+            let identities = document["identities"].take();
+            // A partial list is one document: the shared error envelope, the
+            // complete members and the failed scan.
+            let mut document = match detected.failure() {
+                Some(failure) => {
+                    let mut document = failure.document();
+                    document["status"] = "partial".into();
+                    document
+                }
+                None => json!({}),
+            };
+            document["identities"] = identities;
+            document["detected"] = detected.document.clone();
+            document
+        }
         Report::Named {
             target,
             row,
@@ -395,11 +415,19 @@ fn write_listing(
     terminal: Terminal,
     rows: &[ListedRow],
     all: bool,
+    detected: Option<&DetectedSection>,
     home: Option<&Path>,
 ) -> io::Result<()> {
     if rows.is_empty() {
         writeln!(output, "No identities found.")?;
-        return message::hint(output, terminal, "tmt name <name>");
+        message::hint(output, terminal, "tmt name <name>")?;
+        return match detected {
+            Some(detected) => {
+                writeln!(output)?;
+                detected.write(output, terminal)
+            }
+            None => Ok(()),
+        };
     }
     let mut built = Vec::new();
     for (title, lifetime) in [
@@ -445,7 +473,7 @@ fn write_listing(
         let note = (!folded.is_empty()).then(|| format!("offline: {}", folded.join(" · ")));
         built.push((title, members.len(), table, note));
     }
-    let sections: Vec<Section<'_>> = built
+    let mut sections: Vec<Section<'_>> = built
         .iter()
         .map(|(title, count, table, note)| Section {
             title,
@@ -455,7 +483,117 @@ fn write_listing(
             hint: None,
         })
         .collect();
+    if let Some(detected) = detected {
+        sections.push(detected.section());
+    }
     list::write(output, terminal, &sections)
+}
+
+/// The `DETECTED` section: panes no stored binding holds, in scan order.
+/// Each row is a dim `?`, the host's target, the agent name as dim display
+/// text in the address column, and the folder. Every display string is
+/// escaped by the table.
+struct DetectedSection {
+    rows: Table,
+    count: usize,
+    /// The sources that are not `ok`, such as `herdr: unknown (timeout)`.
+    note: Option<String>,
+    /// One guarded add per adoptable row; the name stays a placeholder.
+    adds: Vec<String>,
+}
+
+fn detected_section(document: &Value, home: Option<&Path>) -> DetectedSection {
+    let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
+    let candidates = document["candidates"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    let mut rows = Table::new(&COLUMNS);
+    let mut adds = Vec::new();
+    for row in candidates {
+        let target = row["target"]
+            .as_str()
+            .or(row["pane"].as_str())
+            .unwrap_or("-");
+        let folder = match row["display"]["cwd"].as_str() {
+            Some(cwd) if !cwd.is_empty() => value::home_path(Path::new(cwd), home),
+            _ => String::new(),
+        };
+        let cells = [
+            Cell::styled("?", Token::Dim),
+            target.into(),
+            Cell::styled(text(&row["display"]["agentName"]), Token::Dim),
+            folder.into(),
+        ];
+        match (row["expect"].as_str(), row["socket"].as_str()) {
+            (Some(digest), Some(socket)) if row["adoptable"] == true => {
+                rows.row(cells);
+                let pane = crate::output::shell_word(&text(&row["pane"]));
+                let socket = crate::output::shell_word(socket);
+                adds.push(format!(
+                    "tmt add {pane} <name> --expect {digest} --socket {socket}"
+                ));
+            }
+            _ => match row["reason"].as_str() {
+                Some(reason) => {
+                    rows.row_with_note(cells, reason);
+                }
+                None => {
+                    rows.row(cells);
+                }
+            },
+        }
+    }
+    let failed: Vec<String> = document["sources"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .filter(|source| source["status"] != "ok")
+        .map(|source| {
+            // A selection that failed before it chose a host names none.
+            let host = source["host"].as_str().unwrap_or("scan");
+            match source["reason"].as_str() {
+                Some(reason) => format!("{host}: {} ({reason})", text(&source["status"])),
+                None => format!("{host}: {}", text(&source["status"])),
+            }
+        })
+        .collect();
+    DetectedSection {
+        rows,
+        count: candidates.len(),
+        note: (!failed.is_empty()).then(|| failed.join(" · ")),
+        adds,
+    }
+}
+
+impl DetectedSection {
+    fn section(&self) -> Section<'_> {
+        Section {
+            title: "detected",
+            count: Some(self.count),
+            rows: self.rows.clone(),
+            note: self.note.as_deref(),
+            hint: None,
+        }
+    }
+
+    fn write(&self, output: &mut impl Write, terminal: Terminal) -> io::Result<()> {
+        list::write(output, terminal, &[self.section()])
+    }
+
+    /// After every section: the adds, then why a stale add refuses.
+    fn write_adds(&self, output: &mut impl Write, terminal: Terminal) -> io::Result<()> {
+        for add in &self.adds {
+            message::hint(output, terminal, add)?;
+        }
+        if self.adds.is_empty() {
+            return Ok(());
+        }
+        message::hint(
+            output,
+            terminal,
+            "a changed pane refuses with PANE_CHANGED; run: tmt ls --detected",
+        )
+    }
 }
 
 /// Full values for one identity or pane: the tmux location and the whole
@@ -579,9 +717,27 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                 entry.identity.name
             ),
         ),
-        Report::Listed { rows, scope } => {
+        Report::Listed {
+            rows,
+            scope,
+            detected,
+            ..
+        } => {
             let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-            write_listing(output, terminal, rows, scope.all, home.as_deref())?;
+            let detected = detected
+                .as_ref()
+                .map(|detected| detected_section(&detected.document, home.as_deref()));
+            write_listing(
+                output,
+                terminal,
+                rows,
+                scope.all,
+                detected.as_ref(),
+                home.as_deref(),
+            )?;
+            if let Some(detected) = &detected {
+                detected.write_adds(output, terminal)?;
+            }
             // A name kept from before a host's driver was approved that now
             // reads as one of its pane targets.
             match rows
@@ -797,6 +953,23 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core("In pane {pane}, run: tmt this {}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt add {label} <name>", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt name <name>", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt add {pane} <name> --expect {digest} --socket {socket}",
+        &[""],
+        &[
+            ("{pane}", "%3"),
+            (
+                "{digest}",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            ),
+            ("{socket}", "'/tmp/agent host.sock'"),
+        ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "a changed pane refuses with PANE_CHANGED; run: tmt ls --detected",
+        &[""],
+        &[],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "{} reads as a pane target; rename it: tmt mv {} <name>",
         &[""],

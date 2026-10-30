@@ -153,6 +153,60 @@ answer leaves the binding as it is. An explicit bind repeated on the pane that
 already holds the binding asks again. A tmux binding, a rename to the same name,
 and a command that binds nothing ask nothing.
 
+## List detected panes
+
+`tmt ls --detected` adds one read-only discovery scan after the member listing
+has finished and closed storage. Without the flag, `tmt ls` does the same work
+and prints the same bytes as before. The scan uses the selection, the
+observation allowance and the row and source schema of
+[discovery v1](discovery-v1.md), which owns them; `--host` and `--socket` are
+valid only with `--detected` and select only the scan, never the member rows.
+`--detected` conflicts with a target, `--room` and `--here`; `--saved`,
+`--temp` and `--all` filter the member sections only.
+
+Collection `tmt ls --detected --json` adds a top-level `detected` key, present
+exactly when the flag is given and absent otherwise. A failed member listing
+keeps its own error document and exit code, runs no scan and has no `detected`.
+`detected` is a discovery v1 document, `{version, observedAtMs, sources,
+candidates, truncated}`, with fewer candidates:
+
+- A candidate is removed when a stored binding of a non-retired identity holds
+  its exact (host, socket, pane ID), taken from the observation, never from a
+  target, a title or a name. The bindings are read after reconciliation and
+  before the lifetime and room filters, so an Unknown member, and a member that
+  `--saved` or `--temp` hides, still removes its pane. A candidate whose
+  `identity` is set is removed too. A failed read of the bindings is a member
+  listing error.
+- Only agent-like candidates stay: `display.agentName` is set, or
+  `runtime.driver` names a registered driver. This is an advisory heuristic. A
+  host can label a shell, and an empty `candidates` list does not prove that no
+  other panes or agents exist; `tmt discover` stays the full inventory.
+- Remaining rows keep their discovery meaning, including `stale`, `hook_only`
+  and conflicting owners (`state: "duplicate"`), which are not adoptable.
+
+A detected row is presence only. It has no `id`, `name` or `address`, never
+enters member or address indexes, sender resolution or dispatch, and its agent
+name is display text, never a name suggestion or a link to an identity. An
+absent, offline, slow, failing or malformed host is scan doubt in
+`detected.sources`; the command still exits 0.
+
+A scan child that is not cleaned up makes a **partial list**, the only
+non-zero outcome the scan can add. The command writes exactly one document and
+exits 1: the shared error envelope `error: {code: "CLEANUP_ERROR", message}`,
+`status: "partial"`, the complete `identities`, and `detected` with that source
+`unknown` (`cleanup_failed`), `candidates: []` and `truncated: true`. When an
+implicit selection fails before it chooses a host, that source has
+`host: null` (text: `scan: unknown (cleanup_failed)`); an explicit `--host` or
+`--socket` names its host. `status` is absent otherwise. This partial list is not the guarded add `partial`
+([discovery v1](discovery-v1.md#guarded-existing-binder)).
+
+Human `ls --detected` adds a `DETECTED` section after `SAVED` and `TEMPORARY`
+(see the [CLI style](../design/cli-style.md#lists)). Each adoptable row gets one
+`hint: tmt add <pane> <name> --expect <digest> --socket <socket>` line, with the
+pane and socket shell-quoted and `<name>` left for the user. JSON adds no argv:
+consumers build it from `pane`, `socket` and `expect`. A partial list prints the
+member sections, the failed source under `DETECTED`, and the error on stderr.
+
 ## Verification
 
 Verify byte/control/duration boundaries, exact expiry and clock rollback, atomic

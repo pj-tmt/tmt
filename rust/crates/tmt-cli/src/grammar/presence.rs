@@ -20,6 +20,24 @@ pub(in crate::grammar) fn list_command() -> Command {
     .arg(list_filter("temp", "Only temporary identities"))
     .arg(list_filter("here", "Only agents in this tmux session"))
     .arg(list_filter("all", "Show offline identities one per row"))
+    .arg(
+        list_filter("detected", "Also show agent panes that have no identity")
+            .conflicts_with_all(["room", "here"]),
+    )
+    .arg(
+        Arg::new("host")
+            .long("host")
+            .value_name("HOST")
+            .requires("detected")
+            .help("Host the --detected scan observes; members are listed as usual"),
+    )
+    .arg(
+        Arg::new("socket")
+            .long("socket")
+            .value_name("PATH")
+            .requires("detected")
+            .help("Exact host socket for the --detected scan; no directory search"),
+    )
 }
 
 pub(in crate::grammar) fn add() -> Command {
@@ -211,6 +229,6 @@ pub(in crate::grammar) fn discover() -> Command {
     general(spec!("discover","Observe bounded candidate panes without changing state",[
         "Inspect this host's candidate panes"=>"tmt discover --json",
         "Inspect an exact tmux socket"=>"tmt discover --host tmux --socket /tmp/agents.sock --json",
-    ])).arg(Arg::new("host").long("host").value_name("HOST").help("Host to observe; discovery supports tmux"))
+    ])).arg(Arg::new("host").long("host").value_name("HOST").help("Host to observe: tmux or an approved host driver"))
     .arg(Arg::new("socket").long("socket").value_name("PATH").help("Exact host socket; no directory search"))
 }

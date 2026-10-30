@@ -50,6 +50,7 @@ fn room_commands_share_typed_grammar_and_reject_unrelated_flags() {
                 lifetime: Some(tmt_core::identity::Lifetime::Temporary),
                 here: true,
                 all: true,
+                detected: None,
             },
         }
     );
@@ -57,6 +58,52 @@ fn room_commands_share_typed_grammar_and_reject_unrelated_flags() {
         vec!["ls", "--saved", "--temp"],
         vec!["ls", "Alice", "--all"],
         vec!["ls", "%3", "--here"],
+    ] {
+        assert_eq!(parse_error(&input).code, "USAGE_ERROR", "{input:?}");
+    }
+    // #4471: one scan beside the members; `--host` and `--socket` select only
+    // that scan, and it is never scoped to a target, a room or this session.
+    assert_eq!(
+        parsed(&[
+            "ls",
+            "--detected",
+            "--saved",
+            "--host",
+            "herdr",
+            "--socket",
+            "/tmp/h.sock"
+        ])
+        .invocation,
+        Invocation::List {
+            target: None,
+            room: None,
+            scope: crate::invocation::ListScope {
+                lifetime: Some(tmt_core::identity::Lifetime::Saved),
+                detected: Some(crate::invocation::DetectedScope {
+                    host: Some("herdr".into()),
+                    socket: Some("/tmp/h.sock".into()),
+                }),
+                ..Default::default()
+            },
+        }
+    );
+    assert_eq!(
+        parsed(&["ls", "--detected"]).invocation,
+        Invocation::List {
+            target: None,
+            room: None,
+            scope: crate::invocation::ListScope {
+                detected: Some(Default::default()),
+                ..Default::default()
+            },
+        }
+    );
+    for input in [
+        vec!["ls", "worker", "--detected"],
+        vec!["ls", "--detected", "--room", "Design"],
+        vec!["ls", "--detected", "--here"],
+        vec!["ls", "--host", "herdr"],
+        vec!["ls", "--socket", "/tmp/h.sock"],
     ] {
         assert_eq!(parse_error(&input).code, "USAGE_ERROR", "{input:?}");
     }
