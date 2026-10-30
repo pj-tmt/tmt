@@ -4,7 +4,7 @@
 
 use super::{CronRequest, Op, rows::key_of, rows::row_id};
 use crate::{
-    board::app::{App, Choice, Compose, Effect, Hint, Input, Menu, MenuEntry, Request},
+    board::app::{App, Choice, Compose, Effect, Hint, Input, Request},
     cron_service::{CronActor, JobKey, JobView, schedule_text},
 };
 use tmt_ops::cron::Schedule;
@@ -126,31 +126,18 @@ impl App {
             },
             'x' => Effect::Act(existing(Op::Send)),
             'd' => {
-                self.menu = Some(Menu {
-                    row_send: None,
-                    link: None,
-                    prefill: String::new(),
-                    title: format!("delete {} {}?", job.squad, job_key.id),
-                    entries: vec![
-                        MenuEntry {
-                            key: "n".into(),
-                            label: format!("keep {}", job_key.id),
-                            choice: Choice::Dismiss,
-                        },
-                        MenuEntry {
-                            key: "y".into(),
-                            label: format!("delete {} for good", job_key.id),
-                            choice: Choice::Cron(match existing(Op::Remove) {
-                                Request::Cron(request) => request,
-                                _ => unreachable!("a cron request"),
-                            }),
-                        },
-                    ],
-                    selected: 0,
-                    anchor: None,
-                    surface: Default::default(),
-                });
-                Effect::None
+                let Request::Cron(remove) = existing(Op::Remove) else {
+                    unreachable!("a cron request")
+                };
+                self.confirm(
+                    format!("delete {} {}?", job.squad, job_key.id),
+                    vec![format!(
+                        "{} in {} stops for good; this cannot be undone.",
+                        job_key.id, job.squad
+                    )],
+                    format!("Delete {}", job_key.id),
+                    Choice::Cron(remove),
+                )
             }
             'E' | 'o' => {
                 let zone = job.job.schedule.document()["zone"]

@@ -1,16 +1,13 @@
 //! Bounded scheduled-invocation preview on the existing action lane, never paint.
 use super::CronRequest;
 use crate::board::app::{App, Effect, Request};
-use ratatui::{
-    Frame,
-    crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind},
-    layout::Rect,
-    text::Line,
-};
+use ratatui::{Frame, crossterm::event::Event, layout::Rect, text::Line};
 use std::cell::{Cell, RefCell};
 use tmt_cli_style::Role;
 use tmt_ops::cron::Schedule;
-use tmt_tui::components::{Modal, Placement, ScrollState, strip};
+use tmt_tui::components::{
+    Button, Dialog, DialogHits, DialogInput, DialogKind, DialogState, Placement, ScrollState, strip,
+};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 /// Bounds production next_after calls on the worker; dense schedules say capped.
@@ -88,9 +85,21 @@ pub(in crate::board) struct Review {
     result: Option<Result<Preview, String>>,
     clock: String,
     scroll: RefCell<ScrollState>,
-    controls: Cell<[Option<Rect>; 2]>,
+    /// The Cancel / Apply cursor; the text scrolls with ↑↓ and the page keys.
+    state: DialogState,
+    /// What the last paint showed; Apply is never chosen from a stale or clipped frame.
+    hits: RefCell<DialogHits>,
+    readable: Cell<bool>,
 }
 impl Review {
+    fn buttons(&self) -> [Button<'static>; 2] {
+        let readable = self.readable.get();
+        [
+            Button::secondary("Cancel").enabled(readable),
+            Button::primary("Apply this exact operation")
+                .enabled(readable && matches!(self.result, Some(Ok(_)))),
+        ]
+    }
     fn lines(&self) -> Vec<String> {
         let mut lines = match &self.task.request {
             CronRequest::Add {
@@ -191,26 +200,39 @@ impl Review {
         lines
     }
     pub fn invalidate(&self) {
-        self.controls.set([None, None]);
+        *self.hits.borrow_mut() = DialogHits::default();
+        self.readable.set(false);
         let n = self.scroll.borrow().content();
         self.scroll.borrow_mut().update(Rect::default(), n, None);
     }
     pub fn render(&self, frame: &mut Frame, app: &App, body: Rect) {
         self.invalidate();
         let look = app.look();
-        let mut modal = Modal {
+        let mut dialog = Dialog {
             title: "Review timer · nothing written yet".into(),
+            kind: DialogKind::Confirm,
             placement: if body.height < 8 {
                 Placement::Body
             } else {
                 Placement::Center
             },
+            // The labels reserve the button line; whether they are enabled follows the areas.
+            buttons: self.buttons().into(),
         };
-        let areas = modal.areas(body, [80, 22], true, true);
+        let areas = dialog.areas(body, [80, 22], true);
         if areas.content.height == 0 {
-            modal.title = "Enlarge terminal · Esc closes timer review".into();
+            dialog.title = "Enlarge terminal · Esc closes timer review".into();
         }
-        modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+        self.readable.set(areas.content.height > 0);
+        dialog.buttons = self.buttons().into();
+        let hits = crate::board::buttons::paint_dialog(
+            app,
+            frame.buffer_mut(),
+            &dialog,
+            areas,
+            &self.state,
+            crate::board::app::Overlay::CronReview,
+        );
         app.peek_areas
             .set(crate::board::app::Overlay::CronReview, Some(areas.outer));
         let lines: Vec<_> = self
@@ -242,33 +264,7 @@ impl Review {
                 Line::styled(line.clone(), look.role(Role::Text)),
             );
         }
-        let focused = app
-            .overlay_focus
-            .focused()
-            .and_then(|field| field.last())
-            .map(String::as_str)
-            .unwrap_or("cancel");
-        let apply_enabled = matches!(self.result, Some(Ok(_))) && areas.content.height > 0;
-        let buttons = [
-            crate::board::buttons::Button::secondary("Cancel")
-                .focused(focused == "cancel")
-                .enabled(areas.content.height > 0),
-            crate::board::buttons::Button::primary("Apply this exact operation")
-                .focused(focused == "apply")
-                .enabled(apply_enabled),
-        ];
-        let controls = crate::board::buttons::paint(
-            app,
-            frame.buffer_mut(),
-            areas.footer,
-            &buttons,
-            tmt_cli_style::grid::Align::Left,
-            Some(crate::board::app::Overlay::CronReview),
-        );
-        self.controls.set([
-            controls[0].filter(|_| areas.content.height > 0),
-            controls[1].filter(|_| apply_enabled),
-        ]);
+        *self.hits.borrow_mut() = hits;
     }
 }
 impl App {
@@ -314,7 +310,9 @@ impl App {
             result: None,
             clock,
             scroll: Default::default(),
-            controls: Cell::new([None, None]),
+            state: DialogState::new(&[], &[]),
+            hits: Default::default(),
+            readable: Cell::new(false),
         });
         Effect::Act(Request::CronPreview(Box::new(task)))
     }
@@ -329,62 +327,50 @@ impl App {
             review.result = Some(result);
         }
     }
-    pub(in crate::board) fn cron_review_event(
-        &mut self,
-        field: &tmt_tui::app::ComponentId,
-        event: &Event,
-    ) -> Option<Effect> {
-        let review = self.cron_review.as_ref()?;
-        let action = match event {
-            Event::Key(key)
-                if key.kind != KeyEventKind::Release
-                    && !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                match key.code {
-                    KeyCode::Esc => Some(0),
-                    KeyCode::Enter => match field.last().map(String::as_str) {
-                        Some("cancel") => Some(0),
-                        Some("apply") => Some(1),
-                        _ => None,
-                    },
-                    _ => None,
-                }
+    pub(in crate::board) fn cron_review_event(&mut self, event: &Event) -> Option<Effect> {
+        let review = self.cron_review.as_mut()?;
+        let buttons = review.buttons();
+        let input = match event {
+            Event::Key(key) => review.state.key(DialogKind::Confirm, key, &[], &buttons),
+            Event::Mouse(mouse) => {
+                let hits = review.hits.borrow().clone();
+                review.state.mouse(mouse, &hits, &buttons)
             }
-            Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
-                review.controls.get().iter().position(|area| {
-                    area.is_some_and(|area| area.contains((mouse.column, mouse.row).into()))
-                })
-            }
-            _ => None,
+            _ => DialogInput::Ignored,
         };
-        if action == Some(0) {
-            self.cron_review = None;
-            return Some(Effect::None);
-        }
-        if action == Some(1) {
-            if matches!(review.result, Some(Ok(_))) {
-                if review.controls.get()[1].is_none() {
+        match input {
+            DialogInput::Cancel | DialogInput::Choose(0) => {
+                Some(self.close_overlay(crate::board::app::Overlay::CronReview))
+            }
+            DialogInput::Choose(_) => {
+                if review
+                    .hits
+                    .borrow()
+                    .buttons
+                    .get(1)
+                    .copied()
+                    .flatten()
+                    .is_none()
+                {
                     self.set_notice(Some("Enlarge the terminal and repaint the review before applying; nothing written.".into()), false);
                     return Some(Effect::None);
                 }
                 let request = review.task.request.clone();
                 self.cron_review = None;
-                return Some(Effect::Act(Request::Cron(request)));
+                Some(Effect::Act(Request::Cron(request)))
             }
-            return Some(Effect::None);
+            DialogInput::Moved => Some(Effect::None),
+            _ => {
+                review.scroll.borrow_mut().input(event);
+                Some(Effect::None)
+            }
         }
-        if field.last().is_some_and(|s| s == "read") && review.scroll.borrow_mut().input(event) {
-            return Some(Effect::None);
-        }
-        // Unhandled Tab belongs to the shared focus router, not this controller.
-        None
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::crossterm::event::{KeyCode, KeyModifiers};
     use tmt_ops::cron::ScheduleInput;
     #[test]
     fn invocation_counts_use_production_schedule_and_cap_dense_intervals() {
@@ -503,10 +489,14 @@ mod tests {
             KeyCode::Enter,
             KeyModifiers::NONE,
         ));
-        let field = vec!["cron-review".into(), "apply".into()];
-        assert_eq!(app.cron_review_event(&field, &enter), Some(Effect::None));
+        let right = Event::Key(ratatui::crossterm::event::KeyEvent::new(
+            KeyCode::Right,
+            KeyModifiers::NONE,
+        ));
+        // Both buttons are disabled while the review is clipped, so neither key applies.
+        assert_eq!(app.cron_review_event(&right), Some(Effect::None));
+        assert_eq!(app.cron_review_event(&enter), Some(Effect::None));
         assert!(app.cron_review.is_some());
-        assert!(app.notice.as_deref().unwrap().contains("nothing written"));
     }
     #[test]
     fn failed_acquisition_does_not_present_the_retained_clock_as_current() {
@@ -532,17 +522,16 @@ mod tests {
         let Effect::Act(Request::CronPreview(task)) = effect else {
             panic!("preview is worker only");
         };
-        let field = vec!["cron-review".into(), "apply".into()];
         let enter = Event::Key(ratatui::crossterm::event::KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,
         ));
-        assert_eq!(app.cron_review_event(&field, &enter), Some(Effect::None));
+        assert_eq!(app.cron_review_event(&enter), Some(Effect::None));
         let esc = Event::Key(ratatui::crossterm::event::KeyEvent::new(
             KeyCode::Esc,
             KeyModifiers::NONE,
         ));
-        assert_eq!(app.cron_review_event(&field, &esc), Some(Effect::None));
+        assert_eq!(app.cron_review_event(&esc), Some(Effect::None));
         let (old, result) = run(*task, 0);
         app.cron_review_ready(old.clone(), result.clone());
         assert!(app.cron_review.is_none());
@@ -589,9 +578,17 @@ mod tests {
             KeyCode::Enter,
             KeyModifiers::NONE,
         ));
-        let field = vec!["cron-review".into(), "apply".into()];
+        let right = Event::Key(ratatui::crossterm::event::KeyEvent::new(
+            KeyCode::Right,
+            KeyModifiers::NONE,
+        ));
         assert_eq!(
-            app.cron_review_event(&field, &enter),
+            app.cron_review_event(&right),
+            Some(Effect::None),
+            "→ reaches Apply"
+        );
+        assert_eq!(
+            app.cron_review_event(&enter),
             Some(Effect::Act(Request::Cron(frozen.clone())))
         );
         assert!(app.cron_review.is_none());
@@ -599,6 +596,6 @@ mod tests {
             panic!("preview");
         };
         app.cron_review_ready(*task, Err("schedule unavailable".into()));
-        assert_eq!(app.cron_review_event(&field, &enter), Some(Effect::None));
+        assert_eq!(app.cron_review_event(&enter), Some(Effect::None));
     }
 }

@@ -44,6 +44,47 @@ impl State {
 
 pub(super) use tmt_tui::components::Button;
 
+/// Paints `dialog` for `owner` with this board's look, focus and pointer hover, and registers its
+/// enabled buttons for hover. The caller acts on what `DialogState` returns for its hits.
+pub(super) fn paint_dialog(
+    app: &App,
+    buffer: &mut Buffer,
+    dialog: &tmt_tui::components::Dialog<'_>,
+    areas: tmt_tui::components::ModalAreas,
+    state: &tmt_tui::components::DialogState,
+    owner: Overlay,
+) -> tmt_tui::components::DialogHits {
+    let look = app.look();
+    let active = app.button_owner_is_active(Some(owner));
+    let hovered = app
+        .buttons
+        .hovered
+        .get()
+        .filter(|(_, layer)| *layer == Some(owner))
+        .map(|(rect, _)| rect);
+    let hits = dialog.paint(
+        areas,
+        state,
+        buffer,
+        tmt_tui::components::DialogLook {
+            theme: &look.theme,
+            depth: look.depth,
+            active,
+            hovered,
+        },
+    );
+    if active {
+        for (button, rect) in dialog.buttons.iter().zip(&hits.buttons) {
+            if let Some(rect) = rect
+                && button.is_enabled()
+            {
+                app.buttons.regions.borrow_mut().push((*rect, Some(owner)));
+            }
+        }
+    }
+    hits
+}
+
 /// Return painted rectangles, not effects; callers publish enabled activation hits themselves.
 pub(super) fn paint(
     app: &App,

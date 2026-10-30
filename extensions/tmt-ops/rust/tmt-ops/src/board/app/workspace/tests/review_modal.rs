@@ -458,6 +458,8 @@ pub(in crate::board) const CRUD_SCENES: &[&str] = &[
     "crud-remove-copied",
     "crud-leave-squad",
     "crud-remove-long",
+    "timers-delete-confirm",
+    "cron-review",
 ];
 pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) -> App {
     let mut app = board();
@@ -536,6 +538,41 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
             if scene == "crud-moving-pool" {
                 key(&mut app, KeyCode::Down);
             }
+        }
+        // The board confirm over the Timers list, on its starting Cancel.
+        "timers-delete-confirm" => {
+            use crate::board::cronboard::{TEST_NOW, test_cron, test_view};
+            let mut job = test_view("worker", "merge queue sweep", Some(TEST_NOW + 3_600_000));
+            job.squad = "product".into();
+            job.job.room_id = ROOM.into();
+            job.job.owner_id = Some(MEMBER.into());
+            app.cron.replace(Ok(test_cron(
+                vec![job],
+                tmt_ops::cron::ClockStatus::NoClock,
+            )));
+            key(&mut app, KeyCode::Char('c'));
+            key(&mut app, KeyCode::Char('d'));
+            assert!(app.confirm.is_some(), "d asks before deleting");
+        }
+        // Timer review with its preview read, on its starting Cancel.
+        "cron-review" => {
+            use crate::board::cronboard::{CronRequest, preview, test_cron};
+            let request = CronRequest::Add {
+                actor: test_cron(vec![], tmt_ops::cron::ClockStatus::NoClock)
+                    .actor
+                    .unwrap(),
+                squad: "product".into(),
+                room_id: ROOM.into(),
+                owner: "worker".into(),
+                message: "sweep the merge queue".into(),
+                schedule: "every 30m".into(),
+                zone: "UTC".into(),
+            };
+            let Effect::Act(Request::CronPreview(task)) = app.cron_review_request(request) else {
+                panic!("a preview read")
+            };
+            let (task, result) = preview::run(*task, 0);
+            app.cron_review_ready(task, result);
         }
         _ => panic!("unknown CRUD scene {scene}"),
     }

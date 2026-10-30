@@ -102,6 +102,7 @@ impl App {
             }
             Overlay::MonitorDetails => self.monitor_details = None,
             Overlay::CronReview => self.cron_review = None,
+            Overlay::Confirm => self.confirm = None,
             Overlay::Workspace => {
                 self.workspace_close();
                 self.input = None;

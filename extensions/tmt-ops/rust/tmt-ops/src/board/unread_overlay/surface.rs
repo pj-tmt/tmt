@@ -13,7 +13,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
-use tmt_tui::components::{ListFrame, Modal, Placement, RowGeometry, strip};
+use tmt_tui::components::{Dialog, DialogKind, ListFrame, Modal, Placement, RowGeometry, strip};
 
 impl Overlay {
     fn prompt<'a>(&'a self, actor: &str, answer: &Answer) -> Option<&'a str> {
@@ -299,15 +299,27 @@ impl Overlay {
             return;
         };
         let look = app.look();
-        let modal = Modal {
+        let mut dialog = Dialog {
             title: "Mark all read".into(),
+            kind: DialogKind::Confirm,
             placement: Placement::Center,
+            buttons: super::confirm_buttons(true).into(),
         };
-        let areas = modal.areas(body, [70, 7], true, false);
-        modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+        let areas = dialog.areas(body, [70, 7], false);
         app.peek_areas.set(OverlayId::Unread, Some(areas.outer));
-        self.confirm_hits.set(None);
         let ready = areas.content.width >= 30 && areas.content.height >= 3;
+        if !ready {
+            dialog.buttons.clear();
+        }
+        let hits = crate::board::buttons::paint_dialog(
+            app,
+            frame.buffer_mut(),
+            &dialog,
+            areas,
+            &self.confirm_state,
+            OverlayId::Unread,
+        );
+        *self.confirm_hits.borrow_mut() = hits;
         if !ready {
             strip::paint_left(
                 frame.buffer_mut(),
@@ -335,24 +347,6 @@ impl Overlay {
                 ),
                 Line::styled(text, look.role(Role::Text)),
             );
-        }
-        let button_y = areas.footer.y;
-        let yes = strip::paint_chip(
-            frame.buffer_mut(),
-            Rect::new(areas.footer.x, button_y, 18, 1),
-            "Mark all read",
-            look.role(Role::Selection),
-            tmt_cli_style::grid::Align::Left,
-        );
-        let no = strip::paint_chip(
-            frame.buffer_mut(),
-            Rect::new(areas.footer.x + 20, button_y, 10, 1),
-            "Cancel",
-            look.role(Role::Keycap),
-            tmt_cli_style::grid::Align::Left,
-        );
-        if let (Some(yes), Some(no)) = (yes, no) {
-            self.confirm_hits.set(Some((yes, no)));
         }
     }
 

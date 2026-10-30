@@ -13,7 +13,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
 };
-use tmt_tui::components::{ListFrame, ListRow, ListState, ScrollState};
+use tmt_tui::components::{
+    Button, DialogHits, DialogState, ListFrame, ListRow, ListState, ScrollState,
+};
 
 mod input;
 mod surface;
@@ -130,7 +132,9 @@ pub(in crate::board) struct Overlay {
     detail_open: bool,
     detail_focus: bool,
     confirmation: Option<input::Confirmation>,
-    confirm_hits: Cell<Option<(Rect, Rect)>>,
+    /// The Mark all read confirm's cursor and what its last paint showed.
+    confirm_state: DialogState,
+    confirm_hits: RefCell<DialogHits>,
     /// Core holds back older unread answers than the page the board keeps.
     more: bool,
     /// Only the open overlay advances older metadata; HOME refreshes still read the head.
@@ -162,7 +166,8 @@ impl Overlay {
             detail_open: false,
             detail_focus: false,
             confirmation: None,
-            confirm_hits: Cell::new(None),
+            confirm_state: DialogState::new(&[], &[]),
+            confirm_hits: RefCell::default(),
             more: false,
             before: None,
             next_before: None,
@@ -479,11 +484,20 @@ impl Overlay {
         }
     }
 
+    /// The Mark all read confirm's buttons; neither works until the confirm is painted whole.
+    fn confirm_buttons(&self) -> [Button<'static>; 2] {
+        let painted = {
+            let hits = self.confirm_hits.borrow();
+            !hits.buttons.is_empty() && hits.buttons.iter().all(Option::is_some)
+        };
+        confirm_buttons(painted)
+    }
+
     pub fn invalidate(&self) {
         self.bump();
         self.list_frame.borrow_mut().take();
         self.hover.set(None);
-        self.confirm_hits.set(None);
+        *self.confirm_hits.borrow_mut() = DialogHits::default();
         self.painted.borrow_mut().clear();
         let n = self.scroll.borrow().content();
         self.scroll.borrow_mut().update(Rect::default(), n, None);
@@ -838,3 +852,11 @@ impl App {
 
 #[cfg(test)]
 pub(in crate::board) mod tests;
+
+/// Cancel, then the primary Mark all read, which Enter chooses as the confirm opens.
+fn confirm_buttons(enabled: bool) -> [Button<'static>; 2] {
+    [
+        Button::secondary("Cancel").enabled(enabled),
+        Button::primary("Mark all read").enabled(enabled),
+    ]
+}

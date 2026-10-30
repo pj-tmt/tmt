@@ -1384,9 +1384,13 @@ fn confirmation_requires_current_geometry_and_does_not_replay_while_pending() {
     assert_eq!(app.workspace_confirm(), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
     paint(&app, 80, 24);
-    key(&mut app, KeyCode::Tab); // Cancel -> read
-    key(&mut app, KeyCode::End);
-    key(&mut app, KeyCode::Tab); // read -> apply
+    key(&mut app, KeyCode::End); // reads to the end
+    assert_eq!(
+        key(&mut app, KeyCode::Tab),
+        Effect::None,
+        "Tab does nothing"
+    );
+    key(&mut app, KeyCode::Right); // Cancel -> apply
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
         matches!(effect,Effect::Act(Request::WorkspaceOperation(crate::board::workspace::manage::Change::Membership(crate::membership::workspace::Operation::Remove {room,member}))) if room.id == ROOM && member == MEMBER)
@@ -6245,4 +6249,20 @@ pub(in crate::board) fn assert_list_input_owner(app: &App) {
         app.workspace_input_owner(),
         crate::board::shell::OpsInputOwner::List
     );
+}
+#[test]
+fn only_a_removal_review_starts_on_cancel() {
+    use crate::board::workspace::manage::review_start;
+    use tmt_tui::components::Focus;
+    for (kind, start) in [
+        (Kind::Remove, 0),
+        (Kind::RemoveMember, 0),
+        (Kind::Create, 1),
+        (Kind::Add, 1),
+        (Kind::Lead, 1),
+        (Kind::RenameSquad, 1),
+        (Kind::RenameMember, 1),
+    ] {
+        assert_eq!(review_start(kind).focus, Focus::Buttons(start), "{kind:?}");
+    }
 }

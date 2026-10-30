@@ -1877,11 +1877,11 @@ fn unread_detail_inset_gap_preview_ellipsis_and_confirmation_height_are_consiste
         assert_eq!(built.lines[2].width(), 0);
     }
     let overlay = confirm.unread_overlay.as_ref().unwrap();
-    let (yes, no) = overlay
-        .confirm_hits
-        .get()
-        .expect("both confirmation controls paint");
-    assert_eq!(yes.y, no.y);
+    let buttons = overlay.confirm_hits.borrow().buttons.clone();
+    let [Some(cancel), Some(mark)] = buttons[..] else {
+        panic!("both confirmation controls paint: {buttons:?}")
+    };
+    assert_eq!(cancel.y, mark.y);
     let text = draw_size(&confirm, 100, 36);
     assert!(text.contains("Mark all read"), "{text}");
 }

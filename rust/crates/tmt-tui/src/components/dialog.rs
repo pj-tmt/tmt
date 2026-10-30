@@ -100,10 +100,14 @@ impl Dialog<'_> {
         areas: ModalAreas,
         state: &DialogState,
         buffer: &mut Buffer,
-        theme: &Theme,
-        depth: Depth,
-        hovered: Option<Rect>,
+        look: DialogLook<'_>,
     ) -> DialogHits {
+        let DialogLook {
+            theme,
+            depth,
+            active,
+            hovered,
+        } = look;
         self.modal().paint(areas, buffer, theme, depth);
         let cursor = state.button(&self.buttons);
         let buttons: Vec<_> = self
@@ -116,7 +120,7 @@ impl Dialog<'_> {
             theme,
             depth,
             align: Align::Left,
-            active: true,
+            active,
             hovered,
         };
         DialogHits {
@@ -126,6 +130,17 @@ impl Dialog<'_> {
             fields: Vec::new(),
         }
     }
+}
+
+/// How a dialog is painted. `active` is false while another layer owns input,
+/// so focus and hover show only on the layer the user is in; `hovered` is the
+/// rectangle under the pointer, from the application's hover state.
+#[derive(Debug, Clone, Copy)]
+pub struct DialogLook<'t> {
+    pub theme: &'t Theme,
+    pub depth: Depth,
+    pub active: bool,
+    pub hovered: Option<Rect>,
 }
 
 /// Focus and the button cursor of one open dialog. A new dialog starts on its

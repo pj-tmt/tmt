@@ -183,8 +183,8 @@ fn reviewed_submission(app: &mut App) -> Effect {
     assert!(result.is_ok(), "{result:?}");
     app.cron_review_ready(task, result);
     draw(app, 100, 24);
-    press(app, KeyCode::Tab);
-    press(app, KeyCode::Tab);
+    // The review opens on Cancel; → reaches Apply (Tab does nothing in a dialog).
+    press(app, KeyCode::Right);
     press(app, KeyCode::Enter)
 }
 
@@ -242,7 +242,7 @@ fn the_clock_reads_checking_until_a_second_read_and_the_holder_shows_its_window(
 mod controls {
     use super::*;
     use crate::board::{
-        app::{Choice, Compose, Request},
+        app::{Compose, Request},
         cronboard::{CronRequest, Op},
     };
     use crate::cron_service::{CronActor, JobKey};
@@ -306,17 +306,18 @@ mod controls {
     fn delete_asks_first_and_the_default_keeps_the_job() {
         let (mut app, key) = focused();
         assert_eq!(press(&mut app, KeyCode::Char('d')), Effect::None);
-        let menu = app.menu.as_ref().expect("a confirmation");
-        assert!(menu.title.contains("delete product c0"));
-        assert_eq!(menu.entries[0].choice, Choice::Dismiss);
+        let confirm = app.confirm.as_ref().expect("a confirmation");
+        assert!(confirm.title().contains("delete product c0"));
         assert_eq!(
             press(&mut app, KeyCode::Enter),
             Effect::None,
-            "Enter keeps the job"
+            "Enter on the starting Cancel keeps the job"
         );
-        assert!(app.menu.is_none());
+        assert!(app.confirm.is_none());
         open_timers(&mut app);
         press(&mut app, KeyCode::Char('d'));
+        // `y` chooses the painted Delete button, like a click.
+        crate::board::view::tests::draw(&app, 120, 40);
         assert_eq!(
             press(&mut app, KeyCode::Char('y')),
             existing(&key, Op::Remove)

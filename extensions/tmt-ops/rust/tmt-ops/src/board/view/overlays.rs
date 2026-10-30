@@ -143,4 +143,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(review) = &app.cron_review {
         review.render(frame, app, body);
     }
+    if let Some(confirm) = &app.confirm {
+        confirm.render(frame, app, body);
+    }
 }

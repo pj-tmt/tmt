@@ -624,11 +624,12 @@ pub(super) enum Overlay {
     SwitchTool,
     IdleAlert,
     UsageControls,
+    Confirm,
     PastePreview,
 }
 impl Overlay {
     #[cfg(test)]
-    pub(super) const ALL: [Self; 22] = [
+    pub(super) const ALL: [Self; 23] = [
         Self::Workspace,
         Self::Recovery,
         Self::Help,
@@ -650,6 +651,7 @@ impl Overlay {
         Self::SwitchTool,
         Self::IdleAlert,
         Self::UsageControls,
+        Self::Confirm,
         Self::PastePreview,
     ];
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -676,6 +678,7 @@ impl Overlay {
                 Self::SwitchTool => "switch-tool",
                 Self::IdleAlert => "idle-alert",
                 Self::UsageControls => "usage-controls",
+                Self::Confirm => "confirm",
                 Self::PastePreview => "paste-preview",
             }
             .into(),
@@ -815,6 +818,8 @@ pub struct App {
     /// The cron form being filled in on the input line, if any.
     pub(super) status_draft: Option<super::status_update::Draft>,
     pub(in crate::board) cron_review: Option<super::cronboard::preview::Review>,
+    /// A confirm opened over everything else (`App::confirm`).
+    pub(super) confirm: Option<super::confirm::Confirm>,
     pub(in crate::board) cron_review_generation: u64,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
@@ -3830,9 +3835,6 @@ impl App {
                 Overlay::Panels => vec![vec!["panels-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
                 Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
-                Overlay::CronReview => ["cancel", "read", "apply"]
-                    .map(|s| vec!["cron-review".into(), s.into()])
-                    .into(),
                 _ => vec![],
             };
             focus.open(id, fields);
@@ -3867,7 +3869,9 @@ impl App {
     }
 
     pub(super) fn overlay(&self) -> Option<Overlay> {
-        if self.paste_preview_shown() {
+        if self.confirm.is_some() {
+            Some(Overlay::Confirm)
+        } else if self.paste_preview_shown() {
             Some(Overlay::PastePreview)
         } else if self.monitor_details.is_some() {
             Some(Overlay::MonitorDetails)
@@ -4041,7 +4045,8 @@ impl App {
                 }
             }),
             Overlay::CronList => self.cron_list_event(event),
-            Overlay::CronReview => self.cron_review_event(field, event),
+            Overlay::CronReview => self.cron_review_event(event),
+            Overlay::Confirm => self.confirm_event(event),
             Overlay::MonitorDetails => self.monitor_details_event(event),
         }
     }
@@ -4311,6 +4316,9 @@ impl App {
         }
         if let Some(review) = &self.cron_review {
             review.invalidate();
+        }
+        if let Some(confirm) = &self.confirm {
+            confirm.invalidate();
         }
         self.chip_hits.borrow_mut().clear();
         if let Some(details) = &self.quota_details {

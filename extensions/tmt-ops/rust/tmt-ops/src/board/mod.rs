@@ -10,6 +10,7 @@ mod checklist;
 mod chip_group;
 mod command_line;
 mod composer;
+mod confirm;
 mod conversation;
 mod cronboard;
 mod derived;
