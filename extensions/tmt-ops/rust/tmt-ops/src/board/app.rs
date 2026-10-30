@@ -741,6 +741,8 @@ pub struct App {
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
     pub(super) workspace_startup: Option<WorkspaceStartup>,
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
+    /// The membership `m` lifted, while ↑↓ choose its squad.
+    pub(super) moving: Option<super::workspace::moving::Moving>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
     pub(in crate::board) view_layer: super::view_state::Layer,
     /// Talk or Measure in the Agents tab's right column (`M`).
@@ -4088,6 +4090,9 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
+        if let Some(effect) = self.moving_key(key) {
+            return effect;
+        }
         // Completion owns its first Escape even when its editor lives inside
         // a workspace overlay. Closing it must not cancel the enclosing form.
         let owner = self.workspace_input_owner();
@@ -4557,6 +4562,10 @@ impl App {
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if event.kind == MouseEventKind::Moved {
             self.move_pointer(event);
+            return Effect::None;
+        }
+        // A lifted membership takes only ↑↓, Enter and Esc.
+        if self.moving.as_ref().is_some_and(|moving| !moving.applying) {
             return Effect::None;
         }
         if let Some(effect) = self.terminal_mouse(event) {

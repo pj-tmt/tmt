@@ -1317,11 +1317,8 @@ fn dump_crud_dialog_oracle() {
             &[
                 "crud-rename-review",
                 "crud-rename-pending",
-                "crud-move-fields",
-                "crud-move-review",
-                "crud-move-success",
-                "crud-move-refused",
-                "crud-move-partial",
+                "crud-moving",
+                "crud-moving-pool",
                 "crud-remove",
                 "crud-remove-copied",
                 "crud-remove-long",

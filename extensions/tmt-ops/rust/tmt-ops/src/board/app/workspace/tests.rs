@@ -1619,7 +1619,15 @@ fn selected_member_host_uses_the_frozen_uuid_and_overview_has_membership_actions
         Effect::Act(Request::Jump(MEMBER.into()))
     );
     assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
-    assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Assign);
+    assert!(
+        app.moving.is_none(),
+        "the flat Agents view has no squads to carry it between"
+    );
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("Show squads"))
+    );
 }
 #[test]
 fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab() {

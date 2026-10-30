@@ -1498,10 +1498,10 @@ impl App {
         match action {
             OpsUiAction::CreateSquad => self.workspace_begin(Kind::Create),
             OpsUiAction::RemoveMembership => self.workspace_begin(Kind::Remove),
-            OpsUiAction::MoveMembership => self.workspace_begin(Kind::Assign),
+            OpsUiAction::MoveMembership => self.begin_move(),
             OpsUiAction::Manage => {
                 if self.workspace_selected_member().is_some() {
-                    return self.workspace_begin(Kind::Assign);
+                    return self.begin_move();
                 }
                 if !self.workspace_selection_visible() {
                     return self.say("Select a visible squad explicitly.");
@@ -1730,6 +1730,11 @@ impl App {
         &mut self,
         outcome: Result<crate::membership::Outcome, crate::core::SquadError>,
     ) {
+        if let Some(moving) = self.moving.take_if(|moving| moving.applying) {
+            let message = self.finished_move(moving, &outcome);
+            self.set_notice(Some(message), false);
+            return;
+        }
         let message = match outcome {
             Ok(outcome) if outcome.complete => format!(
                 "Applied. The workspace will refresh.\n{}",
@@ -1747,14 +1752,7 @@ impl App {
                 )
             }
             Err(error) => {
-                let status = if matches!(
-                    error.code.as_str(),
-                    "ROOM_REVISION_CONFLICT"
-                        | "SQUAD_ALREADY_EXISTS"
-                        | "SQUAD_NAME_INVALID"
-                        | "SQUAD_IDENTITY_NOT_SAVED"
-                        | "IDENTITY_NAME_CONFLICT"
-                ) {
+                let status = if not_applied(&error.code) {
                     "Not applied"
                 } else {
                     "Unknown"
@@ -1776,6 +1774,18 @@ impl App {
             *draft.scroll.borrow_mut() = Default::default();
         }
     }
+}
+
+/// Membership errors Core proves left nothing applied.
+pub(in crate::board) fn not_applied(code: &str) -> bool {
+    matches!(
+        code,
+        "ROOM_REVISION_CONFLICT"
+            | "SQUAD_ALREADY_EXISTS"
+            | "SQUAD_NAME_INVALID"
+            | "SQUAD_IDENTITY_NOT_SAVED"
+            | "IDENTITY_NAME_CONFLICT"
+    )
 }
 
 /// Preserve per-item evidence rather than replacing a partial batch with a

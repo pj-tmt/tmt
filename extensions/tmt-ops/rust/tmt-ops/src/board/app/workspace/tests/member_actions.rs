@@ -466,7 +466,8 @@ fn agents_shortcuts_keyboard_settings_reaches_named_unbound_member_actions() {
     }
     app.menu = None;
     key(&mut app, KeyCode::Char('m'));
-    assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Assign);
+    assert!(app.workspace_form.is_none());
+    assert!(app.moving.is_some(), "m lifts the agent in place");
 }
 
 #[test]

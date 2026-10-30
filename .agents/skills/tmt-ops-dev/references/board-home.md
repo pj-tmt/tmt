@@ -481,6 +481,10 @@ moves its box; panes end directly above it and sparse exchanges still grow down.
 `footer::agents_legend` builds that row: one ordered key list per row kind, fitted
 by `fit_hints` with search, help and quit kept; the focused reply pane's selection
 guidance replaces it.
+`workspace::moving` owns `m`'s lifted membership: `App::moving` holds the member, its source
+and target rooms; `render::tree` paints the placeholder and lifted line from
+`moving::placement` (skipped entirely when nothing is lifted), keys and pointer events are
+taken while lifted, and Enter sends the existing `Operation::Assign`/`Remove` on the lane.
 `exchange_view` paints grouped exchange headers and body gutters, `input_field`
 paints the filled editor surface, and `digest_matrix` paints observed metrics
 across identity columns. The host retains data projection, recipient authority,

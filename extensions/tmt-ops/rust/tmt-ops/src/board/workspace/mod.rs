@@ -3,6 +3,7 @@
 
 pub(crate) mod columns;
 pub(crate) mod manage;
+pub(crate) mod moving;
 pub(crate) mod observe;
 pub(crate) mod rename_member;
 pub(crate) mod render;
