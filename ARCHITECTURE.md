@@ -272,7 +272,7 @@ have one Core owner each; the [storage and requests reference](.agents/skills/tm
 maps their modules and Stop queue; ordinary writers only notify its finite worker after commit. A [passthrough](contracts/request-response-v1.md#passthrough) is
 a person's typed text, not a request; it settles that agent's oldest open request
 and earns its turn's final. CLI and API share admission. Capture admits the full runtime registry before Digest;
-[batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals; distinct finals survive a missed prompt boundary, granting no runtime authority.
+[batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals. Distinct finals survive missed prompts; verified refused text leaves a recorded-batch failure, fenced by event receipt, never new runtime authority.
 Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
