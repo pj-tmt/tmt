@@ -877,6 +877,9 @@ export const text = {
   archived: 'Archived',
   shortcuts: {
     manage: 'Manage shortcuts',
+    /** The side menu's group and its trailing add row. */
+    group: 'Shortcuts',
+    addRow: '+ New shortcut',
     edit: 'Edit shortcut',
     saveAs: 'Save as shortcut',
     localOnly: 'Saved on this machine only. Shortcuts are not synced or shared.',
@@ -980,11 +983,9 @@ export const text = {
     moreWorking: (count: number) => `+${count}`,
     manageProjects: 'Manage projects',
     projects: 'Projects',
-    /** The side menu's project group while the owner has not pinned any: the most recently used. */
-    recentProjects: 'Recent projects',
-    /** The side menu's entry that opens Manage projects, where every project is. */
+    /** The project filter's ⋯ entry that opens Manage projects, where every project is. */
     allProjectsItem: 'All projects…',
-    scopeNotPinned: 'Not pinned: shown while you are in it.',
+    projectActions: 'Project actions',
     pinToSidebar: 'Pin to sidebar',
     unpinFromSidebar: 'Unpin from sidebar',
     pinProject: (name: string) => `Pin ${name} to sidebar`,
@@ -1192,7 +1193,6 @@ export const text = {
     /** The settings route's segment after the module in the bar's title. */
     section: 'Settings',
     subtitle: 'Reference defaults and a clear path to your terminal.',
-    shells: 'Dashboards',
     reference: 'Reference defaults',
     referenceHelp: 'An illustration of the current schema, not your live settings.',
     current: 'Current settings',

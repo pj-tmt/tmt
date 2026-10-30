@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openModuleNavigation } from '../test/home-list.js';
 import { capturePath } from './captures.js';
 
 async function mount(
@@ -37,29 +36,29 @@ const rows = (page: Page) => app(page).locator('.pages > li');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
-/** The shell's module menu: All pages, each project with its counts, then the project actions. On a
- * wide screen its entries nest under Colab in the rail; phones use the same tree in the drawer. */
+/** The shell's module menu: All pages, Shortcuts, then Colab settings, nested under Colab in the
+ * rail (and in the phone drawer). */
 const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-rail-sub:visible');
-/** The menu's current scope row, named by its value. */
+/** The list's project filter: All projects, then each project with its count. */
+const scopeRows = (page: Page) => app(page).locator('.page-scope-filters .project-filter-button');
+const scopeName = (name: string) => (name === 'All pages' ? 'All projects' : name);
+/** The pressed project filter, named by its value. */
 const scopeTrigger = (page: Page, value = 'All pages') =>
-  moduleMenu(page)
-    .locator('a[aria-current="page"]')
+  scopeRows(page)
+    .and(page.locator('[aria-pressed="true"]'))
     .filter({
-      has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${value}$`) }),
+      has: page.locator('.page-scope-name', { hasText: new RegExp(`^${scopeName(value)}$`) }),
     });
-const scopeRows = (page: Page) =>
-  moduleMenu(page).locator('a[data-id="all"], a[data-id^="project:"]');
+/** A command from the ⋯ beside the project filter. */
 async function fromScopeMenu(page: Page, name: string) {
-  await openModuleNavigation(page, app(page));
-  await moduleMenu(page).getByRole('link', { name, exact: true }).click();
+  await app(page).getByRole('button', { name: 'Project actions', exact: true }).click();
+  await page.getByRole('menuitem', { name, exact: true }).click();
 }
-/** Scope the list to a project (or All pages) from the module menu. */
+/** Scope the list to a project (or All pages) from the project filter. */
 async function scopeTo(page: Page, name: string) {
-  await openModuleNavigation(page, app(page));
-  await moduleMenu(page)
-    .locator('a')
+  await scopeRows(page)
     .filter({
-      has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${name}$`) }),
+      has: page.locator('.page-scope-name', { hasText: new RegExp(`^${scopeName(name)}$`) }),
     })
     .click();
 }
@@ -77,10 +76,10 @@ async function filterProject(page: Page, name: string) {
   await page.keyboard.press('Enter');
   await expect(app(page).locator(`[data-project-filter="${name}"]`)).toBeVisible();
 }
-/** A project's row in the module menu, with its count of active pages. */
+/** A project's filter button, with its count of active pages. */
 const menuProject = (page: Page, name: string) =>
   scopeRows(page).filter({
-    has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${name}$`) }),
+    has: page.locator('.page-scope-name', { hasText: new RegExp(`^${name}$`) }),
   });
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
 /** A page's project crumb links to the scoped list, which opens on All like any bare link. */
@@ -890,29 +889,39 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await filterProject(page, 'ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
   await expect(scopeRows(page)).toHaveCount(4);
-  await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toHaveCount(0);
-  await expect(moduleMenu(page).getByRole('link', { name: 'All projects…' })).toHaveCount(0);
+  await expect(app(page).getByRole('button', { name: 'Project actions' })).toHaveCount(0);
 });
 
-test('the module menu lists All pages and each project with its counts and needs-you', async ({
+test('the module menu is the fixed list: All pages, Shortcuts with its commands, then settings', async ({
   page,
 }) => {
   await mount(page);
-  await expect(scopeTrigger(page)).toBeVisible();
-  const rows = scopeRows(page);
-  await expect(rows).toHaveCount(4);
-  // Active pages shown: All 4; design 2 (Alpha waits on the viewer); ops 1; q4 plan 1 (also waits).
-  // The rail draws the counts as numbers (the needs-you one in a pill); the phone strip keeps the mark.
-  await expect(rows.nth(0)).toHaveText(/All pages\s*4\s*(?:◆ )?1/);
-  await expect(rows.nth(1)).toHaveText(/design\s*2\s*(?:◆ )?1/);
-  await expect(rows.nth(2)).toHaveText(/ops\s*1\s*$/);
-  await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*(?:◆ )?1/);
-  await expect(rows.nth(0)).toHaveAttribute('aria-current', 'page');
-  await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toBeVisible();
-  await expect(moduleMenu(page).getByRole('link', { name: 'All projects…' })).toBeVisible();
+  const menu = moduleMenu(page);
+  // Active pages shown: 4, two of which wait on the viewer.
+  await expect(menu.locator('a[data-id="all"]')).toHaveText(/All pages\s*4\s*1/);
+  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts']);
+  await expect(menu.getByRole('button', { name: 'Manage shortcuts' })).toBeVisible();
+  await expect(menu.getByRole('button', { name: '+ New shortcut' })).toBeVisible();
+  expect(
+    await menu
+      .locator('a[data-id]')
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
+  ).toEqual(['all', 'colab-settings']);
+  // No project rows, project commands or dashboards: projects live in the list's filter.
+  await expect(menu).not.toContainText('design');
+  await expect(menu).not.toContainText('New project');
+  await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
+  await expect(menu.locator('a[data-id="all"]')).toHaveAttribute('aria-current', 'page');
+  // A project scope is a filter of All pages, which stays the one selected row.
+  await scopeTo(page, 'design');
+  await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
+  await expect(menu.locator('a[data-id="all"]')).toHaveAttribute('aria-current', 'page');
+  // The ⋯ beside the project filter holds the project commands.
+  await fromScopeMenu(page, 'All projects…');
+  await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
 });
 
-test('the module menu lists dashboards under Dashboards and opens Colab settings read-only', async ({
+test('the module menu opens Colab settings read-only and selects only its row', async ({
   page,
 }) => {
   await mount(page, 'shells');
@@ -923,12 +932,7 @@ test('the module menu lists dashboards under Dashboards and opens Colab settings
       .locator('.tmt-ui-rail .tmt-ui-rail-item')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
   ).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
-  const shells = moduleMenu(page).locator('a[data-id^="shell:"]');
-  await expect(moduleMenu(page)).toContainText('Dashboards');
-  await expect(moduleMenu(page)).not.toContainText('Shells');
-  await expect(shells).toHaveCount(1);
-  await expect(shells).toHaveText('Reading shell');
-  await expect(shells).toHaveAttribute('href', /#\/pages\/[0-9a-f-]+$/);
+  await expect(moduleMenu(page)).not.toContainText('Dashboards');
   await moduleMenu(page).getByRole('link', { name: 'Colab settings', exact: true }).click();
   await expect(page).toHaveURL(/#\/settings$/);
   const settings = page.getByRole('region', { name: 'Colab settings' }).first();
@@ -942,6 +946,7 @@ test('the module menu lists dashboards under Dashboards and opens Colab settings
   await expect(
     moduleMenu(page).locator('a[data-id="colab-settings"][aria-current="page"]'),
   ).toBeVisible();
+  await expect(moduleMenu(page).locator('[aria-current="page"]')).toHaveCount(1);
 });
 
 for (const theme of ['light', 'dark'] as const) {
@@ -953,8 +958,11 @@ for (const theme of ['light', 'dark'] as const) {
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;
     }, theme);
-    const row = scopeRows(page).nth(1);
-    await expect(row).toHaveText(/design\s*2\s*(?:◆ )?1/);
+    const row = moduleMenu(page).locator('a[data-id="all"]');
+    await expect(row).toHaveText(/All pages\s*4\s*1/);
+    // At rest: open settings so All pages is not the selected row.
+    await moduleMenu(page).locator('a[data-id="colab-settings"]').click();
+    await expect(row).not.toHaveAttribute('aria-current', 'page');
     const colors = await row.evaluate((element) => {
       const color = (target: Element) => getComputedStyle(target).color;
       const role = (name: string) => {
@@ -994,7 +1002,7 @@ for (const theme of ['light', 'dark'] as const) {
     const before = await paint();
     expect(before[0]!.fill).not.toBe(before[1]!.fill);
     for (const pill of before) expect(pill.fill).not.toBe('rgba(0, 0, 0, 0)');
-    await scopeTo(page, 'design');
+    await row.click();
     await expect(row).toHaveAttribute('aria-current', 'page');
     expect(await paint()).toEqual(before);
     await page.screenshot({ path: await capturePath(`3952-scope-menu-${theme}.png`) });
@@ -1208,8 +1216,8 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   await page.keyboard.type('project:back');
   await expect(page.getByRole('option')).toHaveCount(0);
   await page.keyboard.press('Escape');
-  // An empty project draws no zero beside its name.
-  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog$/);
+  // The project filter counts an empty project as zero.
+  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*0$/);
   const gamma = app(page).locator('[data-page-id="c0000003-1111-4111-8111-000000000001"]');
   await gamma.locator('.page-project-group').click();
   await page.getByRole('menuitemcheckbox', { name: 'backlog' }).click();
@@ -1273,8 +1281,8 @@ test('rename is one request for every page in the project, archived included, an
   ]);
   expect(await requests(page)).toEqual([]);
   await dialog.getByRole('button', { name: 'Close Manage projects' }).click();
-  // The menu caps its count at 99+.
-  await expect(menuProject(page, 'current')).toHaveText(/^current\s*99\+$/);
+  // The renamed project keeps every page in the project filter.
+  await expect(menuProject(page, 'current')).toHaveText(/^current\s*130$/);
 });
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
@@ -1569,11 +1577,9 @@ for (const width of [1440, 390, 320])
       const inside = () =>
         page.evaluate(() => {
           const viewport = document.documentElement.clientWidth;
-          const current = [
-            ...document.querySelectorAll(
-              '#list-fixture .tmt-ui-rail-sub-item[aria-current="page"], #list-fixture .tmt-ui-module-menu a[aria-current="page"]',
-            ),
-          ].find((node) => (node as HTMLElement).offsetParent !== null)!;
+          const current = document.querySelector(
+            '#list-fixture .page-scope-filters [aria-pressed="true"]',
+          )!;
           const crumb = current.getBoundingClientRect();
           const rail = current.closest<HTMLElement>('.tmt-ui-rail');
           const bounds = rail?.getBoundingClientRect();
@@ -1586,24 +1592,19 @@ for (const width of [1440, 390, 320])
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
-        await openModuleNavigation(page, app(page));
-        const row = moduleMenu(page)
-          .locator('a')
-          .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: long }) });
+        const row = menuProject(page, long);
         await expect(row).toBeVisible();
         if (long.startsWith('W'))
           await page.screenshot({
             path: await capturePath(`3747-scope-long-${width}-${theme}.png`),
           });
-        // The same child row ellipsizes inside the wide rail or phone drawer.
+        // A long project filter ellipsizes within the viewport.
         await row.scrollIntoViewIfNeeded();
         const box = await row.boundingBox();
         expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
         await row.click();
-        await openModuleNavigation(page, app(page));
         await expect(scopeTrigger(page, long)).toBeVisible();
         expect(await inside()).toEqual({ scroll: 0, crumbInside: true, railOverflow: 0 });
-        if (width <= 900) await page.keyboard.press('Escape');
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
         // The bar's title keeps the crumb, ellipsized at its own cap, beside a long title; a phone
         // keeps only the title, ellipsized.
@@ -1623,9 +1624,7 @@ for (const width of [1440, 390, 320])
         if (width > 900) await crumb.click();
         else await page.goBack();
         await showAll(page);
-        await openModuleNavigation(page, app(page));
         await expect(scopeTrigger(page, long)).toBeVisible();
-        if (width <= 900) await page.keyboard.press('Escape');
       }
     });
 
@@ -1807,10 +1806,7 @@ for (const width of [1440, 390, 320])
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        await openModuleNavigation(page, app(page));
-        const entry = moduleMenu(page)
-          .locator('a')
-          .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: name }) });
+        const entry = menuProject(page, name);
         await entry.scrollIntoViewIfNeeded();
         await entry.click();
         const heading = app(page).locator('.tmt-ui-topbar-title-current');

@@ -47,7 +47,7 @@ import {
   type PageStage,
   type HomeStage,
 } from './list-stage.js';
-import { ProjectMenuActionsSlot } from './project-menu-actions.js';
+import { ShortcutMenuRequestSlot } from './shortcut-menu-request.js';
 import { inScope, knownScope, writeScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
@@ -240,7 +240,7 @@ function StageEmpty({
 export function Home() {
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
-  const offerProjectActions = useContext(ProjectMenuActionsSlot);
+  const shortcutRequest = useContext(ShortcutMenuRequestSlot);
   const search = homeRoute.useSearch();
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
@@ -427,15 +427,13 @@ export function Home() {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
   }
   /** The choice is the default the next visit opens on; All pages removes it. */
-  // The shell's module menu offers the project dialogs while this list can manage them.
+  // The shell's Shortcuts commands open this list's own dialogs.
   useEffect(() => {
-    if (!offerProjectActions || !port) return;
-    offerProjectActions({
-      newProject: () => setDialog({ kind: 'new', initial: [] }),
-      manage: () => setDialog({ kind: 'manage' }),
-    });
-    return () => offerProjectActions(undefined);
-  }, [offerProjectActions, port]);
+    const held = shortcutRequest?.request;
+    if (!held) return;
+    shortcutRequest.done(held.id);
+    if (port && shortcuts.store) setShortcutDialog(held.kind);
+  }, [shortcutRequest, port, shortcuts.store]);
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
   const lastApplied = useRef(applied);
@@ -683,6 +681,18 @@ export function Home() {
               </span>
             </button>
           ))}
+          {port && (
+            <BrowserMenu
+              label={t.projectActions}
+              items={[
+                { key: 'manage', label: t.allProjectsItem },
+                { key: 'new', label: `${t.newProject}…` },
+              ]}
+              onSelect={(key) =>
+                setDialog(key === 'new' ? { kind: 'new', initial: [] } : { kind: 'manage' })
+              }
+            />
+          )}
         </div>
         <div className="page-list-search">
           <Search className="page-list-search-mark" size={14} aria-hidden="true" />

@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openModuleNavigation } from '../test/home-list.js';
 import { capturePath } from './captures.js';
 
 const app = (page: Page) => page.locator('#list-fixture');
@@ -13,11 +12,12 @@ async function mount(page: Page, width = 1586, theme: 'light' | 'dark' = 'light'
     const fixture = '/test/page-list-browser.tsx';
     await (await import(fixture)).mountPageList('few');
   }, theme);
-  await openModuleNavigation(page, app(page));
-  await app(page)
-    .locator('.tmt-ui-rail-sub:visible')
-    .getByRole('link', { name: 'All projects…', exact: true })
-    .click();
+  await openManager(page);
+}
+/** All projects… from the ⋯ beside the list's project filter. */
+async function openManager(page: Page) {
+  await app(page).getByRole('button', { name: 'Project actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'All projects…', exact: true }).click();
 }
 
 test('website manager opens a new project through the existing write owner', async ({ page }) => {
@@ -68,11 +68,7 @@ for (const width of [1586, 390])
       await page.screenshot({ path: await capturePath(`projects-new-${width}-${theme}.png`) });
       await create.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(create).toHaveCount(0);
-      await openModuleNavigation(page, app(page));
-      await app(page)
-        .locator('.tmt-ui-rail-sub:visible')
-        .getByRole('link', { name: 'All projects…', exact: true })
-        .click();
+      await openManager(page);
       await manager.getByRole('button', { name: 'Rename design', exact: true }).click();
       const rename = app(page).getByRole('dialog', { name: 'Rename project', exact: true });
       await rename.getByRole('textbox', { name: 'Project name' }).fill('research');
