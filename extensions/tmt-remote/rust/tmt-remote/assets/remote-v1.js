@@ -4544,7 +4544,10 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const head = document.getElementById("remote-head");
 	const actions = head.querySelector(".remote-head-actions");
 	const primary = actions.querySelector("a[data-variant=primary]");
-	if (primary) actions.prepend(primary);
+	if (primary) {
+		primary.prepend(createIcon("plus"));
+		actions.prepend(primary);
+	}
 	const subheader = createPageSubheader({
 		title: "My Remotes",
 		count: 0,
