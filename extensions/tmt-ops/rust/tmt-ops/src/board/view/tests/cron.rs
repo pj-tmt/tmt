@@ -316,6 +316,8 @@ mod controls {
         assert!(app.confirm.is_none());
         open_timers(&mut app);
         press(&mut app, KeyCode::Char('d'));
+        // `y` chooses the painted Delete button, like a click.
+        crate::board::view::tests::draw(&app, 120, 40);
         assert_eq!(
             press(&mut app, KeyCode::Char('y')),
             existing(&key, Op::Remove)
