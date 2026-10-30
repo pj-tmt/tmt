@@ -1168,7 +1168,7 @@ repair. CI selection and gate ownership live in the
 .people-table {
   --tmt-ui-list-tracks: 2fr 1fr;
 }
-@media (max-width: 650px) {
+@media (max-width: 760px) {
   .people-table {
     --tmt-ui-list-tracks: minmax(0, 1fr);
   }

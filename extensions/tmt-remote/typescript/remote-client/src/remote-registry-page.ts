@@ -136,13 +136,11 @@ export function remoteRegistryPage(
   }
   const subheader = createPageSubheader({
     title: 'My Remotes',
-    count: 0,
     subtitle: 'Names and addresses stay in this browser.',
     actions,
   });
   head.replaceChildren(...subheader.childNodes);
   head.className = subheader.className;
-  const count = head.querySelector<HTMLElement>('.tmt-ui-shell-count')!;
   const subtitle = head.querySelector<HTMLElement>('.tmt-ui-subheader-text p');
   const status = document.getElementById('remote-status')!;
   const joinHost = document.getElementById('remote-join')!;
@@ -405,7 +403,6 @@ export function remoteRegistryPage(
     const visibleSummary =
       observed === 'Connected' && observedRole === 'owner' ? summary : undefined;
     summaryListeners.forEach((listener) => listener(visibleSummary));
-    count.textContent = String(projection.rows.length);
     if (subtitle)
       subtitle.textContent = `${projection.rows.length} ${projection.rows.length === 1 ? 'remote' : 'remotes'} · Names and addresses stay in this browser.`;
     footer.replaceChildren(
