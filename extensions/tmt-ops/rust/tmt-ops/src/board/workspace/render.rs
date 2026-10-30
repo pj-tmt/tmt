@@ -28,7 +28,7 @@ pub(in crate::board) fn pin_mark(
     let pinned = match target {
         OpsTarget::Squad(room) => preferences.pinned.contains(room),
         OpsTarget::Member { identity_id, .. } => preferences.agent_pins.contains(identity_id),
-        OpsTarget::Pool | OpsTarget::DigestAll => false,
+        OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => false,
     };
     Span::styled(if pinned { "▪ " } else { "  " }, look.role(Role::Muted))
 }
@@ -352,6 +352,23 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             let y = viewport.y + (index - offset) as u16;
             let selected = Some(&row.target) == app.workspace.selected.as_ref();
             let stripe = Rect::new(viewport.x, y, viewport.width, 1);
+            if row.target == OpsTarget::Hidden {
+                crate::board::tree_row::paint_line(
+                    frame.buffer_mut(),
+                    stripe,
+                    app.workspace.visibility.reveal_hidden,
+                    hidden_group(app, snapshot, row),
+                    selected,
+                    look,
+                );
+                app.hits.borrow_mut().push(Hit {
+                    x: stripe.x,
+                    y,
+                    width: stripe.width,
+                    target: HitTarget::Row(index),
+                });
+                continue;
+            }
             let scope = match &row.target {
                 OpsTarget::Squad(room) => Some(
                     crate::board::overview::cron_counts::CronCountScope::Room(room),
@@ -363,7 +380,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     id: identity_id,
                     room: room_id.as_deref(),
                 }),
-                OpsTarget::Pool | OpsTarget::DigestAll => None,
+                OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
             };
             let timers = scope.and_then(|scope| app.cron.counts.count(scope));
             let tokens = if app.tok_money() {
@@ -378,7 +395,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     OpsTarget::Member { identity_id, .. } => {
                         std::iter::once(identity_id.as_str()).collect()
                     }
-                    OpsTarget::Pool | OpsTarget::DigestAll => Default::default(),
+                    OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => {
+                        Default::default()
+                    }
                 };
                 app.tok_money_text(&members.into_iter().collect::<Vec<_>>())
             } else {
@@ -392,7 +411,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     OpsTarget::Member { identity_id, .. } => app
                         .overview_member_usage(identity_id)
                         .map(|reading| (reading.tokens, reading.partial)),
-                    OpsTarget::Pool | OpsTarget::DigestAll => None,
+                    OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
                 }
                 .map_or_else(
                     || "—".into(),
@@ -514,7 +533,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 OpsTarget::Member { identity_id, .. } => {
                     snapshot.preferences.agent_pins.contains(identity_id)
                 }
-                OpsTarget::Pool | OpsTarget::DigestAll => false,
+                OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => false,
             };
             let model: String = match &row.target {
                 OpsTarget::Member { identity_id, .. } => {
@@ -546,7 +565,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                             })
                     })
                     .unwrap_or_default(),
-                OpsTarget::Pool | OpsTarget::DigestAll => String::new(),
+                OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => String::new(),
             };
             // Decided once per row: focus in this agent's conversation.
             let in_conversation = selected
@@ -561,7 +580,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 &crate::board::tree_row::Row {
                     source: row,
                     expanded,
-                    last: !rows.get(index + 1).is_some_and(|next| next.depth == 1),
+                    last: !rows
+                        .get(index + 1)
+                        .is_some_and(|next| next.depth == row.depth),
                     pinned,
                     state,
                     state_primary_width,
@@ -628,7 +649,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         room_id,
                         identity_id,
                     } => (room_id.clone(), Some(identity_id.clone())),
-                    OpsTarget::Pool | OpsTarget::DigestAll => (None, None),
+                    OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => (None, None),
                 };
                 app.cron_scope_hits
                     .borrow_mut()
@@ -664,6 +685,46 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             totals,
         );
     }
+}
+
+/// The Hidden group's words: `Hidden · N squad(s)`, and while folded the hidden
+/// squads' blocked agents (`≥` when the read is incomplete), as the list shows them.
+fn hidden_group(
+    app: &App,
+    snapshot: &super::observe::OpsWorkspaceSnapshot,
+    row: &super::OpsTreeRow,
+) -> Vec<(String, ratatui::style::Style)> {
+    let look = app.look();
+    let squads = row.count.unwrap_or_default();
+    let mut spans = vec![
+        ("Hidden".to_owned(), look.role(Role::Text)),
+        (
+            format!(" · {squads} squad{}", if squads == 1 { "" } else { "s" }),
+            look.role(Role::Muted),
+        ),
+    ];
+    let counts = &snapshot.hidden_attention;
+    if !app.workspace.visibility.reveal_hidden && counts.blocked > 0 {
+        let ascii = matches!(
+            app.cron_glyphs,
+            crate::board::overview::cron_counts::GlyphSet::Ascii
+        );
+        let at_least = if counts.complete && app.error.is_none() {
+            ""
+        } else {
+            "≥"
+        };
+        spans.push((" · ".into(), look.role(Role::Muted)));
+        spans.push((
+            format!(
+                "{} {at_least}{} blocked",
+                if ascii { "x" } else { "✗" },
+                counts.blocked
+            ),
+            look.role(Role::Blocked),
+        ));
+    }
+    spans
 }
 
 /// Pointer feedback follows selection-word normalization, like meter feedback.
@@ -750,17 +811,45 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
         app,
         crate::action::OpsUiAction::AgentsFilter,
         search_count.as_deref(),
+        &scope_labels(app),
     ) {
         let choice = match hit.id.as_str() {
             "all" => Choice::AgentsFilter(AgentsFilter::All),
             "agents" => Choice::AgentsFilter(AgentsFilter::Agents),
             "pinned" => Choice::AgentsFilter(AgentsFilter::Pinned),
             "clear-search" => Choice::ClearSearch,
+            "clear-scope" => Choice::Action(
+                crate::action::Action::parse(crate::action::OpsUiAction::ClearScope.spec().name)
+                    .expect("registered clear-scope action"),
+            ),
             _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
         };
         app.workspace_strip_hits
             .borrow_mut()
             .push((hit.area, choice));
+    }
+}
+
+/// The scope chip's wordings, longest first: `Scope: product` (`+2` for more
+/// squads), then `Scope: 3 squads`. Names are admitted whole, never cut.
+pub(in crate::board) fn scope_labels(app: &App) -> Vec<String> {
+    let scope = &app.workspace.visibility.scope;
+    let (Some(first), Some(snapshot)) = (scope.first(), app.workspace_snapshot()) else {
+        return Vec::new();
+    };
+    let name = snapshot
+        .roster
+        .squads
+        .iter()
+        .find(|squad| &squad.room_id == first)
+        .map_or_else(|| "(unavailable)".to_owned(), |squad| safe(&squad.name));
+    if scope.len() == 1 {
+        vec![format!("Scope: {name}"), "Scope: 1 squad".into()]
+    } else {
+        vec![
+            format!("Scope: {name} +{}", scope.len() - 1),
+            format!("Scope: {} squads", scope.len()),
+        ]
     }
 }
 

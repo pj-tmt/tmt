@@ -93,6 +93,33 @@ fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
     .areas(area)
 }
 
+/// Digest has no search bar, so a scope shows as the same chip at the right end
+/// of the tab strip, in the first wording that fits after the tabs.
+fn digest_scope(frame: &mut Frame, app: &App, area: Rect, used: u16) {
+    for scope in super::workspace::render::scope_labels(app) {
+        let label = format!(" {scope} ");
+        let width = super::filter_bar::scope_width(&label);
+        if area.width < used + 2 + width {
+            continue;
+        }
+        let cross = super::filter_bar::paint_scope(
+            frame.buffer_mut(),
+            area.right() - width,
+            area.y,
+            &label,
+            app.look(),
+        );
+        app.workspace_strip_hits.borrow_mut().push((
+            cross,
+            super::app::Choice::Action(
+                crate::action::Action::parse(crate::action::OpsUiAction::ClearScope.spec().name)
+                    .expect("registered clear-scope action"),
+            ),
+        ));
+        return;
+    }
+}
+
 /// Frame geometry consumes an already formatted header, independent of acquisition.
 pub(in crate::board) fn render_frame(
     frame: &mut Frame,
@@ -135,9 +162,11 @@ pub(in crate::board) fn render_frame(
     let workspace = app.workspace_snapshot().is_some() || app.view.is_none();
     let shell_gap = u16::from(frame.area().height >= 24);
     let [tabs, boundary, summary, limits, meter_status, body, footer] = if workspace {
+        // Hidden squads and the scope live in the Agents list and its search bar,
+        // so the workspace has no boundary band.
         Layout::vertical([
             Constraint::Length(1),
-            Constraint::Length(u16::from(frame.area().height >= 7)),
+            Constraint::Length(0),
             Constraint::Length(1),
             Constraint::Length(shell_gap),
             Constraint::Length(0),
@@ -162,8 +191,12 @@ pub(in crate::board) fn render_frame(
     app.conversation.borrow_mut().area = body;
     if workspace {
         header::render_shell(frame, app, tabs);
-        header::render_visibility(frame, app, boundary);
-        strip::paint_left(frame.buffer_mut(), summary, tabs::paint(app, summary));
+        let line = tabs::paint(app, summary);
+        let used = line.width() as u16;
+        strip::paint_left(frame.buffer_mut(), summary, line);
+        if app.shell.tab == super::shell::OpsTab::Digest {
+            digest_scope(frame, app, summary, used);
+        }
     } else {
         strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     }

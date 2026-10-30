@@ -53,14 +53,34 @@ fn hidden_squads_do_not_leak_members_into_pool_or_search_and_keep_global_attenti
         ..Default::default()
     };
     let rows = workspace.rows(&roster, &preferences);
-    assert_eq!(rows.len(), 2);
+    assert_eq!(rows.len(), 3);
     assert_eq!(rows[0].target, OpsTarget::Pool);
     assert_eq!(rows[0].count, Some(1));
     assert!(
         matches!(&rows[1].target, OpsTarget::Member { room_id: None, identity_id } if identity_id == "free")
     );
+    // The hidden squad stays out of the pool and the list; only the group closes it.
+    assert_eq!(rows[2].target, OpsTarget::Hidden);
+    assert_eq!(rows[2].count, Some(1));
     workspace.query = "Alice".into();
-    assert!(workspace.rows(&roster, &preferences).is_empty());
+    let rows = workspace.rows(&roster, &preferences);
+    assert_eq!(
+        rows.iter()
+            .map(|row| (row.target.clone(), row.depth))
+            .collect::<Vec<_>>(),
+        [
+            (OpsTarget::Hidden, 0),
+            (OpsTarget::Squad("room".into()), 1),
+            (
+                OpsTarget::Member {
+                    room_id: Some("room".into()),
+                    identity_id: "one".into()
+                },
+                2
+            ),
+        ],
+        "search finds a hidden member under the Hidden group, never in the pool"
+    );
     assert_eq!(roster.shell_counts(), counts);
     assert_eq!(counts.waiting, 1);
     assert_eq!(counts.blocked, 1);
@@ -126,12 +146,30 @@ fn revealing_hidden_squads_is_session_only_and_unknown_saved_ids_change_no_rows(
     preferences.hidden.insert("deleted-room".into());
     assert_eq!(workspace.rows(&roster, &preferences), original);
     preferences.hidden.insert("room".into());
-    assert_eq!(workspace.rows(&roster, &preferences).len(), 1);
+    let targets = |workspace: &OpsWorkspace, preferences: &OpsPreferences| {
+        workspace
+            .rows(&roster, preferences)
+            .into_iter()
+            .map(|row| (row.target, row.depth))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        targets(&workspace, &preferences),
+        [(OpsTarget::Pool, 0), (OpsTarget::Hidden, 0)]
+    );
+    // Unfolding the group lists the squad one level in; it is session state only.
     workspace.visibility.reveal_hidden = true;
-    assert_eq!(workspace.rows(&roster, &preferences), original);
+    assert_eq!(
+        targets(&workspace, &preferences),
+        [
+            (OpsTarget::Pool, 0),
+            (OpsTarget::Hidden, 0),
+            (OpsTarget::Squad("room".into()), 1)
+        ]
+    );
     assert_eq!(preferences.hidden.len(), 2);
     workspace.visibility = OpsVisibility::default();
-    assert_eq!(workspace.rows(&roster, &preferences).len(), 1);
+    assert_eq!(targets(&workspace, &preferences).len(), 2);
 }
 
 #[test]
@@ -894,7 +932,8 @@ fn pinned_agents_keep_their_groups_without_revealing_unpinned_children() {
     assert_eq!(workspace.search_counts(&roster, &preferences), (1, 2));
     workspace.query.clear();
     preferences.hidden.insert("room".into());
-    assert_eq!(workspace.rows(&roster, &preferences).len(), 2);
+    // The pinned Alice keeps the Hidden group, its squad and her row.
+    assert_eq!(workspace.rows(&roster, &preferences).len(), 5);
     workspace.visibility.scope = vec!["other".into()];
     assert!(workspace.rows(&roster, &preferences).is_empty());
     workspace.visibility.scope.clear();

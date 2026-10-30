@@ -394,10 +394,10 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                     );
                     let pane = app.conversation.borrow().pane.unwrap();
                     if width == 148 {
-                        assert_eq!((pane.x, pane.y, pane.width), (71, 9, 77));
+                        assert_eq!((pane.x, pane.y, pane.width), (71, 8, 77));
                     } else {
                         assert_eq!(pane.x, 0);
-                        assert!(pane.y > 9);
+                        assert!(pane.y > 8);
                     }
                     let band = app.input_band.get().unwrap();
                     assert_eq!(band.height, 4);

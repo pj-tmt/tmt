@@ -105,6 +105,9 @@ pub enum OpsTarget {
     /// The read-only aggregate row in Digest; never a recipient or room.
     DigestAll,
     Pool,
+    /// The folding group of hidden squads at the end of the Agents list; it only
+    /// selects, folds and counts, and is never a recipient or room.
+    Hidden,
     Squad(String),
     Member {
         room_id: Option<String>,
@@ -333,7 +336,7 @@ impl OpsRoster {
 
     pub(in crate::board) fn contains(&self, target: &OpsTarget) -> bool {
         match target {
-            OpsTarget::Pool | OpsTarget::DigestAll => true,
+            OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => true,
             OpsTarget::Squad(id) => self.squads.iter().any(|squad| squad.room_id == *id),
             OpsTarget::Member {
                 room_id: Some(room),
@@ -457,6 +460,7 @@ impl OpsWorkspace {
     pub fn toggle_expanded(&mut self, target: &OpsTarget) -> bool {
         match target {
             OpsTarget::Pool => self.pool_expanded = !self.pool_expanded,
+            OpsTarget::Hidden => self.visibility.reveal_hidden = !self.visibility.reveal_hidden,
             OpsTarget::Squad(id) => {
                 if !self.expanded.remove(id) {
                     self.expanded.insert(id.clone());
@@ -518,11 +522,11 @@ impl OpsWorkspace {
                 admit(member, group_matches);
             }
         }
-        for squad in roster
-            .squads
-            .iter()
-            .filter(|squad| self.visibility.shows_squad(&squad.room_id, preferences))
-        {
+        // Outside a scope, search lists hidden squads too, under the Hidden group.
+        for squad in roster.squads.iter().filter(|squad| {
+            self.visibility.scope.is_empty()
+                || self.visibility.shows_squad(&squad.room_id, preferences)
+        }) {
             let group_matches = squad.name.to_lowercase().contains(&query);
             for member in roster.members(squad).filter(|member| {
                 self.filter != AgentsFilter::Pinned
@@ -603,12 +607,25 @@ impl OpsWorkspace {
                 rows.push(member_row(member, None, false, roster.observation, None));
             }
         }
+        // Outside a scope, hidden squads leave the list for the Hidden group at its end.
+        let grouped = self.visibility.scope.is_empty();
         let mut squads: Vec<_> = roster
             .squads
             .iter()
-            .filter(|squad| self.visibility.shows_squad(&squad.room_id, preferences))
+            .filter(|squad| {
+                if grouped {
+                    !preferences.hidden.contains(&squad.room_id)
+                } else {
+                    self.visibility.shows_squad(&squad.room_id, preferences)
+                }
+            })
             .collect();
-        squads.sort_by(|a, b| {
+        let mut hidden: Vec<_> = roster
+            .squads
+            .iter()
+            .filter(|squad| grouped && preferences.hidden.contains(&squad.room_id))
+            .collect();
+        let order = |a: &&OpsSquad, b: &&OpsSquad| {
             let pinned = preferences
                 .pinned
                 .contains(&b.room_id)
@@ -635,8 +652,12 @@ impl OpsWorkspace {
                 order
             };
             order.then_with(|| a.room_id.cmp(&b.room_id))
-        });
-        for squad in squads {
+        };
+        squads.sort_by(order);
+        hidden.sort_by(order);
+        // One squad row and its shown members, `depth` levels in.
+        let squad_rows = |squad: &OpsSquad, depth: u8| -> Vec<OpsTreeRow> {
+            let mut rows = Vec::new();
             let squad_pinned = preferences.pinned.contains(&squad.room_id);
             let mut members: Vec<_> = roster.members(squad).collect();
             let mut seen = BTreeSet::new();
@@ -646,14 +667,14 @@ impl OpsWorkspace {
                 .any(|member| preferences.agent_pins.contains(&member.id));
             if self.filter == AgentsFilter::Pinned {
                 if !squad_pinned && !agent_pinned {
-                    continue;
+                    return rows;
                 }
                 members
                     .retain(|member| squad_pinned || preferences.agent_pins.contains(&member.id));
             }
             let squad_matches = matches(&squad.name);
             if !squad_matches && !members.iter().any(|member| matches(&member.name)) {
-                continue;
+                return rows;
             }
             let attention = match roster.attention(squad) {
                 2 => Some("waiting"),
@@ -668,7 +689,7 @@ impl OpsWorkspace {
             rows.push(OpsTreeRow {
                 target: OpsTarget::Squad(squad.room_id.clone()),
                 title: squad.name.clone(),
-                depth: 0,
+                depth,
                 lead: false,
                 state: attention.map(str::to_owned),
                 presence: None,
@@ -694,13 +715,48 @@ impl OpsWorkspace {
                     .into_iter()
                     .filter(|member| squad_matches || matches(&member.name))
                 {
-                    rows.push(member_row(
+                    let mut row = member_row(
                         member,
                         Some(&squad.room_id),
                         squad.lead.as_deref() == Some(&member.id),
                         squad.observation,
                         Some(squad.member_states.get(&member.id).unwrap_or(&unknown)),
-                    ));
+                    );
+                    row.depth = depth + 1;
+                    rows.push(row);
+                }
+            }
+            rows
+        };
+        for squad in squads {
+            rows.extend(squad_rows(squad, 0));
+        }
+        // The Hidden group closes the list. Unfolded (`reveal_hidden`), its squads sit
+        // one level in; search and the Pinned filter keep it only for what matches.
+        if !hidden.is_empty() {
+            let unfolded = expand
+                || self.visibility.reveal_hidden
+                || !query.is_empty()
+                || self.filter == AgentsFilter::Pinned;
+            let children: Vec<_> = hidden
+                .iter()
+                .flat_map(|squad| squad_rows(squad, 1))
+                .collect();
+            if !children.is_empty() || (query.is_empty() && self.filter != AgentsFilter::Pinned) {
+                rows.push(OpsTreeRow {
+                    target: OpsTarget::Hidden,
+                    title: "Hidden".into(),
+                    depth: 0,
+                    lead: false,
+                    state: None,
+                    presence: None,
+                    usage: None,
+                    activity: None,
+                    count: Some(hidden.len()),
+                    observation: roster.observation,
+                });
+                if unfolded {
+                    rows.extend(children);
                 }
             }
         }

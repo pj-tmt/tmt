@@ -76,7 +76,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
                 "terminal"
             }
         }
-        Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "show hidden",
+        Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "hidden",
         Verb::Ui(crate::action::OpsUiAction::Search) if !app.search.is_empty() => "edit filter",
         Verb::Ui(action) => action.spec().label,
         verb => verb.name(),

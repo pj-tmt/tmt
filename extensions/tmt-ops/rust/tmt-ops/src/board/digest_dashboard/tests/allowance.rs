@@ -291,7 +291,8 @@ fn a_narrow_frame_stacks_the_allowance_under_the_amounts() {
     }
     // Rows the table cannot spare are clipped and scroll inside the stacked block.
     let mut app = digest(vec![claude(), steady]);
-    let rows = rows(&buffer(&mut app, 80, 22));
+    // One row shorter than the body that fits both: the board has no boundary band.
+    let rows = rows(&buffer(&mut app, 80, 21));
     let heading = rows
         .iter()
         .position(|row| row.contains("ALLOWANCE LEFT"))

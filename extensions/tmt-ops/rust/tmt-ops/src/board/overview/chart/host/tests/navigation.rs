@@ -225,7 +225,7 @@ fn session_motion_repaints_the_fixed_readout_only_when_its_bucket_changes() {
                     let title = buffer
                         .content
                         .chunks(103)
-                        .nth(4)
+                        .nth(3)
                         .unwrap()
                         .iter()
                         .map(|cell| cell.symbol())

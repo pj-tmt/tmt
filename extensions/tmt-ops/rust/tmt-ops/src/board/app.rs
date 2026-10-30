@@ -4026,6 +4026,7 @@ impl App {
             None => Value::Null,
             Some(OpsTarget::DigestAll) => json!({"kind":"all"}),
             Some(OpsTarget::Pool) => json!({"kind":"pool"}),
+            Some(OpsTarget::Hidden) => json!({"kind":"hidden"}),
             Some(OpsTarget::Squad(id)) => json!({"kind":"squad", "roomId":id}),
             Some(OpsTarget::Member {
                 room_id,

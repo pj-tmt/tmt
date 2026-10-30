@@ -1063,6 +1063,19 @@ fn unread_overlay_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// Hidden squads as the Agents list's last group, and the scope chip (#5643).
+fn visibility_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::app::workspace::tests::VISIBILITY_SCENES,
+        |_| grid(&[160, 100], &[36]),
+        |state, look, _, _| {
+            crate::board::app::workspace::tests::visibility_capture_case(state, look)
+        },
+        |_, _| {},
+    )
+}
+
 fn account_limits_frames(styles: &mut Styles) -> Vec<Value> {
     use crate::board::limits::{
         Current, Provider, Standing,
@@ -1189,6 +1202,7 @@ fn captures() -> Value {
         frames.extend(unread_overlay_frames(&mut styles));
         frames.extend(account_limits_frames(&mut styles));
         frames.extend(mention_picker_frames(&mut styles));
+        frames.extend(visibility_frames(&mut styles));
         let styles = styles
             .0
             .into_iter()

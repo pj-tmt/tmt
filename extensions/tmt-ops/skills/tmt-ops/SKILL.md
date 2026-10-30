@@ -530,9 +530,11 @@ A second Esc uses the normal list behavior. Backspace in an empty field closes i
 During editing, match counts remain on the section rule; committing moves the
 count into the field. Search reveals matching children of visible squads temporarily;
 clearing expands only the selected occurrence's group when needed. Select a squad and use `H` Hide squad (or its Actions entry) to
-hide it from Agents. The `Hidden: N` header's show control (`h` by
-default) reveals hidden squads only for this session. Before reveal, the line
-shows blocked counts from hidden squads in their state colour. Select a revealed squad and
+hide it from Agents. Hidden squads move into the last row of the list,
+`▸ Hidden · 1 squad · ✗ 1 blocked`, a group like Common pool: → or `h` unfolds it
+for this session and lists the hidden squads one level in, ← or `h` folds it. While
+folded it shows blocked counts from hidden squads in their state colour; search
+finds their members under it. Select a hidden squad and
 use `S` Show squad to remove its saved hide. Common pool cannot be hidden. Pins
 are retained independently, and hidden squads still contribute to global shell
 attention. Explicit Hide moves the selection only after the save succeeds;
@@ -781,9 +783,11 @@ migration notices and preserves authored TOML. `--tabs` is refused. Launch with
 `tmt ops ui --squad product` or repeat the option, for example
 `tmt ops ui --squad product --squad infra`, to show only those squads for this
 session, opening Agents on the first named squad. Scope overrides saved hides,
-excludes Common pool, and appears as `Scope: product,infra · Esc clears` with
-whole names fitted to the width. Escape clears scope outside an editor, search
-or overlay; explicit bindings win. Duplicate room IDs collapse and an unknown
+excludes Common pool, and appears as a chip on the Agents search bar (on Digest,
+at the right end of the tab strip): `Scope: product +1 ×`, or `Scope: 2 squads ×`
+when a whole name does not fit; a narrow bar drops it before the search field.
+Click × or press Escape outside an editor, search or overlay to clear it;
+explicit bindings win. Duplicate room IDs collapse and an unknown
 or retired name fails before terminal admission with active valid squad names. `all` is an ordinary
 squad name. Neither scope nor session reveal changes the saved hidden list;
 in-place reload carries both, including a cleared scope. Noninteractive `ui`

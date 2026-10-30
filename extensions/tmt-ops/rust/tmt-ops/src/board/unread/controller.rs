@@ -44,7 +44,7 @@ impl App {
             return Count::default();
         };
         match target {
-            OpsTarget::DigestAll => Count::default(),
+            OpsTarget::DigestAll | OpsTarget::Hidden => Count::default(),
             OpsTarget::Member { identity_id, .. } => self.unread_member(page, identity_id),
             OpsTarget::Squad(room) => {
                 let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {

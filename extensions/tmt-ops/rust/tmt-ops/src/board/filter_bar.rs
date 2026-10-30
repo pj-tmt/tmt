@@ -2,6 +2,36 @@
 //! Hosts supply options and own selection, filtering and command admission.
 use crate::board::{app::App, chip_group};
 use ratatui::{buffer::Buffer, layout::Rect};
+use unicode_width::UnicodeWidthStr;
+
+/// The cells of a scope chip whose words (with their padding) are `label`.
+pub(in crate::board) fn scope_width(label: &str) -> u16 {
+    (label.width() + 2) as u16
+}
+
+/// Paints the scope chip, `label` then `× `, from `x`; returns the × cell, the
+/// one control that clears the scope. The Agents search bar and the Digest tab
+/// strip share it.
+pub(in crate::board) fn paint_scope(
+    buffer: &mut Buffer,
+    x: u16,
+    y: u16,
+    label: &str,
+    look: crate::look::Look,
+) -> Rect {
+    tmt_tui::components::strip::paint_left(
+        buffer,
+        Rect::new(x, y, scope_width(label), 1),
+        ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(label.to_owned(), look.role(tmt_cli_style::Role::Muted)),
+            ratatui::text::Span::styled("× ", look.role(tmt_cli_style::Role::Text)),
+        ]),
+    );
+    Rect::new(x + label.width() as u16, y, 1, 1)
+}
+
+/// The narrowest search field the scope chip leaves room for.
+const SCOPE_ROOM: u16 = 12;
 
 pub(in crate::board) fn paint(
     buffer: &mut Buffer,
@@ -11,6 +41,7 @@ pub(in crate::board) fn paint(
     app: &App,
     toggle: crate::action::OpsUiAction,
     count: Option<&str>,
+    scope: &[String],
 ) -> Vec<chip_group::Hit> {
     let look = app.look();
     let enabled = app.workspace_strip_enabled();
@@ -77,8 +108,24 @@ pub(in crate::board) fn paint(
         app,
         None,
     );
+    // A scope reads as one more chip, `Scope: product ×`, whose × clears it. `scope`
+    // lists its wordings longest first; the first that leaves the search field its
+    // room is painted, and none is when even the shortest does not fit.
+    let mut used = chips as u16;
+    let fitting = scope.iter().find_map(|scope| {
+        let label = format!(" {scope} ");
+        let width = scope_width(&label);
+        (area.width.saturating_sub(used + 1 + width + 2) >= SCOPE_ROOM).then_some((label, width))
+    });
+    if let Some((label, width)) = fitting {
+        hits.push(chip_group::Hit {
+            area: paint_scope(buffer, area.x + used + 1, area.y, &label, look),
+            id: "clear-scope".into(),
+        });
+        used += 1 + width;
+    }
     // The search field sits at the right end of the rule, one dash before the divider.
-    let available = area.width.saturating_sub(chips as u16 + 2);
+    let available = area.width.saturating_sub(used + 2);
     let search_width = available.min(34);
     if search_width > 0 {
         let x = area.right() - 1 - search_width;
@@ -152,6 +199,7 @@ mod tests {
                             &app,
                             crate::action::OpsUiAction::AgentsFilter,
                             None,
+                            &[],
                         );
                         let mut slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
                         if let Some(clear) = hits.iter().find(|hit| hit.id == "clear-search") {
@@ -218,6 +266,7 @@ mod tests {
                         &app,
                         crate::action::OpsUiAction::AgentsFilter,
                         Some("3 of 23"),
+                        &[],
                     );
                     for (i, hit) in hits.iter().enumerate() {
                         assert!(!hit.area.is_empty() && hit.area.intersection(area) == hit.area);
@@ -265,6 +314,7 @@ mod tests {
                     &app,
                     crate::action::OpsUiAction::AgentsFilter,
                     None,
+                    &[],
                 );
                 for hit in hits {
                     assert_eq!(hit.area.intersection(area), hit.area);
