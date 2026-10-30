@@ -294,9 +294,8 @@ fn chosen_room_freezes_current_revision_and_only_its_member_timer_impact() {
     assert_eq!(app.workspace_confirm(), Effect::None);
     let text = paint(&app, 80, 24).join("\n");
     assert!(text.contains("Source timers to pause: 2"), "{text}");
-    key(&mut app, KeyCode::Tab);
     key(&mut app, KeyCode::End);
-    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Right);
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
         matches!(effect, Effect::Act(Request::WorkspaceOperation(crate::board::workspace::manage::Change::Membership(crate::membership::workspace::Operation::Remove {room,member}))) if room.id==SECOND_ROOM && room.revision==8 && member==MEMBER)

@@ -1462,12 +1462,18 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             );
         }
     }
-    let focused = app
-        .overlay_focus
-        .focused()
-        .and_then(|field| field.last())
-        .map(String::as_str)
-        .or(Some("cancel"));
+    let focused = if draft.stage == Stage::Review {
+        Some(match draft.review.focus {
+            tmt_tui::components::Focus::Buttons(1) => "apply",
+            _ => "cancel",
+        })
+    } else {
+        app.overlay_focus
+            .focused()
+            .and_then(|field| field.last())
+            .map(String::as_str)
+            .or(Some("cancel"))
+    };
     if draft.stage == Stage::Review {
         let removal = draft.kind == super::manage::Kind::RemoveMember;
         let apply_label = if removal {
@@ -1535,11 +1541,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                                 ("Enter", "select"),
                             ]
                         } else {
-                            &[
-                                ("Esc", "cancel"),
-                                ("Enter", "select"),
-                                ("Tab", "read/actions"),
-                            ]
+                            &[("Esc", "cancel"), ("Enter", "select"), ("←→", "actions")]
                         },
                         hint.width,
                     ),

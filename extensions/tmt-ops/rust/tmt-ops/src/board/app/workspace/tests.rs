@@ -1384,9 +1384,13 @@ fn confirmation_requires_current_geometry_and_does_not_replay_while_pending() {
     assert_eq!(app.workspace_confirm(), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
     paint(&app, 80, 24);
-    key(&mut app, KeyCode::Tab); // Cancel -> read
-    key(&mut app, KeyCode::End);
-    key(&mut app, KeyCode::Tab); // read -> apply
+    key(&mut app, KeyCode::End); // reads to the end
+    assert_eq!(
+        key(&mut app, KeyCode::Tab),
+        Effect::None,
+        "Tab does nothing"
+    );
+    key(&mut app, KeyCode::Right); // Cancel -> apply
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
         matches!(effect,Effect::Act(Request::WorkspaceOperation(crate::board::workspace::manage::Change::Membership(crate::membership::workspace::Operation::Remove {room,member}))) if room.id == ROOM && member == MEMBER)

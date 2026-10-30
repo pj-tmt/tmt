@@ -85,7 +85,13 @@ pub struct Draft {
     pub timer_impact: Option<usize>,
     pub scroll: RefCell<ScrollState>,
     pub controls: Cell<[Option<Rect>; 2]>,
+    /// The Review stage's Cancel / apply cursor; it starts on Cancel.
+    pub review: tmt_tui::components::DialogState,
 }
+/// Review starts on Cancel: Enter there never applies a membership change by accident.
+const REVIEW_START: tmt_tui::components::DialogState = tmt_tui::components::DialogState {
+    focus: tmt_tui::components::Focus::Buttons(0),
+};
 impl Draft {
     fn validate_field(&self, text: &str) -> Result<(), String> {
         let index = self.values.len();
@@ -409,7 +415,7 @@ impl Draft {
     pub fn focus_fields(&self) -> Vec<tmt_tui::app::ComponentId> {
         let fields: &[&str] = match self.stage {
             Stage::Fields => &["input"],
-            Stage::Review => &["cancel", "read", "apply"],
+            Stage::Review => &[],
             Stage::Pending | Stage::Result(_) => &["read", "close"],
         };
         fields
@@ -563,6 +569,28 @@ impl App {
                     .unwrap_or_else(|| self.input_key(*key));
                 self.update_mentions();
                 Some(effect)
+            }
+            Event::Key(key) if draft.stage == Stage::Review => {
+                use tmt_tui::components::{Button, DialogInput, DialogKind};
+                let controls = draft.controls.get();
+                let buttons = [
+                    Button::secondary("Cancel").enabled(controls[0].is_some()),
+                    Button::primary("Apply").enabled(controls[1].is_some()),
+                ];
+                let draft = self.workspace_form.as_mut()?;
+                match draft.review.key(DialogKind::Confirm, key, &[], &buttons) {
+                    DialogInput::Cancel | DialogInput::Choose(0) => {
+                        self.workspace_close();
+                        self.input = None;
+                        Some(Effect::None)
+                    }
+                    DialogInput::Choose(_) => Some(self.workspace_confirm()),
+                    DialogInput::Moved => Some(Effect::None),
+                    _ => {
+                        draft.scroll.borrow_mut().input(event);
+                        Some(Effect::None)
+                    }
+                }
             }
             Event::Key(key) if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) => None,
             Event::Key(key) if key.code == KeyCode::Enter && !editing => {
@@ -823,6 +851,7 @@ impl App {
             timer_impact,
             scroll: Default::default(),
             controls: Cell::new([None, None]),
+            review: REVIEW_START,
         });
         self.workspace_form_next()
     }
@@ -849,6 +878,7 @@ impl App {
         if draft.kind == Kind::RemoveMember {
             let draft = self.workspace_form.as_mut().unwrap();
             draft.stage = Stage::Review;
+            draft.review = REVIEW_START;
             draft.invalidate();
             return Effect::None;
         }
@@ -863,6 +893,7 @@ impl App {
         let draft = self.workspace_form.as_mut().unwrap();
         draft.operation = Some(operation);
         draft.stage = Stage::Review;
+        draft.review = REVIEW_START;
         draft.invalidate();
         *draft.scroll.borrow_mut() = Default::default();
         Effect::None
