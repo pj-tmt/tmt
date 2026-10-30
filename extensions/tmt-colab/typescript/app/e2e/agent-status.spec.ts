@@ -275,7 +275,7 @@ test('replaced binding drops the old pending directory and retains a Chat draft'
 }) => {
   await page.goto(fixture);
   await (await pageAction(page, 'Chat')).click();
-  const chat = page.locator('.page-conversation-window[data-panel=chat]');
+  const chat = page.locator('.tmt-ui-drawer[data-panel=chat]');
   await chat.getByRole('combobox', { name: 'Message', exact: true }).fill('Retain this draft');
   await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   const panel = await openStatus(page);

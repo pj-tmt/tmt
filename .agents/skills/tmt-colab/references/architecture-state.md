@@ -381,7 +381,8 @@ in flight. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command only for verified revoked, expired or missing pairing; a way back to the space for a
 page that is gone; `Reload` for ended sessions, access refusals, identity mismatches and a device
-at its Remote session limit, and generic reconnect failures; none for an oversized change). A live Chat composer owns its ended sentence/action once; an archived Chat and every other drawer keep
+at its Remote session limit, and generic reconnect failures; none for an oversized change). A modal drawer makes that card inert, so a live Chat
+composer owns its ended sentence/action once; an archived Chat and every other drawer keep
 the same sentence/action in the `notice` row under the header. An ended annotation keeps its
 action scroll- and keyboard-reachable within the existing composer overflow. `Live` stays
 the transport owner: it keeps its bounded resync
@@ -474,7 +475,8 @@ normal stop: an owned Remote is reaped, an attached Remote stays up. The selecte
 execs through ordinary startup, so Remote ownership/stop reporting stay truthful without a
 guardian or handoff. An owned door briefly restarts on its saved port. Browser
 reload stays explicit; old serves still show the named manual restart row.
-A recovery press does not dismiss it or take focus from an active composer. Chat closes its floating window to reach Reconnect; its DOM selection is retained only
+A recovery press does not dismiss it or take focus from an active composer. Mobile
+Chat closes its modal drawer to reach Reconnect; its DOM selection is retained only
 for that recovery and restored when the same connected composer regains focus.
 Concurrent clicks share one in-flight attempt. Network failure returns to the waiting
 notice and editable draft without another automatic reopen. Eviction, authority,

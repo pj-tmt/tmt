@@ -116,9 +116,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await expect(panel.locator('.annotation-compose details')).toHaveCount(0);
     await expect(
-      first.locator(
-        '.page-conversation-window[data-panel=chat]:not([hidden]) .tmt-ui-drawer-caption',
-      ),
+      first.locator('.tmt-ui-drawer[data-panel=chat][open] .tmt-ui-drawer-caption'),
     ).toHaveText('○ Everyone with access');
     await expect(panel.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     expect(await first.locator('iframe').boundingBox()).toEqual(before);
@@ -227,10 +225,10 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect
       .poll(() =>
         first
-          .locator('.page-conversation-window[data-panel=chat]:not([hidden])')
+          .locator('.tmt-ui-drawer[data-panel=chat][open]')
           .evaluate((node) => node.matches(':modal')),
       )
-      .toBe(false);
+      .toBe(true);
     await expect(input).toBeFocused();
     expect(await input.evaluate((node, retained) => node === retained, retainedComposer)).toBe(
       true,

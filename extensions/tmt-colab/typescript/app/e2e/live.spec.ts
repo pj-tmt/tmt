@@ -1651,12 +1651,7 @@ for (const width of [1440, 390])
         const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
         await expect(heading).toBeVisible();
         async function openChat() {
-          if (
-            await page
-              .locator('.page-conversation-window[data-panel=chat]:not([hidden])')
-              .isVisible()
-          )
-            return;
+          if (await page.locator('.tmt-ui-drawer[data-panel=chat][open]').isVisible()) return;
           const toggle = await pageAction(page, 'Chat');
           await toggle.click();
         }
@@ -2092,9 +2087,7 @@ test('an upgraded server shows the update row in the shell bar without covering 
     expect(mainBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
     // Chat open: the composer's actions stay reachable, not under the row.
     const toggle = await pageAction(page, 'Chat');
-    if (
-      !(await page.locator('.page-conversation-window[data-panel=chat]:not([hidden])').isVisible())
-    ) {
+    if (!(await page.locator('.tmt-ui-drawer[data-panel=chat][open]').isVisible())) {
       await toggle.click();
     }
     const panel = page.getByTestId('chat-panel');

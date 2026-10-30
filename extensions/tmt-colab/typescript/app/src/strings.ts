@@ -443,13 +443,6 @@ export const text = {
   threadResolved: 'Resolved',
   threadDeleted: 'Deleted thread',
   threadResolve: 'Resolve',
-  threadResolveAll: (count: number) => `Resolve all open (${count})`,
-  threadResolveAllConfirm: (count: number) => `Resolve ${count} open comments?`,
-  threadResolveAllCommit: 'Resolve all',
-  threadResolveAllBody: 'Resolve these comments and notify each mentioned agent once.',
-  threadResolveAllResult: (count: number, failed: number) =>
-    `Resolved ${count} ${count === 1 ? 'comment' : 'comments'}.${failed > 0 ? ` ${failed} could not be resolved.` : ''}`,
-
   threadReopen: 'Reopen',
   threadResolving: 'Resolving…',
   threadReopening: 'Reopening…',
