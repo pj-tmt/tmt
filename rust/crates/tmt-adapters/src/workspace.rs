@@ -265,6 +265,55 @@ pub fn builtin_plan_input(
     Ok((identities, live))
 }
 
+/// One recorded member's current records and whether it runs now, for restore's turn on it.
+/// Only this member is read and observed, on whatever host it is bound to now, so a member
+/// resumed elsewhere in the meantime counts as running. An unobservable binding is not
+/// running; only an exhausted deadline is an error.
+pub fn builtin_member_check(
+    paths: &ConfigPaths,
+    identity: &str,
+    deadline: Instant,
+) -> io::Result<(
+    Vec<tmt_core::workspace::StoredIdentity>,
+    std::collections::HashSet<String>,
+)> {
+    if !paths.database.exists() {
+        return Ok(Default::default());
+    }
+    let records = Storage::workspace_plan_identities(&paths.database, &[identity])
+        .map_err(io::Error::other)?;
+    let mut live = std::collections::HashSet::new();
+    if let Some(binding) = records
+        .iter()
+        .find(|record| record.entry.identity.id == identity)
+        .and_then(|record| record.entry.binding.as_ref())
+        && let Ok(snapshot) = Host::for_server(&binding.server).observe_snapshot(OperationOptions {
+            deadline: Some(deadline),
+            pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
+        })
+        && snapshot.panes.iter().any(|pane| {
+            identity_for_pane(
+                &records,
+                &snapshot.server,
+                &pane.id,
+                pane.pane_pid,
+                pane.pane_incarnation.as_deref(),
+                pane.marker.as_ref(),
+            )
+            .is_some()
+        })
+    {
+        live.insert(identity.to_owned());
+    }
+    if Instant::now() >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Workspace budget exhausted.",
+        ));
+    }
+    Ok((records, live))
+}
+
 fn live_builtin_members(paths: &ConfigPaths, deadline: Instant) -> io::Result<Vec<BuiltinMember>> {
     let records = if paths.database.exists() {
         Storage::builtin_workspace_identities(&paths.database).map_err(io::Error::other)?

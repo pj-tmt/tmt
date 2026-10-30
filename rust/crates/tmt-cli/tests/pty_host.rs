@@ -1482,3 +1482,44 @@ fn outside_tmux_workspace_commands_select_the_built_in_store_and_point_at_tmux_s
     assert_eq!(restored["host"], "pty", "{restored:#}");
     assert_eq!(restored["members"][0]["status"], "skipped", "{restored:#}");
 }
+
+#[test]
+fn restore_checks_each_running_member_alone_and_skips_all_of_them() {
+    let mut world = World::new();
+    let names = ["alpha", "beta", "gamma", "delta"];
+    for name in names {
+        let started = world.run(&[
+            "run",
+            "--host",
+            "pty",
+            "--no-channel",
+            "--save",
+            name,
+            "/bin/sh",
+            "-c",
+            "printf 'ready\\n'; while IFS= read -r line; do :; done",
+        ]);
+        assert!(started.status.success(), "{name}: {started:?}");
+    }
+    let restored = world.json(&["workspace", "restore", "--host", "pty", "--json"]);
+    let mut members: Vec<_> = restored["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| {
+            (
+                member["name"].as_str().unwrap().to_owned(),
+                member["status"].as_str().unwrap().to_owned(),
+                member["reason"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    members.sort();
+    let mut expected: Vec<_> = names
+        .iter()
+        .map(|name| (name.to_string(), "skipped".to_owned(), "live".to_owned()))
+        .collect();
+    expected.sort();
+    assert_eq!(members, expected, "{restored:#}");
+    assert_eq!(restored["status"], "completed", "{restored:#}");
+}

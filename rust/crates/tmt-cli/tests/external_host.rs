@@ -49,6 +49,8 @@ mod support;
 mod unrecoverable_session;
 #[path = "external_host/uuid_selectors.rs"]
 mod uuid_selectors;
+#[path = "external_host/workspace_restore.rs"]
+mod workspace_restore;
 
 use serde_json::Value;
 use std::{
