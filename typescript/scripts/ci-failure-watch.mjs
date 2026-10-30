@@ -57,7 +57,6 @@ export function newWatchState(now) {
     notifications: [],
     coverage: {},
     delivery: null,
-    issueIntent: null,
   };
 }
 export function validateRouting(map, repo) {
@@ -517,38 +516,13 @@ export function deliverWatchAlerts(state, effects, now) {
     !state.delivery,
     'WATCH_DELIVERY_UNCERTAIN: inspect the recorded tmt request before clearing intent'
   );
-  let recoveredIssue;
-  if (state.issueIntent) {
-    const matches = effects.findIssues(state.issueIntent);
-    assert(
-      matches.length === 1 && state.alerts[state.issueIntent],
-      'WATCH_ISSUE_UNCERTAIN: resolve the recorded create before retry'
-    );
-    state.alerts[state.issueIntent].issueUrl = matches[0];
-    recoveredIssue = state.issueIntent;
-    state.issueIntent = null;
-    effects.save(state);
-  }
   for (const group of notificationGroups(state, now)) {
     for (const alert of group) {
-      if (alert.coverage || alert.signature === recoveredIssue) continue;
+      if (alert.coverage) continue;
       const matches = effects.findIssues(alert.signature);
       assert(matches.length <= 1, 'WATCH_ISSUE: duplicate signature issues');
-      if (matches.length) {
-        alert.issueUrl = matches[0];
-        effects.save(state);
-        continue;
-      }
-      assert(
-        !state.issueIntent,
-        'WATCH_ISSUE_UNCERTAIN: prior create not visible in search; inspect before retry'
-      );
-      delete alert.issueUrl;
-      effects.reserve?.(25_000);
-      state.issueIntent = alert.signature;
-      effects.save(state);
-      alert.issueUrl = effects.createIssue(alert);
-      state.issueIntent = null;
+      if (matches.length) alert.issueUrl = matches[0];
+      else delete alert.issueUrl;
       effects.save(state);
     }
     effects.reserve?.(15_000);
@@ -703,29 +677,6 @@ function liveEffects(root, repo, identity, api) {
       return result.items
         .filter((r) => r.state === 'open' && r.body?.includes(`ci-watch:${signature}`))
         .map((r) => issueUrl(r.html_url, repo));
-    },
-    createIssue(alert) {
-      const request = path.join(root, 'issue-request.json');
-      atomicJson(request, {
-        title: `ci: ${clean(alert.workflow, 60)} / ${clean(alert.job, 100)}`,
-        body: `Part of #4742. CI failure watcher (#4825).\n\nSuggested squad: ${alert.route.squad} (${alert.route.source}).\nWorkflow: ${clean(alert.workflow)}\nFailed jobs:\n${failedJobNames(
-          alert
-        )
-          .map((job) => `- ${clean(job, 1999)}`)
-          .join(
-            '\n'
-          )}\nRun: ${alert.runUrl} (attempt ${alert.attempt})\nNo logs read; cause and test name are unknown.\n\nci-watch:${alert.signature}\n`,
-      });
-      try {
-        return issueUrl(
-          JSON.parse(
-            command('gh', ['api', '--method', 'POST', `repos/${repo}/issues`, '--input', request])
-          ).html_url,
-          repo
-        );
-      } finally {
-        rmSync(request, { force: true });
-      }
     },
     talk(message) {
       const result = JSON.parse(

@@ -486,15 +486,16 @@ One alert per failed run/attempt lists every failed job. Its signature is the
 workflow plus sorted failed-job set; six-hour dedup re-arms after green on the
 same event. Routing uses the earliest-started failed job (API order breaks ties
 or missing times). Observed attempts are not replayed; version-1 history is kept.
-Each re-arm searches open signature issues again: reuse an open match, or create
-a fresh issue if the old one closed. At most six `tmt talk` submissions per rolling
-hour are permitted; bursts fold by suggested squad within a 24,000-byte notice
-bound, with excess alerts kept pending and no job names dropped. A private exclusive lock
-prevents competing watchers. Persisted issue/delivery intents stop uncertain
-side effects from being blindly repeated; inspect GitHub/TMT and the recorded
-intent before operator repair. A budget-deferred known-unsent alert retries next
-pass. `--dry-run` prints the last 24 h and proposed messages, makes GETs only,
-and never reads/writes live state, creates issues, sends messages or starts a loop.
+Each re-arm searches open signature issues again: a matching issue is linked in the
+notification; without a match, the notification carries the run URL only. The watcher
+never creates issues; the Infra lead files one manually on a second sighting. At most
+six `tmt talk` submissions per rolling hour are permitted; bursts fold by suggested
+squad within a 24,000-byte notice bound, with excess alerts kept pending and no job names
+dropped. A private exclusive lock prevents competing watchers. Persisted delivery intent
+stops an uncertain submission from being blindly repeated; inspect TMT and the recorded
+intent before operator repair. A budget-deferred known-unsent alert retries next pass.
+`--dry-run` prints the last 24 h and proposed messages, makes GETs only, and never
+reads/writes live state, sends messages or starts a loop.
 
 `heartbeat.json` reports time, status, cursor, read count and pending alerts; stale
 (over two hours), future, malformed or error status is unhealthy. The hourly-tick

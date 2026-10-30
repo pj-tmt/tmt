@@ -49,7 +49,6 @@ export interface WatchState {
   notifications: number[];
   coverage: Record<string, number>;
   delivery: { signatures: string[]; startedAt: number; message: string } | null;
-  issueIntent: string | null;
 }
 export const WATCH_LIMITS: Readonly<{
   intervalMs: number;
@@ -112,7 +111,6 @@ export function deliverWatchAlerts(
   state: WatchState,
   effects: {
     findIssues(signature: string): string[];
-    createIssue(alert: WatchAlert): string;
     talk(message: string): string;
     save(state: WatchState): void;
     reserve?(milliseconds: number): void;
