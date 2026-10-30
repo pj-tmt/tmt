@@ -4,17 +4,19 @@ import { BrowserListTable, BrowserPageSubheader } from '../src/list-table.js';
 
 it('uses one shared grid for headers and cells and names columns semantically', () => {
   const columns = [
-    { id: 'name', label: 'Name', track: '2fr' },
-    { id: 'role', label: 'Role', track: '1fr', hideBelow: 'phone' as const },
+    { id: 'name', label: 'Name' },
+    { id: 'role', label: 'Role', hideBelow: 'phone' as const },
   ];
   const html = renderToStaticMarkup(
     <BrowserListTable
       label="People"
+      className="people-table"
       columns={columns}
       rows={[{ id: 'one', cells: ['Ben', 'Owner'] }]}
     />,
   );
-  expect(html).toContain('--tmt-ui-list-tracks:2fr 1fr');
+  expect(html).toContain('class="tmt-ui-list-table people-table"');
+  expect(html).not.toContain(' style=');
   expect(html).toContain('role="columnheader"');
   expect(html).toContain('data-hide-below="phone"');
   expect(html).toContain('Ben');

@@ -154,7 +154,7 @@
 .tmt-ui-list-columns,
 .tmt-ui-list-table-row {
   display: grid;
-  grid-template-columns: var(--tmt-ui-list-tracks);
+  grid-template-columns: var(--tmt-ui-list-tracks, minmax(0, 1fr));
   align-items: center;
 }
 .tmt-ui-list-columns {
@@ -203,8 +203,6 @@
     display: none;
   }
   .tmt-ui-list-table-row {
-    display: flex;
-    flex-wrap: wrap;
     gap: 8px;
   }
   .tmt-ui-list-table-row > [data-hide-below='phone'] {

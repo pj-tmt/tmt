@@ -709,9 +709,10 @@ export function ListSection() {
             />
             <BrowserListTable
               label="People"
+              className="gallery-people-table"
               columns={[
-                { id: 'name', label: 'Name', track: '2fr' },
-                { id: 'role', label: 'Role', track: '1fr', hideBelow: 'phone' },
+                { id: 'name', label: 'Name' },
+                { id: 'role', label: 'Role', hideBelow: 'phone' },
               ]}
               rows={[
                 {
